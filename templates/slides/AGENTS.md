@@ -12,8 +12,8 @@ Read the relevant skill before deeper work:
 - `deck-management` for organization, sharing, import/export, and metadata.
 - `slide-images` and `image-generation-via-a2a` for image work.
 - `design-systems` for per-source design-system actions.
-- `creative-context` for cross-app source reuse, pinned packs, provenance, and
-  context opt-out.
+- `slide-design` for visual craft and "make it beautiful" requests.
+- `creative-context` for cross-app source reuse, packs, provenance, opt-out.
 - `analytics-data-for-decks` for delegated data requests.
 
 ## Actions
@@ -54,8 +54,7 @@ Read the relevant skill before deeper work:
   Import control. `sourceImport` preserves provenance; structural edits clear it
   so subsequent exports use the edited deck.
 - A source import with `fidelity: partial` or `imagesSkipped` is not safe to
-  restyle automatically; report the exact warning instead of silently
-  replacing content.
+  restyle automatically; report the exact warning.
 - Preserve freeform objects and their `data-slide-object-id` values; keep
   generated flex/grid in normal flow and use styled HTML, not inline SVG (see
   `slide-editing`).
@@ -73,8 +72,8 @@ Read the relevant skill before deeper work:
   `slide-editing` and `mcp.instructions`).
 - For data requests, follow `analytics-data-for-decks`; delegate via Analytics
   over A2A, never write SQL or call providers directly.
-- For generation without a reference deck or design system, call `get-workspace-defaults`
-  first (see `create-deck`).
+- Without a reference deck or design system, call `get-workspace-defaults`
+  before generating (see `create-deck`).
 - Before generation, follow `creative-context` for source order, `contextMode`,
   and governed-context submission via `manage-context-membership`.
 ## Persistence Model

@@ -1,5 +1,6 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { getUserProfile } from "@agent-native/core/user-profile/server";
 import { z } from "zod";
 
@@ -67,7 +68,7 @@ function findArrayEnd(text: string, start: number): number | undefined {
   }
 }
 
-function parseSuggestions(text: string) {
+function parseSuggestions(text: string, truncated: boolean) {
   const unwrapped = text
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
@@ -83,7 +84,10 @@ function parseSuggestions(text: string) {
   if (hasTopLevelJson) {
     const result = suggestionsSchema.safeParse(parsedJson);
     if (!result.success) {
-      throw new Error("Home suggestions returned an invalid shape.");
+      fail("Home suggestions returned an invalid shape.", {
+        statusCode: 502,
+        errorCode: "invalid_model_response",
+      });
     }
     return result.data;
   }
@@ -109,9 +113,21 @@ function parseSuggestions(text: string) {
     if (result.success) return result.data;
   }
   if (parsedCandidateJson) {
-    throw new Error("Home suggestions returned an invalid shape.");
+    fail("Home suggestions returned an invalid shape.", {
+      statusCode: 502,
+      errorCode: "invalid_model_response",
+    });
   }
-  throw new Error("Home suggestions returned invalid JSON.");
+  if (truncated) {
+    fail("Home suggestions were truncated before completion.", {
+      statusCode: 502,
+      errorCode: "model_output_truncated",
+    });
+  }
+  fail("Home suggestions returned invalid JSON.", {
+    statusCode: 502,
+    errorCode: "invalid_model_response",
+  });
 }
 
 export default defineAction({
@@ -128,10 +144,41 @@ export default defineAction({
       appId: "design",
       systemPrompt: SYSTEM_PROMPT,
       input: roleContext(profile.onboardingRole),
-      maxOutputTokens: 240,
+      maxOutputTokens: 800,
       temperature: 0.7,
       timeoutMs: 10_000,
+    }).catch((error: unknown) => {
+      if (
+        error instanceof Error &&
+        "errorCode" in error &&
+        error.errorCode === "missing_credentials"
+      ) {
+        track(
+          "home_suggestions_unavailable",
+          {
+            app_name: "design",
+            template_name: "design",
+            failure_code: "missing_credentials",
+          },
+          ctx,
+        );
+        return null;
+      }
+      throw error;
     });
-    return { suggestions: parseSuggestions(result.text) };
+    if (!result) {
+      return {
+        status: "unavailable" as const,
+        reason: "missing_credentials" as const,
+        suggestions: [],
+      };
+    }
+    return {
+      status: "ready" as const,
+      suggestions: parseSuggestions(
+        result.text,
+        result.stopReason === "max_tokens",
+      ),
+    };
   },
 });

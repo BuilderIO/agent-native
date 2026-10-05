@@ -18,6 +18,13 @@ export interface PageDraftJournalSnapshot {
   editGeneration: number;
   saveAttemptId?: string;
   priorSaveAttemptIds?: string[];
+  /**
+   * Other attempts that sent every change in this snapshot, such as a hidden
+   * tab's keepalive copy sent before the flush moved onto a newer base. A
+   * receipt for any of them confirms this snapshot; prior attempt IDs belong
+   * to older snapshots and do not.
+   */
+  equivalentSaveAttemptIds?: string[];
 }
 
 export interface PageDraftJournalEntry {
@@ -117,6 +124,11 @@ function validEntry(value: unknown): value is PageDraftJournalEntry {
     (snapshot.priorSaveAttemptIds === undefined ||
       (Array.isArray(snapshot.priorSaveAttemptIds) &&
         snapshot.priorSaveAttemptIds.every(
+          (value) => typeof value === "string" && value.length > 0,
+        ))) &&
+    (snapshot.equivalentSaveAttemptIds === undefined ||
+      (Array.isArray(snapshot.equivalentSaveAttemptIds) &&
+        snapshot.equivalentSaveAttemptIds.every(
           (value) => typeof value === "string" && value.length > 0,
         ))) &&
     (entry.recoveryStatus === undefined ||

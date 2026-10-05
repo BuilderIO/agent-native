@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.198.8",
+  "version": "0.200.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -113,6 +113,7 @@
     "./browser-context": "./dist/browser-context/index.js",
     "./search-utils": "./dist/search-utils/index.js",
     "./search": "./dist/search/index.js",
+    "./search-query": "./dist/search/query-parser.js",
     "./embeddings": "./dist/embeddings/index.js",
     "./automation": "./dist/automation/index.js",
     "./brand-kit": "./dist/brand-kit/index.js",
@@ -287,6 +288,8 @@
     "./agent/actions/set-tool-approval-policy": "./dist/agent/actions/set-tool-approval-policy.js",
     "./agent/actions/get-chatgpt-subscription-status": "./dist/agent/actions/get-chatgpt-subscription-status.js",
     "./agent/actions/disconnect-chatgpt-subscription": "./dist/agent/actions/disconnect-chatgpt-subscription.js",
+    "./agent/actions/list-chatgpt-subscription-accounts": "./dist/agent/actions/list-chatgpt-subscription-accounts.js",
+    "./agent/actions/select-chatgpt-subscription-account": "./dist/agent/actions/select-chatgpt-subscription-account.js",
     "./agent/actions/check-provider-key": "./dist/agent/actions/check-provider-key.js",
     "./agent/actions/manage-provider-key-policy": "./dist/agent/actions/manage-provider-key-policy.js",
     "./agent/actions/manage-builder-connection": "./dist/agent/actions/manage-builder-connection.js",
@@ -493,6 +496,7 @@
     "./client/feature-flags/helpers": "./dist/client/feature-flags/helpers.js",
     "./client/feature-flags/types": "./dist/client/feature-flags/types.js",
     "./client/feature-flags/use-feature-flag": "./dist/client/feature-flags/use-feature-flag.js",
+    "./client/failure-report": "./dist/client/failure-report.js",
     "./client/feedback-context": "./dist/client/feedback-context.js",
     "./client/frame": "./dist/client/frame.js",
     "./client/host-bridge": "./dist/client/host-bridge.js",
@@ -578,6 +582,7 @@
     "./shared/docs-url": "./dist/shared/docs-url.js",
     "./shared/document-title": "./dist/shared/document-title.js",
     "./shared/environment-lanes": "./dist/shared/environment-lanes.js",
+    "./shared/error-noise": "./dist/shared/error-noise.js",
     "./shared/first-party-agents": "./dist/shared/first-party-agents.js",
     "./shared/first-run-onboarding": "./dist/shared/first-run-onboarding.js",
     "./shared/framework-route-prefix": "./dist/shared/framework-route-prefix.js",
@@ -670,6 +675,7 @@
     "safe-regex2": "5.1.1",
     "turndown": "^7.2.4",
     "undici": "^7.28.0",
+    "ws": "^8.22.0",
     "y-protocols": "catalog:",
     "yaml": "^2.9.0",
     "yjs": "catalog:",
@@ -740,7 +746,6 @@
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.5",
-    "ws": "^8.18.0",
     "xlsx": "^0.18.5"
   },
   "peerDependencies": {
@@ -786,7 +791,6 @@
     "tailwindcss": ">=4",
     "ts-morph": "^28.0.0",
     "vite": ">=7",
-    "ws": ">=8",
     "xlsx": "^0.18.5"
   },
   "peerDependenciesMeta": {
@@ -917,9 +921,6 @@
       "optional": true
     },
     "vite": {
-      "optional": true
-    },
-    "ws": {
       "optional": true
     },
     "xlsx": {

@@ -41,6 +41,7 @@ claude · codex
 Claude Code
 Claude Code · Codex · Pi — own tools, sandbox, compaction
 Claude Code / Codex
+Claude Sonnet
 Claude web
 CLI
 Cloud SQL for PostgreSQL

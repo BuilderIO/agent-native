@@ -46,6 +46,7 @@ import {
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
 import { isDefaultTitle } from "@shared/title-source";
+import { WAITING_STORAGE_EXPIRED_REASON } from "@shared/upload-interruption";
 import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
@@ -1246,11 +1247,13 @@ export default function RecordingPage() {
   // a folder keeps that real home instead.
   const screenshotIsUnfiled = isImage && !recordingSpace && !recordingFolder;
   // The sidebar highlights the same section the breadcrumb starts with.
-  const recordingSection: RecordingSection = recordingSpace
-    ? "spaces"
-    : screenshotIsUnfiled
-      ? "screenshots"
-      : "library";
+  const recordingSection: RecordingSection = recording?.trashedAt
+    ? "trash"
+    : recordingSpace
+      ? "spaces"
+      : screenshotIsUnfiled
+        ? "screenshots"
+        : "library";
   useEffect(() => {
     setRecordingSection(recordingSection);
     return () => setRecordingSection(null);
@@ -1999,7 +2002,7 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (playerDataQ.isLoading || playerDataForbidden) {
+  if (playerDataQ.isPending || playerDataForbidden) {
     return <RecordingWorkspaceSkeleton />;
   }
 
@@ -2061,7 +2064,13 @@ export default function RecordingPage() {
     const explicitFailure = recording.status === "failed";
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
-    const waitingForStorage = isStorageSetupFailureReason(rawFailureReason);
+    // An import that expired waiting for storage keeps its source URL, so it
+    // can still be retried once storage connects.
+    const waitingForStorage =
+      isStorageSetupFailureReason(rawFailureReason) ||
+      ((isLoomRecording ||
+        recording.sourceAppName?.trim().toLowerCase() === "video link") &&
+        rawFailureReason === WAITING_STORAGE_EXPIRED_REASON);
     const storedButUnservableFailure =
       isStoredButUnservableFinalizeError(rawFailureReason);
     const loomStorageSetupFailure = waitingForStorage && isLoomRecording;

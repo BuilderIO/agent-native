@@ -1,5 +1,5 @@
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSPoint, NSProcessInfo, NSRect, NSSize};
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use std::io::Write;
@@ -41,6 +41,7 @@ const BUBBLE_DESTROYED_EVENT: &str = "clips:bubble-destroyed";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
+static VOICE_FLOW_IDLE: AtomicBool = AtomicBool::new(true);
 const REGION_GUIDES_LABEL: &str = "region-guides";
 const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
 const REGION_RECORD_BORDER_LABEL: &str = "region-record-border";
@@ -298,7 +299,6 @@ fn load_bubble_position(app: &AppHandle) -> Option<(i32, i32)> {
     let y = value.get("y")?.as_i64()? as i32;
     Some((x, y))
 }
-
 
 #[tauri::command]
 pub async fn show_countdown(app: AppHandle) -> Result<u64, String> {
@@ -1843,11 +1843,13 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     let app_for_timeout = app.clone();
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(15));
-        let dictating = app_for_timeout
+        let key_held = app_for_timeout
             .try_state::<DictationActive>()
             .and_then(|state| state.0.lock().ok().map(|g| *g))
             .unwrap_or(false);
-        if !dictating {
+        // Toggle-mode dictation runs with the key released, so key state alone
+        // can't tell a live session from a stale overlay.
+        if !key_held && VOICE_FLOW_IDLE.load(Ordering::SeqCst) {
             if let Some(w) = app_for_timeout.get_webview_window(FLOW_BAR_LABEL) {
                 eprintln!("[clips-tray] hiding stale voice overlay after timeout");
                 let _ = w.hide();
@@ -1855,6 +1857,21 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
         }
     });
     Ok(())
+}
+
+pub fn install_voice_flow_state_listener(app: &tauri::App) {
+    app.listen("voice:state-change", |event| {
+        let idle = serde_json::from_str::<serde_json::Value>(event.payload())
+            .ok()
+            .and_then(|payload| {
+                payload
+                    .get("state")
+                    .and_then(|state| state.as_str())
+                    .map(|state| state == "idle")
+            })
+            .unwrap_or(true);
+        VOICE_FLOW_IDLE.store(idle, Ordering::SeqCst);
+    });
 }
 
 #[tauri::command]
@@ -2044,6 +2061,12 @@ mod tests {
         text_insertion_strategy, TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
+
+    #[test]
+    fn offscreen_popover_requires_supported_background_throttling() {
+        assert!(!crate::util::supports_disabled_background_throttling(13));
+        assert!(crate::util::supports_disabled_background_throttling(14));
+    }
 
     #[test]
     fn popover_size_uses_work_area_and_preserves_recorder_controls() {
@@ -2652,7 +2675,8 @@ pub async fn bubble_drag_end(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
         clamp_existing_bubble_window(&app, &window);
     }
-    crate::schedule_popover_dismissal(&app);
+    // Repositioning is still user activity; replaying its blur at release
+    // hides the camera before the user can start recording.
     Ok(())
 }
 
@@ -2679,12 +2703,29 @@ pub async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
         set_popover_parked(&app, true);
         set_capture_excluded(&window);
         let _ = window.set_ignore_cursor_events(true);
-        let _ = window.set_position(PhysicalPosition::new(-10_000_i32, -10_000_i32));
-        set_window_opacity(&window, 0.0);
+        #[cfg(target_os = "macos")]
+        let can_park_offscreen = {
+            let major_version = NSProcessInfo::processInfo()
+                .operatingSystemVersion()
+                .majorVersion;
+            crate::util::supports_disabled_background_throttling(major_version)
+        };
+        #[cfg(not(target_os = "macos"))]
+        let can_park_offscreen = true;
+
+        if can_park_offscreen {
+            let _ = window.set_position(PhysicalPosition::new(-10_000_i32, -10_000_i32));
+            set_window_opacity(&window, 0.0);
+        } else {
+            // Keep a visible pixel on older macOS versions so WKWebView timers keep
+            // running.
+            let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
+            let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2, 2)));
+            set_window_opacity(&window, 1.0);
+        }
     }
     Ok(())
 }
-
 
 fn clear_voice_wake_state(app: &AppHandle) {
     if let Some(state) = app.try_state::<VoiceWakePopover>() {

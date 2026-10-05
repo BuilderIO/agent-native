@@ -548,6 +548,9 @@ export function parseAgentQueuedMessage(
     );
   }
   optionalMetadata(message.metadata, `${path}.metadata`);
+  if (message.options !== undefined) {
+    parseAgentRunOptions(message.options, `${path}.options`);
+  }
   return value as AgentQueuedMessage;
 }
 
@@ -1605,7 +1608,31 @@ export function parseSteerQueuedMessageResult(
   path = "steerQueuedMessageResult",
 ): SteerQueuedMessageResult {
   if (value === null || value === undefined) return undefined;
-  return parseStartRunResult(value, path);
+  const result = record(value, path);
+  if (result.alreadyRemoved !== undefined) {
+    if (
+      result.alreadyRemoved !== true ||
+      result.runId !== undefined ||
+      result.alreadySubmitted !== undefined
+    ) {
+      throw new AgentProtocolValidationError(
+        `${path}.alreadyRemoved`,
+        "must be true without a run result",
+      );
+    }
+    return value as SteerQueuedMessageResult;
+  }
+  parseStartRunResult(result, path);
+  if (
+    result.alreadySubmitted !== undefined &&
+    result.alreadySubmitted !== true
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.alreadySubmitted`,
+      "must be true when provided",
+    );
+  }
+  return value as SteerQueuedMessageResult;
 }
 
 export function parseAgentRunSnapshot(
@@ -2681,6 +2708,9 @@ export function parseQueueMessageInput(
     );
   }
   optionalMetadata(input.metadata, `${path}.metadata`);
+  if (input.options !== undefined) {
+    parseAgentRunOptions(input.options, `${path}.options`);
+  }
   return value as QueueMessageInput;
 }
 

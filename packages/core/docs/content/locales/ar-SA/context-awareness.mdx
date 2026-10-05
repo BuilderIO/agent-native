@@ -410,6 +410,11 @@ export function useNavigationState() {
 | `getNavigationState` — قم بتعيين URL إلى الحالة الدلالية | يكتب `navigation` على نطاق علامة التبويب بالإضافة إلى مفتاح احتياطي عام                 |
 | `getCommandPath` — قم بتعيين أمر `navigate` إلى المسار   | استقصاء الأوامر، والحذف بعد القراءة، وحماية الأوامر المكررة، ووضع علامات على مصدر الطلب |
 
+المسارات التي يعيدها `getCommandPath` كسلاسل نصية تكون دائمًا محلية لهذا
+التطبيق، حتى إذا بدأت بمسار تثبيت تطبيق آخر في مساحة العمل. للتنقل إلى تطبيق
+شقيق عمدًا، أعد `{ type: "workspace-app", path: "/seo-application/settings" }`
+مع المسار الكامل المثبّت.
+
 يفترض `useAgentRouteState` جهاز التوجيه React. عندما لا يكون التنقل موجودًا في URL - خطوة معالج، تحديد قماش، غلاف غير موجه - انزل إلى المستوى الأدنى `useSemanticNavigationState` بدلاً من ذلك: يمكنك تسليمه قيمة `state` جاهزة بالإضافة إلى `navigationKeys`/`commandKeys` ورد اتصال `onCommand`، ويظل غير متأكد تمامًا بشأن React جهاز التوجيه.
 
 ## منع الارتعاش {#jitter-prevention}

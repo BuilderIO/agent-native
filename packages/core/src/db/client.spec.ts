@@ -293,6 +293,18 @@ describe("db/client Postgres URL handling", () => {
     );
   });
 
+  it("treats Cloudflare Pages as a serverless runtime", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "1");
+    const { isServerlessRuntime } = await import("./client.js");
+
+    expect(isServerlessRuntime()).toBe(true);
+  });
+
   it("keeps the pool bounded when Netlify exposes only the function marker", async () => {
     vi.stubEnv("NETLIFY", "");
     vi.stubEnv("NETLIFY_FUNCTION_NAME", "slides");
@@ -324,6 +336,9 @@ describe("db/client Postgres URL handling", () => {
     expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
     vi.stubEnv("NODE_ENV", "development");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    vi.stubEnv("NODE_ENV", "test");
     expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
     vi.stubEnv("NETLIFY_LOCAL", "true");
@@ -379,6 +394,10 @@ describe("db/client Postgres URL handling", () => {
     expect(isHostedFunctionInvocationRuntime()).toBe(true);
     expect(isProductionServerlessFunctionRuntime()).toBe(true);
 
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+
     vi.stubEnv("NODE_ENV", "development");
     expect(isHostedFunctionInvocationRuntime()).toBe(false);
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
@@ -401,6 +420,17 @@ describe("db/client Postgres URL handling", () => {
     ).toThrow(/release job/);
 
     vi.stubGlobal("__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__", false);
+    expect(isHostedFunctionInvocationRuntime()).toBe(false);
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+
+    vi.stubEnv("NODE_ENV", "test");
+    expect(isHostedFunctionInvocationRuntime()).toBe(true);
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE worker_guard_test (id TEXT)"),
+    ).toThrow(/release job/);
+
+    vi.stubEnv("NODE_ENV", "development");
     expect(isHostedFunctionInvocationRuntime()).toBe(false);
     expect(isProductionServerlessFunctionRuntime()).toBe(false);
   });
@@ -454,6 +484,16 @@ describe("db/client Postgres URL handling", () => {
         ).not.toThrow();
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("rejects request-time schema mutations when NODE_ENV=test has a hosted marker", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "analytics");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE runtime_guard (id TEXT)"),
+    ).toThrow(/release job/);
   });
 
   it("allows DDL only while a hosted runtime migration is executing", async () => {
@@ -2173,5 +2213,122 @@ describe("db/client shared connection pools", () => {
       end: async () => {},
     });
     expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
+  });
+});
+
+describe("retryOnConnectionError budget", () => {
+  const connectTimeout = () =>
+    Object.assign(new Error("DB connect timed out"), {
+      code: "CONNECT_TIMEOUT",
+    });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function runUntilSettled<T>(run: () => Promise<T>) {
+    const startedAt = Date.now();
+    let elapsedMs = -1;
+    const settled = run().then(
+      (value) => {
+        elapsedMs = Date.now() - startedAt;
+        return { value, error: undefined as unknown };
+      },
+      (error: unknown) => {
+        elapsedMs = Date.now() - startedAt;
+        return { value: undefined, error };
+      },
+    );
+    await vi.advanceTimersByTimeAsync(120_000);
+    return { ...(await settled), elapsedMs };
+  }
+
+  it("does not start a second attempt that could outlast the gateway", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "retry-budget-test");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      throw connectTimeout();
+    });
+
+    const { error, elapsedMs } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(elapsedMs).toBeLessThan(20_000);
+  });
+
+  it("stays under 20s with the serverless default timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "retry-budget-test");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 8_000));
+      throw connectTimeout();
+    });
+
+    const { error, elapsedMs } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
+    expect(attempt).toHaveBeenCalledTimes(2);
+    expect(elapsedMs).toBeLessThan(20_000);
+  });
+
+  it("keeps the full retry count outside serverless runtimes", async () => {
+    vi.useFakeTimers();
+    for (const marker of [
+      "NETLIFY",
+      "NETLIFY_FUNCTION_NAME",
+      "VERCEL",
+      "AWS_LAMBDA_FUNCTION_NAME",
+      "LAMBDA_TASK_ROOT",
+      "CF_PAGES",
+    ]) {
+      vi.stubEnv(marker, "");
+    }
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      throw connectTimeout();
+    });
+
+    const { error } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
+    expect(attempt).toHaveBeenCalledTimes(3);
+  });
+
+  it("still retries quick connection errors", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+      )
+      .mockResolvedValue("ok");
+
+    const { value } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(value).toBe("ok");
+    expect(attempt).toHaveBeenCalledTimes(3);
   });
 });

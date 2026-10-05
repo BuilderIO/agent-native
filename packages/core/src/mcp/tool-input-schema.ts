@@ -44,5 +44,25 @@ export function mcpToolInputSchema(
       `MCP tool "${name}" must declare an object-only input schema; use an object schema or object-only composition.`,
     );
   }
-  return { ...(schema as Record<string, unknown>), type: "object" };
+  const input = schema as Record<string, unknown>;
+  const sourceProperties = input.properties;
+  const properties =
+    sourceProperties &&
+    typeof sourceProperties === "object" &&
+    !Array.isArray(sourceProperties)
+      ? Object.fromEntries(
+          Object.entries(sourceProperties).map(([parameter, property]) => [
+            parameter,
+            property && typeof property === "object" && !Array.isArray(property)
+              ? { ...property }
+              : property,
+          ]),
+        )
+      : undefined;
+  return {
+    ...input,
+    ...(properties ? { properties } : {}),
+    ...(Array.isArray(input.required) ? { required: [...input.required] } : {}),
+    type: "object",
+  };
 }

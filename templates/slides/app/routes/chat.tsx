@@ -101,6 +101,7 @@ export default function ChatRoute() {
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
+        showPageHeaderWhenEmpty
         dynamicSuggestions={false}
         suggestions={[
           t("agent.suggestionPitch"),

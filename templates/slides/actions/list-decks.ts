@@ -139,9 +139,11 @@ export default defineAction({
           "Use includePreview for the first slide only.",
       ),
     createdBy: z
-      .enum(["all", "me"])
+      .enum(["all", "me", "not-me"])
       .optional()
-      .describe("Set to 'me' to list only decks created by the current user"),
+      .describe(
+        "Set to 'me' to list decks owned by the current user or 'not-me' to list accessible decks owned by someone else",
+      ),
     search: z
       .string()
       .trim()
@@ -170,12 +172,18 @@ export default defineAction({
       .optional()
       .describe("Opaque cursor returned by the previous page"),
   }),
+  readOnly: true,
   http: { method: "GET" },
   link: () => ({
     url: slidesDeepLink(),
     label: "Open decks in Slides",
     view: "list",
   }),
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const db = getDb();
     const ownerEmail = getRequestUserEmail();
@@ -190,7 +198,10 @@ export default defineAction({
       throw err;
     }
 
-    if (args.createdBy === "me" && normalizedOwnerEmail === null) {
+    if (
+      (args.createdBy === "me" || args.createdBy === "not-me") &&
+      normalizedOwnerEmail === null
+    ) {
       return { count: 0, decks: [] };
     }
 
@@ -199,7 +210,9 @@ export default defineAction({
       visibleDecks,
       args.createdBy === "me" && normalizedOwnerEmail !== null
         ? sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`
-        : undefined,
+        : args.createdBy === "not-me" && normalizedOwnerEmail !== null
+          ? sql`lower(trim(${schema.decks.ownerEmail})) <> ${normalizedOwnerEmail}`
+          : undefined,
       args.search
         ? sql`strpos(lower(${schema.decks.title}), ${args.search.toLowerCase()}) > 0`
         : undefined,

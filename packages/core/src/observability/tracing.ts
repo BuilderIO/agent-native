@@ -1,4 +1,8 @@
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import {
+  getRegisteredObservabilityProvider,
+  type ObservabilityTracerProvider,
+} from "./otel-provider.js";
 
 const TRACER_NAME = "@agent-native/core/agent-loop";
 
@@ -36,16 +40,23 @@ interface AgentTraceRuntime {
 }
 
 let cachedRuntime: AgentTraceRuntime | null | undefined;
+let cachedTracerProvider: ObservabilityTracerProvider | undefined;
 let runtimeLoadWarningLogged = false;
 
 async function resolveRuntime(): Promise<AgentTraceRuntime | null> {
-  if (cachedRuntime !== undefined) return cachedRuntime;
+  const tracerProvider = getRegisteredObservabilityProvider()?.tracerProvider;
+  if (cachedRuntime !== undefined && cachedTracerProvider === tracerProvider) {
+    return cachedRuntime;
+  }
+  cachedTracerProvider = tracerProvider;
   try {
     const otel: any = await loadOptionalPeer(
       "@opentelemetry/api",
       () => import("@opentelemetry/api"),
     );
-    const tracer = otel?.trace?.getTracer?.(TRACER_NAME);
+    const tracer = tracerProvider
+      ? tracerProvider.getTracer(TRACER_NAME)
+      : otel?.trace?.getTracer?.(TRACER_NAME);
     cachedRuntime = tracer
       ? {
           tracer: tracer as AgentTracer,

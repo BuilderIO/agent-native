@@ -375,7 +375,15 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
   it("DEFERS (never errors) the pre-inserted successor when every attempt dies — the unclaimed-run sweep gets a chance to recover it", async () => {
     const dispatchMock = vi.fn().mockRejectedValue(new Error("dispatch down"));
     const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
-    await runChain(h);
+    const run = timeoutBoundaryRun();
+    await runChain(h, { run });
+
+    // The turn continues in the successor: the chunk ends with the same
+    // continuation signal as a dispatched handoff, never a `done`.
+    expect(run.continuationTerminalEvent).toEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
 
     expect(dispatchMock).toHaveBeenCalledTimes(2);
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
@@ -393,7 +401,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     );
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -614,7 +622,7 @@ describe("chainServerDrivenContinuation — worker proven in background function
     );
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -644,7 +652,7 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
     expect(readClaim).toHaveBeenCalledWith("run-next");
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -722,7 +730,7 @@ describe("chainServerDrivenContinuation — Netlify loop-protection 508 is class
 
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -773,7 +781,7 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
     expect(h.deps.insertRun).toHaveBeenCalled();
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",

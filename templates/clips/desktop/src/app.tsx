@@ -111,6 +111,7 @@ import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
+import { connectBuilderForVoiceCleanup } from "./lib/builder-connection";
 import {
   captureSetupForCamera,
   captureSetupForMode,
@@ -133,10 +134,24 @@ import {
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
+  changeRecordFirstFiles,
+  effectiveLocalRecordingMode,
+  loadRecordFirstFiles,
+  RecordFirstFileMissingError,
+  recordFirstFilesKey,
+  recordFirstFilesToQueue,
+  recordFirstMediaFlags,
+  stagedIdAfterFailure,
+  transferRecordFirstFiles,
+  type RecordFirstFile,
+  type VideoStorageStatus,
+} from "./lib/record-first";
+import {
   createPrivateAgentRewindRecording,
   exportBrowserRecordingBackup,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
+  queueRecordFirstUpload,
   retryBrowserRecordingBackup,
   scheduleNativeBackupCleanupAfterProcessing,
   shouldUseNativeFullscreenRecording,
@@ -148,6 +163,7 @@ import {
   type RecorderStopResult,
   type RestartHandoff,
 } from "./lib/recorder";
+import { RECORDER_DISCARD_EVENT } from "./lib/recorder-events";
 import { notifyRecordingFailure } from "./lib/recording-failure-notifications";
 import { clearResolvedFinalizationError } from "./lib/recording-finalization-state";
 import {
@@ -394,8 +410,6 @@ interface RewindAgentConnectionStatus {
 }
 
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
-
-type VideoStorageStatus = "checking" | "configured" | "missing";
 
 const STORAGE_SETUP_HELP_TEXT =
   "Clips is 100% free and open source, so you need to hook up a way to store your clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.";
@@ -1180,6 +1194,7 @@ export function App({
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const recordingStartAttemptRef = useRef<RecordingStartAttempt | null>(null);
+  const captureStartedDuringStartRef = useRef(false);
   const [recordingStartPending, setRecordingStartPending] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -1192,7 +1207,7 @@ export function App({
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
-  const [labValues, setLabValues] = useState<Record<string, boolean>>({});
+  const [labValues, setLabValues] = useState<Record<string, unknown>>({});
   const [serverReachable, setServerReachable] = useState(true);
   const serverHostForSignIn = serverUrl
     .replace(/^https?:\/\//, "")
@@ -1652,8 +1667,8 @@ export function App({
       }
 
       try {
-        const values = await callClipsAction<Record<string, boolean>>(
-          "get-labs",
+        const values = await callClipsAction<Record<string, unknown>>(
+          "get-lab-states",
           {},
           { method: "GET" },
         );
@@ -2674,6 +2689,9 @@ export function App({
   const restartCancelledRef = useRef(false);
   const recordingCancelInFlightRef = useRef(false);
   const sessionRecordingIdRef = useRef<string | null>(null);
+  const recordedWithoutStorageRef = useRef(false);
+  // The record-first list a capture belongs to, fixed when capture starts.
+  const recordFirstKeyAtStartRef = useRef<string | null>(null);
   const finishRecordingStopRef = useRef<
     (handle: RecorderHandle, recordingId?: string | null) => Promise<void>
   >(async () => {});
@@ -2991,6 +3009,91 @@ export function App({
     [],
   );
 
+  // Recordings saved to Movies/Clips because storage was not connected. They
+  // are kept per server and account, so a file only uploads to the account
+  // that recorded it, and leave this list only once queued for upload.
+  const recordFirstKey = signedInAs
+    ? recordFirstFilesKey(originForServer(serverUrl), signedInAs)
+    : null;
+  const unclaimedRecordFirstKey = recordFirstFilesKey(
+    originForServer(serverUrl),
+    null,
+  );
+  const [recordFirstFiles, setRecordFirstFiles] = useState<RecordFirstFile[]>(
+    [],
+  );
+  const [unclaimedRecordFirstFiles, setUnclaimedRecordFirstFiles] = useState<
+    RecordFirstFile[]
+  >([]);
+  const [recordFirstError, setRecordFirstError] = useState<string | null>(null);
+  const [recordFirstFileErrors, setRecordFirstFileErrors] = useState<
+    Record<string, { message: string; missing: boolean }>
+  >({});
+  const [recordFirstUploading, setRecordFirstUploading] = useState(false);
+  useEffect(() => {
+    // Never keep another account's list in state: an unreadable list shows
+    // an error and an empty queue, so "Upload now" cannot send A's files
+    // with B's token.
+    setRecordFirstFileErrors({});
+    try {
+      setUnclaimedRecordFirstFiles(
+        loadRecordFirstFiles(localStorage, unclaimedRecordFirstKey),
+      );
+      setRecordFirstFiles(
+        recordFirstKey
+          ? loadRecordFirstFiles(localStorage, recordFirstKey)
+          : [],
+      );
+      setRecordFirstError(null);
+    } catch (err) {
+      setRecordFirstFiles([]);
+      setUnclaimedRecordFirstFiles([]);
+      setRecordFirstError(
+        `${RECORD_FIRST_LIST_UNREADABLE} ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }, [recordFirstKey, unclaimedRecordFirstKey]);
+  // Every change is written to storage first; state only mirrors it, so a
+  // crash or quit right after a change neither loses nor repeats an entry.
+  const changeQueuedFiles = useCallback(
+    (key: string, change: (files: RecordFirstFile[]) => RecordFirstFile[]) => {
+      const next = changeRecordFirstFiles(localStorage, key, change);
+      if (key === recordFirstKey) setRecordFirstFiles(next);
+      else if (key === unclaimedRecordFirstKey) {
+        setUnclaimedRecordFirstFiles(next);
+      }
+      return next;
+    },
+    [recordFirstKey, unclaimedRecordFirstKey],
+  );
+  const rememberRecordFirstFile = useCallback(
+    (file: RecordFirstFile, key: string) => {
+      // `key` is the account signed in when capture started, never whoever
+      // is signed in at Stop, so a switch mid-recording cannot reassign it.
+      changeQueuedFiles(key, (files) => [
+        ...files.filter((f) => f.path !== file.path),
+        file,
+      ]);
+    },
+    [changeQueuedFiles],
+  );
+  const forgetRecordFirstFile = useCallback(
+    (path: string) => {
+      // Removes the list entry only; the file on disk is never touched.
+      for (const key of [recordFirstKey, unclaimedRecordFirstKey]) {
+        if (key)
+          changeQueuedFiles(key, (files) =>
+            files.filter((f) => f.path !== path),
+          );
+      }
+      setRecordFirstFileErrors(({ [path]: _forgotten, ...rest }) => rest);
+    },
+    [changeQueuedFiles, recordFirstKey, unclaimedRecordFirstKey],
+  );
+  const uploadRecordFirstFilesRef = useRef<
+    (options?: { includeUnclaimed?: boolean }) => Promise<void>
+  >(async () => {});
+
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -3154,6 +3257,24 @@ export function App({
           folderPath: stopResult.localFolder,
           files: stopResult.localFiles ?? [],
         });
+        const queueKey = recordFirstKeyAtStartRef.current;
+        if (recordedWithoutStorageRef.current && queueKey) {
+          for (const file of recordFirstFilesToQueue(
+            stopResult.localFiles ?? [],
+          )) {
+            rememberRecordFirstFile(
+              {
+                ...file,
+                ...recordFirstMediaFlags(file.role, {
+                  hasAudio: micOn || systemAudioOn,
+                  hasCamera: mode !== "screen",
+                }),
+                savedAt: new Date().toISOString(),
+              },
+              queueKey,
+            );
+          }
+        }
         emit("clips:native-upload-finished", {
           recordingId: stopResult.recordingId,
           ok: true,
@@ -3175,7 +3296,7 @@ export function App({
             ok: false,
             error: err instanceof Error ? err.message : String(err),
           },
-          localRecordingMode !== "off",
+          localRecordingMode !== "off" || recordedWithoutStorageRef.current,
         );
         emit("clips:native-upload-finished", {
           recordingId: stoppingRecordingId ?? undefined,
@@ -3197,6 +3318,99 @@ export function App({
           .catch(() => {});
         emit("clips:popover-visible", false).catch(() => {});
       }
+    }
+  };
+
+  uploadRecordFirstFilesRef.current = async (
+    options: { includeUnclaimed?: boolean } = {},
+  ) => {
+    if (recordFirstUploading || !recordFirstKey || !signedInAs) return;
+    if (videoStorageStatus !== "configured") {
+      openVideoStorageSetup();
+      return;
+    }
+    // Unclaimed files (saved while signed out) join this account only when
+    // the user clicks Upload now, never automatically.
+    let files = changeQueuedFiles(recordFirstKey, (own) => own);
+    if (options.includeUnclaimed && unclaimedRecordFirstFiles.length > 0) {
+      try {
+        files = transferRecordFirstFiles(
+          localStorage,
+          unclaimedRecordFirstKey,
+          recordFirstKey,
+        );
+      } catch (err) {
+        // Every file is still in at least one list; show both as stored.
+        setRecordFirstError(err instanceof Error ? err.message : String(err));
+        files = [];
+      }
+      for (const [key, setFiles] of [
+        [recordFirstKey, setRecordFirstFiles],
+        [unclaimedRecordFirstKey, setUnclaimedRecordFirstFiles],
+      ] as const) {
+        try {
+          setFiles(loadRecordFirstFiles(localStorage, key));
+        } catch {
+          // coercion-ok: an unreadable list keeps its last state; the transfer error is shown above.
+        }
+      }
+      if (files.length === 0) return;
+    }
+    setRecordFirstUploading(true);
+    setRecordFirstError(null);
+    try {
+      for (const queued of files) {
+        const authToken = loadDesktopAuthToken(serverUrl);
+        // The row's id is saved with the entry before the row exists, so a
+        // crash mid-handoff resumes it instead of creating a second clip.
+        const file = queued.stagedRecordingId
+          ? queued
+          : { ...queued, stagedRecordingId: crypto.randomUUID() };
+        const setEntry = (entry: RecordFirstFile | null) =>
+          changeQueuedFiles(recordFirstKey, (current) =>
+            current.flatMap((f) =>
+              f.path !== file.path ? [f] : entry ? [entry] : [],
+            ),
+          );
+        setEntry(file);
+        let upload: PendingDesktopUpload | null;
+        try {
+          upload = await queueRecordFirstUpload({
+            serverUrl,
+            authToken,
+            ownerEmail: signedInAs,
+            file,
+          });
+        } catch (err) {
+          // One bad file never blocks the rest of the queue. The staged id is
+          // kept unless its row was cleaned up: after an ambiguous failure
+          // (a create cut off mid-flight) the retry must reuse that row.
+          setEntry({
+            ...file,
+            stagedRecordingId: stagedIdAfterFailure(
+              file.stagedRecordingId,
+              err,
+            ),
+          });
+          const message = err instanceof Error ? err.message : String(err);
+          setRecordFirstFileErrors((errors) => ({
+            ...errors,
+            [file.path]: {
+              message,
+              missing: err instanceof RecordFirstFileMissingError,
+            },
+          }));
+          continue;
+        }
+        setRecordFirstFileErrors(({ [file.path]: _done, ...rest }) => rest);
+        setEntry(null);
+        await loadPendingUploads();
+        // The queued copy now lives in the recovery list: a failed upload
+        // stays there with Retry, and the file on disk is untouched.
+        if (upload) await retryPendingUpload(upload);
+      }
+    } finally {
+      setRecordFirstUploading(false);
     }
   };
 
@@ -3405,7 +3619,7 @@ export function App({
     (targetServerUrl?: string) => {
       const base = (targetServerUrl?.trim() || serverUrl).replace(/\/+$/, "");
       setRecError(STORAGE_SETUP_HELP_TEXT);
-      void openExternal(`${base}/record`).catch((err) => {
+      void openExternal(`${base}/record?connectStorage=1`).catch((err) => {
         setRecError(
           err instanceof Error
             ? err.message
@@ -3420,6 +3634,7 @@ export function App({
   async function handleStartRecording(options?: {
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
+    const recordingClickAt = performance.now();
     if (recordingStopFinalizingRef.current) {
       console.warn(
         "[clips-popover] handleStartRecording ignored — previous recording still finalizing",
@@ -3452,16 +3667,19 @@ export function App({
       bubbleStreamRef.current = null;
       setBubbleSessionEpoch((epoch) => epoch + 1);
     }
-    if (localRecordingMode === "off") {
-      if (videoStorageStatus === "checking") {
-        setRecError("Checking video storage. Try again in a moment.");
-        return null;
-      }
-      if (videoStorageStatus === "missing") {
-        openVideoStorageSetup();
-        return null;
-      }
-    }
+    // Recording never waits on storage: until storage reads as connected the
+    // clip is written to Movies/Clips as it records, then uploads once
+    // storage connects.
+    const recordingLocalMode = effectiveLocalRecordingMode(
+      localRecordingMode,
+      videoStorageStatus,
+    );
+    const recordLocallyUntilStorage = recordingLocalMode !== localRecordingMode;
+    recordedWithoutStorageRef.current = recordLocallyUntilStorage;
+    recordFirstKeyAtStartRef.current = recordFirstFilesKey(
+      originForServer(serverUrl),
+      signedInAs,
+    );
     setRecError(null);
     setLocalRecordingNotice(null);
     setShareLinkNotice(null);
@@ -3480,6 +3698,7 @@ export function App({
     const startAttemptId = crypto.randomUUID();
     recoverySessionId.current = startAttemptId;
     recordingStartAttemptRef.current = attempt;
+    captureStartedDuringStartRef.current = false;
     recordingFlowGateRef.current = true;
     setRecordingStartPending(true);
     let handle: RecorderHandle | null = null;
@@ -3539,7 +3758,7 @@ export function App({
           micOn,
           systemAudioOn,
           voiceCleanupEnabled,
-          localRecordingMode,
+          localRecordingMode: recordingLocalMode,
           preAcquiredCameraStream,
           preAcquiredDisplayStream:
             options?.resumeCapture?.displayStream ?? null,
@@ -3549,7 +3768,13 @@ export function App({
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
           onCaptureStartRequested: (recordingId) => {
+            console.log(
+              `[recording-start-latency] click to capture request ${Math.round(performance.now() - recordingClickAt)}ms`,
+            );
             captureStartRequestedDuringStart = true;
+            if (recordingStartAttemptRef.current === attempt) {
+              captureStartedDuringStartRef.current = true;
+            }
             sessionRecordingIdRef.current = recordingId;
           },
         },
@@ -3568,12 +3793,16 @@ export function App({
         }, 250);
       }
       const started = await recordingPromise;
-      if (attempt.signal.aborted) {
+      if (attempt.signal.aborted && !captureStartRequestedDuringStart) {
         await boundedCleanup(started.cancel());
         attempt.ensureActive();
       }
       attempt.captureSuspension = null;
-      if (stopRequestedDuringStart && captureStartRequestedDuringStart) {
+      // Capture already began: an abandoned start stops and keeps the take.
+      if (
+        (stopRequestedDuringStart || attempt.signal.aborted) &&
+        captureStartRequestedDuringStart
+      ) {
         stoppedDuringStart = true;
         await finishRecordingStopRef.current(
           started,
@@ -3622,6 +3851,7 @@ export function App({
       }
       if (recordingStartAttemptRef.current === attempt) {
         recordingStartAttemptRef.current = null;
+        captureStartedDuringStartRef.current = false;
         setRecordingStartPending(false);
       }
     }
@@ -3691,6 +3921,8 @@ export function App({
     let cancelled = false;
     const unlisteners: Array<() => void> = [];
     const cancelStart = () => {
+      // Once capture has begun only the pill's confirmed discard deletes it.
+      if (captureStartedDuringStartRef.current) return;
       if (restartInFlightRef.current) restartCancelledRef.current = true;
       recordingStartAttemptRef.current?.cancel();
     };
@@ -3861,7 +4093,7 @@ export function App({
       }),
     );
     track(
-      listen("clips:recorder-cancel", async () => {
+      listen(RECORDER_DISCARD_EVENT, async () => {
         if (
           cancelled ||
           restartInFlightRef.current ||
@@ -3964,11 +4196,22 @@ export function App({
     serverUrl,
   ]);
 
+  const recordFirstPending = recordFirstFiles.length;
+  useEffect(() => {
+    if (
+      recordFirstPending > 0 &&
+      authStatus === "authed" &&
+      videoStorageStatus === "configured" &&
+      !recorder
+    ) {
+      void uploadRecordFirstFilesRef.current();
+    }
+  }, [authStatus, recorder, recordFirstPending, videoStorageStatus]);
+
   const showSourceRow = mode !== "camera";
   const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;
   const recordingReadinessPending =
-    localRecordingMode === "off" &&
-    (authStatus !== "authed" || videoStorageStatus === "checking");
+    localRecordingMode === "off" && authStatus !== "authed";
   const startButtonLoading =
     (recordingReadinessPending || recordingStartPending) &&
     !recordingStopFinalizing;
@@ -3988,6 +4231,10 @@ export function App({
     authenticated: authStatus === "authed",
     finalizing: recordingStopFinalizing,
     finalizingRecordingId: sessionRecordingIdRef.current,
+    activeRecordingId:
+      isRecording || recordingStartPending
+        ? sessionRecordingIdRef.current
+        : null,
     showFinalizing: popoverView !== "recorder" || authStatus !== "authed",
     retryingUploadId,
     retryingUploadStatus,
@@ -4547,6 +4794,30 @@ export function App({
           </button>
         ) : null}
 
+        {recordFirstFiles.length + unclaimedRecordFirstFiles.length > 0 ||
+        recordFirstError ? (
+          <RecordFirstUploadsBanner
+            count={recordFirstFiles.length + unclaimedRecordFirstFiles.length}
+            storageConnected={videoStorageStatus === "configured"}
+            signedIn={!!signedInAs}
+            uploading={recordFirstUploading}
+            error={recordFirstError}
+            failedFiles={[
+              ...recordFirstFiles,
+              ...unclaimedRecordFirstFiles,
+            ].flatMap((file) =>
+              recordFirstFileErrors[file.path]
+                ? [{ file, ...recordFirstFileErrors[file.path]! }]
+                : [],
+            )}
+            onUpload={() =>
+              void uploadRecordFirstFilesRef.current({
+                includeUnclaimed: true,
+              })
+            }
+            onForget={forgetRecordFirstFile}
+          />
+        ) : null}
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />
@@ -4600,7 +4871,7 @@ export function App({
       {pendingUploadBanner}
 
       <div className="bottom-row">
-        {wisprFlowLabEnabled ? (
+        {voiceDictationEnabled ? (
           <BottomHint
             label="Dictate"
             shortcut={compactVoiceShortcutLabel(
@@ -4746,6 +5017,83 @@ function UpdateRestartBanner({ message }: { message: string }) {
   );
 }
 
+const RECORD_FIRST_LIST_UNREADABLE =
+  "Clips couldn't read its list of recordings waiting to upload. They are still in Movies/Clips.";
+
+function RecordFirstUploadsBanner({
+  count,
+  storageConnected,
+  signedIn,
+  uploading,
+  error,
+  failedFiles,
+  onUpload,
+  onForget,
+}: {
+  count: number;
+  storageConnected: boolean;
+  signedIn: boolean;
+  uploading: boolean;
+  error: string | null;
+  failedFiles: Array<{
+    file: RecordFirstFile;
+    message: string;
+    missing: boolean;
+  }>;
+  onUpload: () => void;
+  onForget: (path: string) => void;
+}) {
+  const recordings = count === 1 ? "1 recording" : `${count} recordings`;
+  return (
+    <>
+      <div className="storage-flow-banner" role="status">
+        <div className="storage-flow-icon" aria-hidden>
+          <IconUpload size={17} stroke={1.8} />
+        </div>
+        <div className="storage-flow-copy">
+          <div className="storage-flow-title">
+            {uploading
+              ? `Uploading ${recordings}…`
+              : `${recordings} saved on this Mac, not uploaded`}
+          </div>
+          <div className="storage-flow-sub">
+            {error ??
+              (storageConnected
+                ? "Saved in Movies/Clips. Upload them to get share links."
+                : "Saved in Movies/Clips. Connect storage and they upload.")}
+          </div>
+        </div>
+        {count > 0 ? (
+          <button
+            type="button"
+            className="storage-flow-connect"
+            disabled={uploading || !signedIn}
+            title={signedIn ? undefined : "Sign in to upload"}
+            onClick={onUpload}
+          >
+            <IconUpload size={14} stroke={2} />
+            {storageConnected ? "Upload now" : "Connect"}
+          </button>
+        ) : null}
+      </div>
+      {failedFiles.map(({ file, message, missing }) => (
+        <div key={file.path} className="error-banner" role="alert">
+          {file.fileName}: {message}
+          {missing ? (
+            <button
+              type="button"
+              className="storage-flow-connect"
+              onClick={() => onForget(file.path)}
+            >
+              Remove from list
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
   return (
     <div className="storage-flow-banner">
@@ -4754,7 +5102,7 @@ function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
       </div>
       <div className="storage-flow-copy">
         <div className="storage-flow-title">
-          Connect storage to keep recording
+          Connect storage to upload your clips
         </div>
         <div className="storage-flow-sub">{STORAGE_SETUP_HELP_TEXT}</div>
       </div>
@@ -5999,6 +6347,13 @@ function Setup({
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
+  const [providerStatusRefreshVersion, setProviderStatusRefreshVersion] =
+    useState(0);
+  const [builderConnecting, setBuilderConnecting] = useState(false);
+  const [builderConnectMessage, setBuilderConnectMessage] = useState<{
+    kind: "ok" | "error";
+    text: string;
+  } | null>(null);
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [apiKeySaving, setApiKeySaving] = useState(false);
   const [apiKeyMessage, setApiKeyMessage] = useState<{
@@ -6494,7 +6849,14 @@ function Setup({
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, initial]);
+  }, [providerStatusRefreshVersion, serverUrl, initial]);
+
+  useEffect(() => {
+    const refreshOnFocus = () =>
+      setProviderStatusRefreshVersion((version) => version + 1);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, []);
 
   const [serverUrlError, setServerUrlError] = useState<string | null>(null);
 
@@ -6536,6 +6898,7 @@ function Setup({
 
   function selectProviderMode(mode: VoiceProviderMode) {
     setApiKeyMessage(null);
+    setBuilderConnectMessage(null);
     if (mode === "native") {
       onVoiceProviderChange(nativeVoiceProvider());
     } else if (mode === "whisper") {
@@ -6615,14 +6978,48 @@ function Setup({
     }
   }
 
-  function connectBuilder() {
+  async function connectBuilder() {
+    if (builderConnecting) return;
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
-    openExternal(`${base}/_agent-native/builder/connect`).catch((err) => {
-      setApiKeyMessage({
-        kind: "error",
-        text: (err as Error)?.message ?? "Couldn't open Builder.io. Try again.",
+    setBuilderConnecting(true);
+    setBuilderConnectMessage(null);
+    try {
+      const result = await connectBuilderForVoiceCleanup(base, {
+        openExternal,
       });
-    });
+      if (result === "activated") {
+        setProviderStatus((previous) =>
+          previous
+            ? { ...previous, builder: true }
+            : {
+                browser: true,
+                "macos-native": false,
+                builder: true,
+                gemini: false,
+                groq: false,
+              },
+        );
+        setBuilderConnectMessage({
+          kind: "ok",
+          text: "Builder.io is ready for voice cleanup.",
+        });
+      } else {
+        setBuilderConnectMessage({
+          kind: "ok",
+          text: "Continue in your browser to use your Builder.io account.",
+        });
+      }
+    } catch (err) {
+      setBuilderConnectMessage({
+        kind: "error",
+        text:
+          err instanceof Error
+            ? err.message
+            : "Couldn't use Builder.io. Try again.",
+      });
+    } finally {
+      setBuilderConnecting(false);
+    }
   }
 
   const providerWarning: string | null = (() => {
@@ -6632,7 +7029,7 @@ function Setup({
     if (selectedMode === "builder") {
       return providerStatus.builder
         ? null
-        : "Cleanup is off until Builder.io is connected.";
+        : "Use Builder.io to turn on cleanup.";
     }
     if (providerStatus[byokProvider]) return null;
     return `Cleanup is off until you add ${keyForByokProvider(byokProvider)}.`;
@@ -7472,17 +7869,30 @@ function Setup({
             }
           >
             {providerWarning ||
-            (selectedMode === "builder" && !providerStatus?.builder) ? (
+            (selectedMode === "builder" && !providerStatus?.builder) ||
+            builderConnectMessage ? (
               <>
                 {providerWarning ? (
                   <p className="text-xs text-destructive">{providerWarning}</p>
                 ) : null}
+                {builderConnectMessage ? (
+                  <p
+                    className={
+                      builderConnectMessage.kind === "ok"
+                        ? "text-xs text-success"
+                        : "text-xs text-destructive"
+                    }
+                  >
+                    {builderConnectMessage.text}
+                  </p>
+                ) : null}
                 {selectedMode === "builder" && !providerStatus?.builder ? (
                   <SettingsActionButton
                     className="w-fit"
-                    onClick={connectBuilder}
+                    onClick={() => void connectBuilder()}
+                    disabled={builderConnecting}
                   >
-                    Use Builder.io
+                    {builderConnecting ? "Setting up…" : "Use Builder.io"}
                   </SettingsActionButton>
                 ) : null}
               </>

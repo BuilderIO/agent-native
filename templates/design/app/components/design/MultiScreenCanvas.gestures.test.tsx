@@ -2635,6 +2635,47 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(world!.style.transform).toBe(originTransform);
   });
 
+  it("routes selected live screen content to the canvas while Hand is active", async () => {
+    const renderCanvas = async (activeTool: MultiScreenCanvasTool) => {
+      await act(async () => {
+        root.render(
+          <MultiScreenCanvas
+            screens={[
+              {
+                id: "screen-a",
+                filename: "screen-a.html",
+                content: "<!doctype html><html><body></body></html>",
+              },
+            ]}
+            zoom={100}
+            activeTool={activeTool}
+            activeId="screen-a"
+            selectedScreenIds={["screen-a"]}
+            metadataById={{ "screen-a": { width: 320, height: 240 } }}
+            geometryById={{
+              "screen-a": { x: 0, y: 0, width: 320, height: 240 },
+            }}
+            renderScreenContent={() => (
+              <iframe data-screen-iframe-id="screen-a" />
+            )}
+            onPick={() => {}}
+          />,
+        );
+      });
+    };
+
+    await renderCanvas("move");
+    const screenContent = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"] [data-screen-content]',
+    );
+    expect(screenContent).not.toBeNull();
+    expect(screenContent!.style.pointerEvents).toBe("auto");
+
+    await renderCanvas("hand");
+
+    expect(screenContent!.style.pointerEvents).toBe("none");
+  });
+
   it("keeps locked screens visible but blocks canvas selection and dragging", async () => {
     const onPick = vi.fn();
     const onGeometryChange = vi.fn();

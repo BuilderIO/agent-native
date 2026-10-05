@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import path from "node:path";
+// Paths stay repo-relative with "/" separators on every OS: main() and the
+// workflow path filters split and match on "/".
+import { posix as path } from "node:path";
 
 import { parse } from "yaml";
 

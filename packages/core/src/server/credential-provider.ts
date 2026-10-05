@@ -18,6 +18,8 @@ import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
 } from "./builder-oauth.js";
+import { readsOrgCredentialFirst } from "./credential-read-order.js";
+import { decideCredentialWriteScope } from "./credential-write-scope.js";
 import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
 import {
   isPersonalProviderKeyUseRestricted,
@@ -83,26 +85,31 @@ async function canReadDesignatedVaultFallback(
 }
 
 /**
- * Decide which `app_secrets` scope a Builder/credential write should use.
- *
- * Org scope ("everyone in this org sees these credentials") wins when the
- * connecting user is an owner or admin of an active org — the write
- * privileges shared infra. A plain member or a user without an active
- * org falls through to per-user scope so a teammate can't silently
- * overwrite the org-shared connection.
+ * The `app_secrets` row a Builder key-pair write or delete targets, by the
+ * role table every Builder save path shares (`decideCredentialWriteScope`).
+ * Callers have already authorized the write and checked the personal-key
+ * policy.
  */
 export function resolveCredentialWriteScope(
   email: string,
   orgId: string | null | undefined,
   role: string | null | undefined,
 ): { scope: "user" | "org"; scopeId: string } {
-  if (orgId && (role === "owner" || role === "admin")) {
-    return { scope: "org", scopeId: orgId };
-  }
-  return { scope: "user", scopeId: email };
+  const decision = decideCredentialWriteScope({
+    action: "connect",
+    role,
+    orgId,
+    requestedScope: null,
+    personalAllowed: true,
+  });
+  return "scope" in decision && decision.scope === "org" && orgId
+    ? { scope: "org", scopeId: orgId }
+    : { scope: "user", scopeId: email };
 }
 
 export class FeatureNotConfiguredError extends Error {
+  readonly statusCode = 400;
+  readonly errorCode = "feature_not_configured";
   readonly requiredCredential: string;
   readonly builderConnectUrl?: string;
   readonly byokDocsUrl?: string;
@@ -115,7 +122,7 @@ export class FeatureNotConfiguredError extends Error {
   }) {
     super(
       opts.message ??
-        `Feature requires credential "${opts.requiredCredential}". Connect Builder (free tier available) or set your own key.`,
+        `Feature requires credential "${opts.requiredCredential}". Use Builder.io (free tier available) or set your own key.`,
     );
     this.name = "FeatureNotConfiguredError";
     this.requiredCredential = opts.requiredCredential;
@@ -448,10 +455,10 @@ async function resolveScopedBuilderCredential(
       if (orgId) orgSource = "email-fallback";
     }
 
-    // 1. Per-user override: a user can paste their own key in settings to
-    //    overrule the org-shared one (handy for a personal sandbox). An owner
-    //    or admin reads the org's first instead (see resolveScopedBuilderCredentials);
-    //    their own key is then the fallback after the org scopes.
+    // 1. Per-user override: a member's own key overrules the org-shared one
+    //    (handy for a personal sandbox). An owner or admin reads the org's
+    //    first instead (`readsOrgCredentialFirst`); their own key is then the
+    //    fallback after the org scopes.
     const readPersonal = async (): Promise<ScopedCredentialResult | null> => {
       if (personalRestricted) return null;
       const userSecret = await readAppSecret({
@@ -467,8 +474,19 @@ async function resolveScopedBuilderCredential(
       }
       return { value: userSecret.value, source: "user", lookupFailed: false };
     };
+    // Before the personal answer: without the org, an owner's role is unknown.
+    if (orgLookupCause !== undefined) {
+      return {
+        value: null,
+        source: null,
+        lookupFailed: true,
+        cause: orgLookupCause,
+      };
+    }
     const personal = await readPersonal();
-    if (personal) return personal;
+    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+      return personal;
+    }
 
     // 2. Per-org shared credential: when one teammate connects Builder
     //    as an owner/admin we write the OAuth result at org scope so
@@ -515,15 +533,7 @@ async function resolveScopedBuilderCredential(
         );
       }
     }
-
-    if (orgLookupCause !== undefined) {
-      return {
-        value: null,
-        source: null,
-        lookupFailed: true,
-        cause: orgLookupCause,
-      };
-    }
+    if (personal) return personal;
 
     // 3. Solo-workspace fallback: always checked, even when an org id was
     //    found above. Older no-org connect flows wrote here, so a credential
@@ -662,14 +672,16 @@ async function resolveScopedBuilderCredentials(
         : null;
     };
 
-    for (const attempt of [tryPersonal, tryOrg]) {
-      const creds = await attempt();
-      if (creds) return { creds, lookupFailed: false };
-    }
-
+    // Before the personal answer: without the org, an owner's role is unknown.
     if (orgLookupCause !== undefined) {
       return { creds: null, lookupFailed: true, cause: orgLookupCause };
     }
+    const personal = await tryPersonal();
+    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+      return { creds: personal, lookupFailed: false };
+    }
+    const creds = (await tryOrg()) ?? personal;
+    if (creds) return { creds, lookupFailed: false };
 
     scopeAttempted = "workspace-solo";
     const soloScopeId = `solo:${email}`;
@@ -1248,7 +1260,7 @@ export async function getBuilderCredentialAuthFailure(
       message:
         typeof row.message === "string" && row.message
           ? row.message
-          : "Builder rejected the connected credentials. Reconnect Builder.io (free tier available).",
+          : "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available).",
       status: typeof row.status === "number" ? row.status : undefined,
       code: typeof row.code === "string" ? row.code : undefined,
       at,
@@ -1280,7 +1292,7 @@ export async function recordBuilderCredentialAuthFailure(details?: {
       fingerprint,
       message:
         details?.message ||
-        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available).",
+        "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available).",
       ...(typeof details?.status === "number" && { status: details.status }),
       ...(details?.code && { code: details.code }),
       strikes,
@@ -1813,10 +1825,7 @@ export async function resolveSecretPairs(
   let cause: unknown;
   try {
     let pair: [string, string] | null = null;
-    if (allowUserScope) {
-      pair = await readPairs("user", email);
-      if (pair) return pair;
-    }
+    const personal = allowUserScope ? await readPairs("user", email) : null;
 
     let orgId: string | null | undefined = getRequestOrgId();
     if (!orgId) {
@@ -1825,12 +1834,16 @@ export async function resolveSecretPairs(
       lookupFailed = cause !== undefined;
       orgId = resolved.orgId;
     }
-
+    // Before the personal answer: without the org, an owner's role is unknown.
     if (lookupFailed) {
       const environmentPair = readEnvironmentPairs();
       if (environmentPair) return environmentPair;
       assertCredentialStoreReadable({ lookupFailed, cause });
       return null;
+    }
+
+    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+      return personal;
     }
 
     if (orgId) {
@@ -1845,6 +1858,7 @@ export async function resolveSecretPairs(
         if (pair) return pair;
       }
     }
+    if (personal) return personal;
 
     if (allowUserScope) {
       pair = await readPairs("workspace", `solo:${email}`);
@@ -1937,23 +1951,24 @@ export async function resolveSecretDetailed(
               scope: "user",
               scopeId: email,
             });
-      if (userSecret?.value) {
-        if (traceLookup) {
-          console.log(
-            `[resolve-secret] key=${key} email=${email} scope=user hit=true`,
-          );
-        }
-        return {
-          value: userSecret.value,
-          lookupFailed: false,
-          source: "user",
-          scopeId: email,
-        };
+      const personal: ResolvedSecretDetail | null = userSecret?.value
+        ? {
+            value: userSecret.value,
+            lookupFailed: false,
+            source: "user",
+            scopeId: email,
+          }
+        : null;
+      if (personal && traceLookup) {
+        console.log(
+          `[resolve-secret] key=${key} email=${email} scope=user hit=true`,
+        );
       }
 
       // The beta suite writes one user-scoped credential and must never turn a
       // rejected or missing test key into a charge against a shared scope.
-      if (syntheticTraffic) return { value: null, lookupFailed: false };
+      if (syntheticTraffic)
+        return personal ?? { value: null, lookupFailed: false };
 
       let orgId: string | null | undefined = getRequestOrgId();
       if (!orgId) {
@@ -1963,8 +1978,14 @@ export async function resolveSecretDetailed(
         orgId = resolved.orgId;
       }
 
+      // Before the personal answer: without the org, an owner's role is unknown.
       if (lookupFailed) {
         return { value: null, lookupFailed: true, cause };
+      }
+
+      // An owner or admin runs on the organization's key ahead of their own.
+      if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+        return personal;
       }
 
       if (orgId) {
@@ -2007,6 +2028,7 @@ export async function resolveSecretDetailed(
           };
         }
       }
+      if (personal) return personal;
 
       // Solo-workspace fallback: always checked, even when an org id was found
       // above. A secret written before the user joined/created an org lives

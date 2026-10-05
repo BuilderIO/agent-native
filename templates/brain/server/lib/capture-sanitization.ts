@@ -18,6 +18,7 @@ import {
 } from "./search-index-contracts.js";
 import {
   classifierDecisionSchema,
+  type DeterministicScreenScope,
   deterministicQuarantineDecision,
   fallbackSensitivityDecision,
   MAX_CLASSIFIER_OUTPUT_CHARS,
@@ -526,6 +527,18 @@ async function classifyWithApprovedModel(
   };
 }
 
+const unlessAllowed = (decision: BrainSensitivityDecision) =>
+  decision.disposition === "allowed" ? null : decision;
+
+const deterministicPreScreen = (
+  input: CaptureSanitizationInput,
+  capturedAt: string,
+  scope: DeterministicScreenScope,
+): BrainSensitivityDecision | null =>
+  deterministicQuarantineDecision(input.title, capturedAt, scope) ??
+  unlessAllowed(fallbackSensitivityDecision(input.title, capturedAt, scope)) ??
+  deterministicQuarantineDecision(input.content, capturedAt, scope);
+
 export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
@@ -533,11 +546,11 @@ export async function sanitizeCaptureForStorage(
   const { metadata: sanitizedMetadata, strippedKeys } =
     sanitizeMetadata(metadata);
   const capturedAt = input.capturedAt ?? new Date(0).toISOString();
-  const titleDecision = fallbackSensitivityDecision(input.title, capturedAt);
-  let decision =
-    deterministicQuarantineDecision(input.title, capturedAt) ??
-    (titleDecision.disposition === "allowed" ? null : titleDecision) ??
-    deterministicQuarantineDecision(input.content, capturedAt);
+  const preJevScope: DeterministicScreenScope =
+    resolveClassifierPreference(input.settings) === "jev"
+      ? "credentials"
+      : "all";
+  let decision = deterministicPreScreen(input, capturedAt, preJevScope);
   const sanitizationRequested = shouldSanitizeCaptureBeforeStorage(input);
   let fallbackReason: string | undefined;
   let classifierOutageFallback = false;
@@ -555,6 +568,9 @@ export async function sanitizeCaptureForStorage(
     throw new BrainClassifierUnavailableError(jev.failureReason);
   }
   decision ??= jev.decision ?? null;
+  if (preJevScope === "credentials") {
+    decision ??= deterministicPreScreen(input, capturedAt, "all");
+  }
   const classifierConfigured =
     jev.configured || Boolean(approvedModelSettings(input.settings));
   let classifierFailed = false;

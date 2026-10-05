@@ -39,19 +39,27 @@ import {
   prepareRegisteredDocumentHistoryRestore,
 } from "@/lib/document-history-restore-controller";
 import { retirePageOpenReads } from "@/lib/page-open-reads";
+import {
+  readPageIconRowHint,
+  readPageShapeHint,
+} from "@/lib/page-startup-hints";
 
 import { Header } from "./Header";
 import { isContentSettingsRoute } from "./settings-route-policy";
+import {
+  DEFAULT_SIDEBAR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  SIDEBAR_COLLAPSED_KEY,
+  SIDEBAR_WIDTH_KEY,
+} from "./sidebar-preferences";
 import { SidebarTriggerContext } from "./sidebar-trigger";
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const SIDEBAR_COLLAPSED_KEY = "content.sidebar.collapsed";
-const DEFAULT_SIDEBAR_WIDTH = 240;
-const MIN_SIDEBAR_WIDTH = 240;
-const MAX_SIDEBAR_WIDTH = 480;
 export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)";
 
-const NO_HEADER_PREFIXES = ["/page/", "/extensions"];
+// `/home` draws the page placeholder, with its own toolbar, until it opens the
+// landing page.
+const NO_HEADER_PREFIXES = ["/page/", "/extensions", "/home"];
 
 function loadSidebarWidth(): number {
   try {
@@ -301,7 +309,8 @@ export function Layout({ children }: LayoutProps) {
             </Sheet>
             {showHeader ||
             fullWidthSettings ||
-            documentPageIdFromPathname(chromePathname) ? null : (
+            documentPageIdFromPathname(chromePathname) ||
+            chromePathname.startsWith("/home") ? null : (
               <button
                 type="button"
                 aria-label={t("navigation.openSidebar")}
@@ -357,8 +366,12 @@ export function Layout({ children }: LayoutProps) {
               className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
             />
             <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
-              {showPendingDocumentSkeleton ? (
-                <DocumentEditorSkeleton title={pendingDocumentTitle} />
+              {showPendingDocumentSkeleton && pendingDocumentId ? (
+                <DocumentEditorSkeleton
+                  title={pendingDocumentTitle}
+                  iconRow={readPageIconRowHint(pendingDocumentId)}
+                  shape={readPageShapeHint(pendingDocumentId)}
+                />
               ) : (
                 children
               )}

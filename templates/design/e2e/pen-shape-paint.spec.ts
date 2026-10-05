@@ -290,7 +290,7 @@ test("a closed pen path starts with a stroke and no fill, like Figma", async ({
 }) => {
   const designId = await createDesign(request);
   try {
-    await drawClosedTriangle(page, designId);
+    const { centroid } = await drawClosedTriangle(page, designId);
 
     const paint = await vectorPaint(page);
     expect(paint).not.toBeNull();
@@ -298,7 +298,11 @@ test("a closed pen path starts with a stroke and no fill, like Figma", async ({
     expect(paint!.strokeAttribute).toBe("#000000");
     expect(paint!.shapeStroke).toBe("rgb(0, 0, 0)");
 
+    await page.keyboard.press("v");
+    await page.waitForTimeout(400);
+    await page.mouse.click(centroid.x, centroid.y);
     const fillSection = inspectorSection(page, /^Fill$/i);
+    await expect(fillSection).toBeVisible();
     await fillSection.getByRole("button", { name: "Add fill" }).last().click();
     await expect
       .poll(async () => (await vectorPaint(page))?.shapeFill)

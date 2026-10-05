@@ -2,7 +2,10 @@ import crypto from "node:crypto";
 import path from "node:path";
 
 import { defineAction, embedApp, fail } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import {
   buildDeepLink,
   buildEmbedStartPath,
@@ -15,7 +18,11 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  resolveAccess,
+  roleSatisfies,
+} from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -78,6 +85,11 @@ const capabilitySchema = z.object({
   operation: z.enum(DESIGN_BRIDGE_OPERATIONS),
   status: z.enum(["available", "planned", "disabled"]),
   reason: z.string().optional(),
+});
+
+const activeVisualEditStateSchema = z.object({
+  designId: z.string().min(1),
+  connectionId: z.string().min(1),
 });
 
 const VIEWPORT_PRESETS = {
@@ -236,6 +248,27 @@ export function localVisualEditWorkspacePrincipal(
     .digest("hex")
     .slice(0, 24);
   return `workspace+${workspaceId}@${LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function startBridgeCommand(args: {
+  bridgeToken: string;
+  bridgeUrl?: string | null;
+  rootPath?: string | null;
+  devServerUrl: string;
+}): string {
+  const port = new URL(args.bridgeUrl ?? DEFAULT_BRIDGE_URL).port;
+  return [
+    `AGENT_NATIVE_BRIDGE_TOKEN=${shellQuote(args.bridgeToken)}`,
+    "npx @agent-native/core@latest design connect",
+    `--url ${shellQuote(args.devServerUrl)}`,
+    `--root ${shellQuote(args.rootPath ?? ".")}`,
+    ...(port ? [`--port ${port}`] : []),
+    "--daemon",
+  ].join(" ");
 }
 
 export function localVisualEditBridgePrincipal(bridgeToken: string): string {
@@ -458,7 +491,7 @@ function routeManifestFromScreens(args: {
 
 export default defineAction({
   description:
-    "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, creates or reuses a design, places URL-backed screens, stores the active visual-edit context, and navigates the current Design session to the canvas. Use this from the local /visual-edit skill and for follow-up requests like adding a mobile-size screen.",
+    "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, reuses the saved visual-edit project for the same localhost connection when available, places URL-backed screens, stores the active context, and navigates to the canvas. Set newDesign to true to start a separate project.",
   requiresAuth: false,
   capabilityScopes: ["visual-edit-bootstrap"],
   schema: z.object({
@@ -466,7 +499,13 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Existing Design project to update. Omit to create a new visual-edit design.",
+        "Existing Design project to update. When omitted, the saved visual-edit project for the same localhost connection is reused unless newDesign is true.",
+      ),
+    newDesign: z
+      .boolean()
+      .optional()
+      .describe(
+        "Start a separate visual-edit project instead of reusing the saved project for this localhost connection.",
       ),
     connectionId: z
       .string()
@@ -585,6 +624,12 @@ export default defineAction({
     }),
   },
   run: async (args, ctx) => {
+    if (args.newDesign && args.designId) {
+      fail("Choose an existing designId or newDesign, not both.", {
+        errorCode: "visual_edit_target_conflict",
+        statusCode: 400,
+      });
+    }
     const devServerUrl = normalizeBaseUrl(args.devServerUrl);
     const requestUserEmail = getRequestUserEmail();
     const authCapability = getRequestAuthCapability();
@@ -635,6 +680,29 @@ export default defineAction({
               }) ?? [],
             generatedAt: new Date().toISOString(),
           };
+      const activeVisualEdit =
+        !args.designId && !args.newDesign
+          ? await readAppState("visual-edit")
+          : null;
+      let savedVisualEdit:
+        | z.infer<typeof activeVisualEditStateSchema>
+        | undefined;
+      if (activeVisualEdit) {
+        const parsed = activeVisualEditStateSchema.safeParse(activeVisualEdit);
+        if (!parsed.success) {
+          fail(
+            "The saved Visual Edit context is unreadable. Inspect it or explicitly start a new project.",
+            {
+              errorCode: "visual_edit_context_invalid",
+              statusCode: 500,
+            },
+          );
+        }
+        savedVisualEdit = parsed.data;
+      }
+      const savedDesignAccess = savedVisualEdit
+        ? await resolveAccess("design", savedVisualEdit.designId)
+        : null;
       const connection = await connectLocalhostAction.run({
         id: args.connectionId,
         name: args.name,
@@ -649,6 +717,13 @@ export default defineAction({
       });
 
       let designId = args.designId;
+      if (
+        savedVisualEdit?.connectionId === connection.id &&
+        savedDesignAccess &&
+        roleSatisfies(savedDesignAccess.role, "editor")
+      ) {
+        designId = savedVisualEdit.designId;
+      }
       let createdDesign = false;
       let publicReadOnly = false;
       if (!designId) {
@@ -798,8 +873,19 @@ export default defineAction({
       const embedStartUrl = isLoopbackUrl(devServerUrl)
         ? await createCallerHandoff(urlPath, ownerEmail, designId)
         : undefined;
+      const bridgeCommand = connection.bridgeToken
+        ? startBridgeCommand({
+            bridgeToken: connection.bridgeToken,
+            bridgeUrl: connection.bridgeUrl,
+            rootPath: connection.rootPath,
+            devServerUrl,
+          })
+        : null;
 
       const result = {
+        message: bridgeCommand
+          ? `Design ${designId} uses connection ${connection.id}. Start its bridge with \`${bridgeCommand}\`, then open the design.`
+          : `Design ${designId} uses connection ${connection.id}.`,
         designId,
         connectionId: connection.id,
         createdDesign,

@@ -143,6 +143,7 @@ async function renderStep(
     open: true,
     designSystems: [{ id: "ds-1", title: "Builder" }],
     decks: [] as Deck[],
+    referenceOptionsLoaded: true,
     defaultDesignSystemId: "ds-1",
     defaultReferenceDeckId: null,
     onSelect,
@@ -452,17 +453,100 @@ describe("<NewDeckReferenceStep>", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("disables Continue when no reference or design system is selected", async () => {
-    await renderStep({ designSystems: [], defaultDesignSystemId: null });
+  it("continues without references when the workspace has no design systems or decks", async () => {
+    const { onSelect } = await renderStep({
+      designSystems: [],
+      defaultDesignSystemId: null,
+    });
 
     expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
       "disabled",
-      true,
+      false,
     );
     expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
       "disabled",
       false,
     );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designSystemId: null,
+        referenceDeckId: null,
+      }),
+    );
+  });
+
+  it("waits for reference options to load before continuing without a selection", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: false,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    rerender({
+      designSystems: [{ id: "ds-1", title: "Builder" }],
+      decks: [],
+      referenceOptionsLoaded: true,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("disables Continue while empty reference options are being refreshed", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: true,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+
+    rerender({
+      designSystems: [],
+      decks: [],
+      referenceOptionsLoaded: false,
+      defaultDesignSystemId: null,
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("waits for reference options before continuing with a preselected design system", async () => {
+    const { onSelect, rerender } = await renderStep({
+      referenceOptionsLoaded: false,
+    });
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+
+    expect(continueButton).toHaveProperty("disabled", true);
+    fireEvent.click(continueButton);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    rerender({ referenceOptionsLoaded: true });
+
+    expect(continueButton).toHaveProperty("disabled", false);
+    await act(async () => fireEvent.click(continueButton));
+    expect(onSelect).toHaveBeenCalled();
   });
 
   it("keeps Continue disabled for an invalid Figma link and enables it for a valid one", async () => {

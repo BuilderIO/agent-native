@@ -375,7 +375,7 @@ const enUS = {
     attempts: "attempts",
     nextCheck: "Next check",
     waitingForWorker:
-      "Waiting for the Brain distillation worker to write knowledge or send this capture to review.",
+      "Waiting for the Brain distillation worker to write knowledge from this capture.",
     source: "Source",
     ignore: "Ignore",
     noCapturesTitle: "No captures match this view",
@@ -3230,7 +3230,7 @@ const exactEnglishDebtOverrides: Partial<
       unselectAll: "قم بإلغاء تحديد الكل",
       valuesHidden: "القيم مخفية",
       waitingForWorker:
-        "في انتظار قيام عامل التقطير Brain بكتابة المعرفة أو إرسال هذا الالتقاط للمراجعة.",
+        "في انتظار قيام عامل التقطير Brain بكتابة المعرفة من هذا الالتقاط.",
       webhookSourceKeyDescription:
         "تتلقى المصادر الجديدة رمزًا مميزًا للتناول لمرة واحدة. تحتفظ المصادر الموجودة برموزها المميزة ما لم يتم تدويرها بشكل منفصل.",
       webhookSourceKey: "Webhook مفتاح المصدر",
@@ -3657,7 +3657,7 @@ const exactEnglishDebtOverrides: Partial<
       unselectAll: "Alle abwählen",
       valuesHidden: "Werte ausgeblendet",
       waitingForWorker:
-        "Ich warte darauf, dass der Brain-Destillationsmitarbeiter Wissen schreibt oder diese Aufnahme zur Überprüfung sendet.",
+        "Ich warte darauf, dass der Brain-Destillationsmitarbeiter aus dieser Aufnahme Wissen schreibt.",
       webhookSourceKeyDescription:
         "Neue Quellen erhalten ein einmaliges Aufnahme-Token. Bestehende Quellen behalten ihr Token, sofern sie nicht separat rotiert werden.",
       webhookSourceKey: "Webhook Quellschlüssel",
@@ -4079,7 +4079,7 @@ const exactEnglishDebtOverrides: Partial<
       unselectAll: "Deseleccionar todo",
       valuesHidden: "Valores ocultos",
       waitingForWorker:
-        "Esperando que el trabajador de destilación Brain escriba conocimiento o envíe esta captura para revisión.",
+        "Esperando que el trabajador de destilación Brain escriba conocimiento a partir de esta captura.",
       webhookSourceKeyDescription:
         "Las nuevas fuentes reciben un token de ingesta único. Las fuentes existentes conservan su token a menos que se roten por separado.",
       webhookSourceKey: "Webhook clave fuente",
@@ -4506,7 +4506,7 @@ const exactEnglishDebtOverrides: Partial<
       unselectAll: "Tout désélectionner",
       valuesHidden: "Valeurs masquées",
       waitingForWorker:
-        "En attente que l'ouvrier de distillation Brain rédige ses connaissances ou envoie cette capture pour révision.",
+        "En attente que l'ouvrier de distillation Brain rédige des connaissances à partir de cette capture.",
       webhookSourceKeyDescription:
         "Les nouvelles sources reçoivent un jeton d’ingestion unique. Les sources existantes conservent leur jeton à moins d'être pivotées séparément.",
       webhookSourceKey: "Clé source Webhook",
@@ -4898,7 +4898,7 @@ const exactEnglishDebtOverrides: Partial<
       unselectAll: "सभी को अचयनित करें",
       valuesHidden: "मूल्य छुपे हुए",
       waitingForWorker:
-        "Brain आसवन कार्यकर्ता द्वारा ज्ञान लिखने या इस कैप्चर को समीक्षा के लिए भेजने की प्रतीक्षा की जा रही है।",
+        "Brain आसवन कार्यकर्ता द्वारा इस कैप्चर से ज्ञान लिखने की प्रतीक्षा की जा रही है।",
       webhookSourceKeyDescription:
         "नए स्रोतों को एक बार का अंतर्ग्रहण टोकन प्राप्त होता है। मौजूदा स्रोत अपना टोकन तब तक बनाए रखते हैं जब तक कि उसे अलग से न घुमाया जाए।",
       webhookSourceKey: "Webhook स्रोत कुंजी",
@@ -5307,7 +5307,7 @@ const exactEnglishDebtOverrides: Partial<
       unselectAll: "すべての選択を解除します",
       valuesHidden: "非表示の値",
       waitingForWorker:
-        "Brain 蒸留作業者がナレッジを書き込むか、レビューのためにこのキャプチャを送信するのを待っています。",
+        "Brain 蒸留作業者がこのキャプチャからナレッジを書き込むのを待っています。",
       webhookSourceKeyDescription:
         "新しいソースは 1 回限りの取り込みトークンを受け取ります。既存のソースは、個別にローテーションされない限り、トークンを保持します。",
       webhookSourceKey: "Webhook ソースキー",
@@ -5708,7 +5708,7 @@ const exactEnglishDebtOverrides: Partial<
       unselectAll: "모두 선택 취소",
       valuesHidden: "숨겨진 값",
       waitingForWorker:
-        "Brain 증류 작업자가 지식을 기록하거나 검토를 위해 이 캡처를 보내기를 기다리는 중입니다.",
+        "Brain 증류 작업자가 이 캡처에서 지식을 기록하기를 기다리는 중입니다.",
       webhookSourceKeyDescription:
         "새 소스는 일회성 수집 토큰을 받습니다. 기존 소스는 별도로 순환되지 않는 한 토큰을 유지합니다.",
       webhookSourceKey: "Webhook 소스 키",
@@ -6125,7 +6125,7 @@ const exactEnglishDebtOverrides: Partial<
       unselectAll: "Desmarcar tudo",
       valuesHidden: "Valores ocultos",
       waitingForWorker:
-        "Aguardando que o trabalhador da destilação Brain escreva o conhecimento ou envie esta captura para revisão.",
+        "Aguardando que o trabalhador da destilação Brain escreva o conhecimento a partir desta captura.",
       webhookSourceKeyDescription:
         "Novas fontes recebem um token de ingestão único. As fontes existentes mantêm seu token, a menos que sejam rotacionadas separadamente.",
       webhookSourceKey: "Webhook chave de origem",
@@ -6483,7 +6483,7 @@ const exactEnglishDebtOverrides: Partial<
       tuneSource: "调音源",
       unselectAll: "取消选择全部",
       valuesHidden: "隐藏的价值观",
-      waitingForWorker: "等待 Brain 蒸馏工作人员编写知识或发送此捕获以供审核。",
+      waitingForWorker: "等待 Brain 蒸馏工作人员根据此捕获编写知识。",
       webhookSourceKeyDescription:
         "新来源会收到一次性摄取令牌。现有来源保留其令牌，除非单独轮换。",
       webhookSourceKey: "Webhook 源密钥",

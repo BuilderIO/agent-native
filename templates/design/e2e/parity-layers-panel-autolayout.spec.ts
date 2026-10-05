@@ -535,7 +535,8 @@ test.describe("Layers-panel auto-layout parity", () => {
       expect(
         original.match(/data-agent-native-node-id="flow-child"/g),
       ).toHaveLength(1);
-      const bodyBox = await frame(page).locator("body").boundingBox();
+      const sourceFrame = frame(page, design.primaryId);
+      const bodyBox = await sourceFrame.locator("body").boundingBox();
       if (!bodyBox) throw new Error("design body has no box");
 
       await heldCanvasDrag(
@@ -548,14 +549,16 @@ test.describe("Layers-panel auto-layout parity", () => {
         async () => {
           expect(await panelParentName(page, "Flow child")).toBe("Home");
           expect(
-            await frame(page)
+            await sourceFrame
               .locator("[data-agent-native-insertion-guide]")
               .evaluate((node) => getComputedStyle(node).display),
           ).toBe("block");
           expect(await fileHtml(request, design.id, design.primaryId)).toBe(
             original,
           );
-          expect(await parentId(page, "flow-child")).toBe("flow-origin");
+          expect(await parentId(page, "flow-child", design.primaryId)).toBe(
+            "flow-origin",
+          );
           await page.mouse.move(bodyBox.x - 80, bodyBox.y + 80, { steps: 4 });
           await page.waitForTimeout(80);
           await page.mouse.move(bodyBox.x + 420, bodyBox.y + 300, {
@@ -566,7 +569,9 @@ test.describe("Layers-panel auto-layout parity", () => {
         },
       );
       await expect.poll(() => panelParentName(page, "Flow child")).toBe("Home");
-      await expect.poll(() => parentTag(page, "flow-child")).toBe("BODY");
+      await expect
+        .poll(() => parentTag(page, "flow-child", design.primaryId))
+        .toBe("BODY");
       const moved = await waitForPersistedHtml(
         request,
         design.id,
@@ -591,7 +596,9 @@ test.describe("Layers-panel auto-layout parity", () => {
       await expect
         .poll(() => panelParentName(page, "Flow child"))
         .toBe("Flow origin");
-      await expect.poll(() => parentId(page, "flow-child")).toBe("flow-origin");
+      await expect
+        .poll(() => parentId(page, "flow-child", design.primaryId))
+        .toBe("flow-origin");
       await expect
         .poll(() => fileHtml(request, design.id, design.primaryId))
         .toBe(original);
@@ -610,7 +617,7 @@ test.describe("Layers-panel auto-layout parity", () => {
             .poll(() => panelParentName(page, "Flow child"))
             .toBe("Flow origin");
           await expect
-            .poll(() => parentId(page, "flow-child"))
+            .poll(() => parentId(page, "flow-child", design.primaryId))
             .toBe("flow-origin");
           expect(await fileHtml(request, design.id, design.primaryId)).toBe(
             original,
@@ -637,7 +644,9 @@ test.describe("Layers-panel auto-layout parity", () => {
           await expect
             .poll(() => panelParentName(page, "Flow child"))
             .toBe("Flow target");
-          expect(await parentId(page, "flow-child")).toBe("flow-origin");
+          expect(await parentId(page, "flow-child", design.primaryId)).toBe(
+            "flow-origin",
+          );
           expect(await fileHtml(request, design.id, design.primaryId)).toBe(
             original,
           );
@@ -646,7 +655,9 @@ test.describe("Layers-panel auto-layout parity", () => {
       await expect
         .poll(() => panelParentName(page, "Flow child"))
         .toBe("Flow target");
-      await expect.poll(() => parentId(page, "flow-child")).toBe("flow-target");
+      await expect
+        .poll(() => parentId(page, "flow-child", design.primaryId))
+        .toBe("flow-target");
       const nestedPersisted = await waitForPersistedHtml(
         request,
         design.id,
@@ -666,7 +677,9 @@ test.describe("Layers-panel auto-layout parity", () => {
       await expect
         .poll(() => panelParentName(page, "Flow child"))
         .toBe("Flow origin");
-      await expect.poll(() => parentId(page, "flow-child")).toBe("flow-origin");
+      await expect
+        .poll(() => parentId(page, "flow-child", design.primaryId))
+        .toBe("flow-origin");
       await expect
         .poll(() =>
           fileHtml(request, design.id, design.primaryId).then((html) =>

@@ -25,6 +25,7 @@ const state = vi.hoisted(() => ({
       editGeneration: number;
       saveAttemptId?: string;
       priorSaveAttemptIds?: string[];
+      equivalentSaveAttemptIds?: string[];
     };
     writtenAt: number;
     recoveryStatus?: "retained_in_history";
@@ -344,6 +345,45 @@ describe("Page browser journal recovery", () => {
     expect(state.update).toHaveBeenCalledWith(
       expect.objectContaining({ content: "Newer local" }),
     );
+  });
+
+  it("clears a journal confirmed by an attempt that sent the same draft", async () => {
+    // A hidden tab's keepalive copy can land while the flush that replaced its
+    // attempt ID never sends. Replaying would reapply a rename that another
+    // writer has since reverted.
+    state.entries = [
+      {
+        ...entry("first", "Local"),
+        snapshot: {
+          ...entry("first", "Local").snapshot,
+          saveAttemptId: "flush-attempt",
+          equivalentSaveAttemptIds: ["keepalive-attempt"],
+        },
+      },
+    ];
+    state.receipt.mockImplementation(
+      async (
+        _action: string,
+        args: {
+          browserSaveAttemptId: string;
+        },
+      ) => ({ found: args.browserSaveAttemptId === "keepalive-attempt" }),
+    );
+
+    await act(async () => render());
+    expect(state.receipt).toHaveBeenCalledWith(
+      "get-document-save-attempt",
+      { id: "page", browserSaveAttemptId: "flush-attempt" },
+      { method: "GET" },
+    );
+    expect(state.receipt).toHaveBeenCalledWith(
+      "get-document-save-attempt",
+      { id: "page", browserSaveAttemptId: "keepalive-attempt" },
+      { method: "GET" },
+    );
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.entries).toEqual([]);
   });
 
   it("does not inspect local drafts before the current session passes access", async () => {

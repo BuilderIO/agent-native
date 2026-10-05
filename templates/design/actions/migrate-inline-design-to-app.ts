@@ -41,7 +41,7 @@
  * The caller should offer `connect-builder-app` to surface the CTA first.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -139,7 +139,7 @@ export default defineAction({
   description:
     "Migrate an inline Alpine/HTML design to a real React + Tailwind app " +
     "by handing the design's HTML and tokens to the Builder cloud agent. " +
-    "Requires Builder.io (free tier available) to be connected (credentials + branch project ID). " +
+    "Use Builder.io (free tier available) with configured credentials and a branch project ID. " +
     "When Builder is NOT configured returns a connect CTA — never throws. " +
     "Snapshots the current design into design_versions before migrating so " +
     "the inline baseline is always recoverable. " +
@@ -168,7 +168,7 @@ export default defineAction({
   run: async ({ designId, brandKitSummary, branchName }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
-      throw new Error("Design not found");
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
 
@@ -204,9 +204,9 @@ export default defineAction({
             kind: "connect-builder" as const,
             label: "Make this a real app",
             description:
-              "Connect Builder.io (free tier available) to migrate this design to a real React app " +
+              "Use Builder.io (free tier available) to migrate this design to a real React app " +
               "with components, props, data states, branches, and deploys.",
-            primaryAction: "Connect Builder.io",
+            primaryAction: "Use Builder.io",
             connectUrl,
           },
           message:

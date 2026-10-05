@@ -8,8 +8,11 @@ import { ByteTimeMap, resolveSeekFragment } from "./fmp4-seek";
 
 const CHUNK_SIZE = 2 * 1024 * 1024;
 const INIT_PROBE_SIZE = 512 * 1024;
-const SEEK_PROBE_SIZE = 1024 * 1024;
+const SEEK_PROBE_SIZE = 256 * 1024;
+const SEEK_PROBE_SCAN_BYTES = 3 * 1024 * 1024;
+const SEEK_PROBE_MAX_REQUESTS = 32;
 const BUFFER_AHEAD_SECONDS = 30;
+const LOW_BUFFER_SECONDS = 10;
 const BUFFER_BEHIND_SECONDS = 10;
 const MAX_SEEK_PROBES = 6;
 const SEEK_ACCEPT_UNDERSHOOT_SECONDS = 4;
@@ -31,12 +34,44 @@ export function isMediaSourceSupported(): boolean {
   );
 }
 
-function parseTotalFromContentRange(header: string | null): number | null {
-  if (!header) return null;
-  const match = header.match(/\/(\d+)\s*$/);
-  if (!match) return null;
-  const total = Number.parseInt(match[1], 10);
-  return Number.isFinite(total) ? total : null;
+export function readRangeResponse({
+  status,
+  requestedStart,
+  contentRange,
+  bodyLength,
+}: {
+  status: number;
+  requestedStart: number;
+  contentRange: string | null;
+  bodyLength: number;
+}): { total: number | null; eof: boolean } {
+  if (status === 200) return { total: bodyLength, eof: true };
+
+  const match = contentRange?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)\s*$/i);
+  if (!match) {
+    throw new Error(
+      `Range response has no readable Content-Range: ${contentRange ?? "missing"}`,
+    );
+  }
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  const total = match[3] === "*" ? null : Number(match[3]);
+  if (end < start || (total !== null && end >= total)) {
+    throw new Error(
+      `Range response has invalid Content-Range: ${contentRange}`,
+    );
+  }
+  if (start !== requestedStart) {
+    throw new Error(
+      `Range response starts at byte ${start}, requested ${requestedStart}`,
+    );
+  }
+  if (bodyLength !== end - start + 1) {
+    throw new Error(
+      `Range body truncated: got ${bodyLength} bytes for ${start}-${end}`,
+    );
+  }
+  return { total, eof: total !== null && start + bodyLength >= total };
 }
 
 function isAbortError(err: unknown): boolean {
@@ -285,9 +320,15 @@ export class MseVideoLoader {
         if (this.bufferedAhead() >= BUFFER_AHEAD_SECONDS) break;
 
         const chunkStart = this.nextOffset;
+        // Nothing appends until a whole chunk arrives, so a playhead close to
+        // running dry fetches small pieces to keep playing on slow links.
+        const chunkSize =
+          this.bufferedAhead() < LOW_BUFFER_SECONDS
+            ? SEEK_PROBE_SIZE
+            : CHUNK_SIZE;
         const chunkEnd = this.totalKnown
-          ? Math.min(chunkStart + CHUNK_SIZE, this.totalBytes) - 1
-          : chunkStart + CHUNK_SIZE - 1;
+          ? Math.min(chunkStart + chunkSize, this.totalBytes) - 1
+          : chunkStart + chunkSize - 1;
 
         let res: { bytes: Uint8Array; eof: boolean };
         try {
@@ -378,7 +419,12 @@ export class MseVideoLoader {
     sec: number;
   } | null> {
     let start = this.clampProbeStart(startByte);
-    for (let step = 0; step < 3; step++) {
+    const scanEnd = start + SEEK_PROBE_SCAN_BYTES;
+    for (
+      let requests = 0;
+      start < scanEnd && requests < SEEK_PROBE_MAX_REQUESTS;
+      requests++
+    ) {
       const end = this.totalKnown
         ? Math.min(start + SEEK_PROBE_SIZE, this.totalBytes) - 1
         : start + SEEK_PROBE_SIZE - 1;
@@ -458,8 +504,14 @@ export class MseVideoLoader {
     if (this.lastAppendSec === null) return false;
     const t = this.video.currentTime;
     const end = this.bufferedEndAt(t);
-    if (end === null) return true;
-    return this.lastAppendSec > end + 1;
+    if (end !== null) return this.lastAppendSec > end + 1;
+    // A seek may land up to SEEK_ACCEPT_UNDERSHOOT_SECONDS before the
+    // playhead with less media than that appended; reading forward closes the
+    // gap, while re-seeking lands on the same fragment and loops forever.
+    return (
+      this.lastAppendSec > t + 1 ||
+      t - this.lastAppendSec > BUFFER_AHEAD_SECONDS
+    );
   }
 
   private bufferedEndAt(time: number): number | null {
@@ -634,17 +686,16 @@ export class MseVideoLoader {
     const buffer = await res.arrayBuffer();
     const bytes = new Uint8Array(buffer);
 
-    const total = parseTotalFromContentRange(res.headers.get("content-range"));
+    const { total, eof } = readRangeResponse({
+      status: res.status,
+      requestedStart: start,
+      contentRange: res.headers.get("content-range"),
+      bodyLength: bytes.byteLength,
+    });
     if (total != null && total > 0) {
       this.totalBytes = total;
       this.totalKnown = true;
     }
-
-    const requested = end - start + 1;
-    const eof =
-      res.status === 200 ||
-      bytes.byteLength < requested ||
-      (this.totalKnown && start + bytes.byteLength >= this.totalBytes);
 
     return { bytes, eof };
   }

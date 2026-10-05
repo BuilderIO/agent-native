@@ -409,6 +409,7 @@ describe("buildRuntimeReactStructureMoveHandoff", () => {
       subjectAnchor: { ...SUBJECT, scope: "repeated-render" },
       targetAnchor: TARGET,
       placement: "inside",
+      gridPlacement: { column: 3, columnEnd: 4, row: 2, rowEnd: 3 },
       sourceScreenId: "runtime-screen",
       targetScreenId: "source-backed-screen",
     });
@@ -417,6 +418,12 @@ describe("buildRuntimeReactStructureMoveHandoff", () => {
       expect(valid.handoff.deterministicWritebackRejection.code).toBe(
         "repeated-runtime-render",
       );
+      expect(valid.handoff.runtimeRelationship.gridPlacement).toEqual({
+        column: 3,
+        columnEnd: 4,
+        row: 2,
+        rowEnd: 3,
+      });
     }
 
     const missingTarget = buildRuntimeReactStructureMoveHandoff({
@@ -448,6 +455,22 @@ describe("buildRuntimeReactStructureMoveHandoff", () => {
         reason:
           "Cross-screen runtime structure moves require exact source and target screen ids.",
       },
+    });
+  });
+
+  it("rejects empty or non-positive grid ranges", () => {
+    expect(
+      buildRuntimeReactStructureMoveHandoff({
+        subjectAnchor: SUBJECT,
+        targetAnchor: TARGET,
+        placement: "inside",
+        gridPlacement: { column: 3, columnEnd: 3, row: 2, rowEnd: 3 },
+        sourceScreenId: "screen-a",
+        targetScreenId: "screen-b",
+      }),
+    ).toMatchObject({
+      ok: false,
+      rejection: { code: "invalid-runtime-relationship" },
     });
   });
 });

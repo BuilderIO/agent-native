@@ -79,7 +79,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) => {
     const translations: Record<string, Record<string, string>> = {
       "en-US": {
-        "agentChat.setup.connectBuilder": "Connect Builder.io",
+        "agentChat.setup.connectBuilder": "Use Builder.io",
         "agentPanel.connectAi": "Connect AI",
         "agentPanel.builderOrOwnKeys": "Choose Builder.io or custom keys.",
         "agentPanel.addOwnKeys": "Custom keys",
@@ -103,10 +103,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         "agentChat.recovery.newChatHint":
           "This run can be continued in a new chat.",
-        "agentChat.recovery.reconnectBuilder": "Reconnect Builder.io",
-        "agentChat.recovery.connectingBuilder": "Connecting Builder.io",
+        "agentChat.recovery.reconnectBuilder": "Use Builder.io",
+        "agentChat.recovery.connectingBuilder": "Setting up Builder.io",
         "agentChat.error.stopped": "The agent stopped before finishing",
-        "agentChat.error.failed": "The agent hit an error",
+        "agentChat.error.failed": "The agent run failed before it finished.",
         "agentChat.limit.reached": "Step limit reached",
         "agentChat.limit.descriptionWithCount":
           "{{formattedCount}} steps remain for {{scope}}.",
@@ -128,7 +128,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       },
       "de-DE": {
         "agentChat.error.stopped": "The agent stopped before finishing",
-        "agentChat.error.failed": "The agent hit an error",
+        "agentChat.error.failed": "The agent run failed before it finished.",
         "agentChat.recovery.copyDebug": "Debug-Informationen kopieren",
         "agentChat.recovery.copyFailed": "Kopieren fehlgeschlagen",
         "agentChat.common.copied": "Kopiert",
@@ -407,6 +407,57 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Kopieren fehlgeschlagen");
   });
 
+  it("copies a report that names the app, the thread, the run, the code, the time and the build", async () => {
+    clipboardMock.writeClipboardText.mockResolvedValue(true);
+    window.history.replaceState(null, "", "/inbox?thread=thr_77&token=secret");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The provider rejected the credential.",
+              errorCode: "credential_rejected",
+              runId: "run-123",
+              details: "attempted_runs: run-1",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    const copyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Copy debug info"),
+    );
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const copied = clipboardMock.writeClipboardText.mock.calls.at(-1)?.[0];
+    const lines = String(copied).split("\n");
+    expect(lines).toContain("error: The provider rejected the credential.");
+    expect(lines).toContain(`app: ${window.location.host}`);
+    expect(lines).toContain(`thread: ${window.location.origin}/?thread=thr_77`);
+    expect(lines).toContain("run: run-123");
+    expect(lines).toContain("code: credential_rejected");
+    expect(lines).toContain(
+      'inspect: get-agent-thread-debug {"runId":"run-123"}',
+    );
+    expect(lines.some((line) => line.startsWith("time: "))).toBe(true);
+    expect(lines.some((line) => line.startsWith("build: "))).toBe(true);
+    expect(copied).toContain("Details:\nattempted_runs: run-1");
+    expect(copied).not.toContain("secret");
+    window.history.replaceState(null, "", "/");
+  });
+
   it("keeps recovery actions compact in a narrow chat panel", async () => {
     await act(async () => {
       root.render(
@@ -513,7 +564,7 @@ describe("run recovery surfaces", () => {
     });
 
     expect(container.textContent).toContain("Connect AI");
-    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).toContain("Custom keys");
     expect(container.textContent).not.toContain(
       "The agent stopped before finishing",
@@ -550,7 +601,7 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    expect(container.textContent).toContain("Reconnect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).not.toContain("Connect AI");
     expect(container.textContent).not.toContain("Custom keys");
   });
@@ -569,7 +620,7 @@ describe("run recovery surfaces", () => {
     });
 
     expect(container.textContent).toContain("Connect AI");
-    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
 
     const customKeysLink = container.querySelector<HTMLAnchorElement>(
       'a[href="/settings/keys"]',
@@ -805,7 +856,7 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).toContain("Custom keys");
 
     const retryButton = container.querySelector<HTMLButtonElement>(
@@ -938,6 +989,30 @@ describe("run recovery surfaces", () => {
     expect((retryButton as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("offers setup for a missing provider read back from the run's record", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The agent run failed.",
+              errorCode: "missing_credentials",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Connect AI");
+  });
+
   it("routes structured provider-key errors to inline setup recovery", async () => {
     await act(async () => {
       root.render(
@@ -985,7 +1060,7 @@ describe("run recovery surfaces", () => {
     });
 
     expect(container.textContent).toContain("Connect AI");
-    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).not.toContain("The agent hit an error");
   });
 

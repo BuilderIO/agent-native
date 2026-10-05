@@ -2,6 +2,7 @@
 // PASS: go on. WAIT (exit 75): the dev server is still starting or compiling;
 // run it again. FAIL (exit 1): report the line and its screenshot, and stop.
 import { action, api, newDesign, openEditor } from "./dlib.mjs";
+import { FIGMA_LOGIN_COOKIE } from "./figlib.mjs";
 import {
   BASE,
   CDP_URL,
@@ -9,6 +10,7 @@ import {
   PROD_BASE,
   SHOTS_DIR,
   TEST_ACCOUNT,
+  chromium,
   describeEnv,
 } from "./harness-env.mjs";
 
@@ -92,6 +94,51 @@ await check(
       throw new Error("DESIGN_TEST_EMAIL / DESIGN_TEST_PASSWORD not set");
     await (await api(PROD_BASE, TEST_ACCOUNT)).dispose();
     return TEST_ACCOUNT.email;
+  },
+  { required: false },
+);
+
+/** In Fusion, the secret new branches log in with; locally, your Chrome's session. */
+async function figmaCookies() {
+  if (!FUSION) {
+    const browser = await chromium.connectOverCDP(CDP_URL);
+    try {
+      return await browser.contexts()[0].cookies("https://www.figma.com");
+    } finally {
+      await browser.close();
+    }
+  }
+  if (!process.env.FIGMA_COOKIES_B64)
+    throw new Error("FIGMA_COOKIES_B64 not set");
+  try {
+    return JSON.parse(
+      Buffer.from(process.env.FIGMA_COOKIES_B64, "base64").toString(),
+    );
+  } catch {
+    throw new Error(
+      "FIGMA_COOKIES_B64 is not a cookie export; refresh it (reference/figma.md)",
+    );
+  }
+}
+await check(
+  "Figma login",
+  async () => {
+    const refresh = FUSION
+      ? "refresh FIGMA_COOKIES_B64 (reference/figma.md)"
+      : "log in to Figma in your Chrome on :9222";
+    const login = (await figmaCookies()).find(
+      (c) => c.name === FIGMA_LOGIN_COOKIE,
+    );
+    if (!login) throw new Error(`not logged in to Figma; ${refresh}`);
+    if (login.expires <= 0) return "logged in (no expiry set)";
+    const until = new Date(login.expires * 1000);
+    const date = until.toISOString().slice(0, 10);
+    const days = Math.floor((until - Date.now()) / 86_400_000);
+    if (days < 0)
+      throw new Error(`the Figma login expired on ${date}; ${refresh}`);
+    if (days < 7)
+      throw new Error(`the Figma login expires on ${date}; ${refresh}`);
+    return `valid until ${date}`;
   },
   { required: false },
 );

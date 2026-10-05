@@ -170,7 +170,7 @@ describe("Slides canvas interaction adapter", () => {
     ).toBeNull();
   });
 
-  it("reserves only a selected object's edge band for movement", () => {
+  it("gives editable text selection priority over a selected object's edge band", () => {
     expect(
       resolveSlidesCanvasPointerIntent({
         hasSelectedObject: true,
@@ -179,7 +179,7 @@ describe("Slides canvas interaction adapter", () => {
         pointerWithinMoveBand: true,
         targetIsEditableText: true,
       }),
-    ).toBe("move-object-perimeter");
+    ).toBe("edit-text");
     expect(
       resolveSlidesCanvasPointerIntent({
         hasSelectedObject: true,

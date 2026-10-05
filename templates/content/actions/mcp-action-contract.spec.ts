@@ -5,6 +5,7 @@ import {
   MAX_MIGRATION_PLAN_BYTES,
   MAX_MIGRATION_ROWS,
 } from "./_content-database-row-migration.js";
+import { DATABASE_ROW_PATCH_LIMIT } from "./_database-row-mutation.js";
 import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
@@ -27,6 +28,7 @@ import listTrashedContentDatabases from "./list-trashed-content-databases.js";
 import manageContentDatabaseMigration from "./manage-content-database-migration.js";
 import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
+import patchDatabaseItems from "./patch-database-items.js";
 import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
 import searchDocuments from "./search-documents.js";
@@ -62,6 +64,7 @@ describe("Content action-owned agent catalogs", () => {
     "add-database-item": addDatabaseItem,
     "update-database-item": updateDatabaseItem,
     "update-database-items": updateDatabaseItems,
+    "patch-database-items": patchDatabaseItems,
     "upsert-database-item-by-key": upsertDatabaseItemByKey,
     "migrate-content-database-rows": migrateContentDatabaseRows,
   };
@@ -261,6 +264,55 @@ describe("Content action-owned agent catalogs", () => {
     ).toBe(MAX_MIGRATION_ROWS);
     expect(validateVariant.properties.plan.properties.rows.maxItems).toBe(
       MAX_MIGRATION_ROWS,
+    );
+  });
+
+  it("advertises distinct per-row patches up to the batch limit", () => {
+    const envelope = {
+      target: {
+        spaceId: "space_1",
+        databaseId: "database_1",
+        databaseDocumentId: "document_database_1",
+      },
+      expectedSchemaRevision: "schema_1",
+      idempotencyKey: "rank_refresh_1",
+    };
+    const row = (index: number) => ({
+      itemId: `item_${index}`,
+      documentId: `document_${index}`,
+      expectedRowRevision: `revision_${index}`,
+      propertyEntries: [
+        { propertyId: "rank", propertyType: "number", value: index + 1 },
+      ],
+    });
+    const rows = Array.from({ length: DATABASE_ROW_PATCH_LIMIT }, (_, index) =>
+      row(index),
+    );
+
+    expect(
+      patchDatabaseItems.schema.safeParse({ ...envelope, rows }).success,
+    ).toBe(true);
+    expect(
+      patchDatabaseItems.schema.safeParse({
+        ...envelope,
+        rows: [...rows, row(DATABASE_ROW_PATCH_LIMIT)],
+      }).success,
+    ).toBe(false);
+    expect(
+      patchDatabaseItems.schema.safeParse({ ...envelope, rows: [] }).success,
+    ).toBe(false);
+
+    const parameters = patchDatabaseItems.tool.parameters as any;
+    expect(parameters.properties.rows.maxItems).toBe(DATABASE_ROW_PATCH_LIMIT);
+    expect(parameters.properties.rows.items.properties).not.toHaveProperty(
+      "propertyValues",
+    );
+    expect(parameters.properties.target.properties).not.toHaveProperty(
+      "authorityScope",
+    );
+    expect(patchDatabaseItems.tool.description).toContain("atomic");
+    expect(updateDatabaseItems.tool.description).toContain(
+      "patch-database-items",
     );
   });
 

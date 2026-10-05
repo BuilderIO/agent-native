@@ -1,8 +1,10 @@
 import { getAgentAppModelDefaultForCurrentRequest } from "../../agent/app-model-defaults.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../../agent/chatgpt-subscription-contract.js";
 import {
   readDefaultAgentEngineSettingDetailed,
   resolveDefaultAgentEngineAuthority,
 } from "../../agent/default-agent-engine.js";
+import { listChatGPTSubscriptionModels } from "../../agent/engine/chatgpt-subscription-engine.js";
 import {
   listAgentEngines,
   registerBuiltinEngines,
@@ -24,12 +26,15 @@ import {
 } from "../../agent/provider-model-selection.js";
 import type { ActionTool } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
+import { getUserLabEnabled } from "../../labs/store.js";
 import {
   prefetchSecrets,
   readProviderCredentialRejections,
   resolveSecretDetailed,
   type ProviderCredentialRejection,
 } from "../../server/credential-provider.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 
 export const tool: ActionTool = {
   description:
@@ -73,7 +78,59 @@ async function readSavedKeyRejections(
 export async function run(args: Record<string, string> = {}): Promise<string> {
   registerBuiltinEngines();
 
-  const engines = listAgentEngines();
+  const availableEngines = listAgentEngines();
+  const requestEmail = getRequestUserEmail();
+  const chatGPTLabEnabled =
+    requestEmail &&
+    availableEngines.some(
+      (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+    )
+      ? await getUserLabEnabled(requestEmail, CHATGPT_SUBSCRIPTION_LAB)
+      : false;
+  const registeredEngines = availableEngines.filter(
+    (entry) =>
+      entry.name !== CHATGPT_SUBSCRIPTION_ENGINE_NAME || chatGPTLabEnabled,
+  );
+  const chatGPTEntry = registeredEngines.find(
+    (entry) => entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+  );
+  let chatGPTCatalog:
+    | Awaited<ReturnType<typeof listChatGPTSubscriptionModels>>
+    | undefined;
+  let chatGPTCatalogError: string | undefined;
+  if (
+    chatGPTEntry &&
+    requestEmail &&
+    (await isStoredEngineUsableForRequest(
+      { engine: chatGPTEntry.name },
+      chatGPTEntry,
+    ))
+  ) {
+    try {
+      chatGPTCatalog = await listChatGPTSubscriptionModels(requestEmail);
+    } catch (error) {
+      chatGPTCatalogError =
+        error instanceof Error ? error.message : String(error);
+    }
+  }
+  const withChatGPTModels = <T extends (typeof registeredEngines)[number]>(
+    entry: T,
+  ): T =>
+    entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME && chatGPTCatalog
+      ? ({
+          ...entry,
+          defaultModel: chatGPTCatalog.models[0] ?? "",
+          supportedModels: chatGPTCatalog.models,
+          modelDisplayNames: chatGPTCatalog.modelDisplayNames,
+        } as T)
+      : entry;
+  const engines = registeredEngines.map(withChatGPTModels);
+  const engineFor = (name: string) => {
+    const entry =
+      engines.find((candidate) => candidate.name === name) ??
+      getAgentEngineEntry(name);
+    return entry ? withChatGPTModels(entry) : undefined;
+  };
   const providerKeys = [
     ...new Set(
       engines
@@ -111,16 +168,14 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     : null;
 
   const storedEntry =
-    typeof current?.engine === "string"
-      ? getAgentEngineEntry(current.engine)
-      : undefined;
+    typeof current?.engine === "string" ? engineFor(current.engine) : undefined;
   const storedUsable =
     !!storedEntry &&
     (await isStoredEngineUsableForRequest(current, storedEntry));
   const appDefault = await getAgentAppModelDefaultForCurrentRequest(args.appId);
   const appDefaultEntry =
     typeof appDefault?.engine === "string"
-      ? getAgentEngineEntry(appDefault.engine)
+      ? engineFor(appDefault.engine)
       : undefined;
   const appDefaultUsable =
     !!appDefault &&
@@ -128,9 +183,7 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     (await isStoredEngineUsableForRequest(appDefault, appDefaultEntry));
   const detectedFromUser = await detectEngineFromUserSecrets();
   const configuredEngine = getAppConfig().agent.engine;
-  const envEntry = configuredEngine
-    ? getAgentEngineEntry(configuredEngine)
-    : undefined;
+  const envEntry = configuredEngine ? engineFor(configuredEngine) : undefined;
   const envUsable =
     !!envEntry &&
     (await isStoredEngineUsableForRequest({ engine: envEntry.name }, envEntry));
@@ -200,6 +253,9 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         configuredError =
           error instanceof Error ? error.message : String(error);
       }
+      if (e.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME && chatGPTCatalogError) {
+        configuredError = chatGPTCatalogError;
+      }
       // Builder's credentials carry their own markers and reconnect flow.
       const rejectionStates =
         e.name === "builder" || !isAgentEnginePackageInstalled(e)
@@ -219,11 +275,17 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         label: e.label,
         description: e.description,
         defaultModel: e.defaultModel,
-        supportedModels: applyProviderModelSelection(
-          e.supportedModels,
-          modelSelection,
-        ),
-        recommendedModels: e.supportedModels,
+        supportedModels:
+          e.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME
+            ? (chatGPTCatalog?.models ?? [])
+            : applyProviderModelSelection(e.supportedModels, modelSelection),
+        ...(e.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME && chatGPTCatalog
+          ? { modelDisplayNames: chatGPTCatalog.modelDisplayNames }
+          : {}),
+        recommendedModels:
+          e.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME
+            ? (chatGPTCatalog?.models ?? [])
+            : e.supportedModels,
         ...(modelSelection
           ? {
               modelSelection:

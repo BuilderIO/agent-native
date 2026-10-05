@@ -49,7 +49,7 @@ export default defineAppConfig({
     enabled: true,
     capturePrompts: false,
     captureToolArgs: true, // capture action input args
-    captureToolResults: false, // include tool results/error text on tool spans and $ai_generation entries
+    captureToolResults: false, // include tool results and the full error text on tool spans and $ai_generation entries
     evalSampleRate: 0.05, // 5% of runs get LLM-as-judge eval
     inferredSentimentEnabled: false,
     inferredSentimentSampleRate: 0,
@@ -57,6 +57,54 @@ export default defineAppConfig({
   },
 });
 ```
+
+Two things are recorded whatever the flags say, because a failure nobody can
+classify is not observable:
+
+- **A failed tool span always keeps a signature**: the first line of the error,
+  redacted (credentials, emails, long opaque ids) and capped at 500
+  characters. `captureToolResults` only decides
+  whether the rest is kept. The span's metadata says which (`__tool_error_detail`:
+  `full` | `signature`), and the read path returns it as `errorDetail`
+  (`full` | `signature` | `withheld` | `unrecorded`) so "withheld on purpose" is
+  never read as "nothing was recorded". `$ai_*` events and OTel spans still
+  follow the flag.
+- **A stop that waits on the user is not an error.** An `input_required`
+  outcome (question, approval, connection) records the `agent_run` span as
+  `status: "paused"` with the reason in `terminal_code`, not `error`. Anything
+  that counts failed runs must treat `paused` as non-error; an `error` event
+  that follows the pause still makes the run an error.
+
+#### From an error report to the failing run
+
+A report is only useful if it names where it happened. Four pieces make that
+true, so nobody has to ask the reporter for an example:
+
+- **The failure packet.** Every server `captureError()` carries
+  `extra.failureContext` (`app`, `route`, `actionName`, `automationName`,
+  `threadId`, `runId`, `requestId`, `userScope`, `threadUrl`, build,
+  environment, `errorCode`, `failureClass`); see the tracking skill for how it
+  is derived. `threadUrl` is `https://<app host>/?thread=<chat_threads.id>`, and
+  the Analytics issue page links it. The same fields (`$ai_trace_id` = run id,
+  `thread_id`) are on the `$ai_trace` for the run.
+- **A copyable report on the client.** `formatClientFailureReport()` from
+  `@agent-native/core/client/failure-report` builds the plain-text packet (app,
+  thread link, run, request, code, time, build, and the inspection call) for a
+  "Copy details" button. The chat run-error card's existing "Copy debug info"
+  button uses it; call it from any other error card. It needs only what the
+  card already knows (`message`, `errorCode`, `runId`, `requestId`) and falls
+  back to the open thread. The error-screen "Open GitHub issue" template adds
+  the same thread link, build and time. A failed action carries `error.requestId` (the
+  response's `x-agent-native-request-id`, also on the server capture's
+  `failureContext.requestId`).
+- **Read by id.** Dispatch's `get-agent-thread-debug` takes a `threadId` or the
+  copied run id (`run-…`) and returns the run's `terminalReason` and terminal
+  event, its events, trace spans (failed tools carry a signature, see above),
+  feedback and checkpoints; `list-agent-run-failures` finds candidates. Both are
+  owner-scoped. Without Dispatch, `GET /_agent-native/observability/traces/:runId`
+  returns the same spans for the caller's own runs.
+- **Alerts name examples.** The chat-health Slack alert lists the latest failed
+  turns as `threadUrl (run id, code)`; if they cannot be read it says so.
 
 #### Optional inferred sentiment
 
@@ -277,6 +325,10 @@ All tables are PostgreSQL-compatible and strictly additive.
 | `packages/core/src/observability/store.ts` | SQL tables + CRUD |
 | `packages/core/src/observability/traces.ts` | Auto-instrumentation |
 | `packages/core/src/observability/posthog-ai.ts` | `$ai_trace` / `$ai_span` / `survey sent` emission, content bounding, `$ai_error` |
+| `packages/core/src/observability/failure-context.ts` | The server failure packet (`buildFailureContext`, `withFailureContext`), applied by `captureError()` |
+| `packages/core/src/shared/failure-report.ts` | The packet type, the `?thread=` link, and the plain-text report format |
+| `packages/core/src/client/failure-report.ts` | The browser's packet and `formatClientFailureReport()` for "Copy details" |
+| `packages/core/src/tracking/failure-counters.ts` | Windowed failure counters (`action_error_counts`, `credential_state_counts`) |
 | `packages/core/src/observability/feedback.ts` | Feedback + Frustration Index |
 | `packages/core/src/observability/evals.ts` | Eval engine (3 layers) |
 | `packages/core/src/observability/experiments.ts` | A/B testing system |

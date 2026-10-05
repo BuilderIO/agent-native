@@ -114,6 +114,23 @@ describe("resolveAuthSecret", () => {
     });
   });
 
+  it("rethrows one refusal per process instead of building one per request", () => {
+    process.env.NODE_ENV = "production";
+    const refusals = [0, 1, 2].map(() => {
+      try {
+        getAuthSecret();
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    });
+    expect(refusals[0]).toMatchObject({ name: "MissingAuthSecretError" });
+    expect(new Set(refusals).size).toBe(1);
+
+    process.env.BETTER_AUTH_SECRET = "configured-later";
+    expect(getAuthSecret()).toBe("configured-later");
+  });
+
   it.each(["beta", "preview", "production"])(
     "never persists a generated secret in %s",
     (environment) => {

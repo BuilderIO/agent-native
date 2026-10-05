@@ -38,7 +38,7 @@ async function action(
   return response.json();
 }
 
-async function createDesign(request: APIRequestContext) {
+async function createDesign(request: APIRequestContext, content = SCREEN_HTML) {
   const created = await action(request, "create-design", {
     title: `Corner radius drag ${Date.now()}`,
     projectType: "prototype",
@@ -48,7 +48,7 @@ async function createDesign(request: APIRequestContext) {
   const file = await action(request, "create-file", {
     designId,
     filename: "index.html",
-    content: SCREEN_HTML,
+    content,
     fileType: "html",
   });
   const fileId = file.id ?? file.data?.id;
@@ -98,7 +98,7 @@ async function expectSelectedLayer(page: Page, sourceId: string) {
     .toMatchObject({ sourceId, tagName: "svg" });
 }
 
-async function setOverviewZoom(page: Page, zoom: 200) {
+async function setOverviewZoom(page: Page, zoom: number = 200) {
   const zoomButton = page
     .getByRole("button")
     .filter({ hasText: /^\s*\d+%\s*$/ })
@@ -363,6 +363,268 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
 
     await selectLayerFromTree(page, "Empty rectangle");
     await expectSelectionOverlayToMatch(page, frame, "#empty-rectangle");
+    await expect(handles).toHaveCount(0);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("asymmetric normalized radius handle follows a normal drag without jumping", async ({
+  page,
+  request,
+}) => {
+  const asymmetricHtml = SCREEN_HTML.replace(
+    "width:110px;height:80px;background:#0f766e;color:#fff",
+    "width:200px;height:100px;background:#0f766e;color:#fff;border-top-left-radius:300px 200px",
+  );
+  const { designId, fileId } = await createDesign(request, asymmetricHtml);
+  try {
+    await gotoEditor(page, designId);
+    await setOverviewZoom(page, 100);
+    await selectByText(page, "Radius target", { screenId: fileId });
+    const frame = designFrame(page, fileId);
+    const target = frame.locator("#radius-target");
+    const targetBox = await target.boundingBox();
+    if (!targetBox) throw new Error("radius target is not laid out");
+    const canvasScale = targetBox.width / 200;
+    const expectedStart = {
+      x: targetBox.x + 154 * canvasScale,
+      y: targetBox.y + 104 * canvasScale,
+    };
+    await page.mouse.move(expectedStart.x, expectedStart.y);
+
+    const handle = frame.locator('[data-agent-native-radius-handle="nw"]');
+    await expect(handle).toHaveCSS("visibility", "visible");
+    const initialBox = await handle.boundingBox();
+    if (!initialBox)
+      throw new Error("north-west radius handle is not laid out");
+    const start = {
+      x: initialBox.x + initialBox.width / 2,
+      y: initialBox.y + initialBox.height / 2,
+    };
+    expect(Math.abs(start.x - expectedStart.x)).toBeLessThan(1.5);
+    expect(Math.abs(start.y - expectedStart.y)).toBeLessThan(1.5);
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    const pointer = { x: start.x - 1, y: start.y - 1 };
+    await page.mouse.move(pointer.x, pointer.y, { steps: 2 });
+
+    await expect
+      .poll(async () => {
+        const moved = await handle.boundingBox();
+        if (!moved) return Number.POSITIVE_INFINITY;
+        return Math.hypot(
+          moved.x + moved.width / 2 - pointer.x,
+          moved.y + moved.height / 2 - pointer.y,
+        );
+      })
+      .toBeLessThan(1.5);
+    await expect(target).toHaveCSS("border-top-left-radius", "149px 99px");
+    if (process.env.E2E_CAPTURE_ASYMMETRIC_RADIUS_SCREENSHOT === "1") {
+      await page.screenshot({
+        path: resolve(
+          process.cwd(),
+          "../../.tmp/design-asymmetric-radius-normal-drag.png",
+        ),
+      });
+    }
+    await page.mouse.up();
+
+    await expect
+      .poll(async () => {
+        const response = await request.get(
+          appPath(
+            `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+          ),
+        );
+        if (!response.ok()) return "";
+        const design = await response.json();
+        const html = design.files?.find(
+          (file: { id?: string }) => file.id === fileId,
+        )?.content;
+        if (typeof html !== "string") return "";
+        return page.evaluate((source) => {
+          const doc = new DOMParser().parseFromString(source, "text/html");
+          return (
+            doc.querySelector<HTMLElement>("#radius-target")?.style
+              .borderTopLeftRadius ?? ""
+          );
+        }, html);
+      })
+      .toBe("149px 99px");
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(() =>
+        designFrame(page, fileId)
+          .locator("#radius-target")
+          .evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
+      )
+      .toBe("149px 99px");
+  } finally {
+    await action(request, "delete-design", { id: designId });
+  }
+});
+
+test("Alt-drag can grow an asymmetric normalized corner past its rendered start", async ({
+  page,
+  request,
+}) => {
+  const asymmetricHtml = SCREEN_HTML.replace(
+    "width:110px;height:80px;background:#0f766e;color:#fff",
+    "width:200px;height:100px;background:#0f766e;color:#fff;border-top-left-radius:300px 200px",
+  );
+  const { designId, fileId } = await createDesign(request, asymmetricHtml);
+  try {
+    await gotoEditor(page, designId);
+    await setOverviewZoom(page, 100);
+    await selectByText(page, "Radius target", { screenId: fileId });
+    const frame = designFrame(page, fileId);
+    const target = frame.locator("#radius-target");
+    const targetBox = await target.boundingBox();
+    if (!targetBox) throw new Error("radius target is not laid out");
+    const canvasScale = targetBox.width / 200;
+    const expectedStart = {
+      x: targetBox.x + 154 * canvasScale,
+      y: targetBox.y + 104 * canvasScale,
+    };
+    await page.mouse.move(expectedStart.x, expectedStart.y);
+
+    const handle = frame.locator('[data-agent-native-radius-handle="nw"]');
+    await expect(handle).toHaveCSS("visibility", "visible");
+    const initialBox = await handle.boundingBox();
+    if (!initialBox)
+      throw new Error("north-west radius handle is not laid out");
+    const start = {
+      x: initialBox.x + initialBox.width / 2,
+      y: initialBox.y + initialBox.height / 2,
+    };
+    expect(Math.abs(start.x - expectedStart.x)).toBeLessThan(1.5);
+    expect(Math.abs(start.y - expectedStart.y)).toBeLessThan(1.5);
+    await page.mouse.move(start.x, start.y);
+    await page.keyboard.down("Alt");
+    await page.mouse.down();
+    const pointer = { x: start.x + 1, y: start.y };
+    await page.mouse.move(pointer.x, pointer.y, { steps: 2 });
+
+    await expect(target).toHaveCSS("border-top-left-radius", "151px 100px");
+    await expect
+      .poll(async () => {
+        const moved = await handle.boundingBox();
+        if (!moved) return Number.POSITIVE_INFINITY;
+        return Math.hypot(
+          moved.x + moved.width / 2 - pointer.x,
+          moved.y + moved.height / 2 - pointer.y,
+        );
+      })
+      .toBeLessThan(1.5);
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+
+    await expect
+      .poll(async () => {
+        const response = await request.get(
+          appPath(
+            `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+          ),
+        );
+        if (!response.ok()) return "";
+        const design = await response.json();
+        const html = design.files?.find(
+          (file: { id?: string }) => file.id === fileId,
+        )?.content;
+        if (typeof html !== "string") return "";
+        return page.evaluate((source) => {
+          const doc = new DOMParser().parseFromString(source, "text/html");
+          return (
+            doc.querySelector<HTMLElement>("#radius-target")?.style
+              .borderTopLeftRadius ?? ""
+          );
+        }, html);
+      })
+      .toBe("151px 100px");
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("Alt-drag can grow an unnormalized oversized corner past half the box", async ({
+  page,
+  request,
+}) => {
+  const asymmetricHtml = SCREEN_HTML.replace(
+    "width:110px;height:80px;background:#0f766e;color:#fff",
+    "width:200px;height:100px;background:#0f766e;color:#fff;border-top-left-radius:150px 40px",
+  );
+  const { designId, fileId } = await createDesign(request, asymmetricHtml);
+  try {
+    await gotoEditor(page, designId);
+    await setOverviewZoom(page, 100);
+    await selectByText(page, "Radius target", { screenId: fileId });
+    const frame = designFrame(page, fileId);
+    const target = frame.locator("#radius-target");
+    const targetBox = await target.boundingBox();
+    if (!targetBox) throw new Error("radius target is not laid out");
+    const canvasScale = targetBox.width / 200;
+    const expectedStart = {
+      x: targetBox.x + 154 * canvasScale,
+      y: targetBox.y + 44 * canvasScale,
+    };
+    await page.mouse.move(expectedStart.x, expectedStart.y);
+
+    const handle = frame.locator('[data-agent-native-radius-handle="nw"]');
+    await expect(handle).toHaveCSS("visibility", "visible");
+    const initialBox = await handle.boundingBox();
+    if (!initialBox)
+      throw new Error("north-west radius handle is not laid out");
+    const start = {
+      x: initialBox.x + initialBox.width / 2,
+      y: initialBox.y + initialBox.height / 2,
+    };
+    expect(Math.abs(start.x - expectedStart.x)).toBeLessThan(1.5);
+    expect(Math.abs(start.y - expectedStart.y)).toBeLessThan(1.5);
+    await page.mouse.move(start.x, start.y);
+    await page.keyboard.down("Alt");
+    await page.mouse.down();
+    const pointer = { x: start.x + 1, y: start.y };
+    await page.mouse.move(pointer.x, pointer.y, { steps: 2 });
+
+    await expect(target).toHaveCSS("border-top-left-radius", "151px 40px");
+    await expect
+      .poll(async () => {
+        const moved = await handle.boundingBox();
+        if (!moved) return Number.POSITIVE_INFINITY;
+        return Math.hypot(
+          moved.x + moved.width / 2 - pointer.x,
+          moved.y + moved.height / 2 - pointer.y,
+        );
+      })
+      .toBeLessThan(1.5);
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
+
+    await expect
+      .poll(async () => {
+        const response = await request.get(
+          appPath(
+            `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+          ),
+        );
+        if (!response.ok()) return "";
+        const design = await response.json();
+        const html = design.files?.find(
+          (file: { id?: string }) => file.id === fileId,
+        )?.content;
+        if (typeof html !== "string") return "";
+        return page.evaluate((source) => {
+          const doc = new DOMParser().parseFromString(source, "text/html");
+          return (
+            doc.querySelector<HTMLElement>("#radius-target")?.style
+              .borderTopLeftRadius ?? ""
+          );
+        }, html);
+      })
+      .toBe("151px 40px");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

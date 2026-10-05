@@ -2,6 +2,22 @@ const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
 const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
 const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
+const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
+
+/**
+ * Fired on `window` the first time a stale chunk could not be recovered by a
+ * reload. The shared noise rules drop the raw dynamic-import failure because
+ * recovery handles it; this is the one signal that it did not, so a deploy whose
+ * chunks are gone for everyone stays visible.
+ */
+export const STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT =
+  "agent-native:stale-chunk-recovery-exhausted";
+
+export type StaleChunkRecoveryExhaustedReason = "cooldown" | "desktop";
+
+export interface StaleChunkRecoveryExhausted {
+  reason: StaleChunkRecoveryExhaustedReason;
+}
 
 export interface RouteChunkRecoveryState {
   intendedHref: string | null;
@@ -173,17 +189,48 @@ function markStaleChunkReload(win: Window, now: number): void {
   } catch {}
 }
 
+/** The recorded exhaustion for this page session, if recovery ever gave up. */
+export function readStaleChunkRecoveryExhausted(
+  win: Window | undefined = typeof window === "undefined" ? undefined : window,
+): StaleChunkRecoveryExhausted | undefined {
+  if (!win) return undefined;
+  return (win as unknown as Record<string, unknown>)[
+    STALE_CHUNK_EXHAUSTED_KEY
+  ] as StaleChunkRecoveryExhausted | undefined;
+}
+
+// Recorded on the window as well as dispatched: the first failing chunk is
+// usually the route module at hydration, before error capture has installed.
+function reportStaleChunkRecoveryExhausted(
+  win: Window,
+  reason: StaleChunkRecoveryExhaustedReason,
+): void {
+  if (readStaleChunkRecoveryExhausted(win)) return;
+  const detail: StaleChunkRecoveryExhausted = { reason };
+  (win as unknown as Record<string, unknown>)[STALE_CHUNK_EXHAUSTED_KEY] =
+    detail;
+  if (typeof win.dispatchEvent !== "function") return;
+  if (typeof CustomEvent !== "function") return;
+  win.dispatchEvent(
+    new CustomEvent(STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT, { detail }),
+  );
+}
+
 export function reloadForStaleChunk(
   win: Window | undefined = typeof window === "undefined" ? undefined : window,
   now = Date.now(),
 ): boolean {
   if (!win?.location) return false;
-  if (isAgentNativeDesktop(win)) return false;
+  if (isAgentNativeDesktop(win)) {
+    reportStaleChunkRecoveryExhausted(win, "desktop");
+    return false;
+  }
   const lastReloadAt = readStaleChunkReloadAt(win);
   if (
     lastReloadAt > 0 &&
     now - lastReloadAt <= STALE_CHUNK_RELOAD_COOLDOWN_MS
   ) {
+    reportStaleChunkRecoveryExhausted(win, "cooldown");
     return false;
   }
   markStaleChunkReload(win, now);
@@ -271,7 +318,7 @@ function patchReload(win: Window, state: RouteChunkRecoveryState): void {
           return;
         }
       }
-      if (isAgentNativeDesktop(win)) return;
+      // reloadForStaleChunk reports a desktop window that cannot reload.
       reloadForStaleChunk(win);
       return;
     }

@@ -395,6 +395,39 @@ describe("rich text selection", () => {
 });
 
 describe("setInlineTextLink", () => {
+  it("does not normalize an unrelated flex list row", () => {
+    const block = editable(
+      '<ul><li style="display: flex"><span data-slide-inline-style="true" style="font-weight: 700;">•</span><span data-slide-inline-style="true" style="font-weight: 700;"></span><span data-slide-inline-style="true" style="font-weight: 700;">label</span></li></ul><p>Link this</p>',
+    );
+    const list = block.querySelector("ul")!;
+    const before = list.innerHTML;
+    const text = block.querySelector("p")!.firstChild as Text;
+    rangeFor(text, 0, text, text.length);
+
+    setInlineTextLink(block, "https://example.com");
+
+    expect(list.innerHTML).toBe(before);
+  });
+
+  it("normalizes adjacent styled runs within a regular list item", () => {
+    const block = editable(
+      '<ul><li><span data-slide-inline-style="true" style="color: red;">a</span><span data-slide-inline-style="true" style="color: red;">b</span></li></ul>',
+    );
+    const item = block.querySelector("li")!;
+    const [first, second] = Array.from(
+      item.querySelectorAll("span"),
+      (span) => span.firstChild as Text,
+    );
+    rangeFor(first, 0, second, 1);
+
+    setInlineTextLink(block, "https://example.com");
+
+    expect(item.querySelectorAll("span[data-slide-inline-style]")).toHaveLength(
+      1,
+    );
+    expect(item.textContent).toBe("ab");
+  });
+
   it("links each selected run without splitting author elements", () => {
     const block = document.createElement("p");
     block.innerHTML = 'Read <em class="pill">the docs</em> now';

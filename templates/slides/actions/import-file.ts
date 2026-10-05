@@ -107,8 +107,8 @@ export default defineAction({
         "Maximum extracted source characters to return when not importing directly into a deck (default 60000).",
       ),
   }),
-  run: async ({ filePath, format, deckId, importIntoDeck, maxChars }) => {
-    const uploaded = await readUserUploadedFile(filePath);
+  run: async ({ filePath, format, deckId, importIntoDeck, maxChars }, ctx) => {
+    const uploaded = await readUserUploadedFile(filePath, ctx);
     const sourceLimit = maxChars ?? DEFAULT_MAX_SOURCE_CHARS;
     const fileBuffer = uploaded.data;
     const filename = uploaded.filename;

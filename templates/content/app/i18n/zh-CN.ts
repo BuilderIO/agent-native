@@ -236,7 +236,7 @@ const databaseExactEnglish = {
   analyzingBothSourcesForASharedKey: "正在分析两个来源的共享键",
   bodyDiff: "正文差异",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder 未连接。请先返回并连接你的账户。",
+    "Builder 尚未连接。请返回并先使用 Builder.io。",
   calendarBy: "日历依据",
   checkingBuilderConnection: "正在检查 Builder 连接",
   clearAll: "全部清除",
@@ -248,7 +248,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "折叠所有分组",
   collapseAll: "全部折叠",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "连接你的 Builder 账户以浏览其空间和模型。",
+    "使用 Builder 账户浏览其空间和模型。",
   connectedSources: "已连接的来源",
   couldntSyncRetry: "无法同步 · 重试",
   countAll: "全部计数",
@@ -1038,7 +1038,6 @@ const rawLiterals = {
 
 const landing = {
   previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
-  requestedPageUnavailable: "该页面对你的账户不可用，因此我们打开了欢迎页面。",
   saveFailed: "无法保存您的位置",
   workspaceWelcomeUnavailableTitle: "此处尚未打开任何内容",
   workspaceWelcomeUnavailableDescription:
@@ -1321,6 +1320,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "内容",
+    loadingContent: "正在加载内容",
     commandSearchDocuments: "搜索文档",
     searchSince: "自 {{date}} 起",
     searchModifiedSince: "修改时间自 {{date}} 起",
@@ -1412,6 +1412,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未选择页面",
+    signedInAs: "当前登录账号：{{email}}",
+    goToMyPages: "前往我的页面",
+    switchAccount: "切换账号",
     noPageDescription: "从侧边栏选择页面，或创建新页面开始。",
     newPage: "新页面",
     createFailed: "创建页面失败",

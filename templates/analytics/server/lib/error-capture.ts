@@ -3,8 +3,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
-import { recordChange } from "@agent-native/core/server";
+import { isTestIdentity, recordChange } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import {
+  classifyErrorNoise,
+  isBenignAbort,
+  isThirdPartyFrameFile,
+  isWrapperFrame,
+  stripSqlParams,
+  type ErrorNoiseReason,
+} from "@agent-native/core/shared/error-noise";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -74,6 +82,11 @@ const VENDOR_FILE_RE =
 function isInAppFile(file: string | null): boolean {
   if (!file) return false;
   if (file === "<anonymous>" || file === "[native code]") return false;
+  // `node:internal/process/task_queues` sits under every undici/async failure;
+  // as a culprit it would make unrelated server errors one issue.
+  if (file.startsWith("node:")) return false;
+  // Extension, GTM, and vendor-pixel frames are never ours, wherever they sit.
+  if (isThirdPartyFrameFile(file)) return false;
   return !VENDOR_FILE_RE.test(file);
 }
 
@@ -136,13 +149,18 @@ function parseStackLine(rawLine: string): ParsedStackFrame | null {
   const atIndex = line.lastIndexOf("@");
   if (atIndex >= 0) {
     const fn = line.slice(0, atIndex).trim();
-    const loc = parseLocation(line.slice(atIndex + 1));
-    return {
-      function: fn || null,
-      ...loc,
-      inApp: isInAppFile(loc.file),
-      raw: line,
-    };
+    const locText = line.slice(atIndex + 1).trim();
+    // `params: a@b.com` from a database error is text, not `fn@location`.
+    if (looksLikeLocation(locText) || locText === "[native code]") {
+      const loc = parseLocation(locText);
+      return {
+        function: fn || null,
+        ...loc,
+        inApp: isInAppFile(loc.file),
+        raw: line,
+      };
+    }
+    return null;
   }
 
   if (looksLikeLocation(line)) {
@@ -162,9 +180,15 @@ export function parseStack(
   stack: string | null | undefined,
 ): ParsedStackFrame[] {
   if (!stack || typeof stack !== "string") return [];
+  const lines = stack.split("\n");
+  // In a V8 stack everything before the first `at` line is the message, which
+  // may itself span lines (a database error's `params:` line); only `at` lines
+  // are frames.
+  const isV8 = lines.some((line) => /^\s*at\s/.test(line));
   const frames: ParsedStackFrame[] = [];
-  for (const line of stack.split("\n")) {
+  for (const line of lines) {
     if (frames.length >= MAX_FRAMES) break;
+    if (isV8 && !line.trim().startsWith("at ")) continue;
     const frame = parseStackLine(line);
     if (frame) frames.push(frame);
   }
@@ -356,6 +380,7 @@ function normalizeMessageForFingerprint(message: string): string {
   return (
     message
       .replace(/https?:\/\/\S+/gi, "<url>")
+      .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "<email>")
       .replace(
         /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
         "<uuid>",
@@ -389,23 +414,83 @@ function hashHex(input: string): string {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
+// The innermost frame that is ours and is not one of our own fetch patches.
+// Those wrappers sit in front of the real caller of every network failure and
+// would otherwise become the culprit of an error a vendor script caused.
 function topFrame(frames: ParsedStackFrame[]): ParsedStackFrame | null {
-  return frames.find((frame) => frame.inApp) ?? frames[0] ?? null;
+  const wrapperFree = frames.find(
+    (frame) =>
+      frame.inApp &&
+      !isWrapperFrame({
+        function: frame.function ?? undefined,
+        filename: frame.file ?? undefined,
+      }),
+  );
+  return (
+    wrapperFree ?? frames.find((frame) => frame.inApp) ?? frames[0] ?? null
+  );
+}
+
+// Messages that name a failure but not where it happened. Everything else is
+// grouped on type + message alone: a minified server bundle renames its
+// functions on every deploy, so keying on the frame split one error into an
+// issue per deploy (13 issues for one missing-secret error). A message that is
+// the same string from unrelated call sites (undici's bare `fetch failed`
+// from Gmail and from the LLM, React's minified `#<n>`) cannot be told apart
+// without the frame, so it belongs here.
+const GENERIC_MESSAGE_RE =
+  /^(?:[A-Za-z]*Error:\s*)?(?:Failed to fetch|Load failed|Network ?Error|Network request failed|Script error|Maximum call stack|Cannot read propert(?:y|ies) of|Unexpected token|Unexpected end of|Minified React error|Request failed with status code \d+|(?:fetch failed|terminated|This operation was aborted|Internal Server Error)\s*$|.{1,80} is (?:not a function|not defined|not an object|undefined|null))/i;
+
+// A minified name (`kn`, `Po`) changes with every build; only a readable one is
+// worth grouping on.
+function stableFunctionName(fn: string | null): string {
+  if (!fn) return "";
+  const last = fn.split(".").pop() ?? "";
+  if (last.length <= 3 || /^<?anonymous>?$/i.test(last)) return "";
+  return fn;
+}
+
+export interface FingerprintGrouping {
+  errorCode?: string | null;
+  failureClass?: string | null;
+  /** Issues are per app: one message from two apps is two bugs. */
+  app?: string | null;
 }
 
 export function fingerprint(
   type: string,
   frames: ParsedStackFrame[],
   message: string,
+  grouping: FingerprintGrouping = {},
 ): string {
   const groupingType = type === "UnhandledRejection" ? "Error" : type;
-  const frame = topFrame(frames);
   const normalizedMessage = normalizeMessageForFingerprint(message);
-  const key =
-    frame && (frame.file || frame.function)
-      ? `${groupingType}|${normalizeFrameFile(frame.file)}|${frame.function ?? ""}|${normalizedMessage}`
-      : `${groupingType}|${normalizedMessage}`;
-  return hashHex(key);
+  const parts = [groupingType, normalizedMessage];
+  // The digits after "React error" are the error code (418 hydration vs 185
+  // update loop), not a variable part.
+  const reactErrorCode = message.match(/React error #(\d+)/i)?.[1];
+  if (reactErrorCode) parts.push(`react:${reactErrorCode}`);
+  if (!normalizedMessage || GENERIC_MESSAGE_RE.test(message.trim())) {
+    const frame = topFrame(frames);
+    if (frame && (frame.file || frame.function)) {
+      parts.push(
+        `${normalizeFrameFile(frame.file)}|${stableFunctionName(frame.function)}`,
+      );
+    }
+  }
+  const app = grouping.app?.trim().toLowerCase();
+  if (app) parts.push(`app:${app.slice(0, 100)}`);
+  if (grouping.errorCode) {
+    parts.push(
+      `code:${String(grouping.errorCode).slice(0, 100).toLowerCase()}`,
+    );
+  }
+  if (grouping.failureClass) {
+    parts.push(
+      `class:${String(grouping.failureClass).slice(0, 100).toLowerCase()}`,
+    );
+  }
+  return hashHex(parts.join("|"));
 }
 
 export function titleFromException(type: string, message: string): string {
@@ -448,6 +533,8 @@ export interface ConsoleErrorSignature {
   source?: string | null;
   message: string;
   stack?: string | null;
+  /** The recording's app; ingest keys issues on it. */
+  app?: string | null;
 }
 
 export function candidateFingerprintsForConsole(
@@ -455,9 +542,12 @@ export function candidateFingerprintsForConsole(
 ): string[] {
   const frames = parseStack(signature.stack ?? undefined);
   const { type, message } = deriveConsoleExceptionIdentity(signature.message);
-  const fingerprints = [fingerprint(type, frames, message)];
+  const grouping = { app: signature.app };
+  const fingerprints = [fingerprint(type, frames, message, grouping)];
   if (signature.source === "unhandledrejection" && type === "Error") {
-    fingerprints.push(fingerprint("UnhandledRejection", frames, message));
+    fingerprints.push(
+      fingerprint("UnhandledRejection", frames, message, grouping),
+    );
   }
   return Array.from(new Set(fingerprints));
 }
@@ -490,6 +580,8 @@ export interface DerivedExceptionFields {
   userKey: string | null;
   sessionId: string | null;
   timestamp: string;
+  /** Occurrence came from a QA/E2E identity: kept, but never alerted or listed by default. */
+  testIdentity: boolean;
 }
 
 export interface RawExceptionInput {
@@ -509,17 +601,7 @@ export interface RawExceptionInput {
 export function isBenignBrowserAbortException(
   input: Pick<RawExceptionInput, "type" | "message">,
 ): boolean {
-  const exceptionType = input.type.trim().toLowerCase();
-  const exceptionValue = input.message.trim().toLowerCase();
-  return (
-    exceptionValue === "the user aborted a request." ||
-    exceptionValue === "signal is aborted without reason" ||
-    exceptionValue === "aborterror: the user aborted a request." ||
-    exceptionValue === "aborterror: signal is aborted without reason" ||
-    (exceptionType === "aborterror" &&
-      (exceptionValue.includes("the user aborted a request") ||
-        exceptionValue.includes("signal is aborted without reason")))
-  );
+  return isBenignAbort(input.type, input.message);
 }
 
 function nowIso(): string {
@@ -567,11 +649,13 @@ export function extractExceptionInput(
   properties: Record<string, unknown>,
 ): RawExceptionInput {
   const type = asString(properties.exceptionType) || "Error";
-  const message = (asString(properties.exceptionMessage) || "").slice(
-    0,
-    MAX_MESSAGE,
-  );
+  // Bound parameters from a database error ride on the message and stack; strip
+  // them here too so an older sender cannot put an email in an issue title.
+  const message = stripSqlParams(
+    asString(properties.exceptionMessage) || "",
+  ).slice(0, MAX_MESSAGE);
   const rawStack = asString(properties.exceptionStack);
+  const safeStack = rawStack ? stripSqlParams(rawStack) : null;
   const handled = properties.handled === true;
   const level = coerceLevel(properties.level);
   const clientRecordingId =
@@ -583,7 +667,7 @@ export function extractExceptionInput(
   return {
     type,
     message,
-    rawStack: rawStack ? rawStack.slice(0, MAX_RAW_STACK) : null,
+    rawStack: safeStack ? safeStack.slice(0, MAX_RAW_STACK) : null,
     handled,
     level,
     release: asString(properties.release),
@@ -673,6 +757,7 @@ async function pruneAndCountUsers(
     .where(
       and(
         eq(schema.errorEvents.issueId, issueId),
+        eq(schema.errorEvents.testIdentity, false),
         eq(schema.errorEvents.ownerEmail, scope.ownerEmail),
         scope.orgId
           ? eq(schema.errorEvents.orgId, scope.orgId)
@@ -684,9 +769,132 @@ async function pruneAndCountUsers(
 
 export interface IngestExceptionResult {
   issueId: string;
-  eventId: string;
+  /** Null when the occurrence was counted but not stored as a sample event. */
+  eventId: string | null;
   isNewIssue: boolean;
   sessionRecordingId: string | null;
+  stored: boolean;
+}
+
+// A hot issue keeps counting but stops storing every occurrence: each stored
+// event costs ~6 writes in the same database an outage would be exhausting.
+const FULL_CAPTURE_EVENTS = 20;
+const SAMPLE_INTERVAL_MS = 60_000;
+const MAX_SAMPLER_KEYS = 2_000;
+const MAX_SAMPLED_USERS_PER_KEY = 200;
+const INGEST_LOG_INTERVAL_MS = 30_000;
+
+interface SamplerEntry {
+  lastStoredAt: number;
+  users: Set<string>;
+}
+
+const samplers = new Map<string, SamplerEntry>();
+
+export interface ErrorIngestStats {
+  ingested: number;
+  sampledOut: number;
+  failed: number;
+  suppressed: Partial<Record<ErrorNoiseReason, number>>;
+}
+
+const ingestStats: ErrorIngestStats & {
+  lastLogAt: number;
+  unloggedFailed: number;
+} = {
+  ingested: 0,
+  sampledOut: 0,
+  failed: 0,
+  suppressed: {},
+  lastLogAt: 0,
+  unloggedFailed: 0,
+};
+
+export function getErrorIngestStats(): ErrorIngestStats {
+  return {
+    ingested: ingestStats.ingested,
+    sampledOut: ingestStats.sampledOut,
+    failed: ingestStats.failed,
+    suppressed: { ...ingestStats.suppressed },
+  };
+}
+
+export function resetErrorIngestStateForTests(): void {
+  samplers.clear();
+  ingestStats.ingested = 0;
+  ingestStats.sampledOut = 0;
+  ingestStats.failed = 0;
+  ingestStats.suppressed = {};
+  ingestStats.lastLogAt = 0;
+  ingestStats.unloggedFailed = 0;
+}
+
+/**
+ * Count exception events that never reached `error_issues` and say so at error
+ * level. A failed ingest used to be a `console.warn` per event, lost in the
+ * noise exactly when a database incident made it matter. The line is throttled
+ * so the outage does not also become a log flood; the counter is exact.
+ */
+export function recordErrorIngestFailure(count: number, error: unknown): void {
+  ingestStats.failed += count;
+  ingestStats.unloggedFailed += count;
+  const now = Date.now();
+  if (
+    ingestStats.lastLogAt !== 0 &&
+    now - ingestStats.lastLogAt < INGEST_LOG_INTERVAL_MS
+  ) {
+    return;
+  }
+  ingestStats.lastLogAt = now;
+  const dropped = ingestStats.unloggedFailed;
+  ingestStats.unloggedFailed = 0;
+  console.error(
+    `[error-capture] INGEST_DROPPED ${JSON.stringify({
+      dropped,
+      totalDropped: ingestStats.failed,
+      reason:
+        error instanceof Error
+          ? error.message.slice(0, 300)
+          : String(error).slice(0, 300),
+    })}`,
+  );
+}
+
+function shouldStoreSample(
+  key: string,
+  userKey: string | null,
+  now: number,
+): boolean {
+  const entry = samplers.get(key);
+  if (!entry) {
+    if (samplers.size >= MAX_SAMPLER_KEYS) {
+      const oldest = samplers.keys().next().value;
+      if (oldest !== undefined) samplers.delete(oldest);
+    }
+    samplers.set(key, {
+      lastStoredAt: now,
+      users: new Set(userKey ? [userKey] : []),
+    });
+    return true;
+  }
+  if (now - entry.lastStoredAt >= SAMPLE_INTERVAL_MS) {
+    entry.lastStoredAt = now;
+    if (userKey && entry.users.size < MAX_SAMPLED_USERS_PER_KEY) {
+      entry.users.add(userKey);
+    }
+    return true;
+  }
+  // A user this instance has not stored yet is always worth one event, so
+  // `usersAffected` keeps growing while the volume is sampled.
+  if (
+    userKey &&
+    !entry.users.has(userKey) &&
+    entry.users.size < MAX_SAMPLED_USERS_PER_KEY
+  ) {
+    entry.users.add(userKey);
+    return true;
+  }
+  return false;
 }
 
 async function findIssueForFingerprint(
@@ -710,6 +918,27 @@ async function findIssueForFingerprint(
   return issue;
 }
 
+/**
+ * Flip a test-identity-only issue to a real one. Conditional, so concurrent
+ * real occurrences race for one alert instead of each sending one.
+ */
+async function claimFirstRealOccurrence(
+  db: any,
+  issueId: string,
+): Promise<boolean> {
+  const claimed = await db
+    .update(schema.errorIssues)
+    .set({ testIdentityOnly: false })
+    .where(
+      and(
+        eq(schema.errorIssues.id, issueId),
+        eq(schema.errorIssues.testIdentityOnly, true),
+      ),
+    )
+    .returning({ id: schema.errorIssues.id });
+  return claimed.length > 0;
+}
+
 async function updateIssueForOccurrence(
   db: any,
   existing: any,
@@ -722,8 +951,11 @@ async function updateIssueForOccurrence(
     now: string;
     title: string;
     culprit: string | null;
+    /** False when the occurrence is only counted, with no sample event. */
+    recordSample?: boolean;
   },
 ): Promise<string> {
+  const recordSample = params.recordSample !== false;
   const firstSeenAt =
     params.occurredAt < existing.firstSeenAt
       ? params.occurredAt
@@ -737,16 +969,22 @@ async function updateIssueForOccurrence(
   await db
     .update(schema.errorIssues)
     .set({
-      title: params.title,
-      culprit: params.culprit,
+      ...(recordSample
+        ? {
+            title: params.title,
+            culprit: params.culprit,
+            sampleEventId: params.eventId,
+            lastSessionRecordingId:
+              params.sessionRecordingId ??
+              existing.lastSessionRecordingId ??
+              null,
+          }
+        : {}),
       level: maxLevel(coerceLevel(existing.level), params.raw.level),
       status,
       firstSeenAt,
       lastSeenAt,
       eventCount: sql`${schema.errorIssues.eventCount} + 1`,
-      sampleEventId: params.eventId,
-      lastSessionRecordingId:
-        params.sessionRecordingId ?? existing.lastSessionRecordingId ?? null,
       app: params.derived.app ?? existing.app ?? null,
       template: params.derived.template ?? existing.template ?? null,
       updatedAt: params.now,
@@ -755,28 +993,88 @@ async function updateIssueForOccurrence(
   return existing.id;
 }
 
+function groupingOf(
+  raw: RawExceptionInput,
+  derived: DerivedExceptionFields,
+): FingerprintGrouping {
+  return {
+    errorCode: raw.tags.errorCode ?? asString(raw.extra.errorCode),
+    failureClass: raw.tags.failureClass,
+    app: derived.app,
+  };
+}
+
 export async function ingestException(
   scope: IngestScope,
   raw: RawExceptionInput,
   derived: DerivedExceptionFields,
+  options: { forceStore?: boolean } = {},
 ): Promise<IngestExceptionResult> {
   const db = getDb() as any;
   const frames = parseStack(raw.rawStack);
-  const fp = fingerprint(raw.type, frames, raw.message);
+  const fp = fingerprint(
+    raw.type,
+    frames,
+    raw.message,
+    groupingOf(raw, derived),
+  );
   const title = titleFromException(raw.type, raw.message);
   const culprit = culpritFromFrames(frames);
   const occurredAt = derived.timestamp || nowIso();
   const now = nowIso();
+
+  const existing = await findIssueForFingerprint(db, scope, fp);
+  const testIdentity = derived.testIdentity;
+
+  const samplerKey = `${scope.ownerEmail}|${scope.orgId ?? ""}|${fp}`;
+  const storeSample =
+    options.forceStore === true ||
+    !existing ||
+    (existing.testIdentityOnly === true && !testIdentity) ||
+    Number(existing.eventCount ?? 0) < FULL_CAPTURE_EVENTS ||
+    shouldStoreSample(samplerKey, derived.userKey, Date.now());
+  if (existing && !storeSample) {
+    // Count it and move on: one write instead of the full sample pipeline.
+    ingestStats.sampledOut += 1;
+    const issueId = await updateIssueForOccurrence(db, existing, {
+      raw,
+      derived,
+      eventId: "",
+      sessionRecordingId: null,
+      occurredAt,
+      now,
+      title,
+      culprit,
+      recordSample: false,
+    });
+    // A reopened issue changes the list; a plain count bump does not.
+    if (existing.status === "resolved") {
+      recordChange({
+        source: "error-issues",
+        type: "change",
+        key: issueId,
+        ...changeScope(scope),
+      });
+    }
+    return {
+      issueId,
+      eventId: null,
+      isNewIssue: false,
+      sessionRecordingId: null,
+      stored: false,
+    };
+  }
+
   const sessionRecordingId = await resolveSessionRecordingId(
     scope,
     raw.clientRecordingId,
   );
 
-  const existing = await findIssueForFingerprint(db, scope, fp);
-
   const eventId = newId("errev");
   let isNewIssue = !existing;
   let issueId: string;
+  // The issue as it stood before this occurrence, for the first-real-user alert.
+  let priorIssue = existing;
 
   if (existing) {
     issueId = await updateIssueForOccurrence(db, existing, {
@@ -809,6 +1107,7 @@ export async function ingestException(
         assignee: null,
         app: derived.app,
         template: derived.template,
+        testIdentityOnly: testIdentity,
         createdAt: now,
         updatedAt: now,
         ownerEmail: scope.ownerEmail,
@@ -819,6 +1118,7 @@ export async function ingestException(
       const racedIssue = await findIssueForFingerprint(db, scope, fp);
       if (!racedIssue) throw err;
       isNewIssue = false;
+      priorIssue = racedIssue;
       issueId = await updateIssueForOccurrence(db, racedIssue, {
         raw,
         derived,
@@ -856,10 +1156,17 @@ export async function ingestException(
     extra: JSON.stringify(raw.extra ?? {}),
     breadcrumbs: JSON.stringify(raw.breadcrumbs ?? []),
     occurredAt,
+    testIdentity,
     createdAt: now,
     ownerEmail: scope.ownerEmail,
     orgId: scope.orgId,
   });
+
+  const firstRealOccurrence =
+    !testIdentity &&
+    (isNewIssue ||
+      (priorIssue?.testIdentityOnly === true &&
+        (await claimFirstRealOccurrence(db, issueId))));
 
   const { usersAffected } = await pruneAndCountUsers(issueId, scope);
   await db
@@ -874,7 +1181,7 @@ export async function ingestException(
     ...changeScope(scope),
   });
 
-  if (isNewIssue) {
+  if (firstRealOccurrence) {
     const emailEnabled = await errorEmailNotificationsEnabled(scope);
     await notifyNewIssue(
       scope,
@@ -885,7 +1192,21 @@ export async function ingestException(
     });
   }
 
-  return { issueId, eventId, isNewIssue, sessionRecordingId };
+  return { issueId, eventId, isNewIssue, sessionRecordingId, stored: true };
+}
+
+// Server and CLI senders tag their runtime; an event with neither is a browser's.
+function noiseSurfaceOf(
+  properties: Record<string, unknown>,
+): "browser" | "server" {
+  const runtime = asString(properties.runtime);
+  const source = asString(properties.source);
+  return runtime === "node" ||
+    runtime === "cli" ||
+    source === "server" ||
+    source === "cli"
+    ? "server"
+    : "browser";
 }
 
 export async function ingestAnalyticsExceptionEvents(
@@ -894,19 +1215,44 @@ export async function ingestAnalyticsExceptionEvents(
     properties: Record<string, unknown>;
     derived: DerivedExceptionFields;
   }>,
-): Promise<{ ingested: number }> {
+): Promise<{ ingested: number; suppressed: number; failed: number }> {
   let ingested = 0;
+  let suppressed = 0;
+  let failed = 0;
   for (const item of events) {
     try {
       const raw = extractExceptionInput(item.properties);
-      if (isBenignBrowserAbortException(raw)) continue;
+      if (isBenignBrowserAbortException(raw)) {
+        suppressed += 1;
+        ingestStats.suppressed["benign-abort"] =
+          (ingestStats.suppressed["benign-abort"] ?? 0) + 1;
+        continue;
+      }
+      // Defense in depth: senders filter too, but a stale browser bundle in
+      // someone's tab keeps sending the noise this rule set already drops.
+      const verdict = classifyErrorNoise({
+        surface: noiseSurfaceOf(item.properties),
+        type: raw.type,
+        value: raw.message,
+        stack: raw.rawStack ?? undefined,
+        pageUrl: item.derived.url ?? undefined,
+        tags: raw.tags,
+      });
+      if (verdict.drop) {
+        suppressed += 1;
+        ingestStats.suppressed[verdict.reason] =
+          (ingestStats.suppressed[verdict.reason] ?? 0) + 1;
+        continue;
+      }
       await ingestException(scope, raw, item.derived);
       ingested += 1;
+      ingestStats.ingested += 1;
     } catch (error) {
-      console.warn("[error-capture] Failed to ingest exception event:", error);
+      failed += 1;
+      recordErrorIngestFailure(1, error);
     }
   }
-  return { ingested };
+  return { ingested, suppressed, failed };
 }
 
 async function notifyNewIssue(
@@ -1054,6 +1400,11 @@ export interface ListErrorIssuesFilters {
   userId?: string;
   sort?: "lastSeen" | "eventCount" | "firstSeen";
   limit?: number;
+  /**
+   * Include issues only test identities have hit. Defaults to false, except
+   * for a test-identity viewer, whose own QA flows must see their errors.
+   */
+  includeTestIdentities?: boolean;
 }
 
 export interface ErrorIssueSummary {
@@ -1073,6 +1424,7 @@ export interface ErrorIssueSummary {
   assignee: string | null;
   app: string | null;
   template: string | null;
+  testIdentityOnly: boolean;
   sparkline: number[];
 }
 
@@ -1155,6 +1507,9 @@ export async function listErrorIssues(
     Math.max(1, filters.limit ?? DEFAULT_ISSUE_LIMIT),
   );
   const conditions: any[] = [issuesAccessFilter(scope)];
+  if (!(filters.includeTestIdentities ?? isTestIdentity(scope.userEmail))) {
+    conditions.push(eq(schema.errorIssues.testIdentityOnly, false));
+  }
   if (filters.status && filters.status !== "all") {
     conditions.push(eq(schema.errorIssues.status, filters.status));
   }
@@ -1261,6 +1616,7 @@ export async function listErrorIssues(
     assignee: row.assignee ?? null,
     app: row.app ?? null,
     template: row.template ?? null,
+    testIdentityOnly: row.testIdentityOnly === true,
     sparkline: sparklines.get(row.id) ?? new Array(SPARKLINE_DAYS).fill(0),
   }));
   return issues;
@@ -1288,6 +1644,7 @@ export interface ErrorEventDetail {
   extra: Record<string, unknown>;
   breadcrumbs: unknown[];
   occurredAt: string;
+  testIdentity: boolean;
 }
 
 export interface ErrorIssueDetail {
@@ -1455,6 +1812,7 @@ export async function getErrorIssue(
           extra: parseJson<Record<string, unknown>>(row.extra, {}),
           breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
           occurredAt: row.occurredAt,
+          testIdentity: row.testIdentity === true,
         };
       },
     ),
@@ -1487,6 +1845,7 @@ export async function getErrorIssue(
     assignee: issueRow.assignee ?? null,
     app: issueRow.app ?? null,
     template: issueRow.template ?? null,
+    testIdentityOnly: issueRow.testIdentityOnly === true,
     sparkline: sparklines.get(issueId) ?? new Array(SPARKLINE_DAYS).fill(0),
   };
 
@@ -1592,6 +1951,8 @@ export async function captureTestError(
       userKey: scope.userEmail,
       sessionId: null,
       timestamp: nowIso(),
+      testIdentity: isTestIdentity(scope.userEmail),
     },
+    { forceStore: true },
   );
 }

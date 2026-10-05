@@ -277,6 +277,9 @@ describe("AgentKitChat", () => {
 
     expect(styles).toContain('[data-agent-composer-slot="root"]');
     expect(styles).toContain('[data-agent-message-queue="true"]');
+    expect(styles).toMatch(
+      /\[data-agent-message-queue="true"\]\[data-agent-message-queue-variant="recessed"\] \{[\s\S]*border: 0;[\s\S]*border-radius: var\(--agentkit-radius-inner\) var\(--agentkit-radius-inner\) 0 0;/,
+    );
     expect(styles).toContain("margin: 0 auto;");
     expect(styles).not.toContain("margin: 0 auto -1rem;");
     expect(styles).toContain('[data-agent-native-composer-popover="true"]');
@@ -398,6 +401,12 @@ describe("AgentKitChat", () => {
     expect(styles).not.toMatch(
       /var\(--(?:background|foreground|card|popover|muted|border|primary|destructive|ring)(?:,|\))/,
     );
+    expect(styles).toContain(
+      '[data-agent-native-mention-popover="true"]\n  > div\n  > div\n  > div:not(:has([data-mention-index]))',
+    );
+    expect(styles).not.toContain(
+      '[data-agent-native-composer-popover="true"]\n  > div\n  > div\n  > div:not(:has([data-mention-index]))',
+    );
     const composerFocusRule = styles.match(
       /\.agentkit-composer\[data-agent-composer-slot="root"\]:focus-within \{([^}]*)\}/,
     )?.[1];
@@ -465,13 +474,18 @@ describe("AgentKitChat", () => {
       'execMode={executionMode === "plan" ? "plan" : "build"}',
     );
     expect(source).toContain("mode: executionMode");
-    expect(source).toContain("control.steerQueued(item.id)");
+    expect(source).toContain(
+      "control.steerQueued(item.id, { interruptActiveRun: true })",
+    );
+    expect(source).toContain(
+      "...(options.steer ? { interruptActiveRun: true } : {}),",
+    );
     expect(source).toContain("control.removeQueued(item.id)");
     expect(source).toContain("await onBeforeSubmit()");
     expect(source).toContain(
       "await onSubmitOverride(text, files, references, submitOptions)",
     );
-    expect(source).toContain("await control.removeQueued(item.id)");
+    expect(source).not.toContain("await submitMessage(item.text, [], [],");
     expect(source).toContain("pending={command.pending || Boolean(disabled)}");
     expect(source).toContain(
       "const submissionBlocked = Boolean(submissionDisabled) || command.pending",
@@ -846,6 +860,20 @@ describe("AgentKitChat", () => {
           createdAt: "2026-08-29T00:00:00.000Z",
           updatedAt: "2026-08-29T00:00:00.000Z",
           messages: [
+            {
+              id: "user-context",
+              role: "user",
+              status: "complete",
+              parts: [{ type: "text", text: "Authored request" }],
+              metadata: {
+                contextItems: [
+                  {
+                    title: "Internal source",
+                    context: "private message context",
+                  },
+                ],
+              },
+            },
             {
               id: "assistant-1",
               role: "assistant",
@@ -1284,8 +1312,13 @@ describe("AgentKitChat", () => {
             {
               id: "queued-1",
               threadId: "thread-slots",
-              text: "Check the deployment",
+              text: "Check the deployment\n<context>private context</context>",
               createdAt: "2026-08-29T00:00:00.000Z",
+              metadata: {
+                contextItems: [
+                  { title: "Internal source", context: "private slot context" },
+                ],
+              },
             },
           ],
           events: [
@@ -1338,15 +1371,26 @@ describe("AgentKitChat", () => {
             <div data-slot="transcript">{children}</div>
           ),
           footer: ({ children }) => <div data-slot="footer">{children}</div>,
-          queue: ({ items }) => <div data-slot="queue">{items[0]?.text}</div>,
+          queue: ({ items }) => (
+            <div data-slot="queue">
+              {items[0]?.text}
+              {JSON.stringify(items[0]?.metadata)}
+            </div>
+          ),
           suggestions: ({ suggestions }) => (
             <div data-slot="suggestions">{suggestions[0]?.label}</div>
           ),
           messageSupplement: ({ value }) => (
-            <div data-slot="message-supplement">{value.role}</div>
+            <div data-slot="message-supplement">
+              {value.role}
+              {JSON.stringify(value.metadata)}
+            </div>
           ),
-          messageActions: ({ threadId }) => (
-            <div data-slot="message-actions">{threadId}</div>
+          messageActions: ({ threadId, value }) => (
+            <div data-slot="message-actions">
+              {threadId}
+              {JSON.stringify(value.metadata)}
+            </div>
           ),
         }}
         registry={{
@@ -1373,6 +1417,9 @@ describe("AgentKitChat", () => {
     }
     expect(html).toContain('aria-label="Release room"');
     expect(html).toContain("Check the deployment");
+    expect(html).not.toContain("private context");
+    expect(html).not.toContain("private slot context");
+    expect(html).not.toContain("private message context");
     expect(html).toContain("Review the release");
     expect(html).toContain('data-registry="widget"');
     expect(html).toContain("Workspace health");
@@ -1454,7 +1501,20 @@ describe("AgentKitChat", () => {
                   text: "Private chain of thought.",
                   visibility: "hidden",
                 },
+                {
+                  type: "text",
+                  format: "markdown",
+                  text: "Assistant reply\n<context>private assistant context</context>",
+                },
               ],
+              metadata: {
+                contextItems: [
+                  {
+                    title: "Internal source",
+                    context: "private assistant metadata context",
+                  },
+                ],
+              },
             },
           ],
         };
@@ -1476,6 +1536,114 @@ describe("AgentKitChat", () => {
     expect(html).toContain("Reviewed release boundaries");
     expect(html).toContain("Checking release boundaries.");
     expect(html).not.toContain("Private chain of thought.");
+    expect(html).toContain("Assistant reply");
+    expect(html).not.toContain("private assistant context");
+
+    const textSlot = vi.fn(({ value }: { value: { text: string } }) => (
+      <span data-custom-text="true">{value.text}</span>
+    ));
+    const textSlotHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ text: textSlot }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(textSlotHtml).toContain('data-custom-text="true"');
+    expect(textSlotHtml).not.toContain("private assistant context");
+    expect(textSlot.mock.calls[0]?.[0]).toMatchObject(
+      expect.objectContaining({
+        value: expect.objectContaining({ text: "Assistant reply" }),
+      }),
+    );
+
+    const visibleText = (value: {
+      parts: Array<{ type: string; text?: string }>;
+    }) =>
+      value.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+    const messageSlot = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => <span data-custom-message="true">{visibleText(value)}</span>,
+    );
+    const messageSlotHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ message: messageSlot }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(messageSlotHtml).toContain('data-custom-message="true"');
+    expect(messageSlotHtml).not.toContain("private assistant context");
+
+    const messageSupplement = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => <span data-message-supplement="true">{visibleText(value)}</span>,
+    );
+    const messageActions = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => <span data-message-actions="true">{visibleText(value)}</span>,
+    );
+    const wholeMessageSlotsHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ messageSupplement, messageActions }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(wholeMessageSlotsHtml).not.toContain("private assistant context");
+    expect(visibleText(messageSupplement.mock.calls[0]![0].value)).toBe(
+      "Assistant reply",
+    );
+    expect(visibleText(messageActions.mock.calls[0]![0].value)).toBe(
+      "Assistant reply",
+    );
+    expect(
+      JSON.stringify(messageSupplement.mock.calls[0]![0].value),
+    ).not.toContain("private assistant metadata context");
+    expect(
+      JSON.stringify(messageActions.mock.calls[0]![0].value),
+    ).not.toContain("private assistant metadata context");
+
+    const messageActionsTrailing = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => (
+        <span data-message-actions-trailing="true">{visibleText(value)}</span>
+      ),
+    );
+    const trailingSlotsHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ messageActionsTrailing }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(trailingSlotsHtml).not.toContain("private assistant context");
+    expect(visibleText(messageActionsTrailing.mock.calls[0]![0].value)).toBe(
+      "Assistant reply",
+    );
 
     const activeHtml = renderToStaticMarkup(
       <AgentKitProvider

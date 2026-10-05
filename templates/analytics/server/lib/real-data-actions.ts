@@ -1282,7 +1282,10 @@ function actionEvidenceTextForSourceRecords(result: {
       transcripts: record.transcripts,
     });
   }
-  if (normalizedName === "gong-native-insights") {
+  if (
+    normalizedName === "gong-native-insights" ||
+    normalizedName === "run-gong-native-insight"
+  ) {
     return "";
   }
   if (normalizedName === "run-code") {

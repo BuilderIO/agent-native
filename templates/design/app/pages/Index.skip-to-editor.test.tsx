@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
-import { act, type ReactNode } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,13 +10,16 @@ import Index from "./Index";
 
 const mocks = vi.hoisted(() => ({
   systemsEnabled: true,
+  systemsLoading: false,
+  systemsError: null as unknown,
+  systemIds: ["default-system", "linked-system", "override-system"],
   systemsQuery: vi.fn(),
+  refetchSystems: vi.fn(),
   createDesign: vi.fn(),
   createFromTemplate: vi.fn(),
   generateTitle: vi.fn(),
   navigate: vi.fn(),
   setSearchParams: vi.fn(),
-  headerActions: null as unknown,
   nanoid: vi.fn(() => "design-1"),
   queryClient: {
     setQueryData: vi.fn(),
@@ -37,6 +40,8 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   focusComposer: vi.fn(),
   submitWithText: vi.fn(),
+  submitDraft: vi.fn(async () => true),
+  getDraftSnapshot: vi.fn(),
   agentEngine: { state: "configured", missing: false },
   fetchAgentEngineConfiguredState: vi.fn(
     async () => "missing" as AgentEngineConfiguredState,
@@ -73,7 +78,7 @@ vi.mock(
       >
         Connect AI
         <button type="button" onClick={onConnected}>
-          Connect Builder.io
+          Use Builder.io
         </button>
         <a href="/settings/keys">Custom keys</a>
       </div>
@@ -175,6 +180,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       }
       return {
         data: {
+          status: "ready",
           suggestions: [
             {
               id: "design-suggestion",
@@ -232,9 +238,6 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   useHomeSearchShortcut: vi.fn(),
-  useSetHeaderActions: (actions: unknown) => {
-    mocks.headerActions = actions;
-  },
   useSetPageTitle: () => {},
 }));
 
@@ -281,6 +284,8 @@ vi.mock("@/components/editor/PromptDialog", () => ({
       props.composerRef.current = {
         focus: mocks.focusComposer,
         submitWithText: mocks.submitWithText,
+        submit: mocks.submitDraft,
+        getDraftSnapshot: mocks.getDraftSnapshot,
       };
     return null;
   },
@@ -317,33 +322,38 @@ vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (
     mocks.systemsQuery(enabled),
     {
-      designSystems: [
-        {
-          id: "default-system",
-          title: "Default system",
-          isDefault: true,
-          data: "{}",
-        },
-        {
-          id: "linked-system",
-          title: "Linked system",
-          isDefault: false,
-          data: "{}",
-        },
-        {
-          id: "override-system",
-          title: "Override system",
-          isDefault: false,
-          data: "{}",
-        },
-      ],
+      designSystems:
+        mocks.systemsLoading || mocks.systemsError
+          ? []
+          : [
+              {
+                id: "default-system",
+                title: "Default system",
+                isDefault: true,
+                data: "{}",
+              },
+              {
+                id: "linked-system",
+                title: "Linked system",
+                isDefault: false,
+                data: "{}",
+              },
+              {
+                id: "override-system",
+                title: "Override system",
+                isDefault: false,
+                data: "{}",
+              },
+            ].filter((system) => mocks.systemIds.includes(system.id)),
       defaultSystem: {
         id: "default-system",
         title: "Default system",
         isDefault: true,
         data: "{}",
       },
-      isLoading: false,
+      isLoading: mocks.systemsLoading,
+      error: mocks.systemsError,
+      refetch: mocks.refetchSystems,
     }
   ),
 }));
@@ -361,8 +371,6 @@ vi.mock("@/lib/pending-generation", () => ({
 
 let container: HTMLDivElement;
 let root: Root;
-let headerContainer: HTMLDivElement | null = null;
-let headerRoot: Root | null = null;
 
 beforeEach(async () => {
   localStorage.clear();
@@ -370,6 +378,7 @@ beforeEach(async () => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.refetchSystems.mockReset();
   mocks.nanoid.mockReturnValue("design-1");
   mocks.createFromTemplate.mockResolvedValue({
     id: "copied-design",
@@ -381,9 +390,11 @@ beforeEach(async () => {
   mocks.generateTitle.mockResolvedValue(undefined);
   mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   mocks.promptProps = null;
-  mocks.headerActions = null;
   mocks.fullAppBuilding = false;
   mocks.systemsEnabled = true;
+  mocks.systemsLoading = false;
+  mocks.systemsError = null;
+  mocks.systemIds = ["default-system", "linked-system", "override-system"];
   mocks.ownCount = 0;
   mocks.ownedCount = 0;
   mocks.ownStatus = "success";
@@ -400,12 +411,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await act(async () => {
-    headerRoot?.unmount();
     root.unmount();
   });
-  headerRoot = null;
-  headerContainer?.remove();
-  headerContainer = null;
   container.remove();
   document.body.replaceChildren();
 });
@@ -429,6 +436,25 @@ it("does not query or apply a default system when workflows are disabled", async
   ]);
   await act(async () => mocks.promptProps?.onSubmit("New design", [], {}));
   expect(mocks.createDesign).toHaveBeenCalledWith(
+    expect.objectContaining({ designSystemId: null }),
+  );
+});
+
+it("does not auto-attach the default design system to a fresh prompt", async () => {
+  expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+  expect(mocks.promptProps?.contextItems).not.toContainEqual(
+    expect.objectContaining({ title: "Default system" }),
+  );
+
+  await act(async () => {
+    await mocks.promptProps?.onSubmit?.("New design", [], {});
+  });
+
+  expect(mocks.createDesign).toHaveBeenCalledWith(
+    expect.objectContaining({ designSystemId: null }),
+  );
+  expect(mocks.writePendingGeneration).toHaveBeenCalledWith(
+    "design-1",
     expect.objectContaining({ designSystemId: null }),
   );
 });
@@ -476,6 +502,7 @@ describe("Index skip to editor", () => {
     );
 
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
     let skipPromise: Promise<void> | undefined;
     await act(async () => {
       skipPromise = mocks.promptProps?.onSkip();
@@ -487,7 +514,7 @@ describe("Index skip to editor", () => {
       id: "design-1",
       title: "Untitled Design",
       projectType: "prototype",
-      designSystemId: "default-system",
+      designSystemId: null,
     });
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
@@ -529,7 +556,7 @@ describe("Index skip to editor", () => {
     expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).toContain("Custom keys");
     const connect = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Connect Builder.io"),
+      (button) => button.textContent?.includes("Use Builder.io"),
     );
     expect(connect).toBeDefined();
     expect(
@@ -657,6 +684,53 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Connect AI");
   });
 
+  describe("a send held back for missing AI setup", () => {
+    const submittedDraft = {
+      text: "A landing page for a bakery",
+      referenceKeys: [],
+      attachmentIds: ["file-1"],
+    };
+
+    async function holdBackThenConnect(liveDraft: typeof submittedDraft) {
+      mocks.agentEngine = { state: "missing", missing: true };
+      mocks.fetchAgentEngineConfiguredState.mockResolvedValue("missing");
+      mocks.submitDraft.mockClear();
+      mocks.getDraftSnapshot.mockReturnValue(liveDraft);
+      await act(async () => root.render(<Index />));
+      let canSubmit: unknown;
+      await act(async () => {
+        canSubmit = await mocks.promptProps?.onBeforeSubmit?.(submittedDraft);
+      });
+      expect(canSubmit).toBe(false);
+      expect(mocks.submitDraft).not.toHaveBeenCalled();
+
+      mocks.agentEngine = { state: "configured", missing: false };
+      await act(async () => root.render(<Index />));
+      await act(async () => root.render(<Index />));
+    }
+
+    it("is sent once after AI setup becomes ready", async () => {
+      await holdBackThenConnect({ ...submittedDraft });
+
+      expect(mocks.submitDraft).toHaveBeenCalledOnce();
+    });
+
+    it("is left in the composer when its text was edited while connecting", async () => {
+      await holdBackThenConnect({
+        ...submittedDraft,
+        text: "A landing page for a bakery, now with a pricing table",
+      });
+
+      expect(mocks.submitDraft).not.toHaveBeenCalled();
+    });
+
+    it("is left in the composer when its attachments changed while connecting", async () => {
+      await holdBackThenConnect({ ...submittedDraft, attachmentIds: [] });
+
+      expect(mocks.submitDraft).not.toHaveBeenCalled();
+    });
+  });
+
   it("hides home suggestions while provider setup is pending", async () => {
     mocks.agentEngine = { state: "missing", missing: true };
     await act(async () => root.render(<Index />));
@@ -761,6 +835,164 @@ describe("Index skip to editor", () => {
     expect(shouldClose).toBe(false);
   });
 
+  it("resolves a linked system after the design systems finish loading", async () => {
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+
+    mocks.systemsLoading = false;
+    await act(async () => root.render(<Index />));
+    expect(mocks.promptProps?.selectedDesignSystemId).toBe("linked-system");
+  });
+
+  it("resolves the linked template system before creating an app while systems load", async () => {
+    mocks.fullAppBuilding = true;
+    mocks.systemsLoading = true;
+    mocks.refetchSystems.mockResolvedValue({
+      isSuccess: true,
+      data: {
+        designSystems: [{ id: "linked-system" }],
+      },
+    });
+    await act(async () => root.render(<Index />));
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Build an app", [], {});
+    });
+
+    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "linked-system" }),
+    );
+    expect(mocks.createFromTemplate).not.toHaveBeenCalled();
+  });
+
+  it("retries systems lookup before app creation when the initial query failed", async () => {
+    mocks.fullAppBuilding = true;
+    mocks.systemsError = new Error("systems query failed");
+    mocks.refetchSystems.mockResolvedValue({
+      isSuccess: true,
+      data: {
+        designSystems: [{ id: "linked-system" }],
+      },
+    });
+    await act(async () => root.render(<Index />));
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Build an app", [], {});
+    });
+
+    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "linked-system" }),
+    );
+  });
+
+  it("resolves a template system before skipping to a blank app after query failure", async () => {
+    mocks.fullAppBuilding = true;
+    mocks.systemsError = new Error("systems query failed");
+    mocks.refetchSystems.mockResolvedValue({
+      isSuccess: true,
+      data: {
+        designSystems: [{ id: "linked-system" }],
+      },
+    });
+    await act(async () => root.render(<Index />));
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    await act(async () => {
+      await mocks.promptProps?.onSkip();
+    });
+
+    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "linked-system" }),
+    );
+  });
+
+  it("clears an inaccessible linked system after loading before template copy", async () => {
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+
+    mocks.systemIds = ["default-system", "override-system"];
+    mocks.systemsLoading = false;
+    await act(async () => root.render(<Index />));
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Copy this template", [], {});
+    });
+    expect(mocks.createFromTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ templateId: "saved-template" }),
+    );
+    expect(mocks.createFromTemplate.mock.calls[0][0]).not.toHaveProperty(
+      "designSystemId",
+    );
+  });
+
+  it("leaves template system resolution to the copy action while systems load", async () => {
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Copy this template", [], {});
+    });
+    expect(mocks.createFromTemplate).toHaveBeenCalledTimes(1);
+    expect(mocks.createFromTemplate.mock.calls[0][0]).not.toHaveProperty(
+      "designSystemId",
+    );
+  });
+
+  it("keeps the template-copy retry identity stable as systems load", async () => {
+    mocks.nanoid
+      .mockReturnValueOnce("first-copy")
+      .mockReturnValue("second-copy");
+    mocks.createFromTemplate.mockRejectedValueOnce(new Error("response lost"));
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+
+    await act(async () => {
+      await expect(
+        mocks.promptProps?.onSubmit("Copy this template", [], {}),
+      ).rejects.toThrow("response lost");
+    });
+    const firstCopy = mocks.createFromTemplate.mock.calls[0][0];
+
+    mocks.systemsLoading = false;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Copy this template", [], {});
+    });
+    const retry = mocks.createFromTemplate.mock.calls[1][0];
+    expect(retry.newId).toBe(firstCopy.newId);
+    expect(retry.retryKey).toBe(firstCopy.retryKey);
+    expect(retry).not.toHaveProperty("designSystemId");
+  });
+
   it("opens a copied template without waiting for the designs list to refresh", async () => {
     let resolveRefresh: (() => void) | undefined;
     mocks.queryClient.invalidateQueries.mockReturnValue(
@@ -795,14 +1027,7 @@ describe("Index search empty state", () => {
     mocks.ownCount = 1;
     await act(async () => root.render(<Index />));
 
-    headerContainer = document.createElement("div");
-    document.body.append(headerContainer);
-    headerRoot = createRoot(headerContainer);
-    await act(async () => {
-      headerRoot?.render(mocks.headerActions as ReactNode);
-    });
-
-    const searchInput = headerContainer.querySelector<HTMLInputElement>(
+    const searchInput = container.querySelector<HTMLInputElement>(
       'input[aria-label="home.searchPlaceholder"]',
     );
     expect(searchInput).not.toBeNull();
@@ -815,10 +1040,6 @@ describe("Index search empty state", () => {
       )?.set?.call(searchInput, "no matching design");
       searchInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await act(async () => {
-      headerRoot?.render(mocks.headerActions as ReactNode);
-    });
-
     expect(container.textContent).toContain("No designs match your search");
     expect(container.textContent).toContain("Try a different search.");
     expect(container.textContent).not.toContain("home.createFirstDesign");
@@ -827,17 +1048,10 @@ describe("Index search empty state", () => {
   });
 
   it("keeps searched shared designs visible when the user owns no designs", async () => {
-    mocks.ownCount = 0;
+    mocks.ownCount = 1;
     await act(async () => root.render(<Index />));
 
-    headerContainer = document.createElement("div");
-    document.body.append(headerContainer);
-    headerRoot = createRoot(headerContainer);
-    await act(async () => {
-      headerRoot?.render(mocks.headerActions as ReactNode);
-    });
-
-    const searchInput = headerContainer.querySelector<HTMLInputElement>(
+    const searchInput = container.querySelector<HTMLInputElement>(
       'input[aria-label="home.searchPlaceholder"]',
     );
     expect(searchInput).not.toBeNull();
@@ -849,10 +1063,6 @@ describe("Index search empty state", () => {
       )?.set?.call(searchInput, "shared design");
       searchInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await act(async () => {
-      headerRoot?.render(mocks.headerActions as ReactNode);
-    });
-
     expect(container.textContent).toContain("home.recent");
     const tabs = container.querySelectorAll<HTMLElement>('[role="tab"]');
     expect(tabs).toHaveLength(2);
@@ -883,7 +1093,7 @@ describe("home library", () => {
         ?.textContent,
     ).toBe("navigation.templates");
     expect(container.textContent).toContain("navigation.templates");
-    expect(container.textContent).toContain("home.recent");
+    expect(container.textContent).not.toContain("home.recent");
     expect(container.querySelector('a[href="/templates"]')).not.toBeNull();
     mocks.ownCount = 1;
     await act(async () => root.render(<Index />));
@@ -892,12 +1102,10 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
-    expect(localStorage.getItem("design:home-library-tab")).toBe("recent");
   });
 
-  it("restores a saved Recent choice before the design summary completes", async () => {
+  it("defaults to Templates until the accessible-design summary completes", async () => {
     await act(async () => root.unmount());
-    localStorage.setItem("design:home-library-tab", "recent");
     mocks.ownCount = 1;
     mocks.ownStatus = "pending";
     root = createRoot(container);
@@ -906,12 +1114,18 @@ describe("home library", () => {
     expect(
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
+    ).toBe("navigation.templates");
+    expect(container.textContent).not.toContain("home.recent");
+
+    mocks.ownStatus = "success";
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
     ).toBe("home.recent");
   });
 
-  it("does not server-render the home library before restoring its saved tab", () => {
-    localStorage.setItem("design:home-library-tab", "recent");
-
+  it("does not server-render the home library", () => {
     expect(renderToString(<Index />)).not.toContain(
       "agent-prompt-home-library",
     );
@@ -936,7 +1150,6 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("navigation.templates");
-    expect(localStorage.getItem("design:home-library-tab")).toBe("templates");
 
     await act(async () => root.unmount());
     mocks.ownStatus = "success";
@@ -945,7 +1158,7 @@ describe("home library", () => {
     expect(
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
-    ).toBe("navigation.templates");
+    ).toBe("home.recent");
   });
 
   it("does not treat pending or failed ownership reads as successful empty results", async () => {

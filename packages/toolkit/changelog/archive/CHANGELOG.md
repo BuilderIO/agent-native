@@ -1,3 +1,16 @@
+## 0.9.1
+
+### Patch Changes
+
+- 03a043e: Make realtime voice the clear primary microphone action, remember the selected input mode, improve speech waveform responsiveness, and show a shine while the voice agent is working.
+- 03a043e: Prevent reasoning messages from losing their assistant UI provider, and add a progressively disclosed recent-chat rail for app sidebars.
+
+## 0.9.0
+
+### Minor Changes
+
+- 0341a7d: Add an ejectable dashboard presentation kit with cards, tables, date ranges, chart state rendering, and layout helpers.
+
 ## 0.8.3
 
 ### Patch Changes

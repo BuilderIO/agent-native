@@ -89,7 +89,8 @@ describe("first-party session recording reads follow the app's sharing rules (PG
         started_at text NOT NULL,
         owner_email text NOT NULL,
         org_id text,
-        visibility text NOT NULL DEFAULT 'private'
+        visibility text NOT NULL DEFAULT 'private',
+        user_id text
       );
       CREATE TABLE session_recording_shares (
         id text PRIMARY KEY,

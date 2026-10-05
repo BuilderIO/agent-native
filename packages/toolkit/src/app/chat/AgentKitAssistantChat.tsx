@@ -18,6 +18,7 @@ import type {
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   appendAgentChatContextToMessage,
   filterAgentChatContextItems,
@@ -146,6 +147,7 @@ import {
   LoopLimitContinueCard,
   PlanModeCallout,
   getRequestModeMetadata,
+  isMissingLlmProviderRunError,
   type RunErrorInfo,
 } from "./chat/run-recovery.js";
 import type {
@@ -213,6 +215,10 @@ type ThreadRestoreState =
 
 type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryAction?: "continue" | "retry";
+  /** The failed run a retry answers; one retry per run. */
+  recoveryOfRunId?: string;
+  /** The retry is the automatic resend after AI setup; the server allows one per refused run. */
+  resumeAfterSetup?: boolean;
   recoveryReferences?: Reference[];
   recoveryModel?: string;
   recoveryEngine?: string;
@@ -464,9 +470,11 @@ function preserveQueuedIntent(
   preparedOptions: PromptComposerSubmitOptions,
   originalOptions: PromptComposerSubmitOptions,
 ): PromptComposerSubmitOptions {
-  return originalOptions.intent === "queued"
-    ? { ...preparedOptions, intent: "queued" }
-    : preparedOptions;
+  return {
+    ...preparedOptions,
+    ...(originalOptions.intent === "queued" ? { intent: "queued" } : {}),
+    ...(originalOptions.steer ? { steer: true } : {}),
+  };
 }
 
 function captureQueuedRunState(
@@ -493,7 +501,9 @@ interface AgentKitSurfaceContextValue {
   canChat: boolean;
   setupMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
+  modelListUnavailable: boolean;
   retryProviderStatus: () => void;
+  retryModelList?: () => void;
   fileStorageConfigured: boolean;
   fileStorageMissing: boolean;
   retryFileStorageStatus: () => void;
@@ -543,10 +553,14 @@ interface AgentKitSurfaceContextValue {
       | "recoveryEngine"
       | "recoveryEffort"
       | "recoveryRequestMode"
+      | "recoveryOfRunId"
+      | "resumeAfterSetup"
     >,
   ) => Promise<AssistantChatSubmitResult>;
   submitSuggestion: (suggestion: AgentSuggestionInput) => void;
   suggestionSubmitRef: AgentKitSuggestionSubmitRef;
+  /** Prompts already sent again after AI setup, shared by every card in this chat. */
+  resumedAfterSetup: Set<string>;
   onImplementPlan: () => boolean;
 }
 
@@ -871,6 +885,8 @@ export const AgentKitAssistantChat = forwardRef<
   scopeRef.current = props.contextScope;
   isolateHistoryByScopeRef.current = props.isolateHistoryByScope;
   createTransportRef.current = props.createTransport;
+  const autoContinueLabelRef = useRef("");
+  autoContinueLabelRef.current = t("agentChat.status.resuming");
   const transport = useMemo(() => {
     const operations: NonNullable<
       CreateAgentNativeAgentKitTransportOptions["operations"]
@@ -982,7 +998,12 @@ export const AgentKitAssistantChat = forwardRef<
       get isolateHistoryByScope() {
         return isolateHistoryByScopeRef.current;
       },
-      adapter: { textFormat: "markdown" },
+      adapter: {
+        textFormat: "markdown",
+        get autoContinueLabel() {
+          return autoContinueLabelRef.current;
+        },
+      },
       operations,
     });
     const getThreadSnapshot = builtTransport.getThreadSnapshot;
@@ -1121,17 +1142,30 @@ const AgentKitAssistantChatBody = forwardRef<
   const history = useOptionalAgentKitHistory();
   const suggestionSubmitRef =
     useRef<AgentKitSuggestionSubmitRef["current"]>(null);
+  const resumedAfterSetupRef = useRef(new Set<string>());
   const t = useT();
   const providerChecksEnabled = props.providerStatusChecksEnabled !== false;
   const readiness = useAgentEngineConfigured(providerChecksEnabled, {
     tabId: props.tabId,
     threadId,
   });
+  const modelCatalogPending =
+    props.showModelSelector !== false && props.modelListLoading === true;
+  const modelListUnavailable =
+    props.showModelSelector !== false && props.modelListError === true;
   const canChat = !providerChecksEnabled || readiness.canChat;
-  const setupMissing = providerChecksEnabled && readiness.missing;
-  const providerStatus: AgentEngineConfiguredState = providerChecksEnabled
-    ? readiness.state
-    : "configured";
+  const setupMissing =
+    providerChecksEnabled &&
+    readiness.missing &&
+    !modelCatalogPending &&
+    !modelListUnavailable;
+  const providerStatus: AgentEngineConfiguredState = modelListUnavailable
+    ? "unavailable"
+    : modelCatalogPending
+      ? "unknown"
+      : providerChecksEnabled
+        ? readiness.state
+        : "configured";
   const providerSubmissionPending =
     !canChat &&
     !setupMissing &&
@@ -1139,6 +1173,9 @@ const AgentKitAssistantChatBody = forwardRef<
   const retryProviderStatus = useCallback(() => {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
+  const retryModelList = modelListUnavailable
+    ? props.onRetryModelList
+    : retryProviderStatus;
   const fileUploadStatus = useFileUploadStatus(
     props.isActiveComposer !== false,
   );
@@ -1671,7 +1708,11 @@ const AgentKitAssistantChatBody = forwardRef<
       if (
         !thread.messages.slice(0, index).some((item) => item.role === "user")
       ) {
-        props.onGenerateTitle?.(threadId, text);
+        const { engine, model } = message.metadata ?? {};
+        props.onGenerateTitle?.(threadId, text, {
+          ...(typeof engine === "string" ? { engine } : {}),
+          ...(typeof model === "string" ? { model } : {}),
+        });
       }
     }
     const terminalEvents = thread.events.filter(
@@ -1963,6 +2004,12 @@ const AgentKitAssistantChatBody = forwardRef<
                 ...(options.recoveryAction
                   ? { agentNativeRecoveryAction: options.recoveryAction }
                   : {}),
+                ...(options.recoveryOfRunId
+                  ? { agentNativeRecoveryOfRunId: options.recoveryOfRunId }
+                  : {}),
+                ...(options.resumeAfterSetup
+                  ? { agentNativeResumeAfterSetup: true }
+                  : {}),
                 ...(options.deferredSubmissionId
                   ? {
                       agentNativeDeferredSubmissionId:
@@ -1992,32 +2039,26 @@ const AgentKitAssistantChatBody = forwardRef<
       };
       localSubmissionRef.current = true;
       try {
-        if (composerOptions.intent === "queued") {
-          await control.queueMessage({
-            text: message,
-            attachments: fileParts,
+        await control.sendMessage({
+          text: message,
+          attachments: fileParts,
+          queuedWhileRunActive:
+            composerOptions.queuedWhileRunActive ||
+            composerOptions.intent === "queued",
+          interruptActiveRun: composerOptions.steer,
+          options: {
+            model,
+            mode: requestMode,
+            agentId: selectedAgent,
+            reasoningEffort:
+              effort && effort !== "auto" && effort !== "max"
+                ? (effort as "low" | "medium" | "high" | "xhigh")
+                : undefined,
             metadata,
-            queuedWhileRunActive: composerOptions.queuedWhileRunActive,
-            onLocalSubmit: composerOptions.onLocalSubmit,
-          });
-        } else {
-          await control.sendMessage({
-            text: message,
-            attachments: fileParts,
-            options: {
-              model,
-              mode: requestMode,
-              agentId: selectedAgent,
-              reasoningEffort:
-                effort && effort !== "auto" && effort !== "max"
-                  ? (effort as "low" | "medium" | "high" | "xhigh")
-                  : undefined,
-              metadata,
-            },
-            metadata,
-            onLocalSubmit: composerOptions.onLocalSubmit,
-          });
-        }
+          },
+          metadata,
+          onLocalSubmit: composerOptions.onLocalSubmit,
+        });
         reportAgentChatSubmitResult(options.submitMessageId, true);
         if (
           !options.recoveryAction &&
@@ -2162,7 +2203,7 @@ const AgentKitAssistantChatBody = forwardRef<
             reportAgentChatSubmitResult(
               options.submitMessageId,
               false,
-              "submission-failed",
+              submitFailureReason(error),
             );
             dispatchSetupRequiredEvent(error, props.tabId, threadId);
             throw error;
@@ -2187,7 +2228,7 @@ const AgentKitAssistantChatBody = forwardRef<
         reportAgentChatSubmitResult(
           options.submitMessageId,
           false,
-          "submission-failed",
+          submitFailureReason(error),
         );
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
@@ -2562,6 +2603,8 @@ const AgentKitAssistantChatBody = forwardRef<
         | "recoveryEngine"
         | "recoveryEffort"
         | "recoveryRequestMode"
+        | "recoveryOfRunId"
+        | "resumeAfterSetup"
       >,
     ) => {
       return submit(
@@ -2780,7 +2823,9 @@ const AgentKitAssistantChatBody = forwardRef<
     canChat,
     setupMissing,
     providerStatus,
+    modelListUnavailable,
     retryProviderStatus,
+    retryModelList,
     fileStorageConfigured,
     fileStorageMissing,
     retryFileStorageStatus,
@@ -2815,6 +2860,7 @@ const AgentKitAssistantChatBody = forwardRef<
     sendRecoveryMessage,
     submitSuggestion,
     suggestionSubmitRef,
+    resumedAfterSetup: resumedAfterSetupRef.current,
     onImplementPlan: implementPlan,
   };
 
@@ -3291,7 +3337,12 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
             isSubmitting={guided.isSubmitting}
             isSubmissionBlocked={!surface.canChat}
             providerStatus={surface.providerStatus}
-            onRetryProviderStatus={surface.retryProviderStatus}
+            modelListUnavailable={surface.modelListUnavailable}
+            onRetryProviderStatus={
+              surface.modelListUnavailable
+                ? surface.retryModelList
+                : surface.retryProviderStatus
+            }
             {...(guided.title ? { title: guided.title } : {})}
             {...(guided.description ? { description: guided.description } : {})}
             {...(guided.skipLabel ? { skipLabel: guided.skipLabel } : {})}
@@ -3412,7 +3463,9 @@ function AgentKitComposerSurface({
   canChat,
   setupMissing,
   providerStatus,
+  modelListUnavailable,
   retryProviderStatus,
+  retryModelList,
   fileStorageConfigured,
   fileStorageMissing,
   retryFileStorageStatus,
@@ -3450,7 +3503,9 @@ function AgentKitComposerSurface({
   canChat: boolean;
   setupMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
+  modelListUnavailable: boolean;
   retryProviderStatus: () => void;
+  retryModelList?: () => void;
   fileStorageConfigured: boolean;
   fileStorageMissing: boolean;
   retryFileStorageStatus: () => void;
@@ -3733,10 +3788,12 @@ function AgentKitComposerSurface({
           }
         />
       ) : null}
-      {!canChat && !setupMissing && providerStatus !== "configured" ? (
+      {modelListUnavailable ||
+      (!canChat && !setupMissing && providerStatus !== "configured") ? (
         <GuidedQuestionProviderGate
           providerStatus={providerStatus}
-          onRetry={retryProviderStatus}
+          modelListUnavailable={modelListUnavailable}
+          onRetry={modelListUnavailable ? retryModelList : retryProviderStatus}
         />
       ) : null}
       {integration ? (
@@ -3827,7 +3884,24 @@ function AgentKitComposerSurface({
           onConnectLocalRuntime={props.onConnectLocalRuntime}
           imageModelMenu={props.imageModelMenu}
           voiceEnabled
-          toolbarSlot={props.composerToolbarSlot}
+          toolbarSlot={
+            <>
+              {props.selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME ? (
+                <span className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span>{t("agentChat.composer.chatgptPlanUsing")}</span>
+                  <a
+                    href="https://chatgpt.com/settings/usage"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    {t("agentChat.composer.chatgptManageUsage")}
+                  </a>
+                </span>
+              ) : null}
+              {props.composerToolbarSlot}
+            </>
+          }
           extraActionButton={props.composerExtraActionButton}
           includeDefaultSlashCommands
           includeDefaultSlashSkills
@@ -4290,22 +4364,51 @@ function AgentKitRunFailure({
       }),
     );
   }, [authErrorReason, surface.props.tabId, threadId]);
+  const setupFailure = isAiSetupRunFailure(error);
+  const supersededAt = thread.runs[runId]?.startedAt;
+  const superseded = Object.values(thread.runs).some(
+    (run) =>
+      run.id !== runId &&
+      Boolean(run.startedAt && supersededAt && run.startedAt > supersededAt),
+  );
+  const lastUserMessage = [...thread.messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const failedPrompt = userMessageForRun(thread.messages, runId);
+  const retryRequest = retryRequestFrom(failedPrompt ?? lastUserMessage);
+  const alreadyRetried = wasRetried(
+    thread.messages,
+    runId,
+    failedPrompt?.id,
+    lastUserMessage?.id,
+  );
+  const retryFailedTurn = () => sendRetryRequest(surface, retryRequest, runId);
+  const resumeAfterSetup = useResumeAfterAiSetup(
+    `${threadId}:${(failedPrompt ?? lastUserMessage)?.id ?? runId}`,
+    setupFailure &&
+      !superseded &&
+      !alreadyRetried &&
+      !retryRequest.hasUnavailableAttachment,
+    () => sendRetryRequest(surface, retryRequest, runId, true),
+  );
+  // A refusal the user already moved past is stale; any other failure keeps
+  // its Retry so a reloaded thread never shows an unanswered prompt.
   if (dismissed === runId) return null;
-  if (
-    error.code === "AGENT_CHAT_AI_SETUP_REQUIRED" ||
-    error.code === "missing_api_key"
-  ) {
-    if (surface.setupMissing) return null;
+  if (setupFailure) {
+    if (superseded || alreadyRetried || composerShowsSetupCard(surface)) {
+      return null;
+    }
     return (
       <BuilderSetupCard
         fullWidth
         attached
         layout={surface.props.missingApiKeySetupLayout ?? "default"}
-        onConnected={() =>
-          window.dispatchEvent(new Event("agent-engine:configured-changed"))
-        }
-        onRetry={() =>
-          window.dispatchEvent(new Event("agent-engine:configured-changed"))
+        onConnected={() => {
+          window.dispatchEvent(new Event("agent-engine:configured-changed"));
+          resumeAfterSetup();
+        }}
+        onRetry={
+          retryRequest.hasUnavailableAttachment ? undefined : resumeAfterSetup
         }
       />
     );
@@ -4325,6 +4428,7 @@ function AgentKitRunFailure({
       />
     );
   }
+  if (wasRetried(thread.messages, runId)) return null;
   const info: RunErrorInfo = {
     message: formatAgentKitErrorText(error, t),
     errorCode: error.code,
@@ -4332,49 +4436,14 @@ function AgentKitRunFailure({
     runId,
     recoverable: error.retryable,
   };
-  const lastUserMessage = [...thread.messages]
-    .reverse()
-    .find((message) => message.role === "user");
-  const retryText = lastUserMessage ? agentMessageText(lastUserMessage) : "";
-  const retryMetadata = asRecord(lastUserMessage?.metadata);
-  const retryCustomMetadata = asRecord(retryMetadata?.custom);
-  const metadataString = (key: string) => {
-    const value = retryMetadata?.[key] ?? retryCustomMetadata?.[key];
-    return typeof value === "string" && value.trim() ? value : undefined;
-  };
-  const retryFileParts =
-    lastUserMessage?.parts.filter((part) => part.type === "file") ?? [];
-  const retryHasUnavailableAttachment = retryFileParts.some(
-    (part) => !part.url && !part.fileId,
-  );
-  const retryReferences = Array.isArray(retryMetadata?.references)
-    ? (retryMetadata.references as Reference[])
-    : [];
-  const retryRequestMode = metadataString("requestMode");
   return (
     <RunErrorRecoveryCard
       info={info}
       onContinue={() =>
         void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
       }
-      onRetry={() =>
-        void surface.sendRecoveryMessage(
-          retryText || "Please retry the last request.",
-          "retry",
-          undefined,
-          retryFileParts,
-          retryReferences,
-          {
-            recoveryModel: metadataString("model"),
-            recoveryEngine: metadataString("engine"),
-            recoveryEffort: metadataString("effort"),
-            ...(retryRequestMode === "plan" || retryRequestMode === "act"
-              ? { recoveryRequestMode: retryRequestMode }
-              : {}),
-          },
-        )
-      }
-      retryHasUnavailableAttachment={retryHasUnavailableAttachment}
+      onRetry={() => void retryFailedTurn()}
+      retryHasUnavailableAttachment={retryRequest.hasUnavailableAttachment}
       onFork={async () => {
         if (!lastUserMessage) return surface.props.onForkChat?.();
         const fork = await control.fork(lastUserMessage.id);
@@ -4386,6 +4455,182 @@ function AgentKitRunFailure({
   );
 }
 
+/**
+ * Sends a prompt that missing AI setup refused again, once: when setup goes
+ * from missing to ready while the refusal is on screen, or through the
+ * returned callback (the setup card's connect or retry). `resendKey` names the
+ * prompt, so every card showing the same refusal sends it one time; another
+ * tab learns it was sent from the retry's persisted marker (`enabled`). A
+ * thread reopened after connecting elsewhere keeps its Retry button instead of
+ * replaying.
+ */
+function useResumeAfterAiSetup(
+  resendKey: string,
+  enabled: boolean,
+  resend: () => Promise<AssistantChatSubmitResult>,
+): () => void {
+  const surface = useAgentKitSurface();
+  const sawSetupMissingRef = useRef(false);
+  if (surface.setupMissing) sawSetupMissingRef.current = true;
+  const latestRef = useRef({ resendKey, enabled, resend });
+  latestRef.current = { resendKey, enabled, resend };
+  const resumed = surface.resumedAfterSetup;
+  const resume = useCallback(() => {
+    const {
+      resendKey: key,
+      enabled: canResend,
+      resend: send,
+    } = latestRef.current;
+    if (!canResend || resumed.has(key)) return;
+    resumed.add(key);
+    const release = () => {
+      resumed.delete(key);
+    };
+    void send().then((result) => {
+      if (result.status === "rejected") release();
+    }, release);
+  }, [resumed]);
+  const setupReady = surface.canChat && !surface.setupMissing;
+  useEffect(() => {
+    if (enabled && setupReady && sawSetupMissingRef.current) resume();
+  }, [enabled, resume, setupReady]);
+  return resume;
+}
+
+/** What retrying a failed or refused prompt sends again, read from its user message. */
+function retryRequestFrom(message: AgentMessage | undefined) {
+  const metadata = asRecord(message?.metadata);
+  const custom = asRecord(metadata?.custom);
+  const metadataString = (key: string) => {
+    const value = metadata?.[key] ?? custom?.[key];
+    return typeof value === "string" && value.trim() ? value : undefined;
+  };
+  const fileParts = message?.parts.filter((part) => part.type === "file") ?? [];
+  const mode = metadataString("requestMode");
+  const requestMode: "plan" | "act" | undefined =
+    mode === "plan" || mode === "act" ? mode : undefined;
+  return {
+    text: message ? agentMessageText(message) : "",
+    fileParts,
+    hasUnavailableAttachment: fileParts.some(
+      (part) => !part.url && !part.fileId,
+    ),
+    references: Array.isArray(metadata?.references)
+      ? (metadata.references as Reference[])
+      : [],
+    model: metadataString("model"),
+    engine: metadataString("engine"),
+    effort: metadataString("effort"),
+    requestMode,
+  };
+}
+
+function sendRetryRequest(
+  surface: AgentKitSurfaceContextValue,
+  request: ReturnType<typeof retryRequestFrom>,
+  recoveryOfRunId: string,
+  resumeAfterSetup = false,
+) {
+  return surface.sendRecoveryMessage(
+    request.text || "Please retry the last request.",
+    "retry",
+    undefined,
+    request.fileParts,
+    request.references,
+    {
+      recoveryModel: request.model,
+      recoveryEngine: request.engine,
+      recoveryEffort: request.effort,
+      recoveryOfRunId,
+      ...(resumeAfterSetup ? { resumeAfterSetup } : {}),
+      ...(request.requestMode
+        ? { recoveryRequestMode: request.requestMode }
+        : {}),
+    },
+  );
+}
+
+/**
+ * The custom-metadata flag the server sets on a prompt it refused before any
+ * run started (`RUN_NOT_STARTED_METADATA_KEY` in core's shared module).
+ */
+const RUN_NOT_STARTED_METADATA_KEY = "agentNativeRunNotStarted";
+
+function submittedRunIdOf(message: AgentMessage): string | undefined {
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  const id = custom?.submittedRunId ?? custom?.submittedTurnId;
+  return typeof id === "string" ? id : undefined;
+}
+
+/** The user message a run answers, when the server recorded which. */
+function userMessageForRun(
+  messages: readonly AgentMessage[],
+  runId: string,
+): AgentMessage | undefined {
+  return [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "user" && submittedRunIdOf(message) === runId,
+    );
+}
+
+/**
+ * The prompt a turn refused before its run started left in the thread: marked
+ * by the server so it survives a reload, or still errored from this session.
+ */
+function refusedPromptFrom(
+  messages: readonly AgentMessage[],
+): AgentMessage | undefined {
+  return [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "user" &&
+        (message.status === "error" ||
+          asRecord(asRecord(message.metadata)?.custom)?.[
+            RUN_NOT_STARTED_METADATA_KEY
+          ] === true),
+    );
+}
+
+/** Whether a retry answering one of `ids` was already sent, per its persisted marker. */
+function wasRetried(
+  messages: readonly AgentMessage[],
+  ...ids: Array<string | undefined>
+): boolean {
+  return messages.some((message) => {
+    const marker = asRecord(
+      asRecord(message.metadata)?.custom,
+    )?.agentNativeRecoveryOfRunId;
+    return typeof marker === "string" && ids.includes(marker);
+  });
+}
+
+/**
+ * The composer's own setup card covers a refusal only where it renders: hosts
+ * that hide it (Slides home shows a page-level card) still need the thread's.
+ */
+function composerShowsSetupCard(surface: AgentKitSurfaceContextValue) {
+  return surface.setupMissing && surface.props.showMissingApiKeySetup !== false;
+}
+
+/** A refusal the user fixes by connecting Builder or adding a provider key. */
+function isAiSetupRunFailure(error: {
+  code: string;
+  message: string;
+  details?: unknown;
+}): boolean {
+  return (
+    error.code === "AGENT_CHAT_AI_SETUP_REQUIRED" ||
+    isMissingLlmProviderRunError({
+      message: error.message,
+      errorCode: error.code,
+      ...(typeof error.details === "string" ? { details: error.details } : {}),
+    })
+  );
+}
+
 function AgentKitConnectionError({
   error,
   threadId,
@@ -4394,6 +4639,15 @@ function AgentKitConnectionError({
   recoveryError,
 }: AgentConnectionErrorRenderProps) {
   const t = useT();
+  const surface = useAgentKitSurface();
+  if (isAiSetupRunFailure(error)) {
+    return <AgentKitRefusedPromptSetup threadId={threadId} />;
+  }
+  const chatGPTPlanUsageError =
+    surface.props.selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+    `${error.code} ${error.message}`.match(
+      /subscription_sharing_usage_limit_(exceeded|unavailable)/,
+    )?.[1];
   return (
     <div
       className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground"
@@ -4404,7 +4658,27 @@ function AgentKitConnectionError({
       <strong className="mr-2 font-medium text-foreground">
         {t("agentChat.error.failed")}
       </strong>
-      <span>{formatAgentKitErrorText(error, t)}</span>
+      {chatGPTPlanUsageError ? (
+        <>
+          <span>
+            {t(
+              chatGPTPlanUsageError === "exceeded"
+                ? "agentChat.error.chatgptPlanUsageLimit"
+                : "agentChat.error.chatgptPlanUsageUnavailable",
+            )}
+          </span>
+          <a
+            href="https://chatgpt.com/settings/usage"
+            target="_blank"
+            rel="noreferrer"
+            className="ml-3 font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            {t("agentChat.composer.chatgptManageUsage")}
+          </a>
+        </>
+      ) : (
+        <span>{formatAgentKitErrorText(error, t)}</span>
+      )}
       {error.retryable ? (
         <button
           type="button"
@@ -4426,6 +4700,43 @@ function AgentKitConnectionError({
         </span>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The server refused to start the turn because AI setup is missing, so there
+ * is no run to retry: the refused prompt is sent again, once, after setup.
+ */
+function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
+  const thread = useAgentThread(threadId);
+  const surface = useAgentKitSurface();
+  const refused = refusedPromptFrom(thread.messages);
+  const refusedRunId = refused
+    ? (submittedRunIdOf(refused) ?? refused.id)
+    : undefined;
+  const retryRequest = retryRequestFrom(refused);
+  const alreadyRetried = wasRetried(thread.messages, refusedRunId, refused?.id);
+  const resume = useResumeAfterAiSetup(
+    `${threadId}:${refused?.id ?? ""}`,
+    Boolean(refusedRunId) &&
+      !alreadyRetried &&
+      !retryRequest.hasUnavailableAttachment,
+    () => sendRetryRequest(surface, retryRequest, refusedRunId!, true),
+  );
+  if (alreadyRetried || composerShowsSetupCard(surface)) return null;
+  return (
+    <BuilderSetupCard
+      fullWidth
+      attached
+      layout={surface.props.missingApiKeySetupLayout ?? "default"}
+      onConnected={() => {
+        window.dispatchEvent(new Event("agent-engine:configured-changed"));
+        resume();
+      }}
+      onRetry={
+        refused && !retryRequest.hasUnavailableAttachment ? resume : undefined
+      }
+    />
   );
 }
 
@@ -4654,7 +4965,22 @@ async function attachmentToFile(
       type: attachment.contentType ?? "text/plain",
     });
   }
-  throw new Error(`Attachment ${attachment.name} has no uploadable content.`);
+  throw Object.assign(
+    new Error(`Attachment ${attachment.name} has no uploadable content.`),
+    { code: ATTACHMENT_UNREADABLE_SUBMIT_REASON },
+  );
+}
+
+/**
+ * The submit result a host sees when an attached file has nothing to upload,
+ * so it can say which part failed instead of a generic send failure.
+ */
+const ATTACHMENT_UNREADABLE_SUBMIT_REASON = "attachment-unreadable";
+
+function submitFailureReason(error: unknown): string {
+  return asRecord(error)?.code === ATTACHMENT_UNREADABLE_SUBMIT_REASON
+    ? ATTACHMENT_UNREADABLE_SUBMIT_REASON
+    : "submission-failed";
 }
 
 async function uploadAgentChatAttachments(

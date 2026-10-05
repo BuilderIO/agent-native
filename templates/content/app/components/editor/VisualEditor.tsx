@@ -136,6 +136,7 @@ import {
 } from "./extensions/registryBlocks";
 import {
   SuggestionHighlight,
+  acceptedSuggestionAtRange,
   setSuggestionHighlights,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
@@ -160,6 +161,10 @@ import {
 } from "./image-upload";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import {
+  resolveSuggestionPresentationRange,
+  type SuggestionPresentationTransition,
+} from "./suggestions/presentation-rebase";
 import { TableHoverControls } from "./TableHoverControls";
 
 function compareDocumentBodyRevisions(
@@ -1141,8 +1146,51 @@ export interface VisualEditorSuggestion {
   afterText: string;
   beforePresentation?: SuggestionPresentationContext;
   afterPresentation?: SuggestionPresentationContext;
+  canonicalOperation?: Parameters<typeof resolveSuggestionPresentationRange>[1];
+  canonicalTransition?: SuggestionPresentationTransition;
+  observedTransition?: SuggestionPresentationTransition;
   anchor: { from: number; prefix: string; suffix: string };
-  presentation: "draft" | "canonical";
+  settlementReadbackContent?: string | null;
+  presentation: "draft" | "canonical" | "settling";
+}
+
+export function acceptedSuggestionRendered(
+  actualMarkdown: string,
+  readbackMarkdown: string,
+  suggestion: VisualEditorSuggestion,
+) {
+  const afterSource = suggestion.afterPresentation?.source;
+  const beforeSource = suggestion.beforePresentation?.source;
+  if (afterSource === undefined || beforeSource === undefined) return false;
+  const actual = canonicalizeNfm(actualMarkdown);
+  const readback = canonicalizeNfm(readbackMarkdown);
+  const before = canonicalizeNfm(beforeSource);
+  return readback !== before && actual === readback;
+}
+
+export function acceptedSuggestionReadbackOutdated(
+  actualMarkdown: string,
+  readbackMarkdown: string,
+  suggestion: VisualEditorSuggestion,
+) {
+  const beforeSource = suggestion.beforePresentation?.source;
+  if (beforeSource === undefined) return false;
+  const actual = canonicalizeNfm(actualMarkdown);
+  return (
+    actual !== canonicalizeNfm(beforeSource) &&
+    actual !== canonicalizeNfm(readbackMarkdown)
+  );
+}
+
+export function canProjectAcceptedSuggestion(
+  suggestion: VisualEditorSuggestion,
+) {
+  return (
+    suggestion.kind !== "add_text_block" &&
+    !/[\r\n]/.test(suggestion.beforeText + suggestion.afterText) &&
+    !suggestion.beforeText.includes("<empty-block/>") &&
+    !suggestion.afterText.includes("<empty-block/>")
+  );
 }
 
 function suggestionAnchorRange(
@@ -1154,16 +1202,33 @@ function suggestionAnchorRange(
     suggestion.presentation === "draft"
       ? suggestion.afterText
       : suggestion.beforeText;
-  const sourceFrom = suggestion.anchor.from;
+  const canonicalRange =
+    suggestion.presentation === "canonical" && suggestion.canonicalOperation
+      ? resolveSuggestionPresentationRange(
+          source,
+          suggestion.canonicalOperation,
+          suggestion.canonicalTransition,
+          suggestion.observedTransition,
+        )
+      : undefined;
+  if (canonicalRange === null) return null;
+  const anchor = canonicalRange
+    ? {
+        from: canonicalRange.from,
+        prefix: source.slice(
+          Math.max(0, canonicalRange.from - 32),
+          canonicalRange.from,
+        ),
+        suffix: source.slice(canonicalRange.to, canonicalRange.to + 32),
+      }
+    : suggestion.anchor;
+  const sourceFrom = anchor.from;
   const sourceTo = sourceFrom + rawQuote.length;
   const sourceMatches =
     source.slice(sourceFrom, sourceTo) === rawQuote &&
-    source.slice(
-      Math.max(0, sourceFrom - suggestion.anchor.prefix.length),
-      sourceFrom,
-    ) === suggestion.anchor.prefix &&
-    source.slice(sourceTo, sourceTo + suggestion.anchor.suffix.length) ===
-      suggestion.anchor.suffix;
+    source.slice(Math.max(0, sourceFrom - anchor.prefix.length), sourceFrom) ===
+      anchor.prefix &&
+    source.slice(sourceTo, sourceTo + anchor.suffix.length) === anchor.suffix;
   const sourceRangeToPm = (from: number, to: number) => {
     const mapped = suggestionFormattingSourceRange(source, from, to);
     if (!mapped) return null;
@@ -1261,11 +1326,10 @@ function suggestionAnchorRange(
   if (suggestion.kind === "set_inline_mark") {
     let from = sourceFrom;
     if (!sourceMatches) {
-      const needle =
-        suggestion.anchor.prefix + rawQuote + suggestion.anchor.suffix;
+      const needle = anchor.prefix + rawQuote + anchor.suffix;
       const match = source.indexOf(needle);
       if (match < 0 || source.indexOf(needle, match + 1) >= 0) return null;
-      from = match + suggestion.anchor.prefix.length;
+      from = match + anchor.prefix.length;
     }
     const mappedRange = sourceRangeToPm(from, from + rawQuote.length);
     return mappedRange && mappedRange.to > mappedRange.from
@@ -1283,11 +1347,11 @@ function suggestionAnchorRange(
   );
   const prefix =
     startOffset === undefined
-      ? suggestionAnchorText(suggestion.anchor.prefix)
+      ? suggestionAnchorText(anchor.prefix)
       : mappedSource.slice(0, startOffset);
   const suffix =
     startOffset === undefined
-      ? suggestionAnchorText(suggestion.anchor.suffix)
+      ? suggestionAnchorText(anchor.suffix)
       : mappedSource.slice(startOffset + quote.length);
   const from = resolveAnchorPoint(
     doc,
@@ -1330,6 +1394,42 @@ export function suggestionHighlightSpec(
   if (beforePresentation === null || afterPresentation === null) return null;
   const range = suggestionAnchorRange(doc, suggestion);
   if (!range) return null;
+  if (
+    suggestion.presentation === "settling" &&
+    suggestion.beforePresentation &&
+    suggestion.afterPresentation &&
+    acceptedSuggestionAtRange(
+      doc,
+      range,
+      suggestion.beforePresentation,
+      suggestion.afterPresentation,
+    )
+  )
+    return null;
+  if (
+    suggestion.presentation === "settling" &&
+    canProjectAcceptedSuggestion(suggestion)
+  ) {
+    return {
+      suggestionId: suggestion.id,
+      kind:
+        suggestion.kind === "delete_text"
+          ? "delete"
+          : suggestion.kind === "insert_text"
+            ? "insert"
+            : suggestion.kind === "add_text_block"
+              ? "add_block"
+              : "replace",
+      from: range.from,
+      to: range.to,
+      insertedText: suggestion.afterText,
+      insertedPresentation: suggestion.afterPresentation,
+      settling: true,
+      settlingBeforePresentation: suggestion.beforePresentation,
+      settlingAfterSource: suggestion.afterPresentation?.source,
+      settlingReadbackContent: suggestion.settlementReadbackContent,
+    };
+  }
   if (suggestion.presentation === "draft") {
     if (
       /^\n+$/.test(suggestionAnchorText(suggestion.afterText)) ||
@@ -1468,6 +1568,22 @@ interface VisualEditorProps {
   pendingHighlight?: { from: number; to: number } | null;
   onActivateThread?: (threadId: string) => void;
   suggestions?: VisualEditorSuggestion[];
+  acceptedDecisionReadback?: { id: string; content: string } | null;
+  onAcceptedDecisionRendered?: (id: string) => void;
+  onAcceptedDecisionReadbackOutdated?: (
+    id: string,
+    actualContent: string,
+  ) => void;
+  proposalDecisionReadback?: {
+    generation: number;
+    content: string;
+    beforeContent: string;
+  } | null;
+  onProposalDecisionRendered?: (generation: number) => void;
+  onProposalDecisionReadbackOutdated?: (
+    generation: number,
+    actualContent: string,
+  ) => void;
   activeSuggestionId?: string | null;
   onActivateSuggestion?: (suggestionId: string) => void;
   onHoverSuggestion?: (suggestionId: string | null) => void;
@@ -2873,6 +2989,12 @@ export function VisualEditor({
   pendingHighlight,
   onActivateThread,
   suggestions = [],
+  acceptedDecisionReadback = null,
+  onAcceptedDecisionRendered,
+  onAcceptedDecisionReadbackOutdated,
+  proposalDecisionReadback = null,
+  onProposalDecisionRendered,
+  onProposalDecisionReadbackOutdated,
   activeSuggestionId,
   onActivateSuggestion,
   onHoverSuggestion,
@@ -4125,8 +4247,9 @@ export function VisualEditor({
         .join("|"),
     [suggestions],
   );
+  const applySuggestionsRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const apply = () => {
       if (editor.isDestroyed) return;
@@ -4138,7 +4261,9 @@ export function VisualEditor({
       onSuggestionAnchorsChange?.(
         Array.from(new Set(specs.map((spec) => spec.suggestionId))),
       );
-      const visibleSpecs = showCommentIndicators ? specs : [];
+      const visibleSpecs = showCommentIndicators
+        ? specs
+        : specs.filter((spec) => spec.settling);
       const selection = pendingNativeSuggestionSelection(
         editor.view,
         visibleSpecs,
@@ -4149,13 +4274,10 @@ export function VisualEditor({
         selection.status === "mapped" ? selection.selection : undefined,
       );
     };
-    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
-      if (transaction.docChanged) apply();
-    };
+    applySuggestionsRef.current = apply;
     apply();
-    editor.on("transaction", onTransaction);
     return () => {
-      editor.off("transaction", onTransaction);
+      applySuggestionsRef.current = null;
     };
   }, [
     activeSuggestionId,
@@ -4164,6 +4286,88 @@ export function VisualEditor({
     suggestions,
     suggestionsSignature,
     showCommentIndicators,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    // Prop updates must not move reconciliation behind other transaction consumers.
+    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
+      if (transaction.docChanged) applySuggestionsRef.current?.();
+    };
+    editor.on("transaction", onTransaction);
+    return () => {
+      editor.off("transaction", onTransaction);
+    };
+  }, [editor]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || !acceptedDecisionReadback) return;
+    const settlingSuggestion = suggestions.find(
+      (suggestion) => suggestion.id === acceptedDecisionReadback.id,
+    );
+    if (!settlingSuggestion) return;
+    const check = () => {
+      if (editor.isDestroyed) return;
+      const actualContent = docToNfm(editor.getJSON() as any);
+      if (
+        acceptedSuggestionRendered(
+          actualContent,
+          acceptedDecisionReadback.content,
+          settlingSuggestion,
+        )
+      ) {
+        onAcceptedDecisionRendered?.(acceptedDecisionReadback.id);
+      } else if (
+        acceptedSuggestionReadbackOutdated(
+          actualContent,
+          acceptedDecisionReadback.content,
+          settlingSuggestion,
+        )
+      ) {
+        onAcceptedDecisionReadbackOutdated?.(
+          acceptedDecisionReadback.id,
+          actualContent,
+        );
+      }
+    };
+    editor.on("transaction", check);
+    check();
+    return () => {
+      editor.off("transaction", check);
+    };
+  }, [
+    acceptedDecisionReadback,
+    editor,
+    onAcceptedDecisionRendered,
+    onAcceptedDecisionReadbackOutdated,
+    suggestions,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || !proposalDecisionReadback) return;
+    const check = () => {
+      if (editor.isDestroyed) return;
+      const actual = canonicalizeNfm(docToNfm(editor.getJSON() as any));
+      if (actual === canonicalizeNfm(proposalDecisionReadback.content))
+        onProposalDecisionRendered?.(proposalDecisionReadback.generation);
+      else if (
+        actual !== canonicalizeNfm(proposalDecisionReadback.beforeContent)
+      )
+        onProposalDecisionReadbackOutdated?.(
+          proposalDecisionReadback.generation,
+          actual,
+        );
+    };
+    editor.on("transaction", check);
+    check();
+    return () => {
+      editor.off("transaction", check);
+    };
+  }, [
+    editor,
+    onProposalDecisionReadbackOutdated,
+    onProposalDecisionRendered,
+    proposalDecisionReadback,
   ]);
 
   useEffect(() => {

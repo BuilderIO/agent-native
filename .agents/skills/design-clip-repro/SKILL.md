@@ -28,7 +28,7 @@ assumes your own machine. Run everything from the repo root.
 
 | | Fusion branch | Your machine |
 | --- | --- | --- |
-| Design app | the branch's dev server on `:8080` | `.agents/skills/design-clip-repro/harness/start-dev.sh`: one port and database per worktree |
+| Design app | `127.0.0.1:8080/design` on the branch's dev gateway | `.agents/skills/design-clip-repro/harness/start-dev.sh`: one port and database per worktree |
 | Shared browser (Figma, osmouse) | headed Chromium on display `:99`, DevTools `:9222`, started with the branch | your Chrome, started with `--remote-debugging-port=9222` and logged in to Figma |
 | Figma login | `scripts/figma-login.mjs`, from the `FIGMA_COOKIES_B64` secret | your own session; the script only checks it |
 | osmouse | `harness/osmouse-linux` (xdotool) | build once: `swiftc -O .agents/skills/design-clip-repro/harness/osmouse.swift -o templates/design/.tmp/osinput/osmouse`, and give the terminal Accessibility permission |
@@ -89,8 +89,9 @@ time out.
   compare with a sheet rather than opening shots one by one.
 - **`Read` only opens workspace files**, which is why screenshots live under
   `templates/design/.tmp/parity/shots/`.
-- **The copied design is a real person's work.** Never commit it or paste it
-  into a PR, comment or commit message. Delete the production copy at the end.
+- **The copied design is a real person's work.** Never commit it, and never
+  paste its source into a PR, comment or commit message. Delete the production
+  copy at the end.
 - **Close the tabs you open.** Editor and Figma tabs are large.
 - **Heavy checks run alone.** A full `tsc` of `templates/design` next to the
   dev server and the browser has run the machine out of memory. Close editor and
@@ -111,7 +112,7 @@ time out.
 
 ## References (open only when the clip needs them)
 
-- `.agents/skills/design-clip-repro/reference/figma.md`: measuring Figma in detail
+- `.agents/skills/design-clip-repro/reference/figma.md`: measuring Figma in detail, and refreshing its login
 - `.agents/skills/design-clip-repro/reference/input-and-osmouse.md`: HTML drag-and-drop, canvas input, osmouse
 - `.agents/skills/design-clip-repro/reference/verification.md`: instrumenting, and rules that each prevented a wrong claim
 - `.agents/skills/design-clip-repro/reference/fixing.md`: worked fixes and when not to fix

@@ -22,6 +22,7 @@ const amplitudeMock = vi.hoisted(() => ({
 
 const replayMock = vi.hoisted(() => ({
   emitSessionReplayAgentChatEvent: vi.fn(),
+  emitSessionReplayAnalyticsEvent: vi.fn(),
   emitSessionReplayException: vi.fn(),
   getSessionReplayId: vi.fn(() => undefined),
   getSessionReplayContext: vi.fn(() => null),
@@ -195,6 +196,7 @@ describe("browser analytics pageviews", () => {
     replayMock.startSessionReplay.mockClear();
     replayMock.stopSessionReplay.mockClear();
     replayMock.emitSessionReplayAgentChatEvent.mockClear();
+    replayMock.emitSessionReplayAnalyticsEvent.mockClear();
     tracingMock.recordTrackingEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -244,6 +246,7 @@ describe("browser analytics pageviews", () => {
         new Response(
           JSON.stringify({
             configured: true,
+            chatEligible: false,
             engine: "builder",
             model: "claude-sonnet-4-6",
             source: "app_secrets",
@@ -262,6 +265,7 @@ describe("browser analytics pageviews", () => {
       properties: {
         llm_connection: "builder",
         llm_connection_configured: true,
+        llm_chat_eligible: false,
       },
     });
   });
@@ -324,6 +328,42 @@ describe("browser analytics pageviews", () => {
     expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
     const latestBody = JSON.parse(String(analyticsCalls[1][1].body));
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
+  });
+
+  it("keeps high-value signup attribution when the cookie payload exceeds its budget", async () => {
+    const params = new URLSearchParams({
+      gclid: "click-id",
+      msclkid: "microsoft-click-id",
+      utm_source: "google",
+      utm_medium: "cpc",
+      utm_campaign: "launch",
+      utm_content: "💡".repeat(120),
+      utm_term: "💡".repeat(120),
+    });
+    const { getCookie, localStorage } = installBrowser(
+      `https://slides.agent-native.com/?${params}`,
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+
+    const cookie = getCookie();
+    const value = cookie.slice("an_ft=".length).split(";", 1)[0]!;
+    const captured = JSON.parse(decodeURIComponent(value));
+    const stored = JSON.parse(localStorage.getItem("an_attribution")!);
+
+    expect(cookie.length).toBeLessThanOrEqual(1500);
+    expect(captured).toMatchObject({
+      gclid: "click-id",
+      msclkid: "microsoft-click-id",
+      utm_source: "google",
+      capture_truncated: "1",
+    });
+    expect(stored.utm_term).toBe("💡".repeat(60));
   });
 
   it("emits return usage after a seven-day gap between app entries", async () => {
@@ -433,7 +473,7 @@ describe("browser analytics pageviews", () => {
     resolveSession(
       new Response(
         JSON.stringify({
-          email: "owner@example.test",
+          email: "owner@example.com",
           userId: "auth-user-1",
           orgId: "org-1",
         }),
@@ -448,7 +488,7 @@ describe("browser analytics pageviews", () => {
     expect(appEntries).toHaveLength(1);
     expect(appEntries[0].properties).toMatchObject({
       app_name: "mail",
-      user_email: "owner@example.test",
+      user_email: "owner@example.com",
       workspace_id: "org-1",
     });
   });
@@ -654,6 +694,74 @@ describe("browser analytics pageviews", () => {
     expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
   });
 
+  it("links the open chat thread on a first-party exception, and leaves one outside a thread alone", async () => {
+    installBrowser("https://mail.agent-native.com/inbox?thread=thr_9&token=s");
+    const { analyticsCalls } = installFetch();
+    const { captureException, configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      errorCapture: {
+        captureGlobalErrors: false,
+        captureUnhandledRejections: false,
+      },
+    });
+    await tick();
+    analyticsCalls.length = 0;
+
+    captureException(new Error("Chat render failed"), {
+      extra: { phase: "render" },
+    });
+    captureException(new Error("Own packet"), {
+      extra: { failureContext: { runId: "run_own" } },
+    });
+    await tick();
+
+    const exceptions = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .filter((body) => body.event === "$exception");
+    const byMessage = (message: string) =>
+      exceptions.find((body) => body.properties.exceptionMessage === message)
+        ?.properties.exceptionExtra;
+    expect(byMessage("Chat render failed")).toMatchObject({
+      phase: "render",
+      failureContext: {
+        threadId: "thr_9",
+        threadUrl: "https://mail.agent-native.com/?thread=thr_9",
+      },
+    });
+    expect(JSON.stringify(exceptions)).not.toContain("token=s");
+    expect(byMessage("Own packet").failureContext).toEqual({
+      runId: "run_own",
+    });
+  });
+
+  it("stamps first-party exception events with a real release", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { captureException, configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      errorCapture: {
+        captureGlobalErrors: false,
+        captureUnhandledRejections: false,
+      },
+    });
+    await tick();
+    analyticsCalls.length = 0;
+
+    captureException(new Error("Renderer failed"));
+    await tick();
+
+    const exception = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "$exception");
+    expect(exception?.properties.release).toMatch(/^agent-native-client@/);
+  });
+
   it("accepts the first-party public key and endpoint at configure time", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch();
@@ -837,7 +945,7 @@ describe("browser analytics pageviews", () => {
     });
     setSentryUser({
       id: "provider-subject-1",
-      email: "person@example.test",
+      email: "person@example.com",
       authUserId: "canonical-user-1",
     });
     trackEvent("recording_started");
@@ -847,7 +955,7 @@ describe("browser analytics pageviews", () => {
       .map(([, init]) => JSON.parse(String(init.body)))
       .find((entry) => entry.event === "recording_started");
     expect(event?.properties).toMatchObject({
-      user_id: "person@example.test",
+      user_id: "person@example.com",
       auth_user_id: "canonical-user-1",
     });
   });
@@ -868,11 +976,11 @@ describe("browser analytics pageviews", () => {
     });
     setSentryUser({
       id: "provider-subject-1",
-      email: "person@example.test",
+      email: "person@example.com",
       authUserId: "canonical-user-1",
     });
     trackEvent("before_session_refresh");
-    setSentryUser({ id: "provider-subject-1", email: "person@example.test" });
+    setSentryUser({ id: "provider-subject-1", email: "person@example.com" });
     trackEvent("after_session_refresh");
     await tick();
 
@@ -895,7 +1003,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking, setTrackingIdentity, trackAnonymousEvent } =
       await freshAnalytics();
     setTrackingIdentity({
-      email: "private@example.test",
+      email: "private@example.com",
       userId: "auth-user-1",
       authUserId: "canonical-auth-user-1",
     });
@@ -921,13 +1029,13 @@ describe("browser analytics pageviews", () => {
 
   it("tracks replay attempts without email, URL, or replay content", async () => {
     installBrowser("https://app.agent-native.com/private?token=private-url", {
-      email: "private@example.test",
+      email: "private@example.com",
       userId: "auth-user-1",
       authUserId: "canonical-auth-user-1",
     });
     const { analyticsCalls } = installFetch({
       session: {
-        email: "private@example.test",
+        email: "private@example.com",
         userId: "auth-user-1",
         authUserId: "canonical-auth-user-1",
       },
@@ -943,7 +1051,7 @@ describe("browser analytics pageviews", () => {
       getDefaultProps: (_name, properties) => ({
         ...properties,
         auth_user_id: "spoofed-auth-user",
-        user_email: "private@example.test",
+        user_email: "private@example.com",
         url: "https://app.agent-native.com/private?token=private-url",
         replay_content: "private-replay-content",
       }),
@@ -1004,7 +1112,7 @@ describe("browser analytics pageviews", () => {
     installBrowser();
     const { analyticsCalls } = installFetch({
       session: {
-        email: "owner@example.test",
+        email: "owner@example.com",
         userId: "owner-id",
         authUserId: "owner-id",
       },
@@ -1055,7 +1163,7 @@ describe("browser analytics pageviews", () => {
     const { gtag } = installBrowser();
     const { analyticsCalls } = installFetch({
       session: {
-        email: "owner@example.test",
+        email: "owner@example.com",
         userId: "owner-id",
         authUserId: "owner-id",
       },
@@ -1139,6 +1247,76 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.captureException).not.toHaveBeenCalled();
     expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
     expect(replayMock.emitSessionReplayAgentChatEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps a session-flagged test identity out of every browser provider", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "lead@qa.acme.co",
+        userId: "auth-user-qa",
+        orgId: "org_qa",
+        testIdentity: true,
+      },
+    });
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+    };
+    const { captureClientException, configureTracking, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: { requireSignedInUser: true },
+    });
+    await tick();
+    trackEvent("signup_completed");
+    expect(
+      captureClientException(new Error("configured QA failure")),
+    ).toBeUndefined();
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
+    expect(gtag).not.toHaveBeenCalledWith(
+      "event",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+    expect(sentryMock.captureException).not.toHaveBeenCalled();
+    expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a published identity on the session's test-identity flag", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setTrackingIdentity, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setTrackingIdentity({ id: "auth-user-qa", email: "lead@qa.acme.co" });
+    trackEvent("tracked_before_flag");
+    setTrackingIdentity({
+      id: "auth-user-qa",
+      email: "lead@qa.acme.co",
+      testIdentity: true,
+    });
+    trackEvent("suppressed_after_flag");
+    await tick();
+
+    const events = analyticsCalls.map(
+      ([, init]) => JSON.parse(String(init.body)).event,
+    );
+    expect(events).toEqual(["tracked_before_flag"]);
   });
 
   it("tracks client-side URL changes once per URL", async () => {
@@ -1266,6 +1444,51 @@ describe("browser analytics pageviews", () => {
     expect(replayMock.emitSessionReplayAgentChatEvent).toHaveBeenCalledWith(
       event,
     );
+  });
+
+  it("marks named app events on the replay once, without telemetry events", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    installFetch({
+      session: { email: "dev@example.com", userId: "auth-user-1" },
+    });
+    replayMock.startSessionReplay.mockResolvedValue({
+      started: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+    });
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    trackEvent("recording_started", { clip_id: "clip-1" });
+    trackEvent("share_link_copied", { clip_id: "clip-1" });
+    trackEvent("pageview");
+    trackEvent("action.response", { action: "list-clips" });
+    trackEvent("session_status", { signed_in: true });
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    replayOptions.onUploadRejectedWithAttemptId(
+      { status: 409, restartAttempted: true, restartSucceeded: true },
+      "opaque-attempt-1",
+    );
+    await tick();
+
+    const marked = replayMock.emitSessionReplayAnalyticsEvent.mock.calls.map(
+      ([name]) => name,
+    );
+    expect(marked).toContain("recording_started");
+    // The lifecycle alias (output_shared) describes the same moment.
+    expect(marked.filter((name) => name !== "recording_started")).toHaveLength(
+      1,
+    );
+    expect(marked).not.toContain("output_shared");
+    expect(marked).not.toContain("pageview");
+    expect(marked).not.toContain("action.response");
+    expect(marked).not.toContain("session_status");
+    expect(marked).not.toContain("session_replay_upload_rejected");
   });
 
   it("switches content capture before emitting client-side pageviews", async () => {
@@ -1481,6 +1704,135 @@ describe("browser analytics pageviews", () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  it("drops third-party vendor failures from browser Sentry through the shared rules", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+    const options = sentryMock.init.mock.calls[0][0];
+    // Sentry orders frames oldest first: the vendor frame precedes our wrapper.
+    const vendorFetchFailure = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Failed to fetch (api.vector.co)",
+            stacktrace: {
+              frames: [
+                { filename: "https://cdn.vector.co/pixel.js", lineno: 2 },
+                {
+                  filename:
+                    "https://www.agent-native.com/assets/api-path-Bx1.js",
+                  function: "window.fetch",
+                  lineno: 1,
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: { url: "https://www.agent-native.com/templates/slides" },
+    };
+    expect(options.beforeSend(vendorFetchFailure)).toBeNull();
+
+    const staleChunk = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value:
+              "Failed to fetch dynamically imported module: https://www.agent-native.com/assets/Panel-3f.js",
+          },
+        ],
+      },
+      request: { url: "https://www.agent-native.com/templates/slides" },
+    };
+    expect(options.beforeSend(staleChunk)).toBeNull();
+
+    const appFetchFailure = {
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value: "Failed to fetch",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "https://www.agent-native.com/assets/app.js",
+                  function: "loadDashboard",
+                  lineno: 10,
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: { url: "https://www.agent-native.com/templates/slides" },
+    };
+    expect(options.beforeSend(appFetchFailure)).toBe(appFetchFailure);
+  });
+
+  it("classifies a linked-error chain by the exception that was thrown, not by its causes", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+    const options = sentryMock.init.mock.calls[0][0];
+    // Sentry's linkedErrors puts the cause first and the thrown error last.
+    const safariLoadFailedCause = {
+      type: "TypeError",
+      value: "Load failed",
+    };
+    const firstPartyOuter = {
+      type: "Error",
+      value:
+        "Agent chat request failed with 200, and its error body could not be read.",
+      stacktrace: {
+        frames: [
+          {
+            filename: "https://mail.agent-native.com/assets/chat.js",
+            function: "readChatResponse",
+            lineno: 733,
+          },
+        ],
+      },
+    };
+    const wrapped = {
+      exception: { values: [safariLoadFailedCause, firstPartyOuter] },
+      request: { url: "https://mail.agent-native.com/inbox" },
+    };
+    expect(options.beforeSend(wrapped)).toBe(wrapped);
+
+    // The same cause thrown on its own is still noise...
+    const bare = {
+      exception: { values: [safariLoadFailedCause] },
+      request: { url: "https://mail.agent-native.com/inbox" },
+    };
+    expect(options.beforeSend(bare)).toBeNull();
+
+    // ...and so is a noisy outer exception, whatever its cause.
+    const noisyOuter = {
+      exception: {
+        values: [
+          { type: "Error", value: "first-party cause" },
+          safariLoadFailedCause,
+        ],
+      },
+      request: { url: "https://mail.agent-native.com/inbox" },
+    };
+    expect(options.beforeSend(noisyOuter)).toBeNull();
   });
 
   it("drops rrweb autoplay-policy rejections only on session replay pages", async () => {

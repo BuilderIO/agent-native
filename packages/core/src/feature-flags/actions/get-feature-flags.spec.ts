@@ -133,6 +133,41 @@ describe("get-feature-flags action", () => {
     });
   });
 
+  it("keeps unreadable migrated Labs scoped to their own aliases", async () => {
+    registry.registerFeatureFlags([
+      { key: "capture" },
+      { key: "retry" },
+      { key: "unrelated" },
+    ]);
+    labsRegistry.registerLabs([
+      { key: "clips.resilient", legacyFlagKeys: ["capture", "retry"] },
+    ]);
+    globalSettings.set("feature-flag:capture", { mode: "on" });
+    globalSettings.set("feature-flag:retry", { mode: "on" });
+    globalSettings.set("feature-flag:unrelated", { mode: "on" });
+    globalSettings.set("u:a@b.com:labs", { "clips.resilient": "false" });
+
+    await expect(
+      action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),
+    ).resolves.toEqual({
+      capture: false,
+      retry: false,
+      unrelated: true,
+    });
+    expect(captureErrorMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Invalid saved lab choice: clips.resilient",
+      }),
+      expect.objectContaining({
+        tags: expect.objectContaining({
+          source: "feature-flags",
+          op: "get-feature-flags",
+          lab: "clips.resilient",
+        }),
+      }),
+    );
+  });
+
   it("preserves mixed inherited aliases in the caller organization", async () => {
     registry.registerFeatureFlags([{ key: "capture" }, { key: "retry" }]);
     labsRegistry.registerLabs([

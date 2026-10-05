@@ -114,12 +114,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function DbSyncSetup() {
+export function isPrivateDesignEditorPath(pathname: string): boolean {
+  return pathname.startsWith("/design/");
+}
+
+export function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
   useDbSync({
     queryClient: qc,
     queryKeys: ["designs", "design-systems", "design-files"],
     ignoreSource: getBrowserTabId(),
+    realtime: isPrivateDesignEditorPath(location.pathname)
+      ? { reason: "collaborators can edit this design while it is open" }
+      : undefined,
   });
   return null;
 }
@@ -218,11 +226,14 @@ function PrivateRootContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
+  // The home prompt composer takes focus on load, and without this the shortcut
+  // is swallowed whenever a contenteditable has focus.
   useCommandMenuShortcut(
     useCallback(() => {
       if (!hasSession || isPublicVisualEdit) return;
       setCmdkOpen(true);
     }, [hasSession, isPublicVisualEdit]),
+    { allowContentEditable: true },
   );
 
   const content = isPublicVisualEdit ? (

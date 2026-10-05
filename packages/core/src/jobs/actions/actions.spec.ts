@@ -186,6 +186,90 @@ describe("recurring jobs actions", () => {
     expect(jobs[0]?.nextRun).toBeNull();
   });
 
+  const pausedJobContent = jobContent
+    .replace("enabled: true", "enabled: false")
+    .replace(
+      "nextRun:",
+      [
+        "lastStatus: paused",
+        'lastError: "Paused after 3 consecutive missing_credentials failures: No LLM provider is connected."',
+        'lastErrorCode: "missing_credentials"',
+        "consecutiveFailures: 3",
+        'pausedReason: "missing_credentials"',
+        'pausedAt: "2026-10-01T12:00:00.000Z"',
+        "nextRun:",
+      ].join("\n"),
+    );
+
+  it("shows a framework-paused job as paused with its reason and cause", async () => {
+    resourceListMock.mockResolvedValue([{ path: "jobs/paused.md" }]);
+    resourceGetByPathMock.mockResolvedValue({
+      id: "job-paused",
+      owner: "alice@example.com",
+      path: "jobs/paused.md",
+      content: pausedJobContent,
+    });
+
+    const [job] = await listRecurringJobs.run({ scope: "personal" }, ctx);
+
+    expect(job).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "missing_credentials",
+      pausedReason: "missing_credentials",
+      pausedAt: "2026-10-01T12:00:00.000Z",
+      nextRun: null,
+    });
+    expect(job?.lastError).toContain("No LLM provider is connected");
+  });
+
+  it("does not report a pause the owner already lifted by enabling the job", async () => {
+    resourceListMock.mockResolvedValue([{ path: "jobs/resumed.md" }]);
+    resourceGetByPathMock.mockResolvedValue({
+      id: "job-resumed",
+      owner: "alice@example.com",
+      path: "jobs/resumed.md",
+      content: pausedJobContent.replace("enabled: false", "enabled: true"),
+    });
+
+    const [job] = await listRecurringJobs.run({ scope: "personal" }, ctx);
+
+    expect(job).toMatchObject({
+      enabled: true,
+      lastStatus: null,
+      pausedReason: null,
+      pausedAt: null,
+    });
+  });
+
+  it("clears the pause and failure streak when the owner enables a paused job", async () => {
+    resourceGetByPathMock.mockResolvedValue({
+      id: "job-paused",
+      owner: "alice@example.com",
+      path: "jobs/paused.md",
+      content: pausedJobContent,
+    });
+
+    await manageRecurringJob.run(
+      { operation: "update", name: "paused", scope: "personal", enabled: true },
+      ctx,
+    );
+
+    const content = resourcePutMock.mock.calls[0][2] as string;
+    expect(content).toContain("enabled: true");
+    for (const field of [
+      "lastStatus",
+      "lastError",
+      "lastErrorCode",
+      "consecutiveFailures",
+      "pausedReason",
+      "pausedAt",
+    ]) {
+      expect(content).not.toContain(`${field}:`);
+    }
+    expect(content).toContain("Summarize my inbox.");
+  });
+
   it("optimistically supported management writes preserve the scoped owner", async () => {
     resourceGetByPathMock.mockResolvedValue({
       id: "job-1",

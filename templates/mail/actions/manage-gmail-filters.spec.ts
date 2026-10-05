@@ -10,10 +10,15 @@ const mocks = vi.hoisted(() => ({
   gmailListFilters: vi.fn(),
   gmailListLabels: vi.fn(),
   writeAppState: vi.fn(),
+  assertGmailNotCoolingDown: vi.fn(),
 }));
 
 vi.mock("./helpers.js", () => ({
   getAccessTokens: mocks.getAccessTokens,
+}));
+
+vi.mock("../server/lib/gmail-quota.js", () => ({
+  assertGmailNotCoolingDown: mocks.assertGmailNotCoolingDown,
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -35,6 +40,7 @@ const account = { email: "owner@example.test", accessToken: "token" };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.assertGmailNotCoolingDown.mockResolvedValue(undefined);
   mocks.getAccessTokens.mockResolvedValue([]);
   mocks.gmailCreateFilter.mockResolvedValue({
     id: "filter-new",
@@ -140,6 +146,29 @@ describe("manage-gmail-filters action", () => {
     expect(listed).not.toHaveProperty("change");
     expect(got).not.toHaveProperty("change");
     expect(deleted).not.toHaveProperty("change");
+  });
+
+  it("refuses repeated list calls inside a Gmail cooldown with the typed error and no Gmail work", async () => {
+    mocks.getAccessTokens.mockResolvedValue([account]);
+    const cooldown = Object.assign(
+      new Error("Email service is briefly busy."),
+      {
+        actionContractError: true,
+        errorCode: "gmail_quota_cooldown",
+        statusCode: 429,
+      },
+    );
+    mocks.assertGmailNotCoolingDown.mockRejectedValue(cooldown);
+
+    for (let call = 0; call < 3; call++) {
+      await expect(action.run({ operation: "list" })).rejects.toBe(cooldown);
+    }
+
+    expect(mocks.assertGmailNotCoolingDown).toHaveBeenCalledWith([
+      account.email,
+    ]);
+    expect(mocks.gmailListFilters).not.toHaveBeenCalled();
+    expect(mocks.gmailListLabels).not.toHaveBeenCalled();
   });
 
   it("throws a typed, caller-facing ActionContractError when no Google account is connected", async () => {

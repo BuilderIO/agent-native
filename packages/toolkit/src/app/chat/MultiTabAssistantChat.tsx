@@ -1,4 +1,5 @@
 import type { AgentChatAttachment } from "@agent-native/core";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import {
   DEFAULT_MODEL,
@@ -243,7 +244,10 @@ function resolveModelSelection(
   const fallbackGroup = matchingConfiguredGroup ?? fallbackConfiguredGroup;
   const engine = suppliedEngineGroup?.engine ?? fallbackGroup?.engine;
   const model = suppliedEngineGroup
-    ? selection.model
+    ? suppliedEngineGroup.engine === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+      !suppliedEngineGroup.models.includes(selection.model)
+      ? suppliedEngineGroup.models[0]
+      : selection.model
     : matchingConfiguredGroup?.models.includes(selection.model)
       ? selection.model
       : fallbackGroup?.models[0];
@@ -897,6 +901,8 @@ export function MultiTabAssistantChat({
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   availableModels: hostAvailableModels,
   modelListLoading: hostModelListLoading,
+  modelListError: hostModelListError,
+  onRetryModelList: hostOnRetryModelList,
   onModelChange: hostOnModelChange,
   ...props
 }: MultiTabAssistantChatProps) {
@@ -1149,10 +1155,15 @@ export function MultiTabAssistantChat({
   );
   const availableModels = hostAvailableModels ?? discoveredModels;
   const [discoveredModelsLoading, setModelListLoading] = useState(true);
+  const [discoveredModelsError, setDiscoveredModelsError] = useState(false);
   const modelListLoading = hostManagedModels
     ? (hostModelListLoading ?? false)
     : discoveredModelsLoading;
+  const modelListError = hostManagedModels
+    ? (hostModelListError ?? false)
+    : discoveredModelsError;
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
+  const engineCatalogRequestRef = useRef(0);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
   >(new Map());
@@ -1387,10 +1398,21 @@ export function MultiTabAssistantChat({
 
   const refreshEngines = useCallback(() => {
     if (hostManagedModels) return;
+    const requestId = ++engineCatalogRequestRef.current;
+    const isCurrentRequest = () =>
+      requestId === engineCatalogRequestRef.current;
+    setDiscoveredModels((groups) =>
+      groups.filter(
+        (group) => group.engine !== CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      ),
+    );
     setModelListLoading(true);
+    setDiscoveredModelsError(false);
     loadChatModelCatalog()
       .then((catalog) => {
+        if (!isCurrentRequest()) return;
         if (catalog.state !== "available") {
+          setDiscoveredModelsError(true);
           if (catalog.enginesUnavailable) {
             // Leaves `availableModels` empty for the session, so an override
             // with no engine of its own has nothing to resolve against.
@@ -1400,24 +1422,33 @@ export function MultiTabAssistantChat({
           }
           return;
         }
+        setDiscoveredModelsError(false);
         setDiscoveredModels(catalog.groups);
         setDefaultModel(catalog.defaultModel);
         void catalog.loadLiveGroups().then((liveGroups) => {
-          if (liveGroups) setDiscoveredModels(liveGroups);
+          if (isCurrentRequest() && liveGroups) {
+            setDiscoveredModels(liveGroups);
+          }
         });
       })
-      .catch(() => {})
-      .finally(() => setModelListLoading(false));
+      .catch(() => {
+        if (isCurrentRequest()) setDiscoveredModelsError(true);
+      })
+      .finally(() => {
+        if (isCurrentRequest()) setModelListLoading(false);
+      });
   }, [hostManagedModels]);
 
   useEffect(() => {
     refreshEngines();
     window.addEventListener("agent-engine:configured-changed", refreshEngines);
-    return () =>
+    return () => {
       window.removeEventListener(
         "agent-engine:configured-changed",
         refreshEngines,
       );
+      engineCatalogRequestRef.current += 1;
+    };
   }, [refreshEngines]);
 
   // Parent-child thread mapping — persisted to localStorage.
@@ -2688,8 +2719,12 @@ export function MultiTabAssistantChat({
   }, [chatCommandVersion, switchThread]);
 
   const handleGenerateTitle = useCallback(
-    (threadId: string, message: string) => {
-      void generateTitle(threadId, message).then((title) => {
+    (
+      threadId: string,
+      message: string,
+      selection: { engine?: string; model?: string },
+    ) => {
+      void generateTitle(threadId, message, selection).then((title) => {
         if (title) {
           // Persist the generated title to the server
           void saveThreadData(threadId, {
@@ -3228,6 +3263,10 @@ export function MultiTabAssistantChat({
                   defaultModel={defaultModel}
                   availableModels={availableModels}
                   modelListLoading={modelListLoading}
+                  modelListError={modelListError}
+                  onRetryModelList={
+                    hostManagedModels ? hostOnRetryModelList : refreshEngines
+                  }
                   onModelChange={handleModelChangeWithHost}
                   onEffortChange={handleEffortChange}
                   onForkChat={() => handleForkChat(tabId)}

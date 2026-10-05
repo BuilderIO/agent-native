@@ -1000,6 +1000,47 @@ describe("workspace dev helpers", () => {
     expect((await fetch(`${url}/_workspace/apps`)).ok).toBe(true);
   });
 
+  it.each([
+    { code: 1, signal: null, exit: "exited with code 1" },
+    {
+      code: null,
+      signal: "SIGTERM" as NodeJS.Signals,
+      exit: "exited after SIGTERM",
+    },
+  ])("warns when the browser opener $exit", async ({ code, signal, exit }) => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let errors = "";
+    const env = { ...testEnv(), DISPLAY: ":0" };
+    delete env.WORKSPACE_NO_OPEN;
+    delete env.AGENT_NATIVE_NO_OPEN;
+    delete env.CI;
+    delete env.BUILDER_IO_DEV_SERVER;
+    delete env.BUILDER_PROJECT_ID;
+    delete env.CODESPACES;
+    delete env.GITPOD_WORKSPACE_ID;
+    delete env.REMOTE_CONTAINERS;
+    delete env.DEVCONTAINER;
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env,
+      spawnProcess: fake.spawnProcess,
+      stdout: { write: () => true },
+      stderr: { write: (chunk) => void (errors += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    const opener = fake
+      .calls()
+      .find((call) => call.options?.detached && call.command !== "pnpm");
+    expect(opener).toBeDefined();
+    opener!.child.emit("close", code, signal);
+
+    expect(errors).toContain("Could not auto-open browser");
+    expect(errors).toContain(exit);
+    expect((await fetch(url + "/_workspace/apps")).ok).toBe(true);
+  });
+
   it("defaults prewarm off in lazy mode and supports explicit opt-in", () => {
     expect(shouldPrewarmWorkspaceApps([], {})).toBe(false);
     expect(shouldPrewarmWorkspaceApps(["--prewarm"], {})).toBe(true);

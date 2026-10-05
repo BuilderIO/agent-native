@@ -1,7 +1,5 @@
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
-
 import { APP_TITLE } from "@/lib/app-config";
-import { PlanChatPage } from "@/pages/PlanChatPage";
+import { PlanChatPage, PlanChatSkeleton } from "@/pages/PlanChatPage";
 
 const SEO_TITLE = `${APP_TITLE} - Open Source visual planning and PR recaps for coding agents`;
 const SEO_DESCRIPTION =
@@ -23,7 +21,7 @@ export function meta() {
 }
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return <PlanChatSkeleton />;
 }
 
 export default function ChatRoute() {

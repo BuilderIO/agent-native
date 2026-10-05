@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +18,7 @@ import {
   writeHttpEntryForClient,
   writeJsonMcpEntryForClient,
 } from "./mcp-config-writers.js";
+import { openUrlInBrowser } from "./open-url.js";
 import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start`;
@@ -555,23 +555,7 @@ function reconnectServerNameForMcpUrl(
 
 function openInBrowser(url: string): void {
   if (process.env.AGENT_NATIVE_NO_OPEN === "1") return;
-  try {
-    const command =
-      process.platform === "darwin"
-        ? "open"
-        : process.platform === "win32"
-          ? "cmd"
-          : "xdg-open";
-    const openArgs =
-      process.platform === "win32" ? ["/c", "start", "", url] : [url];
-    const child = spawn(command, openArgs, {
-      stdio: "ignore",
-      detached: true,
-    });
-    child.unref();
-  } catch {
-    // Non-fatal: the user can open the URL manually (we already printed it).
-  }
+  openUrlInBrowser(url);
 }
 
 interface DeviceStartResponse {

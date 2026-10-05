@@ -158,15 +158,47 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
+const settingsStore = new Map<string, Record<string, unknown>>();
+vi.mock("@agent-native/core/settings", () => ({
+  getSetting: async (key: string) => settingsStore.get(key) ?? null,
+  mutateSetting: async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown>,
+  ) => {
+    const next = updater(settingsStore.get(key) ?? null);
+    settingsStore.set(key, next);
+    return next;
+  },
+  deleteSettingIfValue: async (
+    key: string,
+    expected: Record<string, unknown>,
+  ) => {
+    if (JSON.stringify(settingsStore.get(key)) !== JSON.stringify(expected)) {
+      return false;
+    }
+    return settingsStore.delete(key);
+  },
+  listSettingsByPrefix: async (prefix: string) =>
+    [...settingsStore]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value })),
+}));
+
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => undefined,
   getRequestRunContext: () => undefined,
 }));
 
+import { trackGenerationCompletedForRun } from "../server/lib/generation-completion";
 import action from "./add-slide";
+
+const finished = { turnContinues: false };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  settingsStore.clear();
   mockGetGenerationCreativeContext.mockResolvedValue(null);
   mockTrack.mockReset();
   deckData = {
@@ -204,6 +236,214 @@ describe("add-slide", () => {
       output_id: "deck-1",
       slide_count: 3,
     });
+  });
+
+  it("reports a home-prompt generation once, when the run that wrote its first slide ends", async () => {
+    deckData = {
+      title: "Untitled",
+      slides: [],
+      generationContext: { targetSlideCount: 2, generationAttemptId: "a-1" },
+    };
+    const ctx = { caller: "tool", runId: "run-1", turnId: "turn-1" } as never;
+
+    await action.run(
+      { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
+      ctx,
+    );
+    deckData.slides = [{ id: "s-1", content: "<div>One</div>" }];
+    await action.run(
+      { deckId: "deck-1", slideId: "s-2", content: "<div>Two</div>" },
+      ctx,
+    );
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+
+    const run = {
+      runId: "run-1",
+      turnId: "turn-1",
+      threadId: "thread-1",
+      status: "completed",
+    };
+    await trackGenerationCompletedForRun(run, finished, async () => 2);
+    await trackGenerationCompletedForRun(run, finished, async () => 2);
+
+    const completed = mockTrack.mock.calls.filter(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed).toHaveLength(1);
+    expect(completed[0]?.[1]).toMatchObject({
+      generation_attempt_id: "a-1",
+      output_id: "deck-1",
+      slide_count: 2,
+      target_slide_count: 2,
+      outcome: "completed",
+      source: "agent_run",
+    });
+  });
+
+  describe("generation_completed only for a finished turn", () => {
+    async function writeFirstSlide(turnId: string, runId: string) {
+      deckData = {
+        title: "Untitled",
+        slides: [],
+        generationContext: { targetSlideCount: 5, generationAttemptId: "a-1" },
+      };
+      await action.run(
+        { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
+        { caller: "tool", runId, turnId } as never,
+      );
+    }
+    const reported = () =>
+      mockTrack.mock.calls.filter(([name]) => name === "generation_completed");
+
+    it.each(["errored", "aborted"])(
+      "reports nothing for a %s run",
+      async (status) => {
+        await writeFirstSlide("turn-fail", "run-fail");
+
+        await trackGenerationCompletedForRun(
+          { runId: "run-fail", turnId: "turn-fail", status },
+          finished,
+          async () => 1,
+        );
+
+        expect(reported()).toHaveLength(0);
+      },
+    );
+
+    it("waits for the final chunk of a chained turn and reports its slide count", async () => {
+      await writeFirstSlide("turn-chain", "run-chunk-1");
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-1", turnId: "turn-chain", status: "completed" },
+        { turnContinues: true },
+        async () => 2,
+      );
+      expect(reported()).toHaveLength(0);
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-2", turnId: "turn-chain", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      expect(reported()).toHaveLength(1);
+      expect(reported()[0]?.[1]).toMatchObject({
+        slide_count: 5,
+        outcome: "completed",
+        run_id: "run-chunk-2",
+      });
+    });
+
+    it("keeps waiting when an errored chunk chains a continuation, and drops the turn if that fails", async () => {
+      await writeFirstSlide("turn-retry", "run-chunk-1");
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-1", turnId: "turn-retry", status: "errored" },
+        { turnContinues: true },
+        async () => 1,
+      );
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-2", turnId: "turn-retry", status: "errored" },
+        finished,
+        async () => 1,
+      );
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-3", turnId: "turn-retry", status: "completed" },
+        finished,
+        async () => 5,
+      );
+
+      expect(reported()).toHaveLength(0);
+    });
+
+    it("keeps a handed-off turn's marker in shared storage until its final run reports", async () => {
+      await writeFirstSlide("turn-shared", "run-chunk-1");
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-1", turnId: "turn-shared", status: "completed" },
+        { turnContinues: true },
+        async () => 2,
+      );
+      expect([...settingsStore.keys()]).toEqual([
+        "slides-generation-pending:turn-shared",
+      ]);
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-2", turnId: "turn-shared", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      expect(reported()).toHaveLength(1);
+      expect(settingsStore.size).toBe(0);
+    });
+
+    it("drops an expired shared marker instead of reporting it", async () => {
+      settingsStore.set("slides-generation-pending:turn-old", {
+        outputs: [
+          {
+            deckId: "deck-1",
+            generationAttemptId: "a-old",
+            targetSlideCount: null,
+          },
+        ],
+        expiresAt: Date.now() - 1,
+      });
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-late", turnId: "turn-old", status: "completed" },
+        finished,
+        async () => 5,
+      );
+
+      expect(reported()).toHaveLength(0);
+      expect(settingsStore.size).toBe(0);
+    });
+
+    it("keeps the marker when the slide count cannot be read and reports once on a later run", async () => {
+      await writeFirstSlide("turn-read", "run-read");
+
+      await expect(
+        trackGenerationCompletedForRun(
+          { runId: "run-read", turnId: "turn-read", status: "completed" },
+          finished,
+          async () => {
+            throw new Error("database unavailable");
+          },
+        ),
+      ).rejects.toThrow("database unavailable");
+      expect(reported()).toHaveLength(0);
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-read-2", turnId: "turn-read", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      await trackGenerationCompletedForRun(
+        { runId: "run-read-3", turnId: "turn-read", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      expect(reported()).toHaveLength(1);
+    });
+  });
+
+  it("does not report a follow-up edit to an already generated deck", async () => {
+    deckData.generationContext = { generationAttemptId: "a-1" };
+
+    await action.run(
+      { deckId: "deck-1", slideId: "s-3", content: "<div>Three</div>" },
+      { caller: "tool", runId: "run-2" } as never,
+    );
+    await trackGenerationCompletedForRun(
+      { runId: "run-2", status: "completed" },
+      finished,
+      async () => 3,
+    );
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
   });
 
   it("closes an incremental generation on its final slide", async () => {

@@ -748,7 +748,7 @@ describe("realtime voice session route", () => {
         delegation: {
           type: "responses",
           responses: {
-            model: "gpt-5.6-luna",
+            model: "gpt-6-luna",
             tool_choice: "auto",
             tools: [
               expect.objectContaining({ type: "function", name: "navigate" }),
@@ -847,7 +847,7 @@ describe("realtime voice session route", () => {
     const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
       ownerEvent,
     )) as { error: string };
-    expect(ownerResult.error).toContain("Connect Builder");
+    expect(ownerResult.error).toContain("Use Builder.io");
     expect(ownerResult.error).toContain("OpenAI API key");
   });
 
@@ -893,7 +893,7 @@ describe("realtime voice session route", () => {
         delegation: {
           type: "responses",
           responses: {
-            model: "gpt-5.6-luna",
+            model: "gpt-6-luna",
             tool_choice: "auto",
           },
         },

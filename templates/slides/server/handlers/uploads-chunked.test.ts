@@ -28,7 +28,8 @@ vi.mock("h3", () => ({
   setResponseStatus: (...args: unknown[]) => mocks.setStatus(...args),
 }));
 
-vi.mock("@agent-native/core/private-blob", () => ({
+vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/private-blob")>()),
   deletePrivateBlob: (...args: unknown[]) => mocks.deleteBlob(...args),
   putPrivateBlob: (...args: unknown[]) => mocks.putBlob(...args),
   readPrivateBlob: (...args: unknown[]) => mocks.readBlob(...args),
@@ -180,7 +181,15 @@ describe("chunked reference uploads", () => {
 
     await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
       error:
-        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+        "No object storage is connected. Use Builder.io's managed storage (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+      errorCode: "attachment_storage_unavailable",
+      details: {
+        attachmentStatus: "storageUnavailable",
+        attachmentErrorCode: "attachment_storage_unavailable",
+        reason: "not_configured",
+        retryable: true,
+        whoCanFix: "workspace_admin",
+      },
     });
     expect(mocks.setStatus).toHaveBeenCalledWith(expect.anything(), 503);
   });

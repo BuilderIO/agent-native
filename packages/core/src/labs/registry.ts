@@ -4,7 +4,9 @@ export interface LabDefinition {
   legacyFlagKeys?: readonly string[];
   inheritedMixedDescription?: string;
   displayName?: string;
+  displayNameKey?: string;
   description?: string;
+  descriptionKey?: string;
   keywords?: string;
 }
 
@@ -38,8 +40,14 @@ function normalizeDefinition(definition: LabDefinition): LabDefinition {
     ...(definition.displayName?.trim() && {
       displayName: definition.displayName.trim(),
     }),
+    ...(definition.displayNameKey?.trim() && {
+      displayNameKey: definition.displayNameKey.trim(),
+    }),
     ...(definition.description?.trim() && {
       description: definition.description.trim(),
+    }),
+    ...(definition.descriptionKey?.trim() && {
+      descriptionKey: definition.descriptionKey.trim(),
     }),
     ...(definition.keywords?.trim() && {
       keywords: definition.keywords.trim(),
@@ -82,7 +90,9 @@ export function registerLabs(definitions: readonly LabDefinition[]): void {
       existing.inheritedMixedDescription !==
         definition.inheritedMixedDescription ||
       existing.displayName !== definition.displayName ||
+      existing.displayNameKey !== definition.displayNameKey ||
       existing.description !== definition.description ||
+      existing.descriptionKey !== definition.descriptionKey ||
       existing.keywords !== definition.keywords
     ) {
       throw new Error(

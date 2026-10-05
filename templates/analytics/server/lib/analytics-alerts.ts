@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
-import { recordChange, runWithRequestContext } from "@agent-native/core/server";
+import {
+  recordChange,
+  runWithRequestContext,
+  testIdentitySql,
+} from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   and,
@@ -1276,6 +1280,7 @@ async function loadCandidateEventsFromSql(
   const clauses: any[] = [
     gte(table.timestamp, windowStart),
     lte(table.timestamp, windowEnd),
+    sql.raw(`NOT ${testIdentitySql("user_id")}`),
   ];
   if (rule.orgId) {
     clauses.push(eq(table.orgId, rule.orgId));

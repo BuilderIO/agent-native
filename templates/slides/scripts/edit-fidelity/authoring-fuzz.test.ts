@@ -3,12 +3,150 @@ import { expect, it } from "vitest";
 import {
   assertAuthoringPersistence,
   assertByteIdenticalHtml,
+  assertShortcutMarkupAdded,
   assertSlideIsScaled,
+  AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
+  isCaretScrollOnlyChange,
+  lineNavigationKeys,
+  outsideAuthoringChangesFor,
   runAuthoringFuzz,
 } from "./authoring-fuzz.ts";
+import type { Snapshot } from "./lib/in-page.ts";
+
+it("requires a markdown shortcut to add its result markup", () => {
+  expect(() => assertShortcutMarkupAdded("bullet", 0, 1)).not.toThrow();
+  expect(() => assertShortcutMarkupAdded("bullet", 1, 1)).toThrow(
+    "markdown shortcut did not produce bullet",
+  );
+});
+
+const authoringSnapshot = (
+  y: number,
+  color: string,
+  props: Record<string, string> = {},
+): Snapshot => ({
+  records: [
+    {
+      key: "box:div#0",
+      kind: "box",
+      inside: false,
+      props: { color, ...props },
+      rect: { x: 0, y, width: 100, height: 80 },
+    },
+  ],
+  inventory: { elements: 1, visible: 1, hidden: 0, svg: 0, img: 0, style: 0 },
+  text: "",
+  editedRect: null,
+  editedText: null,
+});
+
+it("gates outside style changes and unmodeled geometry changes", () => {
+  const movement = outsideAuthoringChangesFor(
+    authoringSnapshot(64, "rgb(0, 0, 0)"),
+    authoringSnapshot(-456, "rgb(0, 0, 0)"),
+  );
+  expect(movement).toHaveLength(1);
+  expect(movement[0]).toMatchObject({ prop: "y", inside: false });
+  expect(
+    outsideAuthoringChangesFor(
+      authoringSnapshot(64, "rgb(0, 0, 0)"),
+      authoringSnapshot(64, "rgb(255, 0, 0)"),
+    ),
+  ).toHaveLength(1);
+});
+
+it("tracks computed style properties beyond typography and box paint", () => {
+  expect(AUTHORING_FUZZ_STYLE_PROPERTIES).toEqual(
+    expect.arrayContaining([
+      "filter",
+      "position",
+      "text-decoration-color",
+      "text-decoration-style",
+      "text-underline-offset",
+      "transform",
+      "vertical-align",
+    ]),
+  );
+});
+
+it.each(["transform", "filter", "position", "--fmd-fit-scale"])(
+  "gates outside computed-style changes to %s",
+  (property) => {
+    const before = authoringSnapshot(64, "rgb(0, 0, 0)", {
+      [property]: "before",
+    });
+    const after = authoringSnapshot(64, "rgb(0, 0, 0)", {
+      [property]: "after",
+    });
+
+    expect(outsideAuthoringChangesFor(before, after)).toContainEqual(
+      expect.objectContaining({ prop: property, inside: false }),
+    );
+  },
+);
+
+it("allows only the matching native caret scroll in an overflowing slide", () => {
+  const change = [
+    {
+      key: "box:div.fmd-autofit-scale#0",
+      prop: "y",
+      a: "64",
+      b: "-300",
+    },
+  ];
+  const options = {
+    scrollDelta: 364,
+    contentGrew: true,
+    containerOverflows: true,
+    containerStationary: true,
+    fitPositionStylesUnchanged: true,
+    fitSizeUnchanged: true,
+  };
+  expect(isCaretScrollOnlyChange(change, options)).toBe(true);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, scrollDelta: 362 }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange([{ ...change[0], b: "-118" }], {
+      ...options,
+      scrollDelta: 182,
+    }),
+  ).toBe(true);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, contentGrew: false }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      containerOverflows: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      containerStationary: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      fitPositionStylesUnchanged: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, fitSizeUnchanged: false }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(
+      [...change, { key: "box:p#0", prop: "y", a: "0", b: "1" }],
+      options,
+    ),
+  ).toBe(false);
+});
 
 function pageAtScale(scale: number) {
   const element = {
@@ -40,7 +178,7 @@ it("requires corpus authoring output to be changed, saved, and reloaded", () => 
       savedHtml: "source",
       reloadedHtml: "source",
     }),
-  ).toThrow("saved HTML differed from the post-edit live slide");
+  ).toThrow("authoring flow did not change the persisted slide HTML");
   expect(() =>
     assertAuthoringPersistence({
       originalHtml: "source",
@@ -56,15 +194,17 @@ it("requires corpus authoring output to be changed, saved, and reloaded", () => 
       savedHtml: "edited",
       reloadedHtml: "source",
     }),
-  ).toThrow("reloaded slide HTML differed from the saved HTML");
+  ).toThrow("reloaded slide HTML differed from the post-edit live slide");
   expect(() =>
     assertAuthoringPersistence({
       originalHtml: "source",
-      liveHtml: '<p class="a b">edited</p>',
-      savedHtml: '<p class="b a">edited</p>',
-      reloadedHtml: '<p class="b a">edited</p>',
+      liveHtml:
+        '<a href="https://example.com" rel="noopener noreferrer" target="_blank">edited</a>',
+      savedHtml: '<a href="https://example.com">edited</a>',
+      reloadedHtml:
+        '<a href="https://example.com" rel="noopener noreferrer" target="_blank">edited</a>',
     }),
-  ).toThrow("saved HTML differed from the post-edit live slide");
+  ).not.toThrow();
 });
 
 it("canonicalizes every rendered and stored persistence snapshot", async () => {
@@ -145,6 +285,42 @@ it("creates reproducible authoring plans with full command coverage", () => {
   expect(() => createAuthoringFuzzPlan(42, 0)).toThrow("positive integer");
 });
 
+it("runs vertical caret fidelity in the committed absolute profile", () => {
+  expect(createAuthoringFuzzPlan(2, 1)).toEqual([
+    { kind: "vertical-navigation" },
+  ]);
+});
+
+it("ends each fuzz plan with an edit after undo and redo operations", () => {
+  for (const steps of [51, 52, 61, 500]) {
+    for (const seed of [1, 42, 1337]) {
+      expect(["undo", "redo", "shortcut-undo", "slash-undo"]).not.toContain(
+        createAuthoringFuzzPlan(seed, steps).at(-1)?.kind,
+      );
+    }
+  }
+});
+
+it.each([
+  ["darwin", "Meta+ArrowLeft", "Meta+ArrowRight"],
+  ["linux", "Home", "End"],
+  ["win32", "Home", "End"],
+])("uses platform line navigation keys on %s", (platform, start, end) => {
+  expect(lineNavigationKeys(platform)).toEqual({ start, end });
+});
+
+it("maps absolute seeds to stable synthetic and committed layout profiles", () => {
+  expect([0, 1, 3, 5, 7, 9, 11, 13].map(authoringFuzzProfileIndex)).toEqual(
+    Array(8).fill(null),
+  );
+  expect([2, 4, 6, 8, 10, 12, 14].map(authoringFuzzProfileIndex)).toEqual([
+    0, 1, 2, 3, 4, 5, 0,
+  ]);
+  expect(() => authoringFuzzProfileIndex(-1)).toThrow(
+    "non-negative safe integer",
+  );
+});
+
 it("requires the scaled profile to render below 0.99 after viewport setup", async () => {
   await expect(
     assertSlideIsScaled(pageAtScale(0.98), "#scaled-slide"),
@@ -204,6 +380,7 @@ it("prints a bounded failure excerpt with a deterministic seed and replay step c
     "step 499",
     plan,
     "caret left the editor",
+    "firefox",
   );
   const logHeader = failure.message.indexOf("Failure log:");
   const jsonStart = failure.message.indexOf("\n", logHeader) + 1;
@@ -213,6 +390,7 @@ it("prints a bounded failure excerpt with a deterministic seed and replay step c
   }>;
 
   expect(failure.message).toContain("--authoring-fuzz --seed 42 --steps 500");
+  expect(failure.message).toContain("--browser firefox");
   expect(failure.message).toContain(
     "Failure log: steps 480-499 of 500 replay steps",
   );

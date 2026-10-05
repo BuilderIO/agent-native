@@ -53,7 +53,6 @@ ar-SA|toolkit-history
 ar-SA|toolkit-observability
 ar-SA|toolkit-org-team
 ar-SA|toolkit-resources
-ar-SA|toolkit-settings
 ar-SA|toolkit-setup-connections
 ar-SA|toolkit-sharing
 ar-SA|toolkit-ui
@@ -109,7 +108,6 @@ de-DE|toolkit-history
 de-DE|toolkit-observability
 de-DE|toolkit-org-team
 de-DE|toolkit-resources
-de-DE|toolkit-settings
 de-DE|toolkit-setup-connections
 de-DE|toolkit-sharing
 de-DE|toolkit-ui
@@ -165,7 +163,6 @@ es-ES|toolkit-history
 es-ES|toolkit-observability
 es-ES|toolkit-org-team
 es-ES|toolkit-resources
-es-ES|toolkit-settings
 es-ES|toolkit-setup-connections
 es-ES|toolkit-sharing
 es-ES|toolkit-ui
@@ -221,7 +218,6 @@ fr-FR|toolkit-history
 fr-FR|toolkit-observability
 fr-FR|toolkit-org-team
 fr-FR|toolkit-resources
-fr-FR|toolkit-settings
 fr-FR|toolkit-setup-connections
 fr-FR|toolkit-sharing
 fr-FR|toolkit-ui
@@ -277,7 +273,6 @@ hi-IN|toolkit-history
 hi-IN|toolkit-observability
 hi-IN|toolkit-org-team
 hi-IN|toolkit-resources
-hi-IN|toolkit-settings
 hi-IN|toolkit-setup-connections
 hi-IN|toolkit-sharing
 hi-IN|toolkit-ui
@@ -333,7 +328,6 @@ ja-JP|toolkit-history
 ja-JP|toolkit-observability
 ja-JP|toolkit-org-team
 ja-JP|toolkit-resources
-ja-JP|toolkit-settings
 ja-JP|toolkit-setup-connections
 ja-JP|toolkit-sharing
 ja-JP|toolkit-ui
@@ -389,7 +383,6 @@ ko-KR|toolkit-history
 ko-KR|toolkit-observability
 ko-KR|toolkit-org-team
 ko-KR|toolkit-resources
-ko-KR|toolkit-settings
 ko-KR|toolkit-setup-connections
 ko-KR|toolkit-sharing
 ko-KR|toolkit-ui
@@ -445,7 +438,6 @@ pt-BR|toolkit-history
 pt-BR|toolkit-observability
 pt-BR|toolkit-org-team
 pt-BR|toolkit-resources
-pt-BR|toolkit-settings
 pt-BR|toolkit-setup-connections
 pt-BR|toolkit-sharing
 pt-BR|toolkit-ui
@@ -501,7 +493,6 @@ zh-CN|toolkit-history
 zh-CN|toolkit-observability
 zh-CN|toolkit-org-team
 zh-CN|toolkit-resources
-zh-CN|toolkit-settings
 zh-CN|toolkit-setup-connections
 zh-CN|toolkit-sharing
 zh-CN|toolkit-ui
@@ -556,7 +547,6 @@ zh-TW|toolkit-history
 zh-TW|toolkit-observability
 zh-TW|toolkit-org-team
 zh-TW|toolkit-resources
-zh-TW|toolkit-settings
 zh-TW|toolkit-setup-connections
 zh-TW|toolkit-sharing
 zh-TW|toolkit-ui

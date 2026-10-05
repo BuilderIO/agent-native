@@ -1,3 +1,9 @@
+import { fail } from "@agent-native/core/action";
+
+function rejectSourceSql(message: string): never {
+  return fail(message, { errorCode: "invalid_source_sql", statusCode: 400 });
+}
+
 const MUTATING_WORD_RE =
   /(^|[^\p{ID_Continue}$])(insert|update|delete|replace|create|alter|drop|truncate|merge)(?=[^\p{ID_Continue}$]|$)/iu;
 
@@ -41,7 +47,7 @@ function sanitizeSqlForInspection(
       const quote = state === "single" ? "'" : state === "double" ? '"' : "`";
       if (dialect === "bigquery" && ch === "\\" && !rawString) {
         // BigQuery escape forms are rejected so they cannot hide statement boundaries.
-        throw new Error("Source SQL string escapes are not supported.");
+        rejectSourceSql("Source SQL string escapes are not supported.");
       }
       if (quoteLength === 3) {
         if (ch === quote && sql[i + 1] === quote && sql[i + 2] === quote) {
@@ -105,7 +111,7 @@ function sanitizeSqlForInspection(
     state === "backtick" ||
     state === "block"
   ) {
-    throw new Error(
+    rejectSourceSql(
       "Source SQL contains an unterminated quoted value or comment.",
     );
   }
@@ -118,21 +124,21 @@ export function assertReadOnlySql(
 ): void {
   const cleaned = sanitizeSqlForInspection(sql, dialect).trim();
   if (!/^(select|with)\b/i.test(cleaned)) {
-    throw new Error("Source SQL must start with SELECT or WITH.");
+    rejectSourceSql("Source SQL must start with SELECT or WITH.");
   }
   const statement = cleaned.replace(/;\s*$/, "");
   if (statement.includes(";")) {
-    throw new Error("Source SQL must be a single statement.");
+    rejectSourceSql("Source SQL must be a single statement.");
   }
   if (/\binto\b/i.test(statement)) {
-    throw new Error("Source SQL must not use SELECT INTO.");
+    rejectSourceSql("Source SQL must not use SELECT INTO.");
   }
   if (
     /\bfor\s+(?:no\s+key\s+)?(?:update|share|key\s+share)\b/i.test(statement)
   ) {
-    throw new Error("Source SQL must not lock rows.");
+    rejectSourceSql("Source SQL must not lock rows.");
   }
   if (MUTATING_WORD_RE.test(statement)) {
-    throw new Error("Source SQL must be read-only.");
+    rejectSourceSql("Source SQL must be read-only.");
   }
 }

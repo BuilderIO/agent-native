@@ -6,7 +6,13 @@
 import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
 
 import { resolvePnpmEntry } from "../../export-fidelity/resolve-pkg.ts";
-import type { KeepaliveWrite, Rect, SnapRecord, Snapshot } from "./in-page.ts";
+import type {
+  KeepaliveWrite,
+  OutsideSnapshot,
+  Rect,
+  SnapRecord,
+  Snapshot,
+} from "./in-page.ts";
 
 // ---------------------------------------------------------------- pixels ---
 
@@ -113,6 +119,32 @@ export const resized = (a: Rect | null, b: Rect | null) =>
   (Math.abs(a.width - b.width) >= GEOMETRY_TOLERANCE ||
     Math.abs(a.height - b.height) >= GEOMETRY_TOLERANCE);
 
+/** Event Timing omits entries below its configured duration threshold. */
+export function p95IndexFromThresholdedSamples(
+  totalCount: number,
+  observedCount: number,
+  threshold: number,
+):
+  | { kind: "observed"; index: number }
+  | { kind: "below-threshold"; bound: number } {
+  if (
+    !Number.isSafeInteger(totalCount) ||
+    totalCount < 1 ||
+    !Number.isSafeInteger(observedCount) ||
+    observedCount < 0 ||
+    observedCount > totalCount ||
+    !Number.isFinite(threshold) ||
+    threshold < 0
+  ) {
+    throw new RangeError("invalid thresholded percentile sample counts");
+  }
+  const rank = Math.ceil(totalCount * 0.95) - 1;
+  const belowThresholdCount = totalCount - observedCount;
+  return rank < belowThresholdCount
+    ? { kind: "below-threshold", bound: threshold }
+    : { kind: "observed", index: rank - belowThresholdCount };
+}
+
 export interface StyleDelta {
   key: string;
   prop: string;
@@ -130,6 +162,39 @@ export interface StyleDiff {
   added: Array<{ key: string; inside: boolean }>;
 }
 
+export const followsCenteredFlexReflow = (
+  before: SnapRecord | undefined,
+  after: SnapRecord | undefined,
+  prop: string,
+  actualShift: number,
+) => {
+  const a = before?.flexCrossAlignment;
+  const b = after?.flexCrossAlignment;
+  if (
+    !a ||
+    !b ||
+    prop !== a.axis ||
+    a.axis !== b.axis ||
+    a.context !== b.context
+  )
+    return false;
+  const containerShift = b.containerPosition - a.containerPosition;
+  const containerSizeShift = b.containerSize - a.containerSize;
+  const editedItemSizeShift = b.editedItemSize - a.editedItemSize;
+  const expectedShift =
+    containerShift + (containerSizeShift - (b.itemSize - a.itemSize)) / 2;
+  // Only edit-caused line growth with a stationary parent and unchanged item-local offset is natural reflow.
+  const lineFollowsEdit =
+    Math.abs(containerSizeShift) <= 1 ||
+    (Math.sign(containerSizeShift) === Math.sign(editedItemSizeShift) &&
+      Math.abs(containerSizeShift) <= Math.abs(editedItemSizeShift) + 1);
+  return (
+    lineFollowsEdit &&
+    Math.abs(containerShift) <= 1 &&
+    Math.abs(actualShift - expectedShift) <= 1
+  );
+};
+
 function textOf(key: string): string | null {
   const m = key.match(/^text:(.*)#\d+$/);
   return m ? m[1].replace(/\s+/g, "") : null;
@@ -142,9 +207,29 @@ const baseOf = (key: string) => key.replace(/#\d+$/, "");
  * middle by key, then leftover text records whose text only grew or shrank at
  * the end (append / enter3 change the edited run's own key).
  */
-export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
-  const A = a.records;
-  const B = b.records;
+export function diffSnapshots(
+  a: Pick<Snapshot, "records">,
+  b: Pick<Snapshot, "records">,
+): StyleDiff {
+  const allA = a.records;
+  const allB = b.records;
+  const stableB = new Map(
+    allB.flatMap((record) =>
+      record.stableKey ? [[record.stableKey, record] as const] : [],
+    ),
+  );
+  const pairs: Array<[SnapRecord, SnapRecord]> = [];
+  const pairedB = new Set<SnapRecord>();
+  const A = allA.filter((record) => {
+    const other = record.stableKey ? stableB.get(record.stableKey) : undefined;
+    if (other) {
+      pairs.push([record, other]);
+      pairedB.add(other);
+      return false;
+    }
+    return true;
+  });
+  const B = allB.filter((record) => !pairedB.has(record));
   // An edit changes one contiguous stretch of the document, so the head and
   // tail pair by position. Per-text ordinals cannot: when the edited copy of a
   // repeated text changes, later copies renumber onto their neighbours. Never
@@ -160,7 +245,6 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   ) {
     tail++;
   }
-  const pairs: Array<[SnapRecord, SnapRecord]> = [];
   for (let i = 0; i < head; i++) pairs.push([A[i], B[i]]);
   for (let i = 1; i <= tail; i++)
     pairs.push([A[A.length - i], B[B.length - i]]);
@@ -197,13 +281,29 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   const geometry: StyleDelta[] = [];
   for (const [ra, rb] of pairs) {
     const inside = ra.inside || rb.inside;
-    for (const prop of Object.keys(ra.props)) {
-      if (ra.props[prop] !== rb.props[prop]) {
+    // Computed values can change with intrinsic layout; authored attrs cannot.
+    for (const [prop, before, after] of [
+      ["class", ra.className, rb.className],
+      ["style", ra.inlineStyle, rb.inlineStyle],
+    ] as const) {
+      if (before !== undefined && after !== undefined && before !== after) {
+        deltas.push({ key: ra.key, prop, a: "changed", b: "changed", inside });
+      }
+    }
+    for (const prop of new Set([
+      ...Object.keys(ra.props),
+      ...Object.keys(rb.props),
+    ])) {
+      const beforeValue =
+        ra.props[prop] ?? (prop.startsWith("--") ? "" : undefined);
+      const afterValue =
+        rb.props[prop] ?? (prop.startsWith("--") ? "" : undefined);
+      if (beforeValue !== afterValue) {
         deltas.push({
           key: ra.key,
           prop,
-          a: ra.props[prop],
-          b: rb.props[prop] ?? "(absent)",
+          a: beforeValue ?? "(absent)",
+          b: afterValue ?? "(absent)",
           inside,
         });
       }
@@ -226,6 +326,72 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
     missing,
     added: leftB.map((r) => ({ key: r.key, inside: r.inside })),
   };
+}
+
+export function outsideChangesFor(
+  before: OutsideSnapshot,
+  after: OutsideSnapshot,
+) {
+  const outside = diffSnapshots(before, after);
+  const targetResized =
+    before.editedRect !== null &&
+    after.editedRect !== null &&
+    (Math.abs(before.editedRect.width - after.editedRect.width) > 1 ||
+      Math.abs(before.editedRect.height - after.editedRect.height) > 1);
+  const naturalReflow =
+    targetResized && before.editedInFlow && after.editedInFlow;
+  const beforeRecords = new Map(
+    before.records.map((record) => [record.key, record]),
+  );
+  const afterRecordsByKey = new Map(
+    after.records.map((record) => [record.key, record]),
+  );
+  const afterRecordsByStableKey = new Map(
+    after.records.flatMap((record) =>
+      record.stableKey ? [[record.stableKey, record] as const] : [],
+    ),
+  );
+  const followsNaturalReflow = (change: StyleDelta) => {
+    const beforeRecord = beforeRecords.get(change.key);
+    const afterRecord = beforeRecord?.stableKey
+      ? (afterRecordsByStableKey.get(beforeRecord.stableKey) ??
+        afterRecordsByKey.get(change.key))
+      : afterRecordsByKey.get(change.key);
+    if (
+      !naturalReflow ||
+      (change.prop !== "x" && change.prop !== "y") ||
+      !beforeRecord?.downstreamFlow ||
+      !afterRecord?.downstreamFlow ||
+      !before.editedRect ||
+      !after.editedRect
+    ) {
+      return false;
+    }
+    const position = change.prop === "x" ? "x" : "y";
+    const extent = change.prop === "x" ? "width" : "height";
+    const expectedShift =
+      after.editedRect[position] +
+      after.editedRect[extent] -
+      before.editedRect[position] -
+      before.editedRect[extent];
+    const actualShift = Number(change.b) - Number(change.a);
+    return (
+      Math.abs(actualShift - expectedShift) <= 1 ||
+      followsCenteredFlexReflow(
+        beforeRecord,
+        afterRecord,
+        change.prop,
+        actualShift,
+      )
+    );
+  };
+  const changes = [
+    ...outside.deltas,
+    ...outside.geometry.filter((change) => !followsNaturalReflow(change)),
+    ...outside.missing,
+    ...outside.added,
+  ].filter((change) => !change.inside);
+  return { outside, changes };
 }
 
 // ---------------------------------------------------------------- writes ---

@@ -1,7 +1,6 @@
 import ConnectRoute, {
   meta,
 } from "@agent-native/dispatch/routes/pages/connect";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import type { ClientLoaderFunction } from "react-router";
 
 async function requireConnectAppsFlag(request: Request): Promise<void> {
@@ -36,7 +35,7 @@ export const clientLoader: ClientLoaderFunction = async ({ request }) => {
 clientLoader.hydrate = true;
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return <ConnectRoute />;
 }
 
 export { ConnectRoute as default, meta };

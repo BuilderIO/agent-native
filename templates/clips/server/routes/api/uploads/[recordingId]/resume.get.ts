@@ -48,6 +48,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import {
+  isParkedForStorage,
   UPLOAD_LEASE_MS,
   uploadLeaseExpiry,
 } from "../../../../lib/upload-lease.js";
@@ -194,8 +195,11 @@ export default defineEventHandler(async (event: H3Event) => {
     ).toISOString();
     const claimLeaseExpiryMs = Date.parse(recording.uploadLeaseExpiresAt ?? "");
     const claimHeartbeatMs = claimLeaseExpiryMs - UPLOAD_LEASE_MS;
+    // A row parked for storage holds a days-long lease but no live upload,
+    // so its lease is never a competing claim's heartbeat.
     const differentRetryClaim =
       recording.status === "uploading" &&
+      !isParkedForStorage(recording) &&
       existingAttemptId !== null &&
       existingAttemptId !== requestedAttemptId;
     if (differentRetryClaim && !Number.isFinite(claimHeartbeatMs)) {

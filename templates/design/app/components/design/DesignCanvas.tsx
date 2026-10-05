@@ -1843,6 +1843,13 @@ export function DesignCanvas({
       } else {
         focusVisitedInspectorPopup = false;
         if (
+          event.target === iframeRef.current &&
+          !textEditInspectorFocusedRef.current &&
+          textEditingStateRef.current.hasRange
+        ) {
+          return;
+        }
+        if (
           textEditingStateRef.current.hasRange ||
           textEditInspectorFocusedRef.current
         ) {
@@ -4013,7 +4020,7 @@ export function DesignCanvas({
         if (
           payload &&
           typeof payload.html === "string" &&
-          payload.html.length <= 2_000_000 &&
+          payload.html.length <= 14_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
           const documentId =
@@ -6153,6 +6160,7 @@ export function DesignCanvas({
         anchorSourceId,
         anchorPendingNodeId: runtimeStructureInsertRequest.anchor.pendingNodeId,
         placement: runtimeStructureInsertRequest.placement,
+        gridPlacement: runtimeStructureInsertRequest.gridPlacement,
         ...(runtimeStructureInsertRequest.replaceAnchor === true && index === 0
           ? { replaceAnchor: true }
           : {}),
@@ -6365,8 +6373,17 @@ export function DesignCanvas({
       return;
     }
     lastRuntimeLayerSnapshotRequestIdRef.current = runtimeLayerSnapshotRequest;
-    requestRuntimeLayerSnapshot();
-  }, [requestRuntimeLayerSnapshot, runtimeLayerSnapshotRequest]);
+    if (onRuntimeLayerSnapshotReadinessChange) {
+      refreshRuntimeLayerSnapshotAfterReady();
+    } else {
+      requestRuntimeLayerSnapshot();
+    }
+  }, [
+    onRuntimeLayerSnapshotReadinessChange,
+    refreshRuntimeLayerSnapshotAfterReady,
+    requestRuntimeLayerSnapshot,
+    runtimeLayerSnapshotRequest,
+  ]);
 
   const sendMotionPreview = useCallback((t: number, durationMs?: number) => {
     const iframe = iframeRef.current;

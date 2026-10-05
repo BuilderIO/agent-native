@@ -37,6 +37,7 @@ import { documentSidebarActionAvailability } from "@/components/sidebar/document
 import {
   SidebarNavigationRow,
   SidebarRowIcon,
+  SidebarRowsSkeleton,
   revealActiveSidebarRow,
   sidebarRowClassName,
   sidebarShowMoreClassName,
@@ -69,10 +70,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { filesNavigationPageParams } from "@/lib/files-navigation";
+import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 import {
   SIDEBAR_FILES_ROW_ELEMENT_TIMING,
   SIDEBAR_FILES_ROWS_DOM_MARK,
   markStartupMilestone,
+  startupAnchor,
 } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
@@ -154,6 +157,8 @@ export function PagedContentFilesSidebarView({
   onToggleFavorite,
   navigationLabel,
   untitledLabel,
+  rootPlaceholder,
+  onRootPageShown,
 }: {
   databaseId: string;
   sort: ContentDatabaseNavigationSort;
@@ -170,6 +175,11 @@ export function PagedContentFilesSidebarView({
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
   navigationLabel: string;
   untitledLabel: string;
+  /** How many root rows, and whether a "Show more" row, to hold while the
+   * root page loads. */
+  rootPlaceholder?: SidebarRowsHint;
+  /** Reports what the root page drew, for the next load's placeholder. */
+  onRootPageShown?: (shown: SidebarRowsHint) => void;
 }) {
   return (
     <nav
@@ -183,6 +193,8 @@ export function PagedContentFilesSidebarView({
         parentId={null}
         sort={sort}
         viewId={viewId}
+        rootPlaceholder={rootPlaceholder}
+        onRootPageShown={onRootPageShown}
         depth={0}
         activeDocumentId={activeDocumentId}
         expandedDocumentIds={expandedDocumentIds}
@@ -208,11 +220,15 @@ function PagedContentFilesBranch({
   cursor,
   precedingDocumentIds = new Set(),
   reloadBranch: reloadFromFirstPage,
+  rootPlaceholder,
+  onRootPageShown,
   ...props
 }: {
   databaseId: string;
   parentId: string | null;
   cursor?: string;
+  rootPlaceholder?: SidebarRowsHint;
+  onRootPageShown?: (shown: SidebarRowsHint) => void;
   precedingDocumentIds?: ReadonlySet<string>;
   /**
    * Reloads the branch from its first page. Returns false when an automatic
@@ -311,6 +327,36 @@ function PagedContentFilesBranch({
     if (rootRowsShown) markStartupMilestone(SIDEBAR_FILES_ROWS_DOM_MARK);
   }, [rootRowsShown]);
 
+  const firstRoot = props.depth === 0 && !cursor;
+  const rootRowCount =
+    firstRoot && data
+      ? data.items.length +
+        props.activePathDocuments.filter(
+          (document) =>
+            document.parentId === null &&
+            !data.items.some((item) => item.documentId === document.id),
+        ).length
+      : null;
+  const rootHasMore = Boolean(
+    data?.pagination.hasMore && data.pagination.nextCursor,
+  );
+  useEffect(() => {
+    if (rootRowCount === null) return;
+    onRootPageShown?.({ rows: rootRowCount, more: rootHasMore });
+    // The callback identity changes per render; only what was drawn matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rootRowCount, rootHasMore]);
+
+  if (firstRoot && (query.isLoading || (cursorExpired && !reloadRefused))) {
+    return (
+      <SidebarRowsSkeleton
+        framed={false}
+        rows={rootPlaceholder?.rows ?? 3}
+        more={rootPlaceholder?.more}
+        firstRowProps={startupAnchor("sidebar-files-first-row")}
+      />
+    );
+  }
   if (query.isLoading || (cursorExpired && !reloadRefused)) {
     return (
       <div aria-hidden="true" className="grid gap-1 p-1">
@@ -383,7 +429,7 @@ function PagedContentFilesBranch({
 
   return (
     <>
-      {items.map((navigationItem) => {
+      {items.map((navigationItem, index) => {
         const metadata = props.documentMetadata.get(navigationItem.documentId);
         const item = navigationItemAsDatabaseItem(navigationItem, metadata);
         const expanded = props.expandedDocumentIds.has(
@@ -392,6 +438,9 @@ function PagedContentFilesBranch({
         return (
           <div
             key={navigationItem.membershipId}
+            {...(firstRoot && index === 0
+              ? startupAnchor("sidebar-files-first-row")
+              : {})}
             className="grid min-w-0 gap-0.5"
           >
             <DatabaseSidebarRow
@@ -562,10 +611,13 @@ export function ContentFilesSidebarView({
   onDocumentExpandedChange,
   renderItem,
   scroll = true,
+  loadingRows,
 }: {
   data: ContentDatabaseResponse | undefined;
   overrides: ContentDatabasePersonalViewOverrides | null | undefined;
   isLoading: boolean;
+  /** Placeholder rows while loading; the sidebar passes what it last drew. */
+  loadingRows?: number;
   activeDocumentId?: string | null;
   onSelectView?: (viewId: string) => void;
   sidebarOrder?: ContentSidebarViewOrder;
@@ -594,6 +646,7 @@ export function ContentFilesSidebarView({
     | "onPreview"
     | "renderItem"
     | "scroll"
+    | "loadingRows"
   >;
 }) {
   const usableData =
@@ -689,6 +742,7 @@ export function ContentFilesSidebarView({
           )
         }
         isLoading={isLoading}
+        loadingRows={loadingRows}
         hasActiveConstraints={
           !constraintsCleared && activeView.filters.length > 0
         }
@@ -734,6 +788,7 @@ export function DatabaseSidebarView({
   hierarchyUniverseItems,
   manualReorder,
   scroll = true,
+  loadingRows = 5,
   noMatchesLabel,
   clearLabel,
   navigationLabel,
@@ -762,6 +817,7 @@ export function DatabaseSidebarView({
   hierarchyUniverseItems?: ContentDatabaseItem[];
   manualReorder?: ContentFilesSidebarManualReorder;
   scroll?: boolean;
+  loadingRows?: number;
   noMatchesLabel: string;
   clearLabel: string;
   navigationLabel: string;
@@ -842,22 +898,7 @@ export function DatabaseSidebarView({
   }
 
   if (isLoading) {
-    return (
-      <div aria-hidden="true" className="grid gap-1 p-1">
-        {[70, 55, 85, 60, 45].map((width, index) => (
-          <div
-            key={`sidebar-skeleton-${index}`}
-            className="flex h-7 items-center gap-1.5 rounded px-1.5"
-          >
-            <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
-            <Skeleton
-              className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
-              style={{ width: `${width}%` }}
-            />
-          </div>
-        ))}
-      </div>
-    );
+    return <SidebarRowsSkeleton rows={loadingRows} />;
   }
 
   if (items.length === 0 && hasActiveConstraints) {

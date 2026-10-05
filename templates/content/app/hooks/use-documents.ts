@@ -4,6 +4,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { serializeIconValue } from "@agent-native/core/icons";
 import type {
   ContentDatabaseItemsPageResponse,
   ContentDatabaseNavigationPageResponse,
@@ -29,6 +30,7 @@ import { applyContentPersonalNavigationPatch } from "@shared/content-personal-na
 import type { QueryClient } from "@tanstack/react-query";
 import {
   hashKey,
+  isCancelledError,
   useMutation,
   useQuery,
   useQueryClient,
@@ -513,12 +515,24 @@ export function patchDocumentCaches(
   queryClient.setQueriesData<{ entries: ContentRecentResult[] }>(
     { queryKey: ["action", "get-content-recent"] },
     (current) => {
-      if (!current || patch.title === undefined) return current;
+      if (!current || (patch.title === undefined && patch.icon === undefined))
+        return current;
       let changed = false;
       const entries = current.entries.map((entry) => {
         if (entry.target.documentId !== documentId) return entry;
         changed = true;
-        return { ...entry, title: patch.title! };
+        return {
+          ...entry,
+          ...(patch.title !== undefined ? { title: patch.title } : {}),
+          ...(patch.icon !== undefined
+            ? {
+                icon:
+                  typeof patch.icon === "string"
+                    ? patch.icon
+                    : serializeIconValue(patch.icon),
+              }
+            : {}),
+        };
       });
       return changed ? { ...current, entries } : current;
     },
@@ -847,6 +861,33 @@ export function startPageOpenDocumentReads(
     retry: false,
   });
   startPreviewDocumentDraftRead(queryClient, documentId, cached);
+  if (cached?.source?.mode !== "local-files") {
+    startPageOpenReviewReads(queryClient, documentId);
+  }
+}
+
+// Open comments and suggestions hold the review margin open beside the page,
+// so their reads start with the page read rather than after it lands. A page
+// known to come from a local file has neither, so its open skips them.
+export function startPageOpenReviewReads(
+  queryClient: QueryClient,
+  documentId: string,
+) {
+  const reads = [
+    ["list-comments", { documentId }],
+    [
+      "list-resource-suggestions",
+      { resourceType: "document", resourceId: documentId },
+    ],
+  ] as const;
+  for (const [actionName, params] of reads) {
+    void queryClient.prefetchQuery({
+      queryKey: ["action", actionName, params],
+      queryFn: ({ signal }) =>
+        callAction(actionName, params, { method: "GET", signal }),
+      retry: false,
+    });
+  }
 }
 
 export interface PreviewDocumentDraftRecord {
@@ -1041,6 +1082,56 @@ export function useCreateDocument() {
   );
 }
 
+const DOCUMENT_UPDATE_MUTATION_KEY = ["content", "update-document"];
+const recentSaveRecoveries = new WeakMap<QueryClient, () => void>();
+
+function recoverRecentAfterDocumentSaves(queryClient: QueryClient) {
+  if (recentSaveRecoveries.has(queryClient)) return;
+  let reading = false;
+  const stopRecovery = () => {
+    recentSaveRecoveries.get(queryClient)?.();
+    recentSaveRecoveries.delete(queryClient);
+  };
+  const reconcile = () => {
+    if (reading) return;
+    if (
+      queryClient.isMutating({
+        mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
+        predicate: (mutation) => {
+          const pending = mutation.state.variables as
+            | DocumentUpdateRequestWithCas
+            | undefined;
+          return pending?.title !== undefined || pending?.icon !== undefined;
+        },
+      }) > 0
+    )
+      return;
+    reading = true;
+    const refresh = queryClient.invalidateQueries(
+      { queryKey: ["action", "get-content-recent"] },
+      { throwOnError: true },
+    );
+    const reads = queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["action", "get-content-recent"], type: "active" })
+      .map((query) => query.promise);
+    void Promise.all([refresh, ...reads]).then(
+      stopRecovery,
+      (error: unknown) => {
+        reading = false;
+        if (isCancelledError(error)) reconcile();
+        else stopRecovery();
+      },
+    );
+  };
+  recentSaveRecoveries.set(
+    queryClient,
+    // Mutation statuses change after onSettled, including simultaneous failures.
+    queryClient.getMutationCache().subscribe(reconcile),
+  );
+  reconcile();
+}
+
 export function useUpdateDocument() {
   const queryClient = useQueryClient();
   const t = useT();
@@ -1051,6 +1142,7 @@ export function useUpdateDocument() {
   return useActionMutation<DocumentUpdateResult, DocumentUpdateRequestWithCas>(
     "update-document",
     {
+      mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
       skipActionQueryInvalidation: true,
       onMutate: async (variables) => {
         // This tab's own saves never come back through sync.
@@ -1077,6 +1169,9 @@ export function useUpdateDocument() {
         const personalViewFilter = {
           queryKey: ["action", "get-content-database-personal-view"],
         } as const;
+        const recentFilter = {
+          queryKey: ["action", "get-content-recent"],
+        } as const;
         const sidebarStateEntry = currentContentSidebarState(
           queryClient,
           currentDocumentSpaceId(queryClient, variables.id),
@@ -1090,6 +1185,7 @@ export function useUpdateDocument() {
           queryClient.cancelQueries(databasePageFilter),
           queryClient.cancelQueries(contentSpacesFilter),
           queryClient.cancelQueries(personalViewFilter),
+          queryClient.cancelQueries(recentFilter),
         ]);
 
         const previous: Array<[readonly unknown[], unknown]> = [
@@ -1238,6 +1334,8 @@ export function useUpdateDocument() {
           | { previous?: Array<[readonly unknown[], unknown]> }
           | undefined;
         restoreQuerySnapshots(queryClient, rollback?.previous ?? []);
+        if (variables.title !== undefined || variables.icon !== undefined)
+          recoverRecentAfterDocumentSaves(queryClient);
       },
       onSettled: (_data, _error, variables) => {
         spoilPageOpenReads(queryClient, variables.id);

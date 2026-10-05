@@ -36,8 +36,11 @@ import {
 } from "@agent-native/core/db";
 
 import { runDesignMigrations } from "../server/plugins/db.js";
+import acknowledgePendingAction from "./acknowledge-visual-edit-pending.js";
 import getPendingAction from "./get-visual-edit-pending.js";
 import publishPendingAction from "./publish-visual-edit-pending.js";
+
+const publisherId = "11111111-1111-4111-8111-111111111111";
 
 beforeAll(async () => {
   vi.stubEnv("DATABASE_URL", "pglite:memory://");
@@ -62,6 +65,7 @@ describe("visual-edit pending revision migration", () => {
     await publishPendingAction.run(
       {
         designId: "design_revision_overflow",
+        publisherId,
         revision,
         pending: {
           designId: "design_revision_overflow",
@@ -100,6 +104,23 @@ describe("visual-edit pending revision migration", () => {
       status: "ready",
       prompt,
       revision: 1,
+      clientRevision: revision,
+      publisherId,
+    });
+
+    await expect(
+      acknowledgePendingAction.run({
+        designId: "design_revision_overflow",
+        revision: 1,
+      }),
+    ).resolves.toMatchObject({ status: "empty", revision: 1 });
+    await expect(
+      getPendingAction.run({ designId: "design_revision_overflow" }),
+    ).resolves.toMatchObject({
+      status: "empty",
+      revision: 1,
+      clientRevision: revision,
+      publisherId,
     });
   });
 

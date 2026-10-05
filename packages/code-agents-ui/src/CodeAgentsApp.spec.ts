@@ -480,7 +480,7 @@ describe("code-agent model selection", () => {
   it("defaults an empty selection to Luna with high effort", () => {
     expect(normalizeModelSelection({}, [])).toEqual({
       engine: "ai-sdk:openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       effort: "high",
     });
   });

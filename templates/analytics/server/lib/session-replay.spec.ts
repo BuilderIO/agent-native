@@ -1635,6 +1635,43 @@ describe("session replay ingest parsing", () => {
     expect(inserts).toHaveLength(0);
   });
 
+  it("stores nothing for a test identity's replay and says why", async () => {
+    const { db, inserts } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 0 }],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          replayId: "recording_1",
+          sessionId: "session_1",
+          userEmail: "qa+autoz@builder.io",
+          sequence: 0,
+          events: [{ type: 4, timestamp: 1 }],
+        }),
+        { origin: "https://app.example.com", requestBytes: 100 },
+      ),
+    ).resolves.toEqual({ skipped: "test-identity", acceptedChunks: 0 });
+
+    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(inserts).toHaveLength(0);
+    expect(putPrivateBlobMock).not.toHaveBeenCalled();
+  });
+
   it("removes a new recording's placeholder when the usage reservation fails", async () => {
     const recording = {
       id: "sr_new",

@@ -154,7 +154,7 @@ export default {
     untitledAnalysis: "Análisis sin título",
   },
   settings: {
-    agentObservability: "Observabilidad del agente",
+    agentObservability: "Observabilidad",
     reviewPreviewUnavailable: "Vista previa no disponible",
     agentTitle: "Gestionar agente",
     agentDescription:
@@ -179,9 +179,9 @@ export default {
     notificationsSoundGroup: "Sonido",
     replayStorage: "Almacenamiento de repeticiones de sesión",
     replayStorageDescription:
-      "Las grabaciones de repetición de sesión necesitan un proveedor de subida de archivos configurado. Conecta Builder.io para usar almacenamiento de objetos de nivel gratuito o usa tu propio bucket compatible con S3.",
+      "Las grabaciones de repetición de sesión necesitan un proveedor de subida de archivos configurado. Usa el almacenamiento de objetos incluido en Builder.io o tu propio bucket compatible con S3.",
     connected: "Conectado",
-    connectBuilder: "Conectar Builder.io",
+    connectBuilder: "Usar Builder.io",
     checkingBuilder: "Comprobando Builder.io...",
     builderConnected: "Builder.io conectado",
     builderConnectedToast: "Builder.io conectado",
@@ -985,6 +985,7 @@ export default {
     dataDictionary: "Diccionario de datos - Analytics",
     dataSources: "Fuentes de datos - Analytics",
     sessions: "Sesiones - Analytics",
+    eventCatalog: "Catálogo de eventos - Analytics",
     monitoring: "Monitorización - Analytics",
     agents: "Agentes - Analytics",
     session: "Reproducción de sesión - Analytics",
@@ -1302,13 +1303,15 @@ export default {
     rageClickCountSingular: "{{count}} clic repetido",
     showingSingular: "{{count}} sesión",
     labName: "Clasificación de sesiones",
-    labDescription: "Explora los filtros y la ordenación de sesiones.",
+    labDescription:
+      "Filtra sesiones por eventos registrados, ve los eventos de la app en la línea de tiempo de la reproducción y explora el catálogo de eventos.",
     allApps: "Todas las apps",
     customRange: "Rango personalizado",
     fromDate: "Desde",
     toDate: "Hasta",
     clearFromDate: "Borrar fecha de inicio",
     clearToDate: "Borrar fecha de fin",
+    clearFilters: "Borrar todo",
     signals: "Señales",
     hideEmptySessions: "Ocultar sesiones vacías",
     networkErrors: "Errores de red",
@@ -1342,6 +1345,43 @@ export default {
     sessionPlaylist: "Lista de sesiones",
     userFilters: "Filtros de usuario",
     eventFilters: "Filtros de eventos",
+    eventFiltersActive: "Eventos ({{count}})",
+    eventCatalog: "Catálogo de eventos",
+    removeEventCondition: "Quitar {{event}}",
+    eventConditionLimit: "Hasta {{count}} condiciones de evento.",
+    addEventCondition: "Añadir condición",
+    searchEvents: "Buscar eventos...",
+    eventNamesFailed: "No se pudieron cargar los eventos: {{message}}",
+    noEventNames: "No hay eventos en este intervalo.",
+    eventCoverageSince:
+      "Los filtros de eventos cubren las sesiones desde el {{date}}.",
+    eventCoverageStarting:
+      "Los filtros de eventos cubren las sesiones grabadas a partir de ahora.",
+    eventDid: "Con",
+    eventDidNot: "Sin",
+    eventFiltersNeedLab:
+      "Este enlace tiene filtros de eventos. Activa el Lab Clasificación de sesiones en Ajustes para aplicarlos.",
+    collapsePageChanges: "Agrupar cambios de página",
+    pageChangesCollapsed: "{{count}} cambios de página",
+    catalogDescription:
+      "Todos los eventos que ha recibido Analytics, con su volumen, la fecha en que se vio por última vez y propiedades de ejemplo. Selecciona un evento para ver las sesiones que lo enviaron.",
+    catalogNeedsLab:
+      "El catálogo de eventos forma parte del Lab Clasificación de sesiones.",
+    openLabSettings: "Abrir ajustes del Lab",
+    catalogOnlyAutomatic:
+      "{{app}} solo envía eventos automáticos, como vistas de página. Registra eventos con nombre para ver qué hacen las personas en ella.",
+    catalogVolume: "Volumen",
+    catalogLastSeen: "Visto por última vez",
+    catalogLoadFailed: "No se pudo cargar el catálogo de eventos: {{message}}",
+    catalogNoMatches: "Ningún evento coincide con tu búsqueda.",
+    catalogEmpty: "Aún no hay eventos en este intervalo.",
+    catalogOpenSessions: "Mostrar sesiones con {{event}}",
+    catalogAutomatic: "Automático",
+    catalogStoppedFiring: "Ya no se envía",
+    catalogPropertyKeys: "Claves de propiedades",
+    catalogMoreKeys: "+{{count}} más",
+    catalogTruncated:
+      "Solo se muestran los {{count}} eventos vistos más recientemente.",
     anyActivity: "Cualquier actividad",
     filtersDescription:
       "Los filtros se guardan en la URL para que el agente y los enlaces compartidos vean la misma lista de sesiones.",
@@ -1443,7 +1483,7 @@ export default {
     time: "Hora",
     storageSetupTitle: "Conectar almacenamiento de repeticiones",
     storageSetupDescription:
-      "Las grabaciones de repetición de sesión necesitan almacenamiento antes de poder guardar los fragmentos. Conecta Builder.io para usar almacenamiento de nivel gratuito o configura tu propio bucket compatible con S3.",
+      "Las grabaciones de repetición de sesión necesitan almacenamiento antes de poder guardar los fragmentos. Usa el almacenamiento de nivel gratuito de Builder.io o configura tu propio bucket compatible con S3.",
     storageConnected: "Almacenamiento conectado",
     connectBuilder: "Usar Builder.io",
     configureS3: "Configurar almacenamiento S3",

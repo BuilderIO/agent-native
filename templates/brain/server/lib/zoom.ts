@@ -10,8 +10,15 @@ export class ZoomHttpError extends Error {
   constructor(
     readonly status: number,
     readonly retryAfterSeconds: number | null,
+    readonly step = "API request",
+    readonly zoomCode: string | null = null,
+    readonly zoomReason: string | null = null,
   ) {
-    super(`Zoom API request failed with status ${status}.`);
+    const code = zoomCode ? " (code " + zoomCode + ")" : "";
+    const reason = zoomReason ? ": " + zoomReason : "";
+    super(
+      "Zoom " + step + " failed with status " + status + code + reason + ".",
+    );
     this.name = "ZoomHttpError";
   }
 }
@@ -55,13 +62,39 @@ function retryAfterSeconds(headers: Headers): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.ceil(parsed) : null;
 }
 
-function assertOk(response: Response) {
-  if (!response.ok) {
-    throw new ZoomHttpError(
-      response.status,
-      retryAfterSeconds(response.headers),
-    );
+// Zoom returns {code, message} from the REST API and {error, reason} from
+// OAuth. Neither echoes credentials, and the reason is what an admin needs to
+// fix scopes or the app type.
+async function zoomErrorDetail(
+  response: Response,
+): Promise<{ code: string | null; reason: string | null }> {
+  try {
+    const body = await response.text();
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    const code = parsed.code ?? parsed.error;
+    const reason = parsed.message ?? parsed.reason;
+    return {
+      code:
+        typeof code === "string" || typeof code === "number"
+          ? String(code)
+          : null,
+      reason: typeof reason === "string" ? reason.slice(0, 300) : null,
+    };
+  } catch {
+    return { code: null, reason: null };
   }
+}
+
+async function assertOk(response: Response, step: string) {
+  if (response.ok) return;
+  const detail = await zoomErrorDetail(response);
+  throw new ZoomHttpError(
+    response.status,
+    retryAfterSeconds(response.headers),
+    step,
+    detail.code,
+    detail.reason,
+  );
 }
 
 function isZoomHost(url: URL) {
@@ -71,12 +104,16 @@ function isZoomHost(url: URL) {
   );
 }
 
-async function zoomApiJson<T>(token: string, url: string): Promise<T> {
+async function zoomApiJson<T>(
+  token: string,
+  url: string,
+  step: string,
+): Promise<T> {
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(ZOOM_REQUEST_TIMEOUT_MS),
   });
-  assertOk(response);
+  await assertOk(response, step);
   return (await response.json()) as T;
 }
 
@@ -94,7 +131,7 @@ export async function fetchZoomAccessToken(
       signal: AbortSignal.timeout(ZOOM_REQUEST_TIMEOUT_MS),
     },
   );
-  assertOk(response);
+  await assertOk(response, "token request");
   const body = (await response.json()) as { access_token?: unknown };
   if (typeof body.access_token !== "string" || !body.access_token) {
     throw new Error("Zoom OAuth token response did not include access_token.");
@@ -114,6 +151,7 @@ export async function listZoomUserIds(token: string): Promise<string[]> {
     const page = await zoomApiJson<ZoomUsersPage>(
       token,
       `${ZOOM_API_BASE}/users?${params.toString()}`,
+      "user list",
     );
     for (const user of page.users ?? []) {
       if (user.id) ids.push(user.id);
@@ -141,6 +179,7 @@ export async function listZoomRecordings(
     const page = await zoomApiJson<ZoomRecordingsPage>(
       token,
       `${ZOOM_API_BASE}/users/${encodeURIComponent(userId)}/recordings?${params.toString()}`,
+      "recording list",
     );
     meetings.push(...(page.meetings ?? []));
     nextPageToken = page.next_page_token || undefined;
@@ -178,7 +217,7 @@ export async function downloadZoomTranscript(
       }
       continue;
     }
-    assertOk(response);
+    await assertOk(response, "transcript download");
     return await response.text();
   }
   throw new Error("Zoom transcript download exceeded the redirect limit.");

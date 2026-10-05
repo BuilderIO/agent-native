@@ -138,6 +138,7 @@ describe("createTiptapComposerExtensions", () => {
     expect(compactComposerModelName("google/gemini-3.8-flash")).toBe("Flash");
     expect(compactComposerModelName("qwen/qwen3.8-max-0902")).toBe("Max");
     expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet");
+    expect(compactComposerModelName("claude-sonnet-5-5")).toBe("Sonnet");
     expect(compactComposerModelName("anthropic/claude-opus-5.5")).toBe("Opus");
     expect(compactComposerModelName("gemini-3-5-flash-lite")).toBe(
       "Flash-Lite",
@@ -1245,7 +1246,7 @@ describe("createTiptapComposerExtensions", () => {
     );
   });
 
-  it("maps Enter keybindings to immediate and queued submit intents", () => {
+  it("maps modified Enter to an immediate steer intent", () => {
     const enter = {
       key: "Enter",
       shiftKey: false,
@@ -1257,10 +1258,10 @@ describe("createTiptapComposerExtensions", () => {
     expect(getComposerSubmitIntentForEnterKey(enter, false)).toBe("immediate");
     expect(
       getComposerSubmitIntentForEnterKey({ ...enter, metaKey: true }, true),
-    ).toBe("queued");
+    ).toBe("immediate");
     expect(
       getComposerSubmitIntentForEnterKey({ ...enter, ctrlKey: true }, false),
-    ).toBe("queued");
+    ).toBe("immediate");
     expect(
       getComposerSubmitIntentForEnterKey(
         { ...enter, shiftKey: true, metaKey: true },
@@ -1581,8 +1582,12 @@ describe("createTiptapComposerExtensions", () => {
     const models = [
       "gpt-6-sol",
       "gpt-6-luna",
+      "gpt-5-5",
+      "gpt-5-4-mini",
+      "gpt-5-1-codex-mini",
       "claude-opus-5-5",
       "gemini-3-8-flash",
+      "gemini-3-1-flash-lite",
     ];
     function Harness() {
       const runtime = useLocalRuntime(emptyChatModelAdapter);
@@ -1638,8 +1643,12 @@ describe("createTiptapComposerExtensions", () => {
     );
     expect(picker?.textContent).toContain("GPT-6 Sol");
     expect(picker?.textContent).toContain("GPT-6 Luna");
+    expect(picker?.textContent).toContain("GPT-5.5");
+    expect(picker?.textContent).toContain("GPT-5.4 Mini");
+    expect(picker?.textContent).toContain("GPT-5.1 Codex Mini");
     expect(picker?.textContent).toContain("Claude Opus 5.5");
     expect(picker?.textContent).toContain("Gemini 3.8 Flash");
+    expect(picker?.textContent).toContain("Gemini 3.1 Flash-Lite");
     expect(picker?.textContent).toContain("OpenAI");
     expect(picker?.textContent).toContain("Claude");
     expect(picker?.textContent).not.toContain("Builder.io");
@@ -1651,6 +1660,7 @@ describe("createTiptapComposerExtensions", () => {
       "openai/gpt-6-sol",
       "anthropic/claude-opus-4.8",
       "anthropic/claude-opus-5.5",
+      "anthropic/claude-sonnet-5.5",
       "google/gemini-2.5-flash",
       "google/gemini-3.8-flash",
     ];
@@ -1699,6 +1709,7 @@ describe("createTiptapComposerExtensions", () => {
       '[role="tabpanel"][aria-label="model"]',
     );
     expect(picker?.textContent).toContain("GPT-6 Sol");
+    expect(picker?.textContent).toContain("Claude Sonnet 5.5");
     expect(picker?.textContent).toContain("Claude Opus 5.5");
     expect(picker?.textContent).toContain("Gemini 3.8 Flash");
     expect(picker?.textContent).not.toContain("GPT-5.6 Sol");

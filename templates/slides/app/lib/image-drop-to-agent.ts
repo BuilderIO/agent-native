@@ -36,11 +36,23 @@ export function isMissingUploadProviderError(
     lower.includes("no object storage is connected") ||
     lower.includes("no file upload provider") ||
     lower.includes("registerfileuploadprovider") ||
-    lower.includes("connect builder.io")
+    lower.includes("connect builder.io") ||
+    lower.includes("use builder.io")
   );
 }
 
 export function isStorageSetupRequiredError(error: unknown): boolean {
+  // Typed first: the server says who can fix storage, and "nobody connected
+  // it" is the workspace admin's setup, whatever the message says.
+  const typed = error as {
+    errorCode?: unknown;
+    details?: { whoCanFix?: unknown } | null;
+  } | null;
+  if (typed?.errorCode === "attachment_storage_unavailable") {
+    return typed.details?.whoCanFix === "workspace_admin";
+  }
+  // Producers that do not carry a typed code yet (image assets, image
+  // generation) still word this as "No object storage is connected".
   const message =
     error instanceof Error
       ? error.message
@@ -101,7 +113,7 @@ export function buildImageDropAgentPayload(args: {
   if (!inlineDataUrl) {
     throw new Error(
       args.upload.error ||
-        "Image upload failed. Connect Builder.io (free) or configure your own S3-compatible storage keys.",
+        "Image upload failed. Use Builder.io (free) or configure your own S3-compatible storage keys.",
     );
   }
 

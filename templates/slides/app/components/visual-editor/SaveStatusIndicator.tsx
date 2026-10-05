@@ -1,6 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconCloudOff, IconDownload, IconUpload } from "@tabler/icons-react";
+import {
+  IconCloudOff,
+  IconDownload,
+  IconRepeat,
+  IconRefresh,
+  IconUpload,
+} from "@tabler/icons-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type { DeckSaveError } from "@/context/DeckContext";
 import { cn } from "@/lib/utils";
 
 export type ConflictChoice = "keep-mine" | "use-latest";
@@ -19,9 +27,12 @@ interface SaveStatusIndicatorProps {
   saving: boolean;
   hasUnsavedChanges?: boolean;
   saveFailed?: boolean;
+  saveError?: Pick<DeckSaveError, "status" | "errorCode" | "retryable">;
   offline?: boolean;
   conflict?: { slideNumber: number; canResolve: boolean };
   onResolveConflict?: (choice: ConflictChoice) => Promise<void>;
+  onRetrySave?: () => Promise<void>;
+  onReload?: () => void;
   onDownloadBackup?: () => void;
   onImportBackup?: () => void;
   className?: string;
@@ -31,9 +42,12 @@ export function SaveStatusIndicator({
   saving: _saving,
   hasUnsavedChanges = false,
   saveFailed = false,
+  saveError,
   offline,
   conflict,
   onResolveConflict,
+  onRetrySave,
+  onReload,
   onDownloadBackup,
   onImportBackup,
   className,
@@ -42,6 +56,7 @@ export function SaveStatusIndicator({
   const [conflictOpen, setConflictOpen] = useState(false);
   const [resolvingTextConflict, setResolvingTextConflict] = useState(false);
   const [conflictError, setConflictError] = useState(false);
+  const [retryingSave, setRetryingSave] = useState(false);
   const showWarning =
     Boolean(conflict) || saveFailed || (offline && hasUnsavedChanges);
 
@@ -60,7 +75,24 @@ export function SaveStatusIndicator({
     }
   };
 
+  const retrySave = async () => {
+    if (!onRetrySave || retryingSave) return;
+    setRetryingSave(true);
+    try {
+      await onRetrySave();
+    } catch {
+      toast.error(t("settings.saveFailed"));
+    } finally {
+      setRetryingSave(false);
+    }
+  };
+
   if (showWarning) {
+    const errorDetail = saveError?.errorCode
+      ? `${saveError.status ? `${saveError.status} · ` : ""}${saveError.errorCode}`
+      : saveError?.status
+        ? `HTTP ${saveError.status}`
+        : undefined;
     const label = conflict
       ? t("editorToolbar.conflictStatus")
       : saveFailed
@@ -77,9 +109,12 @@ export function SaveStatusIndicator({
         <div
           role="alert"
           aria-live="polite"
+          aria-label={`${label}. ${description}${errorDetail ? `. ${errorDetail}` : ""}`}
           data-save-status={
             conflict ? "conflict" : saveFailed ? "failed" : "offline"
           }
+          data-save-error-status={saveError?.status}
+          data-save-error-code={saveError?.errorCode}
           title={description}
           className={cn(
             "flex min-w-0 items-center gap-1 rounded-md border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive",
@@ -88,6 +123,43 @@ export function SaveStatusIndicator({
         >
           <IconCloudOff className="size-3.5 shrink-0" aria-hidden="true" />
           <span className="hidden max-w-28 truncate lg:inline">{label}</span>
+          {saveFailed && errorDetail && (
+            <span
+              className="sr-only font-mono text-[10px] lg:not-sr-only lg:max-w-40 lg:truncate"
+              title={errorDetail}
+            >
+              {errorDetail}
+            </span>
+          )}
+          {saveFailed && saveError?.retryable && onRetrySave && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-1.5 text-[11px] text-inherit hover:bg-destructive/10"
+              disabled={retryingSave}
+              onClick={() => void retrySave()}
+              title={t("settings.retry")}
+              aria-label={t("settings.retry")}
+            >
+              <IconRepeat className="size-3.5" aria-hidden="true" />
+              <span className="hidden 2xl:inline">{t("settings.retry")}</span>
+            </Button>
+          )}
+          {saveFailed && onReload && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-1.5 text-[11px] text-inherit hover:bg-destructive/10"
+              onClick={onReload}
+              title={t("settings.reload")}
+              aria-label={t("settings.reload")}
+            >
+              <IconRefresh className="size-3.5" aria-hidden="true" />
+              <span className="hidden 2xl:inline">{t("settings.reload")}</span>
+            </Button>
+          )}
           {conflict?.canResolve && onResolveConflict && (
             <Button
               type="button"

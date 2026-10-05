@@ -47,7 +47,7 @@ const messages = {
     designSystems: "デザインシステム",
   },
   settings: {
-    agentObservability: "エージェントの可観測性",
+    agentObservability: "可観測性",
     title: "設定",
     labs: "Labs",
     labsIntro: "リリース前に実験的な機能をプレビューできます。",
@@ -59,6 +59,7 @@ const messages = {
     commentsAndRepliesDescription:
       "誰かがあなたのデッキにコメントまたは返信したとき。",
     retry: "再試行",
+    reload: "再読み込み",
     mcpAbout:
       "Slides を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Slides で作業できます。デッキの作成、スライドの追加、PowerPoint への書き出しなどです。アプリが見られるのは、あなたが見られるものだけです。",
     workspaceTitle: "ワークスペース",
@@ -442,7 +443,8 @@ const messages = {
     resolveThread: "スレッドを解決",
     reopenThread: "スレッドを再開",
     hideReplies: "返信を非表示",
-    replyCount: "{{count}} 件の返信",
+    replyCount_one: "{{count}} 件の返信",
+    replyCount_other: "{{count}} 件の返信",
     title: "コメント",
     addComment: "コメントを追加",
     close: "閉じる",
@@ -453,6 +455,7 @@ const messages = {
     retry: "再試行",
     clickToAddComment: "クリックしてコメントを追加",
     selectSlideToAdd: "追加するにはスライドを選択してください",
+    filters: "コメントの絞り込み",
     scope: "コメントの範囲",
     thisSlide: "このスライド",
     allComments: "すべてのスライド",
@@ -760,6 +763,8 @@ const messages = {
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
+    agentRunFailed:
+      "スライドを作成する前にエージェントの実行が失敗しました。チャットで詳細を確認して、もう一度お試しください。",
     deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
@@ -970,8 +975,8 @@ const messages = {
           "指定された会社サイトを読み、会社についてのプレゼンテーションを作成してください。アクセスできない場合は事実を捏造せずに報告してください。",
       },
     },
-    connectBuilderIo: "Builder.io に接続",
-    connectingBuilder: "Builder.io に接続中…",
+    connectBuilderIo: "Builder.io を使う",
+    connectingBuilder: "Builder.io を設定中…",
     recent: "最近の項目",
     starters: {
       pitch: {
@@ -1010,9 +1015,13 @@ const messages = {
     all: "すべて",
     showMineDecks: "自分が作成したデッキを表示",
     mine: "自分",
+    ownedByAnyone: "所有者を問わない",
+    ownedByMe: "自分が所有",
+    sharedWithMe: "自分と共有",
     createDeckOrVisual: "プレゼンテーションを作成",
     noMineDecks: "自分が作成したデッキはまだありません。",
     noDecksMatchSearch: "検索に一致するデッキはありません。",
+    noDecksMatchFilter: "現在のフィルターに一致するデッキはありません。",
     deleteDeckTitle: "デッキを削除しますか？",
     deleteDeckDescription:
       "このデッキとすべてのスライドを完全に削除します。この操作は元に戻せません。",

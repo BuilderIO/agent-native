@@ -9,6 +9,11 @@ import {
   BETA_REDIRECT_SIGN_OUT_STORAGE_KEY,
   ENVIRONMENT_BETA_HOSTS,
 } from "./environment-lanes.js";
+import {
+  SESSION_NAVIGATION_FLAG,
+  SESSION_NAVIGATION_RELEASED_EVENT,
+  SESSION_NAVIGATION_STALL_MS,
+} from "./ssr-session-bootstrap.js";
 
 export const SSR_BETA_REDIRECT_MARKER = 'data-agent-native-beta-redirect="1"';
 
@@ -276,8 +281,20 @@ export function getSsrBetaRedirectScriptBody(
     latestUrl.hostname = betaHost;
     latestUrl.port = '';
     latestUrl.searchParams.delete(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
+    if (typeof window[${JSON.stringify(SESSION_NAVIGATION_FLAG)}] === 'string') return;
+    var laneHref = latestUrl.toString();
+    window[${JSON.stringify(SESSION_NAVIGATION_FLAG)}] = laneHref;
+    // Same release as navigateForSession: a page still here after the stall
+    // window never left, so the app must not stay held behind the claim.
+    setTimeout(function () {
+      if (window[${JSON.stringify(SESSION_NAVIGATION_FLAG)}] !== laneHref) return;
+      delete window[${JSON.stringify(SESSION_NAVIGATION_FLAG)}];
+      if (typeof window.dispatchEvent === 'function') {
+        window.dispatchEvent(new Event(${JSON.stringify(SESSION_NAVIGATION_RELEASED_EVENT)}));
+      }
+    }, ${SESSION_NAVIGATION_STALL_MS});
     try {
-      window.location.replace(latestUrl.toString());
+      window.location.replace(laneHref);
     } catch (error) {
       void error;
     }

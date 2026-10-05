@@ -219,6 +219,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "set-lab": "labs",
   "get-chatgpt-subscription-status": "chat",
   "disconnect-chatgpt-subscription": "chat",
+  "list-chatgpt-subscription-accounts": "chat",
+  "select-chatgpt-subscription-account": "chat",
   "preview-secret-removal": "chat",
   "list-api-keys": "chat",
   "delete-api-key": "chat",

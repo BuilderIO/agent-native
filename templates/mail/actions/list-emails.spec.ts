@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   claimInventoryCursor: vi.fn(),
   settleInventoryCursorClaim: vi.fn(),
   releaseInventoryCursorClaim: vi.fn(),
+  assertGmailNotCoolingDown: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -43,6 +44,11 @@ vi.mock("../server/lib/google-auth.js", () => ({
 vi.mock("../server/lib/jobs.js", () => ({
   getSnoozedThreadIds: vi.fn(),
   getSyntheticEmailsForView: vi.fn(),
+}));
+
+vi.mock("../server/lib/gmail-quota.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/lib/gmail-quota.js")>()),
+  assertGmailNotCoolingDown: mocks.assertGmailNotCoolingDown,
 }));
 
 import {
@@ -87,6 +93,7 @@ function emailFor(raw: any, overrides: any = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.assertGmailNotCoolingDown.mockResolvedValue(undefined);
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   vi.mocked(isConnected).mockResolvedValue(true);
   vi.mocked(getClients).mockResolvedValue([
@@ -166,7 +173,7 @@ describe("list-emails action — Gmail-connected inbox", () => {
     expect(emails).toEqual([]);
   });
 
-  it("returns a graceful JSON error instead of throwing when Gmail rate-limits every account", async () => {
+  it("fails with the typed Gmail cooldown instead of a success-shaped JSON error when Gmail rate-limits every account", async () => {
     vi.mocked(listGmailMessages).mockResolvedValue({
       messages: [],
       errors: [
@@ -179,12 +186,35 @@ describe("list-emails action — Gmail-connected inbox", () => {
       ],
     } as any);
 
-    const raw = await action.run({ view: "inbox" });
-    const parsed = JSON.parse(raw);
+    const error = await action
+      .run({ view: "inbox" })
+      .catch((caught: unknown) => caught);
 
-    expect(parsed.error).toContain(OWNER);
-    expect(parsed.error).toContain("429");
-    expect(parsed.retryAfterSeconds).toBe(90);
+    expect(error).toMatchObject({
+      actionContractError: true,
+      statusCode: 429,
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 90_000,
+      details: { retryAfterSeconds: 90, retryAfterMs: 90_000 },
+    });
+  });
+
+  it("rejects repeat list calls inside a cooldown before any Gmail work", async () => {
+    const { GmailQuotaCooldownError } =
+      await import("../server/lib/google-api.js");
+    mocks.assertGmailNotCoolingDown.mockRejectedValue(
+      new GmailQuotaCooldownError(30_000),
+    );
+
+    for (let call = 0; call < 2; call++) {
+      await expect(action.run({ view: "inbox" })).rejects.toMatchObject({
+        errorCode: "gmail_quota_cooldown",
+      });
+    }
+
+    expect(mocks.assertGmailNotCoolingDown).toHaveBeenCalledWith([OWNER]);
+    expect(fetchGmailLabelMap).not.toHaveBeenCalled();
+    expect(listGmailMessages).not.toHaveBeenCalled();
   });
 
   it("does not call getSnoozedThreadIds when the Gmail account is rate-limited", async () => {

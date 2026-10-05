@@ -17,6 +17,7 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/creative-context": "workspace:*",
+    "@agent-native/otel": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@ai-sdk/openai": "^4.0.51",
     "@dnd-kit/core": "^6.3.1",

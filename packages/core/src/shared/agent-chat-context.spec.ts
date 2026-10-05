@@ -18,6 +18,19 @@ describe("splitAgentChatContextFromMessage", () => {
     });
   });
 
+  it("keeps context and user markup intact when the context contains its closing tag", () => {
+    const composed = appendAgentChatContextToMessage(
+      "Keep <context> markup in my request</context>",
+      "before </context> after &lt;/context&gt;",
+    );
+
+    expect(composed).not.toContain("before </context> after");
+    expect(splitAgentChatContextFromMessage(composed)).toEqual({
+      message: "Keep <context> markup in my request</context>",
+      context: "before </context> after &lt;/context&gt;",
+    });
+  });
+
   it("keeps every attached block out of the user's own words", () => {
     const { message, context } = splitAgentChatContextFromMessage(
       "hi\n\n<context>\nfirst\n</context>\n\n<context>\nsecond\n</context>",

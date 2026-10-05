@@ -20,6 +20,7 @@ export {
   type AppConfigInput,
 } from "../app-config/index.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
+export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
   inferWorkspaceAppRootHomePath,
   readConfiguredWorkspaceAppHomePath,
@@ -634,6 +635,7 @@ export {
   deleteBuilderCredentials,
   resolveSecret,
   resolveSecretDetailed,
+  prefetchSecrets,
   BuilderCredentialLookupError,
   type BuilderCredentialsDetailed,
   type ResolvedSecretDetail,
@@ -681,6 +683,7 @@ export {
   resolveDeployPlatform,
   type DeployPlatform,
 } from "./deploy-environment.js";
+export { isServerlessRuntime } from "../db/client.js";
 export {
   BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
@@ -879,6 +882,13 @@ export {
   type AgentReadableResourceDiscovery,
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "../shared/agent-readable-resource.js";
+
+export {
+  registerObservabilityProvider,
+  type ObservabilityMeterProvider,
+  type ObservabilityProvider,
+  type ObservabilityTracerProvider,
+} from "../observability/otel-provider.js";
 
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {

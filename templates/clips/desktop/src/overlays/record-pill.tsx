@@ -55,6 +55,7 @@ import {
 } from "../lib/pill-completion-actions";
 import { toolbarEnabledEffect } from "../lib/pill-session";
 import type { PillMode } from "../lib/pill-session";
+import { RECORDER_DISCARD_EVENT } from "../lib/recorder-events";
 
 const RIGHT_EDGE_ANCHOR_PX = 200;
 const NATIVE_LAYOUT_GUARD_MS = 1_500;
@@ -210,6 +211,10 @@ export function RecordingPill() {
     null,
   );
   const playheadConfirmOpenRef = useRef(false);
+  const [confirmRequest, setConfirmRequest] = useState<{
+    intent: RecordingPlayheadIntent;
+    token: number;
+  } | null>(null);
   const stopDispatchRef = useRef<Promise<{ finishingHoldSet: boolean }> | null>(
     null,
   );
@@ -636,7 +641,7 @@ export function RecordingPill() {
     toolbarDismissedRef.current = true;
     setToolbarVisible(false);
     setEnabled(false);
-    void safeEmit("clips:recorder-cancel").then(() =>
+    void safeEmit(RECORDER_DISCARD_EVENT).then(() =>
       scheduleCloseFallback("cancel"),
     );
   }
@@ -858,6 +863,19 @@ export function RecordingPill() {
     track(
       safeListen("clips:toolbar-sync", () => {
         void safeEmit("clips:toolbar-ready", {});
+      }),
+    );
+    // The cancel shortcut never deletes by itself: it opens the same
+    // "Discard …?" confirmation as the toolbar's discard button.
+    track(
+      safeListen("clips:recorder-cancel", () => {
+        if (!recordingActive) return;
+        toolbarDismissedRef.current = false;
+        setToolbarVisible(true);
+        setConfirmRequest((previous) => ({
+          intent: "delete",
+          token: (previous?.token ?? 0) + 1,
+        }));
       }),
     );
     track(
@@ -1420,6 +1438,7 @@ export function RecordingPill() {
             deleteConfirm: "Discard",
             resumeConfirm: "Resume",
           }}
+          confirmRequest={confirmRequest}
           onStop={stop}
           onTogglePause={togglePause}
           onConfirmAction={confirmDestructive}

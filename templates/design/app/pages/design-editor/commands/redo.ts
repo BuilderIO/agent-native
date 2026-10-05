@@ -35,7 +35,10 @@ import {
   isPersistedFilePresent,
   reconcileCreatedFile,
 } from "@/pages/design-editor/commands/file-creation-recovery";
-import { prepareContentHistoryReplay } from "@/pages/design-editor/commands/prepare-content-history-replay";
+import {
+  prepareContentHistoryReplay,
+  STALE_CONTENT_HISTORY_REPLAY,
+} from "@/pages/design-editor/commands/prepare-content-history-replay";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import { applyDesignDataOperations } from "@/pages/design-editor/data-operations";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
@@ -1141,6 +1144,13 @@ export function runRedo({
       liveScreenSnapshotsById,
       t,
     });
+    if (preparedReplay === STALE_CONTENT_HISTORY_REPLAY) {
+      contentRedoStackRef.current.pop();
+      contentRedoSelectionStackRef.current.pop();
+      prunedRedoHistory += 1;
+      toast.info(t("designEditor.toasts.redoSkippedConcurrentEdit"));
+      return false;
+    }
     if (!preparedReplay) {
       contentReplayRefused = true;
       return false;
@@ -1165,14 +1175,14 @@ export function runRedo({
           }
           const result =
             change.fileId === activeFile?.id
-              ? applyLocalContentUpdate(change.after, {
+              ? applyLocalContentUpdate(prepared.nextContent, {
                   historyBeforeContent: prepared.historyBeforeContent,
                   refreshPreview: false,
                   forcePreviewFullDocument: true,
                   immediateSave: true,
                   recordHistory: false,
                 })
-              : applyFileContentUpdate(change.fileId, change.after, {
+              : applyFileContentUpdate(change.fileId, prepared.nextContent, {
                   historyBeforeContent: prepared.historyBeforeContent,
                   recordHistory: false,
                   refreshPreview: false,

@@ -35,6 +35,7 @@ export interface EngineModelGroup {
   engine: string;
   label: string;
   models: string[];
+  modelDisplayNames?: Readonly<Record<string, string>>;
   configured: boolean;
   statusLabel?: string;
   isSubscription?: boolean;

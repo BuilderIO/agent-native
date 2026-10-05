@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -156,8 +157,20 @@ export default function InviteAcceptRoute() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              {t("inviteRoute.loading")}
+            <div aria-busy="true" className="space-y-4 py-2">
+              <div className="flex items-center gap-3 rounded-md border p-4">
+                <Skeleton className="size-10 shrink-0 rounded" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-36" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              </div>
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-4/5" />
+              <div className="flex gap-2 pt-1">
+                <Skeleton className="h-9 w-24 rounded-md" />
+                <Skeleton className="h-9 w-20 rounded-md" />
+              </div>
             </div>
           ) : error ? (
             <div className="py-4 text-sm text-red-600">{error}</div>

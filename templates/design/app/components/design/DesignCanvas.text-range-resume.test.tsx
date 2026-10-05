@@ -132,7 +132,9 @@ async function mountCanvasWithStyledRange(active = true) {
   });
   const resumes = () =>
     posted.filter((message) => message.type === "resume-text-edit");
-  return { resumes };
+  const inspectorFocusMessages = () =>
+    posted.filter((message) => message.type === "text-edit-inspector-focus");
+  return { inspectorFocusMessages, resumes };
 }
 
 const nextFrame = () =>
@@ -186,6 +188,36 @@ it("does not resume the text edit when an inspector trigger is only being opened
   });
   await nextFrame();
   expect(resumes()).toHaveLength(0);
+});
+
+it("leaves iframe content presses to the active runtime text editor", async () => {
+  const { inspectorFocusMessages } = await mountCanvasWithStyledRange();
+  const iframe = container.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  )!;
+
+  await act(async () => {
+    iframe.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  });
+
+  expect(inspectorFocusMessages()).toEqual([]);
+});
+
+it("commits an active text edit on an outer canvas press before inspector focus", async () => {
+  const { inspectorFocusMessages } = await mountCanvasWithStyledRange();
+
+  await act(async () => {
+    document.body.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true }),
+    );
+  });
+
+  expect(inspectorFocusMessages()).toEqual([
+    expect.objectContaining({
+      type: "text-edit-inspector-focus",
+      focused: false,
+    }),
+  ]);
 });
 
 it("keeps focus in an open picker when the pointer moves over the canvas", async () => {

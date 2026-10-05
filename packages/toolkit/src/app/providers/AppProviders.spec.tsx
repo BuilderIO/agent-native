@@ -7,7 +7,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const useSessionMock = vi.fn();
-vi.mock("@agent-native/core/client/use-session", () => ({
+vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-session")
+  >()),
   useSession: () => useSessionMock(),
 }));
 vi.mock("@agent-native/toolkit/ui/sonner", () => ({
@@ -80,6 +83,7 @@ afterEach(() => {
     configurable: true,
     value: originalLocation,
   });
+  delete window.__agentNativeNavigationStarted;
   Object.defineProperty(window, "parent", {
     configurable: true,
     value: originalParent,

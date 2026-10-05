@@ -14,6 +14,7 @@ import {
   insertBulletAfterCaret,
   isBulletMarker,
   isBulletRow,
+  isMarkdownBulletPrefixInMarker,
   removeEmptyBulletAtCaret,
   rowTextRange,
   stripCopiedIdentity,
@@ -349,6 +350,8 @@ interface Snapshot extends TextOffsets {
   attributes: [string, string][];
   html: string;
   byteSize: number;
+  /** Whether the session's temporary layout reservation is applied. */
+  layoutReservationApplied: boolean;
   /** Which of the element's zero-width spaces, in text order, are the author's. */
   authorZwsp: number[];
 }
@@ -681,6 +684,20 @@ function graphemeAt(data: string, offset: number, backward: boolean) {
 }
 
 function retag(element: HTMLElement, tagName: string): HTMLElement {
+  const selection = window.getSelection();
+  const anchor = selection?.anchorNode;
+  const focus = selection?.focusNode;
+  const points =
+    selection?.rangeCount &&
+    anchor &&
+    focus &&
+    element.contains(anchor) &&
+    element.contains(focus)
+      ? ([
+          [anchor, selection.anchorOffset],
+          [focus, selection.focusOffset],
+        ] as const)
+      : null;
   const next = document.createElement(tagName);
   for (const attribute of Array.from(element.attributes)) {
     next.setAttribute(attribute.name, attribute.value);
@@ -692,6 +709,12 @@ function retag(element: HTMLElement, tagName: string): HTMLElement {
   }
   next.append(...Array.from(element.childNodes));
   element.replaceWith(next);
+  if (points && selection) {
+    const point = ([node, offset]: (typeof points)[number]) =>
+      node === element ? ([next, offset] as const) : ([node, offset] as const);
+    const [start, end] = points.map(point);
+    selection.setBaseAndExtent(start[0], start[1], end[0], end[1]);
+  }
   return next;
 }
 
@@ -1008,9 +1031,9 @@ function pastedLists(lines: PastedLine[]): DocumentFragment {
 }
 
 /**
- * Makes `element` editable in place and returns the session that owns every
- * edit to it until `end()`. Only `contenteditable` and `data-editing-block`
- * change on the element; with no input, `end()` leaves its markup identical.
+ * Makes element editable in place and returns the session that owns every
+ * edit to it until end(). Changed content reserves its original intrinsic
+ * size so the surrounding slide layout stays in place.
  */
 export function startInPlaceTextSession(
   element: HTMLElement,
@@ -1032,6 +1055,98 @@ export function startInPlaceTextSession(
       attribute.value,
     ]),
   );
+  const computedStyle = window.getComputedStyle(el);
+  const cssPixels = (value: string) => Number.parseFloat(value) || 0;
+  const initialLayout = {
+    width: Math.max(
+      0,
+      el.clientWidth -
+        cssPixels(computedStyle.paddingLeft) -
+        cssPixels(computedStyle.paddingRight),
+    ),
+    height: Math.max(
+      0,
+      el.clientHeight -
+        cssPixels(computedStyle.paddingTop) -
+        cssPixels(computedStyle.paddingBottom),
+    ),
+    renderedWidth: el.offsetWidth,
+    renderedHeight: el.offsetHeight,
+    contain: el.style.getPropertyValue("contain"),
+    containPriority: el.style.getPropertyPriority("contain"),
+    intrinsicSize: el.style.getPropertyValue("contain-intrinsic-size"),
+    intrinsicSizePriority: el.style.getPropertyPriority(
+      "contain-intrinsic-size",
+    ),
+    computedContain: computedStyle.contain || "none",
+    display: computedStyle.display || "block",
+    position: computedStyle.position || "static",
+  };
+  const reservationEnabled =
+    initialLayout.renderedWidth > 0 &&
+    initialLayout.renderedHeight > 0 &&
+    typeof CSS !== "undefined" &&
+    CSS.supports("contain-intrinsic-size", "1px 1px") &&
+    !["inline", "contents", "none"].includes(initialLayout.display) &&
+    initialLayout.position !== "absolute" &&
+    !/(^|\s)(size|strict|content)(\s|$)/u.test(initialLayout.computedContain);
+  const reservedIntrinsicSize =
+    String(initialLayout.width) + "px " + String(initialLayout.height) + "px";
+  let layoutReservationApplied = false;
+  let restoringHistory = false;
+  const restoreLayoutReservation = () => {
+    if (!layoutReservationApplied) return;
+    el.style.cssText = el.getAttribute("style") ?? "";
+    if (el.style.getPropertyValue("contain") !== initialLayout.contain) {
+      if (initialLayout.contain) {
+        el.style.setProperty(
+          "contain",
+          initialLayout.contain,
+          initialLayout.containPriority,
+        );
+      } else {
+        el.style.removeProperty("contain");
+      }
+    }
+    if (
+      el.style.getPropertyValue("contain-intrinsic-size") !==
+      initialLayout.intrinsicSize
+    ) {
+      if (initialLayout.intrinsicSize) {
+        el.style.setProperty(
+          "contain-intrinsic-size",
+          initialLayout.intrinsicSize,
+          initialLayout.intrinsicSizePriority,
+        );
+      } else {
+        el.style.removeProperty("contain-intrinsic-size");
+      }
+    }
+    layoutReservationApplied = false;
+  };
+  const preserveLayoutReservation = () => {
+    if (!reservationEnabled || layoutReservationApplied) return;
+    const contain = initialLayout.computedContain
+      .split(/\s+/u)
+      .filter((value) => value && value !== "none")
+      .map((value) => (value === "inline-size" ? "size" : value));
+    const reservedContain = [...new Set([...contain, "size"])].join(" ");
+    if (!CSS.supports("contain", reservedContain)) return;
+    el.style.setProperty(
+      "contain",
+      reservedContain,
+      initialLayout.containPriority,
+    );
+    if (!el.style.getPropertyValue("contain").split(/\s+/u).includes("size")) {
+      return;
+    }
+    el.style.setProperty(
+      "contain-intrinsic-size",
+      reservedIntrinsicSize,
+      initialLayout.intrinsicSizePriority,
+    );
+    layoutReservationApplied = true;
+  };
   const restoreSessionMenuAria = () => {
     for (const name of SESSION_MENU_ATTRIBUTES) {
       const value = startAttributes.get(name);
@@ -1208,6 +1323,7 @@ export function startInPlaceTextSession(
 
   const notify = () => {
     authorZwspOrdinals();
+    if (edited && !restoringHistory) preserveLayoutReservation();
     unscroll();
     focusSelection = selectionOffsets(true);
     if (lastEdit) lastEdit.after = focusSelection;
@@ -1353,7 +1469,8 @@ export function startInPlaceTextSession(
             size + utf8ByteLength(name) + utf8ByteLength(value),
           0,
         ) +
-        64,
+        65,
+      layoutReservationApplied,
       authorZwsp: Array.from(authorZwspOrdinals()),
       ...selection,
     };
@@ -1407,6 +1524,18 @@ export function startInPlaceTextSession(
     authorZwsp = new Set(state.authorZwsp);
     zwspText = el.textContent!;
     selectOffsets(state, true);
+  }
+
+  function restoreHistory(state: Snapshot) {
+    restore(state);
+    if (reservationEnabled && state.layoutReservationApplied) {
+      el.style.cssText = el.getAttribute("style") ?? "";
+    }
+    layoutReservationApplied =
+      reservationEnabled && state.layoutReservationApplied;
+    if (reservationEnabled && state.html !== startHtml) {
+      preserveLayoutReservation();
+    }
   }
 
   /** Records the pre-change state; a run of typing or deleting is one step. */
@@ -1467,9 +1596,14 @@ export function startInPlaceTextSession(
     if (!state) return false;
     redoStack.push(snapshot());
     trimHistory();
-    restore(state);
-    lastEdit = null;
-    notify();
+    restoringHistory = true;
+    try {
+      restoreHistory(state);
+      lastEdit = null;
+      notify();
+    } finally {
+      restoringHistory = false;
+    }
     return true;
   }
 
@@ -1478,9 +1612,14 @@ export function startInPlaceTextSession(
     if (!state) return false;
     undoStack.push(snapshot());
     trimHistory();
-    restore(state);
-    lastEdit = null;
-    notify();
+    restoringHistory = true;
+    try {
+      restoreHistory(state);
+      lastEdit = null;
+      notify();
+    } finally {
+      restoringHistory = false;
+    }
     return true;
   }
 
@@ -1501,7 +1640,11 @@ export function startInPlaceTextSession(
   }
 
   /** A styled bullet row (marker span + text) whose list lies inside `el`. */
-  function legacyRowAt(node: Node): HTMLElement | null {
+  function legacyRowAt(
+    node: Node,
+    boundaryOffset?: number,
+    boundaryDirection?: DeleteDirection,
+  ): HTMLElement | null {
     const start = node instanceof HTMLElement ? node : node.parentElement;
     if (!start) return null;
     for (
@@ -1510,6 +1653,37 @@ export function startInPlaceTextSession(
       row = row.parentElement
     ) {
       if (row.hasAttribute("data-slide-plain-row")) return row;
+      if (
+        row !== el &&
+        row.parentElement &&
+        el.contains(row.parentElement) &&
+        isBulletRow(row) &&
+        !["UL", "OL"].includes(row.parentElement.tagName)
+      ) {
+        return row;
+      }
+    }
+    if (boundaryOffset !== undefined && node instanceof HTMLElement) {
+      const adjacentNodes =
+        boundaryDirection === "forward"
+          ? [node.childNodes[boundaryOffset]]
+          : boundaryDirection === "backward"
+            ? [node.childNodes[boundaryOffset - 1]]
+            : [
+                node.childNodes[boundaryOffset - 1],
+                node.childNodes[boundaryOffset],
+              ];
+      for (const adjacent of adjacentNodes) {
+        if (
+          adjacent instanceof HTMLElement &&
+          el.contains(adjacent) &&
+          (adjacent.hasAttribute("data-slide-plain-row") ||
+            (isBulletRow(adjacent) &&
+              !["UL", "OL"].includes(adjacent.parentElement?.tagName ?? "")))
+        ) {
+          return adjacent;
+        }
+      }
     }
     const list = findEnclosingList(start, el);
     if (
@@ -1877,8 +2051,27 @@ export function startInPlaceTextSession(
    * the previous row; Delete at its end still pulls the next one in.
    */
   function deleteAtRowEdge(caret: Range, direction: DeleteDirection) {
-    const row = legacyRowAt(caret.startContainer);
+    const row = legacyRowAt(caret.startContainer, caret.startOffset, direction);
     if (!row) return false;
+    if (!row.contains(caret.startContainer)) {
+      const content = rowTextRange(row, rowMarker(row));
+      const contentStart = textOffset(
+        row,
+        content.startContainer,
+        content.startOffset,
+      );
+      const contentEnd = textOffset(
+        row,
+        content.endContainer,
+        content.endOffset,
+      );
+      const point =
+        direction === "backward"
+          ? textPoint(row, contentEnd, true)
+          : textPoint(row, contentStart);
+      placeCaret(point[0], point[1]);
+      caret = selectionRange() ?? caret;
+    }
     const list = row.parentElement!;
     const rows = legacyRows(list);
     if (
@@ -1902,6 +2095,8 @@ export function startInPlaceTextSession(
     if (direction === "backward" && !row.hasAttribute("data-slide-plain-row")) {
       rowMarker(row)?.remove();
       row.setAttribute("data-slide-plain-row", "true");
+      const text = rowTextRange(row, null);
+      placeCaret(text.startContainer, text.startOffset);
       return true;
     }
     if (direction === "backward" && index === 0) {
@@ -1971,13 +2166,17 @@ export function startInPlaceTextSession(
         : into;
     const join = textOffset(target, target, target.childNodes.length);
     if (hasRenderedContent(from)) {
-      if (from.tagName === "P" && ["P", "LI"].includes(target.tagName)) {
+      if (
+        from.tagName === "P" &&
+        (["P", "LI"].includes(target.tagName) ||
+          /^H[1-6]$/.test(target.tagName))
+      ) {
         target.append(...Array.from(from.childNodes));
       } else {
         target.append(from);
       }
     }
-    from.remove();
+    if (from.parentNode !== target) from.remove();
     placeCaret(...textPoint(target, join, true));
   }
 
@@ -2003,6 +2202,16 @@ export function startInPlaceTextSession(
 
   function deleteAtBlockEdge(caret: Range, direction: DeleteDirection) {
     if (direction !== "backward") return false;
+    const next =
+      caret.collapsed && caret.startContainer instanceof HTMLElement
+        ? caret.startContainer.childNodes[caret.startOffset]
+        : null;
+    if (next instanceof HTMLElement && next.tagName === "BLOCKQUOTE") {
+      if (el.contains(next)) {
+        placeCaret(...textPoint(next, 0));
+        caret = selectionRange() ?? caret;
+      }
+    }
     let blockquote: HTMLElement | null = null;
     for (
       let current =
@@ -2060,6 +2269,14 @@ export function startInPlaceTextSession(
     const step = DELETE_STEPS[type];
     if (!step) return false;
     const [direction, granularity] = step;
+    const block = nearestBlock(range.startContainer, el);
+    if (
+      direction === "backward" &&
+      (/^H[1-6]$/.test(block.tagName) || block.closest("blockquote")) &&
+      deleteAtBlockEdge(range, direction)
+    ) {
+      return true;
+    }
     if (deleteAtListItemEdge(range, direction)) return true;
     if (deleteAtRowEdge(range, direction)) return true;
     if (deleteAtBlockEdge(range, direction)) return true;
@@ -2104,6 +2321,21 @@ export function startInPlaceTextSession(
 
   function isNativeInsert(range: Range) {
     const text = range.startContainer;
+    if (
+      range.collapsed &&
+      text instanceof Text &&
+      /\s/.test(text.data[range.startOffset] ?? "")
+    ) {
+      const prefix = linePrefix(commandBlock(text), range)
+        .toString()
+        .replaceAll(ZERO_WIDTH_SPACE, "")
+        .replaceAll("\u00a0", " ");
+      if (
+        /^(?:[-*+]|\d+\.?|#{1,4}|>|_{1,2}|\*{1,2}|~{1,2}|`{1,3})?$/.test(prefix)
+      ) {
+        return false;
+      }
+    }
     return (
       range.collapsed &&
       text instanceof Text &&
@@ -2210,6 +2442,13 @@ export function startInPlaceTextSession(
       return;
     }
     // Typing on the new line continues the inline style the caret was in.
+    if (!hasRenderedContent(clone)) {
+      for (const link of Array.from(clone.querySelectorAll("a"))) {
+        if (!hasRenderedContent(link)) {
+          link.removeAttribute("href");
+        }
+      }
+    }
     let target: Element = clone;
     for (
       let child = target.firstElementChild;
@@ -2715,8 +2954,35 @@ export function startInPlaceTextSession(
         return;
       }
     }
-    const row = legacyRowAt(caret.startContainer);
+    const block = nearestBlock(caret.startContainer, el);
+    if (/^H[1-6]$/.test(block.tagName)) {
+      const after = document.createRange();
+      after.setStart(caret.startContainer, caret.startOffset);
+      after.setEnd(block, block.childNodes.length);
+      if (!hasRenderedContent(after.cloneContents())) {
+        const row = legacyRowAt(caret.startContainer);
+        let heading = block;
+        if (row && row !== el && row.contains(heading)) heading = row;
+        else if (heading === el) heading = promoteRootLines(caret);
+        const paragraph = document.createElement("p");
+        paragraph.append(ZERO_WIDTH_SPACE);
+        heading.after(paragraph);
+        placeCaret(...textPoint(paragraph, Infinity));
+        return;
+      }
+    }
+    const row = legacyRowAt(caret.startContainer, caret.startOffset);
     if (row) {
+      if (!row.contains(caret.startContainer)) {
+        const atRowStart =
+          row.parentNode === caret.startContainer &&
+          caret.startContainer.childNodes[caret.startOffset] === row;
+        const content = rowTextRange(row, rowMarker(row));
+        const point: [Node, number] = atRowStart
+          ? [content.startContainer, content.startOffset]
+          : [content.endContainer, content.endOffset];
+        placeCaret(point[0], point[1]);
+      }
       const list = row.parentElement!;
       const rows = legacyRows(list);
       if (row === rows[rows.length - 1] && isEmptyRow(row)) {
@@ -2730,23 +2996,6 @@ export function startInPlaceTextSession(
         return;
       }
       if (insertBulletAfterCaret(list)) return;
-    }
-    const block = nearestBlock(caret.startContainer, el);
-    if (/^H[1-6]$/.test(block.tagName)) {
-      const after = document.createRange();
-      after.setStart(caret.startContainer, caret.startOffset);
-      after.setEnd(block, block.childNodes.length);
-      if (!hasRenderedContent(after.cloneContents())) {
-        let heading = block;
-        if (heading === el) {
-          heading = promoteRootLines(caret);
-        }
-        const paragraph = document.createElement("p");
-        paragraph.append(ZERO_WIDTH_SPACE);
-        heading.after(paragraph);
-        placeCaret(...textPoint(paragraph, Infinity));
-        return;
-      }
     }
     if (block === el || STRUCTURAL_BLOCK_TAGS.has(block.tagName)) {
       insertLineBreak(caret);
@@ -2988,7 +3237,7 @@ export function startInPlaceTextSession(
 
   function linePrefix(block: HTMLElement, caret: Range) {
     let start: [Node, number] = [block, 0];
-    if (isBulletRow(block)) {
+    if (isBulletRow(block) && !isMarkdownBulletPrefixInMarker(block, caret)) {
       const marker =
         block.firstElementChild instanceof HTMLElement &&
         isBulletMarker(block.firstElementChild)
@@ -3646,11 +3895,11 @@ export function startInPlaceTextSession(
 
   function collapseAfterInlineFormat(
     block: HTMLElement,
-    offset: number,
+    formattedRange: Range,
     format: InlineTextFormat,
   ) {
-    const point = textPoint(block, offset);
-    const [node, position] = point;
+    const node = formattedRange.endContainer;
+    const position = formattedRange.endOffset;
     if (node instanceof Text && position === node.length) {
       for (
         let current = node.parentElement;
@@ -3761,7 +4010,10 @@ export function startInPlaceTextSession(
           current = selectionRange();
           if (!current) return false;
         }
-        if (isBulletRow(target)) {
+        if (
+          isBulletRow(target) &&
+          !isMarkdownBulletPrefixInMarker(target, current)
+        ) {
           deleteRange(linePrefix(target, current));
           return true;
         }
@@ -3781,7 +4033,8 @@ export function startInPlaceTextSession(
         }
         applyBlockMargins(target, margins);
         keepTextLook(target, look);
-        return convertMarkdownPrefixToBullet(target);
+        const converted = convertMarkdownPrefixToBullet(target);
+        return converted;
       });
       return;
     }
@@ -3922,12 +4175,8 @@ export function startInPlaceTextSession(
           formatted = toggleInlineTextFormat(el, inline.format);
         }
         const applied = formatted.scope === "selection";
-        if (applied) {
-          collapseAfterInlineFormat(
-            block,
-            base + openStart + inline.text.length,
-            inline.format,
-          );
+        if (applied && formatted.range) {
+          collapseAfterInlineFormat(block, formatted.range, inline.format);
         }
         return applied;
       });
@@ -3980,8 +4229,14 @@ export function startInPlaceTextSession(
       select.selectNodeContents(pending);
       selection.removeAllRanges();
       selection.addRange(select);
-      apply();
-      placeCaret(pending, (pending as Text).length);
+      const formatted = apply();
+      if (formatted.range && el.contains(formatted.range.endContainer)) {
+        placeCaret(formatted.range.endContainer, formatted.range.endOffset);
+      } else if (pending instanceof Text && el.contains(pending)) {
+        placeCaret(pending, pending.length);
+      } else {
+        throw new Error("in-place text session: style command lost its caret");
+      }
       return true;
     });
   }
@@ -4204,6 +4459,26 @@ export function startInPlaceTextSession(
     }
   }
 
+  function onBeforeInputCapture(event: InputEvent) {
+    if (
+      event.inputType.startsWith("delete") ||
+      event.inputType === "insertParagraph" ||
+      event.inputType === "insertLineBreak"
+    ) {
+      onBeforeInput(event);
+    }
+  }
+
+  function onBeforeInputBubble(event: InputEvent) {
+    if (
+      !event.inputType.startsWith("delete") &&
+      event.inputType !== "insertParagraph" &&
+      event.inputType !== "insertLineBreak"
+    ) {
+      onBeforeInput(event);
+    }
+  }
+
   function onInput(event: Event) {
     const input = event as InputEvent;
     if (
@@ -4224,7 +4499,41 @@ export function startInPlaceTextSession(
 
   function onKeyDown(event: KeyboardEvent) {
     if (event.isComposing || event.keyCode === 229) return;
+    if (
+      event.key === "Enter" &&
+      event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey
+    ) {
+      const range = selectionRange();
+      if (range) {
+        event.preventDefault();
+        edit("command", () => insertLineBreak(range));
+      }
+      return;
+    }
     const key = event.key.toLowerCase();
+    if (
+      event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      (key === "arrowleft" || key === "arrowright")
+    ) {
+      const range = selectionRange();
+      const row = range && legacyRowAt(range.startContainer);
+      if (range && row) {
+        event.preventDefault();
+        const text = rowTextRange(row, rowMarker(row));
+        if (key === "arrowleft") {
+          placeCaret(text.startContainer, text.startOffset);
+        } else {
+          placeCaret(text.endContainer, text.endOffset);
+        }
+        return;
+      }
+    }
     const macControl =
       event.ctrlKey &&
       !event.metaKey &&
@@ -4451,12 +4760,13 @@ export function startInPlaceTextSession(
     }, 0);
   }
 
-  const listeners: [string, (event: never) => void][] = [
+  const listeners: [string, (event: never) => void, boolean?][] = [
     ["blur", onBlur],
     ["focus", onFocus],
     ["pointerdown", onPointerDown],
     ["pointerup", onPointerUp],
-    ["beforeinput", onBeforeInput],
+    ["beforeinput", onBeforeInputCapture, true],
+    ["beforeinput", onBeforeInputBubble],
     ["input", onInput],
     ["keydown", onKeyDown],
     ["paste", onPaste],
@@ -4468,14 +4778,14 @@ export function startInPlaceTextSession(
   ];
 
   function listen(target: HTMLElement) {
-    for (const [type, listener] of listeners) {
-      target.addEventListener(type, listener as EventListener);
+    for (const [type, listener, capture] of listeners) {
+      target.addEventListener(type, listener as EventListener, capture);
     }
   }
 
   function unlisten(target: HTMLElement) {
-    for (const [type, listener] of listeners) {
-      target.removeEventListener(type, listener as EventListener);
+    for (const [type, listener, capture] of listeners) {
+      target.removeEventListener(type, listener as EventListener, capture);
     }
   }
 
@@ -4608,6 +4918,9 @@ export function startInPlaceTextSession(
       // reshapeAtCaret); the markup stays identical.
       el.normalize();
       for (const text of textNodesIn(el)) text.replaceWith(text.cloneNode());
+    }
+    if (el.tagName === initialRootTagName && el.innerHTML === startHtml) {
+      restoreLayoutReservation();
     }
     if (initialContentEditable === null) el.removeAttribute("contenteditable");
     else el.setAttribute("contenteditable", initialContentEditable);

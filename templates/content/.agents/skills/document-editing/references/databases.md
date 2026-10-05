@@ -269,7 +269,7 @@ property definition.
 Use `create-content-database`, `create-inline-content-database`,
 `get-content-database`, `list-trashed-content-databases`,
 `restore-content-database`, `add-database-item`, `update-database-item`,
-`upsert-database-item-by-key`, `duplicate-database-item`,
+`patch-database-items`, `upsert-database-item-by-key`, `duplicate-database-item`,
 `duplicate-database-items`, `remove-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
@@ -304,7 +304,12 @@ its persisted revision, read the rows again and build a fresh plan.
 When targeting more than one collection row, call `duplicate-database-items` or
 `remove-database-items` once with a native JSON array of `itemIds` or
 `documentIds`. Do not loop `duplicate-database-item` or `delete-document` for
-multi-row duplicate or membership-removal requests. Removing a row from a
+multi-row duplicate or membership-removal requests. To give several existing
+rows different values, such as a distinct rank per row, call
+`patch-database-items` once with up to 250 rows, each carrying its own item ID,
+document ID, row revision, and sparse patch from the same fresh read. The batch
+writes every row or none; after a conflict, reread only the rows its error
+lists. Do not loop `update-database-item` for multi-row edits. Removing a row from a
 collection preserves its Page, descendants, other collection memberships, and
 unrelated property values.
 

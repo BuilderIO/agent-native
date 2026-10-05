@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
   getRequestUserEmail,
@@ -603,6 +603,8 @@ export default defineAction({
   description:
     "Update an Agent-Native Plan's structured content blocks, prototype screens, visual fidelity, sections, comments, or status. For an existing plan, use small contentPatches such as append-block, update-rich-text, or a text patch; do not resend the full document for an incremental edit. When a user asks for higher fidelity on an existing plan, update that same plan in place: use set-visual-render-mode with design and provide polished screen HTML/CSS in the same call instead of creating a duplicate plan or only toggling the viewer-local clean style. Use a full replacement only for an explicit broad rebuild. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed - to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
   schema: updateVisualPlanSchema,
+  changeResource: (input) =>
+    input.planId ? { resourceType: "plan", resourceId: input.planId } : null,
   agentInputSchema: agentUpdateVisualPlanSchema,
   publicAgent: {
     expose: true,
@@ -675,7 +677,12 @@ export default defineAction({
         args.planId,
         resolvePlanAccessContext(currentAccess()),
       );
-      if (!access) throw new Error(`Plan ${args.planId} not found`);
+      if (!access) {
+        fail(`Plan ${args.planId} not found`, {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
+      }
       if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
         throw new ForbiddenError(`Plan ${args.planId} not found`);
       }
@@ -721,20 +728,23 @@ export default defineAction({
         args.html !== undefined ? "html" : null,
         args.markdown !== undefined ? "markdown" : null,
       ].filter((field): field is string => Boolean(field));
-      throw new Error(
+      fail(
         `Structured plans do not accept explicit legacy ${legacyFields.join(" or ")} writes. Use granular contentPatches; the structured content's markdown projection is generated automatically.`,
+        { errorCode: "plan_legacy_write_rejected", statusCode: 422 },
       );
     }
 
     if (isDestructiveStructuredWrite) {
       if (!args.expectedUpdatedAt) {
-        throw new Error(
+        fail(
           "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
+          { errorCode: "expected_updated_at_required", statusCode: 422 },
         );
       }
       if (bundleAtLoad?.plan.updatedAt !== args.expectedUpdatedAt) {
-        throw new Error(
+        fail(
           "This destructive update was prepared from an outdated plan revision. Reload the plan and retry with the latest expectedUpdatedAt.",
+          { errorCode: "plan_revision_conflict", statusCode: 409 },
         );
       }
       versionAtLoad = args.expectedUpdatedAt;
@@ -742,8 +752,9 @@ export default defineAction({
 
     if (args.content === undefined && args.contentPatches.length > 0) {
       if (!bundleAtLoad?.plan.content) {
-        throw new Error(
+        fail(
           "Targeted content patches require a structured plan. Pass content for a full conversion, or html for legacy artifacts.",
+          { errorCode: "plan_not_structured", statusCode: 422 },
         );
       }
       nextContent = applyPlanContentPatches(
@@ -765,8 +776,9 @@ export default defineAction({
         nextContent,
       );
       if (warnings.length > 0) {
-        throw new Error(
+        fail(
           `Destructive structured replacement would ${warnings.join(" and ")}. Reload and review the latest plan, then pass allowDestructive: true with its expectedUpdatedAt only if those losses are intentional.`,
+          { errorCode: "plan_destructive_replacement", statusCode: 409 },
         );
       }
     }
@@ -774,7 +786,10 @@ export default defineAction({
       ? surfaceParityWarnings(normalizedContentAtLoad, nextContent)
       : [];
     if (surfaceWarnings.length > 0 && !args.allowSurfaceMismatch) {
-      throw new Error(surfaceWarnings.join(" "));
+      fail(surfaceWarnings.join(" "), {
+        errorCode: "plan_surface_mismatch",
+        statusCode: 422,
+      });
     }
     const sourceBundleForMarkdown =
       nextContent && args.markdown === undefined
@@ -888,7 +903,10 @@ export default defineAction({
     }
     if (onlyUpdatesCommentStatuses && pendingCommentInserts.length > 0) {
       if (pendingCommentInserts.some((c) => c.status !== "open")) {
-        throw new Error("Comment status update target was not found.");
+        fail("Comment status update target was not found.", {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
       }
       onlyUpdatesCommentStatuses = false;
     }
@@ -917,8 +935,9 @@ export default defineAction({
       );
       for (const comment of pendingCommentInserts) {
         if (comment.sectionId && !validSectionIds.has(comment.sectionId)) {
-          throw new Error(
+          fail(
             `Section ${comment.sectionId} was not found on plan ${args.planId}.`,
+            { errorCode: "plan_section_not_found", statusCode: 422 },
           );
         }
       }
@@ -1020,8 +1039,9 @@ export default defineAction({
           .returning({ id: schema.plans.id });
 
         if (updatedRows.length === 0) {
-          throw new Error(
+          fail(
             "This plan was updated by someone else while your change was being saved. Reload the plan and retry.",
+            { errorCode: "plan_revision_conflict", statusCode: 409 },
           );
         }
       }

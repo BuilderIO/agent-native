@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { endsAtContinuationBoundary } from "../agent/production-agent.js";
 import type { ActiveRun } from "../agent/run-manager.js";
 import type { AgentChatEvent, AgentChatScope } from "../agent/types.js";
 import {
@@ -186,7 +187,20 @@ describe("post-agent-run observer", () => {
     await runPostAgentRunComplete(observer, scope, run);
 
     expect(observer).toHaveBeenCalledOnce();
-    expect(observer).toHaveBeenCalledWith(scope, run);
+    expect(observer).toHaveBeenCalledWith(scope, run, {
+      turnContinues: false,
+    });
+  });
+
+  it("tells the observer when the run handed its turn to a continuation", async () => {
+    const observer = vi.fn();
+    const run = makeRun([{ type: "auto_continue", reason: "run_timeout" }]);
+
+    await runPostAgentRunComplete(observer, scope, run, {
+      turnContinues: endsAtContinuationBoundary(run),
+    });
+
+    expect(observer).toHaveBeenCalledWith(scope, run, { turnContinues: true });
   });
 
   it("reports observer errors without rejecting the completed run", async () => {

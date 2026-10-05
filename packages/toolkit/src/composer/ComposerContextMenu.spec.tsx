@@ -150,11 +150,17 @@ describe("connected composer menus", () => {
     expect(row("Add context").getAttribute("aria-haspopup")).toBe("menu");
     expect(menus()).toHaveLength(1);
     expect(menus()[0].classList.contains("w-64")).toBe(true);
+    expect(menus()[0].style.boxShadow).toBe("none");
+    expect(menus()[0].className).toContain("data-[state=open]:fade-in-100");
+    expect(menus()[0].className).toContain("data-[state=closed]:fade-out-100");
     await key(row("Add context"), "ArrowRight");
     expect(row("Documents")).toBeDefined();
     expect(row("Library")).toBeDefined();
     expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
     expect(menus()).toHaveLength(2);
+    expect(menus()[1].style.boxShadow).toBe("none");
+    expect(menus()[1].className).toContain("data-[state=open]:fade-in-100");
+    expect(menus()[1].className).toContain("data-[state=closed]:fade-out-100");
   });
   it("hides the Add context tooltip while the host storage popover is open", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -228,16 +234,16 @@ describe("connected composer menus", () => {
       await openRoot();
       expect(menus()[0].classList.contains("w-64")).toBe(true);
       expect(menus()[0].style.width).toBe("");
-      expect(menus()[0].style.maxHeight).toBe("276px");
+      expect(menus()[0].style.maxHeight).toBe("280px");
     },
   );
   it.each([
-    [8, "bottom", 228],
-    [40, "bottom", 196],
-    [100, "bottom", 136],
-    [180, "top", 156],
+    [8, "bottom", 240],
+    [40, "bottom", 208],
+    [100, "top", 136],
+    [180, "top", 216],
   ] as const)(
-    "keeps actions reachable at frame top %ipx in a short viewport",
+    "keeps actions reachable at plus-button top %ipx in a short viewport",
     async (top, side, maxHeight) => {
       const previousHeight = window.innerHeight;
       window.innerHeight = 360;
@@ -299,18 +305,18 @@ describe("connected composer menus", () => {
     );
     try {
       await openRoot();
-      expect(menus()[0].style.maxHeight).toBe("226px");
+      expect(menus()[0].style.maxHeight).toBe("238px");
       await act(async () => {
         viewport.offsetTop = 0;
         viewport.height = 240;
         viewport.dispatchEvent(new Event("resize"));
       });
-      expect(menus()[0].style.maxHeight).toBe("66px");
+      expect(menus()[0].style.maxHeight).toBe("126px");
       await act(async () => {
         viewport.offsetTop = 80;
         viewport.dispatchEvent(new Event("scroll"));
       });
-      expect(menus()[0].style.maxHeight).toBe("106px");
+      expect(menus()[0].style.maxHeight).toBe("118px");
       await key(row("Add context"), "Escape");
       expect(removeListener).toHaveBeenCalledWith(
         "resize",

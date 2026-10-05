@@ -396,20 +396,21 @@ export function SlideSlashCommandMenu({
     };
     const onBeforeInput = (event: Event) => {
       const input = event as InputEvent;
-      pendingSlash.current =
+      const startsSlash =
         input.inputType === "insertText" &&
         input.data === "/" &&
         !input.isComposing &&
         canStartSlash(editingEl);
-      if (pendingSlash.current) {
-        queueMicrotask(() => {
+      if (startsSlash) pendingSlash.current = true;
+      if (startsSlash) {
+        window.setTimeout(() => {
           if (!pendingSlash.current) return;
           const next = findMenu(editingEl);
-          if (!next) return;
           pendingSlash.current = false;
+          if (!next) return;
           menuRef.current = next;
           setMenu(next);
-        });
+        }, 0);
       }
     };
     const onInput = (event: Event) => {
@@ -419,7 +420,7 @@ export function SlideSlashCommandMenu({
         input.inputType === "insertText" &&
         input.data === "/" &&
         !input.isComposing;
-      pendingSlash.current = false;
+      if (opensMenu) pendingSlash.current = false;
       if (opensMenu) {
         const next = findMenu(editingEl);
         menuRef.current = next;

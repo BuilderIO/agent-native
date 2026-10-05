@@ -6,7 +6,10 @@ import {
   contentActionInvalidatePredicate,
   contentDocumentIdFromPathname,
 } from "./content-action-refresh";
-import { contentSyncInvalidatePredicate } from "./use-db-sync";
+import {
+  contentSyncInvalidatePredicate,
+  isPrivateDocumentEditorPath,
+} from "./use-db-sync";
 
 describe("contentActionInvalidatePredicate", () => {
   it("refreshes the mounted document's save basis after a peer suggestion decision", async () => {
@@ -369,6 +372,21 @@ describe("contentActionInvalidatePredicate", () => {
         [{ source: "action", key: "update-document" }],
       ),
     ).toBe(true);
+  });
+
+  it("refreshes an open row page after a batch row patch", () => {
+    const predicate = contentActionInvalidatePredicate("/page/row");
+    for (const name of ["get-document", "list-document-properties"]) {
+      expect(
+        predicate(
+          {
+            queryKey: ["action", name, { id: "row", documentId: "row" }],
+            isActive: () => true,
+          },
+          [{ source: "action", key: "patch-database-items" }],
+        ),
+      ).toBe(true);
+    }
   });
 
   it("refreshes bounded database results after external row changes", () => {
@@ -993,5 +1011,15 @@ describe("contentDocumentIdFromPathname", () => {
       "document 2",
     );
     expect(contentDocumentIdFromPathname("/settings")).toBeUndefined();
+  });
+});
+
+describe("isPrivateDocumentEditorPath", () => {
+  it("opts in only on an open private document page", () => {
+    expect(isPrivateDocumentEditorPath("/page/document-1")).toBe(true);
+    expect(isPrivateDocumentEditorPath("/page/document-1/")).toBe(true);
+    for (const path of ["/", "/home", "/page", "/p/document-1", "/trash"]) {
+      expect(isPrivateDocumentEditorPath(path), path).toBe(false);
+    }
   });
 });

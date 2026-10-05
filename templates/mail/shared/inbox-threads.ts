@@ -1,3 +1,4 @@
+import type { GmailReadState } from "./gmail-freshness";
 import type { EmailMessage, Label, SavedMailFilter } from "./types";
 
 export const IMPORTANT_TAB_ID = "important";
@@ -57,6 +58,11 @@ export type ListInboxThreadsResult = {
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];
   labels: Label[];
+  /**
+   * Rows always come from the synced store; this says whether Gmail is
+   * cooling down underneath them (`cached`/`stale`) and until when.
+   */
+  read?: GmailReadState;
 };
 
 export type InboxThreadItem = EmailMessage & {

@@ -62,6 +62,11 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (
     { databaseId, documentId, limit, offset, tableQuery, contentSpaceId },
     context,

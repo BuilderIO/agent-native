@@ -63,6 +63,24 @@ function eventResponseStatus(event: any, accountEmail: string) {
   );
 }
 
+// The sweep runs on every site tick, so each unconditional runtime write became
+// a settings row rewrite plus a sync event per user per minute. Write only when
+// the result differs from what is stored; claims and releases keep calling
+// mutateUserSetting directly because their outcome is the write.
+async function updateRuntime(
+  owner: string,
+  update: (current: Runtime) => Runtime,
+) {
+  // coercion-ok: null means this owner has not recorded a runtime row yet.
+  const stored = ((await getUserSetting(owner, RUNTIME_KEY)) ?? {}) as Runtime;
+  if (JSON.stringify(update(stored)) === JSON.stringify(stored)) return;
+  await mutateUserSetting(owner, RUNTIME_KEY, (current) =>
+    update((current ?? {}) as Runtime),
+  );
+}
+
+const ownersInFlight = new Set<string>();
+
 async function getFreshCalendarSettings(owner: string) {
   const normalizedKey = `u:${owner.trim().toLowerCase()}:calendar-settings`;
   const settings = await getSetting(normalizedKey, { bypassCache: true });
@@ -255,9 +273,8 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
   let conflictCount = 0;
   const persistProgress = (lastSweepAt?: number) => {
     signal?.throwIfAborted();
-    return mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+    return updateRuntime(owner, (latest) => {
       signal?.throwIfAborted();
-      const latest = (current ?? {}) as Runtime;
       const latestPendingRsvps = {
         ...(latest.pendingRsvps ?? {}),
         ...pendingRsvps,
@@ -414,9 +431,9 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
       email,
       error: error.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").slice(0, 300),
     }));
-  await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+  await updateRuntime(owner, (current) => {
     signal?.throwIfAborted();
-    const next = { ...((current ?? {}) as Runtime) };
+    const next = { ...current };
     if (accountRefreshErrors.length)
       next.accountRefreshErrors = accountRefreshErrors;
     else delete next.accountRefreshErrors;
@@ -683,14 +700,17 @@ export async function runCalendarEventRulesOnce(signal?: AbortSignal) {
   const failures: Error[] = [];
   for (const owner of owners) {
     signal?.throwIfAborted();
+    // A sweep still running in this process already owns this user.
+    if (ownersInFlight.has(owner)) continue;
+    ownersInFlight.add(owner);
     try {
       await runWithRequestContext({ userEmail: owner }, async () => {
         try {
           await syncOwner(owner, signal);
           signal?.throwIfAborted();
-          await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+          await updateRuntime(owner, (current) => {
             signal?.throwIfAborted();
-            const next = { ...((current ?? {}) as Runtime) };
+            const next = { ...current };
             delete next.lastError;
             return next;
           });
@@ -701,9 +721,9 @@ export async function runCalendarEventRulesOnce(signal?: AbortSignal) {
           )
             .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
             .slice(0, 300);
-          await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+          await updateRuntime(owner, (current) => {
             signal?.throwIfAborted();
-            return { ...((current ?? {}) as Runtime), lastError: message };
+            return { ...current, lastError: message };
           });
           throw new Error(`${owner}: ${message}`);
         }
@@ -713,6 +733,8 @@ export async function runCalendarEventRulesOnce(signal?: AbortSignal) {
       failures.push(
         error instanceof Error ? error : new Error("Invitation rules failed"),
       );
+    } finally {
+      ownersInFlight.delete(owner);
     }
   }
   if (failures.length) {

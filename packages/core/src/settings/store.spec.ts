@@ -170,6 +170,46 @@ describe("settings store", () => {
     expect(await getSetting("new-counter")).toEqual({ value: 8 });
   });
 
+  it("does not write or publish a change when the updater returns the stored value", async () => {
+    const { getSettingsEmitter } = await import("./store.js");
+    const events: unknown[] = [];
+    const listener = (event: unknown) => events.push(event);
+    getSettingsEmitter().on("settings", listener);
+    try {
+      await putSetting("steady", { value: 1, nested: { a: [1, 2] } });
+      const before = await pglite.query(
+        "SELECT updated_at FROM settings WHERE key = ?",
+        ["steady"],
+      );
+      events.length = 0;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          mutateSetting("steady", (current) => ({ ...current! })),
+        ),
+      );
+
+      expect(results).toEqual(
+        Array(5).fill({ value: 1, nested: { a: [1, 2] } }),
+      );
+      expect(events).toEqual([]);
+      expect(
+        (
+          await pglite.query("SELECT updated_at FROM settings WHERE key = ?", [
+            "steady",
+          ])
+        ).rows,
+      ).toEqual(before.rows);
+
+      await mutateSetting("steady", (current) => ({ ...current!, value: 2 }));
+      expect(events).toHaveLength(1);
+      expect(await getSetting("steady")).toMatchObject({ value: 2 });
+    } finally {
+      getSettingsEmitter().off("settings", listener);
+    }
+  });
+
   it("lists and isolates keys by prefix", async () => {
     await putSetting("builder-connect-pending:a", { expiresAt: 1 });
     await putSetting("builder-connect-pending:b", { expiresAt: 2 });

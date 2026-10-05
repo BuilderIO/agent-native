@@ -128,13 +128,16 @@ const messages: ToolkitAgentChatTranslation = {
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderCredits": "Builder.io के मुफ़्त क्रेडिट में शामिल",
+  "onboarding.builderIncludedFreeWithAccount": "Builder.io खाते के साथ मुफ़्त शामिल",
+  "onboarding.builderMonthlyCredits": "हर महीने 60 Agent Credits",
   "onboarding.builderActivateTitle": "मुफ़्त क्रेडिट सक्रिय करें",
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
-  "onboarding.builderAccountExistsDescription": "इसे कनेक्ट करने के लिए लॉग इन करें।",
+  "onboarding.builderAccountExistsDescription":
+    "अपने खाते का उपयोग करने के लिए लॉग इन करें।",
   "onboarding.builderActivationDescription":
     "हम एक क्लिक में आपके लिए Builder.io खाता अपने-आप बनाएँगे।",
   "onboarding.builderOrgActivationDescription":
-    "हम एक क्लिक में आपका Builder.io खाता बनाएँगे और उसे आपके संगठन के लिए कनेक्ट करेंगे।",
+    "हम एक क्लिक में आपका Builder.io खाता बनाएँगे, ताकि आपका संगठन इसका उपयोग कर सके।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
   "onboarding.builderConsentPrefix": "Builder.io खाता बनाकर, आप हमारी",
   "onboarding.builderTerms": "सेवा की शर्तों",
@@ -142,7 +145,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
-  "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट कनेक्ट किए जा रहे हैं",
+  "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
@@ -157,8 +160,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.fileStorage.title": "फ़ाइलें अपलोड करने के लिए स्टोरेज कनेक्ट करें",
   "onboarding.fileStorage.statusUnavailable": "स्टोरेज की जांच नहीं हो सकी",
   "onboarding.fileStorage.description":
-    "Builder.io (मुफ़्त) कनेक्ट करें या अपना S3-संगत ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें।",
-  "onboarding.fileStorage.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
+    "Builder.io (मुफ़्त) का उपयोग करें या अपना S3-संगत ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें।",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io इस्तेमाल करें",
   "onboarding.fileStorage.custom": "कस्टम कुंजियों का उपयोग करें",
   "onboarding.fileStorage.customDescription":
     "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
@@ -376,13 +379,15 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "अपने-आप",
   "composer.builderModelCredits": "Claude, OpenAI और Gemini के लिए मुफ़्त क्रेडिट",
   "composer.chatGptSubscription": "ChatGPT सदस्यता",
+  "composer.chatgptManageUsage": "उपयोग प्रबंधित करें",
+  "composer.chatgptPlanUsing": "ChatGPT योजना का उपयोग हो रहा है",
   "composer.closePreview": "प्रीव्यू बंद करें",
   "composer.configureProviderKeys":
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
   "composer.connectAbove": "जारी रखने के लिए ऊपर AI कनेक्ट करें...",
-  "composer.connectBuilder": "Builder.io कनेक्ट करें",
+  "composer.connectBuilder": "Builder.io इस्तेमाल करें",
   "composer.connectKeys": "कुंजियाँ कनेक्ट करें",
-  "composer.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है…",
+  "composer.connectingBuilder": "Builder.io सेट अप हो रहा है…",
   "composer.costHigher": "अधिक लागत",
   "composer.costLower": "कम लागत",
   "composer.costMedium": "मध्यम लागत",
@@ -502,7 +507,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "बोलकर लिखें ({{shortcut}})",
   "voice.dictation.stopRecording": "रिकॉर्डिंग रोकें",
   "voice.dictation.transcribing": "लिखित रूप में बदला जा रहा है…",
-  "voiceMode.connectBuilder": "Builder.io कनेक्ट करें",
+  "voiceMode.connectBuilder": "Builder.io इस्तेमाल करें",
   "voiceMode.end": "वॉइस मोड समाप्त करें",
   "voiceMode.entryButtonLabel": "माइक्रोफ़ोन का उपयोग करें",
   "voiceMode.errors.channelDisconnected":
@@ -555,7 +560,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "अभिव्यंजक और बहुमुखी",
   "voiceMode.settings.voiceStyle": "आवाज़ की शैली",
   "voiceMode.setupDescription":
-    "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस का उपयोग करने के लिए Builder.io कनेक्ट करें, या अपनी कुंजियाँ जोड़ें।",
+    "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस के लिए Builder.io का उपयोग करें या अपनी कुंजियाँ जोड़ें।",
+  "transcription.builderCtaDescription":
+    "बेहतर गुणवत्ता वाले ट्रांसक्रिप्शन के लिए मुफ़्त क्रेडिट और बिना API कुंजी के Builder.io का उपयोग करें।",
+  "voiceMode.googleRealtimeDescription":
+    "Google क्रेडेंशियल सेट हैं। प्रबंधित रीयलटाइम सत्र बनाने के लिए Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें।",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "सर्विस-अकाउंट JSON सेट है। प्रबंधित रीयलटाइम WebSocket सत्र बनाने के लिए Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें।",
+  "voiceMode.builderGeminiDescription":
+    "Gemini Flash-Lite ट्रांसक्रिप्शन और Luna टेक्स्ट क्लीनअप के लिए Builder.io का उपयोग करें। Google कुंजी की ज़रूरत नहीं।",
   "voiceMode.setupTitle": "वॉइस मोड सेट अप करें",
   "voiceMode.showChat": "चैट दिखाएँ",
   "voiceMode.start": "वॉइस चैट शुरू करें",
@@ -574,7 +587,11 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "चैट लोड हो रही है...",
   "empty.prompt": "मैं आपकी कैसे मदद कर सकता हूँ?",
   "error.afterDuration": "{{duration}} के बाद {{headline}}",
-  "error.failed": "एजेंट को एक त्रुटि मिली",
+  "error.chatgptPlanUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI इस ChatGPT योजना की उपयोग सीमा जाँच नहीं सका। अपना ChatGPT उपयोग देखें या कोई दूसरा मॉडल आज़माएँ।",
+  "error.failed": "एजेंट का काम पूरा होने से पहले रन विफल हो गया।",
   "error.render": "यह सामग्री दिखाई नहीं जा सकी।",
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
   "errorMessages.agentConnection":
@@ -582,7 +599,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "यह PDF पासवर्ड-सुरक्षित है, इसलिए इसे पढ़ा नहीं जा सकता। पासवर्ड सुरक्षा हटाएँ या संबंधित टेक्स्ट पेस्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderAuthentication":
-    "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग्स में Builder.io को दोबारा कनेक्ट करें, फिर से प्रयास करें।",
+    "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग में फिर से Builder.io का उपयोग करें, फिर दोबारा कोशिश करें।",
   "errorMessages.builderModelUnauthorized":
     "इस मॉडल के पीछे मौजूद प्रदाता ने अनुरोध अस्वीकार कर दिया। कोई दूसरा मॉडल चुनें, फिर से प्रयास करें।",
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
@@ -597,10 +614,18 @@ const messages: ToolkitAgentChatTranslation = {
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
   "errorMessages.malformedRequest":
     "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
+  "errorMessages.requestTooLarge":
+    "यह अनुरोध सर्वर की आकार सीमा से बड़ा था (HTTP 413)। नई चैट शुरू करें या बड़े अटैचमेंट या संदर्भ हटाकर फिर कोशिश करें।",
+  "errorMessages.runInterrupted": "एजेंट काम पूरा करने से पहले रुक गया।",
+  "errorMessages.runFailed": "एजेंट का रन विफल हो गया।",
+  "errorMessages.runUnverified":
+    "यह चैट एजेंट को ट्रैक नहीं कर पा रही है, जो शायद अभी भी चल रहा हो। उसकी प्रगति देखने के लिए पेज रीलोड करें।",
+  "errorMessages.runSignedOut":
+    "आप साइन आउट हो चुके हैं, इसलिए यह चैट एजेंट को फ़ॉलो नहीं कर सकती। फिर से साइन इन करें, फिर रीलोड करें।",
   "errorMessages.malformedRequestAttachment":
     "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
   "errorMessages.noProviderConnected":
-    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग्स > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें (मुफ़्त स्तर उपलब्ध है) या प्रदाता कुंजी जोड़ें।",
+    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
   "errorMessages.providerAuthentication":
     "मॉडल प्रदाता ने सहेजी गई API कुंजी अस्वीकार कर दी। सेटिंग्स → इंटीग्रेशन → API कुंजियाँ में कुंजी अपडेट करें, फिर से प्रयास करें।",
@@ -1062,7 +1087,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.steerHint": "यह संदेश अगला भेजें",
   "queue.moreActions": "अन्य कार्रवाइयाँ",
   "queue.moveToTop": "सबसे ऊपर ले जाएँ",
-  "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
+  "recovery.connectingBuilder": "Builder.io सेट अप हो रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
   "recovery.retryAttachmentUnavailable":
@@ -1072,7 +1097,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.credentialRejected":
     "मॉडल प्रदाता ने सहेजे गए क्रेडेंशियल अस्वीकार कर दिए। अपना Builder.io कनेक्शन या प्रदाता कुंजी अपडेट करें, फिर इस संदेश को दोबारा आज़माएँ।",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents कनेक्ट नहीं हैं। इस होस्टेड कोड-चेंज ऑपरेशन को चलाने के लिए सेटिंग्स में Builder.io कनेक्ट करें। मॉडल-प्रदाता कुंजियाँ चैट और अन्य AI सुविधाओं के लिए काम करती हैं, लेकिन Builder Cloud Agent को अधिकृत नहीं करतीं।",
+    "Builder Cloud Agents कनेक्ट नहीं हैं। इस होस्ट किए गए कोड बदलाव को चलाने के लिए सेटअप में Builder.io का उपयोग करें। मॉडल प्रदाता कुंजियाँ चैट और अन्य AI सुविधाओं के लिए काम करती हैं, लेकिन Builder Cloud Agent को अधिकृत नहीं करतीं।",
   "recovery.diagnoseRetry": "समस्या जाँचें और फिर प्रयास करें",
   "recovery.forkDescription": "इस बातचीत को एक अलग चैट थ्रेड में शाखित करें।",
   "recovery.forkFailed": "इस चैट की शाखा नहीं बनाई जा सकी। नई चैट शुरू करके देखें।",
@@ -1093,7 +1118,7 @@ const messages: ToolkitAgentChatTranslation = {
     "यह जाँचने के लिए सर्वर से संपर्क नहीं हो सका कि एजेंट अभी काम कर रहा है या नहीं। दोबारा प्रयास करने के लिए अपना संदेश फिर भेजें।",
   "recovery.streamEnded":
     "पिछला एजेंट स्ट्रीम रन की रिकवरी के दौरान समाप्त हो गया। रन से दोबारा जुड़ने के लिए जारी रखें या फिर प्रयास करें।",
-  "recovery.reconnectBuilder": "Builder.io को दोबारा कनेक्ट करें",
+  "recovery.reconnectBuilder": "Builder.io इस्तेमाल करें",
   "secrets.addCustomKeyNamed": '"{{name}}" को कस्टम कुंजी के रूप में जोड़ें',
   "secrets.chooseKey": "कुंजी चुनें",
   "secrets.customKey": "कस्टम कुंजी",
@@ -1135,10 +1160,13 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "Builder.io (मुफ़्त क्रेडिट) का उपयोग करें या अपनी प्रदाता कुंजियाँ जोड़ें।",
   "setup.connectAi": "AI कनेक्ट करें",
-  "setup.connectBuilder": "Builder.io कनेक्ट करें",
+  "setup.connectBuilder": "Builder.io इस्तेमाल करें",
+  "setup.connectionsDescription":
+    "सेटअप स्थिति, Builder.io पहुँच, ऐप सीक्रेट और वर्कस्पेस कनेक्शन एक ही मानक सतह से प्रबंधित करें।",
   "setup.connectPlaceholder": "चैट शुरू करने के लिए AI कनेक्ट करें...",
   "setup.connectToChat": "चैट करने के लिए AI कनेक्ट करें",
   "setup.connectToStart": "चैट शुरू करने के लिए AI कनेक्ट करें",
+  "setup.modelListUnavailable": "मॉडल लोड नहीं हो सके।",
   "setup.providerStatusUnavailable": "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
   "agentNativeClips.meetingAsk.placeholder": "कुछ भी पूछें",
   "agentNativeClips.meetingAsk.ariaLabel": "इस मीटिंग के बारे में कुछ भी पूछें",
@@ -1534,6 +1562,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "आपका अनुमानित खर्च",
   "settings.usage.yourCreditSpend": "आपका Builder.io क्रेडिट खर्च",
   "settings.usage.calls": "कॉल",
+  "settings.usage.chatgptPlanUsage": "ChatGPT प्लान का उपयोग",
   "settings.usage.tokens": "टोकन",
   "settings.usage.activePeople": "सक्रिय लोग",
   "settings.usage.history": "उपयोग इतिहास",
@@ -1901,6 +1930,8 @@ const messages: ToolkitAgentChatTranslation = {
     "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
   "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
   "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
+  "settingsShell.appGroup.labsReadError":
+    "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
   "settingsShell.appGroup.mcpAbout":
@@ -1918,7 +1949,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "सभी अपडेट देखें",
   "settingsShell.backToApp": "{{app}} पर वापस जाएँ",
   "settingsShell.breadcrumbLabel": "ब्रेडक्रंब",
-  "settingsShell.builder.connect": "कनेक्ट करें",
+  "settingsShell.builder.connect": "Builder.io इस्तेमाल करें",
   "settingsShell.builder.connected": "कनेक्ट है",
   "settingsShell.builder.connectedTo": "कनेक्ट है · {{space}}",
   "settingsShell.builder.connection": "कनेक्शन",
@@ -1930,6 +1961,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
   "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
   "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन पढ़े नहीं जा सके।",
+  "settingsShell.builder.setupStartFailed":
+    "Builder.io सेटअप शुरू नहीं हो सका। इस पेज को रीफ़्रेश करके फिर कोशिश करें।",
+  "settingsShell.builder.setupHostFailed":
+    "इस चैट होस्ट से Builder नहीं खुल सका। इस ऐप को ब्राउज़र टैब में खोलें और Builder.io सेटअप फिर से आज़माएँ (मुफ़्त टियर उपलब्ध)।",
+  "settingsShell.builder.setupFailed":
+    "Builder.io सेटअप पूरा नहीं हुआ। फिर कोशिश करें या अपनी कुंजियाँ इस्तेमाल करें।",
   "settingsShell.builder.loss.defaultStops":
     "जब तक आप संगठन प्रदाता नहीं जोड़ते, चैट रुकी रहती हैं।",
   "settingsShell.builder.loss.defaultSwitches":
@@ -1945,9 +1982,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "फिर से कनेक्ट करना होगा।",
   "settingsShell.builder.orgFallback": "आपका संगठन",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} में सभी इसका इस्तेमाल कर सकते हैं।",
+    "कनेक्ट नहीं है। {{org}} में सभी को पहुँच देने के लिए Builder.io का उपयोग करें।",
   "settingsShell.builder.orgNotConnectedMember":
-    "कनेक्ट नहीं है। कोई ओनर या एडमिन इसे कनेक्ट कर सकता है।",
+    "कनेक्ट नहीं है। कोई स्वामी या व्यवस्थापक सभी के लिए Builder.io सक्षम कर सकता है।",
   "settingsShell.builder.organization": "संगठन",
   "settingsShell.builder.personal": "व्यक्तिगत",
   "settingsShell.builder.personalConnected":
@@ -1959,7 +1996,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "कनेक्ट है · {{space}}। संगठन के कनेक्शन की जगह सिर्फ़ आप इसका इस्तेमाल करते हैं।",
   "settingsShell.builder.personalNotConnected":
-    "अपना खाता कनेक्ट करें। सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+    "अपने Builder.io खाते का उपयोग करें। इसका उपयोग केवल आप करेंगे।",
   "settingsShell.builder.personalRestricted":
     "ओनर और एडमिन ने व्यक्तिगत API कुंजियों को सीमित किया है।",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2486,7 +2523,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "कनेक्ट है। Builder.io वाली हर सेवा आपके खाते के क्रेडिट से चलती है।",
   "settingsInfra.builderNotConnected":
-    "कनेक्ट नहीं है। हर सेवा खुद सेट अप करें, या अपने खाते के क्रेडिट इस्तेमाल करने के लिए Builder.io कनेक्ट करें।",
+    "कनेक्ट नहीं है। हर सेवा को स्वयं सेट अप करें या अपने खाते के क्रेडिट इस्तेमाल करने के लिए Builder.io का उपयोग करें।",
+  "settingsInfra.builderOverrideDescription":
+    "डिप्लॉयमेंट फ़ॉलबैक उपलब्ध है। इसे बदलने के लिए अपने Builder.io खाते का उपयोग करें।",
+  "settingsInfra.builderStorageHint":
+    "ऑब्जेक्ट स्टोरेज अपलोड की गई फ़ाइलों को सुरक्षित रखता है और पूरे थ्रेड में उनके URL फिर से इस्तेमाल करने देता है। नीचे Builder.io या S3-संगत बकेट का उपयोग करें।",
   "settingsInfra.builderUnknown": "Builder.io कनेक्शन जाँचा नहीं जा सका।",
   "settingsInfra.manage": "प्रबंधित करें",
   "settingsInfra.connect": "कनेक्ट करें",
@@ -2653,13 +2694,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "कनेक्टेड · {{space}}",
   "settingsModel.builderConnectedPlain": "कनेक्टेड",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} के सभी लोग इसका इस्तेमाल कर सकते हैं।",
+    "कनेक्ट नहीं है। {{org}} में सभी को पहुँच देने के लिए Builder.io का उपयोग करें।",
   "settingsModel.builderOrgNotConnectedMember":
-    "कनेक्ट नहीं है। कोई मालिक या एडमिन इसे कनेक्ट कर सकता है।",
+    "कनेक्ट नहीं है। कोई स्वामी या व्यवस्थापक सभी के लिए Builder.io सक्षम कर सकता है।",
   "settingsModel.builderPersonalConnect":
-    "अपने Builder.io क्रेडिट इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+    "अपने Builder.io खाते के क्रेडिट इस्तेमाल करने के लिए उसका उपयोग करें।",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "संगठन के कनेक्शन की जगह इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+    "संगठन के कनेक्शन की जगह अपने Builder.io खाते का उपयोग करें।",
   "settingsModel.builderPersonalOverOrg":
     "कनेक्टेड · {{space}}। संगठन के कनेक्शन की जगह इस्तेमाल होता है।",
   "settingsModel.builderPersonalOverOrgPlain":
@@ -2668,10 +2709,33 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "रद्द करें",
   "settingsModel.change": "बदलें",
   "settingsModel.chatgptConnected": "कनेक्टेड",
-  "settingsModel.chatgptDescription": "अपने ChatGPT प्लान से Codex इंजन इस्तेमाल करें।",
+  "settingsModel.chatgptDescription":
+    "अपने ChatGPT प्लान के ज़रिए योग्य OpenAI मॉडल इस्तेमाल करें।",
   "settingsModel.chatgptPopupBlocked":
     "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा कोशिश करें।",
-  "settingsModel.chatgptTitle": "ChatGPT सदस्यता",
+  "settingsModel.chatgptTitle": "ChatGPT प्लान ऐक्सेस",
+  "settingsModel.chatgptAddAccount": "एक और खाता जोड़ें",
+  "settingsModel.chatgptConnecting": "कनेक्ट हो रहा है…",
+  "settingsModel.chatgptContinue": "ChatGPT के साथ जारी रखें",
+  "settingsModel.chatgptDisconnect": "डिस्कनेक्ट करें",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT को डिस्कनेक्ट करें?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} इस ऐप से साइन आउट हो जाएगा और एजेंट आपके ChatGPT प्लान का उपयोग करना बंद कर देगा। आप कभी भी फिर से साइन इन कर सकते हैं।",
+  "settingsModel.chatgptDisconnecting": "डिस्कनेक्ट हो रहा है…",
+  "settingsModel.chatgptRemoveLegacySignIn": "पुराना साइन-इन हटाएँ",
+  "settingsModel.chatgptLegacySignInDetails":
+    "यहाँ ChatGPT का पुराना साइन-इन सहेजा है। आधिकारिक फ़्लो इसका उपयोग नहीं कर सकता।",
+  "settingsModel.chatgptManageAccess": "ChatGPT में प्रबंधित करें",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
+  "settingsModel.chatgptLocalOnly":
+    "ओपन-सोर्स ऐप्स को लोकल रूप से loopback callback के साथ चलाने पर बिना आवेदन के इस्तेमाल किया जा सकता है; पार्टनरशिप के लिए आवेदन की ज़रूरत नहीं है। *.agent-native.com पर होस्ट किए गए ऐप्स के लिए ऑपरेटर की मंज़ूरी और hosted callback ज़रूरी है।",
+  "settingsModel.chatgptNoDirectUse":
+    "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
+  "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",
+  "settingsModel.chatgptSelectAccount": "ChatGPT खाता",
+  "settingsModel.chatgptUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
   "settingsModel.checkAgain": "फिर से जाँचें",
   "settingsModel.checkedJustNow": "अभी जाँचा गया।",
   "settingsModel.checkedOn": "{{date}} को जाँचा गया।",
@@ -2681,8 +2745,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "सहेजी गई कुंजी जाँची जा रही है",
   "settingsModel.chooseModel": "मॉडल चुनें",
   "settingsModel.clear": "साफ़ करें",
-  "settingsModel.connect": "कनेक्ट करें",
-  "settingsModel.connecting": "कनेक्ट हो रहा है…",
   "settingsModel.defaultModelDescription":
     "हर ऐप में इस्तेमाल होता है, जब तक ऐप अपना मॉडल सेट न करे।",
   "settingsModel.defaultModelNeedsProvider":

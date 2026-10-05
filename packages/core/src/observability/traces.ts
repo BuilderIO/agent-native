@@ -1,3 +1,4 @@
+import { credentialStateTrackingProperties } from "../agent/engine/credential-state.js";
 import type {
   AgentLoopOutcome,
   AgentLoopUsage,
@@ -22,7 +23,8 @@ import {
 import {
   redactToolErrorMessage as redactToolErrorMessageText,
   sanitizeToolErrorMessage,
-  TOOL_ERROR_CAPTURE_METADATA_KEY,
+  TOOL_ERROR_DETAIL_METADATA_KEY,
+  toolErrorSignature,
 } from "./trace-error.js";
 import { redactSensitiveFields } from "./trace-redaction.js";
 export { redactSensitiveFields } from "./trace-redaction.js";
@@ -630,7 +632,10 @@ export async function instrumentAgentLoop(opts: {
 
   const instrumentedOutcome = (outcome: AgentLoopOutcome): void => {
     terminalOutcome = outcome;
-    if (outcome.state === "completed") {
+    if (outcome.state === "completed" || outcome.state === "input_required") {
+      // A stop that waits on the user is a pause, not a failure; `paused` is
+      // derived from the outcome at finalization. An error event that arrives
+      // after it still flips the run to error.
       runStatus = "success";
       errorMessage = null;
     } else {
@@ -644,6 +649,9 @@ export async function instrumentAgentLoop(opts: {
       ...(runMetadata ?? {}),
       terminal_state: outcome.state,
       ...("code" in outcome ? { terminal_code: outcome.code } : {}),
+      ...(outcome.state === "input_required"
+        ? { terminal_message: outcome.message }
+        : {}),
       ...(outcome.state === "failed"
         ? { terminal_retryable: outcome.retryable }
         : {}),
@@ -814,10 +822,15 @@ export async function instrumentAgentLoop(opts: {
           reportedToolFailures++;
         } else successfulTools++;
 
+        // The full text goes to external sinks only when captureToolResults is
+        // on; the persisted span always keeps at least the signature.
         const toolErrorMessage =
           isError && config.captureToolResults
             ? sanitizeToolErrorMessage(event.result)
             : null;
+        const persistedErrorMessage = isError
+          ? (toolErrorMessage ?? toolErrorSignature(event.result))
+          : null;
 
         if (
           counter !== undefined &&
@@ -864,8 +877,9 @@ export async function instrumentAgentLoop(opts: {
         ) {
           spanMetadataFields.output = sanitizeToolErrorMessage(event.result);
         }
-        if (isError && config.captureToolResults) {
-          spanMetadataFields[TOOL_ERROR_CAPTURE_METADATA_KEY] = 1;
+        if (isError) {
+          spanMetadataFields[TOOL_ERROR_DETAIL_METADATA_KEY] =
+            config.captureToolResults ? "full" : "signature";
         }
         const spanMetadata = Object.keys(spanMetadataFields).length
           ? spanMetadataFields
@@ -895,7 +909,7 @@ export async function instrumentAgentLoop(opts: {
           costCentsX100: 0,
           durationMs: pending ? Math.max(0, finishedAt - pending.startMs) : 0,
           status: isError ? "error" : "success",
-          errorMessage: toolErrorMessage,
+          errorMessage: persistedErrorMessage,
           metadata: spanMetadata,
           createdAt: pending?.startMs ?? finishedAt,
         };
@@ -995,12 +1009,11 @@ export async function instrumentAgentLoop(opts: {
               errorMessage: capturedInterruptedMessage,
             };
           }
-          const interruptedMetadata: Record<string, unknown> = {};
+          const interruptedMetadata: Record<string, unknown> = {
+            [TOOL_ERROR_DETAIL_METADATA_KEY]: "full",
+          };
           if (config.captureToolArgs) {
             interruptedMetadata.input = redactSensitiveFields(pending.input);
-          }
-          if (config.captureToolResults) {
-            interruptedMetadata[TOOL_ERROR_CAPTURE_METADATA_KEY] = 1;
           }
           spans.push({
             id: pending.spanId,
@@ -1017,10 +1030,8 @@ export async function instrumentAgentLoop(opts: {
             costCentsX100: 0,
             durationMs: Math.max(0, runEnd - pending.startMs),
             status: "error",
-            errorMessage: capturedInterruptedMessage,
-            metadata: Object.keys(interruptedMetadata).length
-              ? interruptedMetadata
-              : null,
+            errorMessage: interruptedMessage,
+            metadata: interruptedMetadata,
             createdAt: pending.startMs,
           });
         }
@@ -1262,6 +1273,9 @@ export async function instrumentAgentLoop(opts: {
         }
       }
 
+      const runPaused =
+        runStatus !== "error" &&
+        effectiveTerminalOutcome?.state === "input_required";
       const parentSpan: TraceSpan = {
         id: parentSpanId,
         runId,
@@ -1276,7 +1290,7 @@ export async function instrumentAgentLoop(opts: {
         cacheWriteTokens: usage?.cacheWriteTokens ?? 0,
         costCentsX100,
         durationMs: totalDurationMs,
-        status: runStatus,
+        status: runPaused ? "paused" : runStatus,
         errorMessage,
         metadata: runMetadata,
         createdAt: runStart,
@@ -1345,7 +1359,14 @@ export async function instrumentAgentLoop(opts: {
             latency_source:
               measuredModelDurationMs !== undefined ? "measured" : "derived",
             ...aiTraceMetadataProperties(runMetadata),
+            ...(runPaused ? { status: "paused" } : {}),
             ...(cutOffReason ? { terminal_reason: cutOffReason } : {}),
+            // A run that ended on a credential problem says which kind, so
+            // the rate of each is a GROUP BY rather than a list of codes.
+            ...(runStatus === "error" &&
+            effectiveTerminalOutcome?.state === "failed"
+              ? credentialStateTrackingProperties(effectiveTerminalOutcome.code)
+              : {}),
             ...(droppedToolSpans > 0
               ? {
                   spans_dropped: droppedToolSpans,

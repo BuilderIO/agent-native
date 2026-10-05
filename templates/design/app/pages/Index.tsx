@@ -24,17 +24,16 @@ import {
 } from "@agent-native/toolkit/agentkit";
 import {
   PromptHome,
-  PromptHomeLibrary,
   TemplateLibraryGrid,
-  type PromptHomeLibraryTab,
   useHomeSearchShortcut,
-  useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import {
   PromptComposer,
+  sameComposerDraft,
   snapshotComposerContextItems,
+  type ComposerDraftSnapshot,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
@@ -44,8 +43,8 @@ import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconArrowRight,
-  IconFilter,
   IconChecks,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconPlus,
@@ -71,6 +70,10 @@ import type {
   PromptTemplateOption,
   UploadedFile,
 } from "@/components/editor/PromptDialog";
+import {
+  DesignHomeLibrary,
+  type DesignHomeLibraryTab,
+} from "@/components/home/DesignHomeLibrary";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { DesignTemplateLibrary } from "@/components/templates/DesignTemplateLibrary";
 import {
@@ -109,7 +112,6 @@ import {
   writeStoredDesignFilter,
   type DesignFilter,
 } from "@/lib/design-filter";
-import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -141,25 +143,6 @@ interface DesignListResult {
 }
 
 const DESIGN_PAGE_SIZE = 50;
-const HOME_LIBRARY_TAB_STORAGE_KEY = "design:home-library-tab";
-
-function readStoredHomeLibraryTab(): PromptHomeLibraryTab | undefined {
-  try {
-    const tab = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
-    return tab === "templates" || tab === "recent" ? tab : undefined;
-  } catch {
-    // coercion-ok: the tab preference is optional when browser storage is unavailable.
-    return undefined;
-  }
-}
-
-function writeStoredHomeLibraryTab(tab: PromptHomeLibraryTab): void {
-  try {
-    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, tab);
-  } catch {
-    // coercion-ok: an unavailable preference store preserves the in-memory selection.
-  }
-}
 
 interface HomeSuggestion {
   id?: string;
@@ -167,13 +150,16 @@ interface HomeSuggestion {
   prompt: string;
 }
 
-interface HomeSuggestionsResult {
-  suggestions: HomeSuggestion[];
-}
+type HomeSuggestionsResult =
+  | { status: "ready"; suggestions: HomeSuggestion[] }
+  | {
+      status: "unavailable";
+      reason: "missing_credentials";
+      suggestions: [];
+    };
 
 export default function Index() {
   const t = useT();
-  useHomeSearchShortcut(true);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -187,13 +173,9 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const storedHomeLibraryTab = readStoredHomeLibraryTab();
-  const [homeSection, setHomeSection] = useState<PromptHomeLibraryTab>(
-    storedHomeLibraryTab ?? "templates",
-  );
-  const homeLibraryTabWasSelectedRef = useRef(
-    storedHomeLibraryTab !== undefined,
-  );
+  const [homeSection, setHomeSection] =
+    useState<DesignHomeLibraryTab>("templates");
+  const homeLibraryTabWasSelectedRef = useRef(false);
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -202,10 +184,9 @@ export default function Index() {
   const fullAppBuildingEnabled = useLab(FULL_APP_BUILDING_LAB);
   const systemsEnabled = useDesignSystemWorkflows();
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
-  const [chosenDesignSystemId, setNewDesignSystemId] = useState<
-    string | null | undefined
-  >(undefined);
-  const newDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
+  const [chosenDesignSystemId, setNewDesignSystemId] = useState<string | null>(
+    null,
+  );
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
   const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
     "design",
@@ -225,7 +206,12 @@ export default function Index() {
     () => ({
       page,
       pageSize: DESIGN_PAGE_SIZE,
-      createdBy: designFilter === "mine" ? "me" : "all",
+      createdBy:
+        designFilter === "mine"
+          ? "me"
+          : designFilter === "not-mine"
+            ? "not-me"
+            : "all",
       search: normalizedSearch || undefined,
       includePreview: "true",
     }),
@@ -258,16 +244,30 @@ export default function Index() {
     includePreview: "false",
   });
   const hasSearchResultsSection = normalizedSearch.length > 0;
+  const recentVisible =
+    accessibleDesignsSummary.isSuccess &&
+    (accessibleDesignsSummary.data?.totalCount ?? 0) > 0;
+  const revealRecentSearch = useCallback(() => {
+    if (!recentVisible) return false;
+    homeLibraryTabWasSelectedRef.current = true;
+    setHomeSection("recent");
+    return true;
+  }, [recentVisible]);
+  useHomeSearchShortcut(true, revealRecentSearch);
   useEffect(() => {
-    if (
-      accessibleDesignsSummary.isSuccess &&
-      (accessibleDesignsSummary.data?.totalCount ?? 0) > 0 &&
-      !homeLibraryTabWasSelectedRef.current
-    ) {
-      setHomeSection("recent");
-      writeStoredHomeLibraryTab("recent");
-      homeLibraryTabWasSelectedRef.current = true;
+    if (!accessibleDesignsSummary.isSuccess) return;
+
+    const hasAccessibleDesigns =
+      (accessibleDesignsSummary.data?.totalCount ?? 0) > 0;
+    if (!hasAccessibleDesigns) {
+      setHomeSection("templates");
+      homeLibraryTabWasSelectedRef.current = false;
+      return;
     }
+    if (homeLibraryTabWasSelectedRef.current) return;
+
+    setHomeSection("recent");
+    homeLibraryTabWasSelectedRef.current = true;
   }, [
     accessibleDesignsSummary.data?.totalCount,
     accessibleDesignsSummary.isSuccess,
@@ -297,7 +297,6 @@ export default function Index() {
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
     designSystems,
-    defaultSystem,
     isLoading: designSystemsLoading,
     error: designSystemsError,
     refetch: refetchDesignSystems,
@@ -320,22 +319,40 @@ export default function Index() {
       setPreflightAgentEngineState(null);
     }
   }, [agentEngine.state]);
-  const ensureAgentEngineConfigured = useCallback(async () => {
-    if (agentEngineConfigured) return true;
-    const requestId = ++preflightRequestIdRef.current;
-    let nextState: AgentEngineConfiguredState;
-    try {
-      nextState = await fetchAgentEngineConfiguredState();
-    } catch {
-      nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
-    }
-    if (requestId !== preflightRequestIdRef.current) {
+  // The draft a send held back for missing AI setup is sent once, as soon as
+  // setup is ready, however it was connected (card, sign-in popup, or
+  // activation) and only while it is still the draft that was submitted.
+  const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
+  const ensureAgentEngineConfigured = useCallback(
+    async (draft?: ComposerDraftSnapshot) => {
+      if (agentEngineConfigured) return true;
+      const requestId = ++preflightRequestIdRef.current;
+      let nextState: AgentEngineConfiguredState;
+      try {
+        nextState = await fetchAgentEngineConfiguredState();
+      } catch {
+        nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
+      }
+      if (requestId !== preflightRequestIdRef.current) {
+        return canChatRef.current;
+      }
+      setPreflightAgentEngineState(nextState);
+      canChatRef.current = nextState === "configured";
+      if (nextState === "missing" && draft)
+        heldDraftAfterSetupRef.current = draft;
       return canChatRef.current;
-    }
-    setPreflightAgentEngineState(nextState);
-    canChatRef.current = nextState === "configured";
-    return canChatRef.current;
-  }, [agentEngine.state, agentEngineConfigured]);
+    },
+    [agentEngine.state, agentEngineConfigured],
+  );
+  useEffect(() => {
+    const held = heldDraftAfterSetupRef.current;
+    if (!agentEngineConfigured || !held) return;
+    heldDraftAfterSetupRef.current = null;
+    const composer = composerRef.current;
+    const live = composer?.getDraftSnapshot?.();
+    // A draft edited while connecting was never submitted; leave it to send.
+    if (live && sameComposerDraft(held, live)) void composer?.submit?.();
+  }, [agentEngineConfigured]);
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
@@ -355,17 +372,19 @@ export default function Index() {
       staleTime: 5 * 60 * 1000,
     },
   );
-  const homeSuggestions = homeSuggestionsQuery.data?.suggestions.length
-    ? homeSuggestionsQuery.data.suggestions
-    : [
-        t("chat.suggestionLandingPage"),
-        t("chat.suggestionBrandMatch"),
-        t("chat.suggestionMobile"),
-      ].map((prompt, index) => ({
-        id: `design-home-generic-${index}`,
-        label: prompt,
-        prompt,
-      }));
+  const homeSuggestions =
+    homeSuggestionsQuery.data?.status === "ready" &&
+    homeSuggestionsQuery.data.suggestions.length
+      ? homeSuggestionsQuery.data.suggestions
+      : [
+          t("chat.suggestionLandingPage"),
+          t("chat.suggestionBrandMatch"),
+          t("chat.suggestionMobile"),
+        ].map((prompt, index) => ({
+          id: `design-home-generic-${index}`,
+          label: prompt,
+          prompt,
+        }));
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -424,8 +443,25 @@ export default function Index() {
   );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
+  const templateDesignSystemId =
+    selectedTemplate?.designSystemId &&
+    designSystems.some(
+      (system) => system.id === selectedTemplate.designSystemId,
+    )
+      ? selectedTemplate.designSystemId
+      : null;
+  const newDesignSystemId = !systemsEnabled
+    ? null
+    : newDesignSystemWasChosenRef.current
+      ? chosenDesignSystemId
+      : templateDesignSystemId;
 
-  const showAuthors = designFilter === "all";
+  const ownerFilterLabels: Record<DesignFilter, string> = {
+    all: t("home.ownedByAnyone"),
+    mine: t("home.ownedByMe"),
+    "not-mine": t("home.sharedWithMe"),
+  };
+  const showAuthors = designFilter !== "mine";
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
   const allVisibleSelected =
@@ -439,21 +475,6 @@ export default function Index() {
     setSelectedDesignIds(new Set());
   }, [designsData, page, totalPages]);
 
-  const resolveDefaultDesignSystemId = useCallback(() => {
-    if (!systemsEnabled) return null;
-    if (
-      defaultSystem &&
-      isDesignSystemUsableForGeneration(defaultSystem.data)
-    ) {
-      return defaultSystem.id;
-    }
-    return (
-      designSystems.find((system) =>
-        isDesignSystemUsableForGeneration(system.data),
-      )?.id ?? null
-    );
-  }, [defaultSystem, designSystems, systemsEnabled]);
-
   const syncSelectedTemplate = useCallback(
     (templateId: string | null) => {
       setNewTemplateId(templateId);
@@ -465,35 +486,11 @@ export default function Index() {
     [searchParams, setSearchParams],
   );
 
-  useEffect(() => {
-    if (newDesignSystemId !== undefined || designSystemsLoading) return;
-    setNewDesignSystemId(resolveDefaultDesignSystemId());
-  }, [designSystemsLoading, newDesignSystemId, resolveDefaultDesignSystemId]);
-
   const handleTemplateChange = useCallback(
     (templateId: string | null) => {
       syncSelectedTemplate(templateId);
-      const template = templateOptions.find(
-        (candidate) => candidate.id === templateId,
-      );
-      if (newDesignSystemWasChosenRef.current) return;
-      const linkedSystemId =
-        template?.designSystemId &&
-        designSystems.some((system) => system.id === template.designSystemId)
-          ? template.designSystemId
-          : null;
-      setNewDesignSystemId(
-        linkedSystemId ??
-          (designSystemsLoading ? undefined : resolveDefaultDesignSystemId()),
-      );
     },
-    [
-      designSystems,
-      designSystemsLoading,
-      resolveDefaultDesignSystemId,
-      syncSelectedTemplate,
-      templateOptions,
-    ],
+    [syncSelectedTemplate],
   );
 
   const handleNewDesignSystemChange = useCallback(
@@ -514,6 +511,38 @@ export default function Index() {
     systemsError: designSystemsError,
     retrySystems: () => void refetchDesignSystems(),
   });
+
+  const resolveAppDesignSystemId = useCallback(async () => {
+    const linkedSystemId = selectedTemplate?.designSystemId;
+    if (
+      !linkedSystemId ||
+      newDesignMode !== "app" ||
+      !systemsEnabled ||
+      newDesignSystemWasChosenRef.current ||
+      (!designSystemsLoading && !designSystemsError)
+    ) {
+      return newDesignSystemId;
+    }
+
+    const result = await refetchDesignSystems();
+    if (!result.isSuccess || !result.data) {
+      throw result.error ?? new Error(t("home.failedToCreateDesign"));
+    }
+    return result.data.designSystems.some(
+      (system) => system.id === linkedSystemId,
+    )
+      ? linkedSystemId
+      : null;
+  }, [
+    designSystemsError,
+    designSystemsLoading,
+    newDesignMode,
+    newDesignSystemId,
+    refetchDesignSystems,
+    selectedTemplate,
+    systemsEnabled,
+    t,
+  ]);
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -555,7 +584,7 @@ export default function Index() {
   }, []);
 
   const handleDesignFilterChange = useCallback((next: string) => {
-    if (next !== "all" && next !== "mine") return;
+    if (next !== "all" && next !== "mine" && next !== "not-mine") return;
     designFilterWasSelectedRef.current = true;
     const nextFilter: DesignFilter = next;
     setDesignFilter(nextFilter);
@@ -712,12 +741,16 @@ export default function Index() {
       if (!canChatRef.current) return;
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
-      const designSystemId =
-        newDesignSystemId === undefined
-          ? designSystemsLoading
-            ? undefined
-            : resolveDefaultDesignSystemId()
+      const templateCopyDesignSystemId =
+        selectedTemplate &&
+        newDesignMode === "design" &&
+        !newDesignSystemWasChosenRef.current
+          ? undefined
           : newDesignSystemId;
+      const designSystemId =
+        newDesignMode === "app"
+          ? await resolveAppDesignSystemId()
+          : templateCopyDesignSystemId;
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
@@ -894,9 +927,8 @@ export default function Index() {
       navigate,
       newDesignMode,
       newDesignSystemId,
-      designSystemsLoading,
       queryClient,
-      resolveDefaultDesignSystemId,
+      resolveAppDesignSystemId,
       selectedTemplate,
       t,
     ],
@@ -907,18 +939,15 @@ export default function Index() {
     skipToEditorPendingRef.current = true;
     setNewDesignHandoffPending(true);
 
-    const designSystemId =
-      newDesignSystemId === undefined
-        ? designSystemsLoading
-          ? undefined
-          : resolveDefaultDesignSystemId()
-        : newDesignSystemId;
-    const { id, ready } = createDesign(
-      t("home.untitledDesign"),
-      designSystemId,
-    );
-
     try {
+      const designSystemId =
+        newDesignMode === "app"
+          ? await resolveAppDesignSystemId()
+          : newDesignSystemId;
+      const { id, ready } = createDesign(
+        t("home.untitledDesign"),
+        designSystemId,
+      );
       await ready;
       void navigate(`/design/${id}`);
     } catch (error) {
@@ -930,9 +959,9 @@ export default function Index() {
   }, [
     createDesign,
     navigate,
+    newDesignMode,
     newDesignSystemId,
-    designSystemsLoading,
-    resolveDefaultDesignSystemId,
+    resolveAppDesignSystemId,
     t,
   ]);
 
@@ -1113,8 +1142,8 @@ export default function Index() {
 
   useSetPageTitle(t("home.pageTitle"));
 
-  useSetHeaderActions(
-    <div className="relative w-full">
+  const searchInput = (
+    <div className="relative w-full min-w-0 sm:w-64 sm:shrink-0">
       <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
         size="sm"
@@ -1123,9 +1152,9 @@ export default function Index() {
         placeholder={t("home.searchPlaceholder")}
         aria-label={t("home.searchPlaceholder")}
         data-home-search="true"
-        className="w-full pe-3 ps-8"
+        className="h-9 w-full pe-3 ps-8"
       />
-    </div>,
+    </div>
   );
 
   return (
@@ -1279,11 +1308,15 @@ export default function Index() {
           />
         ) : null}
         <ClientOnly>
-          <PromptHomeLibrary
-            value={homeSection}
+          <DesignHomeLibrary
+            recentVisible={recentVisible}
+            value={
+              recentVisible && !homeLibraryTabWasSelectedRef.current
+                ? "recent"
+                : homeSection
+            }
             onValueChange={(value) => {
               homeLibraryTabWasSelectedRef.current = true;
-              writeStoredHomeLibraryTab(value);
               setHomeSection(value);
             }}
             labels={{
@@ -1298,28 +1331,49 @@ export default function Index() {
                 </Link>
               </Button>
             }
+            search={searchInput}
             recentActions={
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
-                    aria-label={t("home.designFilter")}
+                    aria-label={ownerFilterLabels[designFilter]}
+                    className="h-9 shrink-0 gap-2"
                   >
-                    <IconFilter />
-                    {designFilter === "mine" ? t("home.mine") : t("home.all")}
+                    <span className="grid">
+                      {Object.entries(ownerFilterLabels).map(
+                        ([filter, label]) => (
+                          <span
+                            key={filter}
+                            aria-hidden="true"
+                            className="invisible col-start-1 row-start-1 whitespace-nowrap"
+                          >
+                            {label}
+                          </span>
+                        ),
+                      )}
+                      <span className="col-start-1 row-start-1 whitespace-nowrap">
+                        {ownerFilterLabels[designFilter]}
+                      </span>
+                    </span>
+                    <IconChevronDown className="size-4" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="start">
                   <DropdownMenuRadioGroup
                     value={designFilter}
                     onValueChange={handleDesignFilterChange}
                   >
-                    <DropdownMenuRadioItem value="mine">
-                      {t("home.mine")}
+                    <DropdownMenuRadioItem value="all" indicator="check">
+                      {ownerFilterLabels.all}
                     </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="all">
-                      {t("home.all")}
+                    <DropdownMenuRadioItem value="mine" indicator="check">
+                      {ownerFilterLabels.mine}
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="not-mine" indicator="check">
+                      {ownerFilterLabels["not-mine"]}
                     </DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
@@ -1350,7 +1404,13 @@ export default function Index() {
                     retrying={isFetching}
                   />
                 ) : designs.length === 0 ? (
-                  <SearchEmptyState />
+                  normalizedSearch ? (
+                    <SearchEmptyState />
+                  ) : (
+                    <div className="rounded-xl bg-card p-6 text-center text-sm text-muted-foreground">
+                      {t("home.noDesignsMatchFilter")}
+                    </div>
+                  )
                 ) : (
                   <>
                     {isSelectingDesigns ? (

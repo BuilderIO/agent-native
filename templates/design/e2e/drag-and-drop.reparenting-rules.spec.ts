@@ -60,6 +60,7 @@ test.describe("reparenting rules", () => {
           );
         const outer = element("outer");
         const dragged = element("dragme");
+        const parent = dragged?.parentElement;
         return {
           parent: dragged?.parentElement?.getAttribute(
             "data-agent-native-node-id",
@@ -67,6 +68,13 @@ test.describe("reparenting rules", () => {
           order: Array.from(outer?.children ?? []).map((child) =>
             child.getAttribute("data-agent-native-node-id"),
           ),
+          parentOrder: Array.from(parent?.children ?? []).map((child) =>
+            child.getAttribute("data-agent-native-node-id"),
+          ),
+          style: dragged?.getAttribute("style"),
+          position: dragged?.style.position ?? "",
+          left: dragged?.style.left ?? "",
+          top: dragged?.style.top ?? "",
         };
       }, html);
     };
@@ -99,7 +107,13 @@ test.describe("reparenting rules", () => {
       await expect.poll(persistedStructure).toEqual({
         parent: "nested",
         order: ["nested", "candidate", "overlap"],
+        parentOrder: ["dragme"],
+        style: expect.any(String),
+        position: "",
+        left: "",
+        top: "",
       });
+      const beforeDrop = await persistedStructure();
 
       const dragged = node(page, "dragme");
       const nested = node(page, "nested");
@@ -179,16 +193,19 @@ test.describe("reparenting rules", () => {
         });
       // Reparenting commits on mouseup; the source tree remains stable while
       // the pointer leaves and re-enters the frame during the held gesture.
-      await expect.poll(persistedStructure).toEqual({
-        parent: "nested",
-        order: ["nested", "candidate", "overlap"],
-      });
+      await expect.poll(persistedStructure).toEqual(beforeDrop);
       await page.mouse.up();
 
       await expect.poll(persistedStructure).toEqual({
         parent: "outer",
         order: ["nested", "dragme", "candidate", "overlap"],
+        parentOrder: ["nested", "dragme", "candidate", "overlap"],
+        style: expect.any(String),
+        position: expect.any(String),
+        left: expect.any(String),
+        top: expect.any(String),
       });
+      const afterDrop = await persistedStructure();
 
       const visibleStacking = await node(page, "dragme").evaluate((dragged) => {
         const document = dragged.ownerDocument;
@@ -225,11 +242,13 @@ test.describe("reparenting rules", () => {
       expect(visibleStacking!.overlapHeight).toBeGreaterThan(0);
       expect(visibleStacking!.hitId).toBe("dragme");
 
+      await page.keyboard.press("ControlOrMeta+z");
+      await expect.poll(persistedStructure).toEqual(beforeDrop);
+      await page.keyboard.press("ControlOrMeta+Shift+z");
+      await expect.poll(persistedStructure).toEqual(afterDrop);
+
       await openEditor(page, designId);
-      await expect.poll(persistedStructure).toEqual({
-        parent: "outer",
-        order: ["nested", "dragme", "candidate", "overlap"],
-      });
+      await expect.poll(persistedStructure).toEqual(afterDrop);
     } finally {
       await postAction(page, "delete-design", { id: designId }).catch(
         () => undefined,

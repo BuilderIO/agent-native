@@ -58,7 +58,12 @@ export const PORT = Number(
   process.env.DESIGN_PORT ??
     (FUSION ? 8080 : (PINNED ?? 9300 + (parseInt(SLUG, 16) % 90))),
 );
-export const BASE = process.env.DESIGN_BASE ?? `http://127.0.0.1:${PORT}`;
+// A Fusion branch serves every template behind the dev-lazy gateway on 8080,
+// with Design mounted at /design. Stay on 127.0.0.1: the gateway redirects
+// localhost there, and only gateway traffic keeps Design from being evicted.
+export const BASE =
+  process.env.DESIGN_BASE ??
+  `http://127.0.0.1:${PORT}${FUSION ? "/design" : ""}`;
 export const E2E_PORT = Number(process.env.E2E_PORT ?? PORT + 100);
 export const PGLITE = `pglite:${WORKTREE}/templates/design/.tmp/pglite-${SLUG}`;
 
@@ -87,12 +92,11 @@ export const SHOTS_DIR = `${WORKTREE}/templates/design/.tmp/parity/shots`;
 mkdirSync(SHOTS_DIR, { recursive: true });
 
 /**
- * Headed mode attaches to the one shared browser (the branch browser, or your
- * Chrome started with --remote-debugging-port=9222). It is a machine-wide
- * singleton: only use it for osmouse/Figma work, and hold the lock while you
- * do. Everything else runs in its own headless browser and is parallel-safe.
+ * Headed mode attaches to the one shared browser (branch browser, or your Chrome
+ * on :9222); locally hold the osmouse lock there, other runs get their own
+ * headless browser. Fusion always uses it, so the branch's screen recording sees each run.
  */
-export const HEADED = process.env.HEADED === "1";
+export const HEADED = FUSION || process.env.HEADED === "1";
 export const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9222";
 export const OSM =
   process.env.OSMOUSE ??

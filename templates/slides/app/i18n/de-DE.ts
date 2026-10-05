@@ -47,7 +47,7 @@ const messages = {
     designSystems: "Designsysteme",
   },
   settings: {
-    agentObservability: "Agentenbeobachtbarkeit",
+    agentObservability: "Beobachtbarkeit",
     title: "Einstellungen",
     labs: "Labs",
     labsIntro: "Teste experimentelle Funktionen vor ihrer Veröffentlichung.",
@@ -59,6 +59,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Wenn jemand dein Deck kommentiert oder darin antwortet.",
     retry: "Erneut versuchen",
+    reload: "Neu laden",
     mcpAbout:
       "Verbinde Slides mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
     workspaceTitle: "Arbeitsbereich",
@@ -445,7 +446,8 @@ const messages = {
     resolveThread: "Thread lösen",
     reopenThread: "Thread wieder öffnen",
     hideReplies: "Antworten ausblenden",
-    replyCount: "{{count}} Antworten",
+    replyCount_one: "{{count}} Antwort",
+    replyCount_other: "{{count}} Antworten",
     title: "Kommentare",
     addComment: "Kommentar hinzufügen",
     close: "Schließen",
@@ -456,6 +458,7 @@ const messages = {
     retry: "Erneut versuchen",
     clickToAddComment: "Klicken, um einen Kommentar hinzuzufügen",
     selectSlideToAdd: "Wähle eine Folie aus, um einen hinzuzufügen",
+    filters: "Kommentarfilter",
     scope: "Kommentarbereich",
     thisSlide: "Diese Folie",
     allComments: "Alle Folien",
@@ -778,6 +781,8 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "Der Agent-Lauf ist fehlgeschlagen, bevor Folien erstellt wurden. Prüfe die Details im Chat und versuche es erneut.",
     deckHasNoSlides: "Dieses Deck enthält keine Folien.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -988,8 +993,8 @@ const messages = {
           "Lies die angegebene Unternehmenswebsite und erstelle eine Präsentation über das Unternehmen. Melde Zugriffsfehler, statt Fakten zu erfinden.",
       },
     },
-    connectBuilderIo: "Builder.io verbinden",
-    connectingBuilder: "Builder.io wird verbunden…",
+    connectBuilderIo: "Builder.io verwenden",
+    connectingBuilder: "Builder.io wird eingerichtet…",
     recent: "Zuletzt verwendet",
     starters: {
       pitch: {
@@ -1028,9 +1033,13 @@ const messages = {
     all: "Alle",
     showMineDecks: "Von mir erstellte Decks anzeigen",
     mine: "Meine",
+    ownedByAnyone: "Beliebiger Eigentümer",
+    ownedByMe: "Mir gehörend",
+    sharedWithMe: "Mit mir geteilt",
     createDeckOrVisual: "Präsentation erstellen",
     noMineDecks: "Du hast noch keine Decks erstellt.",
     noDecksMatchSearch: "Keine Decks entsprechen deiner Suche.",
+    noDecksMatchFilter: "Keine Decks entsprechen dem aktuellen Filter.",
     deleteDeckTitle: "Deck löschen?",
     deleteDeckDescription:
       "Dadurch werden dieses Deck und alle Folien dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",

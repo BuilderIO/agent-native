@@ -147,6 +147,11 @@ describe("createH3SSRHandler", () => {
         method: "GET",
         userAgent: undefined,
         tags: { renderMode: "anonymous-public", surface: "ssr" },
+        extra: {
+          failureContext: expect.objectContaining({
+            route: "/recaps/recap_test",
+          }),
+        },
       });
     } finally {
       consoleError.mockRestore();

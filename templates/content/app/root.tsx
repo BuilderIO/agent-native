@@ -55,11 +55,18 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
+import { ContentStartupShell } from "./components/layout/ContentStartupShell";
+import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/sidebar-preferences";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
+import { startPageOpenDocumentReads } from "./hooks/use-documents";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
+import { isPersonalLanding } from "./lib/content-landing";
+import { readLastLocationHintForAnyAccount } from "./lib/last-location-hint";
+import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
+import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
 import stylesheet from "./global.css?url";
 import katexStylesheet from "katex/dist/katex.min.css?url";
@@ -107,6 +114,15 @@ export function shouldRevalidate({
 }
 
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
+
+// The startup shell draws before the i18n provider exists, so it reads its
+// copy straight from the locale messages the loader sent.
+function rootMessage(messages: LocaleMessages, key: string): string | null {
+  const root = messages.root;
+  if (!root || typeof root !== "object") return null;
+  const value = (root as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : null;
+}
 
 const LazyAgentSidebar = lazy(async () => {
   const { AgentSidebar } =
@@ -195,6 +211,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-locale-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
+        />
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html:
+              CONTENT_STARTUP_SIDEBAR_SCRIPT +
+              CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT +
+              CONTENT_STARTUP_PAGE_HINTS_SCRIPT,
+          }}
         />
         <meta name="theme-color" content="#10B981" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -370,6 +395,20 @@ export default function Root() {
   const commandTrigger = useRef<HTMLElement | null>(null);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
+  useEffect(() => {
+    // A load of /home reads its likely page alongside the session check
+    // rather than after the app mounts behind it.
+    if (!isPersonalLanding(location)) return;
+    const documentId = readLastLocationHintForAnyAccount();
+    if (!documentId) return;
+    const search = new URLSearchParams(location.search);
+    startPageOpenDocumentReads(queryClient, documentId, {
+      databaseId: search.get("databaseId"),
+      databaseDocumentId: search.get("databaseDocumentId"),
+    });
+    // Only the load itself; navigating to /home later mounts it directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useCommandMenuShortcut(
     useCallback(() => {
       commandTrigger.current =
@@ -442,7 +481,16 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        skeletonLayout="document"
+        clientOnlyFallback={
+          <ContentStartupShell
+            pathname={location.pathname}
+            label={
+              rootMessage(loaderData.messages, "loadingContent") ??
+              rootMessage(i18nCatalog.messages, "loadingContent") ??
+              ""
+            }
+          />
+        }
         disableThemeTransitions={false}
         toaster={contentToaster}
         i18n={{

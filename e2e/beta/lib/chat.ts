@@ -1,4 +1,4 @@
-import type { BrowserContext, Page, Request } from "@playwright/test";
+import type { BrowserContext, Locator, Page, Request } from "@playwright/test";
 
 import { renderedText } from "./app";
 
@@ -60,10 +60,70 @@ export interface ChatRequestLog {
   engines: string[];
   modelless: number;
   count: number;
+  /** One entry per turn POST, in order: what its body named at the top level. */
+  requests: Array<{ model: string | null; engine: string | null }>;
 }
 
 export function formatChatRequestDiagnostics(log: ChatRequestLog): string {
   return `Agent chat requests: ${JSON.stringify(log)}`;
+}
+
+export function readTurnSelection(raw: string | null): {
+  model: string | null;
+  engine: string | null;
+} {
+  if (!raw) return { model: null, engine: null };
+  let body: { model?: unknown; engine?: unknown } | null;
+  try {
+    body = JSON.parse(raw) as typeof body;
+  } catch {
+    // coercion-ok: a body that does not parse names no model, which assertOnlyLuna fails on.
+    return { model: null, engine: null };
+  }
+  const named = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value : null;
+  return { model: named(body?.model), engine: named(body?.engine) };
+}
+
+/**
+ * Everything wrong with the turns a page sent, as lines. A turn that names no
+ * engine is a violation, not a pass: the server then resolves the engine from
+ * the account (possibly the Builder gateway's shared credits), and nothing
+ * readable from outside says which one it picked.
+ */
+export function spendViolations(
+  log: ChatRequestLog,
+  expected: Pick<ModelSelection, "engine">,
+): string[] {
+  const lines: string[] = [];
+  const offenders = log.models.filter(
+    (model) => !LUNA_MODEL_PATTERN.test(model),
+  );
+  if (offenders.length > 0) {
+    lines.push(`non-luna models: ${[...new Set(offenders)].join(", ")}`);
+  }
+  if (log.modelless > 0) {
+    lines.push(
+      `${log.modelless} request(s) carried no model field, so the app fell back to its own default (a message queued behind a running turn is sent this way by a host whose transport has no model of its own)`,
+    );
+  }
+  const wrongEngine = log.engines.filter(
+    (engine) => engine !== MISSING_ENGINE && engine !== expected.engine,
+  );
+  if (wrongEngine.length > 0) {
+    lines.push(
+      `routed through engine(s) ${[...new Set(wrongEngine)].join(", ")} instead of ${expected.engine}, so the turn did not provably bill the dedicated key`,
+    );
+  }
+  const engineless = log.engines.filter(
+    (engine) => engine === MISSING_ENGINE,
+  ).length;
+  if (engineless > 0) {
+    lines.push(
+      `${engineless} request(s) named no engine, so the server chose it and the turn did not provably bill the dedicated key (${expected.engine})`,
+    );
+  }
+  return lines;
 }
 
 export function watchChatRequests(page: Page): {
@@ -75,6 +135,7 @@ export function watchChatRequests(page: Page): {
     engines: [],
     modelless: 0,
     count: 0,
+    requests: [],
   };
   const expected = lunaSelection();
 
@@ -82,26 +143,11 @@ export function watchChatRequests(page: Page): {
     if (request.method() !== "POST") return;
     if (!isChatTurnRequest(request.url())) return;
     log.count += 1;
-    const raw = request.postData();
-    if (!raw) {
-      log.modelless += 1;
-      return;
-    }
-    try {
-      const body = JSON.parse(raw) as { model?: unknown; engine?: unknown };
-      log.engines.push(
-        typeof body.engine === "string" && body.engine.trim()
-          ? body.engine
-          : MISSING_ENGINE,
-      );
-      if (typeof body.model === "string" && body.model.trim()) {
-        log.models.push(body.model);
-      } else {
-        log.modelless += 1;
-      }
-    } catch {
-      log.modelless += 1;
-    }
+    const sent = readTurnSelection(request.postData());
+    log.requests.push(sent);
+    log.engines.push(sent.engine ?? MISSING_ENGINE);
+    if (sent.model) log.models.push(sent.model);
+    else log.modelless += 1;
   });
 
   return {
@@ -112,37 +158,23 @@ export function watchChatRequests(page: Page): {
           "No POST to /_agent-native/agent-chat was observed, so this turn proved nothing about the agent or the model.",
         );
       }
-      const offenders = log.models.filter(
-        (model) => !LUNA_MODEL_PATTERN.test(model),
-      );
-      const wrongEngine = log.engines.filter(
-        (engine) => engine !== expected.engine,
-      );
-      if (offenders.length > 0 || log.modelless > 0 || wrongEngine.length > 0) {
+      const problems = spendViolations(log, expected);
+      if (problems.length > 0) {
         throw new Error(
           [
-            "Agent chat did not run on luna, so this run billed an unbudgeted model.",
+            "Agent chat did not provably run on luna through the dedicated key.",
             `requests=${log.count} luna=${log.models.filter((m) => LUNA_MODEL_PATTERN.test(m)).length}`,
-            offenders.length > 0
-              ? `non-luna models: ${[...new Set(offenders)].join(", ")}`
-              : "",
-            log.modelless > 0
-              ? `${log.modelless} request(s) carried no model field, so the app fell back to its own default`
-              : "",
-            wrongEngine.length > 0
-              ? `routed through engine(s) ${[...new Set(wrongEngine)].join(", ")} instead of ${expected.engine}, so the turn did not provably bill the dedicated key`
-              : "",
+            `sent: ${log.requests.map((sent, index) => `#${index + 1} model=${sent.model ?? "(none)"} engine=${sent.engine ?? "(none)"}`).join(", ")}`,
+            ...problems,
             "The seeded selection is dropped when the app's model picker does not offer it — usually because the org is connected to a different engine, so the requested engine's catalog is not exposed. Check BETA_E2E_ENGINE/BETA_E2E_MODEL against what the app actually lists.",
-          ]
-            .filter(Boolean)
-            .join("\n"),
+          ].join("\n"),
         );
       }
     },
   };
 }
 
-const MISSING_ENGINE = "(none)";
+export const MISSING_ENGINE = "(none)";
 
 export const COMPOSER = {
   input: '[data-agent-composer-slot="editor-input"]',
@@ -151,22 +183,21 @@ export const COMPOSER = {
   model: '[data-agent-composer-slot="model-button"]',
 } as const;
 
-const DEFAULT_COMPOSER_ROOT =
-  '[data-agent-composer-slot="root"][data-agent-composer-variant="default"]';
-const HERO_COMPOSER_ROOT =
-  '[data-agent-composer-slot="root"][data-agent-composer-variant="hero"]';
-const VISIBLE_AGENT_COMPOSER_ROOTS = [
-  `.agent-sidebar-panel[data-agent-sidebar-state="open"] ${DEFAULT_COMPOSER_ROOT}:visible`,
-  `${HERO_COMPOSER_ROOT}:visible`,
-];
-const VISIBLE_AGENT_COMPOSER_ROOT = VISIBLE_AGENT_COMPOSER_ROOTS.join(", ");
+/**
+ * The agent chat's composer, wherever the chat is mounted. The sidebar panel, a
+ * hero home, and a thread page (Dispatch `/chat/:id`, the Chat app) all render
+ * AgentKit's shared composer stack, whose root carries this class, so the match
+ * has to name the stack, not a layout: a `default`-variant composer outside the
+ * sidebar is the chat once a thread page takes over, and every other prompt box
+ * in an app (dialogs, popovers) is a different `PromptComposer` without it.
+ */
+export const AGENT_COMPOSER_ROOT =
+  '.agentkit-composer[data-agent-composer-slot="root"]';
 const visibleComposerSlot = (slot: string): string =>
-  VISIBLE_AGENT_COMPOSER_ROOTS.map((root) => `${root} ${slot}:visible`).join(
-    ", ",
-  );
+  `${AGENT_COMPOSER_ROOT}:visible ${slot}:visible`;
 
 export const VISIBLE_COMPOSER = {
-  root: VISIBLE_AGENT_COMPOSER_ROOT,
+  root: `${AGENT_COMPOSER_ROOT}:visible`,
   input: visibleComposerSlot(COMPOSER.input),
   send: visibleComposerSlot(COMPOSER.send),
   stop: visibleComposerSlot(COMPOSER.stop),
@@ -186,10 +217,13 @@ export async function readComposerRuntimeState(page: Page): Promise<unknown> {
     const panel = document.querySelector<HTMLElement>(
       '.agent-sidebar-panel[data-agent-sidebar-state="open"]',
     );
-    const roots = Array.from(
-      (panel ?? document).querySelectorAll<HTMLElement>(
+    const allRoots = Array.from(
+      document.querySelectorAll<HTMLElement>(
         '[data-agent-composer-slot="root"]',
       ),
+    );
+    const roots = allRoots.filter((candidate) =>
+      candidate.classList.contains("agentkit-composer"),
     );
     const root = roots.find(isVisible) ?? roots[0];
     const surface = root ?? panel ?? document;
@@ -209,6 +243,10 @@ export async function readComposerRuntimeState(page: Page): Promise<unknown> {
       href: window.location.href,
       composerRootCount: roots.length,
       visibleComposerRootCount: roots.filter(isVisible).length,
+      otherComposerRootCount: allRoots.length - roots.length,
+      composerVariants: roots.map((candidate) =>
+        candidate.getAttribute("data-agent-composer-variant"),
+      ),
       inputCount: inputs.length,
       visibleInputCount: inputs.filter(isVisible).length,
       input: input
@@ -258,6 +296,71 @@ export const CHAT_FAILURE_PATTERNS: RegExp[] = [
 
 export const MISSING_FINAL_RESPONSE = '[data-testid="missing-final-response"]';
 
+const PROMPT_PROBE_LENGTH = 40;
+
+function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Whether the composer holds what was typed. The editor is a rich-text
+ * surface, so it is compared on collapsed whitespace and on the prompt's
+ * opening, which is enough to tell "typed" from "swallowed".
+ */
+export function composerHoldsPrompt(
+  composerText: string,
+  prompt: string,
+): boolean {
+  return collapseWhitespace(composerText).includes(
+    collapseWhitespace(prompt).slice(0, PROMPT_PROBE_LENGTH),
+  );
+}
+
+async function composerFailure(page: Page, message: string): Promise<Error> {
+  return new Error(
+    `${message}\nComposer runtime: ${JSON.stringify(await readComposerRuntimeState(page))}`,
+  );
+}
+
+/**
+ * Keys typed before the editor settles are lost or wiped by a re-mount, which
+ * left the send button disabled for a prompt the spec believed it had entered.
+ * Type, confirm the text is in the editor, and retype from empty if it is not.
+ */
+async function typePrompt(
+  page: Page,
+  input: Locator,
+  prompt: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await input.click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    await input.pressSequentially(prompt, { delay: 8 });
+    const settledBy = Date.now() + 5_000;
+    while (Date.now() < settledBy) {
+      if (composerHoldsPrompt(await input.innerText(), prompt)) return;
+      await page.waitForTimeout(250);
+    }
+  }
+  throw await composerFailure(
+    page,
+    "The composer never held the typed prompt after 3 attempts, so nothing could be sent.",
+  );
+}
+
+async function awaitSendEnabled(page: Page, send: Locator): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (await send.isEnabled()) return;
+    await page.waitForTimeout(250);
+  }
+  throw await composerFailure(
+    page,
+    "The send button stayed disabled for 15s after the prompt was typed.",
+  );
+}
+
 export async function sendPromptAndAwaitTurn(
   page: Page,
   prompt: string,
@@ -265,23 +368,43 @@ export async function sendPromptAndAwaitTurn(
 ): Promise<void> {
   const input = page.locator(VISIBLE_COMPOSER.input).first();
   await input.waitFor({ state: "visible", timeout: 60_000 });
-  await input.click();
-  await input.pressSequentially(prompt, { delay: 8 });
+  await typePrompt(page, input, prompt);
 
   const send = page.locator(VISIBLE_COMPOSER.send).first();
   await send.waitFor({ state: "visible", timeout: 30_000 });
+  await awaitSendEnabled(page, send);
+
+  // Armed before the click: a click that starts no turn used to read as a turn
+  // that finished at once, because the stop button never appeared to wait on.
+  const turnPost = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && isChatTurnRequest(request.url()),
+    { timeout: 30_000 },
+  );
+  turnPost.catch(() => undefined); // coercion-ok: awaited below; this only stops an unhandled rejection if the click throws first
   try {
     await send.click();
   } catch (error) {
-    throw new Error(
-      `${error instanceof Error ? error.message : String(error)}\nComposer runtime: ${JSON.stringify(await readComposerRuntimeState(page))}`,
+    throw await composerFailure(
+      page,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  try {
+    await turnPost;
+  } catch {
+    throw await composerFailure(
+      page,
+      "Send was clicked but the app never POSTed a turn to /_agent-native/agent-chat within 30s.",
     );
   }
 
   const stop = page.locator(VISIBLE_COMPOSER.stop).first();
+  // A turn the POST proves started may finish before the stop button paints,
+  // so its absence here is not a failure; the hidden wait below is the gate.
   await stop
     .waitFor({ state: "visible", timeout: 30_000 })
-    .catch(() => undefined);
+    .catch(() => undefined); // coercion-ok: see above
   await stop.waitFor({ state: "hidden", timeout: turnTimeoutMs });
 }
 
@@ -300,4 +423,123 @@ export async function assertNoChatFailure(
   throw new Error(
     `Agent chat on ${where} rendered a failure state (${hits.map(String).join(", ")}):\n${excerpt}`,
   );
+}
+
+export function countOccurrences(text: string, needle: string): number {
+  if (!needle) throw new Error("countOccurrences needs a non-empty needle");
+  return text.split(needle).length - 1;
+}
+
+export type ThreadReading =
+  | {
+      kind: "read";
+      threads: Array<{ id: string; occurrences: number }>;
+    }
+  | { kind: "unreadable"; reason: string };
+
+/**
+ * Counts `nonce` inside each stored thread's message data, not its title or
+ * preview, which echo the first message and would otherwise make a thread with
+ * no assistant reply look complete.
+ */
+async function readThreadsContaining(
+  page: Page,
+  nonce: string,
+): Promise<ThreadReading> {
+  try {
+    return await page.evaluate(async (needle): Promise<ThreadReading> => {
+      const get = async (path: string) => {
+        const response = await fetch(path, {
+          headers: { accept: "application/json" },
+          signal: AbortSignal.timeout(20_000),
+        });
+        return { status: response.status, text: await response.text() };
+      };
+      const list = await get(
+        `/_agent-native/agent-chat/threads?limit=10&q=${encodeURIComponent(needle)}`,
+      );
+      if (list.status !== 200) {
+        return {
+          kind: "unreadable",
+          reason: `thread search returned HTTP ${list.status}: ${list.text.slice(0, 160)}`,
+        };
+      }
+      const { threads = [] } = JSON.parse(list.text) as {
+        threads?: Array<{ id?: string }>;
+      };
+      const found: Array<{ id: string; occurrences: number }> = [];
+      for (const thread of threads) {
+        if (!thread.id) continue;
+        const detail = await get(
+          `/_agent-native/agent-chat/threads/${encodeURIComponent(thread.id)}`,
+        );
+        if (detail.status !== 200) {
+          return {
+            kind: "unreadable",
+            reason: `thread ${thread.id} returned HTTP ${detail.status}: ${detail.text.slice(0, 160)}`,
+          };
+        }
+        const { threadData } = JSON.parse(detail.text) as {
+          threadData?: unknown;
+        };
+        const data =
+          typeof threadData === "string"
+            ? threadData
+            : JSON.stringify(threadData ?? null);
+        found.push({
+          id: thread.id,
+          occurrences: data.split(needle).length - 1,
+        });
+      }
+      return { kind: "read", threads: found };
+    }, nonce);
+  } catch (error) {
+    return {
+      kind: "unreadable",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * The turn finished in the UI; wait until the server also holds it. Reloading
+ * before that point tests a race, and a reload that then shows an empty chat
+ * cannot say whether the thread was never saved or was saved and not restored.
+ */
+export async function awaitThreadPersisted(
+  page: Page,
+  nonce: string,
+  { minOccurrences = 2, timeoutMs = 60_000 } = {},
+): Promise<ThreadReading> {
+  const deadline = Date.now() + timeoutMs;
+  let last: ThreadReading = { kind: "unreadable", reason: "never read" };
+  do {
+    last = await readThreadsContaining(page, nonce);
+    if (
+      last.kind === "read" &&
+      last.threads.some((thread) => thread.occurrences >= minOccurrences)
+    ) {
+      return last;
+    }
+    await page.waitForTimeout(1_500);
+  } while (Date.now() < deadline);
+  throw new Error(
+    `The turn finished in the UI but the server never stored a thread holding ${nonce} at least ${minOccurrences} time(s), so a reload has nothing to restore. Last reading: ${JSON.stringify(last)}`,
+  );
+}
+
+/** Where a chat surface stands, for the message of an assertion that failed on it. */
+export async function describeChatSurface(page: Page): Promise<string> {
+  try {
+    const surface = await page.evaluate(() => ({
+      url: window.location.href,
+      bodyTail: document.body.innerText.replace(/\s+/g, " ").slice(-400),
+      chatStorageKeys: Object.keys(window.localStorage).filter((key) =>
+        /chat|thread|agent/i.test(key),
+      ),
+    }));
+    return `Chat surface: ${JSON.stringify(surface)}\nComposer runtime: ${JSON.stringify(await readComposerRuntimeState(page))}`;
+  } catch (error) {
+    return `Chat surface unreadable: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }

@@ -46,6 +46,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
+import { runRefreshRetryDelayMs } from "@/lib/run-refresh-retry";
 
 import type {
   AssetVariantState,
@@ -163,10 +164,13 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     refreshGeneration.mutate(
       { runId, threadId },
       {
-        onSettled: () => {
-          window.setTimeout(() => {
-            refreshingRunIds.current.delete(runId);
-          }, 30_000);
+        onSettled: (_data, error) => {
+          const retryDelayMs = runRefreshRetryDelayMs(error);
+          if (retryDelayMs !== null) {
+            window.setTimeout(() => {
+              refreshingRunIds.current.delete(runId);
+            }, retryDelayMs);
+          }
           void queryClient.invalidateQueries({
             queryKey: stateQueryKey,
             refetchType: "active",

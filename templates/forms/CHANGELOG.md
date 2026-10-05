@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Forms are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-01
+
+### Improved
+
+- Forms opens with its chat layout skeleton while the home route redirects
+
 ## 2026-09-27
 
 ### Improved

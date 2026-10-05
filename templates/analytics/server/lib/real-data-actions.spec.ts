@@ -32,7 +32,6 @@ registerGroundingActions([
   "get-session-replay-summary",
   "get-session-replay-timeline",
   "gong-calls",
-  "gong-native-insights",
   "hubspot-deals",
   "hubspot-records",
   "jira-search",
@@ -43,13 +42,17 @@ registerGroundingActions([
   "provider-corpus-job",
   "query-agent-native-analytics",
   "query-staged-dataset",
+  "run-gong-native-insight",
   "slack-messages",
 ]);
 
 describe("real data action classification", () => {
   it("treats unstructured source records as real analytics evidence", () => {
     expect(hasDataQueryAttempt([{ name: "gong-calls" }])).toBe(true);
-    expect(hasDataQueryAttempt([{ name: "gong-native-insights" }])).toBe(true);
+    expect(hasDataQueryAttempt([{ name: "gong-native-insights" }])).toBe(false);
+    expect(hasDataQueryAttempt([{ name: "run-gong-native-insight" }])).toBe(
+      true,
+    );
     expect(hasDataQueryAttempt([{ name: "slack-messages" }])).toBe(true);
   });
 

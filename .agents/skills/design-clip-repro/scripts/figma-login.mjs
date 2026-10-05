@@ -50,4 +50,11 @@ console.log(
   JSON.stringify({ url: page.url().slice(0, 90), ...state }),
 );
 await browser.close();
+if (state.loggedOut) {
+  console.log(
+    FUSION
+      ? "figma: the session is logged out; refresh FIGMA_COOKIES_B64 (reference/figma.md)"
+      : `figma: log in to Figma in your Chrome on ${CDP_URL}`,
+  );
+}
 if (state.blocked || state.loggedOut || !state.canvas) process.exit(1);

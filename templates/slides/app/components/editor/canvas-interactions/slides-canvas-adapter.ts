@@ -141,6 +141,7 @@ export function resolveSlidesCanvasPointerIntent({
   targetIsEditableText: boolean;
   duplicateModifierActive?: boolean;
 }): SlidesCanvasPointerIntent {
+  if (targetIsEditableText && !duplicateModifierActive) return "edit-text";
   if (
     hasSelectedObject &&
     pointerWithinMoveBand &&
@@ -150,7 +151,6 @@ export function resolveSlidesCanvasPointerIntent({
   ) {
     return "move-object-perimeter";
   }
-  if (targetIsEditableText && !duplicateModifierActive) return "edit-text";
   if (hasSelectedObject && targetWithinSelectedObject) {
     return "move-object-body";
   }

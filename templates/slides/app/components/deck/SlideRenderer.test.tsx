@@ -893,7 +893,7 @@ describe("SlideInner autofit", () => {
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
   });
 
-  it("updates the fit during an edit before the editor exits", async () => {
+  it("keeps the fit stable while text is edited and refits after editing ends", async () => {
     const slide: Slide = {
       id: "raw-editing-growth",
       layout: "blank",
@@ -928,20 +928,22 @@ describe("SlideInner autofit", () => {
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
 
+    const scheduleFrame = vi.spyOn(globalThis, "requestAnimationFrame");
     wrapperRect.mockClear();
     heading!.firstChild!.textContent = "Horizontally fitted title Expanded";
-    const editedScale = await waitFor(() => {
-      const scale = fitLayer?.style.getPropertyValue("--fmd-fit-scale");
-      expect(scale).not.toBe("0.74");
-      return scale;
-    });
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
     expect(wrapperRect).not.toHaveBeenCalled();
+    expect(scheduleFrame).not.toHaveBeenCalled();
 
     heading!.contentEditable = "false";
-    await new Promise((resolve) => window.setTimeout(resolve, 20));
-    expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe(
-      editedScale,
+    await waitFor(() => expect(scheduleFrame).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).not.toBe(
+        "0.74",
+      ),
     );
+    expect(wrapperRect).not.toHaveBeenCalled();
   });
 
   it("keeps the live edit node on a mermaid slide across re-renders", () => {

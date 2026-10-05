@@ -107,6 +107,30 @@ describe("emailListRefetchInterval", () => {
       ),
     ).toBe(false);
   });
+
+  it("looks once more after the cooldown Gmail named, and never sooner", () => {
+    const cooldown = (retryAfterMs: number) =>
+      Object.assign(new Error("busy"), {
+        status: 429,
+        errorCode: "gmail_quota_cooldown",
+        retryAfterMs,
+      });
+
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: cooldown(20_000),
+      }),
+    ).toBe(21_000);
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: cooldown(60 * 60_000),
+      }),
+    ).toBe(5 * 60_000);
+  });
 });
 
 describe("removal undo claim ownership", () => {
@@ -807,6 +831,30 @@ describe("apiFetch quota signaling", () => {
     await expect(apiFetch("/api/emails")).rejects.toMatchObject({
       status: 429,
       retryAfterMs: 45_000,
+    });
+  });
+
+  it("carries the typed cooldown fields from the response body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: "Email service is briefly busy.",
+            errorCode: "gmail_quota_cooldown",
+            retryAfterMs: 12_500,
+            cooldownUntil: 1_790_000_000_000,
+          }),
+          { status: 429, headers: { "Retry-After": "13" } },
+        ),
+      ),
+    );
+
+    await expect(apiFetch("/api/emails")).rejects.toMatchObject({
+      status: 429,
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 12_500,
+      cooldownUntil: 1_790_000_000_000,
     });
   });
 

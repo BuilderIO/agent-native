@@ -1,5 +1,18 @@
 # @agent-native/agentkit
 
+## 0.200.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 5113a23: Make follow-up queueing reliable, preserve each prompt's run options, and keep internal context out of user-visible text.
+
+## 0.199.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.198.8
 
 ### Patch Changes

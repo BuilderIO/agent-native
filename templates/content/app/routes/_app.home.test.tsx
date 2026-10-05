@@ -22,7 +22,7 @@ const {
   },
   searchParams: new URLSearchParams(),
   useLastLocationTitleHint: vi.fn(
-    () => null as null | { documentId: string; title: string },
+    () => null as null | undefined | { documentId: string; title: string },
   ),
 }));
 const landingOptions = vi.hoisted(() => ({
@@ -45,6 +45,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     landingOptions.current = options;
     return resolveLanding;
   },
+  useSession: () => ({
+    session: { email: "alice@example.com", orgId: "org-1" },
+  }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -60,6 +63,10 @@ vi.mock("@/hooks/use-documents", () => ({
   startPageOpenDocumentReads,
 }));
 
+vi.mock("@/components/layout/Header", () => ({
+  Header: () => <header data-testid="app-header" />,
+}));
+
 vi.mock("sonner", () => ({
   toast: { info: vi.fn() },
 }));
@@ -70,7 +77,7 @@ vi.mock("react-router", () => ({
   PrefetchPageLinks: () => null,
   useLocation: () => ({
     pathname: "/home",
-    search: "",
+    search: searchParams.size ? `?${searchParams}` : "",
     hash: "",
     state: locationState.current,
   }),
@@ -82,10 +89,13 @@ import {
   peekLandingTitleHint,
   stashLandingTitleHint,
 } from "@/lib/document-title-hint";
+import { rememberLastLocationHint } from "@/lib/last-location-hint";
+import { rememberPageIconRow } from "@/lib/page-icon-row-hint";
 
 import HomeRoute from "./_app.home";
 
 const queryClient = new QueryClient();
+const aliceScope = JSON.stringify(["alice@example.com", "org-1"]);
 
 function renderHome(root: Root) {
   act(() => {
@@ -107,6 +117,7 @@ describe("home landing route optimistic title", () => {
     searchParams.delete("spaceId");
     useLastLocationTitleHint.mockReturnValue(null);
     startPageOpenDocumentReads.mockReset();
+    localStorage.clear();
     locationState.current = null;
     navigate.mockReset();
     stashLandingTitleHint(null);
@@ -184,6 +195,55 @@ describe("home landing route optimistic title", () => {
       { pathname: "/page/doc-1", search: "", hash: "" },
       { replace: true },
     );
+  });
+
+  it("holds the body placeholder until a saved title names the page", () => {
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+    useLastLocationTitleHint.mockReturnValue(undefined);
+    renderHome(root);
+    expect(
+      container.querySelector('[data-startup-anchor="title"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-startup-anchor="body"]')).toBeNull();
+
+    useLastLocationTitleHint.mockReturnValue(null);
+    renderHome(root);
+    expect(container.querySelector('[data-startup-anchor="body"]')).toBeNull();
+
+    useLastLocationTitleHint.mockReturnValue({
+      documentId: "doc-1",
+      title: "Quarterly planning notes",
+    });
+    renderHome(root);
+    expect(
+      container.querySelector('[data-startup-anchor="body"]'),
+    ).not.toBeNull();
+  });
+
+  it("holds the remembered icon row of the page it expects to open", () => {
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+    rememberPageIconRow("doc-1", "icon");
+    useLastLocationTitleHint.mockReturnValue({
+      documentId: "doc-1",
+      title: "Quarterly planning notes",
+    });
+    renderHome(root);
+    expect(
+      container.querySelector('[data-startup-anchor="title"]')
+        ?.previousElementSibling?.firstElementChild?.className,
+    ).toContain("size-14");
+  });
+
+  it("draws the page placeholder without the app header, which messages get back", () => {
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+    renderHome(root);
+    expect(container.querySelector('[data-testid="app-header"]')).toBeNull();
+
+    resolveLanding.isError = true;
+    renderHome(root);
+    expect(
+      container.querySelector('[data-testid="app-header"]'),
+    ).not.toBeNull();
   });
 
   it("paints the persisted title immediately and hands it to the editor", async () => {
@@ -328,19 +388,53 @@ describe("home landing route optimistic title", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  it("does not guess a page for a workspace landing or an unavailable-page recovery", async () => {
+  it("starts this browser's last page at mount, before the saved location loads", async () => {
+    rememberLastLocationHint(aliceScope, "doc-2");
+    useLastLocationTitleHint.mockReturnValue(undefined);
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    expect(startPageOpenDocumentReads).toHaveBeenCalledWith(
+      queryClient,
+      "doc-2",
+      { databaseId: null, databaseDocumentId: null },
+    );
+
+    useLastLocationTitleHint.mockReturnValue({
+      documentId: "doc-1",
+      title: "Quarterly planning notes",
+    });
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    expect(startPageOpenDocumentReads).toHaveBeenLastCalledWith(
+      queryClient,
+      "doc-1",
+      { databaseId: null, databaseDocumentId: null },
+    );
+  });
+
+  it("ignores the last page another account opened in this browser", async () => {
+    rememberLastLocationHint(
+      JSON.stringify(["bob@example.com", "org-1"]),
+      "doc-2",
+    );
+    useLastLocationTitleHint.mockReturnValue(undefined);
+    resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
+
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    expect(startPageOpenDocumentReads).not.toHaveBeenCalled();
+  });
+
+  it("does not guess a page for a workspace landing", async () => {
+    rememberLastLocationHint(aliceScope, "doc-1");
     useLastLocationTitleHint.mockReturnValue({
       documentId: "doc-1",
       title: "Quarterly planning notes",
     });
     resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
     searchParams.set("spaceId", "space-2");
-    renderHome(root);
-    await act(async () => Promise.resolve());
-    expect(startPageOpenDocumentReads).not.toHaveBeenCalled();
-
-    searchParams.delete("spaceId");
-    locationState.current = { unavailableDocumentId: "doc-1" };
     renderHome(root);
     await act(async () => Promise.resolve());
     expect(startPageOpenDocumentReads).not.toHaveBeenCalled();

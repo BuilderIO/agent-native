@@ -308,6 +308,15 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(true);
   });
 
+  it("can keep the page history menu visible for an empty chat", () => {
+    expect(
+      shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0, true),
+    ).toBe(true);
+    expect(
+      shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 0),
+    ).toBe(false);
+  });
+
   it("keeps new chat out of the page canvas header by default", () => {
     expect(
       shouldDefaultAgentChatSurfacePageNewChatButton("page", undefined),

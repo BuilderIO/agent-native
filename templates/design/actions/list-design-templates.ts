@@ -29,6 +29,11 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async ({ category, includePreview, includeSavedPreview }) => {
     const db = getDb();
     const userEmail = getRequestUserEmail();

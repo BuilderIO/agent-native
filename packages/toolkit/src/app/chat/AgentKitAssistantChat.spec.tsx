@@ -41,7 +41,10 @@ const chatMocks = vi.hoisted(() => ({
   resumeProps: null as any,
   failureProps: null as any,
   failureError: { code: "test-error", message: "Run failed" } as any,
+  failureCopies: 1,
+  connectionError: null as any,
   setupCardProps: null as any,
+  providerGateProps: null as any,
   suggestionBarProps: null as any,
   dynamicSuggestionOptions: null as any,
   approvalRequest: null as any,
@@ -114,6 +117,7 @@ vi.mock("../agentkit/react/index.js", async () => {
       const EmptyState = slots?.emptyState;
       const Transcript = slots?.transcript;
       const Failure = slots?.runFailure;
+      const ConnectionError = slots?.connectionError;
       const Approval = slots?.approval;
       const MessageSupplement = slots?.messageSupplement;
       return React.createElement(
@@ -138,10 +142,22 @@ vi.mock("../agentkit/react/index.js", async () => {
             )
           : null,
         Failure
-          ? React.createElement(Failure, {
-              error: chatMocks.failureError,
-              runId: "run-1",
+          ? Array.from({ length: chatMocks.failureCopies }, (_, copy) =>
+              React.createElement(Failure, {
+                key: copy,
+                error: chatMocks.failureError,
+                runId: "run-1",
+                threadId: chatMocks.threadId,
+              }),
+            )
+          : null,
+        ConnectionError && chatMocks.connectionError
+          ? React.createElement(ConnectionError, {
+              error: chatMocks.connectionError,
               threadId: chatMocks.threadId,
+              recover: vi.fn(),
+              recovering: false,
+              recoveryError: null,
             })
           : null,
         Approval && chatMocks.approvalRequest
@@ -363,7 +379,25 @@ vi.mock("./agentkit-chat/index.js", async () => {
       React.createElement(React.Fragment, null, children),
     createAgentNativeAgentKitTransport: chatMocks.createTransport,
     findMcpConnectionSuggestionIntegration: () => null,
-    GuidedQuestionProviderGate: () => null,
+    GuidedQuestionProviderGate: (props: any) => {
+      chatMocks.providerGateProps = props;
+      return React.createElement(
+        "div",
+        { "data-testid": "provider-status-gate" },
+        React.createElement(
+          "span",
+          null,
+          props.modelListUnavailable
+            ? "agentChat.setup.modelListUnavailable"
+            : "agentChat.setup.providerStatusUnavailable",
+        ),
+        React.createElement(
+          "button",
+          { type: "button", onClick: props.onRetry },
+          "Retry",
+        ),
+      );
+    },
     GuidedQuestionFlow: (props: unknown) => {
       chatMocks.guidedFlowProps = props;
       return null;
@@ -455,7 +489,10 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   };
 });
 
-vi.mock("./chat/run-recovery.js", () => ({
+vi.mock("./chat/run-recovery.js", async (importOriginal) => ({
+  isMissingLlmProviderRunError: (
+    await importOriginal<typeof import("./chat/run-recovery.js")>()
+  ).isMissingLlmProviderRunError,
   RunErrorRecoveryCard: (props: unknown) => {
     chatMocks.failureProps = props;
     return null;
@@ -699,7 +736,10 @@ beforeEach(() => {
   chatMocks.resumeProps = null;
   chatMocks.failureProps = null;
   chatMocks.failureError = { code: "test-error", message: "Run failed" };
+  chatMocks.failureCopies = 1;
+  chatMocks.connectionError = null;
   chatMocks.setupCardProps = null;
+  chatMocks.providerGateProps = null;
   chatMocks.suggestionBarProps = null;
   chatMocks.dynamicSuggestionOptions = null;
   chatMocks.approvalRequest = null;
@@ -759,6 +799,33 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("asks for a title on the engine and model the first prompt was sent with", async () => {
+    const onGenerateTitle = vi.fn();
+    const props = baseProps({ onGenerateTitle });
+    await mount(props);
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [
+        {
+          id: "message-user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Write forty lines" }],
+          metadata: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...props} />);
+    });
+
+    expect(onGenerateTitle).toHaveBeenCalledWith(
+      chatMocks.threadId,
+      "Write forty lines",
+      { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+    );
+  });
+
   it("shows a retry when chat history fails to load", async () => {
     const retryHistory = vi.fn();
     chatMocks.history = {
@@ -894,11 +961,18 @@ describe("AgentKitAssistantChat host behavior", () => {
 
   async function useRealComposer(
     startRun: AgentTransport["startRun"] = vi.fn(),
+    transportOverrides: Partial<AgentTransport> = {},
   ) {
     const at = "2026-09-28T00:00:00.000Z";
+    const subscribeToRun =
+      transportOverrides.subscribeToRun ?? async function* () {};
     const client = new AgentKitClient({
       transport: {
-        capabilities: { suggestions: true },
+        ...transportOverrides,
+        capabilities: {
+          suggestions: true,
+          ...transportOverrides.capabilities,
+        },
         getThreadSnapshot: async ({ threadId }) => ({
           id: threadId,
           createdAt: at,
@@ -913,8 +987,8 @@ describe("AgentKitAssistantChat host behavior", () => {
           suggestions: chatMocks.thread.suggestions,
         }),
         startRun,
-        async *subscribeToRun() {},
-        async cancelRun() {},
+        subscribeToRun,
+        cancelRun: transportOverrides.cancelRun ?? (async () => {}),
       },
     });
     await client.loadThread(chatMocks.threadId);
@@ -922,6 +996,152 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.readThread = () => client.getThread(chatMocks.threadId);
     return client;
   }
+
+  it("queues a real composer submission while a run is active", async () => {
+    const at = "2026-09-28T00:00:00.000Z";
+    const activeRunFinished = Promise.withResolvers<void>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-active",
+    }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-1",
+          threadId,
+          text,
+          createdAt: at,
+        },
+      }),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      capabilities: { messageQueue: true },
+      queueMessage,
+      async *subscribeToRun({ threadId, runId }) {
+        await activeRunFinished.promise;
+        yield {
+          id: "event-run-completed",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: at,
+        };
+      },
+    });
+
+    try {
+      await client.sendMessage({
+        threadId: chatMocks.threadId,
+        text: "Current turn",
+      });
+      expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+        "run-active",
+      ]);
+
+      await mount(baseProps({ showModelSelector: false }));
+      const composer = chatMocks.composerProps.composerRef.current;
+      await act(async () => composer.setText("Next turn"));
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )!;
+      expect(send.disabled).toBe(false);
+
+      await act(async () => send.click());
+
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(queueMessage.mock.calls[0]?.[0]).toMatchObject({
+        threadId: chatMocks.threadId,
+        text: "Next turn",
+      });
+      expect(startRun).toHaveBeenCalledOnce();
+      expect(client.getThread(chatMocks.threadId).queuedMessages).toEqual([
+        expect.objectContaining({ text: "Next turn" }),
+      ]);
+    } finally {
+      activeRunFinished.resolve();
+      await flush();
+    }
+  });
+
+  it("uses Cmd-click to steer an active run without a second run-slot send", async () => {
+    const at = "2026-09-28T00:00:00.000Z";
+    const activeRunFinished = Promise.withResolvers<void>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-active",
+    }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-steer",
+          threadId,
+          text,
+          createdAt: at,
+        },
+      }),
+    );
+    const steerQueuedMessage = vi.fn<
+      NonNullable<AgentTransport["steerQueuedMessage"]>
+    >(async () => undefined);
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      capabilities: { messageQueue: true },
+      queueMessage,
+      steerQueuedMessage,
+      async *subscribeToRun({ threadId, runId }) {
+        await activeRunFinished.promise;
+        yield {
+          id: "event-run-completed",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: at,
+        };
+      },
+    });
+
+    try {
+      await client.sendMessage({
+        threadId: chatMocks.threadId,
+        text: "Current turn",
+      });
+      await mount(baseProps({ showModelSelector: false }));
+      await act(async () =>
+        chatMocks.composerProps.composerRef.current.setText("Steer this turn"),
+      );
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )!;
+
+      await act(async () => {
+        send.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            metaKey: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(steerQueuedMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: chatMocks.threadId,
+          messageId: "queued-steer",
+          interruptActiveRun: true,
+        }),
+        expect.anything(),
+      );
+      expect(startRun).toHaveBeenCalledOnce();
+      expect(client.getThread(chatMocks.threadId).queuedMessages).toEqual([]);
+    } finally {
+      activeRunFinished.resolve();
+      await flush();
+    }
+  });
 
   it("keeps the real editor editable while a submission is in flight", async () => {
     chatMocks.useRealChat = true;
@@ -1651,6 +1871,39 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(false);
   });
 
+  it("shows a model catalog retry instead of missing-provider setup", async () => {
+    const onRetryModelList = vi.fn();
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
+    await mount(
+      baseProps({
+        providerStatusChecksEnabled: true,
+        modelListError: true,
+        onRetryModelList,
+      }),
+    );
+
+    expect(chatMocks.setupCardProps).toBeNull();
+    expect(chatMocks.providerGateProps).toMatchObject({
+      modelListUnavailable: true,
+      providerStatus: "unavailable",
+    });
+    expect(container.textContent).toContain(
+      "agentChat.setup.modelListUnavailable",
+    );
+
+    const dispatchEvent = vi.spyOn(window, "dispatchEvent");
+    await act(async () => container.querySelector("button")?.click());
+    expect(onRetryModelList).toHaveBeenCalledOnce();
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-engine:configured-changed" }),
+    );
+    dispatchEvent.mockRestore();
+  });
+
   it("keeps the composer editable while provider readiness is checked", async () => {
     chatMocks.readiness = {
       canChat: false,
@@ -1780,13 +2033,13 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     await flush();
 
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledExactlyOnceWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         text: "Follow up after Analytics Add Panel",
         queuedWhileRunActive: true,
       }),
     );
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
     expect(chatMocks.appState.has(stateKey!)).toBe(false);
   });
 
@@ -2412,10 +2665,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         text: "Keep this selection",
         capturedAt: Date.now(),
       });
-      const send =
-        intent === "queued"
-          ? chatMocks.control.queueMessage
-          : chatMocks.control.sendMessage;
+      const send = chatMocks.control.sendMessage;
       send.mockRejectedValueOnce(new Error("Send refused"));
       await mount(baseProps());
       await flush();
@@ -3080,6 +3330,33 @@ describe("AgentKitAssistantChat host behavior", () => {
     window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
   });
 
+  it("reports an attachment with nothing to upload as its own failed-send reason", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const results: CustomEvent[] = [];
+    const listener = (event: Event) => results.push(event as CustomEvent);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+
+    await act(async () => {
+      await ref
+        .current!.sendMessage("Use my notes", undefined, {
+          submitMessageId: "submit-empty-attachment",
+          attachments: [{ type: "file", name: "notes.txt" }],
+        })
+        .catch(() => undefined);
+    });
+
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(results.map((event) => event.detail)).toEqual([
+      {
+        submitMessageId: "submit-empty-attachment",
+        delivered: false,
+        reason: "attachment-unreadable",
+      },
+    ]);
+  });
+
   it("returns typed rejection results for imperative sends while the engine is unavailable", async () => {
     chatMocks.readiness = {
       canChat: false,
@@ -3211,16 +3488,22 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
     });
 
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledTimes(2);
-    expect(chatMocks.control.queueMessage).toHaveBeenNthCalledWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chatMocks.control.sendMessage).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ text: "Next imperative turn" }),
+      expect.objectContaining({
+        text: "Next imperative turn",
+        queuedWhileRunActive: true,
+      }),
     );
-    expect(chatMocks.control.queueMessage).toHaveBeenNthCalledWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ text: "Next guided turn" }),
+      expect.objectContaining({
+        text: "Next guided turn",
+        queuedWhileRunActive: true,
+      }),
     );
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
   it("sends directly when a stale composer render outlives the queued run", async () => {
@@ -3243,7 +3526,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () => {
       await ref.current?.sendMessage("Queue while the follow-up is active");
     });
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: "Queue while the follow-up is active",
+      queuedWhileRunActive: true,
+    });
 
     chatMocks.thread.runs["run-queued-follow-up"].status = "completed";
     await act(async () => {
@@ -3253,7 +3540,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Send directly after completion" }),
     );
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chatMocks.control.sendMessage.mock.calls[1]?.[0]).toMatchObject({
+      text: "Send directly after completion",
+      queuedWhileRunActive: false,
+    });
   });
 
   it("queues an unresolved approval and sends directly after its resolution event", async () => {
@@ -3288,8 +3579,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () => {
       await ref.current?.sendMessage("Queue during approval");
     });
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Queue during approval" }),
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Queue during approval",
+        queuedWhileRunActive: true,
+      }),
     );
 
     chatMocks.thread.events.push({
@@ -3322,7 +3616,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Guided send after approval" }),
     );
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
   it("forwards slash commands, skills, and localized labels to AgentKit", async () => {
@@ -3491,9 +3785,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     expect(resume).toBeInstanceOf(Promise);
     await act(async () => resume);
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "Continue after connecting the integration.",
+        queuedWhileRunActive: true,
       }),
     );
 
@@ -3523,17 +3818,20 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
     });
 
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Continue after OAuth." }),
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Continue after OAuth.",
+        queuedWhileRunActive: true,
+      }),
     );
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
   it("keeps failed integration prompt submissions resumable", async () => {
     chatMocks.thread.activeRunIds = ["run-1"];
     const submissionError = new Error("Temporary send failure");
-    chatMocks.control.queueMessage.mockRejectedValueOnce(submissionError);
+    chatMocks.control.sendMessage.mockRejectedValueOnce(submissionError);
     await mount(baseProps());
 
     await expect(
@@ -4079,6 +4377,425 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(
       container.querySelectorAll('[data-testid="builder-setup-card"]'),
     ).toHaveLength(1);
+  });
+
+  it("answers a refused prompt in the thread when the host hides the composer setup card", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
+    chatMocks.failureError = {
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+      message: "Use Builder.io or a provider API key before chatting.",
+    };
+
+    await mount(
+      baseProps({
+        providerStatusChecksEnabled: true,
+        showMissingApiKeySetup: false,
+      }),
+    );
+
+    expect(
+      container.querySelectorAll('[data-testid="builder-setup-card"]'),
+    ).toHaveLength(1);
+    expect(chatMocks.setupCardProps.onRetry).toEqual(expect.any(Function));
+  });
+
+  it("sends a prompt refused for missing AI setup again, once, after setup becomes ready", async () => {
+    chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    chatMocks.failureError = {
+      code: "missing_credentials",
+      message: "No LLM provider is connected.",
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-refused",
+        role: "user",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Create a pitch deck" }],
+      },
+    ];
+    chatMocks.thread.runs = {
+      "run-1": {
+        id: "run-1",
+        status: "failed",
+        startedAt: "2026-10-01T00:00:00.000Z",
+      },
+    };
+    const props = baseProps({ providerStatusChecksEnabled: true });
+    await mount(props);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.text).toBe("Create a pitch deck");
+    expect(request.metadata).toMatchObject({
+      hideUserMessage: true,
+      custom: {
+        agentNativeRecoveryAction: "retry",
+        agentNativeRecoveryOfRunId: "run-1",
+      },
+    });
+  });
+
+  it("does not replay a refused prompt when the thread reopens already connected", async () => {
+    chatMocks.readiness = { canChat: false, missing: false, state: "unknown" };
+    chatMocks.failureError = {
+      code: "missing_credentials",
+      message: "No LLM provider is connected.",
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-refused",
+        role: "user",
+        parts: [{ type: "text", text: "Old prompt" }],
+      },
+    ];
+    const props = baseProps({ providerStatusChecksEnabled: true });
+    await mount(props);
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.setupCardProps.onRetry).toEqual(expect.any(Function));
+  });
+
+  const failedThenLaterRun = {
+    "run-1": {
+      id: "run-1",
+      status: "failed",
+      startedAt: "2026-10-01T00:00:00.000Z",
+    },
+    "run-2": {
+      id: "run-2",
+      status: "completed",
+      startedAt: "2026-10-01T00:01:00.000Z",
+    },
+  };
+
+  it("keeps an ordinary failure with Retry when a different run is retried", async () => {
+    chatMocks.failureError = { code: "test-error", message: "Run failed" };
+    chatMocks.thread.runs = failedThenLaterRun;
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry",
+        role: "user",
+        parts: [{ type: "text", text: "Later prompt" }],
+        metadata: { custom: { agentNativeRecoveryOfRunId: "run-2" } },
+      },
+    ];
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.onRetry).toEqual(expect.any(Function));
+  });
+
+  it("hides an ordinary failure once a persisted retry answers its run", async () => {
+    chatMocks.failureError = { code: "test-error", message: "Run failed" };
+    chatMocks.thread.runs = failedThenLaterRun;
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry",
+        role: "user",
+        parts: [{ type: "text", text: "Original prompt" }],
+        metadata: { custom: { agentNativeRecoveryOfRunId: "run-1" } },
+      },
+    ];
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps).toBeNull();
+  });
+
+  it("hides an AI-setup refusal once a later run supersedes it", async () => {
+    chatMocks.failureError = {
+      code: "missing_credentials",
+      message: "No LLM provider is connected.",
+    };
+    chatMocks.thread.runs = failedThenLaterRun;
+
+    await mount(baseProps());
+
+    expect(
+      container.querySelectorAll('[data-testid="builder-setup-card"]'),
+    ).toHaveLength(0);
+  });
+
+  describe("prompt refused for missing AI setup", () => {
+    const reference = { id: "reference-1", type: "document" };
+    const refusedMessage = {
+      id: "user-refused",
+      role: "user",
+      status: "error",
+      createdAt: new Date().toISOString(),
+      parts: [
+        { type: "text", text: "Create a pitch deck" },
+        {
+          type: "file",
+          name: "brief.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example.test/brief.pdf",
+        },
+      ],
+      metadata: {
+        model: "model-original",
+        engine: "engine-original",
+        effort: "high",
+        requestMode: "plan",
+        references: [reference],
+      },
+    };
+
+    async function connectAi(props: AgentKitAssistantChatProps) {
+      chatMocks.readiness = {
+        canChat: true,
+        missing: false,
+        state: "configured",
+      };
+      await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+      await flush();
+      await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+      await flush();
+    }
+
+    function refuse(error: { code: string; message: string }) {
+      chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+      chatMocks.thread.messages = [refusedMessage];
+      chatMocks.thread.runs = {
+        "run-1": {
+          id: "run-1",
+          status: "failed",
+          startedAt: "2026-10-01T00:00:00.000Z",
+        },
+      };
+      return error;
+    }
+
+    it("sends once when two cards show the same refusal", async () => {
+      chatMocks.failureError = refuse({
+        code: "missing_credentials",
+        message: "No LLM provider is connected.",
+      });
+      chatMocks.failureCopies = 2;
+      const props = baseProps({ providerStatusChecksEnabled: true });
+      await mount(props);
+
+      await connectAi(props);
+
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    });
+
+    it("does not send again when a persisted retry already answers the run", async () => {
+      chatMocks.failureError = refuse({
+        code: "missing_credentials",
+        message: "No LLM provider is connected.",
+      });
+      chatMocks.thread.messages = [
+        refusedMessage,
+        {
+          id: "user-retry",
+          role: "user",
+          parts: [{ type: "text", text: "Create a pitch deck" }],
+          metadata: {
+            hideUserMessage: true,
+            custom: { agentNativeRecoveryOfRunId: "run-1" },
+          },
+        },
+      ];
+      const props = baseProps({ providerStatusChecksEnabled: true });
+      await mount(props);
+
+      await connectAi(props);
+
+      expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      expect(
+        container.querySelectorAll('[data-testid="builder-setup-card"]'),
+      ).toHaveLength(0);
+    });
+
+    it("keeps references, model, effort and mode when the refusal arrives as a connection error", async () => {
+      chatMocks.connectionError = refuse({
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        message: "Use Builder.io or a provider API key before chatting.",
+      });
+      chatMocks.failureCopies = 0;
+      const props = baseProps({ providerStatusChecksEnabled: true });
+      await mount(props);
+
+      await connectAi(props);
+
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+      const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+      expect(request.text).toBe("Create a pitch deck");
+      expect(request.attachments).toEqual([
+        {
+          type: "file",
+          name: "brief.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example.test/brief.pdf",
+        },
+      ]);
+      expect(request.metadata).toMatchObject({
+        hideUserMessage: true,
+        model: "model-original",
+        engine: "engine-original",
+        effort: "high",
+        requestMode: "plan",
+        references: [reference],
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: "user-refused",
+        },
+      });
+    });
+
+    // What the server persists for a turn it refused, after a reload: no client
+    // error status, but the refusal marker, the run id and the retry context.
+    const reloadedRefusal = {
+      ...refusedMessage,
+      id: "server-user-turn-1",
+      status: undefined,
+      metadata: {
+        ...refusedMessage.metadata,
+        custom: {
+          submittedRunId: "turn-1",
+          submittedTurnId: "turn-1",
+          agentNativeRunNotStarted: true,
+        },
+      },
+    };
+
+    it("finds the refused prompt after a reload and resends it with its context, once per run", async () => {
+      chatMocks.connectionError = refuse({
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        message: "Use Builder.io or a provider API key before chatting.",
+      });
+      chatMocks.failureCopies = 0;
+      chatMocks.thread.messages = [reloadedRefusal];
+      const props = baseProps({ providerStatusChecksEnabled: true });
+      await mount(props);
+
+      await connectAi(props);
+
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+      const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+      expect(request.text).toBe("Create a pitch deck");
+      expect(request.metadata).toMatchObject({
+        model: "model-original",
+        engine: "engine-original",
+        effort: "high",
+        requestMode: "plan",
+        references: [reference],
+        custom: {
+          agentNativeRecoveryOfRunId: "turn-1",
+          agentNativeResumeAfterSetup: true,
+        },
+      });
+    });
+
+    it("resends a refused run's own prompt, not the thread's last one, and tags it as the resume", async () => {
+      chatMocks.failureError = refuse({
+        code: "missing_credentials",
+        message: "No LLM provider is connected.",
+      });
+      chatMocks.thread.messages = [
+        {
+          ...reloadedRefusal,
+          custom: undefined,
+          metadata: {
+            ...reloadedRefusal.metadata,
+            custom: {
+              ...reloadedRefusal.metadata.custom,
+              submittedRunId: "run-1",
+            },
+          },
+        },
+        {
+          id: "user-later",
+          role: "user",
+          parts: [{ type: "text", text: "A later prompt" }],
+        },
+      ];
+      chatMocks.thread.runs = {
+        "run-1": {
+          id: "run-1",
+          status: "failed",
+          startedAt: "2026-10-01T00:00:00.000Z",
+        },
+      };
+      const props = baseProps({ providerStatusChecksEnabled: true });
+      await mount(props);
+
+      await connectAi(props);
+
+      const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+      expect(request.text).toBe("Create a pitch deck");
+      expect(request.metadata.custom).toMatchObject({
+        agentNativeRecoveryOfRunId: "run-1",
+        agentNativeResumeAfterSetup: true,
+      });
+    });
+
+    it("does not tag a manual Retry as the after-setup resume", async () => {
+      chatMocks.failureError = { code: "test-error", message: "Run failed" };
+      chatMocks.thread.messages = [refusedMessage];
+      await mount(baseProps());
+
+      await act(async () => {
+        chatMocks.failureProps.onRetry();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+      expect(request.metadata.custom).toMatchObject({
+        agentNativeRecoveryAction: "retry",
+      });
+      expect(request.metadata.custom).not.toHaveProperty(
+        "agentNativeResumeAfterSetup",
+      );
+    });
+
+    it("does not resend an attachment that has nothing to upload", async () => {
+      chatMocks.connectionError = refuse({
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        message: "Use Builder.io or a provider API key before chatting.",
+      });
+      chatMocks.failureCopies = 0;
+      chatMocks.thread.messages = [
+        {
+          ...refusedMessage,
+          parts: [
+            { type: "text", text: "Create a pitch deck" },
+            { type: "file", name: "brief.pdf", mediaType: "application/pdf" },
+          ],
+        },
+      ];
+      const props = baseProps({ providerStatusChecksEnabled: true });
+      await mount(props);
+
+      await connectAi(props);
+
+      expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      expect(chatMocks.setupCardProps.onRetry).toBeUndefined();
+    });
   });
 
   it("lets a host suppress its duplicate missing-provider setup card", async () => {

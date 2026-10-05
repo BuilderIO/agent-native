@@ -170,6 +170,7 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/agentkit",
+        "@agent-native/core",
         "@assistant-ui/react",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",
@@ -388,6 +389,7 @@
         "@agent-native/core/client/sign-out",
         "@agent-native/core/client/uploads",
         "@agent-native/core/client/uploads/use-file-upload-status",
+        "@agent-native/core/client/use-chat-models",
         "@agent-native/core/demo/browser-state",
         "@agent-native/core/icons",
         "@agent-native/core/navigation",
@@ -686,6 +688,7 @@
         "@agent-native/core/shared/qa-test-email",
         "@agent-native/core/shared/runtime-config",
         "@agent-native/core/shared/sign-in-journey",
+        "@agent-native/core/shared/ssr-session-bootstrap",
         "@agent-native/core/shared/test-traffic"
       ]
     },

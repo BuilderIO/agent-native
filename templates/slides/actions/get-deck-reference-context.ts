@@ -108,6 +108,11 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async ({ id }) => {
     const access = await resolveAccess("deck", id);
     if (!access) {

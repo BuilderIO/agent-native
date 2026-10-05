@@ -197,6 +197,7 @@ const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
 const DUPLICATE_DRAG_THRESHOLD = 6;
 const DRAG_THRESHOLD = 3;
+const CROSS_SCREEN_MODIFIER_SNAPSHOT_TIMEOUT_MS = 50;
 
 function eventEpochMilliseconds(eventTimeStamp: number): number {
   return eventTimeStamp >= 1_000_000_000_000
@@ -295,10 +296,17 @@ import {
   getSelectionBoxTransition,
 } from "./multi-screen/chrome-transitions";
 import {
+  crossScreenDragStartedAt,
+  crossScreenIgnoreAutoLayoutAfterWindowBlur,
+  crossScreenReleaseModifiers,
+  crossScreenSKeyHeldFromTimes,
+  crossScreenSKeyTimesAfterKeyChange,
+  isCrossScreenModifierFromActiveSourceIframe,
   isCrossScreenIgnoreAutoLayoutHeldAtRelease,
   mergeCrossScreenReleaseModifiers,
   seedCrossScreenSKeyTimesAtStart,
   shouldClearCrossScreenSKeyTimesOnWindowBlur,
+  type CrossScreenModifierState,
 } from "./multi-screen/cross-screen-modifiers";
 import {
   getCornerHandleGeometry,
@@ -371,12 +379,15 @@ import {
 } from "./multi-screen/coordinate-transforms";
 import {
   captureCrossScreenSourceHtmlSnapshot,
+  getBoardDropRoute,
+  getCrossScreenSourceGeometry,
   getCrossScreenDropGuideForHitTest,
   getCrossScreenDropGuideStyle,
   getCrossScreenGhostStyle,
   isCrossScreenDropAxis,
   isCrossScreenDropMode,
   isCrossScreenDropPlacement,
+  isCrossScreenGridPlacement,
   isCrossScreenHitTestAnchorRect,
   isFinitePoint,
   isPointerInsideSourceIframe,
@@ -697,30 +708,77 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     string | null
   >(null);
   const boardCrossScreenDropPendingRef = useRef(false);
+  const boardCrossScreenDropPendingSeqsRef = useRef(new Set<number>());
   const boardCrossScreenDropTransactionRef = useRef<string | null>(null);
-  const boardCrossScreenDropTimeoutTransactionRef = useRef<string | null>(null);
-  const boardCrossScreenDropTimeoutRef = useRef<number | null>(null);
+  const boardCrossScreenDropTransactionSeqRef = useRef(
+    new Map<string, number>(),
+  );
+  const boardCrossScreenDropTimeoutsRef = useRef(new Map<string, number>());
   const onBoardRuntimeStructureInsertRejectedRef = useRef(
     onBoardRuntimeStructureInsertRejected,
   );
   onBoardRuntimeStructureInsertRejectedRef.current =
     onBoardRuntimeStructureInsertRejected;
   const finishBoardCrossScreenDrop = useCallback(
-    (options?: { preserveTransaction?: boolean; force?: boolean }) => {
-      if (!boardCrossScreenDropPendingRef.current && !options?.force) return;
-      boardCrossScreenDropPendingRef.current = false;
-      if (boardCrossScreenDropTimeoutRef.current !== null) {
-        window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
-        boardCrossScreenDropTimeoutRef.current = null;
+    (options?: {
+      dropSeq?: number;
+      transactionId?: string;
+      preserveTransaction?: boolean;
+      force?: boolean;
+    }) => {
+      const pendingDropSeqs = boardCrossScreenDropPendingSeqsRef.current;
+      const transactionId = options?.transactionId;
+      const dropSeq =
+        options?.dropSeq ??
+        (transactionId
+          ? boardCrossScreenDropTransactionSeqRef.current.get(transactionId)
+          : undefined);
+      if (dropSeq !== undefined) pendingDropSeqs.delete(dropSeq);
+      if (transactionId) {
+        boardCrossScreenDropTransactionSeqRef.current.delete(transactionId);
+      } else if (dropSeq === undefined) {
+        if (!boardCrossScreenDropPendingRef.current && !options?.force) return;
+        pendingDropSeqs.clear();
+        boardCrossScreenDropTransactionSeqRef.current.clear();
       }
-      boardCrossScreenDropTimeoutTransactionRef.current = null;
-      if (!options?.preserveTransaction) {
+
+      if (transactionId) {
+        const timeoutId =
+          boardCrossScreenDropTimeoutsRef.current.get(transactionId);
+        if (timeoutId !== undefined) {
+          window.clearTimeout(timeoutId);
+          boardCrossScreenDropTimeoutsRef.current.delete(transactionId);
+        }
+      } else if (dropSeq === undefined) {
+        for (const timeoutId of boardCrossScreenDropTimeoutsRef.current.values()) {
+          window.clearTimeout(timeoutId);
+        }
+        boardCrossScreenDropTimeoutsRef.current.clear();
+      }
+      if (
+        !options?.preserveTransaction &&
+        transactionId &&
+        boardCrossScreenDropTransactionRef.current === transactionId
+      ) {
         boardCrossScreenDropTransactionRef.current = null;
       }
-      setCrossScreenDragActive(false);
+      boardCrossScreenDropPendingRef.current = pendingDropSeqs.size > 0;
+      setCrossScreenDragActive(boardCrossScreenDropPendingRef.current);
     },
     [],
   );
+  const finishTrackedBoardCrossScreenDrop = (transactionId?: string) => {
+    if (
+      !transactionId ||
+      !boardCrossScreenDropTransactionSeqRef.current.has(transactionId)
+    ) {
+      return;
+    }
+    finishBoardCrossScreenDrop({
+      transactionId,
+      preserveTransaction: true,
+    });
+  };
   useEffect(() => {
     const transactionId = boardRuntimeStructureInsertRequest?.transactionId;
     if (!transactionId || !boardCrossScreenDropPendingRef.current) return;
@@ -728,9 +786,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [boardRuntimeStructureInsertRequest]);
   useEffect(
     () => () => {
-      if (boardCrossScreenDropTimeoutRef.current !== null) {
-        window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+      for (const timeoutId of boardCrossScreenDropTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId);
       }
+      boardCrossScreenDropTimeoutsRef.current.clear();
     },
     [],
   );
@@ -1200,6 +1259,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const crossScreenHitTestSeqRef = useRef(0);
   const crossScreenPreviewGenerationRef = useRef(0);
   const crossScreenDropSeqRef = useRef(0);
+  const crossScreenCommittedDropSeqsRef = useRef(new Set<number>());
   const crossScreenEndSeenRef = useRef(false);
   const crossScreenHostCommittedRef = useRef(false);
   const crossScreenIgnoreAutoLayoutRef = useRef(false);
@@ -1207,11 +1267,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     downAt: number | null;
     upAt: number | null;
   }>({ downAt: null, upAt: null });
+  const crossScreenModifierProbesRef = useRef(
+    new Map<
+      string,
+      {
+        sourceIframeId: string;
+        timeoutId: number;
+        removeBlurListener: () => void;
+        resolve: (snapshot?: {
+          ignoreAutoLayout: boolean;
+          changedAt?: number;
+        }) => void;
+      }
+    >(),
+  );
   const crossScreenSKeyPressedRef = useRef(false);
   const crossScreenControlPressedRef = useRef(false);
   const canvasMountedRef = useRef(true);
   const crossScreenPreviewTargetIdRef = useRef<string | null>(null);
   const crossScreenDragMsgRef = useRef<{
+    sourceScreenId: string;
+    sourceIframeId: string;
     selector: string;
     sourceId?: string;
     sourceDeleteRequestId?: string;
@@ -1219,6 +1295,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     sourcePointerOffset?: Point;
     sourceElementSize?: { width: number; height: number };
     sourceComputedSize?: { width?: number; height?: number };
+    sourceGridSpan?: { columns: number; rows: number };
     modifiers?: {
       metaKey?: boolean;
       ctrlKey?: boolean;
@@ -1231,6 +1308,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     styleSnapshot?: PortableStyleSnapshot;
     styleSnapshotCaptureFailed?: boolean;
   } | null>(null);
+  const crossScreenReleasedDropsRef = useRef(
+    new Map<number, NonNullable<(typeof crossScreenDragMsgRef)["current"]>>(),
+  );
   const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
   const crossScreenSourceFrameAtStartRef = useRef<{
     screenId: string;
@@ -2562,6 +2642,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     canvasMountedRef.current = true;
     return () => {
       canvasMountedRef.current = false;
+      for (const pending of crossScreenModifierProbesRef.current.values()) {
+        window.clearTimeout(pending.timeoutId);
+        pending.removeBlurListener();
+      }
+      crossScreenModifierProbesRef.current.clear();
+      crossScreenCommittedDropSeqsRef.current.clear();
+      crossScreenReleasedDropsRef.current.clear();
+      for (const timeoutId of boardCrossScreenDropTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      boardCrossScreenDropTimeoutsRef.current.clear();
     };
   }, []);
 
@@ -2603,6 +2694,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenParentDragCleanupRef.current = null;
     };
 
+    const settleCrossScreenModifierProbe = (
+      requestId: string,
+      snapshot?: { ignoreAutoLayout: boolean; changedAt?: number },
+    ) => {
+      const pending = crossScreenModifierProbesRef.current.get(requestId);
+      if (!pending) return;
+      window.clearTimeout(pending.timeoutId);
+      pending.removeBlurListener();
+      crossScreenModifierProbesRef.current.delete(requestId);
+      pending.resolve(snapshot);
+    };
+
+    const settleAllCrossScreenModifierProbes = () => {
+      for (const requestId of crossScreenModifierProbesRef.current.keys()) {
+        settleCrossScreenModifierProbe(requestId);
+      }
+    };
+
     const postCrossScreenClaim = (sourceScreenId: string, claimed: boolean) => {
       const sourceScreen = screensRef.current.find(
         (item) => item.id === sourceScreenId,
@@ -2640,8 +2749,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenDragMsgRef.current = null;
       crossScreenSourceFrameAtStartRef.current = null;
       if (!options?.keepBoardMounted) {
-        finishBoardCrossScreenDrop();
-        setCrossScreenDragActive(false);
+        boardCrossScreenDropPendingRef.current =
+          boardCrossScreenDropPendingSeqsRef.current.size > 0;
+        setCrossScreenDragActive(boardCrossScreenDropPendingRef.current);
       }
       crossScreenLastBoardPointRef.current = null;
       crossScreenLastHitResultRef.current.clear();
@@ -2663,7 +2773,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         timeoutMs?: number;
         previewGeneration?: number;
         previewRequestSeq?: number;
+        sourceScreenId?: string;
         sourceElementSize?: { width: number; height: number };
+        sourceGridSpan?: { columns: number; rows: number };
         modifiers?: {
           metaKey?: boolean;
           ctrlKey?: boolean;
@@ -2677,7 +2789,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
       const targetIsBoard = candidate.id === boardFileId;
       if (!targetScreen && !targetIsBoard) return Promise.resolve({});
-      if (targetIsBoard && !boardSurfaceRenderGeometry) {
+      if (
+        targetIsBoard &&
+        getBoardDropRoute({
+          point: boardPoint,
+          viewportGeometry: boardViewportGeometry,
+          renderGeometry: boardSurfaceRenderGeometry,
+          sourceScreenGeometry:
+            options.sourceScreenId && options.sourceScreenId !== boardFileId
+              ? getCrossScreenSourceGeometry({
+                  renderedGeometry:
+                    renderedFrameGeometryRef.current[options.sourceScreenId],
+                  persistedGeometry:
+                    frameGeometryRef.current[options.sourceScreenId],
+                })
+              : undefined,
+        }) !== "board-hit-test"
+      ) {
         return Promise.resolve({});
       }
       const targetIframe = targetIsBoard
@@ -2720,7 +2848,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const modifiers = {
         ...options.modifiers,
         ignoreAutoLayout:
-          options.modifiers?.ignoreAutoLayout === true ||
+          options.modifiers?.ignoreAutoLayout ??
           crossScreenIgnoreAutoLayoutRef.current,
       };
 
@@ -2768,14 +2896,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             placement: isCrossScreenDropPlacement(ev.data.placement)
               ? ev.data.placement
               : undefined,
+            guidePlacement: isCrossScreenDropPlacement(ev.data.guidePlacement)
+              ? ev.data.guidePlacement
+              : undefined,
             axis: isCrossScreenDropAxis(ev.data.axis)
               ? ev.data.axis
               : undefined,
             dropMode: isCrossScreenDropMode(ev.data.dropMode)
               ? ev.data.dropMode
               : undefined,
+            gridPlacement: isCrossScreenGridPlacement(ev.data.gridPlacement)
+              ? ev.data.gridPlacement
+              : undefined,
             anchorRect: isCrossScreenHitTestAnchorRect(ev.data.anchorRect)
               ? ev.data.anchorRect
+              : undefined,
+            guideRect: isCrossScreenHitTestAnchorRect(ev.data.guideRect)
+              ? ev.data.guideRect
               : undefined,
           };
           if (
@@ -2807,6 +2944,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             y: localPoint.y,
             preview: options.preview === true,
             sourceElementSize: options.sourceElementSize,
+            sourceGridSpan: options.sourceGridSpan,
             modifiers,
           },
           "*",
@@ -2848,7 +2986,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         preview: true,
         previewGeneration,
         previewRequestSeq: requestSeq,
+        sourceScreenId: crossScreenDragMsgRef.current?.sourceScreenId,
         sourceElementSize: crossScreenDragMsgRef.current?.sourceElementSize,
+        sourceGridSpan: crossScreenDragMsgRef.current?.sourceGridSpan,
         modifiers: crossScreenDragMsgRef.current?.modifiers,
       }).then((hit) => {
         if (crossScreenPreviewGenerationRef.current !== previewGeneration) {
@@ -3035,6 +3175,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const target = getFrameEntryAtPoint(boardPoint, {
         excludeId: sourceScreenId,
       });
+      const boardDropRoute =
+        (sourceScreenId !== boardFileId ||
+          crossScreenDragMsgRef.current?.duplicate === true) &&
+        boardFileId &&
+        boardFrameGeometry
+          ? getBoardDropRoute({
+              point: boardPoint,
+              viewportGeometry: boardViewportGeometry,
+              renderGeometry: boardSurfaceRenderGeometry,
+              sourceScreenGeometry:
+                sourceScreenId === boardFileId
+                  ? undefined
+                  : getCrossScreenSourceGeometry({
+                      renderedGeometry:
+                        renderedFrameGeometryRef.current[sourceScreenId],
+                      persistedGeometry:
+                        frameGeometryRef.current[sourceScreenId],
+                    }),
+            })
+          : null;
       traceOnce(
         crossScreenResolveTraceRef,
         "drop",
@@ -3057,15 +3217,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         crossScreenTargetRef.current = nextTarget;
         setCrossScreenTarget(nextTarget);
-        claimCrossScreenDrop(sourceScreenId, nextTarget.id !== sourceScreenId);
+        claimCrossScreenDrop(
+          sourceScreenId,
+          nextTarget.id !== sourceScreenId ||
+            (nextTarget.id === boardFileId &&
+              crossScreenDragMsgRef.current?.duplicate === true),
+        );
         setCrossScreenGhost(buildCrossScreenGhost(boardPoint, sourceScreenId));
         requestCrossScreenDropGuide(nextTarget, boardPoint);
       } else if (
-        sourceScreenId !== boardFileId &&
+        (sourceScreenId !== boardFileId ||
+          crossScreenDragMsgRef.current?.duplicate === true) &&
         boardFileId &&
         boardFrameGeometry &&
-        boardSurfaceRenderGeometry &&
-        geometryContainsPoint(boardSurfaceRenderGeometry, boardPoint)
+        boardDropRoute
       ) {
         const nextTarget = { id: boardFileId, geometry: boardFrameGeometry };
         if (crossScreenTargetRef.current?.id !== boardFileId) {
@@ -3073,7 +3238,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         crossScreenTargetRef.current = nextTarget;
         setCrossScreenTarget(nextTarget);
-        claimCrossScreenDrop(sourceScreenId, nextTarget.id !== sourceScreenId);
+        claimCrossScreenDrop(
+          sourceScreenId,
+          nextTarget.id !== sourceScreenId ||
+            (nextTarget.id === boardFileId &&
+              crossScreenDragMsgRef.current?.duplicate === true),
+        );
         setCrossScreenGhost(buildCrossScreenGhost(boardPoint, sourceScreenId));
         requestCrossScreenDropGuide(nextTarget, boardPoint);
       } else {
@@ -3097,6 +3267,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         sourcePointerOffset?: Point;
         sourceElementSize?: { width: number; height: number };
         sourceComputedSize?: { width?: number; height?: number };
+        sourceGridSpan?: { columns: number; rows: number };
         modifiers?: {
           metaKey?: boolean;
           ctrlKey?: boolean;
@@ -3111,6 +3282,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       },
       lastBoardPoint: Point | null,
       releasedAt?: number,
+      releaseModifiers?: CrossScreenModifierState,
+      sKeyTimesAtRelease = { ...crossScreenSKeyTimesRef.current },
+      dropSeq = crossScreenDropSeqRef.current,
     ) => {
       dndHostLog("overview:finalize", {
         sourceScreenId,
@@ -3118,22 +3292,40 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastBoardPoint,
         selector: payload.selector,
       });
-      const sKeyTimes = crossScreenSKeyTimesRef.current;
+      const sKeyTimes = sKeyTimesAtRelease;
+      payload.modifiers = mergeCrossScreenReleaseModifiers(
+        payload.modifiers,
+        releaseModifiers,
+      );
       const ignoreAutoLayoutAtRelease =
         isCrossScreenIgnoreAutoLayoutHeldAtRelease(
           releasedAt,
           sKeyTimes,
           payload.modifiers?.ignoreAutoLayout === true,
+          releaseModifiers?.ignoreAutoLayout,
         );
       payload.modifiers = {
         ...payload.modifiers,
         ignoreAutoLayout: ignoreAutoLayoutAtRelease,
       };
-      crossScreenEndSeenRef.current = true;
-      const dropSeq = crossScreenDropSeqRef.current;
+      if (crossScreenDropSeqRef.current === dropSeq) {
+        crossScreenEndSeenRef.current = true;
+        crossScreenLastBoardPointRef.current = null;
+      }
+      crossScreenCommittedDropSeqsRef.current.add(dropSeq);
       const isCurrentDrop = () =>
-        canvasMountedRef.current && crossScreenDropSeqRef.current === dropSeq;
-      crossScreenLastBoardPointRef.current = null;
+        canvasMountedRef.current &&
+        (crossScreenDropSeqRef.current === dropSeq ||
+          crossScreenCommittedDropSeqsRef.current.has(dropSeq));
+      const finishCommittedDrop = () => {
+        crossScreenCommittedDropSeqsRef.current.delete(dropSeq);
+        crossScreenReleasedDropsRef.current.delete(dropSeq);
+      };
+      const clearCurrentDrop = (options?: { keepBoardMounted?: boolean }) => {
+        if (crossScreenDropSeqRef.current === dropSeq) {
+          clearCrossScreenDrag(options);
+        }
+      };
       const hasIdentifier = !!(payload.selector || payload.sourceId);
       const sourceDeleteCandidates = [
         payload.selector,
@@ -3151,46 +3343,69 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       };
       if (!hasIdentifier || !sourceScreenId) {
         cancelPendingSourceDelete();
-        clearCrossScreenDrag();
+        finishCommittedDrop();
+        clearCurrentDrop();
         return;
       }
       if (!lastBoardPoint) {
         cancelPendingSourceDelete();
-        clearCrossScreenDrag();
+        finishCommittedDrop();
+        clearCurrentDrop();
         return;
       }
-      const sourceFrameGeometry = frameGeometryRef.current?.[sourceScreenId];
+      const sourceFrameGeometry = getCrossScreenSourceGeometry({
+        renderedGeometry: renderedFrameGeometryRef.current[sourceScreenId],
+        persistedGeometry: frameGeometryRef.current[sourceScreenId],
+      });
+      const boardDropRoute =
+        boardFileId &&
+        (sourceScreenId !== boardFileId || payload.duplicate) &&
+        boardFrameGeometry
+          ? getBoardDropRoute({
+              point: lastBoardPoint,
+              viewportGeometry: boardViewportGeometry,
+              renderGeometry: boardSurfaceRenderGeometry,
+              sourceScreenGeometry:
+                sourceScreenId === boardFileId
+                  ? undefined
+                  : getCrossScreenSourceGeometry({
+                      renderedGeometry:
+                        renderedFrameGeometryRef.current[sourceScreenId],
+                      persistedGeometry:
+                        frameGeometryRef.current[sourceScreenId],
+                    }),
+            })
+          : null;
+      const boardCanvasHit = boardDropRoute !== null;
+      const sameBoardDuplicateHit =
+        sourceScreenId === boardFileId && payload.duplicate && boardCanvasHit;
+      const resolvedCandidate =
+        candidate?.id === boardFileId && !boardCanvasHit ? null : candidate;
       const droppedInsideSourceScreen =
-        !candidate &&
+        !resolvedCandidate &&
+        !sameBoardDuplicateHit &&
         !!sourceFrameGeometry &&
-        lastBoardPoint.x >= sourceFrameGeometry.x &&
-        lastBoardPoint.x <= sourceFrameGeometry.x + sourceFrameGeometry.width &&
-        lastBoardPoint.y >= sourceFrameGeometry.y &&
-        lastBoardPoint.y <= sourceFrameGeometry.y + sourceFrameGeometry.height;
-      if (droppedInsideSourceScreen) {
-        cancelPendingSourceDelete();
-        clearCrossScreenDrag();
-        return;
-      }
+        geometryContainsPoint(sourceFrameGeometry, lastBoardPoint);
       trace("drop", "finalize", {
-        candidate: candidate?.id ?? null,
+        candidate: resolvedCandidate?.id ?? null,
         sourceScreen: sourceScreenId,
+        boardDropRoute,
         droppedInsideSourceScreen,
         outcome: droppedInsideSourceScreen
           ? "discarded — pointer never left the source screen"
-          : candidate
+          : resolvedCandidate
             ? "moving into candidate"
             : "no candidate — refused unless over the board surface",
       });
-      const boardSurfaceHit =
-        !!boardFileId &&
-        sourceScreenId !== boardFileId &&
-        !!boardFrameGeometry &&
-        !!boardSurfaceRenderGeometry &&
-        geometryContainsPoint(boardSurfaceRenderGeometry, lastBoardPoint);
+      if (droppedInsideSourceScreen) {
+        cancelPendingSourceDelete();
+        finishCommittedDrop();
+        clearCurrentDrop();
+        return;
+      }
       const targetCandidate =
-        candidate ??
-        (boardSurfaceHit && boardFileId && boardFrameGeometry
+        resolvedCandidate ??
+        (boardCanvasHit && boardFileId && boardFrameGeometry
           ? { id: boardFileId, geometry: boardFrameGeometry }
           : null);
       if (!targetCandidate) {
@@ -3200,46 +3415,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           lastBoardPoint,
         });
         cancelPendingSourceDelete();
-        clearCrossScreenDrag();
+        finishCommittedDrop();
+        clearCurrentDrop();
         return;
       }
-      crossScreenHostCommittedRef.current = true;
-      if (targetCandidate.id === boardFileId) {
-        boardCrossScreenDropTransactionRef.current = null;
-        boardCrossScreenDropPendingRef.current = true;
-        boardCrossScreenDropTimeoutTransactionRef.current = null;
-        if (boardCrossScreenDropTimeoutRef.current !== null) {
-          window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
-        }
-        const expireBoardCrossScreenDrop = () => {
-          if (!boardCrossScreenDropPendingRef.current) return;
-          crossScreenDropSeqRef.current += 1;
-          const transactionId =
-            boardCrossScreenDropTimeoutTransactionRef.current;
-          if (
-            transactionId &&
-            boardCrossScreenDropTransactionRef.current === transactionId
-          ) {
-            onBoardRuntimeStructureInsertRejectedRef.current?.(
-              "board-drop-timeout",
-              transactionId,
-            );
-            return;
-          }
-          finishBoardCrossScreenDrop();
-        };
-        boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
-          expireBoardCrossScreenDrop();
-        }, CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
+      if (crossScreenDropSeqRef.current === dropSeq) {
+        crossScreenHostCommittedRef.current = true;
       }
-      clearCrossScreenDrag({
+      if (targetCandidate.id === boardFileId) {
+        boardCrossScreenDropPendingSeqsRef.current.add(dropSeq);
+        boardCrossScreenDropPendingRef.current = true;
+      }
+      clearCurrentDrop({
         keepBoardMounted: targetCandidate.id === boardFileId,
       });
 
       if (targetCandidate.id === boardFileId) {
         void runHitTest(targetCandidate, lastBoardPoint, {
           timeoutMs: HIT_TEST_COMMIT_TIMEOUT_MS,
+          sourceScreenId,
           sourceElementSize: payload.sourceElementSize,
+          sourceGridSpan: payload.sourceGridSpan,
           modifiers: payload.modifiers,
         }).then(
           ({
@@ -3249,17 +3445,48 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             anchorSelector,
             placement,
             dropMode,
+            gridPlacement,
             anchorRect,
           }) => {
             if (!isCurrentDrop()) {
+              finishCommittedDrop();
               cancelPendingSourceDelete();
+              if (targetCandidate.id === boardFileId) {
+                finishBoardCrossScreenDrop({ dropSeq });
+              }
               return;
             }
+            finishCommittedDrop();
             const hasAnchor = Boolean(
               anchorNodeId || pendingNodeId || anchorSelector,
             );
+            const targetLocalPoint = boardSurfaceRenderGeometry
+              ? boardPointToBoardSurfaceLocalPoint(
+                  lastBoardPoint,
+                  boardSurfaceRenderGeometry,
+                )
+              : lastBoardPoint;
+            const targetOutsideBoardRenderGeometry =
+              boardSurfaceRenderGeometry !== undefined &&
+              !geometryContainsPoint(
+                boardSurfaceRenderGeometry,
+                lastBoardPoint,
+              );
             const transactionBeforeDrop =
               runtimeStructurePendingTransactionRef?.current ?? null;
+            trace("drop", "board-commit-point", {
+              targetCanvasPoint: lastBoardPoint,
+              targetLocalPoint,
+              targetOutsideBoardRenderGeometry,
+              boardSurfaceRenderOrigin: boardSurfaceRenderGeometry
+                ? {
+                    x: boardSurfaceRenderGeometry.x,
+                    y: boardSurfaceRenderGeometry.y,
+                  }
+                : null,
+              sourcePointerOffset: payload.sourcePointerOffset ?? null,
+              hasAnchor,
+            });
             onCrossScreenElementDropRef.current?.({
               sourceSelector: payload.selector,
               sourceNodeId: payload.sourceId,
@@ -3273,15 +3500,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               targetAnchorSelector: anchorSelector,
               targetAnchorPlacement: placement,
               targetDropMode: dropMode,
+              targetGridPlacement: gridPlacement,
               targetAnchorRect: anchorRect,
               targetCanvasPoint: lastBoardPoint,
-              targetLocalPoint:
-                hasAnchor && boardSurfaceRenderGeometry
-                  ? boardPointToBoardSurfaceLocalPoint(
-                      lastBoardPoint,
-                      boardSurfaceRenderGeometry,
-                    )
-                  : lastBoardPoint,
+              targetLocalPoint,
+              targetOutsideBoardRenderGeometry,
               sourcePointerOffset: payload.sourcePointerOffset,
               sourceComputedSize: payload.sourceComputedSize,
               sourceHtmlSnapshot: payload.sourceHtmlSnapshot,
@@ -3297,16 +3520,59 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               transactionAfterDrop !== transactionBeforeDrop
             ) {
               boardCrossScreenDropTransactionRef.current = transactionAfterDrop;
-              boardCrossScreenDropTimeoutTransactionRef.current =
-                transactionAfterDrop;
+              boardCrossScreenDropTransactionSeqRef.current.set(
+                transactionAfterDrop,
+                dropSeq,
+              );
+              const existingTimeoutId =
+                boardCrossScreenDropTimeoutsRef.current.get(
+                  transactionAfterDrop,
+                );
+              if (existingTimeoutId !== undefined) {
+                window.clearTimeout(existingTimeoutId);
+              }
+              const timeoutId = window.setTimeout(() => {
+                if (
+                  boardCrossScreenDropTimeoutsRef.current.get(
+                    transactionAfterDrop,
+                  ) !== timeoutId
+                ) {
+                  return;
+                }
+                boardCrossScreenDropTimeoutsRef.current.delete(
+                  transactionAfterDrop,
+                );
+                const rollbackScheduled =
+                  onBoardRuntimeStructureInsertRejectedRef.current?.(
+                    "board-drop-timeout",
+                    transactionAfterDrop,
+                  ) === true;
+                if (!rollbackScheduled) {
+                  setBoardRuntimeSurfaceActive(null);
+                  finishBoardCrossScreenDrop({
+                    transactionId: transactionAfterDrop,
+                  });
+                }
+              }, CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
+              boardCrossScreenDropTimeoutsRef.current.set(
+                transactionAfterDrop,
+                timeoutId,
+              );
             } else {
               finishBoardCrossScreenDrop({
+                dropSeq,
                 preserveTransaction: transactionBeforeDrop !== null,
               });
               cancelPendingSourceDelete();
             }
           },
-          () => cancelPendingSourceDelete(),
+          () => {
+            finishCommittedDrop();
+            cancelPendingSourceDelete();
+            if (targetCandidate.id === boardFileId) {
+              finishBoardCrossScreenDrop({ dropSeq });
+            }
+          },
         );
         return;
       }
@@ -3314,6 +3580,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       void runHitTest(targetCandidate, lastBoardPoint, {
         timeoutMs: HIT_TEST_COMMIT_TIMEOUT_MS,
         sourceElementSize: payload.sourceElementSize,
+        sourceGridSpan: payload.sourceGridSpan,
         modifiers: payload.modifiers,
       }).then(
         ({
@@ -3323,12 +3590,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           anchorSelector,
           placement,
           dropMode,
+          gridPlacement,
           anchorRect,
         }) => {
           if (!isCurrentDrop()) {
+            finishCommittedDrop();
             cancelPendingSourceDelete();
             return;
           }
+          finishCommittedDrop();
           const targetAnchorPlacement = isCrossScreenDropPlacement(placement)
             ? placement
             : undefined;
@@ -3351,6 +3621,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             targetAnchorSelector: anchorSelector,
             targetAnchorPlacement,
             targetDropMode: dropMode,
+            targetGridPlacement: gridPlacement,
             targetAnchorRect: anchorRect,
             targetCanvasPoint: lastBoardPoint,
             targetLocalPoint: targetLocalPoint ?? undefined,
@@ -3371,14 +3642,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             cancelPendingSourceDelete();
           }
         },
-        () => cancelPendingSourceDelete(),
+        () => {
+          finishCommittedDrop();
+          cancelPendingSourceDelete();
+          if (targetCandidate.id === boardFileId) {
+            finishBoardCrossScreenDrop({ dropSeq });
+          }
+        },
       );
     };
 
     const handleMessage = (event: MessageEvent) => {
-      if (!event.data || event.data.type !== "agent-native:cross-screen-drag") {
-        return;
-      }
+      if (!event.data) return;
       const surfaceForSourceCheck = surfaceRef.current;
       const sourcePreviewIframe = surfaceForSourceCheck
         ? Array.from(
@@ -3388,6 +3663,72 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ).find((iframe) => iframe.contentWindow === event.source)
         : undefined;
       if (!sourcePreviewIframe) return;
+      if (event.data.type === "agent-native:cross-screen-modifier-snapshot") {
+        const requestId = event.data.requestId;
+        const pending =
+          typeof requestId === "string"
+            ? crossScreenModifierProbesRef.current.get(requestId)
+            : undefined;
+        const senderIframeId =
+          sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
+          boardFileId ??
+          undefined;
+        if (
+          !pending ||
+          !isCrossScreenModifierFromActiveSourceIframe(
+            pending.sourceIframeId,
+            senderIframeId,
+          )
+        ) {
+          return;
+        }
+        settleCrossScreenModifierProbe(requestId, {
+          ignoreAutoLayout: event.data.ignoreAutoLayout === true,
+          changedAt:
+            typeof event.data.changedAt === "number" &&
+            Number.isFinite(event.data.changedAt)
+              ? event.data.changedAt
+              : undefined,
+        });
+        return;
+      }
+      if (event.data.type === "agent-native:cross-screen-modifiers") {
+        const current = crossScreenDragMsgRef.current;
+        const senderIframeId =
+          sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
+          boardFileId ??
+          undefined;
+        if (
+          !current ||
+          !isCrossScreenModifierFromActiveSourceIframe(
+            current.sourceIframeId,
+            senderIframeId,
+          )
+        ) {
+          return;
+        }
+        const pressed = event.data.ignoreAutoLayout === true;
+        const nextSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
+          crossScreenSKeyTimesRef.current,
+          pressed,
+          typeof event.data.changedAt === "number"
+            ? event.data.changedAt
+            : undefined,
+        );
+        crossScreenSKeyTimesRef.current = nextSKeyTimes;
+        const ignoreAutoLayout =
+          crossScreenSKeyHeldFromTimes(nextSKeyTimes) ?? pressed;
+        crossScreenIgnoreAutoLayoutRef.current = ignoreAutoLayout;
+        crossScreenDragMsgRef.current = {
+          ...current,
+          modifiers: {
+            ...current.modifiers,
+            ignoreAutoLayout,
+          },
+        };
+        return;
+      }
+      if (event.data.type !== "agent-native:cross-screen-drag") return;
       const domScreenId =
         sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
         boardFileId ??
@@ -3415,6 +3756,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         styleSnapshot?: unknown;
         styleSnapshotCaptureFailed?: boolean;
         sourceComputedSize?: { width?: number; height?: number };
+        sourceGridSpan?: { columns: number; rows: number };
+        startedAt?: number;
         releasedAt?: number;
         duplicate?: boolean;
         sourceCloneHtml?: string;
@@ -3452,6 +3795,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   : undefined,
             }
           : undefined;
+      const sourceGridSpan =
+        msg.sourceGridSpan &&
+        Number.isSafeInteger(msg.sourceGridSpan.columns) &&
+        Number.isSafeInteger(msg.sourceGridSpan.rows) &&
+        msg.sourceGridSpan.columns > 0 &&
+        msg.sourceGridSpan.rows > 0
+          ? {
+              columns: msg.sourceGridSpan.columns,
+              rows: msg.sourceGridSpan.rows,
+            }
+          : undefined;
       const sourceModifiers = msg.modifiers
         ? {
             metaKey: msg.modifiers.metaKey === true,
@@ -3462,6 +3816,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             forceNestedAutoLayout: msg.modifiers.forceNestedAutoLayout === true,
           }
         : undefined;
+      const sourceReleaseModifiers = msg.modifiers
+        ? {
+            metaKey: msg.modifiers.metaKey === true,
+            ctrlKey: msg.modifiers.ctrlKey === true,
+            ignoreAutoLayout: msg.modifiers.ignoreAutoLayout === true,
+            forceNestedAutoLayout: msg.modifiers.forceNestedAutoLayout === true,
+          }
+        : undefined;
       const styleSnapshot = isPortableStyleSnapshot(msg.styleSnapshot)
         ? msg.styleSnapshot
         : undefined;
@@ -3469,9 +3831,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         msg.styleSnapshotCaptureFailed === true;
 
       if (msg.phase === "cancel") {
-        if (!crossScreenEndSeenRef.current) {
-          crossScreenDropSeqRef.current += 1;
+        const current = crossScreenDragMsgRef.current;
+        const senderIframeId =
+          sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
+          boardFileId ??
+          undefined;
+        if (
+          !current?.sourceDeleteRequestId ||
+          msg.sourceDeleteRequestId !== current.sourceDeleteRequestId ||
+          !isCrossScreenModifierFromActiveSourceIframe(
+            current.sourceIframeId,
+            senderIframeId,
+          ) ||
+          crossScreenEndSeenRef.current
+        ) {
+          return;
         }
+        crossScreenDropSeqRef.current += 1;
         clearCrossScreenDrag({
           keepBoardMounted: boardCrossScreenDropPendingRef.current,
         });
@@ -3545,7 +3921,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           crossScreenSKeyTimesRef.current = seedCrossScreenSKeyTimesAtStart(
             true,
             crossScreenSKeyTimesRef.current,
-            performance.timeOrigin + performance.now(),
+            crossScreenDragStartedAt(
+              msg.startedAt,
+              performance.timeOrigin + performance.now(),
+            ),
           );
         }
         if (!crossScreenSKeyPressedRef.current) {
@@ -3555,6 +3934,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         crossScreenLastBoardPointRef.current = null;
         crossScreenDragMsgRef.current = {
+          sourceScreenId,
+          sourceIframeId: domScreenId ?? sourceScreenId,
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
           sourceDeleteRequestId: msg.sourceDeleteRequestId,
@@ -3562,6 +3943,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourcePointerOffset,
           sourceElementSize,
           sourceComputedSize,
+          sourceGridSpan,
           modifiers: {
             ...sourceModifiers,
             ignoreAutoLayout:
@@ -3620,10 +4002,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }
         };
         const handleParentMouseUp = (ev: MouseEvent) => {
+          if (crossScreenEndSeenRef.current) return;
           cancelPendingParentDrag();
           activateParentDrag(ev);
           const candidate = crossScreenTargetRef.current;
-          const payload = crossScreenDragMsgRef.current ?? {
+          const lastBoardPoint = crossScreenLastBoardPointRef.current;
+          const releasedAt = eventEpochMilliseconds(ev.timeStamp);
+          const fallbackPayload = crossScreenDragMsgRef.current ?? {
+            sourceScreenId,
+            sourceIframeId: domScreenId ?? sourceScreenId,
             selector: msg.selector ?? "",
             sourceId: msg.sourceId,
             sourceDeleteRequestId: msg.sourceDeleteRequestId,
@@ -3631,6 +4018,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             sourcePointerOffset,
             sourceElementSize,
             sourceComputedSize,
+            sourceGridSpan,
             modifiers: sourceModifiers,
             sourceHtmlSnapshot,
             duplicate: msg.duplicate === true,
@@ -3638,22 +4026,109 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             styleSnapshot,
             styleSnapshotCaptureFailed,
           };
-          const lastBoardPoint = crossScreenLastBoardPointRef.current;
-          const releasedAt = eventEpochMilliseconds(ev.timeStamp);
-          finalizeCrossScreenDrop(
-            sourceScreenId,
-            candidate,
-            payload,
-            lastBoardPoint,
-            releasedAt,
+          const releaseModifiers = crossScreenReleaseModifiers(
+            isApplePlatform(),
+            ev,
           );
+          const dropSeq = crossScreenDropSeqRef.current;
+          const sKeyTimesAtRelease = { ...crossScreenSKeyTimesRef.current };
+          const payload = {
+            ...(crossScreenDragMsgRef.current ?? fallbackPayload),
+            modifiers: {
+              ...(crossScreenDragMsgRef.current ?? fallbackPayload).modifiers,
+            },
+          };
+          crossScreenEndSeenRef.current = true;
+          crossScreenHostCommittedRef.current = true;
+          stopParentCrossScreenDrag();
+          crossScreenCommittedDropSeqsRef.current.add(dropSeq);
+
+          const finishRelease = (snapshot?: {
+            ignoreAutoLayout: boolean;
+            changedAt?: number;
+          }) => {
+            let releaseSKeyTimes = { ...sKeyTimesAtRelease };
+            if (snapshot) {
+              if (typeof snapshot.changedAt === "number") {
+                releaseSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
+                  releaseSKeyTimes,
+                  snapshot.ignoreAutoLayout,
+                  snapshot.changedAt,
+                );
+              }
+              const ignoreAutoLayout =
+                crossScreenSKeyHeldFromTimes(releaseSKeyTimes) ??
+                snapshot.ignoreAutoLayout;
+              payload.modifiers = {
+                ...payload.modifiers,
+                ignoreAutoLayout,
+              };
+            }
+            if (
+              !canvasMountedRef.current ||
+              (crossScreenDropSeqRef.current !== dropSeq &&
+                !crossScreenCommittedDropSeqsRef.current.has(dropSeq))
+            ) {
+              crossScreenCommittedDropSeqsRef.current.delete(dropSeq);
+              crossScreenReleasedDropsRef.current.delete(dropSeq);
+              return;
+            }
+            finalizeCrossScreenDrop(
+              sourceScreenId,
+              candidate,
+              payload,
+              lastBoardPoint,
+              releasedAt,
+              releaseModifiers,
+              releaseSKeyTimes,
+              dropSeq,
+            );
+            sourcePreviewIframe.contentWindow?.postMessage(
+              {
+                type: "agent-native:cancel-active-drag",
+                pressedAt: releasedAt,
+              },
+              "*",
+            );
+          };
+
+          if (!hostUsesSForIgnoreAutoLayout()) {
+            finishRelease();
+            return;
+          }
+
+          const requestId = `cross-screen-release:${sourceScreenId}:${dropSeq}`;
+          crossScreenReleasedDropsRef.current.set(dropSeq, payload);
+          const handleReleasedDropBlur = () =>
+            settleCrossScreenModifierProbe(requestId);
+          window.addEventListener("blur", handleReleasedDropBlur, true);
+          const removeBlurListener = () =>
+            window.removeEventListener("blur", handleReleasedDropBlur, true);
+          const timeoutId = window.setTimeout(() => {
+            settleCrossScreenModifierProbe(requestId);
+          }, CROSS_SCREEN_MODIFIER_SNAPSHOT_TIMEOUT_MS);
+          crossScreenModifierProbesRef.current.set(requestId, {
+            sourceIframeId:
+              sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
+              boardFileId ??
+              sourceScreenId,
+            timeoutId,
+            removeBlurListener,
+            resolve: finishRelease,
+          });
           sourcePreviewIframe.contentWindow?.postMessage(
-            { type: "agent-native:cancel-active-drag", pressedAt: releasedAt },
+            {
+              type: "agent-native:cross-screen-modifier-snapshot-probe",
+              requestId,
+              snapshotId: payload.sourceDeleteRequestId,
+            },
             "*",
           );
         };
         const handleParentWindowBlur = () => {
+          if (document.hasFocus()) return;
           cancelPendingParentDrag();
+          settleAllCrossScreenModifierProbes();
           if (
             shouldClearCrossScreenSKeyTimesOnWindowBlur(document.hasFocus())
           ) {
@@ -3668,18 +4143,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           pressed: boolean,
           eventTimeStamp: number,
         ) => {
-          crossScreenIgnoreAutoLayoutRef.current = pressed;
-          if (pressed) {
-            crossScreenSKeyTimesRef.current = {
-              downAt: eventEpochMilliseconds(eventTimeStamp),
-              upAt: null,
-            };
-          } else {
-            crossScreenSKeyTimesRef.current = {
-              ...crossScreenSKeyTimesRef.current,
-              upAt: eventEpochMilliseconds(eventTimeStamp),
-            };
-          }
+          const nextSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
+            crossScreenSKeyTimesRef.current,
+            pressed,
+            eventEpochMilliseconds(eventTimeStamp),
+          );
+          crossScreenSKeyTimesRef.current = nextSKeyTimes;
+          crossScreenIgnoreAutoLayoutRef.current =
+            crossScreenSKeyHeldFromTimes(nextSKeyTimes) ?? pressed;
         };
         const handleParentKeyDown = (ev: KeyboardEvent) => {
           if (isApplePlatform() && ev.key === "Control") {
@@ -3695,6 +4166,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ev.stopPropagation();
           ev.stopImmediatePropagation();
           cancelPendingParentDrag();
+          crossScreenCommittedDropSeqsRef.current.delete(
+            crossScreenDropSeqRef.current,
+          );
           crossScreenDropSeqRef.current += 1;
           crossScreenEndSeenRef.current = true;
           sourcePreviewIframe.contentWindow?.postMessage(
@@ -3740,6 +4214,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
 
       if (msg.phase === "move") {
+        const current = crossScreenDragMsgRef.current;
+        if (
+          !current ||
+          msg.sourceDeleteRequestId !== current.sourceDeleteRequestId ||
+          !isCrossScreenModifierFromActiveSourceIframe(
+            current.sourceIframeId,
+            domScreenId ?? boardFileId ?? undefined,
+          )
+        ) {
+          return;
+        }
         const { iframeX, iframeY, viewportW, viewportH, selector, sourceId } =
           msg;
         if (
@@ -3773,6 +4258,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
 
         crossScreenDragMsgRef.current = {
+          sourceScreenId:
+            crossScreenDragMsgRef.current?.sourceScreenId ?? sourceScreenId,
+          sourceIframeId:
+            crossScreenDragMsgRef.current?.sourceIframeId ??
+            domScreenId ??
+            sourceScreenId,
           selector: crossScreenDragMsgRef.current?.selector ?? selector ?? "",
           sourceId: crossScreenDragMsgRef.current
             ? crossScreenDragMsgRef.current.sourceId
@@ -3792,6 +4283,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceComputedSize:
             sourceComputedSize ??
             crossScreenDragMsgRef.current?.sourceComputedSize,
+          sourceGridSpan:
+            sourceGridSpan ?? crossScreenDragMsgRef.current?.sourceGridSpan,
           modifiers:
             sourceModifiers ?? crossScreenDragMsgRef.current?.modifiers,
           sourceHtmlSnapshot:
@@ -3841,8 +4334,32 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
 
       if (msg.phase === "end") {
+        const releasedPayload = msg.sourceDeleteRequestId
+          ? Array.from(crossScreenReleasedDropsRef.current.values()).find(
+              (pending) =>
+                pending.sourceDeleteRequestId === msg.sourceDeleteRequestId,
+            )
+          : undefined;
+        if (releasedPayload && typeof msg.sourceCloneHtml === "string") {
+          releasedPayload.sourceCloneHtml = msg.sourceCloneHtml;
+          return;
+        }
+        const current = crossScreenDragMsgRef.current;
+        if (
+          current &&
+          current.sourceDeleteRequestId &&
+          msg.sourceDeleteRequestId &&
+          current.sourceDeleteRequestId !== msg.sourceDeleteRequestId
+        ) {
+          return;
+        }
         if (crossScreenEndSeenRef.current) {
-          clearCrossScreenDrag();
+          if (current && typeof msg.sourceCloneHtml === "string") {
+            crossScreenDragMsgRef.current = {
+              ...current,
+              sourceCloneHtml: msg.sourceCloneHtml,
+            };
+          }
           return;
         }
         const cachedPayload = crossScreenDragMsgRef.current;
@@ -3853,10 +4370,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 typeof msg.sourceCloneHtml === "string"
                   ? msg.sourceCloneHtml
                   : cachedPayload.sourceCloneHtml,
-              modifiers: mergeCrossScreenReleaseModifiers(
-                cachedPayload.modifiers,
-                sourceModifiers,
-              ),
             }
           : {
               selector: msg.selector ?? "",
@@ -3866,7 +4379,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               sourcePointerOffset,
               sourceElementSize,
               sourceComputedSize,
-              modifiers: sourceModifiers,
+              modifiers: sourceReleaseModifiers,
               sourceHtmlSnapshot,
               duplicate: msg.duplicate === true,
               sourceCloneHtml: msg.sourceCloneHtml,
@@ -3913,6 +4426,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           payload,
           lastBoardPoint,
           typeof msg.releasedAt === "number" ? msg.releasedAt : undefined,
+          sourceReleaseModifiers,
         );
       }
     };
@@ -3925,6 +4439,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     activeId,
     boardFileId,
     boardFrameGeometry,
+    boardViewportGeometry,
     boardSurfaceRenderGeometry,
     finishBoardCrossScreenDrop,
     getFrameEntryAtPoint,
@@ -4893,24 +5408,37 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const hostUsesSForIgnoreAutoLayout = () => !isApplePlatform();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (hostUsesSForIgnoreAutoLayout() && event.key.toLowerCase() === "s") {
-        crossScreenSKeyPressedRef.current = true;
-        crossScreenSKeyTimesRef.current = {
-          downAt: eventEpochMilliseconds(event.timeStamp),
-          upAt: null,
-        };
+        const nextSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
+          crossScreenSKeyTimesRef.current,
+          true,
+          eventEpochMilliseconds(event.timeStamp),
+        );
+        crossScreenSKeyTimesRef.current = nextSKeyTimes;
+        const isPressed = crossScreenSKeyHeldFromTimes(nextSKeyTimes) ?? true;
+        crossScreenSKeyPressedRef.current = isPressed;
+        crossScreenIgnoreAutoLayoutRef.current = isPressed;
       }
     };
     const handleKeyUp = (event: KeyboardEvent) => {
       if (hostUsesSForIgnoreAutoLayout() && event.key.toLowerCase() === "s") {
-        crossScreenSKeyPressedRef.current = false;
-        crossScreenSKeyTimesRef.current = {
-          ...crossScreenSKeyTimesRef.current,
-          upAt: eventEpochMilliseconds(event.timeStamp),
-        };
+        const nextSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
+          crossScreenSKeyTimesRef.current,
+          false,
+          eventEpochMilliseconds(event.timeStamp),
+        );
+        crossScreenSKeyTimesRef.current = nextSKeyTimes;
+        const isPressed = crossScreenSKeyHeldFromTimes(nextSKeyTimes) ?? false;
+        crossScreenSKeyPressedRef.current = isPressed;
+        crossScreenIgnoreAutoLayoutRef.current = isPressed;
       }
     };
     const handleBlur = () => {
       crossScreenSKeyPressedRef.current = false;
+      crossScreenIgnoreAutoLayoutRef.current =
+        crossScreenIgnoreAutoLayoutAfterWindowBlur(
+          crossScreenIgnoreAutoLayoutRef.current,
+          crossScreenDragMsgRef.current !== null,
+        );
       if (shouldClearCrossScreenSKeyTimesOnWindowBlur(document.hasFocus())) {
         crossScreenSKeyTimesRef.current = { downAt: null, upAt: null };
       }
@@ -10428,17 +10956,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       !transactionId ||
                       expectedTransactionId !== transactionId
                     ) {
+                      if (
+                        reason !== "board-drop-timeout" ||
+                        !rollbackScheduled
+                      ) {
+                        finishTrackedBoardCrossScreenDrop(transactionId);
+                      }
                       return;
                     }
                     if (reason === "board-drop-timeout") {
                       if (!rollbackScheduled) {
                         setBoardRuntimeSurfaceActive(null);
-                        finishBoardCrossScreenDrop();
+                        finishBoardCrossScreenDrop({ transactionId });
                       }
                       return;
                     }
                     setBoardRuntimeSurfaceActive(null);
-                    finishBoardCrossScreenDrop();
+                    finishBoardCrossScreenDrop({ transactionId });
                   }}
                   onRuntimeStructureInsertApplied={(details) => {
                     const expectedTransactionId =
@@ -10449,13 +10983,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       expectedTransactionId !== details.transactionId
                     ) {
                       handleBoardRuntimeStructureInsertApplied(details);
+                      finishTrackedBoardCrossScreenDrop(details.transactionId);
                       return;
                     }
                     if (details.applied !== false) {
                       setBoardRuntimeSurfaceActive(boardFileId ?? null);
                     }
                     handleBoardRuntimeStructureInsertApplied(details);
-                    finishBoardCrossScreenDrop({ preserveTransaction: true });
+                    finishBoardCrossScreenDrop({
+                      transactionId: details.transactionId,
+                      preserveTransaction: true,
+                    });
                   }}
                   onRuntimeStructureRollbackResult={(details) => {
                     const expectedTransactionId =
@@ -10466,11 +11004,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       expectedTransactionId !== details.transactionId
                     ) {
                       handleBoardRuntimeStructureRollbackResult(details);
+                      finishTrackedBoardCrossScreenDrop(details.transactionId);
                       return;
                     }
                     if (details.applied) setBoardRuntimeSurfaceActive(null);
                     handleBoardRuntimeStructureRollbackResult(details);
-                    finishBoardCrossScreenDrop({ force: true });
+                    finishBoardCrossScreenDrop({
+                      transactionId: details.transactionId,
+                      force: true,
+                    });
                   }}
                   clearSelectionRequest={boardClearSelectionRequest}
                   selectedSelector={boardSelectedSelector ?? null}
@@ -10630,6 +11172,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               contentEditable={editableScreenIds?.has(screen.id) === true}
               handlesEnabled={!hasGroupSelection && !readOnly}
               readOnly={readOnly}
+              handToolActive={effectiveTool === "hand"}
               penActive={penActive}
               creationToolActive={creationToolActive}
               canvasGestureActive={canvasGestureActive}
@@ -11034,6 +11577,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             style={getCrossScreenDropGuideStyle({
               guide: {
                 placement: primitiveDropTarget.placement,
+                guidePlacement:
+                  primitiveDropTarget.guidePlacement ??
+                  primitiveDropTarget.placement,
                 axis: primitiveDropTarget.axis ?? "y",
                 boardRect: primitiveDropTarget.boardRect,
               },
@@ -12008,6 +12554,7 @@ interface ScreenProps {
   groupSelected: boolean;
   contentEditable: boolean;
   handlesEnabled: boolean;
+  handToolActive: boolean;
   penActive: boolean;
   creationToolActive: boolean;
   canvasGestureActive: boolean;
@@ -12077,6 +12624,7 @@ const Screen = memo(function Screen({
   groupSelected,
   contentEditable,
   handlesEnabled,
+  handToolActive,
   penActive,
   creationToolActive,
   canvasGestureActive,
@@ -12151,6 +12699,7 @@ const Screen = memo(function Screen({
       hasScreenChildLayers(screen.content) ||
       contentEditable) &&
     !locked &&
+    !handToolActive &&
     !penActive &&
     !creationToolActive &&
     !canvasGestureActive;

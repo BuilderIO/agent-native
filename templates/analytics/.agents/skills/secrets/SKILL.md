@@ -186,8 +186,9 @@ row is written — status is derived from `hasOAuthTokens("google")`.
 
 Builder.io has two OAuth grants per caller, stored apart in
 `server/builder-oauth.ts`: the organization's (`org` scope, shared with every
-member) and a member's personal one (`user` scope, used only by that member,
-ahead of the org's). Name the one you mean; never let role pick it:
+member) and a personal one (`user` scope, used only by its owner: ahead of the
+org's for a member, after it for an owner or admin). Name the one you mean;
+never let role pick it:
 
 - Connect with `/_agent-native/builder/connect?scope=org|personal`. `org` needs
   owner/admin, checked at start and again in the callback, and fails rather
@@ -269,6 +270,32 @@ The page reads the `list-api-keys` action; the agent reads the same thing.
   the user to the page (`open-settings-page`, page `api-keys`; a
   `#secrets:KEY` anchor opens Add key with that name, or the provider dialog
   when KEY is a model provider's key nobody saved).
+
+## Which credential answers first
+
+Owners and admins run on the organization's credential; members run on their
+own. The caller's own row stays the fallback, so an org with no key of its own
+still runs on an owner's. Every resolver (`resolveSecretDetailed`,
+`resolveSecretPairs`, `resolveCredential`, `getOwnerApiKey`, the Builder key
+pair and OAuth reads, `${keys.NAME}`) orders its scopes through
+`server/credential-read-order.ts` (`readsOrgCredentialFirst`,
+`orderCredentialScopes`); a new resolver must too. An unreadable role fails
+the lookup and never reads as "member".
+
+Saves default to the organization for owners and admins and ask who can use
+it: on any form that saves a credential, pair `useCredentialSaveScope()` with
+`<WhoField>` from `@agent-native/toolkit/app/settings`. Members save
+personally and see no picker. A registered key keeps its registered scope.
+
+Disconnect with `deleteResolvedCredential(key, ctx)` from
+`@agent-native/core/credentials`. It removes every row of whichever owner
+answers (the caller's own, or the organization's, including a legacy
+`workspace` row) and refuses a member's removal of the organization's with a
+403. Deleting only the caller's `user` row leaves a shared one answering. A
+save that clears a value already knows its scope: clear with
+`deleteCredential(key, { ...ctx, scope })`, which removes that owner's rows
+only. The resolved owner can be the organization even when an owner chose
+Personal.
 
 ## Reading a secret from an action
 
@@ -499,12 +526,13 @@ with `deleteAgentEngineProviderSettings({ provider, scope })`.
   response's `scope` says which row was written.
 - A personal row and an organization row for the same provider coexist. An
   organization save never deletes anyone's personal row, and the resolver
-  uses a personal key for its owner only (user before org).
-- Provider forms without a scope picker save at organization scope for owners
-  and admins and personally for everyone else (`useProviderKeySaveScope`).
-  Save stays off until the role is read; a failed read shows a retry and
-  never falls back to a personal save. Every provider key registers at `scope: "user"`, so Settings → API keys
-  writes the same personal row.
+  uses a personal key for its owner only (see "Which credential answers
+  first").
+- Provider forms default owners and admins to the organization and let them
+  pick Personal (`useCredentialSaveScope` + `WhoField`); everyone else saves
+  personally. Save stays off until the role is read; a failed read shows a
+  retry and never falls back to a personal save. Every provider key registers
+  at `scope: "user"`, so Settings → API keys writes the same personal row.
 - Gemini has one key, `GOOGLE_GENERATIVE_AI_API_KEY`, for chat models and
   for voice input, embeddings, and image generation. Read it with
   `resolveGeminiApiKey()` from `@agent-native/core/server` (never
@@ -559,7 +587,7 @@ and `null` resets it to the default order.
   Voyage. Changing the embeddings provider needs a re-index (Brain's
   `backfill-search-embeddings`); the set call returns `reindexRequired`.
 - The choice picks a provider, not a key: its key still resolves through
-  `resolveSecretDetailed` (personal before organization). An unreadable choice
+  `resolveSecretDetailed` (see "Which credential answers first"). An unreadable choice
   is a failed lookup, never "unset".
 - The rest of Settings › Infrastructure reads through actions too:
   `get-file-storage` / `manage-file-storage` for uploads,
@@ -588,7 +616,8 @@ Vault keys land in the shared `app_secrets` store at `org` scope, so an app's
 Settings › API keys page reports them as `Set · Vault` through
 `resolveSecretDetailed` (`source`/`scopeId`) instead of the registered-scope
 row alone. Runtime precedence is personal (`user`) row → shared `org` row →
-legacy `workspace` row → designated vault org → deploy env. Never add a second
+legacy `workspace` row → designated vault org → deploy env, with the personal
+row moved after the organization's for owners and admins. Never add a second
 place to enter a key that the Vault already provides; label the source instead.
 
 ### Key Files (ad-hoc)

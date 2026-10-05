@@ -4,6 +4,7 @@ import {
   localizeKnownChatErrorText,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
@@ -135,7 +136,7 @@ export function runErrorHeadline(
     terminal: string;
   } = {
     recoverable: "The agent stopped before finishing",
-    terminal: "The agent hit an error",
+    terminal: "The agent run failed before it finished.",
   },
 ): string {
   return info.recoverable === true ? labels.recoverable : labels.terminal;
@@ -205,10 +206,12 @@ export function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
     /no llm provider(?: key)? (?:is connected|was found)|missing credentials|missing api key|missing_api_key|(?:api[_ -]?key|auth[_ -]?token)\s*(?:(?:is|was)\s+)?(?:not\s+(?:set|configured|available|present|provided|found)|missing|unavailable|empty|unset|unconfigured)/i.test(
       text,
     );
+  // The code decides; the text is any message, including one read back from
+  // the run's record ("The agent run failed.").
   return (
-    hasCredentialSetupText ||
-    ((code === "missing_credentials" || code === "missing_api_key") &&
-      !text.trim())
+    code === "missing_credentials" ||
+    code === "missing_api_key" ||
+    hasCredentialSetupText
   );
 }
 
@@ -572,10 +575,14 @@ export function RunErrorRecoveryCard({
       ? t("agentChat.recovery.copyDebug")
       : t("agentChat.common.copy");
   const copyDetails = useCallback(() => {
+    // The packet names app, thread link, run, code, time and build, so a pasted
+    // report opens the failing run without asking the reporter for anything.
     const text = [
-      info.message,
-      info.errorCode ? `Code: ${info.errorCode}` : "",
-      info.runId ? `Run: ${info.runId}` : "",
+      formatClientFailureReport({
+        message: info.message,
+        ...(info.errorCode ? { errorCode: info.errorCode } : {}),
+        ...(info.runId ? { runId: info.runId } : {}),
+      }),
       info.details ? `Details:\n${info.details}` : "",
     ]
       .filter(Boolean)

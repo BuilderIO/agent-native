@@ -18,8 +18,17 @@ import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/
 import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
@@ -48,6 +57,12 @@ import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
+}
+
+const MobileSidebarContext = createContext<(() => void) | null>(null);
+
+export function useOpenMobileSidebar() {
+  return useContext(MobileSidebarContext);
 }
 
 interface EditorSidebarOverride {
@@ -122,6 +137,7 @@ export function Layout({ children }: LayoutProps) {
   });
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("slides");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const openMobileSidebar = useCallback(() => setSidebarOpen(true), []);
   const [runningChatTabs, setRunningChatTabs] = useState<Set<string>>(
     () => new Set(),
   );
@@ -244,7 +260,13 @@ export function Layout({ children }: LayoutProps) {
     if (!deckScope) return undefined;
     const deckId = deckScope.id;
     return {
-      beforeStart: () => flushDeckSave(deckId),
+      beforeStart: async () => {
+        try {
+          await flushDeckSave(deckId);
+        } catch {
+          toast.error(t("settings.saveFailed"));
+        }
+      },
       list: {
         action: "list-deck-versions",
         args: (threadId) => ({
@@ -271,7 +293,7 @@ export function Layout({ children }: LayoutProps) {
         beforeRestore: () => flushDeckSave(deckId),
       },
     };
-  }, [deckScope, flushDeckSave]);
+  }, [deckScope, flushDeckSave, t]);
 
   useAgentChatHomeHandoffLinks({
     storageKey: "slides",
@@ -329,7 +351,8 @@ export function Layout({ children }: LayoutProps) {
     navigateWithAgentChatViewTransition(navigate, `${chatPath}${deckQuery}`);
   }
 
-  const showMobileNavigation = isChatRoute || !ownToolbar;
+  const showMobileNavigation =
+    isChatRoute || (!ownToolbar && !isSlidesHomeRoute(location.pathname));
   const shell = (
     <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
       {showAppSidebar && (
@@ -366,7 +389,7 @@ export function Layout({ children }: LayoutProps) {
         {showMobileNavigation && (
           <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
             <button
-              onClick={() => setSidebarOpen(true)}
+              onClick={openMobileSidebar}
               className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground cursor-pointer"
               aria-label={t("sidebar.openNavigation")}
             >
@@ -391,43 +414,49 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      {isChatRoute ? (
-        shell
-      ) : (
-        <AgentSidebar
-          composerContextProvider={SlidesComposerContextProvider}
-          position="right"
-          defaultOpen={false}
-          chatViewTransition
-          chatViewTransitionHandoff={chatHomeHandoffPending}
-          openOnChatRunning={runningChatTabs.size > 0 || chatHomeHandoffActive}
-          onFullscreenRequest={openAgentChatFullscreen}
-          emptyStateText={t("agent.emptyState")}
-          suggestions={[
-            t("agent.suggestionPitch"),
-            t("agent.suggestionBrand"),
-            t("agent.suggestionHero"),
-          ]}
-          dynamicSuggestions={false}
-          scope={deckScope}
-          chatHistory={deckChatHistory}
-          browserTabId={TAB_ID}
-          agentPageHref="/settings/agent"
-          suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
-          showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
-          onComposerTextChange={setComposerText}
-          composerSlot={
-            <>
-              <GoogleDriveConnectionCta
-                active={extractGoogleSlidesUrls(composerText).length > 0}
-              />
-              {creativeContextEnabled ? <CreativeContextComposerChip /> : null}
-            </>
-          }
-        >
-          {shell}
-        </AgentSidebar>
-      )}
+      <MobileSidebarContext.Provider value={openMobileSidebar}>
+        {isChatRoute ? (
+          shell
+        ) : (
+          <AgentSidebar
+            composerContextProvider={SlidesComposerContextProvider}
+            position="right"
+            defaultOpen={false}
+            chatViewTransition
+            chatViewTransitionHandoff={chatHomeHandoffPending}
+            openOnChatRunning={
+              runningChatTabs.size > 0 || chatHomeHandoffActive
+            }
+            onFullscreenRequest={openAgentChatFullscreen}
+            emptyStateText={t("agent.emptyState")}
+            suggestions={[
+              t("agent.suggestionPitch"),
+              t("agent.suggestionBrand"),
+              t("agent.suggestionHero"),
+            ]}
+            dynamicSuggestions={false}
+            scope={deckScope}
+            chatHistory={deckChatHistory}
+            browserTabId={TAB_ID}
+            agentPageHref="/settings/agent"
+            suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
+            showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
+            onComposerTextChange={setComposerText}
+            composerSlot={
+              <>
+                <GoogleDriveConnectionCta
+                  active={extractGoogleSlidesUrls(composerText).length > 0}
+                />
+                {creativeContextEnabled ? (
+                  <CreativeContextComposerChip />
+                ) : null}
+              </>
+            }
+          >
+            {shell}
+          </AgentSidebar>
+        )}
+      </MobileSidebarContext.Provider>
     </HeaderActionsProvider>
   );
 }

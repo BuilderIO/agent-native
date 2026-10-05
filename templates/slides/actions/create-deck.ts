@@ -256,6 +256,11 @@ export default defineAction({
     }),
   },
   http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (
     {
       title,

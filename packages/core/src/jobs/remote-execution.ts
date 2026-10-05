@@ -282,6 +282,7 @@ export async function dispatchRemoteAutomation(
         automationRunId,
         "error",
         error instanceof Error ? error.message : "Remote dispatch failed.",
+        "remote_dispatch_failed",
       ).catch(() => undefined);
     }
     throw error;
@@ -401,5 +402,6 @@ export async function finishRemoteAutomationHistory(
     meta.remoteAutomationRunId,
     state === "completed" ? "success" : "error",
     error,
+    state === "completed" ? undefined : "remote_execution_failed",
   );
 }

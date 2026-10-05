@@ -248,7 +248,7 @@ const databaseExactEnglish = {
     "साझा कुंजी के लिए दोनों स्रोतों का विश्लेषण किया जा रहा है",
   bodyDiff: "बॉडी अंतर",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder कनेक्ट नहीं है। पहले अपना खाता कनेक्ट करने के लिए वापस जाएं।",
+    "Builder कनेक्ट नहीं है। पहले Builder.io इस्तेमाल करने के लिए वापस जाएं।",
   calendarBy: "कैलेंडर इसके अनुसार",
   checkingBuilderConnection: "Builder कनेक्शन जांचा जा रहा है",
   clearAll: "सब साफ़ करें",
@@ -260,7 +260,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "सभी समूह समेटें",
   collapseAll: "सभी समेटें",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "इसके spaces और models ब्राउज़ करने के लिए अपना Builder खाता कनेक्ट करें।",
+    "इसके spaces और models ब्राउज़ करने के लिए अपने Builder खाते का इस्तेमाल करें।",
   connectedSources: "कनेक्ट किए गए स्रोत",
   couldntSyncRetry: "सिंक नहीं हो सका · फिर कोशिश करें",
   countAll: "सभी की गिनती",
@@ -937,8 +937,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
-  requestedPageUnavailable:
-    "वह पेज आपके खाते के लिए उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
   saveFailed: "आपकी जगह सेव नहीं की जा सकी",
   workspaceWelcomeUnavailableTitle: "यहाँ अभी कुछ भी खुला नहीं है",
   workspaceWelcomeUnavailableDescription:
@@ -1230,6 +1228,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "कॉन्टेंट",
+    loadingContent: "कॉन्टेंट लोड हो रहा है",
     commandSearchDocuments: "दस्तावेज़ खोजें",
     searchSince: "{{date}} से",
     searchModifiedSince: "{{date}} से संशोधित",
@@ -1324,6 +1323,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "कोई page selected नहीं",
+    signedInAs: "{{email}} के रूप में साइन इन हैं",
+    goToMyPages: "मेरे पेज पर जाएं",
+    switchAccount: "खाता बदलें",
     noPageDescription: "sidebar से page चुनें या नया बनाएं।",
     newPage: "नया page",
     createFailed: "page create नहीं हो सका",

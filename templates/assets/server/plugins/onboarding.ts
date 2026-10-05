@@ -42,15 +42,15 @@ export default async (nitroApp: any): Promise<void> => {
     required: true,
     title: "Image and video generation",
     description:
-      "Connect Builder for managed image generation and video generation when enabled for your space, or add OpenAI/Gemini keys as manual fallbacks.",
+      "Use Builder.io for managed image generation and video generation when enabled for your space, or add OpenAI/Gemini keys as manual fallbacks.",
     methods: [
       {
         id: "builder",
         kind: "builder-cli-auth",
-        label: "Connect Builder.io",
+        label: "Use Builder.io",
         description: builderImageGenerationEnabled
           ? "Recommended one-click setup for managed image generation and video generation when enabled for your space. Uses Builder credits and keeps provider keys out of this app."
-          : "Managed image generation is disabled here. Connect Builder for video when your space supports it, or add Gemini/OpenAI keys for manual generation.",
+          : "Managed image generation is disabled here. Use Builder.io for video when your space supports it, or add Gemini/OpenAI keys for manual generation.",
         primary: true,
         badge: builderImageGenerationEnabled ? "recommended" : undefined,
         payload: { scope: "image-generation" },

@@ -46,7 +46,7 @@ const messages = {
     designSystems: "Sistemas de diseño",
   },
   settings: {
-    agentObservability: "Observabilidad del agente",
+    agentObservability: "Observabilidad",
     title: "Ajustes",
     labs: "Labs",
     labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Cuando alguien comenta o responde en tu presentación.",
     retry: "Reintentar",
+    reload: "Recargar",
     mcpAbout:
       "Conecta Slides con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Slides por ti: crear presentaciones, añadir diapositivas y exportar a PowerPoint. Solo ve lo que tú puedes ver.",
     workspaceTitle: "Espacio de trabajo",
@@ -447,7 +448,9 @@ const messages = {
     resolveThread: "Resolver hilo",
     reopenThread: "Reabrir hilo",
     hideReplies: "Ocultar respuestas",
-    replyCount: "{{count}} respuestas",
+    replyCount_one: "{{count}} respuesta",
+    replyCount_many: "{{count}} respuestas",
+    replyCount_other: "{{count}} respuestas",
     title: "Comentarios",
     addComment: "Añadir comentario",
     close: "Cerrar",
@@ -458,6 +461,7 @@ const messages = {
     retry: "Reintentar",
     clickToAddComment: "Haz clic para añadir un comentario",
     selectSlideToAdd: "Selecciona una diapositiva para añadir uno",
+    filters: "Filtros de comentarios",
     scope: "Ámbito de comentarios",
     thisSlide: "Esta diapositiva",
     allComments: "Todas las diapositivas",
@@ -776,6 +780,8 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "La ejecución del agente falló antes de crear diapositivas. Consulta los detalles del chat y vuelve a intentarlo.",
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -989,8 +995,8 @@ const messages = {
           "Lee la web de la empresa indicada y crea una presentación sobre ella. Informa de errores de acceso en lugar de inventar datos.",
       },
     },
-    connectBuilderIo: "Conectar Builder.io",
-    connectingBuilder: "Conectando Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando Builder.io…",
     recent: "Recientes",
     starters: {
       pitch: {
@@ -1029,9 +1035,13 @@ const messages = {
     all: "Todos",
     showMineDecks: "Mostrar decks creados por mí",
     mine: "Míos",
+    ownedByAnyone: "De cualquiera",
+    ownedByMe: "Míos",
+    sharedWithMe: "Compartido conmigo",
     createDeckOrVisual: "Crear una presentación",
     noMineDecks: "Aún no has creado decks.",
     noDecksMatchSearch: "Ningún deck coincide con tu búsqueda.",
+    noDecksMatchFilter: "Ningún deck coincide con el filtro actual.",
     deleteDeckTitle: "¿Eliminar deck?",
     deleteDeckDescription:
       "Esto eliminará permanentemente este deck y todas sus diapositivas. Esta acción no se puede deshacer.",

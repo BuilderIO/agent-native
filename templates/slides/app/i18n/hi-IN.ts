@@ -46,7 +46,7 @@ const messages = {
     designSystems: "डिज़ाइन सिस्टम",
   },
   settings: {
-    agentObservability: "एजेंट अवलोकन",
+    agentObservability: "अवलोकनक्षमता",
     title: "सेटिंग्स",
     labs: "लैब्स",
     labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "टिप्पणियाँ और जवाब",
     commentsAndRepliesDescription: "जब कोई आपके डेक पर टिप्पणी करे या उसमें जवाब दे।",
     retry: "फिर कोशिश करें",
+    reload: "फिर से लोड करें",
     mcpAbout:
       "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
     workspaceTitle: "कार्यस्थान",
@@ -435,7 +436,8 @@ const messages = {
     resolveThread: "थ्रेड हल करें",
     reopenThread: "थ्रेड फिर खोलें",
     hideReplies: "जवाब छिपाएं",
-    replyCount: "{{count}} जवाब",
+    replyCount_one: "{{count}} जवाब",
+    replyCount_other: "{{count}} जवाब",
     title: "टिप्पणियां",
     addComment: "टिप्पणी जोड़ें",
     close: "बंद करें",
@@ -446,6 +448,7 @@ const messages = {
     retry: "फिर कोशिश करें",
     clickToAddComment: "टिप्पणी जोड़ने के लिए क्लिक करें",
     selectSlideToAdd: "एक टिप्पणी जोड़ने के लिए स्लाइड चुनें",
+    filters: "टिप्पणी फ़िल्टर",
     scope: "टिप्पणी का दायरा",
     thisSlide: "यह स्लाइड",
     allComments: "सभी स्लाइड",
@@ -753,6 +756,8 @@ const messages = {
     imageAdded: "चित्र जोड़ा गया",
     imageUploadError: "यह चित्र अपलोड करते समय कुछ गलत हुआ।",
     exportFailed: "निर्यात विफल",
+    agentRunFailed:
+      "स्लाइड बनाने से पहले एजेंट रन विफल हो गया। चैट में विवरण देखें और फिर कोशिश करें।",
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",
@@ -953,8 +958,8 @@ const messages = {
           "दी गई कंपनी की वेबसाइट पढ़ें और कंपनी के बारे में प्रस्तुति बनाएं। तथ्य गढ़ने के बजाय पहुंच की विफलताओं की जानकारी दें।",
       },
     },
-    connectBuilderIo: "Builder.io कनेक्ट करें",
-    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    connectBuilderIo: "Builder.io इस्तेमाल करें",
+    connectingBuilder: "Builder.io सेट अप हो रहा है…",
     recent: "हाल के",
     starters: {
       pitch: {
@@ -992,9 +997,13 @@ const messages = {
     all: "सभी",
     showMineDecks: "मेरे बनाए डेक दिखाएं",
     mine: "मेरे",
+    ownedByAnyone: "किसी के भी स्वामित्व वाले",
+    ownedByMe: "मेरे स्वामित्व वाले",
+    sharedWithMe: "मेरे साथ साझा",
     createDeckOrVisual: "प्रेज़ेंटेशन बनाएं",
     noMineDecks: "आपने अभी तक कोई डेक नहीं बनाया है।",
     noDecksMatchSearch: "आपकी खोज से कोई डेक मेल नहीं खाता।",
+    noDecksMatchFilter: "वर्तमान फ़िल्टर से कोई डेक मेल नहीं खाता।",
     deleteDeckTitle: "डेक हटाएं?",
     deleteDeckDescription:
       "यह इस डेक और इसकी सभी स्लाइड्स को स्थायी रूप से हटा देगा। यह कार्रवाई वापस नहीं की जा सकती।",

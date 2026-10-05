@@ -26,6 +26,7 @@ export interface BuilderConnectPopoverProps {
     statusResolved?: boolean;
     statusReadSettledCount?: number;
     canConnect?: BuilderConnectFlow["canConnect"];
+    provisionAccount?: boolean;
   };
   children: BuilderConnectTrigger;
   onConnect?: (provisionAccount: boolean) => void;
@@ -66,14 +67,18 @@ export function BuilderConnectPopover({
     }
   }, [accountExists]);
 
-  const start = (provisionAccount: boolean) => {
+  const start = (provisionAccount?: boolean) => {
+    const shouldProvision =
+      provisionAccount ??
+      (flow.agentNativeProvisioningEnabled === true &&
+        (defaultProvisionAccount || flow.provisionAccount === true));
     initiatedByThisTriggerRef.current = true;
     setOpen(false);
     if (onConnect) {
-      onConnect(provisionAccount);
+      onConnect(shouldProvision);
       return;
     }
-    flow.start({ provisionAccount });
+    flow.start({ provisionAccount: shouldProvision });
   };
 
   const openQueuedPopoverRef = useRef<() => void>(() => {});
@@ -114,7 +119,7 @@ export function BuilderConnectPopover({
       }
       children.props.onClick?.(event);
       onTriggerClick?.(event);
-      if (!showPopover && !event.defaultPrevented) start(false);
+      if (!showPopover && !event.defaultPrevented) start();
     },
   });
 
@@ -169,49 +174,40 @@ export function BuilderConnectPopover({
                 ? t("agentChat.onboarding.builderOrgActivationDescription")
                 : t("agentChat.onboarding.builderActivationDescription")}
           </p>
-          <Button
-            type="button"
-            data-testid={primaryTestId}
-            className="w-full"
-            onClick={() => start(accountExists ? false : true)}
-            disabled={flow.connecting}
-          >
-            {flow.connecting ? <Spinner aria-hidden /> : null}
-            {accountExists
-              ? t("agentChat.auth.logIn")
-              : flow.connecting
-                ? t("agentChat.onboarding.builderActivating")
-                : t("agentChat.onboarding.builderCreateAndActivate")}
-            {!accountExists && !flow.connecting ? (
-              <IconArrowRight aria-hidden />
-            ) : null}
-          </Button>
-          {!accountExists && (
-            <>
-              <p className="text-[11px] leading-4 text-muted-foreground">
-                {t("agentChat.onboarding.builderConsentPrefix")}{" "}
-                <a
-                  href="https://www.builder.io/legal/terms"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {t("agentChat.onboarding.builderTerms")}
-                </a>{" "}
-                {t("agentChat.onboarding.builderConsentAnd")}{" "}
-                <a
-                  href="https://www.builder.io/legal/privacy"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {t("agentChat.onboarding.builderPrivacy")}
-                </a>
-                .
-              </p>
+          <div className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
+            <p className="text-[13px] font-semibold text-foreground">
+              {t("agentChat.onboarding.builderIncludedFreeWithAccount", {
+                defaultValue: "Included free with a Builder.io account",
+              })}
+            </p>
+            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+              {t("agentChat.onboarding.builderMonthlyCredits", {
+                defaultValue: "60 monthly Agent Credits",
+              })}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Button
+              type="button"
+              data-testid={primaryTestId}
+              className="w-full"
+              onClick={() => start(accountExists ? false : true)}
+              disabled={flow.connecting}
+            >
+              {flow.connecting ? <Spinner aria-hidden /> : null}
+              {accountExists
+                ? t("agentChat.auth.logIn")
+                : flow.connecting
+                  ? t("agentChat.onboarding.builderActivating")
+                  : t("agentChat.onboarding.builderCreateAndActivate")}
+              {!accountExists && !flow.connecting ? (
+                <IconArrowRight aria-hidden />
+              ) : null}
+            </Button>
+            {!accountExists && (
               <Button
                 type="button"
-                variant="ghost"
+                variant="secondary"
                 data-testid={secondaryTestId}
                 className="w-full"
                 onClick={() => start(false)}
@@ -219,7 +215,30 @@ export function BuilderConnectPopover({
               >
                 {t("agentChat.onboarding.builderExistingAccount")}
               </Button>
-            </>
+            )}
+          </div>
+          {!accountExists && (
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              {t("agentChat.onboarding.builderConsentPrefix")}{" "}
+              <a
+                href="https://www.builder.io/legal/terms"
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t("agentChat.onboarding.builderTerms")}
+              </a>{" "}
+              {t("agentChat.onboarding.builderConsentAnd")}{" "}
+              <a
+                href="https://www.builder.io/legal/privacy"
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {t("agentChat.onboarding.builderPrivacy")}
+              </a>
+              .
+            </p>
           )}
         </div>
       </PopoverContent>

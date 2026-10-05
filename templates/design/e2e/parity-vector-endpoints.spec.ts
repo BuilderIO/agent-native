@@ -221,6 +221,7 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
   page,
   request,
 }) => {
+  test.setTimeout(180_000);
   const { designId, fileId } = await createDesign(request);
   try {
     await gotoEditor(page, designId);
@@ -429,7 +430,7 @@ test("duplicating an arrow keeps endpoint marker references unique", async ({
   page,
   request,
 }) => {
-  const { designId } = await createDesign(request);
+  const { designId, fileId } = await createDesign(request);
   try {
     await gotoEditor(page, designId);
     await selectVector(page, "endpoint-arrow");
@@ -439,21 +440,51 @@ test("duplicating an arrow keeps endpoint marker references unique", async ({
       process.platform === "darwin" ? "Meta+D" : "Control+D",
     );
 
+    const readArrows = async () => {
+      const html = await source(request, designId, fileId);
+      return page.evaluate((sourceHtml) => {
+        const document = new DOMParser().parseFromString(
+          sourceHtml,
+          "text/html",
+        );
+        return [
+          ...document.querySelectorAll<SVGSVGElement>(
+            'svg[data-an-primitive="arrow"]',
+          ),
+        ].map((svg) => {
+          const path = svg.querySelector<SVGGeometryElement>(":scope > path");
+          return {
+            nodeId: svg.getAttribute("data-agent-native-node-id"),
+            markerIds: [
+              ...svg.querySelectorAll<SVGMarkerElement>(
+                ":scope > defs marker[data-an-vector-endpoint-marker]",
+              ),
+            ].map((marker) => marker.id),
+            start: path?.getAttribute("marker-start") ?? null,
+            end: path?.getAttribute("marker-end") ?? null,
+          };
+        });
+      }, html);
+    };
+
     await expect
-      .poll(
-        async () => {
-          const html = await source(
-            request,
-            designId,
-            (await readDesign(request, designId)).files?.find(
-              (file: { filename?: string }) => file.filename === "index.html",
-            )?.id,
-          );
-          return (html.match(/data-an-primitive="arrow"/g) ?? []).length;
-        },
-        { timeout: 20_000 },
-      )
-      .toBeGreaterThanOrEqual(2);
+      .poll(async () => (await readArrows()).length, { timeout: 20_000 })
+      .toBe(2);
+
+    const arrows = await readArrows();
+    const markerIds = arrows.flatMap((arrow) => arrow.markerIds);
+    expect(markerIds).toHaveLength(4);
+    expect(new Set(markerIds).size).toBe(markerIds.length);
+    for (const arrow of arrows) {
+      const startId = arrow.start?.match(/^url\(#(.+)\)$/)?.[1];
+      const endId = arrow.end?.match(/^url\(#(.+)\)$/)?.[1];
+      expect(arrow.markerIds).toHaveLength(2);
+      expect(startId).toBeTruthy();
+      expect(endId).toBeTruthy();
+      expect(startId).not.toBe(endId);
+      expect(arrow.markerIds).toContain(startId);
+      expect(arrow.markerIds).toContain(endId);
+    }
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

@@ -6,10 +6,12 @@ import {
   signedInContext,
   skipUnlessAuthed,
 } from "../../lib/authed";
-import { originFor, siteById } from "../../lib/fleet";
+import { originFor, selectedSites, siteById } from "../../lib/fleet";
 import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "../../lib/test-traffic";
 
 skipUnlessAuthed();
+
+const selected = new Set(selectedSites().map((site) => site.id));
 
 const ACTION_HEADERS = {
   ...BETA_E2E_TEST_TRAFFIC_HEADERS,
@@ -57,6 +59,8 @@ async function readAction(
 }
 
 test("Content beta saves a page edit and comment", async ({ browser }) => {
+  test.skip(!selected.has("content"), "content is not in this run's selection");
+
   const site = siteById("content");
   const origin = originFor(site);
   const context = await signedInContext(browser, site, { seedModel: false });
