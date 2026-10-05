@@ -200,11 +200,19 @@ describe("release everything workflow", () => {
     assert.match(String(pauseDocsBuilds.needs), /verify-stable-release/);
     assert.match(
       String(pauseDocsBuilds.if),
-      /needs\.verify-stable-release\.outputs\.verified != 'true'/,
+      /!cancelled\(\).*needs\.verify-stable-release\.outputs\.verified != 'true'/,
     );
     assert.match(
       String(restoreDocsBuilds.if),
-      /needs\.verify-stable-release\.outputs\.verified != 'true'/,
+      /!cancelled\(\).*needs\.verify-stable-release\.outputs\.verified != 'true'/,
+    );
+    assert.doesNotMatch(
+      String(pauseDocsBuilds.if),
+      /needs\.verify-stable-release\.result/,
+    );
+    assert.doesNotMatch(
+      String(restoreDocsBuilds.if),
+      /needs\.verify-stable-release\.result/,
     );
     assert.deepEqual(docsInputs, {
       source_ref: {

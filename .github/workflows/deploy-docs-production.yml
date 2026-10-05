@@ -121,12 +121,7 @@ jobs:
   pause-netlify-builds:
     name: Pause docs site's Git-connected Netlify builds
     needs: [verify-stable-release]
-    if: >-
-      ${{ always() && (
-        needs.verify-stable-release.result == 'skipped' ||
-        (needs.verify-stable-release.result == 'success' &&
-          needs.verify-stable-release.outputs.verified != 'true')
-      ) }}
+    if: ${{ !cancelled() && needs.verify-stable-release.outputs.verified != 'true' }}
     concurrency:
       group: agent-native-production-site-fw
       cancel-in-progress: false
@@ -290,12 +285,7 @@ jobs:
   restore-netlify-builds:
     name: Restore docs site's Git-connected Netlify builds
     needs: [verify-stable-release, pause-netlify-builds, migrate, deploy]
-    if: >-
-      ${{ always() && (
-        needs.verify-stable-release.result == 'skipped' ||
-        (needs.verify-stable-release.result == 'success' &&
-          needs.verify-stable-release.outputs.verified != 'true')
-      ) }}
+    if: ${{ !cancelled() && needs.verify-stable-release.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
     concurrency:
       group: agent-native-production-site-fw
