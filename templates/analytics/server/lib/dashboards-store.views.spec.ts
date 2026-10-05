@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   legacyDashboard: null as Record<string, unknown> | null,
   orgLegacyAnalysis: null as Record<string, unknown> | null,
   orgLegacyDashboard: null as Record<string, unknown> | null,
+  rowLockModes: [] as string[],
   views: [] as ViewRow[],
 }));
 
@@ -53,9 +54,15 @@ function matches(predicate: unknown, row: Record<string, unknown>): boolean {
 
 function rowsResult(rows: unknown[]) {
   const copies = rows.map((row) => ({ ...(row as Record<string, unknown>) }));
-  const result = Promise.resolve(copies);
-  (result as Promise<unknown[]> & { limit?: () => Promise<unknown[]> }).limit =
-    async () => copies.slice(0, 1);
+  const result = Promise.resolve(copies) as Promise<unknown[]> & {
+    for?: (mode: string) => Promise<unknown[]>;
+    limit?: () => Promise<unknown[]>;
+  };
+  result.limit = async () => copies.slice(0, 1);
+  result.for = async (mode) => {
+    state.rowLockModes.push(mode);
+    return copies;
+  };
   return result;
 }
 
@@ -272,6 +279,7 @@ beforeEach(() => {
   state.legacyDashboard = null;
   state.orgLegacyAnalysis = null;
   state.orgLegacyDashboard = null;
+  state.rowLockModes = [];
   state.views = [
     {
       id: "existing",
@@ -380,6 +388,7 @@ describe("dashboard views", () => {
   });
 
   it("sets one dashboard-wide default without changing another dashboard", async () => {
+    state.dashboardRow = { ...dashboard };
     state.views[0]!.isDefault = true;
     state.views[1]!.isDefault = true;
 
@@ -399,6 +408,7 @@ describe("dashboard views", () => {
       isDefault: true,
       filters: { f_timeRange: "90d" },
     });
+    expect(state.rowLockModes).toEqual(["update"]);
     expect(
       state.views
         .filter((view) => view.dashboardId === "dashboard-a" && view.isDefault)

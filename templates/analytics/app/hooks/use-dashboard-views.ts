@@ -77,6 +77,7 @@ export function useDashboardViews(dashboardId: string | undefined) {
     views,
     isLoading: viewsQuery.isLoading,
     isSuccess: viewsQuery.isSuccess,
+    isSettled: viewsQuery.isSuccess || viewsQuery.isError,
     error: viewsQuery.error,
     refetch: viewsQuery.refetch,
     saveView,

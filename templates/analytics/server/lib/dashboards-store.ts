@@ -3234,6 +3234,11 @@ export async function saveDashboardView(
   const row = await db.transaction(async (tx: any) => {
     if (view.isDefault) {
       await tx
+        .select({ id: schema.dashboards.id })
+        .from(schema.dashboards)
+        .where(eq(schema.dashboards.id, dashboardId))
+        .for("update");
+      await tx
         .update(schema.dashboardViews)
         .set({ isDefault: false })
         .where(

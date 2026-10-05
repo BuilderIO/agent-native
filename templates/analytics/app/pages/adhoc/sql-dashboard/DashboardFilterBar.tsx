@@ -279,7 +279,16 @@ export function DashboardFilterBar({
         </div>
       </Collapsible>
 
-      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+      <Dialog
+        open={saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) {
+            setViewName("");
+            setSetAsDefault(false);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{t("sqlDashboard.saveAsView")}</DialogTitle>
@@ -308,7 +317,11 @@ export function DashboardFilterBar({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSaveDialogOpen(false)}
+              onClick={() => {
+                setSaveDialogOpen(false);
+                setViewName("");
+                setSetAsDefault(false);
+              }}
               disabled={savingView}
             >
               {t("sidebar.cancel")}
@@ -418,7 +431,7 @@ function FilterControl({
     );
     if (supportsCustomRange && current === "custom") {
       return (
-        <div className="flex min-w-0 items-end gap-3">
+        <div className="flex min-w-0 flex-wrap items-end gap-3">
           {selectControl}
           <DateRangeInput
             label={t("sqlDashboard.customRange")}

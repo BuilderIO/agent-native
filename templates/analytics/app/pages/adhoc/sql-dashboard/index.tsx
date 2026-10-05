@@ -913,7 +913,7 @@ function SqlDashboardPageContent({
 
   const {
     views,
-    isSuccess: dashboardViewsLoaded,
+    isSettled: dashboardViewsSettled,
     saveView,
   } = useDashboardViews(dashboardId ?? undefined);
   const defaultView = views.find((view) => view.isDefault);
@@ -1025,7 +1025,7 @@ function SqlDashboardPageContent({
     if (
       reportScreenshot ||
       appliedSaved.current ||
-      !dashboardViewsLoaded ||
+      !dashboardViewsSettled ||
       !loaded ||
       !dashboard
     )
@@ -1083,7 +1083,7 @@ function SqlDashboardPageContent({
   }, [
     filtersLoading,
     filtersLoaded,
-    dashboardViewsLoaded,
+    dashboardViewsSettled,
     loaded,
     dashboard,
     defaultView,

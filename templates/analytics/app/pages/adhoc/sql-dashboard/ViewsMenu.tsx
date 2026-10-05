@@ -263,7 +263,16 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={canEdit && saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+      <Dialog
+        open={canEdit && saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) {
+            setViewName("");
+            setSetAsDefault(false);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{t("sqlDashboard.saveView")}</DialogTitle>
@@ -299,7 +308,11 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSaveDialogOpen(false)}
+              onClick={() => {
+                setSaveDialogOpen(false);
+                setViewName("");
+                setSetAsDefault(false);
+              }}
               disabled={savingView}
             >
               {t("sidebar.cancel")}
