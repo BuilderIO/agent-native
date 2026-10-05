@@ -719,6 +719,103 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
+  it.each([
+    ["resumes the stopped run's turn", true],
+    ["says so when the run can no longer be continued", false],
+  ])("Continue on a stopped run %s", async (_, accepted) => {
+    const continueRun = vi.fn(
+      async (
+        _input: Parameters<NonNullable<AgentTransport["continueRun"]>>[0],
+      ) => {
+        if (!accepted) throw new Error("This turn can no longer be continued.");
+        return { runId: "run-continued" };
+      },
+    );
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-crashed" };
+      },
+      async *subscribeToRun(input) {
+        if (input.runId !== "run-crashed") return;
+        const base = {
+          threadId: "thread-continue",
+          runId: "run-crashed",
+          occurredAt: "2026-10-05T00:00:00.000Z",
+        };
+        yield { ...base, id: "e1", sequence: 1, type: "run.started" };
+        yield {
+          ...base,
+          id: "e2",
+          sequence: 2,
+          type: "run.failed",
+          error: {
+            code: "stale_run",
+            message: "The agent stopped before it could finish.",
+            retryable: true,
+          },
+        };
+      },
+      continueRun,
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({
+      threadId: "thread-continue",
+      text: "Bill Ana and email her the invoice",
+    });
+    await run.completed.catch(() => undefined);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const continueButton = () =>
+      [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          ".agentkit-run-failure button",
+        ),
+      ].find((button) => button.textContent === "Continue");
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-continue">
+            <AgentKitChat composer={false} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      expect(continueButton()).toBeDefined();
+
+      await act(async () => {
+        continueButton()?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(continueRun).toHaveBeenCalledWith(
+        { threadId: "thread-continue", runId: "run-crashed" },
+        expect.anything(),
+      );
+      expect(container.textContent?.includes("can't be continued")).toBe(
+        !accepted,
+      );
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("renders the default plus control and routes chat-wide file drops to the composer", async () => {
     const transport: AgentTransport = {
       capabilities: { uploads: true },

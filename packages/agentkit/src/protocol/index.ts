@@ -1109,6 +1109,15 @@ export interface AgentTransport extends AgentTransportThreadOperations {
     context?: AgentRequestContext,
   ): Promise<StartRunResult>;
   /**
+   * Continues a run that stopped before it finished (a time limit, a crashed
+   * worker, an error) as a new run in the same turn, so steps the stopped run
+   * already finished are reused instead of run again.
+   */
+  continueRun?(
+    input: ContinueRunInput,
+    context?: AgentRequestContext,
+  ): Promise<StartRunResult>;
+  /**
    * @deprecated Implement {@link resumeRun}. Kept as a source-compatible
    * bridge for protocol-v1 transports while consumers migrate to interrupts.
    */
@@ -1170,6 +1179,12 @@ export interface ResumeRunInput {
   threadId: ThreadId;
   runId: RunId;
   resume: AgentResumeEntry[];
+}
+
+export interface ContinueRunInput {
+  threadId: ThreadId;
+  /** The stopped run to continue. */
+  runId: RunId;
 }
 
 export interface StartRunResult {

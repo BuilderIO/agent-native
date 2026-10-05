@@ -2771,6 +2771,11 @@ export function foldAssistantTurn(
     mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
   }
   if (incomingCustom.continued !== true) delete mergedCustom.continued;
+  // A turn's failure is its newest run's: a run that continued past an
+  // earlier stop clears the stop's error instead of inheriting it.
+  if (!runAlreadyFolded && incomingCustom.runError === undefined) {
+    delete mergedCustom.runError;
+  }
 
   const mergedMessage = {
     ...lastMsg,

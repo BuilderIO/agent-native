@@ -796,6 +796,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Configurando Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
+  "recovery.continueUnavailable":
+    "Esta ejecución ya no se puede continuar. Envía un mensaje para seguir.",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitud incluía un archivo que no se puede volver a enviar. Vuelve a adjuntarlo en el cuadro de mensaje y vuelve a intentarlo.",
   "recovery.deferredSubmissionFailed":

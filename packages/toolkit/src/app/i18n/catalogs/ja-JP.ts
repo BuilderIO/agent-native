@@ -1131,6 +1131,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io を設定中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
+  "recovery.continueUnavailable":
+    "この実行はもう続行できません。続けるにはメッセージを送信してください。",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
   "recovery.deferredSubmissionFailed":

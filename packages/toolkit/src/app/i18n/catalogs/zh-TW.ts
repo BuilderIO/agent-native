@@ -1054,6 +1054,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "正在設定 Builder.io",
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
+  "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
   "recovery.deferredSubmissionFailed":

@@ -110,6 +110,8 @@ When the server stops a turn at its run time limit and nothing server-side picks
 
 A turn continues automatically **at most three times**. The count is stored with the turn's runs, so reloading the page does not reset it, and a second tab cannot double it. After that, or after any error, stop, cancellation, or credential or rate limit, the turn ends with **Continue** available and waits for you.
 
+Choosing **Continue** resumes the stopped run's own turn the same way, with no limit on how often, so a finished send or charge is not repeated. It is offered only for the conversation's newest stop. If you send a new message instead, the agent is first told what the unfinished turn already did.
+
 ## What's next
 
 - [**Real-Time Sync**](/docs/real-time-collaboration) — how the durable run ledger streams to the client and replays on reconnect.

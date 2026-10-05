@@ -1795,6 +1795,16 @@ button.agentkit-object {
   color: var(--agentkit-text-muted);
 }
 
+.agentkit-run-failure-copy > .agentkit-error-actions {
+  flex-basis: 100%;
+  margin-block-start: 0.25rem;
+}
+
+.agentkit-run-failure-copy > .agentkit-command-error {
+  flex-basis: 100%;
+  color: var(--agentkit-danger);
+}
+
 :where(.agentkit-chat) :where(button, a, input, summary):focus-visible {
   outline: 2px solid var(--agentkit-focus);
   outline-offset: 2px;

@@ -3185,6 +3185,28 @@ export function AgentRunFailure({
   threadId,
 }: AgentRunFailureRenderProps) {
   const { labels } = useAgentKit();
+  const control = useAgentKitControl(threadId);
+  const thread = useAgentThread(threadId);
+  const [continuing, setContinuing] = useState(false);
+  const [continueFailed, setContinueFailed] = useState(false);
+  // Continuing resumes the stopped run's own turn, so only that turn's newest
+  // run can be continued; once anything ran after it, the card is history.
+  const startedAt = thread.runs[runId]?.startedAt;
+  const superseded = Object.values(thread.runs).some(
+    (run) =>
+      run.id !== runId &&
+      Boolean(run.startedAt && startedAt && run.startedAt > startedAt),
+  );
+  const canContinue =
+    error.retryable === true && control.canContinueRun && !superseded;
+  const continueRun = () => {
+    setContinuing(true);
+    setContinueFailed(false);
+    control.continueRun(runId).catch(() => {
+      setContinuing(false);
+      setContinueFailed(true);
+    });
+  };
   return (
     <div
       className="agentkit-run-failure"
@@ -3197,6 +3219,23 @@ export function AgentRunFailure({
       <div className="agentkit-run-failure-copy">
         <strong>{labels.runFailed}</strong>
         <span>{error.message}</span>
+        {canContinue ? (
+          <div className="agentkit-error-actions">
+            <ActionButton
+              emphasis="outline"
+              size="compact"
+              pending={continuing}
+              onPress={continueRun}
+            >
+              {labels.continueRun}
+            </ActionButton>
+          </div>
+        ) : null}
+        {continueFailed ? (
+          <span className="agentkit-command-error">
+            {labels.continueRunUnavailable}
+          </span>
+        ) : null}
       </div>
     </div>
   );

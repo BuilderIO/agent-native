@@ -804,6 +804,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Configuration de Builder.io",
   "recovery.copyDebug": "Copier les informations de débogage",
   "recovery.copyFailed": "Échec de la copie",
+  "recovery.continueUnavailable":
+    "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
   "recovery.deferredSubmissionFailed":
