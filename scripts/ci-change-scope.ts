@@ -472,6 +472,7 @@ export function shardQueryBudgetApps(
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
   return [
     "packages/core/",
+    "packages/otel/",
     "packages/toolkit/",
     "packages/recap-cli/",
     "packages/creative-context/",

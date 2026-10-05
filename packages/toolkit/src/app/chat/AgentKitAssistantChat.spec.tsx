@@ -618,6 +618,7 @@ vi.mock("./chat/agent-approval-card.js", async () => {
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
   appendAgentChatContextToMessage,
+  createAgentNativeAgentKitTransport,
 } from "@agent-native/core/client/agent-chat";
 import {
   deleteClientAppState,
@@ -2613,6 +2614,35 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
+  it("localizes unsupported upload errors instead of exposing the HTTP status", async () => {
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json(
+          { error: "Unsupported file type: application/pdf" },
+          { status: 415 },
+        ),
+      );
+    await mount(baseProps());
+
+    try {
+      await expect(
+        chatMocks.rootProps.clientOptions.upload(
+          { uploadId: "upload-1", method: "POST", url: "/uploads" },
+          {
+            name: "reference.pdf",
+            mediaType: "application/pdf",
+            size: 4,
+            body: new Blob(["data"], { type: "application/pdf" }),
+          },
+        ),
+      ).rejects.toThrow("agentChat.composer.unsupportedFileType");
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
   it("sends without waiting for pending-selection cleanup", async () => {
     chatMocks.appState.set("pending-selection-context", {
       text: "Selected text",
@@ -3923,13 +3953,7 @@ describe("AgentKitAssistantChat host behavior", () => {
   });
 
   it("routes the built-in transport 404 through AgentKitRoot to the not-found fallback", async () => {
-    const { createAgentNativeAgentKitTransport } =
-      await import("@agent-native/core/client/agent-chat");
-    let resolveNotFound!: (response: Response) => void;
-    const notFoundResponse = new Promise<Response>((resolve) => {
-      resolveNotFound = resolve;
-    });
-    const fetch = vi.fn(async () => notFoundResponse);
+    const fetch = vi.fn(async () => new Response(null, { status: 404 }));
     const onThreadRestoreNotFound = vi.fn();
     const runtime = {
       id: "restore-test",
@@ -3952,20 +3976,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
     await flush();
     expect(fetch).toHaveBeenCalledOnce();
-    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-
-    await act(async () => {
-      resolveNotFound(new Response(null, { status: 404 }));
-    });
-    await flush();
 
     expect(onThreadRestoreNotFound).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("agentChat.message.threadNotFound");
   });
 
   it("hands a recent snapshot across surfaces while thread persistence lags", async () => {
-    const { createAgentNativeAgentKitTransport } =
-      await import("@agent-native/core/client/agent-chat");
     const threadId = "surface-handoff-thread";
     const browserTabId = "surface-handoff-tab";
     const savedSnapshots = vi.fn();

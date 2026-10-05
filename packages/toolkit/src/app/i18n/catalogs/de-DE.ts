@@ -1111,6 +1111,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Hochladen",
   "composer.uploadFailed":
     "Die ausgewählte Datei konnte nicht hochgeladen werden.",
+  "composer.unsupportedFileType": "Dieser Dateityp wird nicht unterstützt.",
   "composer.useAttachedContext": "Verwende den angehängten Kontext.",
   "mentions.commands": "Befehle",
   "mentions.learnMore": "Mehr erfahren",
