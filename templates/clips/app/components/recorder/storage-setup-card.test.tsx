@@ -50,6 +50,7 @@ import { StorageSetupCard } from "./storage-setup-card";
 
 const CREATE = "agentChat.onboarding.builderCreateAndActivate";
 const EXISTING_ACCOUNT = "agentChat.onboarding.builderExistingAccount";
+const SIGN_IN = "agentChat.onboarding.builderSignInWithAccount";
 const CONSENT = "agentChat.onboarding.builderConsentPrefix";
 
 function flowState(overrides: Record<string, unknown> = {}) {
@@ -221,32 +222,42 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("offers Log in when account creation found an existing account", async () => {
+  it("opens the shared account popover when activation finds an existing account", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ accountExists: true }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    await act(async () => bodyButton("agentChat.auth.logIn")?.click());
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderIncludedFree",
+    );
+    expect(bodyButton(SIGN_IN)).toBeDefined();
+    expect(bodyButton(CREATE)).toBeUndefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
+    await act(async () => bodyButton(SIGN_IN)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });
   });
 
-  it("offers Log in for an existing Builder credential", async () => {
+  it("opens the shared account popover for an existing Builder credential", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ configured: true, credentialSource: "user" }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    expect(bodyButton("agentChat.auth.logIn")).toBeDefined();
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderIncludedFree",
+    );
+    expect(bodyButton(SIGN_IN)).toBeDefined();
     expect(bodyButton(CREATE)).toBeUndefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
 
-    await act(async () => bodyButton("agentChat.auth.logIn")?.click());
+    await act(async () => bodyButton(SIGN_IN)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });
