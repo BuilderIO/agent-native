@@ -216,9 +216,16 @@ export interface AgentKitLabels {
   composerLabel: string;
   composerPlaceholder: string;
   queue: string;
+  /** @deprecated Use queueSendNow. */
   queueSteer: string;
+  /** @deprecated Use queueSendNowHint. */
   queueSteerHint: string;
+  /** @deprecated Use queueSendNext. */
   queueMoveToTop: string;
+  queueSendNow?: string;
+  queueSendNowHint?: string;
+  queueSendNext?: string;
+  queueSendNextHint?: string;
   queueRemove: string;
   queueMore: string;
   suggestions: string;
@@ -305,9 +312,13 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   composerLabel: "Message agent",
   composerPlaceholder: "Ask the agent to explore, build, or explain…",
   queue: "Queued messages",
-  queueSteer: "Steer",
-  queueSteerHint: "Send this message to the active run",
-  queueMoveToTop: "Move to top",
+  queueSteer: "Send now",
+  queueSteerHint: "Stops the current response, then sends this message.",
+  queueMoveToTop: "Send next",
+  queueSendNow: "Send now",
+  queueSendNowHint: "Stops the current response, then sends this message.",
+  queueSendNext: "Send next",
+  queueSendNextHint: "Send after the current response finishes",
   queueRemove: "Remove queued message",
   queueMore: "More actions",
   suggestions: "Suggested next actions",
@@ -399,12 +410,19 @@ export interface AgentKitProviderProps {
   children: ReactNode;
 }
 
+interface ResolvedAgentKitLabels extends AgentKitLabels {
+  queueSendNow: string;
+  queueSendNowHint: string;
+  queueSendNext: string;
+  queueSendNextHint: string;
+}
+
 export interface AgentKitContextValue {
   controller: AgentKitController;
   threadId: ThreadId;
   slots: AgentKitSlots;
   registry: AgentKitRegistry;
-  labels: AgentKitLabels;
+  labels: ResolvedAgentKitLabels;
   onOpenObject?: (object: AgentObjectReference) => void;
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
@@ -447,8 +465,37 @@ export function AgentKitProvider({
   const requestComposerFocus = useCallback((targetThreadId: ThreadId) => {
     composerFocusTargets.current.get(targetThreadId)?.();
   }, []);
-  const mergedLabels = useMemo(
-    () => ({ ...defaultAgentKitLabels, ...labels }),
+  const mergedLabels = useMemo<ResolvedAgentKitLabels>(
+    () => ({
+      ...defaultAgentKitLabels,
+      ...labels,
+      queueSteer:
+        labels?.queueSteer ??
+        labels?.queueSendNow ??
+        defaultAgentKitLabels.queueSteer,
+      queueSteerHint:
+        labels?.queueSteerHint ??
+        labels?.queueSendNowHint ??
+        defaultAgentKitLabels.queueSteerHint,
+      queueMoveToTop:
+        labels?.queueMoveToTop ??
+        labels?.queueSendNext ??
+        defaultAgentKitLabels.queueMoveToTop,
+      queueSendNow:
+        labels?.queueSendNow ??
+        labels?.queueSteer ??
+        defaultAgentKitLabels.queueSendNow!,
+      queueSendNowHint:
+        labels?.queueSendNowHint ??
+        labels?.queueSteerHint ??
+        defaultAgentKitLabels.queueSendNowHint!,
+      queueSendNext:
+        labels?.queueSendNext ??
+        labels?.queueMoveToTop ??
+        defaultAgentKitLabels.queueSendNext!,
+      queueSendNextHint:
+        labels?.queueSendNextHint ?? defaultAgentKitLabels.queueSendNextHint!,
+    }),
     [labels],
   );
   const value = useMemo(
