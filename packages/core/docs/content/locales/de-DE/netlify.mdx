@@ -1,63 +1,259 @@
 ---
 title: "Netlify"
-description: "Stellen Sie eine agentennative App mit der Netlify-Nitro-Voreinstellung auf Netlify bereit, und konfigurieren Sie Keep-Warm für Scale-to-Zero-Datenbanken."
+description: "Stellen Sie eine eigenständige Agent-Native-App mit der Netlify CLI auf Netlify bereit, und konfigurieren Sie Keep-Warm für Scale-to-Zero-Datenbanken."
 ---
 
 # Netlify
 
-Die Nitro-`netlify`-Voreinstellung funktioniert gut und hat uns in der Praxis viel schnellere Kaltstarts ermöglicht (~200 ms TTFB) für Vorlagen, die mit externem Postgres (Neon) kommunizieren. Für eine minimale Konfiguration außerhalb des generierten Scaffolds legen Sie die Voreinstellung in `vite.config.ts` fest:
+Netlify hostet Ihre App für Sie. Sie müssen also keinen Server einrichten oder
+am Laufen halten. Der Build verwandelt die App in statische Dateien, die Netlify
+direkt ausliefert, und in Funktionen, die Netlify bei Bedarf ausführt. Netlify
+gibt der App außerdem eine öffentliche Adresse mit HTTPS.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "netlify" } })],
-});
+Diese Anleitung führt Sie Schritt für Schritt durch das Deployment einer
+eigenständigen App. Sie erstellen die App, geben ihr eine Produktionsdatenbank
+und ein Auth-Secret, erstellen eine Netlify-Site für sie, bereiten die
+Datenbank vor und bauen und deployen sie dann.
+
+<Callout tone="info">
+
+Node.js `22.22+` ist erforderlich.
+
+</Callout>
+
+Außerdem brauchen Sie ein Netlify-Konto. Führen Sie die Befehle dieser Anleitung
+auf Ihrem eigenen Computer aus. Die Netlify CLI lädt den fertigen Build für Sie
+zu Netlify hoch.
+
+## Schritt 1: Die App erstellen {#step-1-create-the-app}
+
+Erstellen Sie Ihre neue eigenständige App. Das folgende Beispiel erstellt eine
+App aus dem Chat-Template, Sie können aber mit jedem Template beginnen. Wechseln
+Sie in den Ordner der App und installieren Sie ihre Abhängigkeiten.
+`corepack enable` aktiviert die `pnpm`-Version, die die App erwartet. Sie müssen
+`pnpm` also nicht selbst installieren.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-Im generierten Chat-Scaffold heißt der Import weiterhin `agentNative`. Die Konfiguration weist
-ihn mit einer Typumwandlung dem lokalen Alias `agentNativePlugins` zu und verteilt anschließend
-das zurückgegebene Plugin-Array, damit die Vite-Pakettypen übereinstimmen. Der Alias akzeptiert
-dieselben Optionen wie das obige `agentNative`-Beispiel. Füge `nitro: { preset: "netlify" }`
-zu den Optionen dieses bestehenden `agentNativePlugins({ ... })`-Aufrufs hinzu. Lass die übrigen
-Chat-spezifischen Plugins, Optionen und Aliase unverändert.
+Ersetzen Sie `my-app` bei Bedarf durch Ihren eigenen App-Namen. Der Rest dieser
+Anleitung geht davon aus, dass Sie sich im Ordner der App befinden.
 
-… oder legen Sie `NITRO_PRESET=netlify` zur Build-Zeit fest.
+## Schritt 2: Umgebungs-Secrets konfigurieren {#step-2-configure-environment-secrets}
 
-Für eine Standalone-App bauen Sie die Netlify-Ausgabe und stellen Assets und Funktionen bereit:
+Die App liest ihre Produktionseinstellungen aus Umgebungsvariablen:
+
+| Variable             | Erforderlich | Zweck                                                                 |
+| -------------------- | ------------ | --------------------------------------------------------------------- |
+| `DATABASE_URL`       | Ja           | Verbindet die App mit ihrer PostgreSQL-Datenbank                      |
+| `BETTER_AUTH_SECRET` | Ja           | Signiert Benutzersitzungen                                            |
+| `BETTER_AUTH_URL`    | Nein         | Legt die öffentliche Adresse fest, über die Ihre App erreichbar ist   |
+
+Mit den folgenden Exporten funktionieren die nächsten Befehle in dieser Shell.
+Speichern Sie vor dem Deployment dieselben Variablen in den Umgebungseinstellungen
+des Projekts oder Dienstes bei Ihrem Hoster. Der nächste Schritt zeigt, wie Sie
+sie in Netlify speichern.
+
+### Datenbank-URL {#database-url}
+
+Während der lokalen Entwicklung speichert die App ihre Daten in einer lokalen
+Datenbank, wenn `DATABASE_URL` nicht gesetzt ist. Eine bereitgestellte App
+braucht eine echte PostgreSQL-Datenbank, die ihre Daten über Deployments hinweg
+behält. Netlify behält keine Dateien zwischen Anfragen. Die Datenbank muss sich
+daher außerhalb der Funktionen von Netlify befinden. Kopieren Sie den
+Verbindungsstring von Ihrem Anbieter und exportieren Sie ihn:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Die [Anleitungen zu Datenbankanbietern](/docs/neon) zeigen, wo Sie den
+Verbindungsstring für jeden Anbieter finden.
+
+<Callout tone="warning">
+
+Wählen Sie einen persistenten PostgreSQL-Anbieter, zum Beispiel Neon, Supabase oder Amazon RDS.
+
+</Callout>
+
+### Auth-Secret {#auth-secret}
+
+Erzeugen Sie diesen Wert einmal und lassen Sie ihn über alle Deployments hinweg
+unverändert.
+
+Die App verwendet `BETTER_AUTH_SECRET`, um Benutzersitzungen zu signieren. Wenn
+sich der Wert ändert, werden alle angemeldeten Benutzer abgemeldet. Der folgende
+Befehl erzeugt einen zufälligen Wert:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Bewahren Sie den erzeugten Wert an einem sicheren Ort auf, zum Beispiel in einem
+Passwort-Manager. Verwenden Sie bei jedem Deployment denselben Wert.
+
+### Öffentliche URL {#public-url}
+
+Optional. Setzen Sie sie, wenn Sie eine eigene Domain, einen Reverse Proxy oder
+einen Auth- bzw. OAuth-Ablauf verwenden, der einen festen öffentlichen Origin
+benötigt.
+
+`BETTER_AUTH_URL` ist die öffentliche Adresse, über die Ihre App erreichbar ist.
+Ohne diese Variable ermittelt die App ihre Adresse aus jeder eingehenden
+Anfrage. Auf der Adresse, die Netlify Ihnen gibt, funktioniert das meistens.
+Setzen Sie die Variable aber, wenn Sie eine eigene Domain verbinden, damit
+Anmeldelinks und OAuth-Weiterleitungen diese Domain verwenden.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Schritt 3: Die Site verknüpfen und die Secrets speichern {#step-3-link-the-site-and-save-the-secrets}
+
+Melden Sie sich über die Kommandozeile bei Netlify an und erstellen Sie dann
+eine neue Site für die App. Sie können den vorgegebenen Projektnamen
+beibehalten und das GitHub-Repository vorerst leer lassen.
+
+```bash
+npx netlify login
+
+npx netlify sites:create --name my-app
+```
+
+`sites:create` erstellt die Site und verknüpft sie mit dem Ordner der App. So
+wissen spätere Befehle, welche Site sie verwenden sollen. Der Name wird
+außerdem zur Adresse der Site, zum Beispiel `my-app.netlify.app`. Site-Namen
+gelten für ganz Netlify. Wählen Sie also einen anderen Namen, wenn `my-app`
+bereits vergeben ist. Sie brauchen kein GitHub-Repository, denn Sie deployen
+die App in Schritt 5 von Ihrem Computer aus.
+
+Speichern Sie die beiden erforderlichen Variablen in der Umgebung der Site:
+
+```bash
+npx netlify env:set DATABASE_URL "$DATABASE_URL"
+
+npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+```
+
+Jeder Befehl liest den Wert, den Sie in Schritt 2 exportiert haben, und speichert
+ihn in Netlify. Sie müssen Secrets also nicht von Hand einfügen. Wenn Sie
+`BETTER_AUTH_URL` gesetzt haben, speichern Sie die Variable auf dieselbe Weise.
+Sie können diese Werte später auch in den Site-Einstellungen im
+Netlify-Dashboard ansehen und ändern.
+
+## Schritt 4: Migrieren {#step-4-migrate}
+
+Migrationen erstellen und aktualisieren die Tabellen, die die App in Ihrer
+Datenbank braucht. Führen Sie dies vor dem ersten Deployment aus:
+
+```bash
+pnpm migrate:production
+```
+
+Der Befehl läuft auf Ihrem Computer und verbindet sich über die
+`DATABASE_URL`, die Sie in Schritt 2 exportiert haben, mit der
+Produktionsdatenbank. Führen Sie ihn nach einem Upgrade der App erneut aus,
+bevor Sie die neue Version deployen.
+
+## Schritt 5: Bereitstellen {#step-5-deploy}
+
+Bauen Sie die App für Netlify:
 
 ```bash
 NITRO_PRESET=netlify pnpm build
+```
+
+`NITRO_PRESET=netlify` baut die App in dem Format, das Netlify erwartet. Der
+Build schreibt die statischen Dateien der App in den Ordner `dist` und ihre
+Serverfunktionen in den Ordner `.netlify/functions-internal`.
+
+Laden Sie den Build hoch und veröffentlichen Sie ihn:
+
+```bash
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Legen Sie vor dem ersten Production-Deployment `DATABASE_URL` und ein stabiles `BETTER_AUTH_SECRET` in den Umgebungsvariablen der Netlify-Site fest. Verlassen Sie sich nicht auf die lokale PGlite-Datenbank; `DATABASE_URL` muss auf eine dauerhafte PostgreSQL-Datenbank zeigen, die die bereitgestellte Funktion erreichen kann.
+`--dir` und `--functions` teilen der CLI mit, wo sie die statischen Dateien und
+die Funktionen findet, die Sie gerade gebaut haben. `--prod` veröffentlicht sie
+unter Ihrer Produktionsadresse statt als Vorschau-Entwurf.
 
-Stellen Sie für einen Arbeitsbereich jede App von einer Netlify-Site bereit, indem Sie Folgendes ausführen:
+Wenn der Befehl fertig ist, gibt er die Produktionsadresse der App aus. Öffnen
+Sie sie und erstellen Sie das erste Konto.
+
+## Updates bereitstellen {#deploy-updates}
+
+Um eine neue Version auszuliefern, führen Sie die Befehle zum Migrieren, Bauen
+und Deployen im Ordner der App erneut aus:
 
 ```bash
-npx @agent-native/core@latest deploy --preset netlify
+pnpm migrate:production
+
+NITRO_PRESET=netlify pnpm build
+
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Der Workspace-Build schreibt statische Assets unter `dist/_workspace_static/` und leitet jede App ohne erzwungene Asset-Weiterleitungen an ihre eigene Netlify-Funktion, sodass Dateien wie `/mail/assets/...` statisch bereitgestellt werden, bevor die Serverfunktion App-Routen verarbeitet.
+Die Site-Verknüpfung und die gespeicherten Variablen bleiben erhalten. Sie
+müssen Schritt 3 also nicht wiederholen.
 
 ## Keep-Warm und Scale-to-Zero-Datenbanken {#netlify-keep-warm}
 
-Wenn aktiviert, erzeugt der Netlify-Build eine geplante Funktion, die **jede Minute** `/_agent-native/health` aufruft. Das hält die Serverfunktion und ihre Datenbank warm, damit der nächste Besucher nach einer Leerlaufphase keinen Kaltstart bezahlt (1–5 s bei Neon).
+Nach einer ruhigen Phase kann die erste Anfrage langsam sein, während Netlify
+die Funktion startet und eine Scale-to-Zero-Datenbank wie der kostenlose
+Neon-Tarif aufwacht. Agent-Native kann diese Wartezeit mit Keep-Warm verkürzen.
+Wenn Keep-Warm aktiviert ist, fügt der Build eine geplante Netlify-Funktion
+hinzu, die **jede Minute** den Endpunkt `/_agent-native/health` der App aufruft.
+Das hält die Serverfunktion und ihre Datenbank wach.
 
-Keep-Warm ist **standardmäßig deaktiviert**, weil ein Aufwecken einmal pro Minute Autosuspend bei kostenpflichtigen Scale-to-Zero-Datenbanken verhindert. Bei einem kostenlosen Neon-Tarif kann das die Compute-Quote erschöpfen, und die Datenbank lehnt dann mitten in der Sitzung **alle** Lesevorgänge ab. Das Symptom ist eine tote App, nicht eine langsame. Legen Sie `AGENT_NATIVE_ENABLE_KEEP_WARM=1` fest, wenn die geringere Latenz für den nächsten Besucher die zusätzliche Wachzeit der Datenbank wert ist.
+Keep-Warm ist **standardmäßig deaktiviert**. Wenn die Datenbank wach bleibt,
+kann sie nicht pausieren. Das verbraucht die Compute-Quote bei kostenlosen oder
+nutzungsbasierten Tarifen. Ist die Quote erschöpft, lehnt die Datenbank **alle**
+Lesevorgänge ab, und die App funktioniert nicht mehr. Setzen Sie
+`AGENT_NATIVE_ENABLE_KEEP_WARM=1`, wenn ein schnellerer erster Besuch die
+zusätzliche Datenbankzeit wert ist.
 
-Der Keep-Warm-Zeitplan und das Aufwärmen der Hintergrundfunktion gelten nur, nachdem das Haupt-Keep-Warm-Flag aktiviert wurde:
+Diese Variablen steuern Keep-Warm. Die Einstellungen für Zeitplan und
+Hintergrund gelten erst, wenn Sie `AGENT_NATIVE_ENABLE_KEEP_WARM` aktiviert
+haben:
 
-| Variable                                    | Wirkung                                                                                                                                                                                                               |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert das geplante Warmhalten von Server und Datenbank. Standardmäßig nicht gesetzt.                                                                                                                              |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Kompatibles Abschalt-Flag, das das Opt-in-Flag überstimmt, wenn es gesetzt ist.                                                                                                                                       |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Überschreibt die Kadenz mit einem 5-Feld-Cron-Ausdruck, z. B. `*/5 * * * *`. Die Standardkadenz bei Aktivierung ist `* * * * *`. Ein nicht parsebarer Wert **lässt den Build fehlschlagen**.                          |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Verwirft nur das Aufwärmen der Hintergrundfunktion und hält den Server warm. Das Aufwärmen von `server` ist eine Anfrage. Das Aufwärmen von `-background` startet einen neuen Container, der das Schema erneut prüft. |
+| Variable                                    | Wirkung                                                                                                                                                                                                                                  |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert das geplante Aufwärmen der Serverfunktion und der Datenbank. Standardmäßig nicht gesetzt.                                                                                                                                      |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Deaktiviert Keep-Warm, auch wenn `AGENT_NATIVE_ENABLE_KEEP_WARM` gesetzt ist. Bleibt zur Kompatibilität mit älteren Setups erhalten.                                                                                                     |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Ändert, wie oft das Aufwärmen läuft, als 5-Feld-Cron-Ausdruck wie `*/5 * * * *`. Der Standardwert ist `* * * * *`, also jede Minute. Ein Wert, der kein gültiger Cron-Ausdruck ist, **lässt den Build fehlschlagen**.                     |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Lässt das Aufwärmen der Hintergrundfunktion aus und wärmt weiterhin die Serverfunktion auf. Das Aufwärmen des Servers ist eine einzige Anfrage. Das Aufwärmen der Hintergrundfunktion startet einen neuen Container, der das Datenbankschema erneut prüft. |
 
-Wenn Sie einen kostenlosen oder anderweitig kontingentierten Datenbank-Tarif nutzen, lassen Sie `AGENT_NATIVE_ENABLE_KEEP_WARM` nicht gesetzt. Wenn Sie es aktivieren, verwenden Sie eine langsamere Kadenz oder legen Sie `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` fest, um das teurere Aufwärmen der Hintergrundfunktion fallen zu lassen.
+Wenn Ihre Datenbank einen kostenlosen oder anderweitig begrenzten Tarif nutzt,
+lassen Sie `AGENT_NATIVE_ENABLE_KEEP_WARM` nicht gesetzt. Wenn Sie es
+aktivieren, wählen Sie einen langsameren Zeitplan oder setzen Sie
+`AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1`, um das teurere Aufwärmen im
+Hintergrund auszulassen.
 
-## Was kommt als nächstes?
+Diese Variablen liest der Build, nicht die laufende App. Da Sie in Schritt 5
+auf Ihrem eigenen Computer bauen, setzen Sie sie vor dem Build in derselben
+Shell. Wenn Sie sie in den Site-Einstellungen von Netlify speichern, hat das
+keine Wirkung auf einen lokal ausgeführten Build. So aktivieren Sie zum
+Beispiel Keep-Warm mit einem Fünf-Minuten-Zeitplan:
 
-- [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung
-- [**SSR-Caching**](/docs/ssr-caching) — die Standard-Cache-Richtlinie und Netlifys separates `netlify-cdn-cache-control`-Verhalten
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel) und [**Cloudflare**](/docs/cloudflare) — die anderen Nitro-Voreinstellungen
+```bash
+export AGENT_NATIVE_ENABLE_KEEP_WARM=1
+
+export AGENT_NATIVE_KEEP_WARM_SCHEDULE='*/5 * * * *'
+
+NITRO_PRESET=netlify pnpm build
+```
+
+Deployen Sie anschließend wie gewohnt.
+
+## Was kommt als nächstes? {#whats-next}
+
+- [**Umgebungsvariablen für das Deployment**](/docs/deployment-environment-variables) - die vollständige Liste der Produktionseinstellungen
+- [**SSR-Caching**](/docs/ssr-caching) - die Standard-Cache-Richtlinie und das separate `netlify-cdn-cache-control`-Verhalten von Netlify
+- [**Deployment**](/docs/deployment) - Hosting-Ziele und Voraussetzungen vergleichen
