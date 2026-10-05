@@ -1256,6 +1256,7 @@ function mcpAppUiMeta(
   requestMeta?: MCPRequestMeta,
   description?: string,
   widgetDomain?: string,
+  directoryMode = false,
 ): Record<string, unknown> | undefined {
   const base =
     resource._meta && typeof resource._meta === "object"
@@ -1267,9 +1268,21 @@ function mcpAppUiMeta(
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
   delete ui.domain;
+  if (
+    directoryMode &&
+    ui.csp &&
+    typeof ui.csp === "object" &&
+    !Array.isArray(ui.csp)
+  ) {
+    const csp = { ...(ui.csp as Record<string, unknown>) };
+    delete csp.baseUriDomains;
+    ui.csp = csp;
+  }
   if (resolvedCsp) {
+    const csp = { ...resolvedCsp };
+    if (directoryMode) delete csp.baseUriDomains;
     ui.csp = {
-      ...resolvedCsp,
+      ...csp,
       connectDomains: expandRequestOriginSources(
         resolvedCsp.connectDomains,
         requestMeta,
@@ -1282,10 +1295,14 @@ function mcpAppUiMeta(
         resolvedCsp.frameDomains,
         requestMeta,
       ),
-      baseUriDomains: expandRequestOriginSources(
-        resolvedCsp.baseUriDomains,
-        requestMeta,
-      ),
+      ...(!directoryMode
+        ? {
+            baseUriDomains: expandRequestOriginSources(
+              resolvedCsp.baseUriDomains,
+              requestMeta,
+            ),
+          }
+        : {}),
     };
   }
   if (resource.permissions) ui.permissions = resource.permissions;
@@ -1359,6 +1376,7 @@ async function resolveMcpAppResource(
     requestMeta,
     description,
     config.catalogMode === "directory" ? config.widgetDomain : undefined,
+    config.catalogMode === "directory",
   );
   return {
     uri: resolvedUri.uri,

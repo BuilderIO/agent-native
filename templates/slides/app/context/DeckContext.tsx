@@ -476,6 +476,7 @@ interface DeckContextType {
       noDefaultSlides?: boolean;
       designSystemId?: string | null;
       deferPersistence?: boolean;
+      undoableCreation?: boolean;
     },
   ) => Deck;
   ensureDeckPersisted: (id: string) => Promise<DeckPersistenceResult>;
@@ -5432,6 +5433,7 @@ export function DeckProvider({
         noDefaultSlides?: boolean;
         designSystemId?: string | null;
         deferPersistence?: boolean;
+        undoableCreation?: boolean;
       },
     ): Deck => {
       const insertIndex = decksRef.current.length;
@@ -5482,18 +5484,20 @@ export function DeckProvider({
           });
       }
       setDecksLocal((prev) => [...prev, newDeck]);
-      undoControllerForDeck(newDeck.id).push({
-        undo: [{ op: "delete-deck", deckId: newDeck.id }],
-        redo: [
-          {
-            op: "restore-deck",
-            deckId: newDeck.id,
-            deck: newDeck,
-            index: insertIndex,
-          },
-        ],
-        label: "Create deck",
-      });
+      if (options?.undoableCreation !== false) {
+        undoControllerForDeck(newDeck.id).push({
+          undo: [{ op: "delete-deck", deckId: newDeck.id }],
+          redo: [
+            {
+              op: "restore-deck",
+              deckId: newDeck.id,
+              deck: newDeck,
+              index: insertIndex,
+            },
+          ],
+          label: "Create deck",
+        });
+      }
       return newDeck;
     },
     [noteLocalCreate, setDecksLocal, undoControllerForDeck],

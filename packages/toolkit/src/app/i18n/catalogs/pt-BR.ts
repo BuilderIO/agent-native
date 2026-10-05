@@ -775,11 +775,11 @@ const messages: ToolkitAgentChatTranslation = {
     "{{count}} na fila — enviar uma mensagem de acompanhamento...",
   "queue.remove": "Remover da fila",
   "queue.sendNow": "Enviar agora",
-  "queue.sendNowHint": "Enviar agora (interrompe a resposta atual)",
-  "queue.steer": "Orientar",
-  "queue.steerHint": "Enviar esta mensagem em seguida",
+  "queue.sendNowHint":
+    "Interrompe a resposta atual e depois envia esta mensagem",
+  "queue.sendNext": "Enviar em seguida",
+  "queue.sendNextHint": "Enviar após o término da resposta atual",
   "queue.moreActions": "Mais ações",
-  "queue.moveToTop": "Mover para o topo",
   "recovery.connectingBuilder": "Configurando o Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
@@ -1097,6 +1097,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Carregar",
   "composer.uploadFailed":
     "Não foi possível fazer upload do arquivo selecionado.",
+  "composer.unsupportedFileType": "Este tipo de arquivo não é compatível.",
   "composer.useAttachedContext": "Use o contexto anexado.",
   "mentions.commands": "Comandos",
   "mentions.learnMore": "Saber mais",
