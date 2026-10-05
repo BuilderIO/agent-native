@@ -2639,28 +2639,32 @@ export default function Index({ active = true }: { active?: boolean }) {
           }
           templates={<DeckTemplateLibrary enabled={isHome} />}
           recent={
-            <div className="agent-template-library-grid">
-              {visibleDecks.map((deck) => (
-                <DeckCard
-                  key={deck.id}
-                  deck={deck}
-                  onDelete={(id) => setDeckToDelete(id)}
-                  onRename={handleRename}
-                  onDuplicate={handleDuplicate}
-                  onToggleStar={handleToggleStar}
-                  isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
-                  canSetWorkspaceDefault={canManageWorkspaceDefaults}
-                  onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
-                />
-              ))}
-              {visibleDecks.length === 0 && (
-                <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                  {normalizedDeckSearch
-                    ? t("home.noDecksMatchSearch")
-                    : t("home.noMineDecks")}
-                </div>
-              )}
-            </div>
+            viewState === "loading" ? (
+              <DeckListLoadingSkeleton />
+            ) : viewState === "error" ? null : (
+              <div className="agent-template-library-grid">
+                {visibleDecks.map((deck) => (
+                  <DeckCard
+                    key={deck.id}
+                    deck={deck}
+                    onDelete={(id) => setDeckToDelete(id)}
+                    onRename={handleRename}
+                    onDuplicate={handleDuplicate}
+                    onToggleStar={handleToggleStar}
+                    isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
+                    canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                    onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
+                  />
+                ))}
+                {visibleDecks.length === 0 && (
+                  <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                    {normalizedDeckSearch
+                      ? t("home.noDecksMatchSearch")
+                      : t("home.noMineDecks")}
+                  </div>
+                )}
+              </div>
+            )
           }
         />
       </ClientOnly>
@@ -2824,6 +2828,29 @@ export default function Index({ active = true }: { active?: boolean }) {
         </AlertDialogContent>
       </AlertDialog>
     </PromptHome>
+  );
+}
+
+function DeckListLoadingSkeleton() {
+  return (
+    <div className="agent-template-library-grid" aria-busy="true">
+      {Array.from({ length: 8 }, (_, index) => (
+        <div
+          key={index}
+          className="agent-template-library-card group relative min-w-0"
+          aria-hidden="true"
+        >
+          <div className="agent-template-library-primary overflow-hidden rounded-xl border border-border bg-card">
+            <div className="agent-template-library-preview bg-muted/30">
+              <Skeleton className="size-full rounded-none" />
+            </div>
+            <div className="agent-template-library-caption">
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

@@ -1370,7 +1370,7 @@ export default function Index() {
             }
             recent={
               <>
-                {isLoading ? (
+                {isLoading || (isFetching && designs.length === 0) ? (
                   <LoadingSkeleton />
                 ) : isError ? (
                   <QueryErrorState
