@@ -555,6 +555,89 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
   });
 
+  it("starts a fresh catch-up for a saved revision that arrives while an earlier one is syncing", async () => {
+    vi.useFakeTimers();
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+    const serverEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: serverDoc,
+      }),
+    });
+    try {
+      act(() =>
+        root.render(React.createElement(harness.Harness, { baseAware: true })),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const stateVector = Y.encodeStateVector(harness.ydoc);
+      serverEditor.commands.insertContentAt(1, "Accepted ");
+      const firstUpdate = Y.encodeStateAsUpdate(serverDoc, stateVector);
+      let finishFirst = () => {};
+      // Each catch-up reads what the server holds when it starts; the first
+      // one started before the second save's text was stored.
+      const requestSync = vi
+        .fn<() => Promise<{ status: "synced" }>>()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishFirst = () => {
+                Y.applyUpdate(harness.ydoc, firstUpdate, "remote");
+                resolve({ status: "synced" });
+              };
+            }),
+        )
+        .mockImplementation(async () => {
+          Y.applyUpdate(
+            harness.ydoc,
+            Y.encodeStateAsUpdate(serverDoc, Y.encodeStateVector(harness.ydoc)),
+            "remote",
+          );
+          return { status: "synced" };
+        });
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Accepted ${baseline}`,
+            revision: "revision-2",
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: requestSync,
+            baseAware: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      serverEditor.commands.insertContentAt(1, "Again ");
+      const laterUpdate = Y.encodeStateAsUpdate(serverDoc, stateVector);
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Again Accepted ${baseline}`,
+            revision: "revision-3",
+            updatedAt: "2024-01-01T00:00:03.000Z",
+            requestCollabSync: requestSync,
+            baseAware: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      // Waiting on the first catch-up would merge "Again " from the snapshot,
+      // and the Yjs update carrying it would then insert it a second time.
+      expect(requestSync.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(harness.markdown()).toBe(`Again Accepted ${baseline}`);
+      await act(async () => finishFirst());
+      act(() => Y.applyUpdate(harness.ydoc, laterUpdate, "remote"));
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(harness.markdown()).toBe(`Again Accepted ${baseline}`);
+    } finally {
+      serverEditor.destroy();
+      serverDoc.destroy();
+      harness.dispose();
+    }
+  });
+
   it("adopts a new value that arrives after its timestamp did", async () => {
     // A parent can render the new timestamp next to the old value first; that
     // render must not mark the new revision applied.

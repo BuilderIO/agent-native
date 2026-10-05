@@ -155,6 +155,7 @@ import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import { createAuthoredContentBase } from "./authored-content-base";
 import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
@@ -2748,21 +2749,11 @@ function PageEditorSessionBody({
   const contentObservationEpochRef = useRef(0);
   const editorEditGenerationRef = useRef(0);
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
-  // A save the server merged with another writer's text confirms a body this
-  // editor does not hold until that text reaches it through collaboration or
-  // the reconcile. An edit authored on that body reads the missing text as
-  // deleted, so edits stay on the base the merged save was authored on.
-  const unheldSavedBodyRef = useRef<{
-    revision: string;
-    base: { revision?: string; content: string };
-  } | null>(null);
-  const authoredContentBase = useCallback(() => {
-    const saved = lastSavedContentRef.current;
-    const unheld = unheldSavedBodyRef.current;
-    return unheld && unheld.revision === saved.revision
-      ? unheld.base
-      : { revision: saved.revision, content: saved.content };
-  }, []);
+  const authoredContentBaseRef = useRef(createAuthoredContentBase());
+  const authoredContentBase = useCallback(
+    () => authoredContentBaseRef.current.base(lastSavedContentRef.current),
+    [],
+  );
   const ownContentSaveLineageRef = useRef<OwnContentSaveLineage>(new Map());
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
@@ -3080,6 +3071,7 @@ function PageEditorSessionBody({
     awareness,
     isSynced: collabSynced,
     requestSync: requestCollabSync,
+    flushUpdates: flushCollabUpdates,
     initialization: collabInitialization,
     activeUsers,
     agentActive,
@@ -3132,7 +3124,7 @@ function PageEditorSessionBody({
     if (prevDocIdRef.current !== documentId) {
       historySessionRef.current.reset();
       ownContentSaveLineageRef.current.clear();
-      unheldSavedBodyRef.current = null;
+      authoredContentBaseRef.current.reset();
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
       if (saveTimeoutRef.current) {
@@ -3784,6 +3776,12 @@ function PageEditorSessionBody({
         activeContentSavesRef.current += 1;
         let result;
         try {
+          // A peer that reads this body before the Yjs update carrying the
+          // same text merges it in, then inserts it again when the update
+          // lands. Durability outranks that, so a stalled flush still saves.
+          if (!(await flushCollabUpdates())) {
+            console.warn("Saving before this tab's live edits reached peers");
+          }
           result = await saveDocumentWithRebase({
             base: { ...contentBase },
             content,
@@ -3934,18 +3932,18 @@ function PageEditorSessionBody({
           editGeneration: editorEditGeneration,
         });
       }
-      if (updates.content !== undefined && saved.revision) {
+      if (updates.content !== undefined) {
         const sentIntent = options.authoredContentIntent;
-        unheldSavedBodyRef.current =
-          saved.content !== options.editorSnapshotContent && sentIntent
+        authoredContentBaseRef.current.saved({
+          saved,
+          editorContent: options.editorSnapshotContent,
+          authoredOn: sentIntent
             ? {
-                revision: saved.revision,
-                base: {
-                  revision: sentIntent.baseRevision,
-                  content: sentIntent.baseContent,
-                },
+                revision: sentIntent.baseRevision,
+                content: sentIntent.baseContent,
               }
-            : null;
+            : null,
+        });
       }
       if (
         contentEditVersionRef.current === contentEditVersion &&
@@ -3987,6 +3985,7 @@ function PageEditorSessionBody({
       documentId,
       autoSync,
       clearConfirmedDraftJournal,
+      flushCollabUpdates,
       isLinkedLocalSourceDocument,
       isLocalFileDocument,
       journalCurrentDraft,
@@ -6046,6 +6045,10 @@ function PageEditorSessionBody({
 
   const handleRemoteSnapshotChange = useCallback(
     (content: string) => {
+      authoredContentBaseRef.current.observed(
+        content,
+        lastSavedContentRef.current,
+      );
       if (content === localContentRef.current) return;
       contentObservationEpochRef.current += 1;
       localContentRef.current = content;
@@ -6098,9 +6101,7 @@ function PageEditorSessionBody({
       localContentRef.current = result.content;
       setLocalContent(result.content);
       if (result.status === "merged") {
-        if (unheldSavedBodyRef.current?.revision === result.serverRevision) {
-          unheldSavedBodyRef.current = null;
-        }
+        authoredContentBaseRef.current.merged(result.serverRevision);
         if (documentContentRef.current === result.serverContent) {
           void resolveReconcileAutomatically(
             {
