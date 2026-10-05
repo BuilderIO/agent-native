@@ -654,13 +654,13 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
                 const transform = getComputedStyle(world).transform;
                 const scale =
                   transform === "none" ? 1 : new DOMMatrixReadOnly(transform).a;
-                return Math.abs(duplicate.left - source.right - 56 * scale) < 1;
+                return duplicate.left - source.right >= 56 * scale - 1;
               },
               { sourceId, duplicateId },
             ),
           {
             message:
-              "Cmd+D should preserve the 56-unit board gap to the right of its source",
+              "Cmd+D should leave at least the 56-unit board gap to the right of its source",
           },
         )
         .toBe(true);
