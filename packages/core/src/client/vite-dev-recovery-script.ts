@@ -149,18 +149,15 @@ export function getViteDevRecoveryScript(): string {
 
   function looksLikeViteDep(url) {
     if (!url) return false;
-    // Only treat same-origin URLs as Vite deps. Do not reload the page
-    // because some third-party CDN script 404'd.
+    // Generic resource errors are ambiguous for app route modules; only Vite's
+    // transformed module URLs are safe evidence of an optimizer failure.
     try {
       var u = new URL(url, window.location.href);
       if (u.origin !== window.location.origin) return false;
     } catch (e) { return false; }
     return url.indexOf("/node_modules/.vite/deps/") !== -1
         || url.indexOf("/@fs/") !== -1
-        || url.indexOf("/@id/") !== -1
-        || url.indexOf("?v=") !== -1
-        || url.indexOf("?import") !== -1
-        || /\\.(m?js|ts|tsx|jsx)(\\?|$)/.test(url);
+        || url.indexOf("/@id/") !== -1;
   }
 
   // 1) <script type="module"> / <link> 504. These fire on the element, not

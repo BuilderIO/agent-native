@@ -2,6 +2,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+import {
   createRouteChunkRecoveryState,
   getFreshIntendedNavigation,
   installRouteChunkRecovery,
@@ -131,10 +135,10 @@ function expectRecoveryNavigation(
   expect(actual.origin).toBe(expected.origin);
   expect(actual.pathname).toBe(expected.pathname);
   expect(actual.hash).toBe(expected.hash);
-  expect(actual.searchParams.get("__agentNativeChunkRecovery")).toMatch(
-    /^\d+$/,
+  expect(actual.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM)).toBe(
+    CHUNK_RECOVERY_QUERY_VALUE,
   );
-  actual.searchParams.delete("__agentNativeChunkRecovery");
+  actual.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
   expect(actual.href).toBe(expected.href);
 }
 
@@ -699,6 +703,19 @@ describe("route chunk recovery", () => {
 
     expect(fakeLocation.assign).not.toHaveBeenCalled();
     expect(preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("leaves local Vite module asset errors to the dev server", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "http://localhost:5173/dispatch/apps",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+    dispatchDocument("error", {
+      target: { tagName: "SCRIPT", type: "module" },
+    } as unknown as Event);
+
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
   });
 
   it("reloads the current route for React Router failures in Vite dev", () => {

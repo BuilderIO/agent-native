@@ -1,5 +1,6 @@
 import {
   CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
   STALE_CHUNK_RELOAD_AT_KEY,
   STALE_CHUNK_RELOAD_COOLDOWN_MS,
@@ -131,14 +132,9 @@ function hardNavigate(win: Window, href: string): void {
   }
 }
 
-function withChunkRecoveryCacheBuster(
-  win: Window,
-  href: string,
-  now: number,
-): string {
+function withChunkRecoveryCacheBuster(win: Window, href: string): string {
   const url = new URL(href, win.location.href);
-  // Netlify varies the shared shell only on _routes and index; this bypasses a browser-cached document.
-  url.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, String(now));
+  url.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, CHUNK_RECOVERY_QUERY_VALUE);
   return url.href;
 }
 
@@ -285,7 +281,7 @@ export function reloadForStaleChunk(
     win,
     hasViteDevRecovery(win) === true
       ? win.location.href
-      : withChunkRecoveryCacheBuster(win, win.location.href, now),
+      : withChunkRecoveryCacheBuster(win, win.location.href),
   );
   return true;
 }
@@ -326,7 +322,7 @@ function recoverToIntendedNavigation(
     win,
     hasViteDevRecovery(win) === true
       ? recoveryTarget
-      : withChunkRecoveryCacheBuster(win, recoveryTarget, Date.now()),
+      : withChunkRecoveryCacheBuster(win, recoveryTarget),
   );
   return true;
 }
@@ -429,7 +425,9 @@ export function installRouteChunkRecovery(
   win.document.addEventListener(
     "error",
     (event) => {
-      if (isModuleAssetLoadFailure(event)) reloadForStaleChunk(win);
+      if (isModuleAssetLoadFailure(event) && hasViteDevRecovery(win) !== true) {
+        reloadForStaleChunk(win);
+      }
     },
     true,
   );

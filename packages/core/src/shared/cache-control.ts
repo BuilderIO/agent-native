@@ -1,3 +1,5 @@
+import { CHUNK_RECOVERY_QUERY_PARAM } from "./route-chunk-recovery-bootstrap.js";
+
 export const DEFAULT_PUBLIC_CACHE_CONTROL =
   "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 
@@ -143,11 +145,11 @@ export function resolveSsrCacheKeyHeaders(
     !explicitlyNotNetlify && (Boolean(env.NETLIFY) || Boolean(env.SITE_ID)); // guard:allow-env-credential -- Netlify's public runtime host marker, not a credential.
   const none: Readonly<Record<string, string>> = Object.freeze({});
   if (!onNetlify) return none;
-  // This NARROWS the cache key rather than splitting it per user: it removes
-  // utm/fbclid/gclid so one entry serves everyone. The shapes the guard exists
-  // to stop are `private`, `no-store` and `Vary: Cookie`, none of which this is.
-  // guard:allow-ssr-shell-exception — narrows the shared key, never splits it
-  return Object.freeze({ "netlify-vary": "query=_routes|index" });
+  // A fixed recovery flag creates one anonymous shell variant for cache misses.
+  return Object.freeze({
+    // guard:allow-ssr-shell-exception — one fixed, public recovery cache-key variant
+    "netlify-vary": `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+  });
 }
 
 export function isSsrCacheEnabled(

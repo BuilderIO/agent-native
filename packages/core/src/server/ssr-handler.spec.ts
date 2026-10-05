@@ -341,7 +341,9 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/"));
 
-    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+    expect(response.headers.get("netlify-vary")).toBe(
+      "query=_routes|index|__agentNativeChunkRecovery",
+    );
   });
 
   it("preserves full Netlify query variation for marked public redirects", async () => {

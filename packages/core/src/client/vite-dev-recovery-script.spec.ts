@@ -52,6 +52,35 @@ describe("getViteDevRecoveryScript", () => {
     );
   });
 
+  it("limits generic resource reloads to Vite transformed module URLs", () => {
+    const addEventListener = vi.spyOn(window, "addEventListener");
+    const setTimeout = vi.spyOn(globalThis, "setTimeout");
+
+    runScript();
+
+    const errorHandler = addEventListener.mock.calls.find(
+      ([type]) => type === "error",
+    )?.[1] as ((event: Event) => void) | undefined;
+    expect(errorHandler).toBeTypeOf("function");
+
+    const scheduledAfterInstall = setTimeout.mock.calls.length;
+    errorHandler?.({
+      target: {
+        tagName: "SCRIPT",
+        src: "http://localhost:3000/chat/assets/route.js",
+      },
+    } as unknown as Event);
+    expect(setTimeout).toHaveBeenCalledTimes(scheduledAfterInstall);
+
+    errorHandler?.({
+      target: {
+        tagName: "SCRIPT",
+        src: "http://localhost:3000/node_modules/.vite/deps/react.js?v=1",
+      },
+    } as unknown as Event);
+    expect(setTimeout).toHaveBeenCalledTimes(scheduledAfterInstall + 1);
+  });
+
   it("does not treat a React Router route failure as an optimizer failure", () => {
     const addEventListener = vi.spyOn(window, "addEventListener");
     const setTimeout = vi.spyOn(globalThis, "setTimeout");

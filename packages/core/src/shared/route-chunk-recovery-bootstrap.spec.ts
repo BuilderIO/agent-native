@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
   ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
   STALE_CHUNK_RELOAD_AT_KEY,
@@ -25,9 +26,11 @@ type BootstrapResourceError = {
 function installBootstrap(
   href = "https://example.test/apps?tab=activity#latest",
   userAgent = "Mozilla/5.0",
+  sessionStorageThrows = false,
 ) {
   let onError: ((event: BootstrapResourceError) => void) | undefined;
   const sessionValues = new Map<string, string>();
+  const windowState: Record<string, unknown> = {};
   const assign = vi.fn();
   const location = {
     assign,
@@ -38,6 +41,7 @@ function installBootstrap(
   runInNewContext(ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT, {
     Date: { now: () => 2_000_000 },
     URL,
+    window: windowState,
     document: {
       addEventListener: (
         _type: string,
@@ -50,7 +54,11 @@ function installBootstrap(
     location,
     navigator: { userAgent },
     sessionStorage: {
-      getItem: (key: string) => sessionValues.get(key) ?? null,
+      getItem: (key: string) => {
+        if (sessionStorageThrows)
+          throw new Error("session storage unavailable");
+        return sessionValues.get(key) ?? null;
+      },
       setItem: (key: string, value: string) => sessionValues.set(key, value),
     },
   });
@@ -58,7 +66,7 @@ function installBootstrap(
   if (!onError)
     throw new Error("Recovery bootstrap did not install its listener");
 
-  return { assign, location, onError, sessionValues };
+  return { assign, location, onError, sessionValues, windowState };
 }
 
 describe("route chunk recovery bootstrap", () => {
@@ -81,11 +89,32 @@ describe("route chunk recovery bootstrap", () => {
     expect(retryUrl.pathname).toBe("/apps");
     expect(retryUrl.searchParams.get("tab")).toBe("activity");
     expect(retryUrl.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM)).toBe(
-      "2000000",
+      CHUNK_RECOVERY_QUERY_VALUE,
     );
     expect(retryUrl.hash).toBe("#latest");
     expect(sessionValues.get(STALE_CHUNK_RELOAD_AT_KEY)).toBe("2000000");
     expect(stopImmediatePropagation).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the reload cooldown when session storage is unavailable", () => {
+    const { assign, onError, windowState } = installBootstrap(
+      "https://example.test/apps",
+      "Mozilla/5.0",
+      true,
+    );
+
+    onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(assign).toHaveBeenCalledOnce();
+    expect(windowState[STALE_CHUNK_RELOAD_AT_KEY]).toBe(2_000_000);
   });
 
   it("ignores speculative module preloads", () => {

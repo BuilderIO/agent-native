@@ -1,10 +1,12 @@
 export const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
 export const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
 export const CHUNK_RECOVERY_QUERY_PARAM = "__agentNativeChunkRecovery";
+export const CHUNK_RECOVERY_QUERY_VALUE = "1";
 export const ROUTE_WARMUP_PRELOAD_ATTRIBUTE = "data-agent-native-route-warmup";
 
 export const ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT = `(()=>{
 const queryParam=${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
+const queryValue=${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};
 const reloadKey=${JSON.stringify(STALE_CHUNK_RELOAD_AT_KEY)};
 const warmupAttr=${JSON.stringify(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)};
 document.addEventListener("error",event=>{
@@ -21,8 +23,8 @@ try{
 const last=Number(sessionStorage.getItem(reloadKey));
 if(last>0&&now-last<=${STALE_CHUNK_RELOAD_COOLDOWN_MS})return;
 sessionStorage.setItem(reloadKey,String(now));
-}catch{}
-url.searchParams.set(queryParam,String(now));
+}catch{window[reloadKey]=now;}
+url.searchParams.set(queryParam,queryValue);
 location.assign(url.href);
 event.stopImmediatePropagation();
 },true);

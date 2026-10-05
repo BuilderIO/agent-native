@@ -198,10 +198,10 @@ describe("resolveSsrCacheHeaders", () => {
 describe("resolveSsrCacheKeyHeaders", () => {
   it("narrows query variation on Netlify", () => {
     expect(resolveSsrCacheKeyHeaders({ NETLIFY: "true" })).toEqual({
-      "netlify-vary": "query=_routes|index",
+      "netlify-vary": "query=_routes|index|__agentNativeChunkRecovery",
     });
     expect(resolveSsrCacheKeyHeaders({ SITE_ID: "site-test" })).toEqual({
-      "netlify-vary": "query=_routes|index",
+      "netlify-vary": "query=_routes|index|__agentNativeChunkRecovery",
     });
   });
 

@@ -1850,7 +1850,7 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
 
     const source = generateWorkerEntry([], []);
     expect(source).toContain(
-      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index"};',
+      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index|__agentNativeChunkRecovery"};',
     );
 
     const worker = await importGeneratedWorker(source);
@@ -1860,7 +1860,9 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
     );
 
-    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+    expect(response.headers.get("netlify-vary")).toBe(
+      "query=_routes|index|__agentNativeChunkRecovery",
+    );
   });
 
   it("uses the full Netlify query key for marked public redirects", async () => {
