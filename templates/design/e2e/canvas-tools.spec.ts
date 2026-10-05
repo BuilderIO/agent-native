@@ -1958,7 +1958,7 @@ test("rectangle insertion keeps the new primitive selected", async ({
         has: page.locator('h3.design-sidebar-section-title:text-is("Fill")'),
       })
       .getByRole("textbox", { name: "Color" }),
-  ).toHaveValue("D9D9D9");
+  ).toHaveValue("22C55E");
   await expect(
     screenShell(page)
       .frameLocator("iframe[data-screen-iframe-id]")

@@ -12,6 +12,7 @@ import {
 
 import {
   DEFAULT_LINE_STROKE_WIDTH_PX,
+  DEFAULT_RECTANGLE_FILL,
   DEFAULT_SHAPE_FILL,
 } from "../canvas-primitive-style";
 import { boardPointToScreenLocalPoint } from "./coordinate-transforms";
@@ -163,16 +164,22 @@ export function createDraftPrimitive({
       endPoint: toolProps?.endPoint,
     };
   }
-  const isFrame = tool === "frame";
+  const kind =
+    tool === "frame" ||
+    tool === "ellipse" ||
+    tool === "polygon" ||
+    tool === "star"
+      ? tool
+      : "rectangle";
   return {
     id,
-    kind: isFrame
-      ? "frame"
-      : tool === "ellipse" || tool === "polygon" || tool === "star"
-        ? tool
-        : "rectangle",
+    kind,
     geometry,
-    fill: isFrame ? toolProps?.fill : (toolProps?.fill ?? DEFAULT_SHAPE_FILL),
+    fill:
+      kind === "frame"
+        ? toolProps?.fill
+        : (toolProps?.fill ??
+          (kind === "rectangle" ? DEFAULT_RECTANGLE_FILL : DEFAULT_SHAPE_FILL)),
     stroke: toolProps?.stroke,
     strokeWidth: toolProps?.strokeWidth,
   };

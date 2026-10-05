@@ -7,6 +7,7 @@ import {
   canvasVectorPaint,
   DEFAULT_LINE_STROKE,
   DEFAULT_LINE_STROKE_WIDTH_PX,
+  DEFAULT_RECTANGLE_FILL,
   DEFAULT_SHAPE_FILL,
 } from "./canvas-primitive-style";
 
@@ -53,9 +54,13 @@ describe("canvas text primitive style", () => {
 });
 
 describe("canvas rect/ellipse default tokens", () => {
-  it("uses plain neutral-gray fills without a persistent authored border", () => {
+  it("uses plain fills without a persistent authored border", () => {
+    expect(DEFAULT_RECTANGLE_FILL).toBe("#22C55E");
     const rect = canvasPrimitiveVisual("rect");
-    expect(rect.background).toBe("rgb(217 217 217)");
+    expect(rect.background).toBe(DEFAULT_RECTANGLE_FILL);
+    expect(canvasPrimitiveVisual("rectangle").background).toBe(
+      DEFAULT_RECTANGLE_FILL,
+    );
     expect(rect.border).toBe("0 solid transparent");
     expect(canvasPrimitiveReactStyle("rect")).toMatchObject({
       borderWidth: 0,

@@ -22,6 +22,9 @@ export interface CanvasPrimitiveVisual {
 // guard:allow-raw-color — a drawn shape must not retint with the document theme.
 export const DEFAULT_SHAPE_FILL = "rgb(217 217 217)";
 
+// guard:allow-raw-color — a drawn rectangle must not retint with the document theme.
+export const DEFAULT_RECTANGLE_FILL = "#22C55E";
+
 const DEFAULT_STROKE = "rgb(168 168 168)";
 
 const DEFAULT_STROKE_WIDTH_PX = 1;
@@ -90,7 +93,7 @@ export function canvasPrimitiveVisual(
     case "rectangle":
     default:
       return {
-        background: DEFAULT_SHAPE_FILL,
+        background: DEFAULT_RECTANGLE_FILL,
         border: NO_BORDER,
         borderRadius: RECT_RADIUS,
       };

@@ -1,7 +1,10 @@
 import { createCornerNode, serializePenPath } from "@shared/pen-path";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
+import {
+  DEFAULT_RECTANGLE_FILL,
+  DEFAULT_SHAPE_FILL,
+} from "../canvas-primitive-style";
 import {
   createDraftPrimitive,
   createPenDraftPrimitive,
@@ -85,15 +88,25 @@ describe("createDraftPrimitive default fill", () => {
     expect(draft.fill).toBe(DEFAULT_SHAPE_FILL);
   });
 
-  it("gives a freshly drawn rectangle a real, removable default fill", () => {
+  it("gives a freshly drawn rectangle the green default fill", () => {
     const draft = createDraftPrimitive({
       tool: "rect",
       start,
       end,
       moved: true,
     });
-    expect(draft.fill).toBe(DEFAULT_SHAPE_FILL);
+    expect(draft.kind).toBe("rectangle");
+    expect(draft.fill).toBe(DEFAULT_RECTANGLE_FILL);
   });
+
+  it.each(["polygon", "star"] as const)(
+    "keeps the neutral default fill for a drawn %s",
+    (tool) => {
+      const draft = createDraftPrimitive({ tool, start, end, moved: true });
+      expect(draft.kind).toBe(tool);
+      expect(draft.fill).toBe(DEFAULT_SHAPE_FILL);
+    },
+  );
 
   it("keeps an explicitly chosen tool fill instead of overriding it", () => {
     const draft = createDraftPrimitive({

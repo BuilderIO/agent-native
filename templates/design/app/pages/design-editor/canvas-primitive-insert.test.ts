@@ -16,6 +16,10 @@ import {
 } from "@shared/vector-endpoints";
 import { describe, expect, it } from "vitest";
 
+import {
+  DEFAULT_RECTANGLE_FILL,
+  DEFAULT_SHAPE_FILL,
+} from "@/components/design/canvas-primitive-style";
 import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/types";
 
 import {
@@ -1282,6 +1286,33 @@ describe("appendCanvasPrimitiveToHtml fill survives a source-based computedStyle
     const rawStyles = parseInlineStyleAttribute(el.getAttribute("style"));
     const aliased = cssStyleAliases(rawStyles);
     expect(aliased.backgroundColor).toBeTruthy();
+  });
+
+  it("defaults an unfilled rectangle to green and leaves the ellipse neutral", () => {
+    const doc = new DOMParser().parseFromString(
+      appendCanvasPrimitiveToHtml(
+        appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+          kind: "rectangle",
+          nodeId: "box",
+          geometry: { x: 0, y: 0, width: 100, height: 100 },
+        }) ?? "",
+        {
+          kind: "ellipse",
+          nodeId: "dot",
+          geometry: { x: 120, y: 0, width: 40, height: 40 },
+        },
+      ) ?? "",
+      "text/html",
+    );
+    const fillOf = (kind: string) => {
+      const el = doc.querySelector<HTMLElement>(
+        `[data-an-primitive="${kind}"]`,
+      );
+      if (!el) throw new Error(`no ${kind} element`);
+      return el.style.backgroundColor;
+    };
+    expect(fillOf("rectangle")).toBe(DEFAULT_RECTANGLE_FILL);
+    expect(fillOf("ellipse")).toBe(DEFAULT_SHAPE_FILL);
   });
 });
 

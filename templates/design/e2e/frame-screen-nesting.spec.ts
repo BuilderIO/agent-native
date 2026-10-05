@@ -408,7 +408,7 @@ test.fixme("2:11 — a shape drawn on the board is not painted behind the screen
   ).toBeGreaterThanOrEqual(stacking!.screen);
 });
 
-test("a rectangle drawn on the board keeps its neutral fill", async ({
+test("a rectangle drawn on the board keeps its default fill", async ({
   page,
 }) => {
   const id = await newDesign(page);
@@ -425,9 +425,9 @@ test("a rectangle drawn on the board keeps its neutral fill", async ({
     )?.[1] ?? "";
   expect(
     style,
-    `the clip reports rectangles coming out black; the canonical fill is a ` +
-      `neutral grey. Got: ${style || "(no rectangle found)"}`,
-  ).toContain("rgb(217, 217, 217)");
+    `the clip reports rectangles coming out black; the canonical fill is ` +
+      `#22C55E. Got: ${style || "(no rectangle found)"}`,
+  ).toContain("rgb(34, 197, 94)");
 });
 
 test("the canvas does not go black and hide the screens after drawing a frame", async ({
