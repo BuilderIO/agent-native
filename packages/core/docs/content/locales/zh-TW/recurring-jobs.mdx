@@ -9,7 +9,7 @@ description: "Cron 調度提示代理自行執行 - 每日摘要、每週報告�
 
 <Callout tone="info">
 
-**Recurring Jobs** 是 **Scheduled** 自動化的舊稱。**Automations** 是 **Scheduled** 和 **Event** 的總稱。`jobs/` 和 `manage-jobs` 為舊 schedule-only 整合保留。新的個人或組織工作（包括模型和 MCP 允許清單）請使用 `manage-automations` 和 `/agent#jobs` 中的 **Automations**。
+**Recurring Jobs** 是 **Scheduled** 自動化的舊稱。**Automations** 是 **Scheduled** 和 **Event** 的總稱。`jobs/` 和 `manage-jobs` 為舊 schedule-only 整合保留。新的個人或組織工作（包括模型和 MCP 允許清單）請使用 `manage-automations` 和 **Settings › Automations**。
 
 </Callout>
 
@@ -104,6 +104,10 @@ mcpTools:
 此框架包括用於驗證和呈現 cron 字串的 cron 實用程式（`isValidCron()` 和 `describeCron()`），由資源層和調度程式層在內部使用。
 
 ## 建立作業 {#creating}
+
+### 從 Automations 介面
+
+開啟 **Settings › Automations**，然後建立一個 **Scheduled** 自動化。舊的 `/agent#jobs` 連結會重新導向到該頁面。
 
 ### 從“代理資源”分頁
 
@@ -206,8 +210,8 @@ Summarize overnight emails.`,
 
 ## 偵錯作業 {#debugging}
 
-- 在代理資源中開啟 `jobs/<name>.md` — frontmatter 顯示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
-- **無需等待即可測試：**沒有強制發射工具。要按需執行相同的工作，可以將作業的提示貼上到代理聊天中並讓它在那裡執行，或者暫時將計畫設定為下一分鐘，以便調度程式在下一個時間點上選取它（然後恢復真正的 cron）。
+- 在 **Settings › Automations** 中開啟該自動化的詳細資料，或在代理資源中檢查 `jobs/<name>.md` — frontmatter 顯示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
+- **無需等待即可測試：**在 **Settings › Automations** 中點擊 **Run now**，或讓代理執行它（`manage-automations` 搭配 `action=run-now`）。作業的提示會立即執行並產生真實的副作用，`nextRun` 不會改變。Run now 不需要調度程式，因此在 localhost 上不設定 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` 也能使用。
 - **暫停：**翻轉`enabled: false`。檔案保持不變，只是停止執行。
 
 ## 代理工具 {#agent-tool}

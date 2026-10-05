@@ -5,7 +5,7 @@ description: "Ereignisausgelöste und geplante Automatisierungen mit Bedingungen
 
 # Automatisierungen
 
-Eine **Automatisierung** ist eine vom Agenten ausgeführte Aufgabe, die nach Zeitplan oder bei einem Ereignis startet: _Wenn X passiert, mache Y_. **Scheduled** und **Event** sind zwei Auslösertypen, keine getrennten Produkte.
+Eine **Automatisierung** ist eine vom Agenten ausgeführte Aufgabe, die nach Zeitplan, bei einem Ereignis oder beim Aufruf eines Webhooks startet: _Wenn X passiert, mache Y_. **Scheduled**, **Event** und **Webhook** sind Auslösertypen, keine getrennten Produkte.
 
 Das Framework bezeichnete geplante Automatisierungen ursprünglich als **Recurring Jobs**. Dieser Name, der Pfad `jobs/<name>.md` und das Tool `manage-jobs` bleiben kompatibel. Neue Produktanleitungen verwenden **Automations** als Oberbegriff; [Recurring Jobs](/docs/recurring-jobs) beschreibt die Pflege älterer geplanter Jobs sowie Organisationsbereich und erweiterte Felder.
 
@@ -21,7 +21,7 @@ Das Framework bezeichnete geplante Automatisierungen ursprünglich als **Recurri
   <div class="diagram-card">
     <span class="diagram-pill">Condition</span
     ><small class="diagram-muted"
-      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+      >Model checks: &ldquo;email ends with @builder.io&rdquo;</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -55,14 +55,21 @@ Das Framework bezeichnete geplante Automatisierungen ursprünglich als **Recurri
 
 </Diagram>
 
-## Zwei Triggertypen {#trigger-types}
+## Triggertypen {#trigger-types}
 
-| Typ        | Wird ausgelöst, wenn                                                 | Schlüsselfeld     |
-| ---------- | -------------------------------------------------------------------- | ----------------- |
-| `schedule` | Ein Cron-Ausdruck stimmt überein (wie bei wiederkehrenden Jobs)      | `schedule` (cron) |
-| `event`    | Ein passendes Ereignis wird auf dem Framework-Ereignisbus ausgegeben | `event` (Name)    |
+| Typ        | Wird ausgelöst, wenn                                                      | Schlüsselfeld                                  |
+| ---------- | ------------------------------------------------------------------------- | ---------------------------------------------- |
+| `schedule` | Ein Cron-Ausdruck stimmt überein (wie bei wiederkehrenden Jobs)           | `schedule` (cron)                              |
+| `event`    | Ein passendes Ereignis wird auf dem Framework-Ereignisbus ausgegeben      | `event` (Name)                                 |
+| `webhook`  | Ein HTTP-`POST` an der geheimen Webhook-URL der Automatisierung eintrifft | Die URL, die beim Erstellen zurückgegeben wird |
 
-Ereignisauslöser können einen `condition` enthalten – eine Zeichenfolge in natürlicher Sprache, die von Haiku vor dem Versand anhand der Ereignisnutzlast ausgewertet wird. Wenn die Bedingung nicht zutrifft, wird die Automatisierung stillschweigend übersprungen.
+Ereignis- und Webhook-Auslöser können einen `condition` enthalten: eine Zeichenfolge in natürlicher Sprache, die ein Modell vor dem Versand anhand der Nutzlast prüft. Wenn die Bedingung nicht zutrifft, wird die Automatisierung übersprungen und mit dem Status `skipped` protokolliert. Wenn die Bedingung nicht ausgewertet werden kann, protokolliert die Automatisierung stattdessen einen Fehler. Siehe [Bedingungen](#conditions).
+
+### Webhook-Trigger {#webhook-triggers}
+
+Beim Erstellen einer Webhook-Automatisierung wird ein URL-Pfad der Form `/_agent-native/automations/webhook/<token>` zurückgegeben. Das Token ist das Geheimnis, geben Sie die URL also nur an den Dienst weiter, der sie aufruft. Jeder `POST` an diese URL wird zur Nutzlast der Automatisierung, bis zu 64 KB. Ein Body mit JSON-Content-Type wird geparst, jeder andere Body wird als Text übergeben. Der Endpunkt antwortet mit `202` und führt die Automatisierung im Hintergrund aus.
+
+Senden Sie eine stabile Ereignis-ID in einem der Header `X-Webhook-Event-Id`, `X-Event-Id` oder `X-GitHub-Delivery` oder als `id` auf oberster Ebene eines JSON-Bodys. Eine erneut gesendete Zustellung mit derselben ID führt die Automatisierung nur einmal aus.
 
 ## Automatisierungen erstellen {#creating}
 
@@ -74,7 +81,9 @@ Der Agent erkennt verfügbare Ereignisse, bestätigt den Plan und schreibt die A
 
 ### Über die Automations-Oberfläche
 
-Öffnen Sie **Automations** auf der Agent-Vollseite, um geplante und ereignisgesteuerte Automatisierungen anzuzeigen und zu verwalten. Die Kompatibilitäts-URL bleibt `/agent#jobs`, damit vorhandene Links und Lesezeichen weiter funktionieren.
+Öffnen Sie **Settings › Automations**. Dort sehen Sie geplante, ereignisgesteuerte und Webhook-Automatisierungen, prüfen den Status, führen eine Automatisierung sofort aus, pausieren oder setzen sie fort und löschen sie. Alte `/agent#jobs`-Links leiten dorthin weiter.
+
+**Run now** ist der schnellste Weg, eine Automatisierung zu testen. Es führt die Anweisungen der Automatisierung sofort aus, mit ihren echten Nebenwirkungen. Auslöser und Bedingung werden übersprungen, und der nächste geplante Lauf ändert sich nicht. Der Agent kann dasselbe mit `manage-automations` und `action=run-now` tun.
 
 <Callout tone="warning">
 
@@ -106,7 +115,7 @@ Der dritte Pfad – das manuelle Schreiben der `jobs/<name>.md`-Datei über `res
     {
       lines: "6",
       label: "Tor",
-      note: "Ein optionaler `condition` in natürlicher Sprache, der von Haiku vor dem Versand anhand der Nutzlast ausgewertet wird.",
+      note: "Ein optionaler `condition` in natürlicher Sprache, den ein Modell vor dem Versand anhand der Nutzlast prüft.",
     },
     {
       lines: "12",
@@ -120,15 +129,15 @@ Der dritte Pfad – das manuelle Schreiben der `jobs/<name>.md`-Datei über `res
 
 Automatisierungen teilen sich jedes Feld im [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). Diese zusätzlichen Felder steuern Ereignisauslöser, Bedingungen und den Ausführungsmodus:
 
-| Feld          | Typ                       | Standard     | Beschreibung                                                                                                                                                                                  |
-| ------------- | ------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `triggerType` | `"schedule"` \| `"event"` | `"schedule"` | Wie die Automatisierung ausgelöst wird                                                                                                                                                        |
-| `event`       | Zeichenfolge              | _(optional)_ | Ereignisname zum Abonnieren (nur Ereignisauslöser)                                                                                                                                            |
-| `condition`   | Zeichenfolge              | _(optional)_ | Zustand in natürlicher Sprache wird vor dem Versand ausgewertet                                                                                                                               |
-| `mode`        | `"agentic"`               | `"agentic"`  | Vollständige Agentenschleife (der einzige unterstützte Modus). `"deterministic"` wurde entfernt – es wurde nie implementiert, und Automatisierungen, die es festlegten, wurden nie ausgelöst. |
-| `domain`      | Zeichenfolge              | _(optional)_ | Gruppierungs-Tag (E-Mail, Kalender, Clips usw.)                                                                                                                                               |
+| Feld          | Typ                                      | Standard     | Beschreibung                                                                                                                                                                                  |
+| ------------- | ---------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"` \| `"webhook"` | `"schedule"` | Wie die Automatisierung ausgelöst wird                                                                                                                                                        |
+| `event`       | Zeichenfolge                             | _(optional)_ | Ereignisname zum Abonnieren (nur Ereignisauslöser)                                                                                                                                            |
+| `condition`   | Zeichenfolge                             | _(optional)_ | Bedingung in natürlicher Sprache, die vor dem Versand ausgewertet wird (Ereignis- und Webhook-Auslöser)                                                                                       |
+| `mode`        | `"agentic"`                              | `"agentic"`  | Vollständige Agentenschleife (der einzige unterstützte Modus). `"deterministic"` wurde entfernt – es wurde nie implementiert, und Automatisierungen, die es festlegten, wurden nie ausgelöst. |
+| `domain`      | Zeichenfolge                             | _(optional)_ | Gruppierungs-Tag (E-Mail, Kalender, Clips usw.)                                                                                                                                               |
 
-Für einen Ereignisauslöser ist `schedule` `""` (leer); Für einen Zeitplanauslöser trägt es den Cron-Ausdruck. Der Dispatcher schreibt außerdem dieselben verwalteten `lastRun`-/`lastStatus`-/`lastError`-Felder wie der Scheduler, plus einen `"skipped"`-Status, wenn eine Bedingung als „falsch“ ausgewertet wird.
+Für einen Ereignis- oder Webhook-Auslöser ist `schedule` `""` (leer). Für einen Zeitplanauslöser trägt es den Cron-Ausdruck. Der Dispatcher schreibt außerdem dieselben verwalteten `lastRun`-/`lastStatus`-/`lastError`-Felder wie der Scheduler, plus einen `"skipped"`-Status, wenn eine Bedingung als „falsch“ ausgewertet wird, und einen `"error"`-Status, wenn sie nicht ausgewertet werden kann.
 
 ## Der Eventbus {#event-bus}
 
@@ -186,12 +195,17 @@ emit(
 
 ## Bedingungen {#conditions}
 
-Bedingungen sind Zeichenfolgen in natürlicher Sprache, die von Claude Haiku anhand der Ereignisnutzlast ausgewertet werden. Dies ist eine Ja/Nein-Klassifizierung, keine Generierungsaufgabe.
+Bedingungen sind Zeichenfolgen in natürlicher Sprache, die ein Modell anhand der Ereignis- oder Webhook-Nutzlast prüft. Dies ist eine Ja/Nein-Klassifizierung, keine Generierungsaufgabe.
 
 - **Leere oder fehlende Bedingung** = unbedingt (wird immer ausgelöst).
-- Ergebnisse werden gespeichert (SHA-256 der Bedingung + Nutzlast) mit einem 5-Minuten-TTL- und 500-Eintrags-LRU-Cache.
-- Die Nutzlast wird vor dem Senden an Haiku auf 4000 Zeichen gekürzt.
-- Bei einem API-Fehler wird die Bedingung zu `false` ausgewertet (sichere Standardeinstellung – die Automatisierung wird übersprungen).
+- Ergebnisse werden 5 Minuten lang zwischengespeichert, mit einem SHA-256-Hash aus Bedingung und Nutzlast als Schlüssel und höchstens 500 Einträgen.
+- Die Nutzlast wird vor dem Senden an das Modell auf 4000 Zeichen gekürzt.
+
+<Callout tone="info">
+
+Eine Bedingung, die nicht ausgewertet werden kann, zählt weder als Treffer noch als Nicht-Treffer. Die Automatisierung läuft nicht und protokolliert `lastStatus: error` mit dem Grund in `lastError`. Ein Anbieterfehler wird wiederholt. Ist kein API-Schlüssel zur Auswertung der Bedingung verfügbar, protokolliert jedes passende Ereignis einen Fehler, und die Automatisierung pausiert sich nach drei Fehlern in Folge selbst. Schalten Sie sie in **Settings › Automations** wieder ein, sobald ein Schlüssel verfügbar ist.
+
+</Callout>
 
 Beispiele für Bedingungen:
 
@@ -228,7 +242,7 @@ Platzhalter werden **serverseitig** aufgelöst, nachdem der Agent den Tool-Aufru
 Schlüssel sind Ad-hoc-Geheimnisse, die von Benutzern oder dem Agenten zur Automatisierung erstellt werden (z. B. `SLACK_WEBHOOK`, `HUBSPOT_API_KEY`). Sie unterscheiden sich von registrierten Geheimnissen (`registerRequiredSecret`) dadurch, dass sie keine vorlagendefinierten Metadaten oder Onboarding-Schritte haben.
 
 - Erstellt über die Einstellungen UI oder `/_agent-native/secrets/adhoc` API.
-- Jeder Schlüssel kann eine **URL-Zulassungsliste** haben, die einschränkt, an welche Ursprünge der Schlüssel gesendet werden kann (Abgleich auf Ursprungsebene).
+- Ein über die API erstellter Schlüssel kann eine `urlAllowlist` enthalten, die einschränkt, an welche Ursprünge der Schlüssel gesendet werden kann (Abgleich auf Ursprungsebene). In den Einstellungen hinzugefügte Schlüssel haben keine Zulassungsliste.
 - Der Rohwert wird niemals der KI angezeigt – im Kontext des Agenten werden nur `${keys.NAME}`-Platzhalter angezeigt.
 - Die Auflösung fällt vom Benutzerbereich auf den Arbeitsbereichsbereich zurück, sodass Benutzer gemeinsame Schlüssel überschreiben können.
 
@@ -236,14 +250,16 @@ Schlüssel sind Ad-hoc-Geheimnisse, die von Benutzern oder dem Agenten zur Autom
 
 Persönliche und Organisations-Automatisierungen verwenden `manage-automations` mit einem `action`-Parameter:
 
-| Aktion        | Zweck                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------- |
-| `list-events` | Erkennen Sie alle registrierten Ereignisse mit Beschreibungen und Nutzlastschemata    |
-| `list`        | Alle Automatisierungen mit Status auflisten; Nach Domäne filtern oder aktiviert       |
-| `define`      | Erstellen Sie eine neue Automatisierung (Name, Triggertyp, Ereignis, Bedingung, Text) |
-| `update`      | Aktualisieren Sie eine vorhandene Automatisierung (aktiviert, Bedingung, Text)        |
-| `delete`      | Eine Automatisierung löschen (immer zuerst mit dem Benutzer bestätigen)               |
-| `fire-test`   | Ein `test.event.fired`-Ereignis ausgeben, um Automatisierungen zu validieren          |
+| Aktion        | Zweck                                                                                                            |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `list-events` | Erkennen Sie alle registrierten Ereignisse mit Beschreibungen und Nutzlastschemata                               |
+| `list-hosts`  | Gekoppelte Ausführungs-Hosts auflisten, bevor einer einer Automatisierung zugewiesen wird                        |
+| `list`        | Alle Automatisierungen mit Status auflisten; Nach Domäne filtern oder aktiviert                                  |
+| `define`      | Erstellen Sie eine neue Automatisierung (Name, Triggertyp, Ereignis, Bedingung, Text)                            |
+| `update`      | Aktualisieren Sie eine vorhandene Automatisierung (aktiviert, Bedingung, Text)                                   |
+| `delete`      | Eine Automatisierung löschen (immer zuerst mit dem Benutzer bestätigen)                                          |
+| `run-now`     | Eine Automatisierung sofort mit echten Nebenwirkungen ausführen. Überspringt Auslöser und Bedingung.             |
+| `fire-test`   | Ein `test.event.fired`-Ereignis ausgeben. Nur Automatisierungen, die dieses Ereignis abonniert haben, reagieren. |
 
 Zusätzliches Tool: `web-request` – ausgehender HTTP mit `${keys.NAME}`-Ersetzung.
 
@@ -251,22 +267,23 @@ Zusätzliches Tool: `web-request` – ausgehender HTTP mit `${keys.NAME}`-Ersetz
 
 ## API-Endpunkte {#api}
 
-| Endpunkt                               | Methode | Beschreibung                                            |
-| -------------------------------------- | ------- | ------------------------------------------------------- |
-| `/_agent-native/automations`           | GET     | Alle Automatisierungen auflisten (geparst)              |
-| `/_agent-native/automations/fire-test` | POST    | Ein `test.event.fired`-Ereignis ausgeben                |
-| `/_agent-native/secrets/adhoc`         | GET     | Ad-hoc-Schlüssel auflisten (keine Werte)                |
-| `/_agent-native/secrets/adhoc`         | POST    | Erstellen oder aktualisieren Sie einen Ad-hoc-Schlüssel |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE  | Einen Ad-hoc-Schlüssel löschen                          |
+| Endpunkt                                    | Methode | Beschreibung                                            |
+| ------------------------------------------- | ------- | ------------------------------------------------------- |
+| `/_agent-native/automations`                | GET     | Alle Automatisierungen auflisten (geparst)              |
+| `/_agent-native/automations/fire-test`      | POST    | Ein `test.event.fired`-Ereignis ausgeben                |
+| `/_agent-native/automations/webhook/:token` | POST    | Eine Webhook-Automatisierung auslösen                   |
+| `/_agent-native/secrets/adhoc`              | GET     | Ad-hoc-Schlüssel auflisten (keine Werte)                |
+| `/_agent-native/secrets/adhoc`              | POST    | Erstellen oder aktualisieren Sie einen Ad-hoc-Schlüssel |
+| `/_agent-native/secrets/adhoc/:name`        | DELETE  | Einen Ad-hoc-Schlüssel löschen                          |
 
-<Endpoint id="doc-block-21763k" title={"Lösen Sie ein Testereignis aus"} method="POST" path="/_agent-native/automations/fire-test" summary="Geben Sie ein test.event.fired-Ereignis aus, um ereignisgesteuerte Automatisierungen zu validieren" responses={[
+<Endpoint id="doc-block-21763k" title={"Lösen Sie ein Testereignis aus"} method="POST" path="/_agent-native/automations/fire-test" summary="Geben Sie ein test.event.fired-Ereignis aus, um Automatisierungen zu prüfen, die es abonniert haben" responses={[
   {
     "status": "200",
     "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path."
   }
 ]}>
 
-Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.
+Prüft den Ereignispfad (Zuordnung, Besitzerbereich und Bedingung) für eine Automatisierung, die `test.event.fired` abonniert hat. Es gibt nur dieses Ereignis aus und kann daher keine Automatisierung auslösen, die auf ein echtes Ereignis wie `calendar.booking.created` lauscht. Um eine echte Automatisierung auszuprobieren, verwenden Sie **Run now**. Entspricht der `manage-automations`-Aktion `fire-test`.
 
 </Endpoint>
 
@@ -296,8 +313,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill warn">condition</span
     ><small class="diagram-muted"
-      >Haiku yes/no on the payload &mdash; false &rarr;
-      <code>skipped</code></small
+      >model yes/no on the payload &mdash; false &rarr; <code>skipped</code>,
+      failure &rarr; <code>error</code></small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>

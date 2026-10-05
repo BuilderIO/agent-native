@@ -127,9 +127,8 @@ The framework includes cron utilities (`isValidCron()` and `describeCron()`) for
 
 ### From the Automations UI
 
-Open **Automations** on the full-page Agent surface, then create a
-**Scheduled** automation. The stable compatibility URL is `/agent#jobs`; the
-hash does not change when the visible tab name changes.
+Open **Settings › Automations**, then create a **Scheduled** automation. Old
+`/agent#jobs` links redirect there.
 
 ### By asking the agent
 
@@ -241,10 +240,10 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 ## Debugging a job {#debugging}
 
-- Open the automation's details in **Automations**, or inspect
+- Open the automation's details in **Settings › Automations**, or inspect
   `jobs/<name>.md` in Agent Resources — the frontmatter shows `lastRun`,
   `lastStatus`, `lastError`, and `nextRun`.
-- **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron). This only works if the scheduler is actually running — see the local-dev caveat above; set `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` first if you're testing on localhost.
+- **Test it without waiting:** click **Run now** in **Settings › Automations**, or ask the agent to run it (`manage-automations` with `action=run-now`). The job's prompt runs immediately with its real side effects, and `nextRun` doesn't change. Run now doesn't need the scheduler, so it also works on localhost without `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
 - **Pause it:** flip `enabled: false`. The file stays put, just stops running.
 
 ## Agent tool {#agent-tool}

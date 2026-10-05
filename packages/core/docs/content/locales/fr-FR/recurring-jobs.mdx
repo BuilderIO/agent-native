@@ -9,7 +9,7 @@ Une **tâche récurrente** est une invite qui s'exécute selon une planification
 
 <Callout tone="info">
 
-**Recurring Jobs** est l'ancien nom des automatisations **Scheduled**. **Automations** couvre **Scheduled** et **Event**. Les fichiers `jobs/` et `manage-jobs` restent disponibles pour les anciennes intégrations uniquement planifiées. Utilisez `manage-automations` et **Automations** sur `/agent#jobs` pour les nouveaux travaux personnels ou d'organisation, y compris le modèle et les listes MCP.
+**Recurring Jobs** est l'ancien nom des automatisations **Scheduled**. **Automations** couvre **Scheduled** et **Event**. Les fichiers `jobs/` et `manage-jobs` restent disponibles pour les anciennes intégrations uniquement planifiées. Utilisez `manage-automations` et **Settings › Automations** pour les nouveaux travaux personnels ou d'organisation, y compris le modèle et les listes MCP.
 
 </Callout>
 
@@ -104,6 +104,10 @@ Cron standard à 5 champs (minute, heure, jour du mois, mois, jour de la semaine
 Le framework comprend des utilitaires cron (`isValidCron()` et `describeCron()`) pour valider et restituer les chaînes cron, utilisées en interne par les couches de ressources et de planificateur.
 
 ## Créer une tâche {#creating}
+
+### Depuis l'interface Automations
+
+Ouvrez **Settings › Automations**, puis créez une automatisation **Scheduled**. Les anciens liens `/agent#jobs` y redirigent.
 
 ### Depuis l'onglet Espace de travail
 
@@ -207,8 +211,8 @@ Le planificateur est un plugin de framework (la routine interne `processRecurrin
 
 ## Débogage d'une tâche {#debugging}
 
-- Ouvrez `jobs/<name>.md` dans l'ressources de l'agent : le premier plan affiche `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Testez-le sans attendre :** il n'y a pas d'outil de tir forcé. Pour effectuer le même travail à la demande, collez l'invite du travail dans le chat de l'agent et laissez-le s'y exécuter, ou définissez temporairement le planning sur la minute suivante afin que le planificateur le récupère au tick suivant (puis restaurez le vrai cron).
+- Ouvrez les détails de l'automatisation dans **Settings › Automations**, ou consultez `jobs/<name>.md` dans l'ressources de l'agent : le premier plan affiche `lastRun`, `lastStatus`, `lastError`, `nextRun`.
+- **Testez-le sans attendre :** cliquez sur **Run now** dans **Settings › Automations**, ou demandez à l'agent de l'exécuter (`manage-automations` avec `action=run-now`). L'invite de la tâche s'exécute immédiatement, avec ses effets de bord réels, et `nextRun` ne change pas. Run now n'a pas besoin du planificateur : il fonctionne donc aussi en localhost sans `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
 - **Mettez-le en pause :** retournez `enabled: false`. Le fichier reste en place, arrête simplement de s'exécuter.
 
 ## Outil d'agent {#agent-tool}

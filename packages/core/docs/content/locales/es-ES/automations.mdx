@@ -5,7 +5,7 @@ description: "Automatizaciones programadas y activadas por eventos con condicion
 
 # Automatizaciones
 
-Una **automatización** es una tarea que el agente ejecuta según un horario o cuando ocurre un evento: _cuando sucede X, haz Y_. **Scheduled** y **Event** son dos tipos de activador, no productos separados.
+Una **automatización** es una tarea que el agente ejecuta según un horario, cuando ocurre un evento o cuando se llama a un webhook: _cuando sucede X, haz Y_. **Scheduled**, **Event** y **Webhook** son tipos de activador, no productos separados.
 
 El framework exponía originalmente las automatizaciones programadas como **Recurring Jobs**. Ese nombre, la ruta `jobs/<name>.md` y la herramienta `manage-jobs` se mantienen por compatibilidad. La nueva guía usa **Automations** como concepto general; consulte [Recurring Jobs](/docs/recurring-jobs) para mantener un trabajo programado antiguo o usar el ámbito de organización y campos avanzados.
 
@@ -21,7 +21,7 @@ El framework exponía originalmente las automatizaciones programadas como **Recu
   <div class="diagram-card">
     <span class="diagram-pill">Condition</span
     ><small class="diagram-muted"
-      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+      >Model checks: &ldquo;email ends with @builder.io&rdquo;</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -55,14 +55,30 @@ El framework exponía originalmente las automatizaciones programadas como **Recu
 
 </Diagram>
 
-## Dos tipos de activadores {#trigger-types}
+## Tipos de activadores {#trigger-types}
 
-| Tipo       | Se dispara cuando                                                | Campo clave       |
-| ---------- | ---------------------------------------------------------------- | ----------------- |
-| `schedule` | Una expresión cron coincide (igual que los trabajos recurrentes) | `schedule` (cron) |
-| `event`    | Se emite un evento coincidente en el bus de eventos del marco    | `event` (nombre)  |
+| Tipo       | Se dispara cuando                                                     | Campo clave                       |
+| ---------- | --------------------------------------------------------------------- | --------------------------------- |
+| `schedule` | Una expresión cron coincide (igual que los trabajos recurrentes)      | `schedule` (cron)                 |
+| `event`    | Se emite un evento coincidente en el bus de eventos del marco         | `event` (nombre)                  |
+| `webhook`  | Llega un `POST` HTTP a la URL secreta de webhook de la automatización | La URL que se devuelve al crearla |
 
-Los desencadenantes de eventos pueden incluir un `condition`, una cadena en lenguaje natural evaluada por Haiku con respecto a la carga útil del evento antes del envío. Si la condición no coincide, la automatización se omite silenciosamente.
+Los activadores de evento y de webhook pueden incluir un `condition`: una cadena en lenguaje natural que un modelo comprueba con respecto a la carga útil antes del envío. Si la condición no coincide, la automatización se omite y registra el estado `skipped`. Si la condición no se puede evaluar, la automatización registra un error. Consulte [Condiciones](#conditions).
+
+### Activadores de webhook {#webhook-triggers}
+
+Al crear una automatización de webhook se devuelve una ruta URL con la forma
+`/_agent-native/automations/webhook/<token>`. El token es el secreto, así que
+entregue la URL solo al servicio que la llama. Cada `POST` a esa URL se
+convierte en la carga útil de la automatización, hasta 64 KB. Un cuerpo enviado
+con tipo de contenido JSON se analiza y cualquier otro cuerpo se pasa como
+texto. El punto final responde `202` y ejecuta la automatización en segundo
+plano.
+
+Envíe un ID de evento estable en un encabezado `X-Webhook-Event-Id`,
+`X-Event-Id` o `X-GitHub-Delivery`, o como `id` de nivel superior en un cuerpo
+JSON. Una entrega reintentada con el mismo ID ejecuta la automatización una sola
+vez.
 
 ## Crear automatizaciones {#creating}
 
@@ -74,7 +90,9 @@ El agente descubre eventos disponibles, confirma el plan y escribe la automatiza
 
 ### Desde la interfaz de Automations
 
-Abra **Automations** en la página completa del agente para ver y administrar automatizaciones programadas y activadas por eventos. La URL de compatibilidad sigue siendo `/agent#jobs`, por lo que los enlaces y marcadores existentes continúan funcionando.
+Abra **Settings › Automations**. Es el lugar principal para ver las automatizaciones programadas, activadas por eventos y activadas por webhook, revisar su estado, ejecutar una ahora, pausarlas o reanudarlas y eliminarlas. Los enlaces antiguos a `/agent#jobs` redirigen allí.
+
+**Run now** es la forma más rápida de probar una automatización. Ejecuta las instrucciones de la automatización de inmediato, con sus efectos secundarios reales. Omite el activador y la condición, y no cambia la siguiente ejecución programada. El agente puede hacer lo mismo con `manage-automations` y `action=run-now`.
 
 <Callout tone="warning">
 
@@ -106,7 +124,7 @@ La tercera ruta (escribir el archivo `jobs/<name>.md` a mano mediante `resourceP
     {
       lines: "6",
       label: "Puerta",
-      note: "Un `condition` opcional en lenguaje natural, evaluado por Haiku con respecto a la carga útil antes del envío.",
+      note: "Un `condition` opcional en lenguaje natural, que un modelo comprueba con respecto a la carga útil antes del envío.",
     },
     {
       lines: "12",
@@ -120,15 +138,15 @@ La tercera ruta (escribir el archivo `jobs/<name>.md` a mano mediante `resourceP
 
 Las automatizaciones comparten todos los campos del [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). Estos campos adicionales controlan los desencadenadores de eventos, las condiciones y el modo de ejecución:
 
-| Campo         | Tipo                      | Predeterminado | Descripción                                                                                                                                                                |
-| ------------- | ------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `triggerType` | `"schedule"` \| `"event"` | `"schedule"`   | Cómo se activa la automatización                                                                                                                                           |
-| `event`       | cadena                    | _(opcional)_   | Nombre del evento al que suscribirse (solo activadores de eventos)                                                                                                         |
-| `condition`   | cadena                    | _(opcional)_   | Condición del lenguaje natural evaluada antes del envío                                                                                                                    |
-| `mode`        | `"agentic"`               | `"agentic"`    | Bucle de agente completo (el único modo compatible). `"deterministic"` fue eliminado: nunca se implementó, y las automatizaciones que lo configuraban nunca se ejecutaban. |
-| `domain`      | cadena                    | _(opcional)_   | Etiqueta de agrupación (correo, calendario, clips, etc.)                                                                                                                   |
+| Campo         | Tipo                                     | Predeterminado | Descripción                                                                                                                                                                |
+| ------------- | ---------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"` \| `"webhook"` | `"schedule"`   | Cómo se activa la automatización                                                                                                                                           |
+| `event`       | cadena                                   | _(opcional)_   | Nombre del evento al que suscribirse (solo activadores de eventos)                                                                                                         |
+| `condition`   | cadena                                   | _(opcional)_   | Condición del lenguaje natural evaluada antes del envío (activadores de evento y de webhook)                                                                               |
+| `mode`        | `"agentic"`                              | `"agentic"`    | Bucle de agente completo (el único modo compatible). `"deterministic"` fue eliminado: nunca se implementó, y las automatizaciones que lo configuraban nunca se ejecutaban. |
+| `domain`      | cadena                                   | _(opcional)_   | Etiqueta de agrupación (correo, calendario, clips, etc.)                                                                                                                   |
 
-Para un desencadenador de evento, `schedule` es `""` (vacío); para un desencadenador de programación, lleva la expresión cron. El despachador también escribe los mismos campos administrados `lastRun` / `lastStatus` / `lastError` que escribe el programador, además de un estado `"skipped"` cuando una condición se evalúa como falsa.
+Para un desencadenador de evento o de webhook, `schedule` es `""` (vacío); para un desencadenador de programación, lleva la expresión cron. El despachador también escribe los mismos campos administrados `lastRun` / `lastStatus` / `lastError` que escribe el programador, además de un estado `"skipped"` cuando una condición se evalúa como falsa y un estado `"error"` cuando no se puede evaluar.
 
 ## El autobús de eventos {#event-bus}
 
@@ -186,12 +204,17 @@ El `owner` de los metadatos de emisión determina qué automatizaciones se activ
 
 ## Condiciones {#conditions}
 
-Las condiciones son cadenas de lenguaje natural evaluadas por Claude Haiku frente a la carga útil del evento. Esta es una clasificación de sí/no, no una tarea de generación.
+Las condiciones son cadenas de lenguaje natural que un modelo comprueba con respecto a la carga útil del evento o del webhook. Esta es una clasificación de sí/no, no una tarea de generación.
 
 - **Condición vacía o faltante** = incondicional (siempre se activa).
-- Los resultados se memorizan (SHA-256 de condición + carga útil) con un caché TTL de 5 minutos y LRU de 500 entradas.
-- La carga útil se trunca a 4000 caracteres antes de enviarla a Haiku.
-- En caso de falla de API, la condición se evalúa como `false` (valor predeterminado seguro: se omite la automatización).
+- Los resultados se almacenan en caché durante 5 minutos, con una clave que es el hash SHA-256 de la condición y la carga útil, y con un máximo de 500 entradas.
+- La carga útil se trunca a 4000 caracteres antes de enviarla al modelo.
+
+<Callout tone="info">
+
+Una condición que no se puede evaluar nunca cuenta como coincidencia ni como no coincidencia. La automatización no se ejecuta y registra `lastStatus: error` con el motivo en `lastError`. Un error del proveedor se reintenta. Si no hay ninguna clave de API disponible para evaluar la condición, cada evento coincidente registra un error y la automatización se pausa sola tras tres seguidos. Vuelva a activarla en **Settings › Automations** cuando haya una clave disponible.
+
+</Callout>
 
 Ejemplos de condiciones:
 
@@ -228,7 +251,7 @@ Los marcadores de posición se resuelven **del lado del servidor** después de q
 Las claves son secretos ad hoc creados por los usuarios o el agente para su uso en automatización (por ejemplo, `SLACK_WEBHOOK`, `HUBSPOT_API_KEY`). Se diferencian de los secretos registrados (`registerRequiredSecret`) en que no tienen metadatos definidos por plantilla ni paso de incorporación.
 
 - Creado a través de la configuración UI o `/_agent-native/secrets/adhoc` API.
-- Cada clave puede tener una **lista de permitidos URL** que restringe a qué orígenes se puede enviar la clave (coincidencia a nivel de origen).
+- Una clave creada mediante la API puede incluir un `urlAllowlist` que restringe a qué orígenes se puede enviar la clave (coincidencia a nivel de origen). Las claves añadidas en la configuración no tienen lista de permitidos.
 - El valor bruto nunca se expone a la IA; solo aparecen marcadores de posición `${keys.NAME}` en el contexto del agente.
 - La resolución retrocede del ámbito del usuario al ámbito del espacio de trabajo, para que los usuarios puedan anular las claves compartidas.
 
@@ -236,14 +259,16 @@ Las claves son secretos ad hoc creados por los usuarios o el agente para su uso 
 
 Las automatizaciones personales y de organización usan `manage-automations` con un parámetro `action`:
 
-| Acción        | Propósito                                                                             |
-| ------------- | ------------------------------------------------------------------------------------- |
-| `list-events` | Descubre todos los eventos registrados con descripciones y esquemas de carga útil     |
-| `list`        | Enumerar todas las automatizaciones con estado; filtrar por dominio o habilitado      |
-| `define`      | Crear una nueva automatización (nombre, tipo de activador, evento, condición, cuerpo) |
-| `update`      | Actualizar una automatización existente (habilitada, condición, cuerpo)               |
-| `delete`      | Eliminar una automatización (siempre confirma primero con el usuario)                 |
-| `fire-test`   | Emitir un evento `test.event.fired` para validar automatizaciones                     |
+| Acción        | Propósito                                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------ |
+| `list-events` | Descubre todos los eventos registrados con descripciones y esquemas de carga útil                            |
+| `list-hosts`  | Enumerar los hosts de ejecución emparejados antes de asignar uno a una automatización                        |
+| `list`        | Enumerar todas las automatizaciones con estado; filtrar por dominio o habilitado                             |
+| `define`      | Crear una nueva automatización (nombre, tipo de activador, evento, condición, cuerpo)                        |
+| `update`      | Actualizar una automatización existente (habilitada, condición, cuerpo)                                      |
+| `delete`      | Eliminar una automatización (siempre confirma primero con el usuario)                                        |
+| `run-now`     | Ejecutar una automatización de inmediato, con efectos secundarios reales. Omite el activador y la condición. |
+| `fire-test`   | Emitir un evento `test.event.fired`. Solo responden las automatizaciones suscritas a ese evento.             |
 
 Herramienta adicional: `web-request`: HTTP saliente con sustitución de `${keys.NAME}`.
 
@@ -251,22 +276,23 @@ Herramienta adicional: `web-request`: HTTP saliente con sustitución de `${keys.
 
 ## Puntos finales API {#api}
 
-| Punto final                            | Método | Descripción                                      |
-| -------------------------------------- | ------ | ------------------------------------------------ |
-| `/_agent-native/automations`           | GET    | Enumerar todas las automatizaciones (analizadas) |
-| `/_agent-native/automations/fire-test` | POST   | Emitir un evento `test.event.fired`              |
-| `/_agent-native/secrets/adhoc`         | GET    | Lista de claves ad-hoc (sin valores)             |
-| `/_agent-native/secrets/adhoc`         | POST   | Crear o actualizar una clave ad-hoc              |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE | Eliminar una clave ad hoc                        |
+| Punto final                                 | Método | Descripción                                      |
+| ------------------------------------------- | ------ | ------------------------------------------------ |
+| `/_agent-native/automations`                | GET    | Enumerar todas las automatizaciones (analizadas) |
+| `/_agent-native/automations/fire-test`      | POST   | Emitir un evento `test.event.fired`              |
+| `/_agent-native/automations/webhook/:token` | POST   | Activar una automatización de webhook            |
+| `/_agent-native/secrets/adhoc`              | GET    | Lista de claves ad-hoc (sin valores)             |
+| `/_agent-native/secrets/adhoc`              | POST   | Crear o actualizar una clave ad-hoc              |
+| `/_agent-native/secrets/adhoc/:name`        | DELETE | Eliminar una clave ad hoc                        |
 
-<Endpoint id="doc-block-91d4v1" title="Disparar un evento de prueba" method="POST" path="/_agent-native/automations/fire-test" summary="Emitir un evento test.event.fired para validar automatizaciones activadas por eventos" responses={[
+<Endpoint id="doc-block-91d4v1" title="Disparar un evento de prueba" method="POST" path="/_agent-native/automations/fire-test" summary="Emitir un evento test.event.fired para ejercitar las automatizaciones suscritas a él" responses={[
   {
     "status": "200",
     "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path."
   }
 ]}>
 
-Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.
+Comprueba la ruta de eventos (coincidencia, ámbito de propietario y condición) para una automatización suscrita a `test.event.fired`. Emite solo ese evento, por lo que no puede activar una automatización que escucha un evento real como `calendar.booking.created`. Para probar una automatización real, use **Run now**. Equivalente a la acción `fire-test` de `manage-automations`.
 
 </Endpoint>
 
@@ -296,8 +322,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill warn">condition</span
     ><small class="diagram-muted"
-      >Haiku yes/no on the payload &mdash; false &rarr;
-      <code>skipped</code></small
+      >model yes/no on the payload &mdash; false &rarr; <code>skipped</code>,
+      failure &rarr; <code>error</code></small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
