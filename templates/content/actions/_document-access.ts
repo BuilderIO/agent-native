@@ -229,7 +229,12 @@ export async function resolveDocumentAccess(
       },
     };
   }
-  const authority = await documentSpaceAuthority(id);
+  const [reference] = await getDb()
+    .select({ spaceId: schema.documents.spaceId })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, id))
+    .limit(1);
+  const authority = await contentSpaceAuthority(reference?.spaceId);
   if (!authority) return null;
   const granted = await resolve({
     userEmail: authority.userEmail,
@@ -240,21 +245,16 @@ export async function resolveDocumentAccess(
 }
 
 /**
- * The authority the space holding a document lends its members, or null when
- * the document has no space or the caller isn't a member of it.
+ * The authority a space lends its members, or null when there's no space or
+ * the caller isn't a member of it.
  */
-export async function documentSpaceAuthority(
-  id: string,
+export async function contentSpaceAuthority(
+  spaceId: string | null | undefined,
 ): Promise<{ userEmail: string; orgId: string | null } | null> {
-  // guard:allow-unscoped — reads only the page's space id; nothing is returned unless resolveContentSpaceAccess finds the caller a member of that space.
-  const [reference] = await getDb()
-    .select({ spaceId: schema.documents.spaceId })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, id))
-    .limit(1);
-  if (!reference?.spaceId) return null;
+  if (!spaceId) return null;
   try {
-    return (await resolveContentSpaceAccess(reference.spaceId)).authority;
+    const { authority } = await resolveContentSpaceAccess(spaceId);
+    return { userEmail: authority.userEmail, orgId: authority.orgId ?? null };
   } catch (error) {
     if (
       error instanceof Error &&

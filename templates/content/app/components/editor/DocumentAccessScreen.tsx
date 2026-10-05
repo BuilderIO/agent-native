@@ -64,7 +64,7 @@ export function DocumentAccessScreen({
   const trashed = gate.status?.state === "trashed";
   const trashedPage = useActionQuery<{ trashRootId?: string | null }>(
     "get-trashed-document",
-    { id: documentId },
+    { id: documentId, trashRootOnly: true },
     { enabled: trashed, retry: false },
   );
   const trashRootId = trashedPage.data

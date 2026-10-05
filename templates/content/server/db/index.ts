@@ -27,13 +27,19 @@ registerShareableResource({
   },
   // A space's members can read its pages, so a trashed one reads as trashed
   // to them. Imported lazily: the access helpers import this module.
-  fallbackAccessContext: async (documentId) => {
-    const { documentSpaceAuthority } =
-      await import("../../actions/_document-access.js");
-    const authority = await documentSpaceAuthority(documentId);
-    return authority
-      ? { userEmail: authority.userEmail, orgId: authority.orgId ?? undefined }
-      : null;
+  fallbackAccessContext: {
+    columns: ["spaceId"],
+    resolve: async (document) => {
+      const { contentSpaceAuthority } =
+        await import("../../actions/_document-access.js");
+      const authority = await contentSpaceAuthority(document.spaceId);
+      return authority
+        ? {
+            userEmail: authority.userEmail,
+            orgId: authority.orgId ?? undefined,
+          }
+        : null;
+    },
   },
   agentReadable: {
     resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,

@@ -425,7 +425,10 @@ function projectedAccessColumns(
     orgId: resourceTable.orgId,
     visibility: resourceTable.visibility,
   };
-  for (const key of reg.availability?.columns ?? []) {
+  for (const key of [
+    ...(reg.availability?.columns ?? []),
+    ...(reg.fallbackAccessContext?.columns ?? []),
+  ]) {
     if (resourceTable[key]) columns[key] = resourceTable[key];
   }
   return columns;
@@ -650,7 +653,7 @@ export async function resolveAccessStatus(
     if (!resource) return { state: "missing" };
     let access = loaded.access;
     if (!access && reg.fallbackAccessContext) {
-      const fallback = await reg.fallbackAccessContext(resourceId, ctx);
+      const fallback = await reg.fallbackAccessContext.resolve(resource, ctx);
       if (fallback) {
         access = await accessToResource(
           reg,
