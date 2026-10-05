@@ -44,6 +44,7 @@ export {
   isSsrCacheEnabled,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  resolveSsrNetlifyQueryVary,
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 
@@ -294,12 +295,8 @@ function applyDefaultSsrCacheHeader(
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     headers.set(name, value);
   }
-  const cacheKeyHeaders = resolveSsrCacheKeyHeaders();
-  const netlifyVary = varyByQuery
-    ? cacheKeyHeaders["netlify-vary"]
-      ? "query"
-      : undefined
-    : cacheKeyHeaders["netlify-vary"];
+  const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, { varyByQuery });
+  const netlifyVary = cacheKeyHeaders["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
 }

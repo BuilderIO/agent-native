@@ -56,7 +56,7 @@ describe("createDocumentRequestHandler", () => {
     );
 
     expect(response.status).toBe(207);
-    expect(headers.get("content-type")).toBe("text/html");
+    expect(headers.get("content-type")).toBe("text/html; charset=utf-8");
 
     const element = mocks.renderToReadableStream.mock.calls[0]?.[0] as
       | ReactElement<{ context: EntryContext; url: string }>
@@ -65,5 +65,47 @@ describe("createDocumentRequestHandler", () => {
     expect(element?.type).toBe(AppServerRouter);
     expect(element?.props.context).toBe(routerContext);
     expect(element?.props.url).toBe("https://dispatch.test/overview");
+  });
+
+  it("installs chunk recovery before streamed module preload links", async () => {
+    mocks.renderToReadableStream.mockImplementationOnce(async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode("<!DOCTYPE html><html><he"),
+          );
+          controller.enqueue(
+            new TextEncoder().encode(
+              'ad><link rel="modulepreload" href="/assets/root.js"></head><body><script type="module" src="/assets/entry.js"></script></body></html>',
+            ),
+          );
+          controller.close();
+        },
+      }) as ReadableStream<Uint8Array> & { allReady?: Promise<void> };
+      stream.allReady = Promise.resolve();
+      return stream;
+    });
+
+    const handler = createDocumentRequestHandler(() => null);
+    const response = await handler(
+      new Request("https://dispatch.test/overview"),
+      200,
+      new Headers(),
+      { isSpaMode: false } as EntryContext,
+      {} as RouterContextProvider,
+    );
+    const html = await response.text();
+
+    const bootstrapIndex = html.indexOf(
+      "data-agent-native-chunk-recovery-bootstrap",
+    );
+    const modulePreloadIndex = html.indexOf('rel="modulepreload"');
+    expect(bootstrapIndex).toBeGreaterThan(-1);
+    expect(bootstrapIndex).toBeLessThan(modulePreloadIndex);
+    expect(html).toContain("__agentNativeChunkRecovery");
+    expect(html).toContain("data-agent-native-route-warmup");
+    expect(response.headers.get("content-type")).toBe(
+      "text/html; charset=utf-8",
+    );
   });
 });
