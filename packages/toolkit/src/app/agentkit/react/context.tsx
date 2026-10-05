@@ -216,9 +216,16 @@ export interface AgentKitLabels {
   composerLabel: string;
   composerPlaceholder: string;
   queue: string;
-  queueSteer: string;
-  queueSteerHint: string;
-  queueMoveToTop: string;
+  queueSendNow: string;
+  queueSendNowHint: string;
+  queueSendNext: string;
+  queueSendNextHint: string;
+  /** @deprecated Use queueSendNow. */
+  queueSteer?: string;
+  /** @deprecated Use queueSendNowHint. */
+  queueSteerHint?: string;
+  /** @deprecated Use queueSendNext. */
+  queueMoveToTop?: string;
   queueRemove: string;
   queueMore: string;
   suggestions: string;
@@ -305,9 +312,10 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   composerLabel: "Message agent",
   composerPlaceholder: "Ask the agent to explore, build, or explain…",
   queue: "Queued messages",
-  queueSteer: "Steer",
-  queueSteerHint: "Send this message to the active run",
-  queueMoveToTop: "Move to top",
+  queueSendNow: "Send now",
+  queueSendNowHint: "Stops the current response and sends this instead",
+  queueSendNext: "Send next",
+  queueSendNextHint: "Send after the current response finishes",
   queueRemove: "Remove queued message",
   queueMore: "More actions",
   suggestions: "Suggested next actions",
@@ -448,7 +456,24 @@ export function AgentKitProvider({
     composerFocusTargets.current.get(targetThreadId)?.();
   }, []);
   const mergedLabels = useMemo(
-    () => ({ ...defaultAgentKitLabels, ...labels }),
+    () => ({
+      ...defaultAgentKitLabels,
+      ...labels,
+      queueSendNow:
+        labels?.queueSendNow ??
+        labels?.queueSteer ??
+        defaultAgentKitLabels.queueSendNow,
+      queueSendNowHint:
+        labels?.queueSendNowHint ??
+        labels?.queueSteerHint ??
+        defaultAgentKitLabels.queueSendNowHint,
+      queueSendNext:
+        labels?.queueSendNext ??
+        labels?.queueMoveToTop ??
+        defaultAgentKitLabels.queueSendNext,
+      queueSendNextHint:
+        labels?.queueSendNextHint ?? defaultAgentKitLabels.queueSendNextHint,
+    }),
     [labels],
   );
   const value = useMemo(

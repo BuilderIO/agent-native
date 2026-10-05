@@ -12,8 +12,8 @@ import {
 
 const labels: MessageQueueDrawerLabels = {
   region: "2 queued",
-  steer: "Steer",
-  steerHint: "Send this message next",
+  sendNow: "Send now",
+  sendNowHint: "Stops the current response and sends this instead",
   remove: "Remove from queue",
   moreActions: "More actions",
 };
@@ -58,8 +58,9 @@ describe("MessageQueueDrawer", () => {
           onRemove={onRemove}
           getItemActions={(item) => [
             {
-              id: "move-to-top",
-              label: "Move to top",
+              id: "send-next",
+              label: "Send next",
+              hint: "Send after the current response finishes",
               onSelect: () => onMoveToTop(item),
             },
           ]}
@@ -87,7 +88,7 @@ describe("MessageQueueDrawer", () => {
     expect(container.querySelectorAll("li")).toHaveLength(2);
 
     const steerButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Steer"),
+      (button) => button.textContent?.includes("Send now"),
     );
     const removeButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Remove from queue"]',
@@ -116,7 +117,19 @@ describe("MessageQueueDrawer", () => {
       await Promise.resolve();
     });
     const menuItem = document.querySelector<HTMLElement>('[role="menuitem"]');
-    expect(menuItem?.textContent).toContain("Move to top");
+    expect(menuItem?.textContent).toContain("Send next");
+    await act(async () => {
+      menuItem?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+    expect(document.body.textContent).toContain(
+      "Send after the current response finishes",
+    );
     act(() => menuItem?.click());
     expect(onMoveToTop).toHaveBeenCalledWith(items[0]);
   });
@@ -238,7 +251,7 @@ describe("MessageQueueDrawer", () => {
           variant="recessed"
           onRemove={() => undefined}
           getItemActions={() => [
-            { id: "move-to-top", label: "Move to top", onSelect: () => {} },
+            { id: "send-next", label: "Send next", onSelect: () => {} },
           ]}
         />,
       );

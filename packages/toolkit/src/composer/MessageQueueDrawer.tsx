@@ -25,6 +25,7 @@ export interface MessageQueueItem {
 export interface MessageQueueItemAction {
   id: string;
   label: ReactNode;
+  hint?: string;
   icon?: ReactNode;
   destructive?: boolean;
   disabled?: boolean;
@@ -33,8 +34,8 @@ export interface MessageQueueItemAction {
 
 export interface MessageQueueDrawerLabels {
   region: string;
-  steer: string;
-  steerHint: string;
+  sendNow: string;
+  sendNowHint: string;
   remove: string;
   moreActions: string;
 }
@@ -172,10 +173,10 @@ export function MessageQueueDrawer({
                             className="size-3.5"
                             strokeWidth={1.7}
                           />
-                          <span>{labels.steer}</span>
+                          <span>{labels.sendNow}</span>
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{labels.steerHint}</TooltipContent>
+                      <TooltipContent>{labels.sendNowHint}</TooltipContent>
                     </Tooltip>
                   ) : null}
                   <Tooltip>
@@ -233,20 +234,35 @@ export function MessageQueueDrawer({
                         side="top"
                         sideOffset={4}
                       >
-                        {actions.map((action) => (
-                          <DropdownMenuItem
-                            key={action.id}
-                            disabled={disabled || action.disabled}
-                            onSelect={() => action.onSelect(item)}
-                            className={cn(
-                              action.destructive &&
-                                "text-destructive focus:text-destructive",
-                            )}
-                          >
-                            {action.icon}
-                            {action.label}
-                          </DropdownMenuItem>
-                        ))}
+                        {actions.map((action) => {
+                          const menuItem = (
+                            <DropdownMenuItem
+                              key={action.id}
+                              disabled={disabled || action.disabled}
+                              onSelect={() => action.onSelect(item)}
+                              className={cn(
+                                action.destructive &&
+                                  "text-destructive focus:text-destructive",
+                              )}
+                            >
+                              {action.icon}
+                              {action.label}
+                            </DropdownMenuItem>
+                          );
+
+                          return action.hint ? (
+                            <Tooltip key={action.id}>
+                              <TooltipTrigger asChild>
+                                {menuItem}
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                {action.hint}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            menuItem
+                          );
+                        })}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   ) : null}
