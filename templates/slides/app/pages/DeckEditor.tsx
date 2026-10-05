@@ -567,6 +567,8 @@ export default function DeckEditor() {
   const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
   const inlineEditFlushRef = useRef<(() => boolean) | null>(null);
   const presentNavigationRef = useRef(false);
+  const generationHomeNavigationRef = useRef(false);
+  const generationHomeExitInFlightRef = useRef(false);
   const presentInFlightRef = useRef(false);
   const presentAttemptRef = useRef(0);
   useEffect(() => {
@@ -581,18 +583,27 @@ export default function DeckEditor() {
     useCallback(
       ({ currentLocation, nextLocation }) =>
         shouldBlockPendingDeckNavigation({
-          hasPendingEdits: hasPendingDeckEdits,
+          hasPendingEdits:
+            hasPendingDeckEdits ||
+            (isNewDeckGenerationRoute &&
+              (deck?.slides.length ?? 0) === 0 &&
+              nextLocation.pathname === "/home"),
           currentPathname: currentLocation.pathname,
           nextPathname: nextLocation.pathname,
           allowPendingEdits:
-            presentNavigationRef.current ||
-            (isNewDeckGenerationRoute && (deck?.slides.length ?? 0) === 0),
+            presentNavigationRef.current || generationHomeNavigationRef.current,
         }),
       [deck?.slides.length, hasPendingDeckEdits, isNewDeckGenerationRoute],
     ),
   );
+  const isRestoringPromptBeforeLeavingGeneration =
+    pendingDeckNavigationBlocker.state === "blocked" &&
+    isNewDeckGenerationRoute &&
+    (deck?.slides.length ?? 0) === 0 &&
+    pendingDeckNavigationBlocker.location.pathname === "/home";
   const pendingDeckNavigationWarningOpen =
-    pendingDeckNavigationBlocker.state === "blocked";
+    pendingDeckNavigationBlocker.state === "blocked" &&
+    !isRestoringPromptBeforeLeavingGeneration;
   const keepEditingAfterNavigationAttempt = useCallback(() => {
     if (pendingDeckNavigationBlocker.state !== "blocked") return;
     pendingDeckNavigationBlocker.reset();
@@ -951,6 +962,43 @@ export default function DeckEditor() {
     (generationContext !== null &&
       "generationFailureAttemptId" in generationContext &&
       generationContext.generationFailureAttemptId !== generationAttemptId);
+  useEffect(() => {
+    if (
+      !isRestoringPromptBeforeLeavingGeneration ||
+      !id ||
+      generationHomeExitInFlightRef.current
+    ) {
+      return;
+    }
+    generationHomeExitInFlightRef.current = true;
+    void flushDeckSave(id).then(
+      () => {
+        generationHomeNavigationRef.current = true;
+        generationHomeExitInFlightRef.current = false;
+        pendingDeckNavigationBlocker.reset();
+        const retryPrompt =
+          typeof generationContext?.originalPrompt === "string"
+            ? generationContext.originalPrompt
+            : undefined;
+        void navigate("/home", {
+          ...(retryPrompt ? { state: { retryPrompt } } : {}),
+        });
+      },
+      () => {
+        generationHomeExitInFlightRef.current = false;
+        pendingDeckNavigationBlocker.reset();
+        toast.error(t("settings.saveFailed"));
+      },
+    );
+  }, [
+    flushDeckSave,
+    generationContext,
+    id,
+    isRestoringPromptBeforeLeavingGeneration,
+    navigate,
+    pendingDeckNavigationBlocker,
+    t,
+  ]);
   useEffect(() => {
     if (!id || !retryRecoveryStorageKey || !generationContext) return;
 

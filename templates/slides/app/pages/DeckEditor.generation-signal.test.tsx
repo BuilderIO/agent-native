@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     generationContext: {
       generationAttemptId: "attempt-1",
       generationMode: undefined as string | undefined,
+      originalPrompt: "" as string,
     },
   },
   broadGenerating: true,
@@ -36,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   updateDeck: vi.fn((_id: string, _changes: Record<string, unknown>) => {}),
   refreshOpenDeck: vi.fn(),
   flushDeckSave: vi.fn(async (_id: string) => {}),
+  hasPendingDeckWrites: false,
   submitAndConfirm: vi.fn(
     async (
       _message: string,
@@ -140,7 +142,7 @@ vi.mock("@/context/DeckContext", () => ({
   deckIdFromPathname: vi.fn(),
   defaultSlideContent: { blank: "" },
   flushPendingSaves: vi.fn(),
-  hasUnsavedDeckChanges: vi.fn(() => false),
+  hasUnsavedDeckChanges: () => mocks.hasPendingDeckWrites,
   markSlideEditingActive: vi.fn(),
 }));
 
@@ -278,7 +280,15 @@ vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   }),
 }));
 vi.mock("@/lib/pending-deck-changes", () => ({
-  shouldBlockPendingDeckNavigation: () => false,
+  shouldBlockPendingDeckNavigation: (args: {
+    hasPendingEdits: boolean;
+    currentPathname: string;
+    nextPathname: string;
+    allowPendingEdits?: boolean;
+  }) =>
+    args.hasPendingEdits &&
+    !args.allowPendingEdits &&
+    args.currentPathname !== args.nextPathname,
   usePendingDeckUnloadGuard: mocks.pendingUnloadGuard,
 }));
 
@@ -406,7 +416,9 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.deck.generationContext = {
       generationAttemptId: "attempt-1",
       generationMode: undefined,
+      originalPrompt: "",
     };
+    mocks.hasPendingDeckWrites = false;
     mocks.scopedCalls = [];
     mocks.listeners.clear();
     mocks.sendToAgentChat.mockClear();
@@ -442,6 +454,60 @@ describe("DeckEditor generation signal wiring", () => {
     await act(async () => screen.getByTestId("inline-edit-trigger").click());
 
     expect(mocks.pendingUnloadGuard).toHaveBeenLastCalledWith(true);
+  });
+
+  it("saves before leaving an empty generation deck and restores its prompt", async () => {
+    mocks.hasPendingDeckWrites = true;
+    mocks.deck.generationContext.originalPrompt =
+      "Create a product launch deck";
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/home", element: <div>Decks home</div> },
+      ],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generationSubmitId=submit-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await act(async () => {
+      void router?.navigate("/home");
+    });
+
+    await waitFor(() => expect(router?.state.location.pathname).toBe("/home"));
+    expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
+    expect(router?.state.location.state).toEqual({
+      retryPrompt: "Create a product launch deck",
+    });
+  });
+
+  it("keeps the empty generation deck open when saving before Home fails", async () => {
+    mocks.hasPendingDeckWrites = true;
+    mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/home", element: <div>Decks home</div> },
+      ],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generationSubmitId=submit-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await act(async () => {
+      void router?.navigate("/home");
+    });
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+    expect(router?.state.location.pathname).toBe("/deck/deck-1");
   });
 
   it("reopens chat for a pending deck question on its original thread", async () => {
@@ -1267,6 +1333,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.deck.generationContext = {
       generationAttemptId: "attempt-1",
       generationMode: undefined,
+      originalPrompt: "",
     };
     mocks.flushDeckSave.mockReset().mockResolvedValue(undefined);
     router = createMemoryRouter(
@@ -1301,6 +1368,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.deck.generationContext = {
       generationAttemptId: "retry-attempt",
       generationMode: undefined,
+      originalPrompt: "",
     };
     mocks.targetTabId = tabId;
     mocks.attemptGenerating = true;
