@@ -469,6 +469,7 @@ function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
     "packages/toolkit/",
     "packages/recap-cli/",
     "packages/creative-context/",
+    "packages/otel/",
   ].some((prefix) => hasPath(paths, prefix));
 }
 

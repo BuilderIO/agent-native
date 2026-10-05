@@ -327,9 +327,11 @@ test("smokes every SSR template when a shared package or CI changes", () => {
     "packages/toolkit/src/index.ts",
     "templates/plan/app/root.tsx",
   ]);
+  const otel = classifyChangedPaths(["packages/otel/src/index.ts"]);
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
 
   assert.deepEqual(toolkit.ssrBootApps, [...SSR_BOOT_APPS]);
+  assert.deepEqual(otel.ssrBootApps, [...SSR_BOOT_APPS]);
   assert.equal(full.full, true);
   assert.deepEqual(full.ssrBootApps, [...SSR_BOOT_APPS]);
 });
