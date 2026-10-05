@@ -222,7 +222,7 @@ export function BuilderIncludedBenefitsDisclosure({
         {creditsLabel}
       </span>
       {additionalServices.length > 0 ? (
-        <span className="text-xs font-medium text-white">
+        <span className="text-xs font-medium text-foreground dark:text-white">
           {moreServicesLabel}
         </span>
       ) : null}
