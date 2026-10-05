@@ -357,6 +357,39 @@ describe("runDoctorScan", () => {
     ]);
   });
 
+  it("follows symlinked plugin files and directories like Nitro does", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "shared/register.ts": "registerThing();\n",
+      "shared/linked-dir/inner.ts": "registerThing();\n",
+      "server/plugins/ok.ts": "export default defineNitroPlugin(() => {});\n",
+    });
+    const pluginsDir = path.join(root, "server/plugins");
+    fs.symlinkSync(
+      path.join(root, "shared/register.ts"),
+      path.join(pluginsDir, "linked.ts"),
+    );
+    fs.symlinkSync(
+      path.join(root, "shared/linked-dir"),
+      path.join(pluginsDir, "linked-dir"),
+    );
+    fs.symlinkSync(pluginsDir, path.join(pluginsDir, "loop"));
+    fs.symlinkSync(
+      path.join(root, "missing.ts"),
+      path.join(pluginsDir, "dangling.ts"),
+    );
+
+    const report = runDoctorScan({
+      root,
+      only: ["server-plugin-default-export"],
+    });
+
+    expect(report.findings.map((f) => f.file)).toEqual([
+      "server/plugins/linked-dir/inner.ts",
+      "server/plugins/linked.ts",
+    ]);
+  });
+
   it("leaves files esbuild cannot parse to the real build", () => {
     const root = makeTempAppRoot({
       ...CLEAN_FILES,
