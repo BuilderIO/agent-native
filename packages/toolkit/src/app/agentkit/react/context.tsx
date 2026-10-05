@@ -313,7 +313,7 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   composerPlaceholder: "Ask the agent to explore, build, or explain…",
   queue: "Queued messages",
   queueSendNow: "Send now",
-  queueSendNowHint: "Stops the current response and sends this instead",
+  queueSendNowHint: "Stops the current response, then sends this message.",
   queueSendNext: "Send next",
   queueSendNextHint: "Send after the current response finishes",
   queueRemove: "Remove queued message",

@@ -1082,7 +1082,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "कतार में {{count}} — अगला संदेश भेजें...",
   "queue.remove": "कतार से हटाएँ",
   "queue.sendNow": "अभी भेजें",
-  "queue.sendNowHint": "वर्तमान उत्तर रोककर इसके बजाय यह संदेश भेजता है",
+  "queue.sendNowHint": "वर्तमान उत्तर रोकता है, फिर यह संदेश भेजता है",
   "queue.sendNext": "अगला भेजें",
   "queue.sendNextHint": "वर्तमान उत्तर समाप्त होने के बाद भेजें",
   "queue.moreActions": "अन्य कार्रवाइयाँ",

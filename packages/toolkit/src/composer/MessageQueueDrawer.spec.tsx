@@ -13,7 +13,7 @@ import {
 const labels: MessageQueueDrawerLabels = {
   region: "2 queued",
   sendNow: "Send now",
-  sendNowHint: "Stops the current response and sends this instead",
+  sendNowHint: "Stops the current response, then sends this message.",
   remove: "Remove from queue",
   moreActions: "More actions",
 };

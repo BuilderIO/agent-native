@@ -1034,7 +1034,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}} 条排队中——发送后续消息...",
   "queue.remove": "从队列中移除",
   "queue.sendNow": "立即发送",
-  "queue.sendNowHint": "停止当前响应，改为发送此消息",
+  "queue.sendNowHint": "停止当前响应，然后发送此消息",
   "queue.sendNext": "下一条发送",
   "queue.sendNextHint": "在当前响应结束后发送",
   "queue.moreActions": "更多操作",

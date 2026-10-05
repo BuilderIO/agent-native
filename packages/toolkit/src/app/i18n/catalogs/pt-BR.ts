@@ -776,7 +776,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.remove": "Remover da fila",
   "queue.sendNow": "Enviar agora",
   "queue.sendNowHint":
-    "Interrompe a resposta atual e envia esta mensagem em vez disso",
+    "Interrompe a resposta atual e depois envia esta mensagem",
   "queue.sendNext": "Enviar em seguida",
   "queue.sendNextHint": "Enviar após o término da resposta atual",
   "queue.moreActions": "Mais ações",

@@ -1114,7 +1114,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}} 件が待機中 — フォローアップを送信...",
   "queue.remove": "キューから削除",
   "queue.sendNow": "今すぐ送信",
-  "queue.sendNowHint": "現在の応答を停止して、代わりにこのメッセージを送信",
+  "queue.sendNowHint": "現在の応答を停止してから、このメッセージを送信",
   "queue.sendNext": "次に送信",
   "queue.sendNextHint": "現在の応答が終了した後に送信",
   "queue.moreActions": "その他のアクション",

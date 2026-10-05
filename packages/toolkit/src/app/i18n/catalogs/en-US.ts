@@ -1099,7 +1099,7 @@ const messages = {
   "queue.followUpWithCount": "{{count}} queued — send a follow-up...",
   "queue.remove": "Remove from queue",
   "queue.sendNow": "Send now",
-  "queue.sendNowHint": "Stops the current response and sends this instead",
+  "queue.sendNowHint": "Stops the current response, then sends this message.",
   "queue.sendNext": "Send next",
   "queue.sendNextHint": "Send after the current response finishes",
   "queue.moreActions": "More actions",

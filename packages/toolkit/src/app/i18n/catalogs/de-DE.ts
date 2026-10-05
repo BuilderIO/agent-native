@@ -784,7 +784,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.remove": "Aus Warteschlange entfernen",
   "queue.sendNow": "Jetzt senden",
   "queue.sendNowHint":
-    "Stoppt die aktuelle Antwort und sendet stattdessen diese Nachricht",
+    "Stoppt die aktuelle Antwort und sendet dann diese Nachricht",
   "queue.sendNext": "Als Nächstes senden",
   "queue.sendNextHint": "Nach Abschluss der aktuellen Antwort senden",
   "queue.moreActions": "Weitere Aktionen",

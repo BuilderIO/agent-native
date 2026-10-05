@@ -1092,7 +1092,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}}개 대기 중 — 후속 메시지 보내기...",
   "queue.remove": "대기열에서 제거",
   "queue.sendNow": "지금 보내기",
-  "queue.sendNowHint": "현재 응답을 중지하고 대신 이 메시지를 보냅니다",
+  "queue.sendNowHint": "현재 응답을 중지한 다음 이 메시지를 보냅니다",
   "queue.sendNext": "다음에 보내기",
   "queue.sendNextHint": "현재 응답이 끝난 후 보내기",
   "queue.moreActions": "추가 작업",

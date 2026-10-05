@@ -780,8 +780,7 @@ const messages: ToolkitAgentChatTranslation = {
     "{{count}} en cola — enviar un mensaje de seguimiento...",
   "queue.remove": "Quitar de la cola",
   "queue.sendNow": "Enviar ahora",
-  "queue.sendNowHint":
-    "Detiene la respuesta actual y envía este mensaje en su lugar",
+  "queue.sendNowHint": "Detiene la respuesta actual y luego envía este mensaje",
   "queue.sendNext": "Enviar a continuación",
   "queue.sendNextHint": "Enviar después de que termine la respuesta actual",
   "queue.moreActions": "Más acciones",

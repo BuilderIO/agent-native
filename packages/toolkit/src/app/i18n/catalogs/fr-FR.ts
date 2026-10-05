@@ -788,8 +788,7 @@ const messages: ToolkitAgentChatTranslation = {
     "{{count}} en attente — envoyer un message de suivi...",
   "queue.remove": "Retirer de la file d’attente",
   "queue.sendNow": "Envoyer maintenant",
-  "queue.sendNowHint":
-    "Arrête la réponse actuelle et envoie ce message à la place",
+  "queue.sendNowHint": "Arrête la réponse actuelle, puis envoie ce message",
   "queue.sendNext": "Envoyer ensuite",
   "queue.sendNextHint": "Envoyer après la fin de la réponse actuelle",
   "queue.moreActions": "Autres actions",

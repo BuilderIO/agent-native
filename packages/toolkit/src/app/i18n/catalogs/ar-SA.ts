@@ -1107,7 +1107,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}} في قائمة الانتظار — أرسل متابعة...",
   "queue.remove": "إزالة من قائمة الانتظار",
   "queue.sendNow": "إرسال الآن",
-  "queue.sendNowHint": "يوقف الرد الحالي ويرسل هذه الرسالة بدلًا منه",
+  "queue.sendNowHint": "يوقف الرد الحالي، ثم يرسل هذه الرسالة",
   "queue.sendNext": "إرسال التالي",
   "queue.sendNextHint": "إرسال بعد انتهاء الرد الحالي",
   "queue.moreActions": "إجراءات إضافية",
