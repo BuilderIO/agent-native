@@ -385,6 +385,40 @@ describe("workspace app routes", () => {
     ]);
   });
 
+  it("adds every configured first-party app to the launcher", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      [],
+      ["mail", "clips", "slides"],
+      [
+        {
+          id: "mail",
+          name: "Mail",
+          url: "https://mail.agent-native.com",
+          source: "builtin",
+        },
+        {
+          id: "clips",
+          name: "Clips",
+          url: "https://clips.agent-native.com",
+          source: "builtin",
+        },
+        {
+          id: "slides",
+          name: "Slides",
+          url: "https://slides.agent-native.com",
+          source: "builtin",
+        },
+      ],
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["mail", "clips", "slides"]);
+    expect(apps.map((app) => app.source)).toEqual([
+      "builtin",
+      "builtin",
+      "builtin",
+    ]);
+  });
+
   it("adds no defaults when built-ins are off or not yet resolved", () => {
     const workspace = [{ id: "crm", name: "CRM", path: "/crm" }];
     expect(

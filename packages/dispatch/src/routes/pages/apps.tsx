@@ -16,6 +16,7 @@ import {
   APP_LIST_GRID_ROW_CLASS,
   AppList,
 } from "../../components/app-list-row";
+import { ConnectedAppCard } from "../../components/connected-app-card";
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
@@ -30,6 +31,10 @@ import {
   WorkspaceAppSearch,
   WorkspaceAppSearchEmpty,
 } from "../../components/workspace-app-search";
+import {
+  filterBuiltInApps,
+  type ConnectedAppSummary,
+} from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
 import {
   orderWorkspaceApps,
@@ -66,6 +71,10 @@ function AppsRoute() {
     includeAgentCards: false,
     includeArchived: true,
   });
+  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
+    "list-connected-agents",
+    {},
+  );
   const { data: apps = [], isLoading: appsLoading } = appsQuery;
   const { data: workspace } = useActionQuery(
     "get-workspace-info",
@@ -81,6 +90,7 @@ function AppsRoute() {
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
   const archivedApps = allApps.filter((app) => app.archived);
+  const defaultApps = filterBuiltInApps(connectedAppsQuery.data ?? [], allApps);
   const orderedActiveApps = orderWorkspaceApps(activeApps, layout);
   const orderedPendingApps = orderWorkspaceApps(pendingApps, layout);
   const orderedArchivedApps = orderWorkspaceApps(archivedApps, layout);
@@ -93,11 +103,18 @@ function AppsRoute() {
   const filteredArchivedApps = orderedArchivedApps.filter((app) =>
     workspaceAppMatchesQuery(app, searchQuery),
   );
+  const filteredDefaultApps = defaultApps.filter((app) =>
+    workspaceAppMatchesQuery(app, searchQuery),
+  );
   const hasSearchResults =
     filteredActiveApps.length > 0 ||
     filteredPendingApps.length > 0 ||
-    filteredArchivedApps.length > 0;
-  const showAppSkeletons = appsLoading && allApps.length === 0;
+    filteredArchivedApps.length > 0 ||
+    filteredDefaultApps.length > 0;
+  const showAppSkeletons =
+    (appsLoading || connectedAppsQuery.isLoading) &&
+    allApps.length === 0 &&
+    defaultApps.length === 0;
 
   return (
     <DispatchShell
@@ -132,7 +149,9 @@ function AppsRoute() {
                   onQueryChange={setSearchQuery}
                 />
               ) : null}
-              {activeApps.length > 0 || pendingApps.length > 0 ? (
+              {activeApps.length > 0 ||
+              pendingApps.length > 0 ||
+              defaultApps.length > 0 ? (
                 <CreateAppPopover
                   align="end"
                   trigger={
@@ -165,14 +184,22 @@ function AppsRoute() {
               error={appsQuery.error}
               onRetry={() => void appsQuery.refetch()}
             />
-          ) : showAppSkeletons ? (
+          ) : null}
+          {connectedAppsQuery.isError ? (
+            <ActionQueryError
+              error={connectedAppsQuery.error}
+              onRetry={() => void connectedAppsQuery.refetch()}
+            />
+          ) : null}
+          {showAppSkeletons ? (
             <AppsSkeletonGrid />
           ) : !hasSearchResults && searchQuery.trim() ? (
             <WorkspaceAppSearchEmpty
               query={searchQuery}
               onClear={() => setSearchQuery("")}
             />
-          ) : filteredActiveApps.length > 0 ? (
+          ) : filteredActiveApps.length > 0 ||
+            filteredDefaultApps.length > 0 ? (
             <AppList className={APP_LIST_GRID_CLASS}>
               {filteredActiveApps.map((app) => (
                 <WorkspaceAppCard
@@ -181,6 +208,13 @@ function AppsRoute() {
                   className={APP_LIST_GRID_ROW_CLASS}
                   isPinned={layout.pinnedIds.includes(app.id.toLowerCase())}
                   onTogglePinned={() => togglePinned(app.id)}
+                />
+              ))}
+              {filteredDefaultApps.map((app) => (
+                <ConnectedAppCard
+                  key={app.id}
+                  app={app}
+                  className={APP_LIST_GRID_ROW_CLASS}
                 />
               ))}
             </AppList>

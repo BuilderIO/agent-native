@@ -1,6 +1,55 @@
 import { describe, expect, it } from "vitest";
 
-import { filterOtherApps } from "./other-apps.js";
+import { filterBuiltInApps, filterOtherApps } from "./other-apps.js";
+
+describe("filterBuiltInApps", () => {
+  it("keeps configured first-party apps not mounted in the workspace", () => {
+    expect(
+      filterBuiltInApps(
+        [
+          {
+            id: "slides",
+            name: "Slides",
+            url: "https://slides.agent-native.com",
+            source: "builtin",
+          },
+          {
+            id: "clips",
+            name: "Clips",
+            url: "https://clips.agent-native.com",
+            source: "builtin",
+          },
+          {
+            id: "custom-agent",
+            name: "Custom agent",
+            url: "https://agent.example.test",
+            source: "custom",
+          },
+          {
+            id: "workspace-agent",
+            name: "Workspace agent",
+            url: "https://workspace.example.test",
+            source: "workspace",
+          },
+          {
+            id: "invalid",
+            name: "Invalid",
+            url: "/invalid",
+            source: "builtin",
+          },
+        ],
+        [{ id: "clips" }],
+      ),
+    ).toEqual([
+      {
+        id: "slides",
+        name: "Slides",
+        url: "https://slides.agent-native.com",
+        source: "builtin",
+      },
+    ]);
+  });
+});
 
 describe("filterOtherApps", () => {
   it("keeps available linked apps while excluding workspace apps", () => {

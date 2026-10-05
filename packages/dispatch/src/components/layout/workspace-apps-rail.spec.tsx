@@ -25,11 +25,17 @@ vi.mock("@agent-native/core/client/hooks", () => ({
             ]
           : [
               {
-                id: "internal-app",
-                name: "Internal app",
-                url: "https://internal.example.test",
-                homeUrl: "https://internal.example.test",
+                id: "clips",
+                name: "Clips",
+                url: "https://clips.agent-native.com",
+                homeUrl: "https://clips.agent-native.com",
                 source: "builtin",
+              },
+              {
+                id: "remote-tool",
+                name: "Remote tool",
+                url: "https://remote.example.test",
+                source: "custom",
               },
             ],
       isError: false,
@@ -62,7 +68,7 @@ describe("WorkspaceAppsRail", () => {
     vi.unstubAllGlobals();
   });
 
-  it("lists mounted workspace apps without connected agents", async () => {
+  it("lists mounted apps and configured first-party apps, not custom agents", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/overview"]}>
@@ -72,8 +78,17 @@ describe("WorkspaceAppsRail", () => {
     });
 
     expect(container.textContent).toContain("Reports");
-    expect(container.textContent).not.toContain("Internal app");
+    expect(container.textContent).toContain("Clips");
+    expect(container.textContent).not.toContain("Remote tool");
     expect(container.querySelector('a[href="/apps/reports"]')).not.toBeNull();
-    expect(clientState.actions).toEqual(["list-workspace-apps"]);
+    expect(
+      [...container.querySelectorAll("a")].map((link) =>
+        link.getAttribute("href"),
+      ),
+    ).toEqual(["https://clips.agent-native.com/home", "/apps/reports"]);
+    expect(clientState.actions).toEqual([
+      "list-workspace-apps",
+      "list-connected-agents",
+    ]);
   });
 });
