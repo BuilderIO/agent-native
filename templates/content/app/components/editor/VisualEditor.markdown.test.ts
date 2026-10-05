@@ -12,12 +12,13 @@ import {
 } from "@shared/suggestion-formatting";
 import { suggestionTextPresentationForSource } from "@shared/suggestion-text";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Editor, getSchema } from "@tiptap/core";
+import { Editor, getSchema, type JSONContent } from "@tiptap/core";
 import {
   NodeSelection,
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
+import { EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
 import {
@@ -114,7 +115,10 @@ import {
   suggestionPresentations,
 } from "./DocumentEditor";
 import { CodeBlock } from "./extensions/CodeBlockNode";
-import { NotionToggle } from "./extensions/NotionExtensions";
+import {
+  EMPTY_TOGGLE_BODY_PLACEHOLDER,
+  NotionToggle,
+} from "./extensions/NotionExtensions";
 import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
 import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
 import { insertMediaPlaceholder } from "./SlashCommandMenu";
@@ -517,6 +521,51 @@ function createFullEditor(content = "") {
       ? parseNfmForEditor(content)
       : { type: "doc", content: [{ type: "paragraph" }] },
   });
+}
+
+const EMPTY_TOGGLE_BODY_SELECTOR =
+  ".notion-toggle__body-placeholder--empty-node";
+
+// React node views render only under a mounted EditorContent; a headless
+// editor gives them an empty placeholder element, so tests that read their DOM
+// must mount.
+async function mountVisualEditor(content: JSONContent) {
+  const actEnvironment = globalThis as typeof globalThis & {
+    IS_REACT_ACT_ENVIRONMENT?: boolean;
+  };
+  const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const queryClient = new QueryClient();
+  const editor = new Editor({
+    extensions: createVisualEditorExtensions(),
+    content,
+  });
+  await act(async () =>
+    root.render(
+      createElement(
+        TooltipProviderWithoutChildren,
+        { delayDuration: 0 },
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(EditorContent, { editor }),
+        ),
+      ),
+    ),
+  );
+  return {
+    editor,
+    async dispose() {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    },
+  };
 }
 
 describe("markdown clipboard parsing", () => {
@@ -5483,56 +5532,48 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("reserves the empty-toggle placeholder for zero-child toggles", () => {
-    const editor = new Editor({
-      extensions: createVisualEditorExtensions(),
-      content: {
-        type: "doc",
-        content: [
-          {
-            type: "notionToggle",
-            attrs: { summary: "Toggle", open: true },
-            content: [{ type: "paragraph" }],
-          },
-          {
-            type: "paragraph",
-            content: [{ type: "text", text: "Outside" }],
-          },
-        ],
-      },
+  it("reserves the empty-toggle placeholder for zero-child toggles", async () => {
+    const { editor, dispose } = await mountVisualEditor({
+      type: "doc",
+      content: [
+        {
+          type: "notionToggle",
+          attrs: { summary: "Toggle", open: true },
+          content: [{ type: "paragraph" }],
+        },
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "Outside" }],
+        },
+      ],
     });
 
     try {
-      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+      await act(async () => {
+        editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+      });
 
       expect(
-        editor.view.dom.querySelector(".notion-toggle__empty-placeholder"),
+        editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR),
       ).toBeNull();
-      expect(
-        editor.view.dom
-          .querySelector(
-            "[data-notion-toggle-content] p, .notion-toggle__content p",
-          )
-          ?.getAttribute("data-placeholder"),
-      ).toBeNull();
+      const body = editor.view.dom.querySelector(".notion-toggle__content p");
+      expect(body).not.toBeNull();
+      expect(body?.getAttribute("data-placeholder")).toBeNull();
     } finally {
-      editor.destroy();
+      await dispose();
     }
   });
 
-  it("uses the normal empty-block placeholder when the toggle body is focused", () => {
-    const editor = new Editor({
-      extensions: createVisualEditorExtensions(),
-      content: {
-        type: "doc",
-        content: [
-          {
-            type: "notionToggle",
-            attrs: { summary: "Toggle", open: true },
-            content: [{ type: "paragraph" }],
-          },
-        ],
-      },
+  it("uses the normal empty-block placeholder when the toggle body is focused", async () => {
+    const { editor, dispose } = await mountVisualEditor({
+      type: "doc",
+      content: [
+        {
+          type: "notionToggle",
+          attrs: { summary: "Toggle", open: true },
+          content: [{ type: "paragraph" }],
+        },
+      ],
     });
     Object.defineProperty(editor, "isFocused", {
       configurable: true,
@@ -5540,83 +5581,84 @@ describe("VisualEditor markdown round-tripping", () => {
     });
 
     try {
-      editor.commands.setTextSelection(2);
+      await act(async () => {
+        editor.commands.setTextSelection(2);
+      });
 
       expect(
         editor.view.dom
-          .querySelector(
-            "[data-notion-toggle-content] p, .notion-toggle__content p",
-          )
+          .querySelector(".notion-toggle__content p")
           ?.getAttribute("data-placeholder"),
       ).toBe("Press ‘/’ for commands");
     } finally {
-      editor.destroy();
+      await dispose();
     }
   });
 
-  it("removes the toggle body placeholder after typing into the body", () => {
-    const editor = new Editor({
-      extensions: createVisualEditorExtensions(),
-      content: {
-        type: "doc",
-        content: [
-          {
-            type: "notionToggle",
-            attrs: { summary: "Toggle", open: true },
-            content: [{ type: "paragraph" }],
-          },
-        ],
-      },
+  it("removes the toggle body placeholder after typing into the body", async () => {
+    const { editor, dispose } = await mountVisualEditor({
+      type: "doc",
+      content: [
+        {
+          type: "notionToggle",
+          attrs: { summary: "Toggle", open: true },
+          content: [{ type: "paragraph" }],
+        },
+      ],
     });
 
     try {
-      editor.commands.setTextSelection(2);
-      insertPlainText(editor, "Body text");
+      await act(async () => {
+        editor.commands.setTextSelection(2);
+        insertPlainText(editor, "Body text");
+      });
 
       expect(
-        editor.view.dom.querySelector(
-          "[data-placeholder='Empty toggle. Click or drop blocks inside.']",
-        ),
+        editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR),
       ).toBeNull();
-      expect(editor.view.dom.textContent).toContain("Body text");
+      expect(
+        editor.view.dom.querySelector(".notion-toggle__content p")?.textContent,
+      ).toBe("Body text");
     } finally {
-      editor.destroy();
+      await dispose();
     }
   });
 
-  it("replaces the empty toggle placeholder after dropped content fills the body", () => {
-    const editor = new Editor({
-      extensions: createVisualEditorExtensions(),
-      content: {
-        type: "doc",
-        content: [
-          {
-            type: "notionToggle",
-            attrs: { summary: "Toggle", open: true },
-            content: [],
-          },
-        ],
-      },
+  it("replaces the empty toggle placeholder after dropped content fills the body", async () => {
+    const { editor, dispose } = await mountVisualEditor({
+      type: "doc",
+      content: [
+        {
+          type: "notionToggle",
+          attrs: { summary: "Toggle", open: true },
+          content: [],
+        },
+      ],
     });
 
     try {
       expect(editor.view.dom.querySelector(".notion-toggle__content p")).toBe(
         null,
       );
+      expect(
+        editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR)?.textContent,
+      ).toBe(EMPTY_TOGGLE_BODY_PLACEHOLDER);
 
-      editor.commands.insertContentAt(1, {
-        type: "paragraph",
-        content: [{ type: "text", text: "Dropped block" }],
+      await act(async () => {
+        editor.commands.insertContentAt(1, {
+          type: "paragraph",
+          content: [{ type: "text", text: "Dropped block" }],
+        });
       });
 
       expect(
-        editor.view.dom.querySelector(
-          "[data-placeholder='Empty toggle. Click or drop blocks inside.']",
-        ),
+        editor.view.dom.querySelector(EMPTY_TOGGLE_BODY_SELECTOR),
       ).toBeNull();
-      expect(editor.getText()).toContain("Dropped block");
+      expect(
+        editor.view.dom.querySelector(".notion-toggle__content p")?.textContent,
+      ).toBe("Dropped block");
     } finally {
-      editor.destroy();
+      await dispose();
     }
   });
 

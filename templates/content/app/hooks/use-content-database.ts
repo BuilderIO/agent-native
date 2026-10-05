@@ -769,7 +769,16 @@ export function useContentDatabase(
       meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
-  const page = tableQuery ? pageQuery.data : undefined;
+  const pageRead = tableQuery
+    ? contentDatabaseItemsPageReadState(
+        pageQuery.data,
+        pageQuery.isPlaceholderData,
+        pageQuery.isError,
+      )
+    : undefined;
+  const page = pageRead?.page;
+  const baseFailed = baseQuery.isError && baseQuery.data === undefined;
+  const pageFailed = Boolean(tableQuery) && pageRead?.failed === true;
   const data =
     page &&
     baseQuery.data &&
@@ -787,11 +796,42 @@ export function useContentDatabase(
   return {
     ...baseQuery,
     data,
+    // Whether `data` holds the requested rows or a read failed. A sorted or
+    // filtered view reads its own rows; until that read first answers, `data`
+    // holds the base read's rows in stored order.
+    itemsSettled:
+      baseQuery.isError ||
+      (tableQuery
+        ? pageRead?.settled === true || (page !== undefined && !!baseQuery.data)
+        : baseQuery.data !== undefined),
+    // No rows for the requested view could be read. After a failed sorted or
+    // filtered read, `data` still holds the base read's rows in stored order;
+    // they are not this view's rows and must not draw as them.
+    itemsFailed: baseFailed || pageFailed,
+    retryItems: () =>
+      Promise.all([
+        baseFailed ? baseQuery.refetch() : null,
+        pageFailed ? pageQuery.refetch() : null,
+      ]),
+    itemsRetrying: baseQuery.isFetching || pageQuery.isFetching,
     isLoading: tableQuery ? pageQuery.isLoading && !data : baseQuery.isLoading,
     isFetching: tableQuery ? pageQuery.isFetching : baseQuery.isFetching,
     isError: tableQuery ? pageQuery.isError : baseQuery.isError,
     error: tableQuery ? pageQuery.error : baseQuery.error,
     refetch: tableQuery ? pageQuery.refetch : baseQuery.refetch,
+  };
+}
+
+export function contentDatabaseItemsPageReadState<T>(
+  data: T | undefined,
+  isPlaceholderData: boolean,
+  isError: boolean,
+) {
+  const page = isPlaceholderData ? undefined : data;
+  return {
+    page,
+    failed: isError && page === undefined,
+    settled: isError || page !== undefined,
   };
 }
 
