@@ -101,10 +101,25 @@ describe("createAnthropicEngine", () => {
 
   it("lets the deployment's own key follow the deployment ANTHROPIC_BASE_URL", async () => {
     vi.stubEnv("ANTHROPIC_BASE_URL", "https://proxy.example.invalid");
-    vi.stubEnv("ANTHROPIC_API_KEY", "deployment-key"); // guard:allow-env-credential — operator key paired with the operator endpoint
-    const options = await captureClientOptions({});
-    expect(options.apiKey).toBe("deployment-key");
-    expect(options.baseURL).toBeUndefined();
+    // Deployment credential eligibility depends on the runtime (production
+    // flags, database), so pin it rather than inherit the test machine's.
+    vi.doMock(
+      "../../server/credential-provider.js",
+      async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import("../../server/credential-provider.js")
+        >()),
+        readDeployCredentialEnv: (key: string) =>
+          key === "ANTHROPIC_API_KEY" ? "deployment-key" : undefined,
+      }),
+    );
+    try {
+      const options = await captureClientOptions({});
+      expect(options.apiKey).toBe("deployment-key");
+      expect(options.baseURL).toBeUndefined();
+    } finally {
+      vi.doUnmock("../../server/credential-provider.js");
+    }
   });
 
   it("stream emits text-delta events from SDK chunks", async () => {
