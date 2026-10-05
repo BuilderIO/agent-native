@@ -806,9 +806,9 @@ jobs:
               .addLink("Docs production run", docs.url)
               .write();
 
-            core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);
             if (downstreamNotificationFailureUrl) {
               throw new Error(
                 `Production releases completed, but downstream package notifications were not delivered: ${downstreamNotificationFailureUrl}`,
               );
             }
+            core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);

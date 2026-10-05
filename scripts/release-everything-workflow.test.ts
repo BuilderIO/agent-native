@@ -209,6 +209,7 @@ describe("release everything workflow", () => {
       "if (downstreamNotificationFailureUrl)",
       downstreamSettled,
     );
+    const completionLog = source.indexOf("Release everything completed");
 
     assert.doesNotThrow(() => new AsyncFunction(source));
     assert.match(source, /allowCompletedFailure = false/);
@@ -245,6 +246,7 @@ describe("release everything workflow", () => {
     assert.ok(retryDispatch > packageTagCheck);
     assert.ok(downstreamSettled >= 0);
     assert.ok(notificationFailure > downstreamSettled);
+    assert.ok(completionLog > notificationFailure);
   });
 
   it("isolates stable auto-publish lanes from nightly pushes", () => {
