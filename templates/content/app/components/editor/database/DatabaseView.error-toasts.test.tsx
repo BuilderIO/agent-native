@@ -20,6 +20,7 @@ const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
 const databaseItemsState = vi.hoisted(() => ({ settled: true, failed: false }));
+const databaseQueryState = vi.hoisted(() => ({ isError: false }));
 const databaseRetryItemsMock = vi.hoisted(() => vi.fn());
 const databaseRefetchMock = vi.hoisted(() =>
   vi.fn(
@@ -194,6 +195,7 @@ vi.mock("@/hooks/use-content-database", () => ({
     return {
       data: response,
       isLoading: false,
+      isError: databaseQueryState.isError,
       isFetching: limit !== response.pagination?.limit || Boolean(tableQuery),
       itemsSettled: databaseItemsState.settled,
       itemsFailed: databaseItemsState.failed,
@@ -444,6 +446,7 @@ describe("DatabaseView UI regressions", () => {
     contentDatabaseQueryMock.mockReset();
     databaseItemsState.settled = true;
     databaseItemsState.failed = false;
+    databaseQueryState.isError = false;
     databaseRetryItemsMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
     createDocumentMutation.mutateAsync.mockReset();
@@ -497,7 +500,7 @@ describe("DatabaseView UI regressions", () => {
     ).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
-  async function renderDatabaseView() {
+  async function renderDatabaseView(viewId?: string) {
     const { QueryClientProvider } = await import("@tanstack/react-query");
     act(() => {
       root.render(
@@ -509,6 +512,7 @@ describe("DatabaseView UI regressions", () => {
                 <DatabaseView
                   databaseId="database-1"
                   databaseDocumentId="document-1"
+                  viewId={viewId}
                 />
               </TooltipProvider>
             </MemoryRouter>
@@ -719,6 +723,19 @@ describe("DatabaseView UI regressions", () => {
     expect(
       container.querySelector('[data-startup-anchor="database-table"]'),
     ).toBeNull();
+    const retry = findButtonByText(container, "database.retry");
+    expect(retry).toBeTruthy();
+    await act(async () => retry!.click());
+    expect(databaseRetryItemsMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an exact saved-view URL on the retryable collection error", async () => {
+    databaseItemsState.failed = true;
+    databaseQueryState.isError = true;
+    const exactViewId = databaseResponse.database.viewConfig.views[0]!.id;
+
+    await renderDatabaseView(exactViewId);
+
     const retry = findButtonByText(container, "database.retry");
     expect(retry).toBeTruthy();
     await act(async () => retry!.click());

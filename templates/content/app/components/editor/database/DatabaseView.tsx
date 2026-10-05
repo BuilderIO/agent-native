@@ -2984,7 +2984,7 @@ function DatabaseTable({
 
   const exactViewUnavailable =
     !!exactRequestedViewId &&
-    (database.isError ||
+    ((database.isError && !database.itemsFailed) ||
       isContentDatabaseUnavailable(database.data) ||
       (!!data &&
         !resolveRequestedDatabaseView(

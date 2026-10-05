@@ -36,12 +36,12 @@ import {
   landingOptimisticTitle,
   stashLandingTitleHint,
 } from "@/lib/document-title-hint";
-import {
-  readPageShapeHint,
-} from "@/lib/page-startup-hints";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { readLastLocationHint } from "@/lib/last-location-hint";
-import { readPageIconRowHint } from "@/lib/page-startup-hints";
+import {
+  readPageIconRowHint,
+  readPageShapeHint,
+} from "@/lib/page-startup-hints";
 
 const SEO_TITLE = "Content - Open Source, agent-friendly Obsidian alternative";
 const SEO_DESCRIPTION =
