@@ -20,23 +20,23 @@ import {
 import bloomBlurWgsl from "./bloom-blur.wgsl?raw";
 import bloomBrightWgsl from "./bloom-bright.wgsl?raw";
 import bloomCompositeWgsl from "./bloom-composite.wgsl?raw";
-import { oceanCamera } from "./camera";
+import { oceanCamera } from "./camera.js";
 import ifftStageSource from "./ifft-stage.wgsl?raw";
 import initialSpectrumSource from "./initial-spectrum.wgsl?raw";
 import noiseWgsl from "./noise.wgsl?raw";
 import normalFoamSource from "./normal-foam.wgsl?raw";
-import { DEFAULT_OCEAN_COLORS, type OceanColors } from "./ocean-colors";
+import { DEFAULT_OCEAN_COLORS, type OceanColors } from "./ocean-colors.js";
 import oceanCommonWgsl from "./ocean-common.wgsl?raw";
 import {
   createIfftStageTable,
   OCEAN_RESOLUTION,
   type IfftStage,
   type SimulationTargetName,
-} from "./ocean-graph";
+} from "./ocean-graph.js";
 import particlesWgsl from "./particles.wgsl?raw";
 import presentWgsl from "./present.wgsl?raw";
 import spectrumSource from "./spectrum.wgsl?raw";
-import { gaussianCoefficients, OCEAN_TUNING } from "./tuning";
+import { gaussianCoefficients, OCEAN_TUNING } from "./tuning.js";
 
 const ifftStageWgsl = `${oceanCommonWgsl}\n${ifftStageSource}`;
 const initialSpectrumWgsl = `${oceanCommonWgsl}\n${initialSpectrumSource}`;

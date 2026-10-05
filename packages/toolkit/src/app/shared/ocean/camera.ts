@@ -1,4 +1,4 @@
-import { OCEAN_TUNING } from "./tuning";
+import { OCEAN_TUNING } from "./tuning.js";
 
 export function oceanCamera(size: readonly [number, number]) {
   const { eye, target, pitchDegrees, fovDegrees, near, far } =

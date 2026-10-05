@@ -1,4 +1,4 @@
-import { OCEAN_TUNING } from "./tuning";
+import { OCEAN_TUNING } from "./tuning.js";
 
 export interface OceanColors {
   readonly fg: readonly [number, number, number];

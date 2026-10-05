@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
-import { readOceanColors } from "./brand-colors";
-import type { OceanRenderer } from "./renderer";
-import { OCEAN_TUNING } from "./tuning";
+import { readOceanColors } from "./brand-colors.js";
+import type { OceanRenderer } from "./renderer.js";
+import { OCEAN_TUNING } from "./tuning.js";
 
 const FADE_IN_MS = 700;
 const RENDERER_INIT_TIMEOUT_MS = 30_000;
@@ -111,7 +111,7 @@ export function HeroOceanBackground({
       window.removeEventListener("blur", fadePointer);
     });
 
-    void import("./renderer")
+    void import("./renderer.js")
       .then(({ createRenderer }) => {
         if (cancelled || rendererFailed) return;
         renderer = createRenderer({

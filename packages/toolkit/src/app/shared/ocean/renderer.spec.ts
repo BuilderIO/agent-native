@@ -1,15 +1,15 @@
 import { frame, init, target } from "vgpu/mock";
 import { describe, expect, it } from "vitest";
 
-import type { OceanColors } from "./ocean-colors";
-import { createIfftStageTable, OCEAN_RESOLUTION } from "./ocean-graph";
+import type { OceanColors } from "./ocean-colors.js";
+import { createIfftStageTable, OCEAN_RESOLUTION } from "./ocean-graph.js";
 import {
   bloomSizes,
   createGraph,
   destroyGraph,
   renderGraph,
   setPresentColors,
-} from "./renderer";
+} from "./renderer.js";
 
 const DARK: OceanColors = { fg: [0.68, 0.68, 0.67], bg: [0.04, 0.04, 0.04] };
 const LIGHT: OceanColors = { fg: [0.24, 0.24, 0.24], bg: [0.98, 0.98, 0.96] };

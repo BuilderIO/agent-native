@@ -3,8 +3,8 @@
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { hexToLinearRgb } from "./brand-colors";
-import { HeroOceanBackground } from "./hero-ocean-background";
+import { hexToLinearRgb } from "./brand-colors.js";
+import { HeroOceanBackground } from "./hero-ocean-background.js";
 
 const { createRenderer, renderer, importSpy } = vi.hoisted(() => {
   const renderer = {
@@ -22,7 +22,7 @@ const { createRenderer, renderer, importSpy } = vi.hoisted(() => {
 vi.mock("./renderer", async () => {
   importSpy();
   const actual =
-    await vi.importActual<typeof import("./renderer")>("./renderer");
+    await vi.importActual<typeof import("./renderer.js")>("./renderer.js");
   return { ...actual, createRenderer };
 });
 
