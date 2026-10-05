@@ -2,7 +2,6 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import type {
   CalendarEvent,
   CalendarEventDraft,
@@ -51,6 +50,7 @@ import { TimezoneSwitchDialog } from "@/components/calendar/TimezoneSwitchDialog
 import { WeekView } from "@/components/calendar/WeekView";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import type { ViewMode } from "@/components/layout/AppLayout";
+import { HeaderActions } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -2295,7 +2295,7 @@ export default function CalendarView({
                 locationSuggestions={locationSuggestions}
               />
               <AccountAvatars />
-              <AgentToggleButton />
+              <HeaderActions />
             </div>
           </div>
 
