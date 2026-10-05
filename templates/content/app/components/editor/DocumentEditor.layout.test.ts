@@ -2607,6 +2607,9 @@ describe("document editor layout", () => {
     expect(source).not.toContain("{showUtilityPanelSheet ? (");
     expect(source).toContain("utilityPanelSheetContainer,");
     expect(source).toContain("showDesktopCommentsHistory");
+    expect(source).toContain("const transferredToRail =");
+    expect(source).toContain("if (utilityPanel && !transferredToRail) return;");
+    expect(source).toContain("showDesktopInfoPanel,");
     expect(source).toContain("data-comments-history-rail");
     expect(source).toContain("commentsHistoryRailMounted");
     expect(source).toContain('event.propertyName === "width"');

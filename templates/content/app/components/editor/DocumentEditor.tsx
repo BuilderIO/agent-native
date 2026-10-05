@@ -6392,20 +6392,30 @@ function PageEditorSessionBody({
       return;
     }
     if (!utilityPanelRegionWasOpenRef.current) return;
-    if (utilityPanel) return;
+
+    const transferredToRail =
+      showDesktopCommentsHistory || showDesktopInfoPanel;
+    if (utilityPanel && !transferredToRail) return;
     utilityPanelRegionWasOpenRef.current = false;
 
     const focusGeneration = utilityPanelFocusGenerationRef.current;
     const restoreTarget = utilityPanelSheetTriggerRef.current;
-    const fallbackTarget = commentsHistoryTriggerRef.current?.isConnected
-      ? commentsHistoryTriggerRef.current
-      : utilityPanelFocusFallbackRef.current;
+    const fallbackTarget =
+      utilityPanel === "comments" &&
+      commentsHistoryTriggerRef.current?.isConnected
+        ? commentsHistoryTriggerRef.current
+        : utilityPanelFocusFallbackRef.current;
     globalThis.setTimeout(() => {
       if (utilityPanelFocusGenerationRef.current !== focusGeneration) return;
       (restoreTarget?.isConnected ? restoreTarget : fallbackTarget)?.focus();
       utilityPanelSheetTriggerRef.current = null;
     }, 0);
-  }, [showUtilityPanelRegion, utilityPanel]);
+  }, [
+    showDesktopCommentsHistory,
+    showDesktopInfoPanel,
+    showUtilityPanelRegion,
+    utilityPanel,
+  ]);
 
   useEffect(() => {
     if (utilityPanel) setLastUtilityPanel(utilityPanel);

@@ -1598,6 +1598,7 @@ export function DocumentToolbar({
                   resourceType="document"
                   resourceId={documentId}
                   resourceTitle={documentTitle}
+                  hideTrigger={shareInMenu}
                   shareUrl={shareUrl}
                   mobileSheet
                   triggerContent={shareLabel}

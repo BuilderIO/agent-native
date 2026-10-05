@@ -34,8 +34,11 @@ vi.mock("sonner", async (importOriginal) => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 vi.mock("@agent-native/toolkit/app/sharing", () => ({
-  ShareButton: (props: { defaultOpen?: boolean }) =>
-    createElement("div", { "data-share-open": String(props.defaultOpen) }),
+  ShareButton: (props: { defaultOpen?: boolean; hideTrigger?: boolean }) =>
+    createElement("div", {
+      "data-share-open": String(props.defaultOpen),
+      "data-share-trigger-hidden": String(props.hideTrigger),
+    }),
 }));
 
 import { DocumentToolbar, toolbarFoldLevel } from "./DocumentToolbar";
@@ -256,6 +259,9 @@ describe("DocumentToolbar at narrow widths", () => {
     await act(async () => menuItem(items, "editor.toolbar.share")!.click());
     await act(async () => Promise.resolve());
     expect(container.querySelector('[data-share-open="true"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-share-trigger-hidden="true"]'),
+    ).not.toBeNull();
   });
 
   it("keeps the existing clipboard action in page actions", async () => {

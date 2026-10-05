@@ -71,6 +71,23 @@ describe("resolveContentLayout", () => {
     });
   });
 
+  it("overlays the agent panel until the page can keep its minimum width", () => {
+    const tooNarrow = input(768, { agentOpen: true });
+    const wideEnough = input(940, { agentOpen: true });
+    const wideEnoughLayout = resolveContentLayout(wideEnough);
+
+    expect(resolveContentLayout(tooNarrow)).toMatchObject({
+      agentPanel: "overlay",
+    });
+    expect(wideEnoughLayout).toMatchObject({
+      agentPanel: "docked",
+      sidebar: "drawer",
+    });
+    expect(contentPageWidth(wideEnough, wideEnoughLayout.sidebar)).toBe(
+      CONTENT_TEXT_MIN_WIDTH,
+    );
+  });
+
   it("docks the sidebar at 1024 with the agent panel closed", () => {
     const layout = resolveContentLayout(input(1024));
 

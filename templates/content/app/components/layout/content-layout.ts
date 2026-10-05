@@ -14,7 +14,8 @@ import {
 // comments, and a docked agent panel. The page keeps a readable text column:
 // the sidebar gives way first (docked, then the rail, then a drawer), then
 // comments leave the margin for cards on the text. The agent panel keeps its
-// width; below 768px the toolkit draws it over the page instead of beside it.
+// width when the remaining page can hold its readable column; otherwise the
+// toolkit draws it over the page.
 
 // The text column, padding included, that every layout keeps.
 export const CONTENT_TEXT_MIN_WIDTH = 560;
@@ -65,7 +66,10 @@ export function contentAgentPanelMode(
   input: Pick<ContentLayoutInput, "viewportWidth" | "agentPanel">,
 ): ContentAgentPanelMode {
   if (!input.agentPanel.open) return "closed";
-  return input.viewportWidth > CONTENT_PHONE_MAX_WIDTH ? "docked" : "overlay";
+  return input.viewportWidth > CONTENT_PHONE_MAX_WIDTH &&
+    input.viewportWidth - input.agentPanel.width >= CONTENT_TEXT_MIN_WIDTH
+    ? "docked"
+    : "overlay";
 }
 
 /** The width left for Content's sidebar and page beside a docked agent panel. */

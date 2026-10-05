@@ -3,4 +3,4 @@ type: fixed
 date: 2026-10-05
 ---
 
-Sharing and keyboard focus remain available when narrow page toolbars move controls into the actions menu.
+Content keeps its text column readable as panels open; sharing and keyboard focus remain available when toolbar controls fold or panels move.
