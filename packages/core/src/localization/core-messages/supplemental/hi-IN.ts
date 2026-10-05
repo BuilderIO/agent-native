@@ -46,6 +46,8 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "Revoke करें",
   couldNotRevoke: "Token revoke नहीं किया जा सका।",
   authorizeDevice: "डिवाइस को अनुमति दें",
+  organization: "संगठन",
+  invalidOrganization: "ऐसा संगठन चुनें जिसके आप सदस्य हैं।",
   fullCatalogRequested: "यह डिवाइस पूरे एक्शन कैटलॉग तक पहुंच का अनुरोध कर रहा है।",
   createToken: "कनेक्शन token बनाएँ",
   authorizingDevice: "डिवाइस को अनुमति दी जा रही है...",

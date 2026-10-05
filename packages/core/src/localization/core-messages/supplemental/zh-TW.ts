@@ -46,6 +46,8 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "撤銷",
   couldNotRevoke: "無法撤銷權杖。",
   authorizeDevice: "授權裝置",
+  organization: "組織",
+  invalidOrganization: "請選擇你所屬的組織。",
   fullCatalogRequested: "此裝置正在要求存取完整的動作目錄。",
   createToken: "建立連線權杖",
   authorizingDevice: "正在授權裝置...",

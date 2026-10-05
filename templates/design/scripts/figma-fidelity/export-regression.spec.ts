@@ -13,7 +13,9 @@ describe("Figma export fidelity corpus", () => {
   let browser: Browser;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
+    browser = await chromium.launch({
+      chromiumSandbox: process.env.CI !== "true",
+    });
   });
 
   afterAll(async () => {

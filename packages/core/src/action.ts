@@ -216,6 +216,11 @@ export interface PublicAgentActionConfig {
 
 export type ActionPlanModeEffect = "read" | "write" | "unknown";
 
+export interface ActionChangeResource {
+  resourceType: string;
+  resourceId: string;
+}
+
 export interface ActionPlanModeConfig<TInput = unknown> {
   effect: ActionPlanModeEffect | ((args: TInput) => ActionPlanModeEffect);
   allowedValues?: Record<string, readonly string[]>;
@@ -251,6 +256,7 @@ export type ActionMcpAppCspBuilder = (ctx: {
   actionName: string;
   appId?: string;
   requestOrigin?: string;
+  catalogMode?: "app" | "directory";
 }) => ActionMcpAppCsp | Promise<ActionMcpAppCsp>;
 
 export interface ActionMcpAppPermissions {
@@ -271,6 +277,7 @@ export type ActionMcpAppHtmlBuilder = (ctx: {
   actionName: string;
   appId?: string;
   requestOrigin?: string;
+  catalogMode?: "app" | "directory";
 }) => string;
 
 export interface ActionMcpAppResourceConfig {
@@ -306,6 +313,12 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
     : Record<string, string>;
 
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
+
+export interface ActionMcpToolAnnotations {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  openWorldHint: boolean;
+}
 
 interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
@@ -358,11 +371,27 @@ interface DefineActionWithSchema<
    *  because the user's answer flows back through the in-app chat that an
    *  external caller is not on. */
   mcpTool?: boolean;
+  mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<StandardSchemaV1.InferInput<TSchema>>;
+  /** `false` keeps a mutating action from publishing an `action` change event
+   *  (and its sync_events row) after each call. For writes no other session
+   *  needs to see, such as telemetry. Defaults to publishing; read-only
+   *  actions never publish. */
+  changeEvents?: boolean;
+  /** Names the shareable resource a mutating call changes so the `action`
+   *  change event also reaches every collaborator who can read it, not only the
+   *  actor. Without it other open sessions are never told and show stale data
+   *  until they reload. Receives the call's raw input and what the action
+   *  returned (for a call keyed by a child id whose resource only the result
+   *  names); return `null` when the call touches no resource or changed nothing. */
+  changeResource?: (
+    input: StandardSchemaV1.InferInput<TSchema>,
+    result: TReturn,
+  ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   endsTurn?: boolean;
   dedupe?: boolean;
@@ -433,11 +462,17 @@ interface DefineActionWithParams<
   uiOnly?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
+  mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
+  changeEvents?: boolean;
+  changeResource?: (
+    input: InferParams<TParams>,
+    result: TReturn,
+  ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   endsTurn?: boolean;
   dedupe?: boolean;
@@ -474,11 +509,17 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly uiOnly?: boolean;
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
+  readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly deferLoading?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
+  readonly changeEvents?: boolean;
+  readonly changeResource?: (
+    input: TInput,
+    result: TReturn,
+  ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
@@ -605,6 +646,21 @@ export function defineAction(options: any) {
     typeof options.agentTool === "boolean" ? options.agentTool : undefined;
   const mcpTool: boolean | undefined =
     typeof options.mcpTool === "boolean" ? options.mcpTool : undefined;
+  const mcpAnnotations: ActionMcpToolAnnotations | undefined =
+    options.mcpAnnotations === undefined
+      ? undefined
+      : options.mcpAnnotations &&
+          typeof options.mcpAnnotations === "object" &&
+          !Array.isArray(options.mcpAnnotations) &&
+          typeof options.mcpAnnotations.readOnlyHint === "boolean" &&
+          typeof options.mcpAnnotations.destructiveHint === "boolean" &&
+          typeof options.mcpAnnotations.openWorldHint === "boolean"
+        ? options.mcpAnnotations
+        : (() => {
+            throw new TypeError(
+              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values.",
+            );
+          })();
   const deferLoading: boolean | undefined =
     typeof options.deferLoading === "boolean"
       ? options.deferLoading
@@ -673,6 +729,7 @@ export function defineAction(options: any) {
     ...(typeof uiOnly === "boolean" ? { uiOnly } : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
+    ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"
@@ -689,6 +746,12 @@ export function defineAction(options: any) {
       options.planMode.effect === "write" ||
       options.planMode.effect === "unknown")
       ? { planMode: options.planMode }
+      : {}),
+    ...(typeof options.changeEvents === "boolean"
+      ? { changeEvents: options.changeEvents }
+      : {}),
+    ...(typeof options.changeResource === "function"
+      ? { changeResource: options.changeResource }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),

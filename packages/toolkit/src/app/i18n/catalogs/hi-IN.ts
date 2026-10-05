@@ -128,13 +128,16 @@ const messages: ToolkitAgentChatTranslation = {
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderCredits": "Builder.io के मुफ़्त क्रेडिट में शामिल",
+  "onboarding.builderIncludedFreeWithAccount": "Builder.io खाते के साथ मुफ़्त शामिल",
+  "onboarding.builderMonthlyCredits": "हर महीने 60 Agent Credits",
   "onboarding.builderActivateTitle": "मुफ़्त क्रेडिट सक्रिय करें",
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
-  "onboarding.builderAccountExistsDescription": "इसे कनेक्ट करने के लिए लॉग इन करें।",
+  "onboarding.builderAccountExistsDescription":
+    "अपने खाते का उपयोग करने के लिए लॉग इन करें।",
   "onboarding.builderActivationDescription":
     "हम एक क्लिक में आपके लिए Builder.io खाता अपने-आप बनाएँगे।",
   "onboarding.builderOrgActivationDescription":
-    "हम एक क्लिक में आपका Builder.io खाता बनाएँगे और उसे आपके संगठन के लिए कनेक्ट करेंगे।",
+    "हम एक क्लिक में आपका Builder.io खाता बनाएँगे, ताकि आपका संगठन इसका उपयोग कर सके।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
   "onboarding.builderConsentPrefix": "Builder.io खाता बनाकर, आप हमारी",
   "onboarding.builderTerms": "सेवा की शर्तों",
@@ -142,7 +145,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
-  "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट कनेक्ट किए जा रहे हैं",
+  "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
     "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
   "onboarding.builderConnectionDescription":
@@ -157,8 +160,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.fileStorage.title": "फ़ाइलें अपलोड करने के लिए स्टोरेज कनेक्ट करें",
   "onboarding.fileStorage.statusUnavailable": "स्टोरेज की जांच नहीं हो सकी",
   "onboarding.fileStorage.description":
-    "Builder.io (मुफ़्त) कनेक्ट करें या अपना S3-संगत ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें।",
-  "onboarding.fileStorage.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
+    "Builder.io (मुफ़्त) का उपयोग करें या अपना S3-संगत ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें।",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io इस्तेमाल करें",
   "onboarding.fileStorage.custom": "कस्टम कुंजियों का उपयोग करें",
   "onboarding.fileStorage.customDescription":
     "स्थिर सार्वजनिक URL वाला S3-संगत बकेट कॉन्फ़िगर करें।",
@@ -376,13 +379,15 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "अपने-आप",
   "composer.builderModelCredits": "Claude, OpenAI और Gemini के लिए मुफ़्त क्रेडिट",
   "composer.chatGptSubscription": "ChatGPT सदस्यता",
+  "composer.chatgptManageUsage": "उपयोग प्रबंधित करें",
+  "composer.chatgptPlanUsing": "ChatGPT योजना का उपयोग हो रहा है",
   "composer.closePreview": "प्रीव्यू बंद करें",
   "composer.configureProviderKeys":
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
   "composer.connectAbove": "जारी रखने के लिए ऊपर AI कनेक्ट करें...",
-  "composer.connectBuilder": "Builder.io कनेक्ट करें",
+  "composer.connectBuilder": "Builder.io इस्तेमाल करें",
   "composer.connectKeys": "कुंजियाँ कनेक्ट करें",
-  "composer.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है…",
+  "composer.connectingBuilder": "Builder.io सेट अप हो रहा है…",
   "composer.costHigher": "अधिक लागत",
   "composer.costLower": "कम लागत",
   "composer.costMedium": "मध्यम लागत",
@@ -502,7 +507,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "बोलकर लिखें ({{shortcut}})",
   "voice.dictation.stopRecording": "रिकॉर्डिंग रोकें",
   "voice.dictation.transcribing": "लिखित रूप में बदला जा रहा है…",
-  "voiceMode.connectBuilder": "Builder.io कनेक्ट करें",
+  "voiceMode.connectBuilder": "Builder.io इस्तेमाल करें",
   "voiceMode.end": "वॉइस मोड समाप्त करें",
   "voiceMode.entryButtonLabel": "माइक्रोफ़ोन का उपयोग करें",
   "voiceMode.errors.channelDisconnected":
@@ -555,7 +560,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "अभिव्यंजक और बहुमुखी",
   "voiceMode.settings.voiceStyle": "आवाज़ की शैली",
   "voiceMode.setupDescription":
-    "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस का उपयोग करने के लिए Builder.io कनेक्ट करें, या अपनी कुंजियाँ जोड़ें।",
+    "मुफ़्त क्रेडिट के साथ प्रबंधित वॉइस के लिए Builder.io का उपयोग करें या अपनी कुंजियाँ जोड़ें।",
+  "transcription.builderCtaDescription":
+    "बेहतर गुणवत्ता वाले ट्रांसक्रिप्शन के लिए मुफ़्त क्रेडिट और बिना API कुंजी के Builder.io का उपयोग करें।",
+  "voiceMode.googleRealtimeDescription":
+    "Google क्रेडेंशियल सेट हैं। प्रबंधित रीयलटाइम सत्र बनाने के लिए Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें।",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "सर्विस-अकाउंट JSON सेट है। प्रबंधित रीयलटाइम WebSocket सत्र बनाने के लिए Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें।",
+  "voiceMode.builderGeminiDescription":
+    "Gemini Flash-Lite ट्रांसक्रिप्शन और Luna टेक्स्ट क्लीनअप के लिए Builder.io का उपयोग करें। Google कुंजी की ज़रूरत नहीं।",
   "voiceMode.setupTitle": "वॉइस मोड सेट अप करें",
   "voiceMode.showChat": "चैट दिखाएँ",
   "voiceMode.start": "वॉइस चैट शुरू करें",
@@ -574,7 +587,11 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "चैट लोड हो रही है...",
   "empty.prompt": "मैं आपकी कैसे मदद कर सकता हूँ?",
   "error.afterDuration": "{{duration}} के बाद {{headline}}",
-  "error.failed": "एजेंट को एक त्रुटि मिली",
+  "error.chatgptPlanUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI इस ChatGPT योजना की उपयोग सीमा जाँच नहीं सका। अपना ChatGPT उपयोग देखें या कोई दूसरा मॉडल आज़माएँ।",
+  "error.failed": "एजेंट का काम पूरा होने से पहले रन विफल हो गया।",
   "error.render": "यह सामग्री दिखाई नहीं जा सकी।",
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
   "errorMessages.agentConnection":
@@ -582,7 +599,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "यह PDF पासवर्ड-सुरक्षित है, इसलिए इसे पढ़ा नहीं जा सकता। पासवर्ड सुरक्षा हटाएँ या संबंधित टेक्स्ट पेस्ट करें, फिर से प्रयास करें।",
   "errorMessages.builderAuthentication":
-    "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग्स में Builder.io को दोबारा कनेक्ट करें, फिर से प्रयास करें।",
+    "Builder ने कनेक्ट किए गए क्रेडेंशियल अस्वीकार कर दिए। सेटिंग में फिर से Builder.io का उपयोग करें, फिर दोबारा कोशिश करें।",
   "errorMessages.builderModelUnauthorized":
     "इस मॉडल के पीछे मौजूद प्रदाता ने अनुरोध अस्वीकार कर दिया। कोई दूसरा मॉडल चुनें, फिर से प्रयास करें।",
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
@@ -597,10 +614,18 @@ const messages: ToolkitAgentChatTranslation = {
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
   "errorMessages.malformedRequest":
     "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
+  "errorMessages.requestTooLarge":
+    "यह अनुरोध सर्वर की आकार सीमा से बड़ा था (HTTP 413)। नई चैट शुरू करें या बड़े अटैचमेंट या संदर्भ हटाकर फिर कोशिश करें।",
+  "errorMessages.runInterrupted": "एजेंट काम पूरा करने से पहले रुक गया।",
+  "errorMessages.runFailed": "एजेंट का रन विफल हो गया।",
+  "errorMessages.runUnverified":
+    "यह चैट एजेंट को ट्रैक नहीं कर पा रही है, जो शायद अभी भी चल रहा हो। उसकी प्रगति देखने के लिए पेज रीलोड करें।",
+  "errorMessages.runSignedOut":
+    "आप साइन आउट हो चुके हैं, इसलिए यह चैट एजेंट को फ़ॉलो नहीं कर सकती। फिर से साइन इन करें, फिर रीलोड करें।",
   "errorMessages.malformedRequestAttachment":
     "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
   "errorMessages.noProviderConnected":
-    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग्स > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें (मुफ़्त स्तर उपलब्ध है) या प्रदाता कुंजी जोड़ें।",
+    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
   "errorMessages.providerAuthentication":
     "मॉडल प्रदाता ने सहेजी गई API कुंजी अस्वीकार कर दी। सेटिंग्स → इंटीग्रेशन → API कुंजियाँ में कुंजी अपडेट करें, फिर से प्रयास करें।",
@@ -775,7 +800,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "सेल्स कॉल, ट्रांसक्रिप्ट, डील इनसाइट, खाते का सारांश",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong में एक टेक एडमिन को MCP इंटीग्रेशन बनाना होगा और व्यक्तिगत या साझा ऑथराइज़ेशन चुनना होगा। कनेक्ट करने से पहले जनरेट किए गए क्लाइंट ID और सीक्रेट को कॉन्फ़िगर करना ज़रूरी है।",
+    "Gong के टेक एडमिन को व्यक्तिगत या साझा ऑथराइज़ेशन वाला MCP इंटीग्रेशन बनाना होगा। मैन्युअल रजिस्ट्रेशन के लिए जनरेट किया गया क्लाइंट ID और सीक्रेट वर्कस्पेस सीक्रेट `GONG_MCP_CLIENT_ID` और `GONG_MCP_CLIENT_SECRET` के रूप में सेव करें; ऑटोमैटिक रजिस्ट्रेशन के लिए क्लाइंट क्रेडेंशियल की ज़रूरत नहीं है।",
   "mcpIntegrations.catalog.semgrep.description":
     "सुरक्षा से जुड़ी समस्याओं के लिए कोड स्कैन करें।",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -980,6 +1005,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
   "message.revertQuestion": "इस बिंदु पर वापस जाएँ? इसके बाद किए गए बदलाव खो जाएँगे।",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
+  "message.historyUnavailable": "बदलावों का इतिहास लोड नहीं हो सका।",
   "message.threadNotFound":
     "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",
@@ -1061,15 +1087,17 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.steerHint": "यह संदेश अगला भेजें",
   "queue.moreActions": "अन्य कार्रवाइयाँ",
   "queue.moveToTop": "सबसे ऊपर ले जाएँ",
-  "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
+  "recovery.connectingBuilder": "Builder.io सेट अप हो रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
+  "recovery.retryAttachmentUnavailable":
+    "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
   "recovery.deferredSubmissionFailed":
     "यह संदेश भेजा नहीं जा सका। अपना कनेक्शन या चैट सेटअप जाँचें, फिर दोबारा कोशिश करें।",
   "recovery.credentialRejected":
     "मॉडल प्रदाता ने सहेजे गए क्रेडेंशियल अस्वीकार कर दिए। अपना Builder.io कनेक्शन या प्रदाता कुंजी अपडेट करें, फिर इस संदेश को दोबारा आज़माएँ।",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents कनेक्ट नहीं हैं। इस होस्टेड कोड-चेंज ऑपरेशन को चलाने के लिए सेटिंग्स में Builder.io कनेक्ट करें। मॉडल-प्रदाता कुंजियाँ चैट और अन्य AI सुविधाओं के लिए काम करती हैं, लेकिन Builder Cloud Agent को अधिकृत नहीं करतीं।",
+    "Builder Cloud Agents कनेक्ट नहीं हैं। इस होस्ट किए गए कोड बदलाव को चलाने के लिए सेटअप में Builder.io का उपयोग करें। मॉडल प्रदाता कुंजियाँ चैट और अन्य AI सुविधाओं के लिए काम करती हैं, लेकिन Builder Cloud Agent को अधिकृत नहीं करतीं।",
   "recovery.diagnoseRetry": "समस्या जाँचें और फिर प्रयास करें",
   "recovery.forkDescription": "इस बातचीत को एक अलग चैट थ्रेड में शाखित करें।",
   "recovery.forkFailed": "इस चैट की शाखा नहीं बनाई जा सकी। नई चैट शुरू करके देखें।",
@@ -1090,7 +1118,7 @@ const messages: ToolkitAgentChatTranslation = {
     "यह जाँचने के लिए सर्वर से संपर्क नहीं हो सका कि एजेंट अभी काम कर रहा है या नहीं। दोबारा प्रयास करने के लिए अपना संदेश फिर भेजें।",
   "recovery.streamEnded":
     "पिछला एजेंट स्ट्रीम रन की रिकवरी के दौरान समाप्त हो गया। रन से दोबारा जुड़ने के लिए जारी रखें या फिर प्रयास करें।",
-  "recovery.reconnectBuilder": "Builder.io को दोबारा कनेक्ट करें",
+  "recovery.reconnectBuilder": "Builder.io इस्तेमाल करें",
   "secrets.addCustomKeyNamed": '"{{name}}" को कस्टम कुंजी के रूप में जोड़ें',
   "secrets.chooseKey": "कुंजी चुनें",
   "secrets.customKey": "कस्टम कुंजी",
@@ -1132,10 +1160,13 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "Builder.io (मुफ़्त क्रेडिट) का उपयोग करें या अपनी प्रदाता कुंजियाँ जोड़ें।",
   "setup.connectAi": "AI कनेक्ट करें",
-  "setup.connectBuilder": "Builder.io कनेक्ट करें",
+  "setup.connectBuilder": "Builder.io इस्तेमाल करें",
+  "setup.connectionsDescription":
+    "सेटअप स्थिति, Builder.io पहुँच, ऐप सीक्रेट और वर्कस्पेस कनेक्शन एक ही मानक सतह से प्रबंधित करें।",
   "setup.connectPlaceholder": "चैट शुरू करने के लिए AI कनेक्ट करें...",
   "setup.connectToChat": "चैट करने के लिए AI कनेक्ट करें",
   "setup.connectToStart": "चैट शुरू करने के लिए AI कनेक्ट करें",
+  "setup.modelListUnavailable": "मॉडल लोड नहीं हो सके।",
   "setup.providerStatusUnavailable": "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
   "agentNativeClips.meetingAsk.placeholder": "कुछ भी पूछें",
   "agentNativeClips.meetingAsk.ariaLabel": "इस मीटिंग के बारे में कुछ भी पूछें",
@@ -1228,6 +1259,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
   "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
+  "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
   "tool.interrupted":
@@ -1327,6 +1359,187 @@ const messages: ToolkitAgentChatTranslation = {
   "usage.providerSpendDetail": "Builder बिलिंग से बाहर प्रदाता या पुराने कॉल",
   "usage.providerSpendToday": "आज का अन्य या अवर्गीकृत उपयोग: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder क्रेडिट / USD",
+  "observability.insights.verdictSmooth": "सब कुछ ठीक चल रहा है",
+  "observability.insights.handledLabel": "Agent-Native द्वारा संभाला गया:",
+  "observability.insights.handledHeading": "Agent-Native द्वारा संभाला गया",
+  "observability.insights.handledParallel":
+    "{{count}} टूल कॉल एक साथ चलाए, जो एक-एक करके चलाने से लगभग {{duration}} तेज़ था।",
+  "observability.insights.avgPerPrompt": "प्रति प्रॉम्प्ट औसत",
+  "observability.insights.completed": "पूरा हुआ",
+  "observability.insights.completedDetail": "आख़िरी {{total}} में से {{done}}",
+  "observability.insights.typicalTime": "सामान्य समय",
+  "observability.insights.median": "मीडियन",
+  "observability.insights.sampleNote":
+    "पूरा होने की दर, सामान्य समय, Agent-Native ने क्या संभाला और निष्कर्ष, {{total}} में से नवीनतम {{shown}} प्रॉम्प्ट पर आधारित हैं।",
+  "observability.insights.changeSame": "पिछली अवधि जैसा ही",
+  "observability.insights.changeUp": "↑ {{percent}}% पिछली अवधि की तुलना में",
+  "observability.insights.changeDown": "↓ {{percent}}% पिछली अवधि की तुलना में",
+  "observability.insights.kindProblem": "समस्या",
+  "observability.insights.kindSaving": "बचत हो सकती है",
+  "observability.insights.kindInfo": "जानने योग्य बात",
+  "observability.insights.fixLabel": "समाधान:",
+  "observability.insights.openPrompt": "प्रॉम्प्ट खोलें",
+  "observability.insights.erroredBody": "एजेंट पूरा करने से पहले ही रुक गया।",
+  "observability.insights.erroredFix":
+    "रुकने से पहले एजेंट ने आख़िरी बार क्या किया, यह देखने के लिए प्रॉम्प्ट खोलें।",
+  "observability.insights.toolFailedSaid": "उसने कहा: “{{error}}”",
+  "observability.insights.toolFailedGeneric": "टूल ने एक एरर की जानकारी दी।",
+  "observability.insights.toolRecoveredAll": "एजेंट हर बार उबरा और काम पूरा किया।",
+  "observability.insights.toolRecoveredSome":
+    "एजेंट उनमें से {{count}} में उबरा और काम पूरा किया।",
+  "observability.insights.restartTitle":
+    "फिर से शुरू करने में लगभग {{amount}} खर्च हुए ({{percent}}% खर्च का)",
+  "observability.insights.restartBody":
+    "आख़िरी {{total}} प्रॉम्प्ट में से {{count}} में, {{reason}} के बाद एजेंट ने पूरी बातचीत फिर से भेजी, बजाय इसके कि जो पहले भेजा था उसे फिर से इस्तेमाल करता।",
+  "observability.insights.reasonToolLookup": "नए टूल्स मिलने",
+  "observability.insights.reasonPrefixChanged":
+    "उसके इंस्ट्रक्शन्स की शुरुआत में कुछ बदलने",
+  "observability.insights.fixToolLookup":
+    "इस ऐप में इस्तेमाल होने वाले टूल्स को initialToolNames से पहले ही लोड करें, ताकि पूरे प्रॉम्प्ट में टूल लिस्ट एक जैसी बनी रहे।",
+  "observability.insights.fixPrefixChanged":
+    "बदलते रहने वाली चीज़ों को, जैसे टाइमस्टैंप या हर स्टेप की स्थिति को, सिस्टम प्रॉम्प्ट से बाहर रखें।",
+  "observability.insights.priciestTitle":
+    "एक प्रॉम्प्ट ने हाल के खर्च का {{percent}}% इस्तेमाल किया",
+  "observability.insights.untitledPrompt": "बिना शीर्षक वाला प्रॉम्प्ट",
+  "observability.insights.promptsHeading": "प्रॉम्प्ट्स",
+  "observability.insights.showing": "{{count}} दिखा रहे हैं",
+  "observability.insights.sortNewest": "सबसे नया",
+  "observability.insights.sortCost": "सबसे महंगा",
+  "observability.insights.emptyPrompts":
+    "इस अवधि में अभी तक कोई प्रॉम्प्ट नहीं है। पूरा होने के कुछ सेकंड बाद वे यहां दिखने लगते हैं।",
+  "observability.insights.promptNotSaved": "प्रॉम्प्ट का टेक्स्ट सेव नहीं हुआ",
+  "observability.insights.ratedHelpful": "उपयोगी बताया गया",
+  "observability.insights.ratedUnhelpful": "अनुपयोगी बताया गया",
+  "observability.insights.notRated": "कोई रेटिंग नहीं",
+  "observability.insights.stoppedWithError": "एरर के साथ रुका",
+  "observability.insights.detailsUnavailable": "स्टेप की जानकारी अब उपलब्ध नहीं है",
+  "observability.insights.answered": "जवाब दिया गया",
+  "observability.insights.finished": "पूरा हुआ",
+  "observability.insights.startedOverShort": "{{count}}× फिर से शुरू हुआ",
+  "observability.insights.headerDuration": "{{duration}} में",
+  "observability.insights.whatItDid": "उसने क्या किया:",
+  "observability.insights.replyNotSaved":
+    "इस प्रॉम्प्ट के लिए जवाब का टेक्स्ट सेव नहीं हुआ।",
+  "observability.insights.showAll": "सभी दिखाएं",
+  "observability.insights.showLess": "कम दिखाएं",
+  "observability.insights.moreTools": "+{{count}} और",
+  "observability.insights.failedSuffix": "फेल हुआ",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.hideSteps": "स्टेप्स छिपाएं",
+  "observability.insights.costDetails": "लागत का विवरण और चेक्स",
+  "observability.insights.turnReply": "जवाब लिखा",
+  "observability.insights.turnThought": "सोच-समझकर विचार किया",
+  "observability.insights.startedOverTag": "फिर से शुरू हुआ",
+  "observability.insights.toolFailedTag": "टूल फेल हुआ",
+  "observability.insights.turnContext":
+    "{{tokens}} टोकन का कॉन्टेक्स्ट भेजा, जिसमें से {{percent}}% पहले से इस्तेमाल किया हुआ था।",
+  "observability.insights.turnExpired":
+    "रुकने के बाद सेव किया गया कॉन्टेक्स्ट एक्सपायर हो गया था, जो सामान्य बात है।",
+  "observability.insights.turnOutput": "{{tokens}} टोकन लिखे।",
+  "observability.insights.turnRestart":
+    "{{reason}} के बाद फिर से शुरू हुआ, जो इसे फिर से इस्तेमाल करने से लगभग {{amount}} ज़्यादा था।",
+  "observability.insights.noCacheCompare":
+    "लिस्ट प्राइस पर, पहले के कॉन्टेक्स्ट को फिर से इस्तेमाल करने से इस प्रॉम्प्ट की लागत {{noCache}} से घटकर {{estimated}} हो गई।",
+  "observability.insights.partReused": "फिर से इस्तेमाल किया गया कॉन्टेक्स्ट",
+  "observability.insights.partSaved": "कैश में सेव किया गया",
+  "observability.insights.partNew": "नया कॉन्टेक्स्ट",
+  "observability.insights.partOutput": "मॉडल द्वारा लिखा गया",
+  "observability.insights.checksHeading": "ऑटोमैटिक चेक्स",
+  "observability.insights.checksNone": "कोई भी रिकॉर्ड नहीं किया गया।",
+  "observability.insights.checksGraded": "(एक मॉडल द्वारा ग्रेड किया गया)",
+  "observability.insights.checksNote":
+    "फ्रेमवर्क चेक्स यह देखते हैं कि रन कैसे हुआ (एरर, स्टेप्स, स्पीड), न कि नतीजा कितना अच्छा था।",
+  "observability.insights.lookedForTools": "और टूल्स खोजे",
+  "observability.insights.prevPrompt": "पिछला प्रॉम्प्ट (K)",
+  "observability.insights.nextPrompt": "अगला प्रॉम्प्ट (J)",
+  "observability.insights.toolVerb.add": "{{object}} जोड़ा",
+  "observability.insights.toolVerb.analyze": "{{object}} एनालाइज़ किया",
+  "observability.insights.toolVerb.apply": "{{object}} अप्लाई किया",
+  "observability.insights.toolVerb.capture": "{{object}} कैप्चर किया",
+  "observability.insights.toolVerb.check": "{{object}} चेक किया",
+  "observability.insights.toolVerb.connect": "{{object}} कनेक्ट किया",
+  "observability.insights.toolVerb.create": "{{object}} बनाया",
+  "observability.insights.toolVerb.delete": "{{object}} डिलीट किया",
+  "observability.insights.toolVerb.duplicate": "{{object}} डुप्लीकेट किया",
+  "observability.insights.toolVerb.edit": "{{object}} एडिट किया",
+  "observability.insights.toolVerb.export": "{{object}} एक्सपोर्ट किया",
+  "observability.insights.toolVerb.fetch": "{{object}} फ़ेच किया",
+  "observability.insights.toolVerb.find": "{{object}} ढूंढा",
+  "observability.insights.toolVerb.generate": "{{object}} जनरेट किया",
+  "observability.insights.toolVerb.index": "{{object}} इंडेक्स किया",
+  "observability.insights.toolVerb.insert": "{{object}} इन्सर्ट किया",
+  "observability.insights.toolVerb.list": "{{object}} लिस्ट किया",
+  "observability.insights.toolVerb.move": "{{object}} मूव किया",
+  "observability.insights.toolVerb.navigate": "{{object}} नेविगेट किया",
+  "observability.insights.toolVerb.open": "{{object}} खोला",
+  "observability.insights.toolVerb.present": "{{object}} प्रेजेंट किया",
+  "observability.insights.toolVerb.propose": "{{object}} सुझाया",
+  "observability.insights.toolVerb.query": "{{object}} क्वेरी की",
+  "observability.insights.toolVerb.read": "{{object}} पढ़ा",
+  "observability.insights.toolVerb.remove": "{{object}} हटाया",
+  "observability.insights.toolVerb.rename": "{{object}} का नाम बदला",
+  "observability.insights.toolVerb.reply": "{{object}} को जवाब दिया",
+  "observability.insights.toolVerb.resolve": "{{object}} रिज़ॉल्व किया",
+  "observability.insights.toolVerb.run": "{{object}} चलाया",
+  "observability.insights.toolVerb.save": "{{object}} सेव किया",
+  "observability.insights.toolVerb.search": "{{object}} खोजा",
+  "observability.insights.toolVerb.send": "{{object}} भेजा",
+  "observability.insights.toolVerb.set": "{{object}} सेट किया",
+  "observability.insights.toolVerb.take": "{{object}} लिया",
+  "observability.insights.toolVerb.update": "{{object}} अपडेट किया",
+  "observability.insights.toolVerb.upload": "{{object}} अपलोड किया",
+  "observability.insights.toolVerb.view": "{{object}} देखा",
+  "observability.insights.toolVerb.write": "{{object}} लिखा",
+  "observability.insights.verdictLook_one": "ध्यान देने लायक {{count}} बात",
+  "observability.insights.verdictLook_other": "ध्यान देने लायक {{count}} बातें",
+  "observability.insights.verdictProblems_one": "{{count}} समस्या",
+  "observability.insights.verdictProblems_other": "{{count}} समस्याएं",
+  "observability.insights.spentSummary_one":
+    "पिछले {{days}} दिनों में {{count}} प्रॉम्प्ट पर {{amount}} खर्च हुआ।",
+  "observability.insights.spentSummary_other":
+    "पिछले {{days}} दिनों में {{count}} प्रॉम्प्ट पर {{amount}} खर्च हुए।",
+  "observability.insights.handledRecovered_one":
+    "एजेंट {{count}} टूल एरर से बिना रुके उबर गया।",
+  "observability.insights.handledRecovered_other":
+    "एजेंट {{count}} टूल एरर्स से बिना रुके उबर गया।",
+  "observability.insights.completedRecovered_one":
+    "आख़िरी {{total}} में से {{done}}, {{count}} टूल एरर से उबरने के बाद",
+  "observability.insights.completedRecovered_other":
+    "आख़िरी {{total}} में से {{done}}, {{count}} टूल एरर्स से उबरने के बाद",
+  "observability.insights.seePrompts_one": "{{count}} प्रॉम्प्ट देखें",
+  "observability.insights.seePrompts_other": "{{count}} प्रॉम्प्ट देखें",
+  "observability.insights.erroredTitle_one":
+    "{{count}} प्रॉम्प्ट किसी एरर के साथ खत्म हुआ।",
+  "observability.insights.erroredTitle_other":
+    "{{count}} प्रॉम्प्ट किसी एरर के साथ खत्म हुए।",
+  "observability.insights.toolFailedTitle_one":
+    "{{tool}} टूल {{count}} प्रॉम्प्ट में फेल हुआ।",
+  "observability.insights.toolFailedTitle_other":
+    "{{tool}} टूल {{count}} प्रॉम्प्ट में फेल हुआ।",
+  "observability.insights.priciestBody_one":
+    "“{{prompt}}” की लागत {{count}} स्टेप में {{amount}} रही।",
+  "observability.insights.priciestBody_other":
+    "“{{prompt}}” की लागत {{count}} स्टेप्स में {{amount}} रही।",
+  "observability.insights.recoveredShort_one": "{{count}} टूल एरर से उबरा",
+  "observability.insights.recoveredShort_other": "{{count}} टूल एरर्स से उबरा",
+  "observability.insights.toolsFailedShort_one": "{{count}} टूल फेल हुआ",
+  "observability.insights.toolsFailedShort_other": "{{count}} टूल फेल हुए",
+  "observability.insights.stepsCount_one": "{{count}} स्टेप",
+  "observability.insights.stepsCount_other": "{{count}} स्टेप्स",
+  "observability.insights.startedOverNote_one":
+    "{{reason}} के बाद {{count}} बार फिर से शुरू हुआ। इसमें {{total}} में से लगभग {{amount}} खर्च हुआ।",
+  "observability.insights.startedOverNote_other":
+    "{{reason}} के बाद {{count}} बार फिर से शुरू हुआ। इसमें {{total}} में से लगभग {{amount}} खर्च हुआ।",
+  "observability.insights.toolFailedNote_one":
+    "{{tool}} टूल {{count}} बार फेल हुआ।",
+  "observability.insights.toolFailedNote_other":
+    "{{tool}} टूल {{count}} बार फेल हुआ।",
+  "observability.insights.toolFailedRecoveredNote_one":
+    "{{tool}} टूल {{count}} बार फेल हुआ, लेकिन एजेंट ने काम जारी रखा और उसे पूरा किया।",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "{{tool}} टूल {{count}} बार फेल हुआ, लेकिन एजेंट ने काम जारी रखा और उसे पूरा किया।",
+  "observability.insights.showSteps_one": "{{count}} स्टेप दिखाएं",
+  "observability.insights.showSteps_other": "{{count}} स्टेप्स दिखाएं",
   "billing.builderCreditLimitTitle": "आपके Builder क्रेडिट खत्म हो गए हैं",
   "billing.builderCreditLimitEmailBody":
     "आपके कनेक्ट किए गए Builder खाते में क्रेडिट खत्म होने के कारण AI अनुरोध रुक गया। जारी रखने के लिए अपना Builder प्लान अपग्रेड करें।",
@@ -1349,6 +1562,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "आपका अनुमानित खर्च",
   "settings.usage.yourCreditSpend": "आपका Builder.io क्रेडिट खर्च",
   "settings.usage.calls": "कॉल",
+  "settings.usage.chatgptPlanUsage": "ChatGPT प्लान का उपयोग",
   "settings.usage.tokens": "टोकन",
   "settings.usage.activePeople": "सक्रिय लोग",
   "settings.usage.history": "उपयोग इतिहास",
@@ -1716,6 +1930,8 @@ const messages: ToolkitAgentChatTranslation = {
     "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
   "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
   "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
+  "settingsShell.appGroup.labsReadError":
+    "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
   "settingsShell.appGroup.mcpAbout":
@@ -1733,7 +1949,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "सभी अपडेट देखें",
   "settingsShell.backToApp": "{{app}} पर वापस जाएँ",
   "settingsShell.breadcrumbLabel": "ब्रेडक्रंब",
-  "settingsShell.builder.connect": "कनेक्ट करें",
+  "settingsShell.builder.connect": "Builder.io इस्तेमाल करें",
   "settingsShell.builder.connected": "कनेक्ट है",
   "settingsShell.builder.connectedTo": "कनेक्ट है · {{space}}",
   "settingsShell.builder.connection": "कनेक्शन",
@@ -1745,6 +1961,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io को डिस्कनेक्ट नहीं किया जा सका।",
   "settingsShell.builder.disconnectTitle": "Builder.io डिस्कनेक्ट करें?",
   "settingsShell.builder.grantsFailed": "Builder.io कनेक्शन पढ़े नहीं जा सके।",
+  "settingsShell.builder.setupStartFailed":
+    "Builder.io सेटअप शुरू नहीं हो सका। इस पेज को रीफ़्रेश करके फिर कोशिश करें।",
+  "settingsShell.builder.setupHostFailed":
+    "इस चैट होस्ट से Builder नहीं खुल सका। इस ऐप को ब्राउज़र टैब में खोलें और Builder.io सेटअप फिर से आज़माएँ (मुफ़्त टियर उपलब्ध)।",
+  "settingsShell.builder.setupFailed":
+    "Builder.io सेटअप पूरा नहीं हुआ। फिर कोशिश करें या अपनी कुंजियाँ इस्तेमाल करें।",
   "settingsShell.builder.loss.defaultStops":
     "जब तक आप संगठन प्रदाता नहीं जोड़ते, चैट रुकी रहती हैं।",
   "settingsShell.builder.loss.defaultSwitches":
@@ -1760,9 +1982,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "फिर से कनेक्ट करना होगा।",
   "settingsShell.builder.orgFallback": "आपका संगठन",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} में सभी इसका इस्तेमाल कर सकते हैं।",
+    "कनेक्ट नहीं है। {{org}} में सभी को पहुँच देने के लिए Builder.io का उपयोग करें।",
   "settingsShell.builder.orgNotConnectedMember":
-    "कनेक्ट नहीं है। कोई ओनर या एडमिन इसे कनेक्ट कर सकता है।",
+    "कनेक्ट नहीं है। कोई स्वामी या व्यवस्थापक सभी के लिए Builder.io सक्षम कर सकता है।",
   "settingsShell.builder.organization": "संगठन",
   "settingsShell.builder.personal": "व्यक्तिगत",
   "settingsShell.builder.personalConnected":
@@ -1774,7 +1996,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "कनेक्ट है · {{space}}। संगठन के कनेक्शन की जगह सिर्फ़ आप इसका इस्तेमाल करते हैं।",
   "settingsShell.builder.personalNotConnected":
-    "अपना खाता कनेक्ट करें। सिर्फ़ आप इसका इस्तेमाल करते हैं।",
+    "अपने Builder.io खाते का उपयोग करें। इसका उपयोग केवल आप करेंगे।",
   "settingsShell.builder.personalRestricted":
     "ओनर और एडमिन ने व्यक्तिगत API कुंजियों को सीमित किया है।",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2301,7 +2523,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "कनेक्ट है। Builder.io वाली हर सेवा आपके खाते के क्रेडिट से चलती है।",
   "settingsInfra.builderNotConnected":
-    "कनेक्ट नहीं है। हर सेवा खुद सेट अप करें, या अपने खाते के क्रेडिट इस्तेमाल करने के लिए Builder.io कनेक्ट करें।",
+    "कनेक्ट नहीं है। हर सेवा को स्वयं सेट अप करें या अपने खाते के क्रेडिट इस्तेमाल करने के लिए Builder.io का उपयोग करें।",
+  "settingsInfra.builderOverrideDescription":
+    "डिप्लॉयमेंट फ़ॉलबैक उपलब्ध है। इसे बदलने के लिए अपने Builder.io खाते का उपयोग करें।",
+  "settingsInfra.builderStorageHint":
+    "ऑब्जेक्ट स्टोरेज अपलोड की गई फ़ाइलों को सुरक्षित रखता है और पूरे थ्रेड में उनके URL फिर से इस्तेमाल करने देता है। नीचे Builder.io या S3-संगत बकेट का उपयोग करें।",
   "settingsInfra.builderUnknown": "Builder.io कनेक्शन जाँचा नहीं जा सका।",
   "settingsInfra.manage": "प्रबंधित करें",
   "settingsInfra.connect": "कनेक्ट करें",
@@ -2468,13 +2694,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "कनेक्टेड · {{space}}",
   "settingsModel.builderConnectedPlain": "कनेक्टेड",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "कनेक्ट नहीं है। कनेक्ट करने पर {{org}} के सभी लोग इसका इस्तेमाल कर सकते हैं।",
+    "कनेक्ट नहीं है। {{org}} में सभी को पहुँच देने के लिए Builder.io का उपयोग करें।",
   "settingsModel.builderOrgNotConnectedMember":
-    "कनेक्ट नहीं है। कोई मालिक या एडमिन इसे कनेक्ट कर सकता है।",
+    "कनेक्ट नहीं है। कोई स्वामी या व्यवस्थापक सभी के लिए Builder.io सक्षम कर सकता है।",
   "settingsModel.builderPersonalConnect":
-    "अपने Builder.io क्रेडिट इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+    "अपने Builder.io खाते के क्रेडिट इस्तेमाल करने के लिए उसका उपयोग करें।",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "संगठन के कनेक्शन की जगह इस्तेमाल करने के लिए अपना खाता कनेक्ट करें।",
+    "संगठन के कनेक्शन की जगह अपने Builder.io खाते का उपयोग करें।",
   "settingsModel.builderPersonalOverOrg":
     "कनेक्टेड · {{space}}। संगठन के कनेक्शन की जगह इस्तेमाल होता है।",
   "settingsModel.builderPersonalOverOrgPlain":
@@ -2483,10 +2709,33 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "रद्द करें",
   "settingsModel.change": "बदलें",
   "settingsModel.chatgptConnected": "कनेक्टेड",
-  "settingsModel.chatgptDescription": "अपने ChatGPT प्लान से Codex इंजन इस्तेमाल करें।",
+  "settingsModel.chatgptDescription":
+    "अपने ChatGPT प्लान के ज़रिए योग्य OpenAI मॉडल इस्तेमाल करें।",
   "settingsModel.chatgptPopupBlocked":
     "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा कोशिश करें।",
-  "settingsModel.chatgptTitle": "ChatGPT सदस्यता",
+  "settingsModel.chatgptTitle": "ChatGPT प्लान ऐक्सेस",
+  "settingsModel.chatgptAddAccount": "एक और खाता जोड़ें",
+  "settingsModel.chatgptConnecting": "कनेक्ट हो रहा है…",
+  "settingsModel.chatgptContinue": "ChatGPT के साथ जारी रखें",
+  "settingsModel.chatgptDisconnect": "डिस्कनेक्ट करें",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT को डिस्कनेक्ट करें?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} इस ऐप से साइन आउट हो जाएगा और एजेंट आपके ChatGPT प्लान का उपयोग करना बंद कर देगा। आप कभी भी फिर से साइन इन कर सकते हैं।",
+  "settingsModel.chatgptDisconnecting": "डिस्कनेक्ट हो रहा है…",
+  "settingsModel.chatgptRemoveLegacySignIn": "पुराना साइन-इन हटाएँ",
+  "settingsModel.chatgptLegacySignInDetails":
+    "यहाँ ChatGPT का पुराना साइन-इन सहेजा है। आधिकारिक फ़्लो इसका उपयोग नहीं कर सकता।",
+  "settingsModel.chatgptManageAccess": "ChatGPT में प्रबंधित करें",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
+  "settingsModel.chatgptLocalOnly":
+    "ओपन-सोर्स ऐप्स को लोकल रूप से loopback callback के साथ चलाने पर बिना आवेदन के इस्तेमाल किया जा सकता है; पार्टनरशिप के लिए आवेदन की ज़रूरत नहीं है। *.agent-native.com पर होस्ट किए गए ऐप्स के लिए ऑपरेटर की मंज़ूरी और hosted callback ज़रूरी है।",
+  "settingsModel.chatgptNoDirectUse":
+    "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
+  "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",
+  "settingsModel.chatgptSelectAccount": "ChatGPT खाता",
+  "settingsModel.chatgptUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
   "settingsModel.checkAgain": "फिर से जाँचें",
   "settingsModel.checkedJustNow": "अभी जाँचा गया।",
   "settingsModel.checkedOn": "{{date}} को जाँचा गया।",
@@ -2496,8 +2745,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "सहेजी गई कुंजी जाँची जा रही है",
   "settingsModel.chooseModel": "मॉडल चुनें",
   "settingsModel.clear": "साफ़ करें",
-  "settingsModel.connect": "कनेक्ट करें",
-  "settingsModel.connecting": "कनेक्ट हो रहा है…",
   "settingsModel.defaultModelDescription":
     "हर ऐप में इस्तेमाल होता है, जब तक ऐप अपना मॉडल सेट न करे।",
   "settingsModel.defaultModelNeedsProvider":
@@ -2647,6 +2894,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "Global A2A Registry देखें",
   "settingsSubAgents.connectTitle": "{{name}} कनेक्ट करें",
   "settingsSubAgents.close": "बंद करें",
+  "observability.insights.rawTrace": "रॉ ट्रेस (हर स्पैन, इनपुट और आउटपुट के साथ)",
 };
 
 export default messages;

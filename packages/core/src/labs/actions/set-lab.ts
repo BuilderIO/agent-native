@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
 import { getLabDefinition } from "../registry.js";
-import { setUserLab } from "../store.js";
+import { setUserLabStates } from "../store.js";
 
 const schema = z.object({
   key: z.string().describe("The registered lab key to change."),
@@ -11,7 +11,7 @@ const schema = z.object({
 
 export default defineAction({
   description:
-    "Opt the current user into or out of one registered lab. Unset preferences use the app-defined default; labs may expose new or unstable features.",
+    "Opt the current user into or out of one registered lab. Unset preferences inherit declared legacy flags or use the app-defined default; labs may expose new or unstable features.",
   schema,
   http: { method: "POST" },
   run: async (args, ctx) => {
@@ -20,7 +20,21 @@ export default defineAction({
     if (!getLabDefinition(args.key)) {
       fail(`Unknown lab: ${args.key}`, { statusCode: 404 });
     }
-    const values = await setUserLab(email, args.key, args.enabled);
-    return { key: args.key, enabled: values[args.key] === true, values };
+    const states = await setUserLabStates(email, args.key, args.enabled, {
+      orgId: ctx?.orgId,
+    });
+    const state = states[args.key];
+    if (!state || "error" in state) {
+      // guard:allow-bare-error — invariant: a successful setter must return its valid target state
+      throw new Error(
+        `Could not read saved lab state after updating ${args.key}`,
+      );
+    }
+    const values = Object.fromEntries(
+      Object.entries(states).flatMap(([key, value]) =>
+        "error" in value ? [] : [[key, value.enabled]],
+      ),
+    );
+    return { key: args.key, enabled: state.enabled, values, states };
   },
 });

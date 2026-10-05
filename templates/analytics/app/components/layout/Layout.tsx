@@ -93,7 +93,7 @@ function InteractiveLayout({ children }: LayoutProps) {
                 : undefined;
             return Array.isArray(revisions)
               ? revisions.filter(isAssistantChatHistoryVersion)
-              : [];
+              : null;
           },
         },
         restore: {
@@ -118,7 +118,7 @@ function InteractiveLayout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(revisions)
             ? revisions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {

@@ -3,12 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
-import {
-  getActiveOrgSettingForEvent,
-  getOrgContext,
-  getOrgDomain,
-  listOrgMembershipsForEvent,
-} from "../org/context.js";
+import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -36,7 +31,9 @@ import {
   normalizeOAuthScope,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { resolveMcpOrgChoices } from "./org-choice.js";
 import {
+  MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
   MCP_ROUTE_PREFIXES,
@@ -181,9 +178,13 @@ export function getMcpOAuthIssuer(event: H3Event): string | undefined {
 }
 
 function normalizeMcpResourcePath(routePath?: string): string {
-  return routePath === MCP_LEGACY_ROUTE_PREFIX
-    ? MCP_LEGACY_ROUTE_PREFIX
-    : MCP_PUBLIC_ROUTE_PREFIX;
+  if (
+    routePath === MCP_LEGACY_ROUTE_PREFIX ||
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX
+  ) {
+    return routePath;
+  }
+  return MCP_PUBLIC_ROUTE_PREFIX;
 }
 
 export function getMcpOAuthResource(
@@ -195,13 +196,21 @@ export function getMcpOAuthResource(
   return `${issuer}${normalizeMcpResourcePath(routePath)}`;
 }
 
-function mcpResourcesForIssuer(issuer: string): string[] {
-  return [
-    MCP_PUBLIC_ROUTE_PREFIX,
-    ...MCP_ROUTE_PREFIXES.filter(
-      (prefix) => prefix !== MCP_PUBLIC_ROUTE_PREFIX,
-    ),
-  ].map((prefix) => `${issuer}${prefix}`);
+function mcpResourcesForIssuer(
+  issuer: string,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): string[] {
+  const normalizedPath = normalizeMcpResourcePath(routePath);
+  const paths =
+    normalizedPath === MCP_DIRECTORY_ROUTE_PREFIX
+      ? [MCP_DIRECTORY_ROUTE_PREFIX]
+      : [
+          MCP_PUBLIC_ROUTE_PREFIX,
+          ...MCP_ROUTE_PREFIXES.filter(
+            (prefix) => prefix !== MCP_PUBLIC_ROUTE_PREFIX,
+          ),
+        ];
+  return paths.map((prefix) => `${issuer}${prefix}`);
 }
 
 /**
@@ -213,7 +222,10 @@ function mcpResourcesForIssuer(issuer: string): string[] {
  * derived URL and vice-versa.  Returns both so `verifyMcpOAuthAccessToken`
  * accepts either without issuing a 401.
  */
-export function getMcpOAuthAudiences(event: H3Event): string[] {
+export function getMcpOAuthAudiences(
+  event: H3Event,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): string[] {
   const configuredIssuer = (() => {
     const base = configuredPublicBaseUrl();
     if (!base) return undefined;
@@ -223,9 +235,11 @@ export function getMcpOAuthAudiences(event: H3Event): string[] {
   const out: string[] = [];
   for (const r of [
     ...(getMcpOAuthIssuer(event)
-      ? mcpResourcesForIssuer(getMcpOAuthIssuer(event) as string)
+      ? mcpResourcesForIssuer(getMcpOAuthIssuer(event) as string, routePath)
       : []),
-    ...(configuredIssuer ? mcpResourcesForIssuer(configuredIssuer) : []),
+    ...(configuredIssuer
+      ? mcpResourcesForIssuer(configuredIssuer, routePath)
+      : []),
   ]) {
     const n = r?.replace(/\/+$/, "");
     if (n && !seen.has(n)) {
@@ -243,8 +257,11 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer) return undefined;
   const metadataUrl = new URL(`${issuer}/.well-known/oauth-protected-resource`);
-  if (normalizeMcpResourcePath(routePath) === MCP_LEGACY_ROUTE_PREFIX) {
-    metadataUrl.searchParams.set("resource", MCP_LEGACY_ROUTE_PREFIX);
+  if (normalizeMcpResourcePath(routePath) !== MCP_PUBLIC_ROUTE_PREFIX) {
+    metadataUrl.searchParams.set(
+      "resource",
+      normalizeMcpResourcePath(routePath),
+    );
   }
   return metadataUrl.toString();
 }
@@ -258,6 +275,26 @@ export function buildMcpOAuthChallenge(
   return metadata
     ? `Bearer resource_metadata="${metadata}", scope="${scope}"`
     : `Bearer scope="${scope}"`;
+}
+
+function protectedResourcePathFromRequest(
+  event: H3Event,
+): string | undefined | null {
+  let pathname = event.url?.pathname ?? "";
+  const wellKnownPath = "/.well-known/oauth-protected-resource";
+  const wellKnownIndex = pathname.lastIndexOf(wellKnownPath);
+  if (wellKnownIndex >= 0) {
+    pathname = pathname.slice(wellKnownIndex + wellKnownPath.length);
+  }
+  pathname = pathname.replace(/\/+$/, "");
+  if (!pathname || pathname === "/") return undefined;
+  return (
+    [
+      MCP_PUBLIC_ROUTE_PREFIX,
+      MCP_LEGACY_ROUTE_PREFIX,
+      MCP_DIRECTORY_ROUTE_PREFIX,
+    ].find((path) => path === pathname) ?? null
+  );
 }
 
 function authorizationEndpoint(event: H3Event): string | undefined {
@@ -285,12 +322,30 @@ export function handleMcpOAuthProtectedResourceMetadata(
   if (getMethod(event) !== "GET") {
     return oauthError("invalid_request", "Method not allowed", 405);
   }
-  const requestedResourcePath = getQuery(event).resource;
+  const pathResource = protectedResourcePathFromRequest(event);
+  const queryResource = getQuery(event).resource;
+  const allowedPaths = [
+    MCP_PUBLIC_ROUTE_PREFIX,
+    MCP_LEGACY_ROUTE_PREFIX,
+    MCP_DIRECTORY_ROUTE_PREFIX,
+  ];
+  const queryPath =
+    queryResource === undefined
+      ? undefined
+      : typeof queryResource === "string" &&
+          allowedPaths.includes(queryResource)
+        ? queryResource
+        : null;
+  if (
+    pathResource === null ||
+    queryPath === null ||
+    (pathResource && queryPath && pathResource !== queryPath)
+  ) {
+    return oauthError("invalid_target", "Unknown MCP resource", 404);
+  }
   const resource = getMcpOAuthResource(
     event,
-    requestedResourcePath === MCP_LEGACY_ROUTE_PREFIX
-      ? MCP_LEGACY_ROUTE_PREFIX
-      : MCP_PUBLIC_ROUTE_PREFIX,
+    pathResource ?? queryPath ?? MCP_PUBLIC_ROUTE_PREFIX,
   );
   const issuer = getMcpOAuthIssuer(event);
   if (!resource || !issuer) {
@@ -765,7 +820,10 @@ async function handleAuthorize(
     /\/+$/,
     "",
   );
-  const expectedResources = getMcpOAuthAudiences(event);
+  const expectedResources = [
+    ...getMcpOAuthAudiences(event),
+    ...getMcpOAuthAudiences(event, MCP_DIRECTORY_ROUTE_PREFIX),
+  ];
 
   if (params.response_type !== "code") {
     return oauthError(
@@ -826,44 +884,13 @@ async function handleAuthorize(
     });
   }
 
-  const activeOrgSetting = await getActiveOrgSettingForEvent(
+  const { organizations, defaultOrganizationId } = await resolveMcpOrgChoices(
     event,
-    session.email,
-  );
-  const requestedOrganizationId =
+    session,
     method === "POST" && params.organization_id !== undefined
       ? params.organization_id || null
-      : (activeOrgSetting?.orgId ?? session.orgId ?? null);
-  let memberships = await listOrgMembershipsForEvent(
-    event,
-    session.email,
-    requestedOrganizationId,
+      : undefined,
   );
-  // A token issued with no org stays org-less for its whole life, even after
-  // the app later creates the org, so resolve an account without one to its
-  // domain or default org before offering the choice.
-  const ensuredOrgId =
-    memberships?.length === 0 ? (await getOrgContext(event)).orgId : null;
-  if (ensuredOrgId) {
-    memberships = await listOrgMembershipsForEvent(
-      event,
-      session.email,
-      ensuredOrgId,
-    );
-  }
-  const organizations =
-    memberships?.map((membership) => ({
-      id: membership.orgId,
-      name: membership.orgName,
-      domain: membership.allowedDomain,
-    })) ??
-    (session.orgId
-      ? [{ id: session.orgId, name: "Organization", domain: null }]
-      : []);
-  const defaultOrganizationId =
-    [activeOrgSetting?.orgId, ensuredOrgId, session.orgId].find(
-      (id) => id && organizations.some((org) => org.id === id),
-    ) ?? organizations[0]?.id;
 
   if (method === "GET") {
     return html(

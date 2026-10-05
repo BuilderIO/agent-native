@@ -124,13 +124,16 @@ const messages: ToolkitAgentChatTranslation = {
     "一键创建或重新使用您的 Builder.io 账户，并激活免费额度。",
   "onboarding.builderActiveCredits": "包含在有效的 Builder.io 免费额度中",
   "onboarding.builderCredits": "包含在 Builder.io 免费额度中",
+  "onboarding.builderIncludedFreeWithAccount":
+    "拥有 Builder.io 账户即可免费使用",
+  "onboarding.builderMonthlyCredits": "每月 60 个 Agent Credits",
   "onboarding.builderActivateTitle": "激活免费额度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 账户",
-  "onboarding.builderAccountExistsDescription": "登录以连接该账户。",
+  "onboarding.builderAccountExistsDescription": "登录以使用你的账户。",
   "onboarding.builderActivationDescription":
     "我们会一键自动为您创建 Builder.io 账户。",
   "onboarding.builderOrgActivationDescription":
-    "我们会一键为您创建 Builder.io 账户，并为您的组织连接它。",
+    "我们会一键创建你的 Builder.io 账户，让你的组织可以使用它。",
   "onboarding.builderCreateAndActivate": "创建并激活",
   "onboarding.builderConsentPrefix": "创建 Builder.io 账户即表示您同意我们的",
   "onboarding.builderTerms": "服务条款",
@@ -138,7 +141,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 账户",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
-  "onboarding.builderConnecting": "正在连接 Builder.io 免费额度",
+  "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
   "onboarding.builderProvisioningDescription":
     "正在创建或重新使用您的 Builder.io 账户，通常需要几秒钟。",
   "onboarding.builderConnectionDescription": "在新窗口中一键完成连接。",
@@ -151,8 +154,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.fileStorage.title": "连接存储以上传文件",
   "onboarding.fileStorage.statusUnavailable": "无法检查存储",
   "onboarding.fileStorage.description":
-    "连接 Builder.io（免费）或配置自己的兼容 S3 对象存储。",
-  "onboarding.fileStorage.reconnectBuilder": "重新连接 Builder.io",
+    "使用 Builder.io（免费）或配置自己的兼容 S3 对象存储。",
+  "onboarding.fileStorage.reconnectBuilder": "使用 Builder.io",
   "onboarding.fileStorage.custom": "使用自定义密钥",
   "onboarding.fileStorage.customDescription":
     "配置带有稳定公共 URL 的兼容 S3 存储桶。",
@@ -365,12 +368,14 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "自动",
   "composer.builderModelCredits": "Claude、OpenAI 和 Gemini 的免费额度",
   "composer.chatGptSubscription": "ChatGPT 订阅",
+  "composer.chatgptManageUsage": "管理使用量",
+  "composer.chatgptPlanUsing": "正在使用 ChatGPT 方案",
   "composer.closePreview": "关闭预览",
   "composer.configureProviderKeys": "配置 Anthropic、OpenAI 或其他提供商",
   "composer.connectAbove": "请在上方连接 AI 以继续...",
-  "composer.connectBuilder": "连接 Builder.io",
+  "composer.connectBuilder": "使用 Builder.io",
   "composer.connectKeys": "连接密钥",
-  "composer.connectingBuilder": "正在连接 Builder.io…",
+  "composer.connectingBuilder": "正在设置 Builder.io…",
   "composer.costHigher": "较高费用",
   "composer.costLower": "较低费用",
   "composer.costMedium": "中等费用",
@@ -484,7 +489,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "听写（{{shortcut}}）",
   "voice.dictation.stopRecording": "停止录音",
   "voice.dictation.transcribing": "正在转写…",
-  "voiceMode.connectBuilder": "连接 Builder.io",
+  "voiceMode.connectBuilder": "使用 Builder.io",
   "voiceMode.end": "结束语音模式",
   "voiceMode.entryButtonLabel": "使用麦克风",
   "voiceMode.errors.channelDisconnected": "实时语音控制通道已断开。",
@@ -533,7 +538,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "富有表现力且多样",
   "voiceMode.settings.voiceStyle": "语音风格",
   "voiceMode.setupDescription":
-    "连接 Builder.io 以使用含免费额度的托管语音，或添加您自己的密钥。",
+    "使用 Builder.io 体验含免费额度的托管语音，或添加自己的密钥。",
+  "transcription.builderCtaDescription":
+    "使用 Builder.io 获得更高质量的转录，含免费额度且无需 API 密钥。",
+  "voiceMode.googleRealtimeDescription":
+    "Google 凭据已设置。使用 Builder.io（提供免费套餐）创建托管实时会话。",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "服务账户 JSON 已设置。使用 Builder.io（提供免费套餐）创建托管实时 WebSocket 会话。",
+  "voiceMode.builderGeminiDescription":
+    "使用 Builder.io 进行 Gemini Flash-Lite 转录和 Luna 文本清理。无需 Google 密钥。",
   "voiceMode.setupTitle": "设置语音模式",
   "voiceMode.showChat": "显示聊天",
   "voiceMode.start": "开始语音对话",
@@ -552,14 +565,17 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "正在加载聊天...",
   "empty.prompt": "我能为您做些什么？",
   "error.afterDuration": "{{duration}} 后{{headline}}",
-  "error.failed": "智能体遇到错误",
+  "error.chatgptPlanUsageLimit": "已达到您的 ChatGPT 方案使用上限。",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI 无法检查此 ChatGPT 方案的使用上限。请查看 ChatGPT 使用量，或尝试其他模型。",
+  "error.failed": "代理在完成前运行失败。",
   "error.render": "无法显示此内容。",
   "error.stopped": "智能体在完成前已停止",
   "errorMessages.agentConnection": "智能体连接已中断。请检查网络连接后重试。",
   "errorMessages.attachmentPasswordProtected":
     "此 PDF 受密码保护，无法读取。请移除密码保护或粘贴相关文本后重试。",
   "errorMessages.builderAuthentication":
-    "Builder 拒绝了已连接的凭据。请在设置中重新连接 Builder.io，然后重试。",
+    "Builder 拒绝了已连接的凭据。请在设置中再次使用 Builder.io，然后重试。",
   "errorMessages.builderModelUnauthorized":
     "此模型背后的提供商拒绝了请求。请选择其他模型后重试。",
   "errorMessages.errorPrefix": "错误：{{message}}",
@@ -574,10 +590,18 @@ const messages: ToolkitAgentChatTranslation = {
     "工具架构无效，因此模型在请求开始前拒绝了该请求。可以跳过无效工具并重试请求。",
   "errorMessages.malformedRequest":
     "模型提供方认为该请求格式有误并予以拒绝，因此未重试。请重试，若问题持续出现，请开始新的对话。",
+  "errorMessages.requestTooLarge":
+    "此请求超出了服务器大小限制（HTTP 413）。请开始新聊天，或移除较大的附件或引用后重试。",
+  "errorMessages.runInterrupted": "智能体在完成前停止了。",
+  "errorMessages.runFailed": "智能体运行失败。",
+  "errorMessages.runUnverified":
+    "此对话已无法跟踪智能体，它可能仍在运行。请刷新以查看进度。",
+  "errorMessages.runSignedOut":
+    "您已退出登录，因此此对话无法跟踪智能体。请重新登录，然后刷新。",
   "errorMessages.malformedRequestAttachment":
     "模型拒绝了一个附加文件，因此该消息未发送。请移除附件后重试：PDF、纯文本文件以及 JPEG、PNG、GIF、WebP 图片可直接读取；其他格式需要先上传再以链接形式引用。",
   "errorMessages.noProviderConnected":
-    "尚未连接任何 LLM 提供商。打开设置 > 智能体 > AI 提供商，然后连接 Builder.io（提供免费套餐）或添加提供商密钥。",
+    "尚未连接 LLM 提供商。打开设置 > 智能体 > AI 提供商，然后使用 Builder.io（提供免费套餐）或添加提供商密钥。",
   "errorMessages.openBuilderSpaceSettings": "打开 Builder 空间设置",
   "errorMessages.providerAuthentication":
     "模型提供商拒绝了已保存的 API 密钥。请在设置 → 集成 → API 密钥中更新密钥，然后重试。",
@@ -744,7 +768,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "销售通话、转录文本、交易洞察、客户摘要",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong 需要技术管理员创建 MCP 集成，并选择个人授权或共享授权。连接前必须配置生成的客户端 ID 和密钥。",
+    "Gong 技术管理员需要创建 MCP 集成并选择个人或共享授权。使用手动注册时，请将生成的客户端 ID 和密钥保存为工作区密钥 `GONG_MCP_CLIENT_ID` 和 `GONG_MCP_CLIENT_SECRET`；自动注册无需客户端凭据。",
   "mcpIntegrations.catalog.semgrep.description": "扫描代码中的安全问题。",
   "mcpIntegrations.catalog.semgrep.useCase": "安全扫描、漏洞检测、代码分析",
   "mcpIntegrations.catalog.linear.description": "读取和写入 Linear 议题。",
@@ -934,6 +958,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.restoreQuestion": "恢复到此处？",
   "message.revertQuestion": "还原到此处？此后所做的更改将会丢失。",
   "message.restoreRequestFailed": "恢复请求失败。",
+  "message.historyUnavailable": "无法加载更改历史。",
   "message.threadNotFound":
     "此聊天线程已不可用。请开始新聊天；如果这是意外情况，也可以重试。",
   "message.restoring": "正在恢复...",
@@ -1014,15 +1039,17 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.steerHint": "下一条发送此消息",
   "queue.moreActions": "更多操作",
   "queue.moveToTop": "移至顶部",
-  "recovery.connectingBuilder": "正在连接 Builder.io",
+  "recovery.connectingBuilder": "正在设置 Builder.io",
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",
+  "recovery.retryAttachmentUnavailable":
+    "此请求包含一个无法重试的文件。请在消息输入框中重新附加该文件，然后重试。",
   "recovery.deferredSubmissionFailed":
     "此消息未能发送。请检查网络连接或聊天设置，然后重试。",
   "recovery.credentialRejected":
     "模型提供商拒绝了已保存的凭据。请更新 Builder.io 连接或提供商密钥，然后重试此消息。",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents 尚未连接。请在设置中连接 Builder.io，以运行这项托管代码变更操作。模型提供商密钥仍可用于聊天和其他 AI 功能，但不能授权使用 Builder Cloud Agent。",
+    "Builder Cloud Agents 尚未连接。请在设置中使用 Builder.io，以运行这项托管代码变更操作。模型提供商密钥仍可用于聊天和其他 AI 功能，但不能授权使用 Builder Cloud Agent。",
   "recovery.diagnoseRetry": "诊断并重试",
   "recovery.forkDescription": "将此对话分支到一个单独的聊天线程中。",
   "recovery.forkFailed": "无法创建此聊天的分支。请尝试开始新聊天。",
@@ -1042,7 +1069,7 @@ const messages: ToolkitAgentChatTranslation = {
     "无法连接服务器以检查智能体是否仍在工作。请重新发送消息以重试。",
   "recovery.streamEnded":
     "上一次智能体流在恢复运行时结束。请继续或重试以重新连接该运行。",
-  "recovery.reconnectBuilder": "重新连接 Builder.io",
+  "recovery.reconnectBuilder": "使用 Builder.io",
   "secrets.addCustomKeyNamed": "添加“{{name}}”作为自定义密钥",
   "secrets.chooseKey": "选择密钥",
   "secrets.customKey": "自定义密钥",
@@ -1082,10 +1109,13 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "使用 Builder.io（含免费额度），或添加您自己的提供商密钥。",
   "setup.connectAi": "连接 AI",
-  "setup.connectBuilder": "连接 Builder.io",
+  "setup.connectBuilder": "使用 Builder.io",
+  "setup.connectionsDescription":
+    "在同一处管理设置状态、Builder.io 访问权限、应用密钥和工作区连接。",
   "setup.connectPlaceholder": "连接 AI 以开始聊天...",
   "setup.connectToChat": "连接 AI 以聊天",
   "setup.connectToStart": "连接 AI 以开始聊天",
+  "setup.modelListUnavailable": "无法加载模型。",
   "setup.providerStatusUnavailable": "无法确认 AI 是否已就绪。",
   "agentNativeClips.meetingAsk.placeholder": "随便问点什么",
   "agentNativeClips.meetingAsk.ariaLabel": "询问有关此会议的任何问题",
@@ -1177,6 +1207,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "正在询问 {{agent}}...",
   "tool.elapsed": "已用 {{duration}}",
   "tool.askingAgentFailed": "询问 {{agent}} 时出错",
+  "tool.failedWithoutDetails": "没有可用的错误详情。",
   "tool.input": "输入",
   "tool.inputWithLabel": "输入 - {{label}}",
   "tool.interrupted":
@@ -1272,6 +1303,159 @@ const messages: ToolkitAgentChatTranslation = {
   "usage.providerSpendDetail": "Builder 计费之外的提供商使用量或旧调用",
   "usage.providerSpendToday": "今日其他或未分类使用量：{{amount}}",
   "usage.driverCreditsAndUsd": "Builder 积分 / USD",
+  "observability.insights.verdictSmooth": "运行流畅",
+  "observability.insights.verdictLook_other": "{{count}} 项值得关注",
+  "observability.insights.verdictProblems_other": "{{count}} 个问题",
+  "observability.insights.spentSummary_other":
+    "过去 {{days}} 天内在 {{count}} 个提示词上花费了 {{amount}}。",
+  "observability.insights.handledLabel": "由 Agent-Native 处理：",
+  "observability.insights.handledHeading": "由 Agent-Native 处理",
+  "observability.insights.handledParallel":
+    "同时运行了 {{count}} 个工具调用，比逐个执行快了约 {{duration}}。",
+  "observability.insights.handledRecovered_other":
+    "从 {{count}} 个工具错误中恢复，未中断运行。",
+  "observability.insights.avgPerPrompt": "每个提示词的平均值",
+  "observability.insights.completed": "已完成",
+  "observability.insights.completedDetail": "最近 {{total}} 个中的 {{done}} 个",
+  "observability.insights.completedRecovered_other":
+    "从 {{count}} 个工具错误恢复后，最近 {{total}} 个中完成了 {{done}} 个",
+  "observability.insights.typicalTime": "典型耗时",
+  "observability.insights.median": "中位数",
+  "observability.insights.sampleNote":
+    "完成率、典型耗时、Agent-Native 处理的内容和发现均基于 {{total}} 条提示中最新的 {{shown}} 条。",
+  "observability.insights.changeSame": "与上一周期相同",
+  "observability.insights.changeUp": "↑ 较上一周期 {{percent}}%",
+  "observability.insights.changeDown": "↓ 较上一周期 {{percent}}%",
+  "observability.insights.kindProblem": "问题",
+  "observability.insights.kindSaving": "可节省",
+  "observability.insights.kindInfo": "小提示",
+  "observability.insights.fixLabel": "修复方法：",
+  "observability.insights.openPrompt": "打开该提示词",
+  "observability.insights.seePrompts_other": "查看这 {{count}} 个提示词",
+  "observability.insights.erroredTitle_other": "{{count}} 个提示词以错误结束",
+  "observability.insights.erroredBody": "代理在完成之前停止了。",
+  "observability.insights.erroredFix": "打开提示词查看它停止前执行的最后一步。",
+  "observability.insights.toolFailedTitle_other":
+    "{{tool}} 工具在 {{count}} 个提示词中失败",
+  "observability.insights.toolFailedSaid": "它说：“{{error}}”",
+  "observability.insights.toolFailedGeneric": "该工具报告了一个错误。",
+  "observability.insights.toolRecoveredAll": "代理每次都成功恢复并完成了任务。",
+  "observability.insights.toolRecoveredSome":
+    "代理在其中 {{count}} 次恢复并完成了任务。",
+  "observability.insights.restartTitle":
+    "重新开始花费了约 {{amount}}（占总支出的 {{percent}}%）",
+  "observability.insights.restartBody":
+    "在最近 {{total}} 个提示词中的 {{count}} 个中，代理在{{reason}}后重新发送了整段对话，而不是复用已发送的内容。",
+  "observability.insights.reasonToolLookup": "获取新工具",
+  "observability.insights.reasonPrefixChanged": "指令开头的内容发生了变化",
+  "observability.insights.fixToolLookup":
+    "使用 initialToolNames 预加载此应用所用的工具，让工具列表在整个提示词期间保持不变。",
+  "observability.insights.fixPrefixChanged":
+    "不要把时间戳或每步状态等会变化的内容放进系统提示词。",
+  "observability.insights.priciestTitle":
+    "有一个提示词占用了近期支出的 {{percent}}%",
+  "observability.insights.priciestBody_other":
+    "“{{prompt}}” 耗费了 {{amount}}，共 {{count}} 步。",
+  "observability.insights.untitledPrompt": "未命名提示词",
+  "observability.insights.promptsHeading": "提示词",
+  "observability.insights.showing": "显示 {{count}} 个",
+  "observability.insights.sortNewest": "最新",
+  "observability.insights.sortCost": "花费最高",
+  "observability.insights.emptyPrompts":
+    "此时间段内还没有提示词。完成后几秒就会显示在这里。",
+  "observability.insights.promptNotSaved": "提示词文本未保存",
+  "observability.insights.ratedHelpful": "评为有帮助",
+  "observability.insights.ratedUnhelpful": "评为没有帮助",
+  "observability.insights.notRated": "未评分",
+  "observability.insights.stoppedWithError": "因错误而停止",
+  "observability.insights.detailsUnavailable": "步骤详情已不可用",
+  "observability.insights.answered": "已回答",
+  "observability.insights.finished": "已完成",
+  "observability.insights.startedOverShort": "重新开始 {{count}}×",
+  "observability.insights.recoveredShort_other":
+    "从 {{count}} 个工具错误中恢复",
+  "observability.insights.toolsFailedShort_other": "{{count}} 个工具失败",
+  "observability.insights.headerDuration": "耗时 {{duration}}",
+  "observability.insights.stepsCount_other": "{{count}} 步",
+  "observability.insights.whatItDid": "执行内容：",
+  "observability.insights.replyNotSaved": "此提示词的回复文本未保存。",
+  "observability.insights.showAll": "显示全部",
+  "observability.insights.showLess": "收起",
+  "observability.insights.moreTools": "+{{count}} 更多",
+  "observability.insights.failedSuffix": "失败",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.startedOverNote_other":
+    "在{{reason}}后重新开始了 {{count}} 次，共花费约 {{total}} 中的 {{amount}}。",
+  "observability.insights.toolFailedNote_other":
+    "{{tool}} 工具失败了 {{count}} 次。",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "{{tool}} 工具失败了 {{count}} 次，但代理继续运行并完成了任务。",
+  "observability.insights.showSteps_other": "显示这 {{count}} 步",
+  "observability.insights.hideSteps": "隐藏步骤",
+  "observability.insights.costDetails": "费用详情与检查",
+  "observability.insights.turnReply": "撰写了回复",
+  "observability.insights.turnThought": "进行了思考",
+  "observability.insights.startedOverTag": "重新开始",
+  "observability.insights.toolFailedTag": "工具失败",
+  "observability.insights.turnContext":
+    "发送了 {{tokens}} 个上下文 token，其中 {{percent}}% 来自此前的复用。",
+  "observability.insights.turnExpired":
+    "保存的上下文在暂停后已过期，这是正常现象。",
+  "observability.insights.turnOutput": "生成了 {{tokens}} 个 token。",
+  "observability.insights.turnRestart":
+    "在{{reason}}后重新开始，比复用上下文多花费约 {{amount}}。",
+  "observability.insights.noCacheCompare":
+    "按标准价格计算，复用此前的上下文使该提示词的费用从 {{noCache}} 降至 {{estimated}}。",
+  "observability.insights.partReused": "复用的上下文",
+  "observability.insights.partSaved": "已缓存",
+  "observability.insights.partNew": "新上下文",
+  "observability.insights.partOutput": "模型生成",
+  "observability.insights.checksHeading": "自动检查",
+  "observability.insights.checksNone": "没有记录任何检查。",
+  "observability.insights.checksGraded": "（由模型评分）",
+  "observability.insights.checksNote":
+    "框架检查关注运行过程本身（错误、步骤、速度），而不判断结果是否理想。",
+  "observability.insights.lookedForTools": "查找了更多工具",
+  "observability.insights.prevPrompt": "上一个提示词 (K)",
+  "observability.insights.nextPrompt": "下一个提示词 (J)",
+  "observability.insights.toolVerb.add": "添加了 {{object}}",
+  "observability.insights.toolVerb.analyze": "分析了 {{object}}",
+  "observability.insights.toolVerb.apply": "应用了 {{object}}",
+  "observability.insights.toolVerb.capture": "捕获了 {{object}}",
+  "observability.insights.toolVerb.check": "检查了 {{object}}",
+  "observability.insights.toolVerb.connect": "连接了 {{object}}",
+  "observability.insights.toolVerb.create": "创建了 {{object}}",
+  "observability.insights.toolVerb.delete": "删除了 {{object}}",
+  "observability.insights.toolVerb.duplicate": "复制了 {{object}}",
+  "observability.insights.toolVerb.edit": "编辑了 {{object}}",
+  "observability.insights.toolVerb.export": "导出了 {{object}}",
+  "observability.insights.toolVerb.fetch": "获取了 {{object}}",
+  "observability.insights.toolVerb.find": "找到了 {{object}}",
+  "observability.insights.toolVerb.generate": "生成了 {{object}}",
+  "observability.insights.toolVerb.index": "索引了 {{object}}",
+  "observability.insights.toolVerb.insert": "插入了 {{object}}",
+  "observability.insights.toolVerb.list": "列出了 {{object}}",
+  "observability.insights.toolVerb.move": "移动了 {{object}}",
+  "observability.insights.toolVerb.navigate": "导航到了 {{object}}",
+  "observability.insights.toolVerb.open": "打开了 {{object}}",
+  "observability.insights.toolVerb.present": "展示了 {{object}}",
+  "observability.insights.toolVerb.propose": "提出了 {{object}}",
+  "observability.insights.toolVerb.query": "查询了 {{object}}",
+  "observability.insights.toolVerb.read": "读取了 {{object}}",
+  "observability.insights.toolVerb.remove": "移除了 {{object}}",
+  "observability.insights.toolVerb.rename": "重命名了 {{object}}",
+  "observability.insights.toolVerb.reply": "回复了 {{object}}",
+  "observability.insights.toolVerb.resolve": "解决了 {{object}}",
+  "observability.insights.toolVerb.run": "运行了 {{object}}",
+  "observability.insights.toolVerb.save": "保存了 {{object}}",
+  "observability.insights.toolVerb.search": "搜索了 {{object}}",
+  "observability.insights.toolVerb.send": "发送了 {{object}}",
+  "observability.insights.toolVerb.set": "设置了 {{object}}",
+  "observability.insights.toolVerb.take": "截取了 {{object}}",
+  "observability.insights.toolVerb.update": "更新了 {{object}}",
+  "observability.insights.toolVerb.upload": "上传了 {{object}}",
+  "observability.insights.toolVerb.view": "查看了 {{object}}",
+  "observability.insights.toolVerb.write": "写入了 {{object}}",
   "billing.builderCreditLimitTitle": "Builder 积分已用完",
   "billing.builderCreditLimitEmailBody":
     "由于您连接的 Builder 账户积分已用完，一项 AI 请求已停止。升级 Builder 套餐即可继续使用。",
@@ -1294,6 +1478,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "你的预计费用",
   "settings.usage.yourCreditSpend": "你的 Builder.io 积分消耗",
   "settings.usage.calls": "调用",
+  "settings.usage.chatgptPlanUsage": "ChatGPT 方案用量",
   "settings.usage.tokens": "Token",
   "settings.usage.activePeople": "活跃人员",
   "settings.usage.history": "用量历史",
@@ -1634,6 +1819,8 @@ const messages: ToolkitAgentChatTranslation = {
     "在此浏览器中使用示例数据进行演示。",
   "settingsShell.appGroup.labsFootnote": "这些新功能尚不稳定，可能存在错误。",
   "settingsShell.appGroup.labsLoadError": "无法加载实验室功能。",
+  "settingsShell.appGroup.labsReadError":
+    "无法读取此已保存选项。请选择开启或关闭以重新设置。",
   "settingsShell.appGroup.labsSaveError": "无法更改 {{lab}}。请重试。",
   "settingsShell.appGroup.mcpAbout":
     "将 {{app}} 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 {{app}} 中工作。它只能看到你有权看到的内容。",
@@ -1650,7 +1837,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "查看所有更新",
   "settingsShell.backToApp": "返回 {{app}}",
   "settingsShell.breadcrumbLabel": "面包屑导航",
-  "settingsShell.builder.connect": "连接",
+  "settingsShell.builder.connect": "使用 Builder.io",
   "settingsShell.builder.connected": "已连接",
   "settingsShell.builder.connectedTo": "已连接 · {{space}}",
   "settingsShell.builder.connection": "连接",
@@ -1661,6 +1848,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed": "无法断开 Builder.io。",
   "settingsShell.builder.disconnectTitle": "断开 Builder.io？",
   "settingsShell.builder.grantsFailed": "无法读取 Builder.io 连接。",
+  "settingsShell.builder.setupStartFailed":
+    "无法启动 Builder.io 设置。请刷新此页面后重试。",
+  "settingsShell.builder.setupHostFailed":
+    "无法从此聊天宿主打开 Builder。请在浏览器标签页中打开此应用，然后重试 Builder.io 设置（提供免费套餐）。",
+  "settingsShell.builder.setupFailed":
+    "Builder.io 设置未完成。请重试，或使用自己的密钥。",
   "settingsShell.builder.loss.defaultStops":
     "在你添加组织提供商之前，聊天将停止。",
   "settingsShell.builder.loss.defaultSwitches": "默认模型切换为 {{next}}。",
@@ -1673,9 +1866,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "需要重新连接。",
   "settingsShell.builder.orgFallback": "你的组织",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "未连接。连接后，{{org}} 中的所有人都可以使用。",
+    "未连接。使用 Builder.io 即可让 {{org}} 中的所有人使用。",
   "settingsShell.builder.orgNotConnectedMember":
-    "未连接。所有者或管理员可以连接。",
+    "未连接。所有者或管理员可以为所有人启用 Builder.io。",
   "settingsShell.builder.organization": "组织",
   "settingsShell.builder.personal": "个人",
   "settingsShell.builder.personalConnected": "已连接。只有你使用。",
@@ -1686,7 +1879,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "已连接 · {{space}}。只有你使用，替代组织的连接。",
   "settingsShell.builder.personalNotConnected":
-    "连接你自己的账号。只有你使用。",
+    "使用自己的 Builder.io 账户。只有你可以使用。",
   "settingsShell.builder.personalRestricted":
     "所有者和管理员已限制个人 API 密钥。",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2157,7 +2350,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "已连接。标有 Builder.io 的每项服务都使用你的账户额度。",
   "settingsInfra.builderNotConnected":
-    "未连接。自行设置每项服务，或连接 Builder.io 以使用你的账户额度。",
+    "未连接。自行设置每项服务，或使用 Builder.io 应用账户额度。",
+  "settingsInfra.builderOverrideDescription":
+    "可使用部署备用方案。使用自己的 Builder.io 账户即可覆盖它。",
+  "settingsInfra.builderStorageHint":
+    "对象存储可持久保存上传文件，并让 URL 在整个对话中重复使用。请使用下方的 Builder.io 或兼容 S3 的存储桶。",
   "settingsInfra.builderUnknown": "无法检查 Builder.io 连接。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "连接",
@@ -2314,13 +2511,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "已连接 · {{space}}",
   "settingsModel.builderConnectedPlain": "已连接",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "未连接。连接后，{{org}} 中的所有人都可以使用。",
+    "未连接。使用 Builder.io 即可让 {{org}} 中的所有人使用。",
   "settingsModel.builderOrgNotConnectedMember":
-    "未连接。所有者或管理员可以连接它。",
+    "未连接。所有者或管理员可以为所有人启用 Builder.io。",
   "settingsModel.builderPersonalConnect":
-    "连接您自己的账户，以使用您的 Builder.io 额度。",
+    "使用自己的 Builder.io 账户来使用账户额度。",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "连接您自己的账户，以代替组织的连接使用。",
+    "使用自己的 Builder.io 账户，替代组织连接。",
   "settingsModel.builderPersonalOverOrg":
     "已连接 · {{space}}。代替组织的连接使用。",
   "settingsModel.builderPersonalOverOrgPlain": "已连接。代替组织的连接使用。",
@@ -2328,9 +2525,31 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "取消",
   "settingsModel.change": "更改",
   "settingsModel.chatgptConnected": "已连接",
-  "settingsModel.chatgptDescription": "通过您的 ChatGPT 套餐使用 Codex 引擎。",
+  "settingsModel.chatgptDescription":
+    "通过您的 ChatGPT 方案使用符合条件的 OpenAI 模型。",
   "settingsModel.chatgptPopupBlocked": "请允许此网站的弹出窗口，然后重试。",
-  "settingsModel.chatgptTitle": "ChatGPT 订阅",
+  "settingsModel.chatgptTitle": "ChatGPT 方案访问",
+  "settingsModel.chatgptAddAccount": "添加另一个账户",
+  "settingsModel.chatgptConnecting": "正在连接…",
+  "settingsModel.chatgptContinue": "继续使用 ChatGPT",
+  "settingsModel.chatgptDisconnect": "断开连接",
+  "settingsModel.chatgptDisconnectTitle": "断开 ChatGPT 连接？",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} 将退出此应用，智能体将不再使用你的 ChatGPT 方案。你可以随时重新登录。",
+  "settingsModel.chatgptDisconnecting": "正在断开连接…",
+  "settingsModel.chatgptRemoveLegacySignIn": "移除旧版登录",
+  "settingsModel.chatgptLegacySignInDetails":
+    "此处保存了旧版 ChatGPT 登录信息，官方流程无法使用。",
+  "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "已在此处断开连接。在 ChatGPT 中，访问权限可能仍然有效。",
+  "settingsModel.chatgptLocalOnly":
+    "开源应用在本地使用 loopback callback 运行时，无需申请合作伙伴资格即可使用 ChatGPT 计划。托管在 *.agent-native.com 上的应用需要运营方批准，并配置托管 callback。",
+  "settingsModel.chatgptNoDirectUse":
+    "重新连接并允许直接访问模型，才能使用此 ChatGPT 账户。",
+  "settingsModel.chatgptReconnect": "重新连接",
+  "settingsModel.chatgptSelectAccount": "ChatGPT 账户",
+  "settingsModel.chatgptUsageLimit": "已达到您的 ChatGPT 方案使用上限。",
   "settingsModel.checkAgain": "重新检查",
   "settingsModel.checkedJustNow": "刚刚已检查。",
   "settingsModel.checkedOn": "已于 {{date}} 检查。",
@@ -2340,8 +2559,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "正在检查已保存的密钥",
   "settingsModel.chooseModel": "选择模型",
   "settingsModel.clear": "清除",
-  "settingsModel.connect": "连接",
-  "settingsModel.connecting": "正在连接…",
   "settingsModel.defaultModelDescription":
     "除非应用自行设置，否则所有应用都使用此模型。",
   "settingsModel.defaultModelNeedsProvider": "添加提供商后即可选择默认模型。",
@@ -2476,6 +2693,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "浏览 Global A2A Registry",
   "settingsSubAgents.connectTitle": "连接 {{name}}",
   "settingsSubAgents.close": "关闭",
+  "observability.insights.rawTrace": "原始追踪（所有 span 及其输入和输出）",
 };
 
 export default messages;

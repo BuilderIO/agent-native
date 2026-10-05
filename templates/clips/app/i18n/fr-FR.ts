@@ -4,6 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
+      connectBuilder: "Utiliser Builder.io",
       providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
     },
     common: { retry: "Réessayer" },
@@ -225,7 +226,7 @@ const messages = {
     sharedWithYou: "Partagé avec vous",
     storageStillDisconnected: "Le stockage n'est toujours pas connecté",
     finishBuilderOrS3:
-      "Terminez la fenêtre contextuelle Builder.io ou configurez le stockage S3, puis réessayez.",
+      "Utilisez le stockage Builder.io ou configurez un stockage compatible S3, puis réessayez.",
     loomImportResumed: "L'importation de Loom a repris",
     clipUploadResumed: "Le téléchargement du clip a repris",
     couldNotRetryLoom: "Impossible de réessayer l'importation Loom",
@@ -272,9 +273,9 @@ const messages = {
       "Une erreur s'est produite lors de l'enregistrement de ce clip.",
     finishingClip: "Je termine votre clip…",
     loomSourcePreserved:
-      "Le lien source Loom est conservé. Connectez le stockage Builder.io ou S3 et Clips réessayera d'enregistrer sa propre copie.",
+      "Le lien source Loom est conservé. Utilisez le stockage Builder.io (stockage et IA dans l’offre gratuite) ou un stockage compatible S3 ; Clips réessaiera d’enregistrer sa propre copie.",
     clipDataPreserved:
-      "Vos données de clip sont toujours conservées. Connectez le stockage Builder.io ou S3 et Clips le téléchargera automatiquement.",
+      "Les données de votre clip sont conservées. Utilisez le stockage Builder.io (stockage et IA dans l’offre gratuite) ou un stockage compatible S3 ; Clips le téléversera automatiquement.",
     details: "Détails",
     importingLoom: "Importation de Loom...",
     uploadingSavedClip: "Téléchargement du clip enregistré…",
@@ -401,13 +402,13 @@ const messages = {
       "Une erreur s'est produite lors de l'enregistrement de ce clip.",
     finishingClip: "Je termine ce clip...",
     loomPreservedManage:
-      "Le lien source Loom est conservé. Connectez le stockage Builder.io ou S3, puis réessayez l'importation.",
+      "Le lien source Loom est conservé. Utilisez le stockage Builder.io (stockage et IA dans l’offre gratuite) ou un stockage compatible S3, puis réessayez l’importation.",
     videoPreservedManage:
-      "La vidéo est conservée. Connectez le stockage Builder.io ou S3 et Clips terminera de le télécharger.",
+      "La vidéo est conservée. Utilisez le stockage Builder.io (stockage et IA dans l’offre gratuite) ou un stockage compatible S3 ; Clips terminera l’envoi.",
     creatorNeedsStorage:
-      "Le créateur doit connecter le stockage Builder.io ou S3 avant que ce clip puisse se terminer.",
+      "Le créateur doit utiliser le stockage Builder.io (stockage et IA dans l’offre gratuite) ou un stockage compatible S3 pour terminer ce clip.",
     signInStorage:
-      "S'il s'agit de votre clip, connectez-vous ici pour connecter le stockage Builder.io ou S3 et terminer le téléchargement.",
+      "S’il s’agit de votre clip, connectez-vous ici pour utiliser le stockage Builder.io (stockage et IA dans l’offre gratuite) ou un stockage compatible S3 et terminer l’envoi.",
     uploadNotCompleteSession:
       "Le téléchargement n'est pas encore terminé. Ouvrez le tableau de bord de ce clip ou demandez au créateur de vérifier le stockage.",
     uploadNotCompleteSignIn:
@@ -549,9 +550,8 @@ const messages = {
     cleanupBuilderFailed:
       "Le nettoyage n'a pas pu se terminer même si Builder.io est connecté. La transcription native a été conservée.",
     cleanupPaused:
-      "Le nettoyage est suspendu. Connectez l’IA dans Paramètres : Builder.io (crédits gratuits) ou votre propre clé LLM.",
-    builderNoResponse:
-      "Je n'ai pas eu de réponse de Builder. Autorisez les fenêtres contextuelles et réessayez.",
+      "Le nettoyage est suspendu. Utilisez Builder.io dans Paramètres pour l’IA (crédits gratuits), ou ajoutez votre propre clé LLM.",
+    builderNoResponse: "Builder n’a pas répondu. Réessayez.",
     saveFailed: "Échec de l'enregistrement ({{status}})",
     savedRetrying: "Sauvé. Nouvelle tentative de transcription…",
     getGroqKey: "Obtenez la clé Groq",
@@ -818,6 +818,11 @@ const messages = {
     agentTitle: "Gérer l’agent",
     pageTitle: "Paramètres · Clips",
     labs: "Labs",
+    labResilientRecording: "Enregistrement fiable",
+    labResilientRecordingDescription:
+      "Essayez des transferts d’enregistrements plus rapides et une meilleure récupération après une interruption.",
+    labResilientRecordingMixedDescription:
+      "Les anciens réglages d’enregistrement sont toujours actifs. Choisissez Activé ou Désactivé pour utiliser un seul réglage.",
     labsIntro:
       "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
     labVideoEditing: "Montage vidéo",
@@ -1127,7 +1132,7 @@ const messages = {
     videoUrlMissing:
       "Un ou plusieurs enregistrements n’ont pas encore d’URL vidéo prête",
     connectStorage:
-      "Connectez le stockage avant d’assembler des enregistrements : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3.",
+      "Utilisez le stockage Builder.io (stockage et IA dans l’offre gratuite) ou un stockage compatible S3 avant d’assembler les enregistrements.",
     created: "Enregistrement assemblé créé",
     failed: "Échec de l’assemblage des enregistrements",
     noOtherRecordings: "Aucun autre enregistrement disponible.",
@@ -1247,7 +1252,7 @@ const messages = {
     discardRecording: "Supprimer l’enregistrement",
     restart: "Redémarrer l’enregistrement",
     restartShortcut: "Redémarrer (⌥⇧R)",
-    restartQuestion: "Démarrer un nouvel enregistrement ?",
+    restartQuestion: "Supprimer cet enregistrement et recommencer ?",
     restartConfirm: "Redémarrer",
   },
   countdownOverlay: {
@@ -1480,26 +1485,21 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "Impossible d’ouvrir Builder.io. Si cette application est intégrée à une conversation, ouvrez-la dans un onglet de navigateur ; sinon, autorisez les fenêtres contextuelles pour ce site, puis réessayez.",
+      "Impossible d’ouvrir Builder.io. Si cette application est intégrée à une conversation, ouvrez-la dans un onglet de navigateur ; sinon, réessayez.",
     builderConnectError:
-      "Impossible de connecter Builder.io. Réessayez ou contactez l’assistance.",
+      "Impossible de configurer Builder.io. Réessayez ou contactez l’assistance.",
     checkingBuilderConnection: "Vérification de la connexion à Builder…",
-    builderTimeout:
-      "Aucune réponse de Builder après 5 minutes. Vérifiez la fenêtre contextuelle et réessayez.",
+    builderTimeout: "Aucune réponse de Builder après 5 minutes. Réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
-    connectBuilder: "Utiliser Builder.io",
+    description:
+      "Stockez les vidéos enregistrées avec Builder.io ou un stockage compatible S3. Builder.io inclut un hébergement gratuit et des crédits d'IA.",
     createBuilderAccount: "Créer un compte Builder.io",
     signInWithBuilderAccount: "Se connecter avec un compte Builder.io",
-    builderConsentPrefix: "En créant un compte Builder.io, vous acceptez nos",
-    builderTerms: "Conditions d’utilisation",
-    builderConsentAnd: "et",
-    builderPrivacy: "Politique de confidentialité",
     free: "Gratuit",
-    configureS3: "configurer un stockage compatible S3",
     whyPrompt: "Pourquoi vois-je ceci ?",
     whyDescription:
-      "Clips est 100 % gratuit et open source, vous devez donc connecter un moyen de stocker vos clips. Connectez le stockage avec Builder.io pour le stockage et l’IA sur l’offre gratuite, ou utilisez un stockage compatible S3 et vos propres clés LLM.",
+      "Clips est gratuit et open source à 100 %, vous avez donc besoin d’un moyen de stocker vos clips. Utilisez Builder.io pour profiter du stockage et de l’IA de l’offre gratuite, ou utilisez un stockage objet compatible S3 et vos propres clés LLM.",
   },
   captureInstall: {
     title: "Choose your recorder (Localisé)",
@@ -1837,13 +1837,70 @@ const messages = {
     storageConnectedReopeningRecorder:
       "Stockage connecté. Réouverture de l’enregistreur...",
     connectStorageToFinish:
-      "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",
+      "Sur l’écran suivant, utilisez le stockage Builder.io (stockage et IA dans l’offre gratuite) ou configurez un stockage compatible S3. Clips terminera l’enregistrement.",
     connectStorageToRetryLoom:
-      "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips relancera l’import.",
-    leaveConfirmTitle: "Quitter et abandonner cet enregistrement ?",
+      "Sur l’écran suivant, utilisez le stockage Builder.io (stockage et IA dans l’offre gratuite) ou configurez un stockage compatible S3. Clips relancera l’importation.",
+    leaveConfirmTitle: "Quitter cet enregistrement ?",
     leaveConfirmDescription:
-      "Votre enregistrement en cours n’a pas fini d’être sauvegardé. Si vous quittez cette page maintenant, il sera abandonné.",
+      "Cet enregistrement n'existe que dans cet onglet. Le quitter le supprime, sauf si vous téléchargez d'abord une copie.",
     leaveAndDiscard: "Quitter et abandonner",
+    recordingWithoutSound:
+      "Enregistrement sans son. Activez un micro pour obtenir une transcription.",
+    pendingStorageTitle:
+      "Connectez un stockage pour sauvegarder votre enregistrement",
+    pendingStorageDescription:
+      "Connectez un stockage et Clips l'importe aussitôt.",
+    storageConnectedUploading:
+      "Stockage connecté. Envoi de votre enregistrement…",
+    downloadCopy: "Télécharger une copie",
+    localRecordingOpenElsewhere:
+      "Cet enregistrement est encore ouvert dans un autre onglet Clips.",
+    uploadWaitingForConnection:
+      "Importation en pause. Clips réessaie automatiquement.",
+    uploadDidNotFinish: "L'importation n'a pas abouti.",
+    unfinishedRecording: "Un enregistrement n’a pas fini d’être envoyé",
+    finishUpload: "Terminer l’envoi",
+    leaveKeepDescription:
+      "Clips le conserve dans ce navigateur et vous proposera de terminer l'importation à votre retour. « Quitter et abandonner » le supprime définitivement.",
+    leaveAndKeep: "Quitter et conserver",
+    copySafeInBrowser:
+      "Votre enregistrement est en sécurité dans ce navigateur.",
+    copyOnlyInThisTab:
+      "Cet enregistrement n'existe que dans cet onglet. Gardez-le ouvert ou téléchargez une copie.",
+    localCopyFull:
+      "Ce navigateur n'a plus d'espace : Clips ne peut pas conserver de copie de secours. Gardez cet onglet ouvert jusqu'à la fin de l'importation ou téléchargez une copie.",
+    localCopyFailed:
+      "Clips n'a pas pu conserver de copie de secours dans ce navigateur. Gardez cet onglet ouvert jusqu'à la fin de l'importation ou téléchargez une copie.",
+    localCopyUnreadable:
+      "La copie de l'enregistrement dans ce navigateur est illisible.",
+    recordingOwnedByAnotherAccount:
+      "Cet enregistrement appartient à un autre compte. Connectez-vous à ce compte dans ce navigateur pour l'importer.",
+    unclaimedRecording:
+      "Un enregistrement de ce navigateur n'est lié à aucun compte",
+    reviewRecording: "Examiner",
+    claimRecordingPrompt:
+      "Cet enregistrement n'est encore lié à aucun compte. L'importer dans {{email}} ?",
+    claimRecording: "Importer dans mon compte",
+    lowBrowserStorage:
+      "Ce navigateur manque d'espace : un long enregistrement risque de ne pas tenir dans sa copie de secours. Gardez cet onglet ouvert jusqu'à la fin de l'importation.",
+    recordingEndMissing:
+      "La fin de cet enregistrement n'a pas été sauvegardée. Clips importe ce qu'il a et conserve votre copie.",
+    uploadedPartialCopyKept:
+      "Ce que ce navigateur a sauvegardé a été importé. La fin manque peut-être, donc Clips a conservé votre copie ici.",
+    uploadUnverifiedCopyKept:
+      "Clips n'a pas pu confirmer que tout l'enregistrement a été importé, donc il a conservé votre copie ici.",
+    copyKeptAfterUpload:
+      "Cet enregistrement a été importé, mais Clips n'a pas pu confirmer qu'il est complet, donc il a conservé votre copie ici.",
+    localCopyLockUnavailable:
+      "Clips ne peut pas confirmer qu'aucun autre onglet n'utilise cet enregistrement : il ne l'importera ni ne le supprimera d'ici. Téléchargez plutôt une copie.",
+    uploadAgain: "Importer à nouveau",
+    keptCopyWaiting:
+      "Clips a conservé la copie d'un enregistrement dans ce navigateur",
+    savedRecordingsUnreadable:
+      "Clips n'a pas pu lire les enregistrements sauvegardés dans ce navigateur.",
+    remindTomorrow: "Me le rappeler demain",
+    stillProcessingCopyKept:
+      "Cet enregistrement est encore en cours de traitement, donc Clips a conservé votre copie ici. Patientez ou importez-le à nouveau.",
   },
   importRoute: {
     pageTitle: "Importer Loom — Clips",
@@ -1988,6 +2045,8 @@ const messages = {
     retry: "Réessayer",
     retrying: "Nouvelle tentative…",
     retryFailed: "Impossible de réessayer cet envoi.",
+    retryCheckFailed:
+      "Impossible de vérifier si ce transfert peut être relancé. Actualisez la page pour réessayer.",
     retryUnavailableHere:
       "Réessayer n'est possible que sur l'appareil ou le navigateur ayant servi à l'enregistrement.",
     viewsCount: "{{count}} vues",

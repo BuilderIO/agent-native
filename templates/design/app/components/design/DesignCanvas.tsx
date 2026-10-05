@@ -603,6 +603,7 @@ interface DesignCanvasProps {
   onRoutePathChange?: (screenId: string | undefined, routePath: string) => void;
   onBootStart?: () => void;
   onBootReady?: () => void;
+  onRuntimeReload?: () => void;
   onScreenRootComputedStyles?: (computedStyles: Record<string, string>) => void;
   onRuntimeVerificationSnapshot?: (snapshot: {
     requestId: number;
@@ -1027,6 +1028,7 @@ function classifyLiveEditHealthProbe(
 }
 
 const LIVE_EDIT_READY_TIMEOUT_MS = 4000;
+const LIVE_EDIT_HEALTH_PROBE_TIMEOUT_MS = 8_000;
 const MAX_LIVE_EDIT_RESTART_ATTEMPTS = 3;
 const LIVE_EDIT_SAME_INSTANCE_MAX_REARM_DELAY_MS = 16_000;
 const LIVE_EDIT_SAME_INSTANCE_ERROR_CEILING_MS = 48_000;
@@ -1301,6 +1303,7 @@ export function DesignCanvas({
   onRoutePathChange,
   onBootStart,
   onBootReady,
+  onRuntimeReload,
   onScreenRootComputedStyles,
   onRuntimeVerificationSnapshot,
   fusionUrl,
@@ -1562,6 +1565,9 @@ export function DesignCanvas({
   const liveRoutePathRef = useRef<string | null>(null);
   const liveEditDocumentIdsRef = useRef(new Set<string>());
   const liveEditDocumentIdRef = useRef<string | null>(null);
+  const runtimeReloadingFromDocumentIdRef = useRef<string | undefined>(
+    undefined,
+  );
   const readyRuntimeLayerDocumentIdRef = useRef<string | null>(null);
   const runtimeLayerSnapshotDocumentIdRef = useRef<string | null>(null);
   const runtimeLayerSnapshotReadinessRequestIdRef = useRef(0);
@@ -1855,6 +1861,13 @@ export function DesignCanvas({
         if (textEditingStateRef.current.hasRange) setInspectorFocus(true);
       } else {
         focusVisitedInspectorPopup = false;
+        if (
+          event.target === iframeRef.current &&
+          !textEditInspectorFocusedRef.current &&
+          textEditingStateRef.current.hasRange
+        ) {
+          return;
+        }
         if (
           textEditingStateRef.current.hasRange ||
           textEditInspectorFocusedRef.current
@@ -2889,8 +2902,15 @@ export function DesignCanvas({
     const isHealthProbeCurrent = () =>
       liveEditHealthProbeGenerationRef.current === healthProbeGeneration &&
       bridgeRegistrationAttemptGenerationRef.current === registrationGeneration;
+    const healthProbeAbortController = new AbortController();
+    const healthProbeTimeoutId = window.setTimeout(
+      () => healthProbeAbortController.abort(),
+      LIVE_EDIT_HEALTH_PROBE_TIMEOUT_MS,
+    );
     try {
-      const response = await fetch(healthEndpointUrl(bridgeUrl));
+      const response = await fetch(healthEndpointUrl(bridgeUrl), {
+        signal: healthProbeAbortController.signal,
+      });
       const payload = (await response.json().catch(() => null)) as {
         bridgeInstanceId?: string;
       } | null;
@@ -3002,9 +3022,14 @@ export function DesignCanvas({
       setRegisteredLiveEditBridgeKey(null);
       setBridgeConnectionLostError({
         bridgeKey: liveEditBridgeKey,
-        message: error instanceof Error ? error.message : String(error),
+        message: healthProbeAbortController.signal.aborted
+          ? t("designCanvas.localBridge.connectionNotConfirmed")
+          : error instanceof Error
+            ? error.message
+            : String(error),
       });
     } finally {
+      window.clearTimeout(healthProbeTimeoutId);
       if (liveEditHealthProbeGenerationRef.current === healthProbeGeneration) {
         liveEditRestartInFlightRef.current = false;
       }
@@ -3395,6 +3420,7 @@ export function DesignCanvas({
     : iframeDocumentIdentity;
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
+    runtimeReloadingFromDocumentIdRef.current = undefined;
     pendingRuntimeLayerSnapshotReadinessRef.current = null;
     readyRuntimeLayerDocumentIdRef.current = null;
     runtimeLayerSnapshotDocumentIdRef.current = null;
@@ -3911,6 +3937,8 @@ export function DesignCanvas({
           );
         }
         if (usesLiveEditEditorBridge) {
+          runtimeReloadingFromDocumentIdRef.current =
+            liveEditDocumentIdRef.current ?? undefined;
           bootReadyRef.current = false;
           bridgeReadyRef.current = false;
           editorChromeReadyRef.current = false;
@@ -4011,7 +4039,7 @@ export function DesignCanvas({
         if (
           payload &&
           typeof payload.html === "string" &&
-          payload.html.length <= 2_000_000 &&
+          payload.html.length <= 14_000_000 &&
           Number.isFinite(payload.nodeCount)
         ) {
           const documentId =
@@ -4112,6 +4140,16 @@ export function DesignCanvas({
           return;
         }
         lateLiveEditReadyRecoveryRef.current = null;
+        const reloadStartedFromDocumentId =
+          runtimeReloadingFromDocumentIdRef.current;
+        if (
+          reloadStartedFromDocumentId !== undefined &&
+          documentId !== null &&
+          documentId !== reloadStartedFromDocumentId
+        ) {
+          runtimeReloadingFromDocumentIdRef.current = undefined;
+          onRuntimeReload?.();
+        }
         readyRuntimeLayerDocumentIdRef.current = documentId;
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
@@ -5137,6 +5175,7 @@ export function DesignCanvas({
     onBootReady,
     markPreviewFrameReady,
     onBootStart,
+    onRuntimeReload,
     externalPreviewUrl,
     onScreenRootComputedStyles,
     onRuntimeVerificationSnapshot,
@@ -5428,19 +5467,6 @@ export function DesignCanvas({
     refreshRuntimeLayerSnapshotAfterReady,
     usesLiveEditEditorBridge,
   ]);
-
-  useEffect(() => {
-    if (!onBootReady) return;
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    const handleLoad = () => {
-      if (bootReadyRef.current) return;
-      bootReadyRef.current = true;
-      onBootReady();
-    };
-    iframe.addEventListener("load", handleLoad);
-    return () => iframe.removeEventListener("load", handleLoad);
-  }, [iframeDocumentIdentity, onBootReady]);
 
   useLayoutEffect(() => {
     if (!onRuntimeLayerSnapshotReadinessChange) return;
@@ -6162,6 +6188,7 @@ export function DesignCanvas({
         anchorSourceId,
         anchorPendingNodeId: runtimeStructureInsertRequest.anchor.pendingNodeId,
         placement: runtimeStructureInsertRequest.placement,
+        gridPlacement: runtimeStructureInsertRequest.gridPlacement,
         ...(runtimeStructureInsertRequest.replaceAnchor === true && index === 0
           ? { replaceAnchor: true }
           : {}),
@@ -6374,8 +6401,17 @@ export function DesignCanvas({
       return;
     }
     lastRuntimeLayerSnapshotRequestIdRef.current = runtimeLayerSnapshotRequest;
-    requestRuntimeLayerSnapshot();
-  }, [requestRuntimeLayerSnapshot, runtimeLayerSnapshotRequest]);
+    if (onRuntimeLayerSnapshotReadinessChange) {
+      refreshRuntimeLayerSnapshotAfterReady();
+    } else {
+      requestRuntimeLayerSnapshot();
+    }
+  }, [
+    onRuntimeLayerSnapshotReadinessChange,
+    refreshRuntimeLayerSnapshotAfterReady,
+    requestRuntimeLayerSnapshot,
+    runtimeLayerSnapshotRequest,
+  ]);
 
   const sendMotionPreview = useCallback((t: number, durationMs?: number) => {
     const iframe = iframeRef.current;

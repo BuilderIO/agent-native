@@ -20,6 +20,7 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
@@ -227,6 +228,12 @@ export default defineAction({
   agentInputSchema: externalEditDocumentSchema,
   schema: editDocumentSchema,
   http: false,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  changeResource: (input) => documentChangeResource(input.id),
   run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");

@@ -554,7 +554,11 @@ describe("suggest-document-edit", () => {
             const first = (await suggestDocumentEdit.run(input, {
               caller: "cli" as const,
               userEmail: "member@other-org",
-            })) as { suggestionId: string; proposalId: string };
+            })) as {
+              suggestionId: string;
+              suggestionIds: string[];
+              proposalId: string;
+            };
             const retry = (await suggestDocumentEdit.run(input, {
               caller: "cli" as const,
               userEmail: "member@other-org",
@@ -566,7 +570,58 @@ describe("suggest-document-edit", () => {
             return first;
           },
         );
-        expect(result.suggestionId).toBeTruthy();
+
+        // Read back what was actually stored, as the document's owner.
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as {
+          suggestions: Array<{
+            id: string;
+            proposalId?: string;
+            authorEmail: string | null;
+            ownerEmail: string | null;
+            orgId: string | null;
+            status: string;
+            operations: Array<{
+              before: { changedText: string };
+              after: { changedText: string };
+            }>;
+          }>;
+        };
+        // The retry replayed the receipt instead of storing a second copy.
+        expect(listed.suggestions.map((item) => item.id).sort()).toEqual(
+          [...result.suggestionIds].sort(),
+        );
+        const stored = result.suggestionIds.map(
+          (suggestionId) =>
+            listed.suggestions.find((item) => item.id === suggestionId)!,
+        );
+        // The suggestion is attributed to the other org's member but scoped to
+        // the document's own owner and org, so the owner's side can review it.
+        for (const item of stored) {
+          expect(item).toMatchObject({
+            proposalId: result.proposalId,
+            authorEmail: "member@other-org",
+            ownerEmail: ctx.userEmail,
+            orgId: "org-owner",
+            status: "pending",
+          });
+        }
+        expect(
+          stored.map((item) => [
+            item.operations[0]!.before.changedText,
+            item.operations[0]!.after.changedText,
+          ]),
+        ).toEqual([
+          ["Shared", "Edited"],
+          ["across orgs body", "body"],
+        ]);
+        // A suggestion proposes; it must not have rewritten the document.
+        const unchanged = (await getDocument.run({ id }, ctx)) as {
+          content: string;
+        };
+        expect(unchanged.content).toBe("Shared across orgs body.");
       },
     );
   });

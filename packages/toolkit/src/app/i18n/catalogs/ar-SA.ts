@@ -130,13 +130,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActiveCredits":
     "مضمّنة مع أرصدة Builder.io المجانية النشطة",
   "onboarding.builderCredits": "مضمّنة مع أرصدة Builder.io المجانية",
+  "onboarding.builderIncludedFreeWithAccount": "مُضمّن مجانًا مع حساب Builder.io",
+  "onboarding.builderMonthlyCredits": "60 رصيد Agent شهريًا",
   "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
   "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
-  "onboarding.builderAccountExistsDescription": "سجّل الدخول لربطه.",
+  "onboarding.builderAccountExistsDescription": "سجّل الدخول لاستخدام حسابك.",
   "onboarding.builderActivationDescription":
     "سننشئ حساب Builder.io الخاص بك تلقائيًا بنقرة واحدة.",
   "onboarding.builderOrgActivationDescription":
-    "سننشئ حساب Builder.io الخاص بك بنقرة واحدة ونربطه لمؤسستك.",
+    "سننشئ حساب Builder.io الخاص بك بنقرة واحدة ليتمكن مؤسستك من استخدامه.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
   "onboarding.builderConsentPrefix": "بإنشاء حساب Builder.io، فإنك توافق على",
   "onboarding.builderTerms": "شروط الخدمة",
@@ -144,7 +146,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لدي حساب Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
-  "onboarding.builderConnecting": "جارٍ الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
     "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
   "onboarding.builderConnectionDescription":
@@ -159,8 +161,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
   "onboarding.fileStorage.statusUnavailable": "تعذّر التحقق من التخزين",
   "onboarding.fileStorage.description":
-    "اختر تخزين Builder المُدار أو مفاتيح تخزين مخصصة لحاويتك المتوافقة مع S3.",
-  "onboarding.fileStorage.reconnectBuilder": "أعد ربط Builder.io",
+    "استخدم Builder.io (مجانًا) أو أعدّ تخزين كائنات متوافقًا مع S3 خاصًا بك.",
+  "onboarding.fileStorage.reconnectBuilder": "استخدم Builder.io",
   "onboarding.fileStorage.custom": "استخدم مفاتيح مخصصة",
   "onboarding.fileStorage.customDescription":
     "اضبط حاوية متوافقة مع S3 باستخدام عنوان URL عام ثابت.",
@@ -378,12 +380,14 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "تلقائي",
   "composer.builderModelCredits": "أرصدة مجانية لـ Claude وOpenAI وGemini",
   "composer.chatGptSubscription": "اشتراك ChatGPT",
+  "composer.chatgptManageUsage": "إدارة الاستخدام",
+  "composer.chatgptPlanUsing": "استخدام خطة ChatGPT",
   "composer.closePreview": "إغلاق المعاينة",
   "composer.configureProviderKeys": "إعداد Anthropic أو OpenAI أو مزوّد آخر",
   "composer.connectAbove": "اتصل بالذكاء الاصطناعي أعلاه للمتابعة...",
-  "composer.connectBuilder": "الاتصال بـ Builder.io",
+  "composer.connectBuilder": "استخدم Builder.io",
   "composer.connectKeys": "ربط المفاتيح",
-  "composer.connectingBuilder": "جارٍ الاتصال بـ Builder.io…",
+  "composer.connectingBuilder": "جارٍ إعداد Builder.io…",
   "composer.costHigher": "تكلفة أعلى",
   "composer.costLower": "تكلفة أقل",
   "composer.costMedium": "تكلفة متوسطة",
@@ -509,7 +513,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "إملاء ({{shortcut}})",
   "voice.dictation.stopRecording": "إيقاف التسجيل",
   "voice.dictation.transcribing": "جارٍ النسخ…",
-  "voiceMode.connectBuilder": "الاتصال بـ Builder.io",
+  "voiceMode.connectBuilder": "استخدم Builder.io",
   "voiceMode.end": "إنهاء الوضع الصوتي",
   "voiceMode.entryButtonLabel": "استخدام الميكروفون",
   "voiceMode.errors.channelDisconnected":
@@ -562,7 +566,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "معبّر ومتعدد الاستخدامات",
   "voiceMode.settings.voiceStyle": "نمط الصوت",
   "voiceMode.setupDescription":
-    "اتصل بـ Builder.io لاستخدام الصوت المُدار بأرصدة مجانية، أو أضف مفاتيحك الخاصة.",
+    "استخدم Builder.io للصوت المُدار مع أرصدة مجانية، أو أضف مفاتيحك الخاصة.",
+  "transcription.builderCtaDescription":
+    "استخدم Builder.io للحصول على نسخ صوتي أعلى جودة مع أرصدة مجانية ومن دون مفتاح API.",
+  "voiceMode.googleRealtimeDescription":
+    "بيانات اعتماد Google مُعدّة. استخدم Builder.io (الخطة المجانية متاحة) لإنشاء جلسة الوقت الفعلي المُدارة.",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "ملف JSON لحساب الخدمة مُعدّ. استخدم Builder.io (الخطة المجانية متاحة) لإنشاء جلسة WebSocket مُدارة في الوقت الفعلي.",
+  "voiceMode.builderGeminiDescription":
+    "استخدم Builder.io للنسخ الصوتي عبر Gemini Flash-Lite وتنظيف النص عبر Luna. لا حاجة إلى مفتاح Google.",
   "voiceMode.setupTitle": "إعداد الوضع الصوتي",
   "voiceMode.showChat": "إظهار المحادثة",
   "voiceMode.start": "بدء محادثة صوتية",
@@ -581,7 +593,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "جارٍ تحميل المحادثة...",
   "empty.prompt": "كيف يمكنني مساعدتك؟",
   "error.afterDuration": "{{headline}} بعد {{duration}}",
-  "error.failed": "واجه الوكيل خطأ",
+  "error.chatgptPlanUsageLimit": "تم بلوغ حد الاستخدام لخطة ChatGPT.",
+  "error.chatgptPlanUsageUnavailable":
+    "تعذّر على OpenAI التحقق من حد الاستخدام لخطة ChatGPT هذه. تحقّق من استخدام ChatGPT أو جرّب نموذجًا آخر.",
+  "error.failed": "فشل تشغيل الوكيل قبل اكتماله.",
   "error.render": "تعذّر عرض هذا المحتوى.",
   "error.stopped": "توقف الوكيل قبل الانتهاء",
   "errorMessages.agentConnection":
@@ -589,7 +604,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "ملف PDF هذا محمي بكلمة مرور، لذا لا يمكن قراءته. أزل الحماية بكلمة المرور أو الصق النص المطلوب، ثم أعد المحاولة.",
   "errorMessages.builderAuthentication":
-    "رفض Builder بيانات الاعتماد المتصلة. أعد الاتصال بـ Builder.io من الإعدادات، ثم أعد المحاولة.",
+    "رفض Builder بيانات الاعتماد المتصلة. استخدم Builder.io من الإعدادات مرة أخرى، ثم أعد المحاولة.",
   "errorMessages.builderModelUnauthorized":
     "رفض المزوّد الذي يشغّل هذا النموذج الطلب. اختر نموذجًا آخر، ثم أعد المحاولة.",
   "errorMessages.errorPrefix": "خطأ: {{message}}",
@@ -605,10 +620,18 @@ const messages: ToolkitAgentChatTranslation = {
     "كان مخطط إحدى الأدوات غير صالح، لذلك رفض النموذج الطلب قبل بدئه. يمكن تخطي الأداة غير الصالحة وإعادة محاولة الطلب.",
   "errorMessages.malformedRequest":
     "رفض مزوّد النموذج هذا الطلب لأنه غير صالح، لذلك لم تُعد المحاولة. أعد المحاولة، أو ابدأ محادثة جديدة إذا استمر الأمر.",
+  "errorMessages.requestTooLarge":
+    "تجاوز هذا الطلب حد الحجم على الخادم (HTTP 413). ابدأ دردشة جديدة أو أزل المرفقات أو المراجع الكبيرة، ثم حاول مرة أخرى.",
+  "errorMessages.runInterrupted": "توقف الوكيل قبل أن يُكمل.",
+  "errorMessages.runFailed": "فشل تشغيل الوكيل.",
+  "errorMessages.runUnverified":
+    "فقدت هذه المحادثة تتبّع الوكيل، وقد يكون لا يزال قيد التشغيل. أعد التحميل لرؤية تقدّمه.",
+  "errorMessages.runSignedOut":
+    "لقد سجّلت الخروج، لذا لا يمكن لهذه المحادثة متابعة الوكيل. سجّل الدخول مجددًا، ثم أعد التحميل.",
   "errorMessages.malformedRequestAttachment":
     "رفض النموذج ملفًا مرفقًا، لذلك لم تُرسل هذه الرسالة إطلاقًا. أزل المرفق وأعد المحاولة — تُقرأ ملفات PDF والنصوص العادية وصور JPEG وPNG وGIF وWebP مباشرةً، أما الصيغ الأخرى فيجب رفعها والإشارة إليها برابط.",
   "errorMessages.noProviderConnected":
-    "لا يوجد مزوّد LLM متصل. افتح الإعدادات > الوكيل > مزوّدو الذكاء الاصطناعي، ثم اربط Builder.io (تتوفر خطة مجانية) أو أضف مفتاح مزوّد.",
+    "لا يوجد موفّر LLM متصل. افتح الإعدادات > الوكيل > موفّرو الذكاء الاصطناعي، ثم استخدم Builder.io (الخطة المجانية متاحة) أو أضف مفتاح موفّر.",
   "errorMessages.openBuilderSpaceSettings": "فتح إعدادات مساحة Builder",
   "errorMessages.providerAuthentication":
     "رفض مزوّد النموذج مفتاح API المحفوظ. حدّث المفتاح من الإعدادات ← عمليات التكامل ← مفاتيح API، ثم أعد المحاولة.",
@@ -789,7 +812,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "مكالمات المبيعات، والنصوص المفرّغة، ورؤى الصفقات، وملخصات الحسابات",
   "mcpIntegrations.catalog.gong.setupNote":
-    "يتطلب Gong أن ينشئ مسؤول تقني تكامل MCP ويختار تفويضًا شخصيًا أو مشتركًا. يجب إعداد معرّف العميل والسر الناتجين قبل الربط.",
+    "يجب أن ينشئ المسؤول التقني في Gong تكامل MCP مع تفويض شخصي أو مشترك. للتسجيل اليدوي، احفظ معرّف العميل والسر الناتجين كسرّي مساحة العمل `GONG_MCP_CLIENT_ID` و`GONG_MCP_CLIENT_SECRET`؛ أما التسجيل التلقائي فلا يحتاج إلى بيانات اعتماد للعميل.",
   "mcpIntegrations.catalog.semgrep.description":
     "فحص التعليمات البرمجية بحثًا عن مشكلات أمنية.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -1007,6 +1030,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "هل تريد الرجوع إلى هذه النقطة؟ ستفقد التغييرات التي أُجريت بعدها.",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
+  "message.historyUnavailable": "تعذر تحميل سجل التغييرات.",
   "message.threadNotFound":
     "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
@@ -1088,15 +1112,17 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.steerHint": "إرسال هذه الرسالة التالية",
   "queue.moreActions": "إجراءات إضافية",
   "queue.moveToTop": "نقل إلى الأعلى",
-  "recovery.connectingBuilder": "جارٍ الاتصال بـ Builder.io",
+  "recovery.connectingBuilder": "جارٍ إعداد Builder.io",
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
+  "recovery.retryAttachmentUnavailable":
+    "تضمّن هذا الطلب ملفًا لا يمكن إعادة المحاولة به. أرفقه مجددًا في مربع الرسالة، ثم حاول مرة أخرى.",
   "recovery.deferredSubmissionFailed":
     "تعذّر إرسال هذه الرسالة. تحقّق من اتصالك أو إعدادات الدردشة، ثم أعد المحاولة.",
   "recovery.credentialRejected":
     "رفض مزوّد النموذج بيانات الاعتماد المحفوظة. حدّث اتصال Builder.io أو مفتاح المزوّد، ثم أعد محاولة إرسال هذه الرسالة.",
   "codeRequired.builderAgentNotConnected":
-    "خدمة Builder Cloud Agents غير متصلة. اتصل بـ Builder.io من الإعدادات لتنفيذ عملية تغيير التعليمات البرمجية المستضافة هذه. تظل مفاتيح مزوّدي النماذج صالحة للدردشة وميزات الذكاء الاصطناعي الأخرى، لكنها لا تمنح صلاحية استخدام Builder Cloud Agent.",
+    "خدمة Builder Cloud Agents غير متصلة. استخدم Builder.io من الإعدادات لتنفيذ عملية تغيير التعليمات البرمجية المستضافة هذه. تظل مفاتيح مزوّدي النماذج صالحة للدردشة وميزات الذكاء الاصطناعي الأخرى، لكنها لا تمنح صلاحية استخدام Builder Cloud Agent.",
   "recovery.diagnoseRetry": "تشخيص المشكلة وإعادة المحاولة",
   "recovery.forkDescription": "تفريع هذه المحادثة إلى سلسلة محادثة منفصلة.",
   "recovery.forkFailed": "تعذّر تفريع هذه المحادثة. جرّب بدء محادثة جديدة.",
@@ -1117,7 +1143,7 @@ const messages: ToolkitAgentChatTranslation = {
     "تعذّر الوصول إلى الخادم للتحقق مما إذا كان الوكيل لا يزال يعمل. أرسل رسالتك مجددًا لإعادة المحاولة.",
   "recovery.streamEnded":
     "انتهى تدفق الوكيل السابق أثناء استرداد التشغيل. تابع أو أعد المحاولة لإعادة الاتصال بالتشغيل.",
-  "recovery.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
+  "recovery.reconnectBuilder": "استخدم Builder.io",
   "secrets.addCustomKeyNamed": 'إضافة "{{name}}" كمفتاح مخصص',
   "secrets.chooseKey": "اختر مفتاحًا",
   "secrets.customKey": "مفتاح مخصص",
@@ -1162,10 +1188,13 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "استخدم Builder.io (بأرصدة مجانية)، أو أضف مفاتيح مزوّديك الخاصة.",
   "setup.connectAi": "اتصال بالذكاء الاصطناعي",
-  "setup.connectBuilder": "الاتصال بـ Builder.io",
+  "setup.connectBuilder": "استخدم Builder.io",
+  "setup.connectionsDescription":
+    "أدر حالة الإعداد وإمكانية الوصول إلى Builder.io وأسرار التطبيق واتصالات مساحة العمل من مكان واحد.",
   "setup.connectPlaceholder": "اتصل بالذكاء الاصطناعي لبدء المحادثة...",
   "setup.connectToChat": "اتصل بالذكاء الاصطناعي للمحادثة",
   "setup.connectToStart": "اتصل بالذكاء الاصطناعي لبدء المحادثة",
+  "setup.modelListUnavailable": "تعذّر تحميل النماذج.",
   "setup.providerStatusUnavailable": "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
   "agentNativeClips.meetingAsk.placeholder": "اسأل أي شيء",
   "agentNativeClips.meetingAsk.ariaLabel": "اسأل أي شيء عن هذا الاجتماع",
@@ -1259,6 +1288,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "جارٍ سؤال {{agent}}...",
   "tool.elapsed": "انقضت {{duration}}",
   "tool.askingAgentFailed": "حدث خطأ أثناء سؤال {{agent}}",
+  "tool.failedWithoutDetails": "لا تتوفر تفاصيل للخطأ.",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",
   "tool.interrupted":
@@ -1377,6 +1407,286 @@ const messages: ToolkitAgentChatTranslation = {
     "استخدام المزوّد أو المكالمات الأقدم خارج فوترة Builder",
   "usage.providerSpendToday": "استخدام آخر أو غير مصنّف اليوم: {{amount}}",
   "usage.driverCreditsAndUsd": "أرصدة Builder / دولار أمريكي",
+  "observability.insights.verdictSmooth": "يعمل بسلاسة",
+  "observability.insights.handledLabel": "تمت معالجته بواسطة Agent-Native:",
+  "observability.insights.handledHeading": "تمت معالجته بواسطة Agent-Native",
+  "observability.insights.handledParallel":
+    "شغّل {{count}} استدعاء أداة في الوقت نفسه، أسرع بحوالي {{duration}} من تنفيذها واحدًا تلو الآخر.",
+  "observability.insights.avgPerPrompt": "المتوسط لكل برومبت",
+  "observability.insights.completed": "مكتمل",
+  "observability.insights.completedDetail": "{{done}} من آخر {{total}}",
+  "observability.insights.typicalTime": "الوقت المعتاد",
+  "observability.insights.median": "الوسيط",
+  "observability.insights.sampleNote":
+    "تعتمد نسبة الإكمال والوقت المعتاد وما تولّاه Agent-Native والملاحظات على أحدث {{shown}} من أصل {{total}} من المطالبات.",
+  "observability.insights.changeSame": "نفس الفترة السابقة",
+  "observability.insights.changeUp": "↑ {{percent}}% مقارنة بالفترة السابقة",
+  "observability.insights.changeDown": "↓ {{percent}}% مقارنة بالفترة السابقة",
+  "observability.insights.kindProblem": "مشكلة",
+  "observability.insights.kindSaving": "توفير محتمل",
+  "observability.insights.kindInfo": "معلومة مفيدة",
+  "observability.insights.fixLabel": "الحل:",
+  "observability.insights.openPrompt": "فتح البرومبت",
+  "observability.insights.erroredBody": "توقف الوكيل قبل إنهاء المهمة.",
+  "observability.insights.erroredFix":
+    "افتح البرومبت لمعرفة آخر ما فعله الوكيل قبل أن يتوقف.",
+  "observability.insights.toolFailedSaid": "قال: «{{error}}»",
+  "observability.insights.toolFailedGeneric": "أبلغت الأداة عن خطأ.",
+  "observability.insights.toolRecoveredAll":
+    "تعافى الوكيل وأنهى المهمة في كل مرة.",
+  "observability.insights.toolRecoveredSome":
+    "تعافى الوكيل وأنهى المهمة في {{count}} منها.",
+  "observability.insights.restartTitle":
+    "كلّف البدء من جديد حوالي {{amount}} ({{percent}}% من الإنفاق)",
+  "observability.insights.restartBody":
+    "في {{count}} من آخر {{total}} برومبت، أعاد الوكيل إرسال المحادثة كاملة بعد {{reason}}، بدلًا من إعادة استخدام ما سبق إرساله.",
+  "observability.insights.reasonToolLookup": "اكتشاف أدوات جديدة",
+  "observability.insights.reasonPrefixChanged": "تغيّر شيء في بداية تعليماته",
+  "observability.insights.fixToolLookup":
+    "حمّل الأدوات التي يستخدمها هذا التطبيق مسبقًا باستخدام initialToolNames لتبقى قائمة الأدوات ثابتة طوال البرومبت.",
+  "observability.insights.fixPrefixChanged":
+    "احتفظ بالمحتوى المتغيّر، مثل الطوابع الزمنية أو حالة كل خطوة، خارج برومبت النظام.",
+  "observability.insights.priciestTitle":
+    "استهلك برومبت واحد {{percent}}% من الإنفاق الأخير",
+  "observability.insights.untitledPrompt": "برومبت بلا عنوان",
+  "observability.insights.promptsHeading": "البرومبتات",
+  "observability.insights.showing": "عرض {{count}}",
+  "observability.insights.sortNewest": "الأحدث",
+  "observability.insights.sortCost": "الأعلى تكلفة",
+  "observability.insights.emptyPrompts":
+    "لا توجد برومبتات في هذه الفترة بعد. تظهر هنا بعد ثوانٍ قليلة من انتهائها.",
+  "observability.insights.promptNotSaved": "لم يتم حفظ نص البرومبت",
+  "observability.insights.ratedHelpful": "تم تقييمه بأنه مفيد",
+  "observability.insights.ratedUnhelpful": "تم تقييمه بأنه غير مفيد",
+  "observability.insights.notRated": "بلا تقييم",
+  "observability.insights.stoppedWithError": "توقف بخطأ",
+  "observability.insights.detailsUnavailable": "تفاصيل الخطوات لم تعد متاحة",
+  "observability.insights.answered": "تمت الإجابة",
+  "observability.insights.finished": "انتهى",
+  "observability.insights.startedOverShort": "بدأ من جديد {{count}}×",
+  "observability.insights.headerDuration": "في {{duration}}",
+  "observability.insights.whatItDid": "ما الذي قام به:",
+  "observability.insights.replyNotSaved": "لم يتم حفظ نص الرد لهذا البرومبت.",
+  "observability.insights.showAll": "عرض الكل",
+  "observability.insights.showLess": "عرض أقل",
+  "observability.insights.moreTools": "+{{count}} أخرى",
+  "observability.insights.failedSuffix": "فشل",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.hideSteps": "إخفاء الخطوات",
+  "observability.insights.costDetails": "تفاصيل التكلفة والفحوصات",
+  "observability.insights.turnReply": "كتب الرد",
+  "observability.insights.turnThought": "فكّر في الأمر",
+  "observability.insights.startedOverTag": "بدأ من جديد",
+  "observability.insights.toolFailedTag": "فشل الأداة",
+  "observability.insights.turnContext":
+    "أرسل {{tokens}} توكن من السياق، {{percent}}% منها معاد استخدامها من سياق سابق.",
+  "observability.insights.turnExpired":
+    "انتهت صلاحية السياق المحفوظ بعد فترة توقف، وهذا أمر متوقع.",
+  "observability.insights.turnOutput": "كتب {{tokens}} توكن.",
+  "observability.insights.turnRestart":
+    "بدأ من جديد بعد {{reason}}، بتكلفة أعلى بحوالي {{amount}} من إعادة استخدامه.",
+  "observability.insights.noCacheCompare":
+    "بالأسعار المعتادة، أدت إعادة استخدام السياق السابق إلى خفض تكلفة هذا البرومبت من {{noCache}} إلى {{estimated}}.",
+  "observability.insights.partReused": "سياق معاد استخدامه",
+  "observability.insights.partSaved": "محفوظ في الكاش",
+  "observability.insights.partNew": "سياق جديد",
+  "observability.insights.partOutput": "كتبه النموذج",
+  "observability.insights.checksHeading": "الفحوصات التلقائية",
+  "observability.insights.checksNone": "لم يتم تسجيل أي فحوصات.",
+  "observability.insights.checksGraded": "(تم تقييمه من نموذج)",
+  "observability.insights.checksNote":
+    "تفحص هذه الفحوصات كيف سار التشغيل (الأخطاء، الخطوات، السرعة)، وليس ما إذا كانت النتيجة جيدة.",
+  "observability.insights.lookedForTools": "بحث عن أدوات إضافية",
+  "observability.insights.prevPrompt": "البرومبت السابق (K)",
+  "observability.insights.nextPrompt": "البرومبت التالي (J)",
+  "observability.insights.toolVerb.add": "أضاف {{object}}",
+  "observability.insights.toolVerb.analyze": "حلّل {{object}}",
+  "observability.insights.toolVerb.apply": "طبّق {{object}}",
+  "observability.insights.toolVerb.capture": "التقط {{object}}",
+  "observability.insights.toolVerb.check": "فحص {{object}}",
+  "observability.insights.toolVerb.connect": "وصّل {{object}}",
+  "observability.insights.toolVerb.create": "أنشأ {{object}}",
+  "observability.insights.toolVerb.delete": "حذف {{object}}",
+  "observability.insights.toolVerb.duplicate": "كرر {{object}}",
+  "observability.insights.toolVerb.edit": "عدّل {{object}}",
+  "observability.insights.toolVerb.export": "صدّر {{object}}",
+  "observability.insights.toolVerb.fetch": "جلب {{object}}",
+  "observability.insights.toolVerb.find": "وجد {{object}}",
+  "observability.insights.toolVerb.generate": "ولّد {{object}}",
+  "observability.insights.toolVerb.index": "فهرس {{object}}",
+  "observability.insights.toolVerb.insert": "أدرج {{object}}",
+  "observability.insights.toolVerb.list": "سرد {{object}}",
+  "observability.insights.toolVerb.move": "نقل {{object}}",
+  "observability.insights.toolVerb.navigate": "تصفّح {{object}}",
+  "observability.insights.toolVerb.open": "فتح {{object}}",
+  "observability.insights.toolVerb.present": "قدّم {{object}}",
+  "observability.insights.toolVerb.propose": "اقترح {{object}}",
+  "observability.insights.toolVerb.query": "استعلم عن {{object}}",
+  "observability.insights.toolVerb.read": "قرأ {{object}}",
+  "observability.insights.toolVerb.remove": "أزال {{object}}",
+  "observability.insights.toolVerb.rename": "أعاد تسمية {{object}}",
+  "observability.insights.toolVerb.reply": "ردّ على {{object}}",
+  "observability.insights.toolVerb.resolve": "حلّ {{object}}",
+  "observability.insights.toolVerb.run": "شغّل {{object}}",
+  "observability.insights.toolVerb.save": "حفظ {{object}}",
+  "observability.insights.toolVerb.search": "بحث عن {{object}}",
+  "observability.insights.toolVerb.send": "أرسل {{object}}",
+  "observability.insights.toolVerb.set": "ضبط {{object}}",
+  "observability.insights.toolVerb.take": "أخذ {{object}}",
+  "observability.insights.toolVerb.update": "حدّث {{object}}",
+  "observability.insights.toolVerb.upload": "رفع {{object}}",
+  "observability.insights.toolVerb.view": "عرض {{object}}",
+  "observability.insights.toolVerb.write": "كتب {{object}}",
+  "observability.insights.verdictLook_zero": "{{count}} أشياء تستحق نظرة",
+  "observability.insights.verdictLook_one": "{{count}} شيء يستحق نظرة",
+  "observability.insights.verdictLook_two": "{{count}} شيئان يستحقان نظرة",
+  "observability.insights.verdictLook_few": "{{count}} أشياء تستحق نظرة",
+  "observability.insights.verdictLook_many": "{{count}} شيئًا يستحق نظرة",
+  "observability.insights.verdictLook_other": "{{count}} شيء يستحق نظرة",
+  "observability.insights.verdictProblems_zero": "{{count}} مشكلات",
+  "observability.insights.verdictProblems_one": "{{count}} مشكلة",
+  "observability.insights.verdictProblems_two": "{{count}} مشكلتان",
+  "observability.insights.verdictProblems_few": "{{count}} مشكلات",
+  "observability.insights.verdictProblems_many": "{{count}} مشكلة",
+  "observability.insights.verdictProblems_other": "{{count}} مشكلة",
+  "observability.insights.spentSummary_zero":
+    "تم إنفاق {{amount}} على {{count}} برومبتات في آخر {{days}} يوم.",
+  "observability.insights.spentSummary_one":
+    "تم إنفاق {{amount}} على {{count}} برومبت في آخر {{days}} يوم.",
+  "observability.insights.spentSummary_two":
+    "تم إنفاق {{amount}} على {{count}} برومبتين في آخر {{days}} يوم.",
+  "observability.insights.spentSummary_few":
+    "تم إنفاق {{amount}} على {{count}} برومبتات في آخر {{days}} يوم.",
+  "observability.insights.spentSummary_many":
+    "تم إنفاق {{amount}} على {{count}} برومبت في آخر {{days}} يوم.",
+  "observability.insights.spentSummary_other":
+    "تم إنفاق {{amount}} على {{count}} برومبت في آخر {{days}} يوم.",
+  "observability.insights.handledRecovered_zero":
+    "تعافى الوكيل من {{count}} أخطاء في الأداة دون توقف.",
+  "observability.insights.handledRecovered_one":
+    "تعافى الوكيل من {{count}} خطأ في الأداة دون توقف.",
+  "observability.insights.handledRecovered_two":
+    "تعافى الوكيل من {{count}} خطأين في الأداة دون توقف.",
+  "observability.insights.handledRecovered_few":
+    "تعافى الوكيل من {{count}} أخطاء في الأداة دون توقف.",
+  "observability.insights.handledRecovered_many":
+    "تعافى الوكيل من {{count}} خطأ في الأداة دون توقف.",
+  "observability.insights.handledRecovered_other":
+    "تعافى الوكيل من {{count}} خطأ في الأداة دون توقف.",
+  "observability.insights.completedRecovered_zero":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} أخطاء في الأداة",
+  "observability.insights.completedRecovered_one":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأ في الأداة",
+  "observability.insights.completedRecovered_two":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأين في الأداة",
+  "observability.insights.completedRecovered_few":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} أخطاء في الأداة",
+  "observability.insights.completedRecovered_many":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأ في الأداة",
+  "observability.insights.completedRecovered_other":
+    "{{done}} من آخر {{total}}، بعد التعافي من {{count}} خطأ في الأداة",
+  "observability.insights.seePrompts_zero": "عرض {{count}} برومبتات",
+  "observability.insights.seePrompts_one": "عرض {{count}} برومبت",
+  "observability.insights.seePrompts_two": "عرض {{count}} برومبتين",
+  "observability.insights.seePrompts_few": "عرض {{count}} برومبتات",
+  "observability.insights.seePrompts_many": "عرض {{count}} برومبت",
+  "observability.insights.seePrompts_other": "عرض {{count}} برومبت",
+  "observability.insights.erroredTitle_zero": "{{count}} برومبتات انتهت بخطأ",
+  "observability.insights.erroredTitle_one": "{{count}} برومبت انتهى بخطأ",
+  "observability.insights.erroredTitle_two": "{{count}} برومبتان انتهيا بخطأ",
+  "observability.insights.erroredTitle_few": "{{count}} برومبتات انتهت بخطأ",
+  "observability.insights.erroredTitle_many": "{{count}} برومبت انتهى بخطأ",
+  "observability.insights.erroredTitle_other": "{{count}} برومبت انتهى بخطأ",
+  "observability.insights.toolFailedTitle_zero":
+    "فشلت أداة {{tool}} في {{count}} برومبتات",
+  "observability.insights.toolFailedTitle_one":
+    "فشلت أداة {{tool}} في {{count}} برومبت",
+  "observability.insights.toolFailedTitle_two":
+    "فشلت أداة {{tool}} في {{count}} برومبتين",
+  "observability.insights.toolFailedTitle_few":
+    "فشلت أداة {{tool}} في {{count}} برومبتات",
+  "observability.insights.toolFailedTitle_many":
+    "فشلت أداة {{tool}} في {{count}} برومبت",
+  "observability.insights.toolFailedTitle_other":
+    "فشلت أداة {{tool}} في {{count}} برومبت",
+  "observability.insights.priciestBody_zero":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوات.",
+  "observability.insights.priciestBody_one":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوة.",
+  "observability.insights.priciestBody_two":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوتين.",
+  "observability.insights.priciestBody_few":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوات.",
+  "observability.insights.priciestBody_many":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوة.",
+  "observability.insights.priciestBody_other":
+    "استهلك «{{prompt}}» {{amount}} على مدى {{count}} خطوة.",
+  "observability.insights.recoveredShort_zero":
+    "تعافى من {{count}} أخطاء في الأداة",
+  "observability.insights.recoveredShort_one":
+    "تعافى من {{count}} خطأ في الأداة",
+  "observability.insights.recoveredShort_two":
+    "تعافى من {{count}} خطأين في الأداة",
+  "observability.insights.recoveredShort_few":
+    "تعافى من {{count}} أخطاء في الأداة",
+  "observability.insights.recoveredShort_many":
+    "تعافى من {{count}} خطأ في الأداة",
+  "observability.insights.recoveredShort_other":
+    "تعافى من {{count}} خطأ في الأداة",
+  "observability.insights.toolsFailedShort_zero": "{{count}} أدوات فشلت",
+  "observability.insights.toolsFailedShort_one": "{{count}} أداة فشلت",
+  "observability.insights.toolsFailedShort_two": "{{count}} أداتان فشلتا",
+  "observability.insights.toolsFailedShort_few": "{{count}} أدوات فشلت",
+  "observability.insights.toolsFailedShort_many": "{{count}} أداة فشلت",
+  "observability.insights.toolsFailedShort_other": "{{count}} أداة فشلت",
+  "observability.insights.stepsCount_zero": "{{count}} خطوات",
+  "observability.insights.stepsCount_one": "{{count}} خطوة",
+  "observability.insights.stepsCount_two": "{{count}} خطوتان",
+  "observability.insights.stepsCount_few": "{{count}} خطوات",
+  "observability.insights.stepsCount_many": "{{count}} خطوة",
+  "observability.insights.stepsCount_other": "{{count}} خطوة",
+  "observability.insights.startedOverNote_zero":
+    "بدأ من جديد {{count}} مرات بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "observability.insights.startedOverNote_one":
+    "بدأ من جديد {{count}} مرة بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "observability.insights.startedOverNote_two":
+    "بدأ من جديد {{count}} مرتين بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "observability.insights.startedOverNote_few":
+    "بدأ من جديد {{count}} مرات بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "observability.insights.startedOverNote_many":
+    "بدأ من جديد {{count}} مرة بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "observability.insights.startedOverNote_other":
+    "بدأ من جديد {{count}} مرة بعد {{reason}}. كلّف ذلك حوالي {{amount}} من {{total}}.",
+  "observability.insights.toolFailedNote_zero":
+    "فشلت أداة {{tool}} {{count}} مرات.",
+  "observability.insights.toolFailedNote_one":
+    "فشلت أداة {{tool}} {{count}} مرة.",
+  "observability.insights.toolFailedNote_two":
+    "فشلت أداة {{tool}} {{count}} مرتين.",
+  "observability.insights.toolFailedNote_few":
+    "فشلت أداة {{tool}} {{count}} مرات.",
+  "observability.insights.toolFailedNote_many":
+    "فشلت أداة {{tool}} {{count}} مرة.",
+  "observability.insights.toolFailedNote_other":
+    "فشلت أداة {{tool}} {{count}} مرة.",
+  "observability.insights.toolFailedRecoveredNote_zero":
+    "فشلت أداة {{tool}} {{count}} مرات، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "observability.insights.toolFailedRecoveredNote_one":
+    "فشلت أداة {{tool}} {{count}} مرة، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "observability.insights.toolFailedRecoveredNote_two":
+    "فشلت أداة {{tool}} {{count}} مرتين، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "observability.insights.toolFailedRecoveredNote_few":
+    "فشلت أداة {{tool}} {{count}} مرات، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "observability.insights.toolFailedRecoveredNote_many":
+    "فشلت أداة {{tool}} {{count}} مرة، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "فشلت أداة {{tool}} {{count}} مرة، لكن الوكيل واصل العمل وأنهى المهمة.",
+  "observability.insights.showSteps_zero": "إظهار {{count}} خطوات",
+  "observability.insights.showSteps_one": "إظهار {{count}} خطوة",
+  "observability.insights.showSteps_two": "إظهار {{count}} خطوتين",
+  "observability.insights.showSteps_few": "إظهار {{count}} خطوات",
+  "observability.insights.showSteps_many": "إظهار {{count}} خطوة",
+  "observability.insights.showSteps_other": "إظهار {{count}} خطوة",
   "billing.builderCreditLimitTitle": "نفدت أرصدة Builder لديك",
   "billing.builderCreditLimitEmailBody":
     "توقف طلب الذكاء الاصطناعي لأن أرصدة حساب Builder المتصل بك قد نفدت. قم بترقية خطة Builder للمتابعة.",
@@ -1399,6 +1709,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "إنفاقك التقديري",
   "settings.usage.yourCreditSpend": "إنفاقك من أرصدة Builder.io",
   "settings.usage.calls": "الاستدعاءات",
+  "settings.usage.chatgptPlanUsage": "استخدام خطة ChatGPT",
   "settings.usage.tokens": "الرموز",
   "settings.usage.activePeople": "الأشخاص النشطون",
   "settings.usage.history": "سجل الاستخدام",
@@ -1806,6 +2117,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsFootnote":
     "قد تحتوي هذه الميزات الجديدة غير المستقرة على أخطاء.",
   "settingsShell.appGroup.labsLoadError": "تعذّر تحميل المختبرات.",
+  "settingsShell.appGroup.labsReadError":
+    "تعذّرت قراءة هذا الاختيار المحفوظ. اختر تشغيل أو إيقاف لإعداده مجددًا.",
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
@@ -1822,7 +2135,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "عرض كل التحديثات",
   "settingsShell.backToApp": "العودة إلى {{app}}",
   "settingsShell.breadcrumbLabel": "مسار التنقل",
-  "settingsShell.builder.connect": "ربط",
+  "settingsShell.builder.connect": "استخدم Builder.io",
   "settingsShell.builder.connected": "مرتبط",
   "settingsShell.builder.connectedTo": "مرتبط · {{space}}",
   "settingsShell.builder.connection": "الاتصال",
@@ -1833,6 +2146,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed": "تعذّر قطع اتصال Builder.io.",
   "settingsShell.builder.disconnectTitle": "هل تريد قطع اتصال Builder.io؟",
   "settingsShell.builder.grantsFailed": "تعذّرت قراءة اتصالات Builder.io.",
+  "settingsShell.builder.setupStartFailed":
+    "تعذّر بدء إعداد Builder.io. حدّث هذه الصفحة وحاول مرة أخرى.",
+  "settingsShell.builder.setupHostFailed":
+    "تعذّر فتح Builder من مضيف المحادثة هذا. افتح التطبيق في علامة تبويب بالمتصفح وأعد محاولة إعداد Builder.io (الخطة المجانية متاحة).",
+  "settingsShell.builder.setupFailed":
+    "لم يكتمل إعداد Builder.io. حاول مرة أخرى، أو استخدم مفاتيحك الخاصة.",
   "settingsShell.builder.loss.defaultStops":
     "تتوقف المحادثات حتى تضيف موفرًا للمؤسسة.",
   "settingsShell.builder.loss.defaultSwitches":
@@ -1847,9 +2166,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "يجب إعادة ربطه.",
   "settingsShell.builder.orgFallback": "مؤسستك",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "غير مرتبط. عند ربطه يمكن لكل من في {{org}} استخدامه.",
+    "غير متصل. استخدم Builder.io لتمكين الجميع في {{org}} من الوصول.",
   "settingsShell.builder.orgNotConnectedMember":
-    "غير مرتبط. يمكن للمالك أو المسؤول ربطه.",
+    "غير متصل. يمكن لمالك أو مسؤول تمكين Builder.io للجميع.",
   "settingsShell.builder.organization": "المؤسسة",
   "settingsShell.builder.personal": "شخصي",
   "settingsShell.builder.personalConnected": "مرتبط. أنت وحدك تستخدمه.",
@@ -1860,7 +2179,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "مرتبط · {{space}}. أنت وحدك تستخدمه بدلًا من اتصال المؤسسة.",
   "settingsShell.builder.personalNotConnected":
-    "اربط حسابك الخاص. أنت وحدك تستخدمه.",
+    "استخدم حساب Builder.io الخاص بك. أنت وحدك تستخدمه.",
   "settingsShell.builder.personalRestricted":
     "قيّد المالكون والمسؤولون مفاتيح API الشخصية.",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2389,7 +2708,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "متصل. رصيد حسابك يشغّل كل خدمة عليها علامة Builder.io.",
   "settingsInfra.builderNotConnected":
-    "غير متصل. أعدّ كل خدمة بنفسك، أو صِل Builder.io لاستخدام رصيد حسابك.",
+    "غير متصل. أعدّ كل خدمة بنفسك، أو استخدم Builder.io لتطبيق أرصدة حسابك.",
+  "settingsInfra.builderOverrideDescription":
+    "الرجوع إلى إعدادات النشر متاح. استخدم حساب Builder.io الخاص بك لتجاوزه.",
+  "settingsInfra.builderStorageHint":
+    "يحافظ تخزين الكائنات على الملفات المرفوعة ويجعل عناوين URL الخاصة بها قابلة لإعادة الاستخدام خلال المحادثة. استخدم Builder.io أو حاوية متوافقة مع S3 أدناه.",
   "settingsInfra.builderUnknown": "تعذّر التحقق من اتصال Builder.io.",
   "settingsInfra.manage": "إدارة",
   "settingsInfra.connect": "توصيل",
@@ -2560,13 +2883,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "متصل · {{space}}",
   "settingsModel.builderConnectedPlain": "متصل",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "غير متصل. عند توصيله، يمكن للجميع في {{org}} استخدامه.",
+    "غير متصل. استخدم Builder.io لتمكين الجميع في {{org}} من الوصول.",
   "settingsModel.builderOrgNotConnectedMember":
-    "غير متصل. يمكن لمالك أو مسؤول توصيله.",
+    "غير متصل. يمكن لمالك أو مسؤول تمكين Builder.io للجميع.",
   "settingsModel.builderPersonalConnect":
-    "صِل حسابك الخاص لاستخدام أرصدة Builder.io الخاصة بك.",
+    "استخدم حساب Builder.io الخاص بك للوصول إلى أرصدته.",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "صِل حسابك الخاص لاستخدامه بدلًا من اتصال المؤسسة.",
+    "استخدم حساب Builder.io الخاص بك بدلًا من اتصال المؤسسة.",
   "settingsModel.builderPersonalOverOrg":
     "متصل · {{space}}. يُستخدم بدلًا من اتصال المؤسسة.",
   "settingsModel.builderPersonalOverOrgPlain":
@@ -2576,10 +2899,31 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "تغيير",
   "settingsModel.chatgptConnected": "متصل",
   "settingsModel.chatgptDescription":
-    "استخدم محرك Codex مع خطة ChatGPT الخاصة بك.",
+    "استخدم نماذج OpenAI المؤهلة من خلال خطة ChatGPT الخاصة بك.",
   "settingsModel.chatgptPopupBlocked":
     "اسمح بالنوافذ المنبثقة لهذا الموقع، ثم حاول مرة أخرى.",
-  "settingsModel.chatgptTitle": "اشتراك ChatGPT",
+  "settingsModel.chatgptTitle": "الوصول إلى خطة ChatGPT",
+  "settingsModel.chatgptAddAccount": "إضافة حساب آخر",
+  "settingsModel.chatgptConnecting": "جارٍ الاتصال…",
+  "settingsModel.chatgptContinue": "المتابعة باستخدام ChatGPT",
+  "settingsModel.chatgptDisconnect": "قطع الاتصال",
+  "settingsModel.chatgptDisconnectTitle": "هل تريد قطع الاتصال بـ ChatGPT؟",
+  "settingsModel.chatgptDisconnectDescription":
+    "سيتم تسجيل خروج {{account}} من هذا التطبيق، وسيتوقف الوكيل عن استخدام خطة ChatGPT الخاصة بك. يمكنك تسجيل الدخول مرة أخرى في أي وقت.",
+  "settingsModel.chatgptDisconnecting": "جارٍ قطع الاتصال…",
+  "settingsModel.chatgptRemoveLegacySignIn": "إزالة تسجيل الدخول القديم",
+  "settingsModel.chatgptLegacySignInDetails":
+    "تم حفظ تسجيل دخول قديم إلى ChatGPT هنا. لا يمكن استخدامه في التدفق الرسمي.",
+  "settingsModel.chatgptManageAccess": "الإدارة في ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "تم قطع الاتصال هنا. قد يظل الوصول نشطًا في ChatGPT.",
+  "settingsModel.chatgptLocalOnly":
+    "يمكن استخدام تطبيقات المصدر المفتوح ذاتيًا عند تشغيلها محليًا باستخدام loopback callback، ولا حاجة إلى تقديم طلب شراكة. تحتاج التطبيقات المستضافة على *.agent-native.com إلى موافقة المشغّل وإلى hosted callback.",
+  "settingsModel.chatgptNoDirectUse":
+    "أعِد الاتصال واسمح بالوصول المباشر إلى النماذج لاستخدام حساب ChatGPT هذا.",
+  "settingsModel.chatgptReconnect": "إعادة الاتصال",
+  "settingsModel.chatgptSelectAccount": "حساب ChatGPT",
+  "settingsModel.chatgptUsageLimit": "تم بلوغ حد الاستخدام لخطة ChatGPT.",
   "settingsModel.checkAgain": "التحقق مرة أخرى",
   "settingsModel.checkedJustNow": "تم التحقق الآن.",
   "settingsModel.checkedOn": "تم التحقق في {{date}}.",
@@ -2589,8 +2933,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "جارٍ التحقق من المفتاح المحفوظ",
   "settingsModel.chooseModel": "اختر نموذجًا",
   "settingsModel.clear": "مسح",
-  "settingsModel.connect": "توصيل",
-  "settingsModel.connecting": "جارٍ التوصيل…",
   "settingsModel.defaultModelDescription":
     "يُستخدم في كل تطبيق ما لم يحدد التطبيق نموذجه الخاص.",
   "settingsModel.defaultModelNeedsProvider": "أضف مزوّدًا لاختيار نموذج افتراضي.",
@@ -2754,6 +3096,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "تصفح Global A2A Registry",
   "settingsSubAgents.connectTitle": "ربط {{name}}",
   "settingsSubAgents.close": "إغلاق",
+  "observability.insights.rawTrace":
+    "التتبع الخام (كل الخطوات مع المدخلات والمخرجات)",
 };
 
 export default messages;

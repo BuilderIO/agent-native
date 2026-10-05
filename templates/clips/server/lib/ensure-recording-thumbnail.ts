@@ -1,7 +1,4 @@
-import { randomUUID } from "node:crypto";
-
 import {
-  compareAndSetAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -19,6 +16,11 @@ import {
   loadRecordingMediaBytes,
   type PublicAgentRecording,
 } from "./public-agent-context.js";
+import {
+  claimLease,
+  releaseLease,
+  type RecordingLease,
+} from "./recording-leases.js";
 import { ownerEmailMatches } from "./recordings.js";
 import { extractJpegFrame, VideoFrameExtractionError } from "./video-frame.js";
 
@@ -55,6 +57,18 @@ export interface EnsureRecordingThumbnailResult {
   changed: boolean;
   thumbnailUrl?: string | null;
   detail?: string;
+  /** The media fetch failed on storage or the network, not on this recording. */
+  transient?: boolean;
+}
+
+// `RecordingMediaFetchError` carries the HTTP status (502 network, 504
+// timeout); a 404 or a blocked URL is about the recording itself.
+function isTransientMediaFetchError(error: unknown): boolean {
+  const status = (error as { statusCode?: unknown } | null)?.statusCode;
+  return (
+    typeof status === "number" &&
+    (status === 408 || status === 429 || status >= 500)
+  );
 }
 
 type EnsureRecordingThumbnailParams = {
@@ -69,14 +83,10 @@ type EnsureRecordingThumbnailParams = {
 };
 
 const RECORDING_THUMBNAIL_LEASE_MS = 5 * 60 * 1000;
-const RECORDING_THUMBNAIL_LEASE_PREFIX = "recording-thumbnail-lease-";
+const RECORDING_THUMBNAIL_LEASE_PREFIX = "recording-thumbnail:";
 const RECORDING_THUMBNAIL_ASSET_PREFIX = "recording-thumbnail-asset-";
 
-type RecordingThumbnailLease = {
-  key: string;
-  token: string;
-  expiresAt: number;
-};
+type RecordingThumbnailLease = RecordingLease;
 
 type GeneratedThumbnailAsset = {
   url: string;
@@ -92,45 +102,20 @@ function recordingThumbnailAssetKey(recordingId: string): string {
   return `${RECORDING_THUMBNAIL_ASSET_PREFIX}${recordingId}`;
 }
 
-function hasActiveThumbnailLease(
-  value: Record<string, unknown> | null,
-  now: number,
-): boolean {
-  return (
-    typeof value?.token === "string" &&
-    typeof value.expiresAt === "number" &&
-    value.expiresAt > now
-  );
-}
-
-export async function claimRecordingThumbnailLease(
+export function claimRecordingThumbnailLease(
   recordingId: string,
 ): Promise<RecordingThumbnailLease | null> {
-  const key = recordingThumbnailLeaseKey(recordingId);
-  const previous = await readAppState(key);
-  const now = Date.now();
-  if (hasActiveThumbnailLease(previous, now)) return null;
-
-  const lease = {
-    token: randomUUID(),
-    expiresAt: now + RECORDING_THUMBNAIL_LEASE_MS,
-  };
-  if (!(await compareAndSetAppState(key, previous, lease))) return null;
-  return { key, token: lease.token, expiresAt: lease.expiresAt };
+  return claimLease(
+    recordingThumbnailLeaseKey(recordingId),
+    RECORDING_THUMBNAIL_LEASE_MS,
+  );
 }
 
 export async function releaseRecordingThumbnailLease(
   lease: RecordingThumbnailLease,
 ): Promise<void> {
   try {
-    await compareAndSetAppState(
-      lease.key,
-      {
-        token: lease.token,
-        expiresAt: lease.expiresAt,
-      },
-      null,
-    );
+    await releaseLease(lease);
   } catch (error) {
     console.warn("[clips] recording thumbnail lease release failed", {
       error: error instanceof Error ? error.message : String(error),
@@ -462,6 +447,7 @@ async function ensureRecordingThumbnailOnce(
           status: "skipped-media-fetch",
           changed: false,
           detail: error instanceof Error ? error.message : String(error),
+          transient: isTransientMediaFetchError(error),
         };
       }
     }

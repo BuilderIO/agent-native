@@ -56,7 +56,7 @@ const concurrency = resolveConcurrency(
 const pnpmArgs = [
   "-r",
   ...(process.env.GITHUB_ACTIONS === "true"
-    ? ["--filter", "!./community-templates/**"]
+    ? ["--filter", "!agentnative", "--filter", "!./community-templates/**"]
     : []),
   "--no-bail",
   `--workspace-concurrency=${formatConcurrency(concurrency)}`,

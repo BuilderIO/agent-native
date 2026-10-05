@@ -2,6 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   AgentToggleButton,
   useSendToAgentChat,
@@ -16,6 +17,7 @@ import {
 } from "@shared/session-replay-diagnostics";
 import {
   IconArrowLeft,
+  IconBolt,
   IconCheck,
   IconChevronRight,
   IconCopy,
@@ -29,6 +31,7 @@ import {
   IconPlayerSkipForward,
   IconPlayerTrackNext,
   IconRoute,
+  IconRouteOff,
   IconSearch,
   IconTerminal2,
   IconTimelineEvent,
@@ -71,6 +74,8 @@ import {
 import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
+import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
+import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../../shared/session-events";
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
@@ -152,11 +157,18 @@ type ReplayMarker = {
   id: string;
   offsetMs: number;
   timestamp: number;
-  kind: "navigation" | "input" | "click" | "console" | "custom";
+  kind: "navigation" | "input" | "click" | "console" | "custom" | "event";
   label: string;
   detail?: string;
   severity?: "info" | "warn" | "error";
   fields?: Array<{ label: string; value: string }>;
+  /** Navigation markers merged into this one when page changes collapse. */
+  collapsedCount?: number;
+};
+
+export type ReplayMarkerOptions = {
+  /** Show tracked app events and failed actions (Sessions triage Lab). */
+  appEvents?: boolean;
 };
 
 type SkipRange = {
@@ -437,7 +449,19 @@ function ReplayWorkbench({
   initialSeekMs: number;
 }) {
   const events = useReplayEvents(response);
-  const markers = useMemo(() => buildReplayMarkers(events), [events]);
+  const appEvents = useLab(ANALYTICS_SESSIONS_TRIAGE_LAB);
+  const [pageChangesCollapsed, setPageChangesCollapsed] = useState(false);
+  const allMarkers = useMemo(
+    () => buildReplayMarkers(events, { appEvents }),
+    [events, appEvents],
+  );
+  const markers = useMemo(
+    () =>
+      appEvents && pageChangesCollapsed
+        ? collapsePageChangeMarkers(allMarkers)
+        : allMarkers,
+    [allMarkers, appEvents, pageChangesCollapsed],
+  );
   const [currentTime, setCurrentTime] = useState(0);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
   const seekRef = useRef<(ms: number, autoplay?: boolean) => void>(() => {});
@@ -472,6 +496,14 @@ function ReplayWorkbench({
         isLoading={!response.isComplete}
         activeMarkerId={activeMarkerId}
         onSeek={(ms) => seekRef.current(ms, true)}
+        pageChanges={
+          appEvents
+            ? {
+                collapsed: pageChangesCollapsed,
+                onCollapsedChange: setPageChangesCollapsed,
+              }
+            : undefined
+        }
       />
     </div>
   );
@@ -566,12 +598,16 @@ function ReplayPlayer({
     [errorSignatures],
   );
   const recordingId = response.recording.id;
+  const recordingApp = response.recording.app;
   const issueMatchQuery = useQuery({
     queryKey: ["match-error-issues", recordingId, errorSignaturesKey],
     queryFn: () =>
       callAction<Record<string, SessionIssueMatch>>(
         "match-error-issues",
-        { signatures: errorSignatures },
+        {
+          signatures: errorSignatures,
+          ...(recordingApp ? { app: recordingApp } : {}),
+        },
         { method: "POST" },
       ),
     enabled: devToolsOpen && errorSignatures.length > 0,
@@ -1057,6 +1093,7 @@ function ReplayPlayer({
                 disabled={disabled}
                 onScrub={beginScrub}
                 onScrubEnd={endScrub}
+                onMarkerSeek={(ms) => seek(ms, true)}
               />
               <span className="w-12 text-center font-mono text-xs text-muted-foreground">
                 {formatClock(totalTime)}
@@ -1187,6 +1224,7 @@ function ReplayScrubber({
   disabled,
   onScrub,
   onScrubEnd,
+  onMarkerSeek,
 }: {
   currentTime: number;
   totalTime: number;
@@ -1196,6 +1234,7 @@ function ReplayScrubber({
   disabled: boolean;
   onScrub: (ms: number) => void;
   onScrubEnd: (ms: number) => void;
+  onMarkerSeek: (ms: number) => void;
 }) {
   const t = useT();
   const scrubberMarkers = useMemo(
@@ -1249,6 +1288,28 @@ function ReplayScrubber({
       <div className="pointer-events-none absolute inset-x-0 top-1/2 z-30 h-5 -translate-y-1/2">
         {scrubberMarkers.map((marker) => {
           const left = totalTime > 0 ? (marker.offsetMs / totalTime) * 100 : 0;
+          if (marker.kind === "event") {
+            // App events are clickable seek targets; the timeline list is the
+            // keyboard path to the same markers.
+            return (
+              <button
+                key={marker.id}
+                type="button"
+                tabIndex={-1}
+                disabled={disabled}
+                title={`${marker.label} ${formatClock(marker.offsetMs)}`}
+                aria-label={`${marker.label} ${formatClock(marker.offsetMs)}`}
+                className={cn(
+                  "pointer-events-auto absolute top-1/2 h-3 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-sm ring-1 ring-background/80 transition-transform hover:scale-y-125",
+                  marker.severity === "error"
+                    ? "bg-destructive"
+                    : "bg-indigo-500",
+                )}
+                style={{ left: `${left}%` }}
+                onClick={() => onMarkerSeek(marker.offsetMs)}
+              />
+            );
+          }
           return (
             <span
               key={marker.id}
@@ -1312,11 +1373,16 @@ function ReplayTimeline({
   isLoading,
   activeMarkerId,
   onSeek,
+  pageChanges,
 }: {
   markers: ReplayMarker[];
   isLoading: boolean;
   activeMarkerId: string | null;
   onSeek: (ms: number) => void;
+  pageChanges?: {
+    collapsed: boolean;
+    onCollapsedChange: (collapsed: boolean) => void;
+  };
 }) {
   const t = useT();
   const [expandedMarkerId, setExpandedMarkerId] = useState<string | null>(null);
@@ -1356,8 +1422,35 @@ function ReplayTimeline({
     <Card className="analytics-session-detail-timeline min-h-0 min-w-0 overflow-hidden">
       <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-0">
         <div className="min-w-0 shrink-0 space-y-2 border-b px-3 py-2">
-          <div className="truncate text-sm font-semibold">
-            {t("sessions.timeline")}
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="truncate text-sm font-semibold">
+              {t("sessions.timeline")}
+            </div>
+            {pageChanges ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant={pageChanges.collapsed ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    aria-pressed={pageChanges.collapsed}
+                    aria-label={t("sessions.collapsePageChanges")}
+                    onClick={() =>
+                      pageChanges.onCollapsedChange(!pageChanges.collapsed)
+                    }
+                  >
+                    {pageChanges.collapsed ? (
+                      <IconRouteOff className="h-4 w-4" />
+                    ) : (
+                      <IconRoute className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("sessions.collapsePageChanges")}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
           {!isLoading || markers.length ? (
             <div className="relative">
@@ -1425,14 +1518,31 @@ function ReplayTimeline({
                             "border-red-500/35 bg-red-500/10 text-red-500",
                           marker.kind === "custom" &&
                             "border-violet-500/35 bg-violet-500/10 text-violet-500",
+                          marker.kind === "event" &&
+                            marker.severity !== "error" &&
+                            "border-indigo-500/35 bg-indigo-500/10 text-indigo-500",
+                          marker.kind === "event" &&
+                            marker.severity === "error" &&
+                            "border-destructive/35 bg-destructive/10 text-destructive",
                         )}
                       >
                         <MarkerIcon kind={marker.kind} />
                       </span>
                       <span className="min-w-0 flex-1 overflow-hidden">
                         <span className="flex min-w-0 items-center justify-between gap-3">
-                          <span className="truncate text-sm font-medium">
-                            {marker.label}
+                          <span
+                            className={cn(
+                              "truncate text-sm font-medium",
+                              marker.kind === "event" &&
+                                marker.severity !== "error" &&
+                                "font-mono",
+                            )}
+                          >
+                            {marker.collapsedCount
+                              ? t("sessions.pageChangesCollapsed", {
+                                  count: String(marker.collapsedCount),
+                                })
+                              : marker.label}
                           </span>
                           <span className="shrink-0 font-mono text-xs text-muted-foreground">
                             {formatClock(marker.offsetMs)}
@@ -1474,6 +1584,7 @@ function MarkerIcon({ kind }: { kind: ReplayMarker["kind"] }) {
   if (kind === "input") return <IconKeyboard className="h-4 w-4" />;
   if (kind === "click") return <IconMouse className="h-4 w-4" />;
   if (kind === "console") return <IconTerminal2 className="h-4 w-4" />;
+  if (kind === "event") return <IconBolt className="h-4 w-4" />;
   return <IconTimelineEvent className="h-4 w-4" />;
 }
 
@@ -1942,7 +2053,10 @@ export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
     .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
 }
 
-export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
+export function buildReplayMarkers(
+  events: AnyReplayEvent[],
+  options: ReplayMarkerOptions = {},
+): ReplayMarker[] {
   const startedAt = replayStartedAt(events);
   const markers: ReplayMarker[] = [];
   for (const event of events) {
@@ -2022,6 +2136,7 @@ export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
         timestamp,
         startedAt,
         markers.length,
+        options,
       );
       if (marker) markers.push(marker);
     }
@@ -2078,10 +2193,25 @@ function customReplayMarker(
   timestamp: number,
   startedAt: number,
   index: number,
+  options: ReplayMarkerOptions,
 ): ReplayMarker | null {
   const tag = String(event.data?.tag ?? "Custom event");
   const payload = isRecord(event.data?.payload) ? event.data.payload : {};
   const offsetMs = Math.max(0, timestamp - startedAt);
+
+  if (tag === SESSION_REPLAY_ANALYTICS_EVENT_TAG) {
+    const name = typeof payload.name === "string" ? payload.name.trim() : "";
+    if (!options.appEvents || !name) return null;
+    return {
+      id: `event-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "event",
+      label: name,
+      severity: "info",
+      fields: markerFields([["Event", name]]),
+    };
+  }
 
   if (tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
     const level = typeof payload.level === "string" ? payload.level : "log";
@@ -2119,6 +2249,27 @@ function customReplayMarker(
       typeof payload.method === "string" ? payload.method : undefined;
     const url = typeof payload.url === "string" ? payload.url : undefined;
     const error = typeof payload.error === "string" ? payload.error : undefined;
+    const actionName = options.appEvents ? replayActionName(url) : null;
+    if (actionName) {
+      return {
+        id: `action-${timestamp}-${index}`,
+        timestamp,
+        offsetMs,
+        kind: "event",
+        label: "Action failed", // i18n-ignore: timeline protocol label.
+        detail: [actionName, Number.isFinite(status) && status ? status : null]
+          .filter(Boolean)
+          .join(" · "),
+        severity: "error",
+        fields: markerFields([
+          ["Action", actionName],
+          ["Method", method],
+          ["Status", Number.isFinite(status) ? status : undefined],
+          ["Error", error],
+          ["Duration", payload.durationMs],
+        ]),
+      };
+    }
     return {
       id: `network-${timestamp}-${index}`,
       timestamp,
@@ -2145,6 +2296,54 @@ function customReplayMarker(
     label: tag,
     detail: typeof payload.message === "string" ? payload.message : undefined,
   };
+}
+
+const ACTION_ROUTE_PATTERN = /\/_agent-native\/actions\/([A-Za-z0-9._:%-]+)/;
+
+/** The action name when a captured request called an Agent-Native action. */
+export function replayActionName(url: string | undefined): string | null {
+  if (!url) return null;
+  const match = ACTION_ROUTE_PATTERN.exec(url);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+/**
+ * Merge each run of page changes into one marker. App events, errors, and
+ * input end a run; clicks and scrolls, which usually cause the navigation,
+ * do not.
+ */
+export function collapsePageChangeMarkers(
+  markers: ReplayMarker[],
+): ReplayMarker[] {
+  const collapsed: ReplayMarker[] = [];
+  let runIndex: number | null = null;
+  for (const marker of markers) {
+    if (marker.kind === "navigation") {
+      if (runIndex === null) {
+        runIndex = collapsed.push({ ...marker }) - 1;
+        continue;
+      }
+      const run = collapsed[runIndex];
+      collapsed[runIndex] = {
+        ...run,
+        collapsedCount: (run.collapsedCount ?? 1) + 1,
+        detail: marker.detail,
+        fields: marker.fields,
+      };
+      continue;
+    }
+    const passive =
+      marker.kind === "click" ||
+      (marker.kind === "custom" && marker.label === "Scroll");
+    if (!passive) runIndex = null;
+    collapsed.push(marker);
+  }
+  return collapsed;
 }
 
 export function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
@@ -2526,6 +2725,7 @@ function visibleScrubberMarkers(
 
 function markerPriority(marker: ReplayMarker): number {
   if (marker.severity === "error") return 6;
+  if (marker.kind === "event") return 5.5;
   if (marker.kind === "navigation") return 5;
   if (marker.kind === "click") return 4;
   if (marker.severity === "warn") return 3;

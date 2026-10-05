@@ -1209,7 +1209,7 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     testState.document.content = "A local edit typed just now";
 
     const promise = pushDocumentToNotion("alice@example.com", "doc-1", false);
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(450);
     const status = await promise;
 
     expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
@@ -1223,7 +1223,7 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     testState.link.syncClaimedAt = new Date().toISOString();
 
     const promise = pullDocumentFromNotion("alice@example.com", "doc-1", true);
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(450);
     const status = await promise;
 
     expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
@@ -1246,7 +1246,7 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
 
     const promise = pushDocumentToNotion("alice@example.com", "doc-1", false);
     testState.link.syncClaimedAt = null;
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(450);
     const status = await promise;
 
     expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalled();
@@ -1273,7 +1273,7 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     });
 
     const promise = pushDocumentToNotion("alice@example.com", "doc-1", false);
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(450);
     await promise;
 
     expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalled();

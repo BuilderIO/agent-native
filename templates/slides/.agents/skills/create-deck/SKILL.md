@@ -58,8 +58,8 @@ Before authoring slide HTML, make a compact deck brief with the audience, job,
 narrative thesis, one-sentence visual direction, active design-system tokens,
 reference-deck composition pattern, image treatment, and known fit risks. The
 linked Agent-Native design system controls tokens, typography, spacing, imagery,
-and slide chrome. Impeccable-inspired advice about hierarchy, subtraction,
-contrast, rhythm, and polish is a review lens, not a competing theme. If the
+and slide chrome. Read `slide-design` for visual craft; it works inside the
+active system and reference deck, never as a competing theme. If the
 request is open-ended and no approved direction exists, ask one targeted guided
 question or present a bounded choice before writing; do not silently pick a new
 brand language.
@@ -244,7 +244,10 @@ Build an intentional composition beyond a text dump: use a title block,
 two-column split, metric treatment, rule, callout, visual placeholder, or
 simple diagram where it fits the message. Keep the canvas stable across the
 deck, use accents only for hierarchy or meaning, and do not add decorative
-cards, gradients, fake logos, or shapes without a semantic role.
+cards, gradients, fake logos, or shapes without a semantic role. A slide
+with nothing real to show is complete with type, spacing, and a rule. A
+built-in template's signature art belongs to that template; do not carry it
+into other decks.
 
 ## Bounded visual QA
 

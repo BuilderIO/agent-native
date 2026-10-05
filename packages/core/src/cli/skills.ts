@@ -650,6 +650,9 @@ const SKILL_INSTRUCTION_CLIENT_LABELS: Record<
   "claude-code-cli": "Claude Code",
   codex: "Shared .agents skills",
   cowork: "MCP only",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  "github-copilot": "GitHub Copilot",
   pi: "Pi",
 };
 const SKILL_INSTRUCTION_CLIENT_HINTS: Record<SkillInstructionClientId, string> =
@@ -661,6 +664,9 @@ const SKILL_INSTRUCTION_CLIENT_HINTS: Record<SkillInstructionClientId, string> =
     codex:
       "Project scope writes .agents skills/commands for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents; user scope writes Codex's ~/.codex skills/commands.",
     cowork: "MCP only",
+    cursor: "Uses shared project .agents skills and commands.",
+    opencode: "Uses shared project .agents skills and commands.",
+    "github-copilot": "Uses shared project .agents skills and commands.",
     pi: "Project scope writes .agents/skills plus .pi/prompts; user scope writes ~/.agents/skills plus ~/.pi/agent/prompts.",
   };
 
@@ -866,8 +872,12 @@ function normalizeKnownSkillTarget(
   value: string | undefined,
 ): BuiltInAppSkillId | undefined {
   const key = value?.trim().toLowerCase();
-  if (!key) return undefined;
-  return BUILT_IN_APP_SKILL_ALIASES[key];
+  if (!key || !Object.hasOwn(BUILT_IN_APP_SKILL_ALIASES, key)) {
+    return undefined;
+  }
+  return BUILT_IN_APP_SKILL_ALIASES[
+    key as keyof typeof BUILT_IN_APP_SKILL_ALIASES
+  ];
 }
 
 function isKnownSkill(value: string | undefined): boolean {
@@ -920,7 +930,9 @@ function preflightResolvedRewindTargets(
 
 function isLocalOnlyBuiltInSkill(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
-): boolean {
+): entry is (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] & {
+  localOnly: true;
+} {
   return Boolean(entry && "localOnly" in entry && entry.localOnly);
 }
 
@@ -1233,7 +1245,7 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function defaultContentLocalFilesAppConfig(): Record<string, unknown> {
+function defaultContentLocalFilesAppConfig() {
   return {
     mode: "local-files",
     roots: [
@@ -1303,10 +1315,11 @@ function mergeContentLocalFilesManifest(
   const apps = isJsonRecord(manifest.apps) ? { ...manifest.apps } : {};
   const contentApp = isJsonRecord(apps.content) ? { ...apps.content } : {};
   const defaults = defaultContentLocalFilesAppConfig();
-  if (!Array.isArray(contentApp.roots) || contentApp.roots.length === 0) {
-    contentApp.roots = defaults.roots;
-  }
-  contentApp.roots = contentApp.roots.map((root: unknown) => {
+  const roots =
+    Array.isArray(contentApp.roots) && contentApp.roots.length > 0
+      ? contentApp.roots
+      : defaults.roots;
+  contentApp.roots = roots.map((root: unknown) => {
     if (!isJsonRecord(root) || typeof root.path !== "string") return root;
     const source = isJsonRecord(root.source) ? root.source : {};
     return {
@@ -1573,7 +1586,7 @@ function restoreInstallPaths(
   snapshots: InstallPathSnapshot[],
   boundary: string,
 ): void {
-  for (const snapshot of snapshots.toReversed()) {
+  for (const snapshot of snapshots.slice().reverse()) {
     fs.rmSync(snapshot.target, { recursive: true, force: true });
     if (snapshot.existed) {
       fs.mkdirSync(path.dirname(snapshot.target), { recursive: true });
@@ -2228,22 +2241,6 @@ function updateSkillInstallStates(
   return updated;
 }
 
-function normalizeClientIds(values: unknown): ClientId[] {
-  if (!Array.isArray(values)) return [];
-  const seen = new Set<ClientId>();
-  const out: ClientId[] = [];
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const id = value.toLowerCase();
-    if (!(CLIENTS as string[]).includes(id)) continue;
-    const client = id as ClientId;
-    if (seen.has(client)) continue;
-    seen.add(client);
-    out.push(client);
-  }
-  return out;
-}
-
 function isMcpClientId(value: SkillInstructionClientId): value is ClientId {
   return (CLIENTS as string[]).includes(value);
 }
@@ -2620,7 +2617,7 @@ async function promptForPlanMcpUrl(): Promise<string | null> {
     placeholder: "https://my-plan-app.example.com",
     validate(value) {
       try {
-        resolveMcpUrlOverride(value);
+        resolveMcpUrlOverride(value ?? "");
         return undefined;
       } catch (err: any) {
         return err?.message ?? "Enter a valid http:// or https:// URL.";
@@ -3481,7 +3478,7 @@ async function connectAfterEnsure(
   let wroteAuthMessage = false;
   const clearSpinner = () => {
     if (!spinnerActive) return;
-    spinner.clear();
+    spinner?.clear();
     spinnerActive = false;
   };
   const writeAuthMessage = () => {
@@ -4615,11 +4612,6 @@ export async function runSkills(
           .filter((command): command is string => Boolean(command)),
       ),
     ];
-    const authLine = authConnected
-      ? "Authentication: completed."
-      : pendingConnectCommands.length
-        ? `Authentication: pending — run ${pendingConnectCommands.join(" && ")}`
-        : "";
     const githubActions = [
       ...new Set(
         results

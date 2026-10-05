@@ -293,6 +293,51 @@ describe("ConnectBuilderCard", () => {
     window.removeEventListener("agent-panel:open-settings", handleOpenSettings);
   });
 
+  it("shows Builder.io for the legacy Fusion connection label and preserves org names", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      codeChangeConfigured: false,
+      builderEnabled: false,
+      orgName: "Fusion",
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard configured builderEnabled={false} connectUrl="" />,
+      );
+    });
+
+    expect(container.textContent).toContain("Connected to Builder.io.");
+    expect(container.textContent).not.toContain("Connected to Fusion");
+
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      codeChangeConfigured: false,
+      builderEnabled: false,
+      orgName: "Acme workspace",
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard configured builderEnabled={false} connectUrl="" />,
+      );
+    });
+
+    expect(container.textContent).toContain("Connected to Acme workspace.");
+  });
+
   it("keeps cloud code-change send when OAuth and legacy keys both exist", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,

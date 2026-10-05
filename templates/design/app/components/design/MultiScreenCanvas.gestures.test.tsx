@@ -1936,6 +1936,42 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     );
   });
 
+  it("lets the Interact guard run before changing the picked screen", async () => {
+    const onEdit = vi.fn();
+    const onPick = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          onPick={onPick}
+          onEdit={onEdit}
+        />,
+      );
+    });
+
+    const interact = container.querySelector<HTMLButtonElement>(
+      "[data-frame-full-view]",
+    );
+    expect(interact).not.toBeNull();
+    await act(async () => interact?.click());
+
+    expect(onEdit).toHaveBeenCalledWith("screen-a");
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
   it("hides narrow breakpoint width suffixes without truncating the device label", async () => {
     await act(async () => {
       root.render(
@@ -2623,6 +2659,47 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
 
     expect(world!.style.transform).toBe(originTransform);
+  });
+
+  it("routes selected live screen content to the canvas while Hand is active", async () => {
+    const renderCanvas = async (activeTool: MultiScreenCanvasTool) => {
+      await act(async () => {
+        root.render(
+          <MultiScreenCanvas
+            screens={[
+              {
+                id: "screen-a",
+                filename: "screen-a.html",
+                content: "<!doctype html><html><body></body></html>",
+              },
+            ]}
+            zoom={100}
+            activeTool={activeTool}
+            activeId="screen-a"
+            selectedScreenIds={["screen-a"]}
+            metadataById={{ "screen-a": { width: 320, height: 240 } }}
+            geometryById={{
+              "screen-a": { x: 0, y: 0, width: 320, height: 240 },
+            }}
+            renderScreenContent={() => (
+              <iframe data-screen-iframe-id="screen-a" />
+            )}
+            onPick={() => {}}
+          />,
+        );
+      });
+    };
+
+    await renderCanvas("move");
+    const screenContent = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"] [data-screen-content]',
+    );
+    expect(screenContent).not.toBeNull();
+    expect(screenContent!.style.pointerEvents).toBe("auto");
+
+    await renderCanvas("hand");
+
+    expect(screenContent!.style.pointerEvents).toBe("none");
   });
 
   it("keeps locked screens visible but blocks canvas selection and dragging", async () => {

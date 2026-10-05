@@ -149,6 +149,22 @@ function writeToolkitMigrationManifest(toolkitDir: string): void {
   );
 }
 
+function writeInstalledToolkitPackage(
+  dir: string,
+  exports: Record<string, string>,
+): void {
+  const packageDir = path.join(dir, "node_modules/@agent-native/toolkit");
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(packageDir, "package.json"),
+    `${JSON.stringify({
+      name: "@agent-native/toolkit",
+      version: "0.5.2",
+      exports,
+    })}\n`,
+  );
+}
+
 function captureIo(overrides: Partial<UpgradeIo> = {}): {
   io: UpgradeIo;
   out: string[];
@@ -781,18 +797,10 @@ describe("runUpgrade", () => {
           ) as { dependencies: Record<string, string> };
           installDependencies.push({ ...packageJson.dependencies });
           writeInstalledPackage(root, "0.131.4");
+          writeInstalledToolkitPackage(root, { "./editor": "./editor.js" });
           const toolkitDir = path.join(
             root,
             "node_modules/@agent-native/toolkit",
-          );
-          fs.mkdirSync(toolkitDir, { recursive: true });
-          fs.writeFileSync(
-            path.join(toolkitDir, "package.json"),
-            `${JSON.stringify({
-              name: "@agent-native/toolkit",
-              version: "0.5.2",
-              exports: { "./editor": "./editor.js" },
-            })}\n`,
           );
           fs.writeFileSync(
             path.join(toolkitDir, "editor.js"),
@@ -845,15 +853,7 @@ describe("runUpgrade", () => {
     fs.writeFileSync(source, original);
     writeInstalledPackage(root, "0.131.4");
     const toolkitDir = path.join(root, "node_modules/@agent-native/toolkit");
-    fs.mkdirSync(toolkitDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(toolkitDir, "package.json"),
-      `${JSON.stringify({
-        name: "@agent-native/toolkit",
-        version: "0.5.2",
-        exports: { ".": "./index.js" },
-      })}\n`,
-    );
+    writeInstalledToolkitPackage(root, { ".": "./index.js" });
     fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
     writeToolkitMigrationManifest(toolkitDir);
     const { io, err } = captureIo();
@@ -892,15 +892,7 @@ describe("runUpgrade", () => {
             root,
             "node_modules/@agent-native/toolkit",
           );
-          fs.mkdirSync(toolkitDir, { recursive: true });
-          fs.writeFileSync(
-            path.join(toolkitDir, "package.json"),
-            `${JSON.stringify({
-              name: "@agent-native/toolkit",
-              version: "0.5.2",
-              exports: { ".": "./index.js" },
-            })}\n`,
-          );
+          writeInstalledToolkitPackage(root, { ".": "./index.js" });
           fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
           writeToolkitMigrationManifest(toolkitDir);
         }

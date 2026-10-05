@@ -1,4 +1,7 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 
 interface UploadChunkRequestOptions {
   url: string;
@@ -51,4 +54,32 @@ export async function uploadChunkRequest({
   if (typeof session?.token !== "string" || !session.token) return response;
 
   return request(session.token);
+}
+
+/** The owner-scoped upload status route; 404 means this account has no row. */
+export function fetchUploadStatus(
+  recordingId: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return fetch(
+    `${appBasePath()}/api/uploads/${encodeURIComponent(recordingId)}/status`,
+    { cache: "no-store", credentials: "include", signal },
+  );
+}
+
+/**
+ * Mark an upload attempt failed with its classified code. `keepalive` lets
+ * it outlive a closing page.
+ */
+export function postUploadAbort(
+  abortUrl: string,
+  body: { reason: string; failureCode: string; httpStatus?: number },
+): Promise<Response> {
+  return fetch(abortUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    keepalive: true,
+    body: JSON.stringify(body),
+  });
 }

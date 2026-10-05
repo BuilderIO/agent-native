@@ -284,6 +284,11 @@ vi.mock("../server/interval-job.js", () => ({
 vi.mock("../jobs/sweep-hooks.js", () => ({
   registerRecurringSweepHandler: registerRecurringSweepHandlerMock,
 }));
+const trackAutomationPausedMock = vi.hoisted(() => vi.fn());
+vi.mock("../jobs/automation-events.js", () => ({
+  countAutomationCredentialState: vi.fn(),
+  trackAutomationPaused: trackAutomationPausedMock,
+}));
 vi.mock("./event-queue.js", () => ({
   AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE: 1_000,
   AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE: 1_000,
@@ -372,6 +377,7 @@ vi.mock("../agent/run-manager.js", () => ({
 
 vi.mock("../agent/engine/index.js", () => ({
   getStoredModelForEngine: vi.fn(async () => undefined),
+  isResolvedEngineUsableForRequest: vi.fn(async () => true),
   normalizeModelForEngine: (
     engine: { defaultModel?: string },
     model?: string | null,
@@ -2397,6 +2403,292 @@ Read the calendar.`,
     expect(persisted).toContain("mcp__calendar__missing_tool");
     expect(persisted).toContain("slackChannelId: C0BUK2293SA");
     expect(persisted).toContain("displayName: Calendar watch");
+    expect(persisted).toContain('lastErrorCode: "missing_tools"');
+    expect(persisted).toContain("consecutiveFailures: 1");
+    expect(persisted).not.toContain("enabled: false");
+  });
+
+  it("pauses an event automation on its third identical precondition failure", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-event-mcp-third",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/event-mcp-third.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.mcp.third
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+mcpTools: ["mcp__calendar__missing_tool"]
+lastStatus: error
+lastErrorCode: "missing_tools"
+consecutiveFailures: 2
+---
+
+Read the calendar.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.mcp.third",
+    )?.[1];
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-mcp-third",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-mcp-third", "pending");
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
+    const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
+    expect(persisted).toContain("enabled: false");
+    expect(persisted).toContain("lastStatus: paused");
+    expect(persisted).toContain('pausedReason: "missing_tools"');
+    expect(persisted).toContain("consecutiveFailures: 3");
+    expect(persisted).toContain("Paused after 3 consecutive missing_tools");
+    expect(persisted).toContain("Configured MCP tools are unavailable");
+    expect(trackAutomationPausedMock).toHaveBeenCalledTimes(1);
+    expect(trackAutomationPausedMock).toHaveBeenCalledWith({
+      name: "event-mcp-third",
+      failure: expect.objectContaining({ code: "missing_tools" }),
+      consecutiveFailures: 3,
+      surface: "trigger",
+    });
+  });
+
+  it("counts one event's failure once however many times the queue retries it", async () => {
+    const owner = "alice+triggers@agent-native.test";
+    const stored = {
+      id: "resource-event-retried",
+      owner,
+      path: "jobs/event-retried.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.retried
+mode: agentic
+createdBy: ${owner}
+mcpTools: ["mcp__calendar__missing_tool"]
+---
+
+Read the calendar.`,
+    };
+    resourceListAllOwnersMock.mockResolvedValue([stored]);
+    resourceGetByPathMock.mockImplementation(async () => ({ ...stored }));
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { content: string }) => {
+        stored.content = input.content;
+        return { ...stored };
+      },
+    );
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.retried",
+    )?.[1];
+    const event = {
+      owner,
+      eventId: "event-retried",
+      emittedAt: "2026-04-30T00:00:00.000Z",
+    };
+    const row = () =>
+      triggerQueueMocks.rows.find(
+        (candidate) => candidate.eventId === event.eventId,
+      );
+
+    // Every delivery attempt of the same event fails; a precondition pauses
+    // after 3 counted failures, so per-attempt counting would pause here.
+    for (
+      let attempt = 1;
+      attempt <= MAX_AUTOMATION_TRIGGER_EVENT_FAILURES;
+      attempt += 1
+    ) {
+      await vi.waitFor(async () => {
+        const current = row();
+        if (
+          !current ||
+          (current.status === "pending" && current.failureAttempts < attempt)
+        ) {
+          if (current) current.availableAt = 0;
+          await handler({ ok: true }, event);
+        }
+        expect(row()?.failureAttempts ?? 0).toBeGreaterThanOrEqual(attempt);
+        expect(row()?.status).not.toBe("processing");
+      });
+    }
+
+    expect(row()?.status).toBe("failed");
+    expect(stored.content).toContain("consecutiveFailures: 1");
+    expect(stored.content).toContain('lastFailedEventId: "event-retried"');
+    expect(stored.content).not.toContain("enabled: false");
+    expect(trackAutomationPausedMock).not.toHaveBeenCalled();
+  });
+
+  it("disables an event automation whose creator no longer exists instead of re-skipping it", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-orphaned-event",
+        owner: "__organization__:org-1",
+        path: "jobs/orphaned-event.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.orphaned
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+orgId: "org-1"
+appId: mail
+runAs: creator
+---
+
+Handle the event.`,
+      },
+    ]);
+    // The built-in user table holds accounts, just not this creator.
+    dbExecuteMock.mockImplementation(async (query: { sql?: string }) => ({
+      rows: query.sql?.includes('FROM "user" LIMIT 1') ? [{ "1": 1 }] : [],
+      rowsAffected: 0,
+    }));
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      appId: "mail",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.orphaned",
+    )?.[1];
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-orphaned",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-orphaned");
+
+    expect(startRunMock).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.retry).not.toHaveBeenCalled();
+    const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
+    expect(persisted).toContain("enabled: false");
+    expect(persisted).toContain("lastStatus: paused");
+    expect(persisted).toContain('pausedReason: "owner_missing"');
+    expect(persisted).toContain("no longer exists");
+    expect(trackAutomationPausedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "orphaned-event",
+        surface: "preflight",
+        consecutiveFailures: 1,
+      }),
+    );
+  });
+
+  it("does not need a personal API key to run an unconditional event automation", async () => {
+    const { getOwnerActiveApiKey } =
+      await import("../agent/production-agent.js");
+    vi.mocked(getOwnerActiveApiKey).mockResolvedValueOnce(undefined);
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-no-key-event",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/no-key-event.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.no.key
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Handle the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.no.key",
+    )?.[1];
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-no-key",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-no-key");
+
+    expect(startRunMock).toHaveBeenCalledOnce();
+    expect(resourcePutMock.mock.calls.at(-1)?.[2]).toContain(
+      "lastStatus: success",
+    );
+  });
+
+  it("records a typed missing_credentials failure when a condition cannot be evaluated without a key", async () => {
+    const { getOwnerActiveApiKey } =
+      await import("../agent/production-agent.js");
+    vi.mocked(getOwnerActiveApiKey).mockResolvedValueOnce(undefined);
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-condition-no-key",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/condition-no-key.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.condition.no.key
+condition: "the subject mentions a refund"
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Handle the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.condition.no.key",
+    )?.[1];
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-condition-no-key",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-condition-no-key");
+
+    expect(startRunMock).not.toHaveBeenCalled();
+    const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
+    expect(persisted).toContain("lastStatus: error");
+    expect(persisted).toContain('lastErrorCode: "missing_credentials"');
+    expect(persisted).toContain("consecutiveFailures: 1");
   });
 
   it("routes organization events only to their creator and fails closed when membership is unreadable", async () => {

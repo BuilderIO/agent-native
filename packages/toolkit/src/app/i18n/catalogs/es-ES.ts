@@ -134,14 +134,17 @@ const messages: ToolkitAgentChatTranslation = {
     "Incluido con créditos gratuitos activos de Builder.io",
   "onboarding.builderCredits":
     "Incluido con los créditos gratuitos de Builder.io",
+  "onboarding.builderIncludedFreeWithAccount":
+    "Incluido gratis con una cuenta de Builder.io",
+  "onboarding.builderMonthlyCredits": "60 Agent Credits al mes",
   "onboarding.builderActivateTitle": "Activar créditos gratuitos",
   "onboarding.builderAccountExistsTitle": "Ya tienes una cuenta de Builder.io",
   "onboarding.builderAccountExistsDescription":
-    "Inicia sesión para conectarla.",
+    "Inicia sesión para usar tu cuenta.",
   "onboarding.builderActivationDescription":
     "Crearemos automáticamente tu cuenta de Builder.io con un solo clic.",
   "onboarding.builderOrgActivationDescription":
-    "Crearemos tu cuenta de Builder.io con un solo clic y la conectaremos para tu organización.",
+    "Crearemos tu cuenta de Builder.io con un solo clic para que tu organización pueda usarla.",
   "onboarding.builderCreateAndActivate": "Crear y activar",
   "onboarding.builderConsentPrefix":
     "Al crear una cuenta de Builder.io, aceptas nuestros",
@@ -152,7 +155,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivating":
     "Activando los créditos gratuitos de Builder.io",
   "onboarding.builderConnecting":
-    "Conectando los créditos gratuitos de Builder.io",
+    "Configurando los créditos gratuitos de Builder.io",
   "onboarding.builderProvisioningDescription":
     "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
   "onboarding.builderConnectionDescription":
@@ -170,8 +173,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.fileStorage.statusUnavailable":
     "No se pudo comprobar el almacenamiento",
   "onboarding.fileStorage.description":
-    "Conecta Builder.io (gratis) o configura tu propio almacenamiento de objetos compatible con S3.",
-  "onboarding.fileStorage.reconnectBuilder": "Volver a conectar Builder.io",
+    "Usa Builder.io (gratis) o configura tu propio almacenamiento de objetos compatible con S3.",
+  "onboarding.fileStorage.reconnectBuilder": "Usar Builder.io",
   "onboarding.fileStorage.custom": "Usar claves personalizadas",
   "onboarding.fileStorage.customDescription":
     "Configura un bucket compatible con S3 con una URL pública estable.",
@@ -383,7 +386,11 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "Cargando chat...",
   "empty.prompt": "¿En qué puedo ayudarte?",
   "error.afterDuration": "{{headline}} después de {{duration}}",
-  "error.failed": "El agente ha encontrado un error",
+  "error.chatgptPlanUsageLimit":
+    "Se ha alcanzado el límite de uso de tu plan de ChatGPT.",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI no ha podido comprobar el límite de uso de este plan de ChatGPT. Comprueba tu uso de ChatGPT o prueba otro modelo.",
+  "error.failed": "La ejecución del agente falló antes de completarse.",
   "error.render": "No se ha podido mostrar este contenido.",
   "error.stopped": "El agente se detuvo antes de terminar",
   "header.switchToCli": "Cambiar a la CLI",
@@ -542,7 +549,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "Llamadas de ventas, transcripciones, información sobre oportunidades, resúmenes de cuentas",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong requiere que un administrador técnico cree una integración MCP y elija una autorización personal o compartida. El ID de cliente y el secreto generados deben configurarse antes de conectar.",
+    "Un administrador técnico de Gong debe crear una integración MCP con autorización personal o compartida. Para el registro Manual, guarda el ID y el secreto de cliente generados como secretos del espacio de trabajo `GONG_MCP_CLIENT_ID` y `GONG_MCP_CLIENT_SECRET`; el registro Automático no requiere credenciales de cliente.",
   "mcpIntegrations.catalog.semgrep.description":
     "Analiza el código en busca de problemas de seguridad.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -754,6 +761,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "¿Volver a este punto? Se perderán los cambios posteriores.",
   "message.restoreRequestFailed": "Error en la solicitud de restauración.",
+  "message.historyUnavailable": "No se pudo cargar el historial de cambios.",
   "message.threadNotFound":
     "Este hilo de chat ya no está disponible. Inicia un chat nuevo o inténtalo de nuevo si esto no era esperado.",
   "message.restoring": "Restaurando...",
@@ -777,15 +785,17 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.steerHint": "Enviar este mensaje a continuación",
   "queue.moreActions": "Más acciones",
   "queue.moveToTop": "Mover arriba",
-  "recovery.connectingBuilder": "Conectando con Builder.io",
+  "recovery.connectingBuilder": "Configurando Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
+  "recovery.retryAttachmentUnavailable":
+    "Esta solicitud incluía un archivo que no se puede volver a enviar. Vuelve a adjuntarlo en el cuadro de mensaje y vuelve a intentarlo.",
   "recovery.deferredSubmissionFailed":
     "No se pudo enviar este mensaje. Comprueba tu conexión o la configuración del chat y vuelve a intentarlo.",
   "recovery.credentialRejected":
     "El proveedor del modelo rechazó las credenciales guardadas. Actualiza tu conexión con Builder.io o la clave del proveedor y vuelve a intentarlo.",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents no está conectado. Conecta Builder.io en Configuración para ejecutar esta operación alojada de cambios de código. Las claves de proveedores de modelos siguen funcionando en el chat y otras funciones de IA, pero no autorizan al Builder Cloud Agent.",
+    "Builder Cloud Agents no está conectado. Usa Builder.io en Configuración para ejecutar esta operación alojada de cambios de código. Las claves de proveedores de modelos siguen funcionando en el chat y otras funciones de IA, pero no autorizan al Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnosticar y reintentar",
   "recovery.forkDescription":
     "Bifurca esta conversación en un hilo de chat independiente.",
@@ -808,7 +818,7 @@ const messages: ToolkitAgentChatTranslation = {
     "No se pudo contactar con el servidor para comprobar si el agente sigue trabajando. Vuelve a enviar el mensaje para reintentarlo.",
   "recovery.streamEnded":
     "El flujo anterior del agente terminó durante la recuperación. Continúa o reintenta para volver a conectar con la ejecución.",
-  "recovery.reconnectBuilder": "Volver a conectar Builder.io",
+  "recovery.reconnectBuilder": "Usar Builder.io",
   "secrets.addCustomKeyNamed": 'Agregar "{{name}}" como clave personalizada',
   "secrets.chooseKey": "Elige una clave",
   "secrets.customKey": "Clave personalizada",
@@ -850,10 +860,13 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "Usa Builder.io (créditos gratuitos) o añade las claves de tu propio proveedor.",
   "setup.connectAi": "Conectar IA",
-  "setup.connectBuilder": "Conectar Builder.io",
+  "setup.connectBuilder": "Usar Builder.io",
+  "setup.connectionsDescription":
+    "Administra el estado de configuración, el acceso a Builder.io, los secretos de la app y las conexiones del espacio de trabajo desde un solo lugar.",
   "setup.connectPlaceholder": "Conecta la IA para empezar a chatear...",
   "setup.connectToChat": "Conectar la IA al chat",
   "setup.connectToStart": "Conecta la IA para empezar a chatear",
+  "setup.modelListUnavailable": "No se pudieron cargar los modelos.",
   "setup.providerStatusUnavailable":
     "No se pudo confirmar que la IA esté lista.",
   "agentNativeClips.meetingAsk.placeholder": "Pregunta lo que quieras",
@@ -891,6 +904,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultando a {{agent}}...",
   "tool.elapsed": "{{duration}} transcurridos",
   "tool.askingAgentFailed": "Error al consultar a {{agent}}",
+  "tool.failedWithoutDetails": "No hay detalles de error disponibles.",
   "tool.input": "Entrada",
   "tool.inputWithLabel": "Entrada - {{label}}",
   "tool.interrupted":
@@ -980,14 +994,16 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.builderModelCredits":
     "Créditos gratuitos para Claude, OpenAI y Gemini",
   "composer.chatGptSubscription": "Suscripción a ChatGPT",
+  "composer.chatgptManageUsage": "Gestionar el uso",
+  "composer.chatgptPlanUsing": "Usando el plan de ChatGPT",
   "composer.closePreview": "Cerrar vista previa",
   "composer.configureProviderKeys":
     "Configurar Anthropic, OpenAI u otro proveedor",
   "composer.connectAbove":
     "Conecta arriba un proveedor de IA para continuar...",
-  "composer.connectBuilder": "Conectar Builder.io",
+  "composer.connectBuilder": "Usar Builder.io",
   "composer.connectKeys": "Conectar claves",
-  "composer.connectingBuilder": "Conectando Builder.io…",
+  "composer.connectingBuilder": "Configurando Builder.io…",
   "composer.costHigher": "Mayor costo",
   "composer.costLower": "Menor costo",
   "composer.costMedium": "Costo medio",
@@ -1119,7 +1135,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "Dictar ({{shortcut}})",
   "voice.dictation.stopRecording": "Detener grabación",
   "voice.dictation.transcribing": "Transcribiendo…",
-  "voiceMode.connectBuilder": "Conectar Builder.io",
+  "voiceMode.connectBuilder": "Usar Builder.io",
   "voiceMode.end": "Finalizar el modo de voz",
   "voiceMode.entryButtonLabel": "Usar micrófono",
   "voiceMode.errors.channelDisconnected":
@@ -1175,7 +1191,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "Expresivo y versátil",
   "voiceMode.settings.voiceStyle": "Estilo de voz",
   "voiceMode.setupDescription":
-    "Conecta Builder.io para usar el servicio de voz administrado con créditos gratuitos o añade tus propias claves.",
+    "Usa Builder.io para voz administrada con créditos gratis o añade tus propias claves.",
+  "transcription.builderCtaDescription":
+    "Usa Builder.io para obtener una transcripción de mayor calidad, con créditos gratis y sin clave de API.",
+  "voiceMode.googleRealtimeDescription":
+    "Las credenciales de Google están configuradas. Usa Builder.io (plan gratuito disponible) para crear la sesión administrada en tiempo real.",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "El JSON de la cuenta de servicio está configurado. Usa Builder.io (plan gratuito disponible) para crear la sesión WebSocket administrada en tiempo real.",
+  "voiceMode.builderGeminiDescription":
+    "Usa Builder.io para transcribir con Gemini Flash-Lite y limpiar texto con Luna. No necesitas una clave de Google.",
   "voiceMode.setupTitle": "Configurar el modo de voz",
   "voiceMode.showChat": "Mostrar chat",
   "voiceMode.start": "Iniciar chat de voz",
@@ -1216,7 +1240,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "Este PDF está protegido con contraseña y no se puede leer. Quita la protección con contraseña o pega el texto relevante, y vuelve a intentarlo.",
   "errorMessages.builderAuthentication":
-    "Builder rechazó las credenciales conectadas. Vuelve a conectar Builder.io en Ajustes e inténtalo de nuevo.",
+    "Builder rechazó las credenciales conectadas. Vuelve a usar Builder.io en Configuración y vuelve a intentarlo.",
   "errorMessages.builderModelUnauthorized":
     "El proveedor de este modelo rechazó la solicitud. Elige otro modelo y vuelve a intentarlo.",
   "errorMessages.errorPrefix": "Error: {{message}}",
@@ -1232,10 +1256,18 @@ const messages: ToolkitAgentChatTranslation = {
     "El esquema de una herramienta no era válido, así que el modelo rechazó la solicitud antes de iniciarla. Puedes omitir la herramienta no válida y volver a intentarlo.",
   "errorMessages.malformedRequest":
     "El proveedor del modelo rechazó esta solicitud por estar mal formada, así que no se reintentó. Vuelve a intentarlo o inicia un chat nuevo si sigue ocurriendo.",
+  "errorMessages.requestTooLarge":
+    "Esta solicitud superó el límite de tamaño del servidor (HTTP 413). Inicia un chat nuevo o quita archivos adjuntos o referencias grandes y vuelve a intentarlo.",
+  "errorMessages.runInterrupted": "El agente se detuvo antes de terminar.",
+  "errorMessages.runFailed": "La ejecución del agente falló.",
+  "errorMessages.runUnverified":
+    "Este chat perdió el rastro del agente, que puede seguir ejecutándose. Recarga para ver su progreso.",
+  "errorMessages.runSignedOut":
+    "Cerraste sesión, así que este chat no puede seguir al agente. Vuelve a iniciar sesión y recarga.",
   "errorMessages.malformedRequestAttachment":
     "El modelo rechazó un archivo adjunto, así que este mensaje nunca se envió. Quita el adjunto y vuelve a intentarlo: un PDF, un archivo de texto plano o una imagen JPEG, PNG, GIF o WebP se leen directamente; los demás formatos deben subirse y enlazarse.",
   "errorMessages.noProviderConnected":
-    "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y, a continuación, conecta Builder.io (nivel gratuito disponible) o añade una clave de proveedor.",
+    "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y usa Builder.io (plan gratuito disponible) o añade una clave de proveedor.",
   "errorMessages.openBuilderSpaceSettings":
     "Abrir los ajustes del espacio de Builder",
   "errorMessages.providerAuthentication":
@@ -1415,6 +1447,225 @@ const messages: ToolkitAgentChatTranslation = {
     "Uso de proveedores o llamadas antiguas fuera de la facturación de Builder",
   "usage.providerSpendToday": "Uso adicional o sin clasificar hoy: {{amount}}",
   "usage.driverCreditsAndUsd": "Créditos de Builder / USD",
+  "observability.insights.verdictSmooth": "Funcionando sin problemas",
+  "observability.insights.verdictLook_one":
+    "{{count}} cosa que merece un vistazo",
+  "observability.insights.verdictLook_other":
+    "{{count}} cosas que merecen un vistazo",
+  "observability.insights.verdictProblems_one": "{{count}} problema",
+  "observability.insights.verdictProblems_other": "{{count}} problemas",
+  "observability.insights.spentSummary_one":
+    "{{amount}} gastado en {{count}} prompt en los últimos {{days}} días.",
+  "observability.insights.spentSummary_other":
+    "{{amount}} gastado en {{count}} prompts en los últimos {{days}} días.",
+  "observability.insights.handledLabel": "Gestionado por Agent-Native:",
+  "observability.insights.handledHeading": "Gestionado por Agent-Native",
+  "observability.insights.handledParallel":
+    "Ejecutó {{count}} llamadas a herramientas a la vez, unos {{duration}} más rápido que una por una.",
+  "observability.insights.handledRecovered_one":
+    "Se recuperó de {{count}} error de herramienta sin detenerse.",
+  "observability.insights.handledRecovered_other":
+    "Se recuperó de {{count}} errores de herramienta sin detenerse.",
+  "observability.insights.avgPerPrompt": "Promedio por prompt",
+  "observability.insights.completed": "Completado",
+  "observability.insights.completedDetail": "{{done}} de los últimos {{total}}",
+  "observability.insights.completedRecovered_one":
+    "{{done}} de los últimos {{total}}, tras recuperarse de {{count}} error de herramienta",
+  "observability.insights.completedRecovered_other":
+    "{{done}} de los últimos {{total}}, tras recuperarse de {{count}} errores de herramienta",
+  "observability.insights.typicalTime": "Tiempo habitual",
+  "observability.insights.median": "mediana",
+  "observability.insights.sampleNote":
+    "La finalización, el tiempo típico, lo que resolvió Agent-Native y los hallazgos usan los últimos {{shown}} de {{total}} prompts.",
+  "observability.insights.changeSame": "igual que el periodo anterior",
+  "observability.insights.changeUp":
+    "↑ {{percent}}% frente al periodo anterior",
+  "observability.insights.changeDown":
+    "↓ {{percent}}% frente al periodo anterior",
+  "observability.insights.kindProblem": "Problema",
+  "observability.insights.kindSaving": "Podría ahorrar",
+  "observability.insights.kindInfo": "Dato útil",
+  "observability.insights.fixLabel": "Solución:",
+  "observability.insights.openPrompt": "Abrir el prompt",
+  "observability.insights.seePrompts_one": "Ver el {{count}} prompt",
+  "observability.insights.seePrompts_other": "Ver los {{count}} prompts",
+  "observability.insights.erroredTitle_one":
+    "{{count}} prompt terminó con un error",
+  "observability.insights.erroredTitle_other":
+    "{{count}} prompts terminaron con un error",
+  "observability.insights.erroredBody":
+    "El agente se detuvo antes de terminar.",
+  "observability.insights.erroredFix":
+    "Abre un prompt para ver lo último que hizo antes de detenerse.",
+  "observability.insights.toolFailedTitle_one":
+    "La herramienta {{tool}} falló en {{count}} prompt",
+  "observability.insights.toolFailedTitle_other":
+    "La herramienta {{tool}} falló en {{count}} prompts",
+  "observability.insights.toolFailedSaid": "Dijo: «{{error}}»",
+  "observability.insights.toolFailedGeneric": "La herramienta indicó un error.",
+  "observability.insights.toolRecoveredAll":
+    "El agente se recuperó y terminó todas las veces.",
+  "observability.insights.toolRecoveredSome":
+    "El agente se recuperó y terminó en {{count}} de ellas.",
+  "observability.insights.restartTitle":
+    "Empezar de nuevo costó unos {{amount}} ({{percent}}% del gasto)",
+  "observability.insights.restartBody":
+    "En {{count}} de los últimos {{total}} prompts, el agente reenvió toda la conversación después de {{reason}}, en lugar de reutilizar lo que ya había enviado.",
+  "observability.insights.reasonToolLookup": "detectar herramientas nuevas",
+  "observability.insights.reasonPrefixChanged":
+    "algo al principio de sus instrucciones cambió",
+  "observability.insights.fixToolLookup":
+    "Precarga las herramientas que usa esta app con initialToolNames para que la lista de herramientas no cambie durante todo el prompt.",
+  "observability.insights.fixPrefixChanged":
+    "Evita que el contenido cambiante, como marcas de tiempo o el estado de cada paso, esté en el prompt del sistema.",
+  "observability.insights.priciestTitle":
+    "Un prompt usó el {{percent}}% del gasto reciente",
+  "observability.insights.priciestBody_one":
+    "«{{prompt}}» costó {{amount}} en {{count}} paso.",
+  "observability.insights.priciestBody_other":
+    "«{{prompt}}» costó {{amount}} en {{count}} pasos.",
+  "observability.insights.untitledPrompt": "Prompt sin título",
+  "observability.insights.promptsHeading": "Prompts",
+  "observability.insights.showing": "Mostrando {{count}}",
+  "observability.insights.sortNewest": "Más recientes",
+  "observability.insights.sortCost": "Más caros",
+  "observability.insights.emptyPrompts":
+    "Todavía no hay prompts en este periodo. Aparecen aquí unos segundos después de terminar.",
+  "observability.insights.promptNotSaved": "El texto del prompt no se guardó",
+  "observability.insights.ratedHelpful": "Valorado como útil",
+  "observability.insights.ratedUnhelpful": "Valorado como no útil",
+  "observability.insights.notRated": "Sin valorar",
+  "observability.insights.stoppedWithError": "Se detuvo con un error",
+  "observability.insights.detailsUnavailable":
+    "Los detalles de los pasos ya no están disponibles",
+  "observability.insights.answered": "Respondido",
+  "observability.insights.finished": "Terminado",
+  "observability.insights.startedOverShort": "empezó de nuevo {{count}}×",
+  "observability.insights.recoveredShort_one":
+    "se recuperó de {{count}} error de herramienta",
+  "observability.insights.recoveredShort_other":
+    "se recuperó de {{count}} errores de herramienta",
+  "observability.insights.toolsFailedShort_one": "{{count}} herramienta falló",
+  "observability.insights.toolsFailedShort_other":
+    "{{count}} herramientas fallaron",
+  "observability.insights.headerDuration": "en {{duration}}",
+  "observability.insights.stepsCount_one": "{{count}} paso",
+  "observability.insights.stepsCount_other": "{{count}} pasos",
+  "observability.insights.whatItDid": "Qué hizo:",
+  "observability.insights.replyNotSaved":
+    "El texto de la respuesta no se guardó para este prompt.",
+  "observability.insights.showAll": "Mostrar todo",
+  "observability.insights.showLess": "Mostrar menos",
+  "observability.insights.moreTools": "+{{count}} más",
+  "observability.insights.failedSuffix": "falló",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.startedOverNote_one":
+    "Empezó de nuevo {{count}} vez después de {{reason}}. Eso costó unos {{amount}} de {{total}}.",
+  "observability.insights.startedOverNote_other":
+    "Empezó de nuevo {{count}} veces después de {{reason}}. Eso costó unos {{amount}} de {{total}}.",
+  "observability.insights.toolFailedNote_one":
+    "La herramienta {{tool}} falló {{count}} vez.",
+  "observability.insights.toolFailedNote_other":
+    "La herramienta {{tool}} falló {{count}} veces.",
+  "observability.insights.toolFailedRecoveredNote_one":
+    "La herramienta {{tool}} falló {{count}} vez, pero el agente siguió adelante y terminó.",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "La herramienta {{tool}} falló {{count}} veces, pero el agente siguió adelante y terminó.",
+  "observability.insights.showSteps_one": "Mostrar el {{count}} paso",
+  "observability.insights.showSteps_other": "Mostrar los {{count}} pasos",
+  "observability.insights.hideSteps": "Ocultar pasos",
+  "observability.insights.costDetails": "Detalles de coste y comprobaciones",
+  "observability.insights.turnReply": "Escribió la respuesta",
+  "observability.insights.turnThought": "Razonó",
+  "observability.insights.startedOverTag": "empezó de nuevo",
+  "observability.insights.toolFailedTag": "herramienta falló",
+  "observability.insights.turnContext":
+    "Envió {{tokens}} tokens de contexto, {{percent}}% reutilizado de antes.",
+  "observability.insights.turnExpired":
+    "El contexto guardado había caducado tras una pausa, lo cual es normal.",
+  "observability.insights.turnOutput": "Escribió {{tokens}} tokens.",
+  "observability.insights.turnRestart":
+    "Empezó de nuevo después de {{reason}}, unos {{amount}} más que reutilizarlo.",
+  "observability.insights.noCacheCompare":
+    "A precios de lista, reutilizar el contexto anterior redujo este prompt de {{noCache}} a {{estimated}}.",
+  "observability.insights.partReused": "Contexto reutilizado",
+  "observability.insights.partSaved": "Guardado en caché",
+  "observability.insights.partNew": "Contexto nuevo",
+  "observability.insights.partOutput": "Escrito por el modelo",
+  "observability.insights.checksHeading": "Comprobaciones automáticas",
+  "observability.insights.checksNone": "No se registró ninguna.",
+  "observability.insights.checksGraded": "(evaluado por un modelo)",
+  "observability.insights.checksNote":
+    "Las comprobaciones del framework se fijan en cómo fue la ejecución (errores, pasos, velocidad), no en si el resultado fue bueno.",
+  "observability.insights.lookedForTools": "Buscó más herramientas",
+  "observability.insights.prevPrompt": "Prompt anterior (K)",
+  "observability.insights.nextPrompt": "Prompt siguiente (J)",
+  "observability.insights.toolVerb.add": "Añadió {{object}}",
+  "observability.insights.toolVerb.analyze": "Analizó {{object}}",
+  "observability.insights.toolVerb.apply": "Aplicó {{object}}",
+  "observability.insights.toolVerb.capture": "Capturó {{object}}",
+  "observability.insights.toolVerb.check": "Comprobó {{object}}",
+  "observability.insights.toolVerb.connect": "Conectó {{object}}",
+  "observability.insights.toolVerb.create": "Creó {{object}}",
+  "observability.insights.toolVerb.delete": "Eliminó {{object}}",
+  "observability.insights.toolVerb.duplicate": "Duplicó {{object}}",
+  "observability.insights.toolVerb.edit": "Editó {{object}}",
+  "observability.insights.toolVerb.export": "Exportó {{object}}",
+  "observability.insights.toolVerb.fetch": "Obtuvo {{object}}",
+  "observability.insights.toolVerb.find": "Encontró {{object}}",
+  "observability.insights.toolVerb.generate": "Generó {{object}}",
+  "observability.insights.toolVerb.index": "Indexó {{object}}",
+  "observability.insights.toolVerb.insert": "Insertó {{object}}",
+  "observability.insights.toolVerb.list": "Listó {{object}}",
+  "observability.insights.toolVerb.move": "Movió {{object}}",
+  "observability.insights.toolVerb.navigate": "Navegó {{object}}",
+  "observability.insights.toolVerb.open": "Abrió {{object}}",
+  "observability.insights.toolVerb.present": "Presentó {{object}}",
+  "observability.insights.toolVerb.propose": "Propuso {{object}}",
+  "observability.insights.toolVerb.query": "Consultó {{object}}",
+  "observability.insights.toolVerb.read": "Leyó {{object}}",
+  "observability.insights.toolVerb.remove": "Quitó {{object}}",
+  "observability.insights.toolVerb.rename": "Renombró {{object}}",
+  "observability.insights.toolVerb.reply": "Respondió a {{object}}",
+  "observability.insights.toolVerb.resolve": "Resolvió {{object}}",
+  "observability.insights.toolVerb.run": "Ejecutó {{object}}",
+  "observability.insights.toolVerb.save": "Guardó {{object}}",
+  "observability.insights.toolVerb.search": "Buscó {{object}}",
+  "observability.insights.toolVerb.send": "Envió {{object}}",
+  "observability.insights.toolVerb.set": "Estableció {{object}}",
+  "observability.insights.toolVerb.take": "Tomó {{object}}",
+  "observability.insights.toolVerb.update": "Actualizó {{object}}",
+  "observability.insights.toolVerb.upload": "Subió {{object}}",
+  "observability.insights.toolVerb.view": "Vio {{object}}",
+  "observability.insights.toolVerb.write": "Escribió {{object}}",
+  "observability.insights.verdictLook_many":
+    "{{count}} cosas que merecen un vistazo",
+  "observability.insights.verdictProblems_many": "{{count}} problemas",
+  "observability.insights.spentSummary_many":
+    "{{amount}} gastado en {{count}} prompts en los últimos {{days}} días.",
+  "observability.insights.handledRecovered_many":
+    "Se recuperó de {{count}} errores de herramienta sin detenerse.",
+  "observability.insights.completedRecovered_many":
+    "{{done}} de los últimos {{total}}, tras recuperarse de {{count}} errores de herramienta",
+  "observability.insights.seePrompts_many": "Ver los {{count}} prompts",
+  "observability.insights.erroredTitle_many":
+    "{{count}} prompts terminaron con un error",
+  "observability.insights.toolFailedTitle_many":
+    "La herramienta {{tool}} falló en {{count}} prompts",
+  "observability.insights.priciestBody_many":
+    "«{{prompt}}» costó {{amount}} en {{count}} pasos.",
+  "observability.insights.recoveredShort_many":
+    "se recuperó de {{count}} errores de herramienta",
+  "observability.insights.toolsFailedShort_many":
+    "{{count}} herramientas fallaron",
+  "observability.insights.stepsCount_many": "{{count}} pasos",
+  "observability.insights.startedOverNote_many":
+    "Empezó de nuevo {{count}} veces después de {{reason}}. Eso costó unos {{amount}} de {{total}}.",
+  "observability.insights.toolFailedNote_many":
+    "La herramienta {{tool}} falló {{count}} veces.",
+  "observability.insights.toolFailedRecoveredNote_many":
+    "La herramienta {{tool}} falló {{count}} veces, pero el agente siguió adelante y terminó.",
+  "observability.insights.showSteps_many": "Mostrar los {{count}} pasos",
   "billing.builderCreditLimitTitle": "Se agotaron tus créditos de Builder",
   "billing.builderCreditLimitEmailBody":
     "Una solicitud de IA se detuvo porque tu cuenta de Builder conectada se quedó sin créditos. Mejora tu plan de Builder para continuar.",
@@ -1437,6 +1688,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "Tu gasto estimado",
   "settings.usage.yourCreditSpend": "Tu gasto en créditos de Builder.io",
   "settings.usage.calls": "Llamadas",
+  "settings.usage.chatgptPlanUsage": "Uso del plan de ChatGPT",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Personas activas",
   "settings.usage.history": "Historial de uso",
@@ -1840,6 +2092,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsFootnote":
     "Estas funciones nuevas e inestables pueden tener errores.",
   "settingsShell.appGroup.labsLoadError": "No se pudieron cargar tus Labs.",
+  "settingsShell.appGroup.labsReadError":
+    "No se pudo leer esta opción guardada. Elige Activado o Desactivado para configurarla de nuevo.",
   "settingsShell.appGroup.labsSaveError":
     "No se pudo cambiar {{lab}}. Inténtalo de nuevo.",
   "settingsShell.appGroup.mcpAbout":
@@ -1857,7 +2111,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "Ver todas las novedades",
   "settingsShell.backToApp": "Volver a {{app}}",
   "settingsShell.breadcrumbLabel": "Ruta de navegación",
-  "settingsShell.builder.connect": "Conectar",
+  "settingsShell.builder.connect": "Usar Builder.io",
   "settingsShell.builder.connected": "Conectado",
   "settingsShell.builder.connectedTo": "Conectado · {{space}}",
   "settingsShell.builder.connection": "Conexión",
@@ -1870,6 +2124,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectTitle": "¿Desconectar Builder.io?",
   "settingsShell.builder.grantsFailed":
     "No se pudieron leer las conexiones de Builder.io.",
+  "settingsShell.builder.setupStartFailed":
+    "No se pudo iniciar la configuración de Builder.io. Actualiza esta página e inténtalo de nuevo.",
+  "settingsShell.builder.setupHostFailed":
+    "No se pudo abrir Builder desde este host de chat. Abre esta app en una pestaña del navegador y vuelve a intentar la configuración de Builder.io (plan gratuito disponible).",
+  "settingsShell.builder.setupFailed":
+    "La configuración de Builder.io no terminó. Vuelve a intentarlo o usa tus propias claves.",
   "settingsShell.builder.loss.defaultStops":
     "Los chats se detienen hasta que añadas un proveedor de la organización.",
   "settingsShell.builder.loss.defaultSwitches":
@@ -1885,9 +2145,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "Hay que volver a conectarlo.",
   "settingsShell.builder.orgFallback": "tu organización",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "No conectado. Cuando lo conectes, todas las personas de {{org}} podrán usarlo.",
+    "No conectado. Usa Builder.io para habilitar el acceso de todas las personas de {{org}}.",
   "settingsShell.builder.orgNotConnectedMember":
-    "No conectado. Una persona propietaria o administradora puede conectarlo.",
+    "No conectado. Un propietario o administrador puede habilitar Builder.io para todas las personas.",
   "settingsShell.builder.organization": "Organización",
   "settingsShell.builder.personal": "Personal",
   "settingsShell.builder.personalConnected": "Conectado. Solo lo usas tú.",
@@ -1898,7 +2158,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "Conectado · {{space}}. Solo lo usas tú, en lugar de la conexión de la organización.",
   "settingsShell.builder.personalNotConnected":
-    "Conecta tu propia cuenta. Solo la usas tú.",
+    "Usa tu propia cuenta de Builder.io. Solo tú la usas.",
   "settingsShell.builder.personalRestricted":
     "Las personas propietarias y administradoras restringieron las claves de API personales.",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2464,7 +2724,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "Conectado. Los créditos de tu cuenta alimentan cada servicio marcado con Builder.io.",
   "settingsInfra.builderNotConnected":
-    "No conectado. Configura cada servicio por tu cuenta o conecta Builder.io para usar los créditos de tu cuenta.",
+    "No conectado. Configura cada servicio por tu cuenta o usa Builder.io para aplicar los créditos de tu cuenta.",
+  "settingsInfra.builderOverrideDescription":
+    "El respaldo de la implementación está disponible. Usa tu propia cuenta de Builder.io para sustituirlo.",
+  "settingsInfra.builderStorageHint":
+    "El almacenamiento de objetos conserva los archivos subidos y permite reutilizar sus URL en todo el hilo. Usa Builder.io o el bucket compatible con S3 de abajo.",
   "settingsInfra.builderUnknown":
     "No se pudo comprobar la conexión con Builder.io.",
   "settingsInfra.manage": "Gestionar",
@@ -2638,13 +2902,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "Conectado · {{space}}",
   "settingsModel.builderConnectedPlain": "Conectado",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "No conectado. Cuando lo conectes, todas las personas de {{org}} podrán usarlo.",
+    "No conectado. Usa Builder.io para habilitar el acceso de todas las personas de {{org}}.",
   "settingsModel.builderOrgNotConnectedMember":
-    "No conectado. Un propietario o administrador puede conectarlo.",
+    "No conectado. Un propietario o administrador puede habilitar Builder.io para todas las personas.",
   "settingsModel.builderPersonalConnect":
-    "Conecta tu propia cuenta para usar tus créditos de Builder.io.",
+    "Usa tu propia cuenta de Builder.io para acceder a sus créditos.",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "Conecta tu propia cuenta para usarla en lugar de la de la organización.",
+    "Usa tu propia cuenta de Builder.io en lugar de la conexión de la organización.",
   "settingsModel.builderPersonalOverOrg":
     "Conectado · {{space}}. Se usa en lugar de la conexión de la organización.",
   "settingsModel.builderPersonalOverOrgPlain":
@@ -2655,10 +2919,33 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "Cambiar",
   "settingsModel.chatgptConnected": "Conectado",
   "settingsModel.chatgptDescription":
-    "Usa el motor Codex con tu plan de ChatGPT.",
+    "Usa modelos de OpenAI aptos con tu plan de ChatGPT.",
   "settingsModel.chatgptPopupBlocked":
     "Permite las ventanas emergentes para este sitio y vuelve a intentarlo.",
-  "settingsModel.chatgptTitle": "Suscripción a ChatGPT",
+  "settingsModel.chatgptTitle": "Acceso al plan de ChatGPT",
+  "settingsModel.chatgptAddAccount": "Añadir otra cuenta",
+  "settingsModel.chatgptConnecting": "Conectando…",
+  "settingsModel.chatgptContinue": "Continuar con ChatGPT",
+  "settingsModel.chatgptDisconnect": "Desconectar",
+  "settingsModel.chatgptDisconnectTitle": "¿Desconectar ChatGPT?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} cerrará sesión en esta app y el agente dejará de usar tu plan de ChatGPT. Puedes volver a iniciar sesión cuando quieras.",
+  "settingsModel.chatgptDisconnecting": "Desconectando…",
+  "settingsModel.chatgptRemoveLegacySignIn":
+    "Eliminar el inicio de sesión anterior",
+  "settingsModel.chatgptLegacySignInDetails":
+    "Hay guardado un inicio de sesión antiguo de ChatGPT. El flujo oficial no puede usarlo.",
+  "settingsModel.chatgptManageAccess": "Gestionar en ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "Desconectado aquí. Es posible que el acceso siga activo en ChatGPT.",
+  "settingsModel.chatgptLocalOnly":
+    "Puedes usar las apps de código abierto sin solicitar acceso si las ejecutas localmente con un callback de loopback; no necesitas solicitar acceso de socio. Las apps alojadas en *.agent-native.com requieren la aprobación del operador y un callback alojado.",
+  "settingsModel.chatgptNoDirectUse":
+    "Vuelve a conectar y permite el acceso directo a modelos para usar esta cuenta de ChatGPT.",
+  "settingsModel.chatgptReconnect": "Volver a conectar",
+  "settingsModel.chatgptSelectAccount": "Cuenta de ChatGPT",
+  "settingsModel.chatgptUsageLimit":
+    "Se ha alcanzado el límite de uso de tu plan de ChatGPT.",
   "settingsModel.checkAgain": "Volver a comprobar",
   "settingsModel.checkedJustNow": "Comprobada hace un momento.",
   "settingsModel.checkedOn": "Comprobada el {{date}}.",
@@ -2668,8 +2955,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "Comprobando la clave guardada",
   "settingsModel.chooseModel": "Elige un modelo",
   "settingsModel.clear": "Borrar",
-  "settingsModel.connect": "Conectar",
-  "settingsModel.connecting": "Conectando…",
   "settingsModel.defaultModelDescription":
     "Se usa en todas las apps, salvo que la app defina el suyo.",
   "settingsModel.defaultModelNeedsProvider":
@@ -2839,6 +3124,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "Explorar el Global A2A Registry",
   "settingsSubAgents.connectTitle": "Conectar {{name}}",
   "settingsSubAgents.close": "Cerrar",
+  "observability.insights.rawTrace":
+    "Traza completa (todos los spans, con entradas y salidas)",
 };
 
 export default messages;

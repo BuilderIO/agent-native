@@ -28,6 +28,10 @@ import {
   pushDocumentToNotionPage,
   readNotionPageAsDocument,
 } from "./notion.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+} from "./private-icon-references.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type LinkRow = InferSelectModel<typeof schema.documentSyncLinks>;
@@ -42,7 +46,10 @@ function iconAfterNotionSync(
   localIcon: string | null,
   remoteIcon: IconValue | null,
 ): string | null {
-  return parseIconValue(localIcon)?.kind === "library"
+  // Notion cannot represent Tabler icons or Content's private image assets.
+  const parsed = parseIconValue(localIcon);
+  return parsed?.kind === "library" ||
+    (parsed?.kind === "image" && parsed.authority === "private-icon")
     ? localIcon
     : serializeIconValue(remoteIcon);
 }
@@ -83,6 +90,32 @@ async function replaceDocumentFromExternal(args: {
       .returning({ id: schema.documents.id });
 
     if (!applied || applied.length === 0) return false;
+    if (args.icon !== args.document.icon) {
+      await syncPrivateIconReference(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          elementType: "document",
+          elementId: args.document.id,
+          documentId: args.document.id,
+          icon: args.icon,
+          ownerEmail: args.document.ownerEmail,
+          orgId: args.document.orgId,
+        },
+      );
+    }
+    if (args.content !== args.document.content) {
+      await syncPrivateCalloutReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          documentId: args.document.id,
+          before: args.document.content,
+          after: args.content,
+          userEmail: args.document.ownerEmail,
+          ownerEmail: args.document.ownerEmail,
+          orgId: args.document.orgId,
+        },
+      );
+    }
 
     if (
       args.title !== args.document.title ||

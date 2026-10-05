@@ -46,7 +46,7 @@ If the Page was deleted or access changed, Content opens a safe fallback and exp
 - Restoration reauthorizes every target before reopening it and drops invalid state safely.
 - Saved or personal View focus restores when still authorized; ephemeral renderer state is bounded.
 - Recovery distinguishes normal restoration, missing target, denied target, and unavailable source.
-- At the private `/home` route, Content restores the last authorized Page. When no saved Page exists or the target is no longer available, it creates or reuses one private, editable Personal `Welcome to Agent-Native Content` Page.
+- At the private `/home` route, Content restores the last authorized Page the person opened, in whichever space it lives; renaming a Page does not move that place. When no saved Page exists or the target is no longer available, it creates or reuses one private, editable Personal `Welcome to Agent-Native Content` Page.
 - Explicit Content-space switches restore that person's last authorized Page or Database View in the selected space. A missing saved View may use that Database's current valid View; an unavailable Page or Database falls back to a real welcome Page created through the space's ordinary permissions.
 - A person who can view a space but cannot create its personal welcome fallback sees a permission-aware landing with Files still reachable.
 - Explicit Page links take precedence over root-route restoration. A fallback does not reveal the unavailable Page's title, preview, or owning context.

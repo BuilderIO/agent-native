@@ -19,7 +19,13 @@ import {
   IconSun,
   IconWaveSine,
 } from "@tabler/icons-react";
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -366,6 +372,20 @@ function EffectPopoverRow({
 function useNumericEffectDraft(value: number, min?: number) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
+  // Escape closes the popover and unmounts the input without a blur, so a
+  // previewed value would stay on canvas but never reach the file.
+  const uncommittedRef = useRef<{
+    value: number;
+    onChange: (value: number, meta: StyleChangeMeta) => void;
+  } | null>(null);
+  useEffect(
+    () => () => {
+      const uncommitted = uncommittedRef.current;
+      if (uncommitted)
+        uncommitted.onChange(uncommitted.value, { phase: "commit" });
+    },
+    [],
+  );
 
   const parse = (raw: string) => {
     const parsed = raw === "" ? 0 : Number(raw);
@@ -381,12 +401,18 @@ function useNumericEffectDraft(value: number, min?: number) {
     ) {
       setDraft(raw);
       const next = parse(raw);
-      if (next !== null) onChange(next, { phase: "preview" });
+      if (next === null) return;
+      uncommittedRef.current = { value: next, onChange };
+      onChange(next, { phase: "preview" });
     },
     commit(onChange: (value: number, meta: StyleChangeMeta) => void) {
       const next = parse(draft) ?? value;
+      uncommittedRef.current = null;
       setDraft(String(next));
       onChange(next, { phase: "commit" });
+    },
+    blurOnEnter(event: KeyboardEvent<HTMLInputElement>) {
+      if (event.key === "Enter") event.currentTarget.blur();
     },
   };
 }
@@ -414,6 +440,7 @@ export function BlurControl({
           numberDraft.preview(event.currentTarget.value, onChange)
         }
         onBlur={() => numberDraft.commit(onChange)}
+        onKeyDown={numberDraft.blurOnEnter}
       />
     </InspectorControlField>
   );
@@ -449,6 +476,7 @@ export function ShadowNumberControl({
           numberDraft.preview(event.currentTarget.value, onChange)
         }
         onBlur={() => numberDraft.commit(onChange)}
+        onKeyDown={numberDraft.blurOnEnter}
       />
     </div>
   );

@@ -5,7 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { useRecordingLeaveGuard } from "./use-recording-leave-guard";
+import {
+  useRecordingLeaveGuard,
+  useUnsavedRecordingUnloadWarning,
+} from "./use-recording-leave-guard";
 
 function RecordProbe({ atRisk }: { atRisk: boolean }) {
   const atRiskRef = useRef(atRisk);
@@ -151,5 +154,50 @@ describe("useRecordingLeaveGuard", () => {
     expect(container.querySelector('[data-testid="other-probe"]')).toBeNull();
     const probe = container.querySelector('[data-testid="record-probe"]');
     expect(probe?.getAttribute("data-prompt-open")).toBe("false");
+  });
+});
+
+function UnloadProbe({ unsaved }: { unsaved: () => boolean }) {
+  useUnsavedRecordingUnloadWarning(unsaved);
+  return null;
+}
+
+describe("useUnsavedRecordingUnloadWarning", () => {
+  let container: HTMLDivElement;
+  let root: Root | undefined;
+
+  afterEach(() => {
+    if (root) act(() => root!.unmount());
+    container?.remove();
+    root = undefined;
+  });
+
+  function render(unsaved: () => boolean) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root!.render(<UnloadProbe unsaved={unsaved} />));
+  }
+
+  function unload(): boolean {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it("asks before closing while a recording is not yet confirmed uploaded", () => {
+    let unsaved = true;
+    render(() => unsaved);
+    expect(unload()).toBe(true);
+
+    unsaved = false;
+    expect(unload()).toBe(false);
+  });
+
+  it("stops asking once the recorder unmounts", () => {
+    render(() => true);
+    act(() => root!.unmount());
+    root = undefined;
+    expect(unload()).toBe(false);
   });
 });

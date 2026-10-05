@@ -402,6 +402,254 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Recent rows");
   });
 
+  it("shows delegated tool errors only after explicitly expanding the call", () => {
+    const errorMessage = "The analytics provider rejected the request.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          result={errorMessage}
+          isError
+          isRunning={false}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure?.textContent).toContain("Asked Analytics");
+    expect(disclosure?.textContent).not.toContain("failed");
+    expect(container.textContent).not.toContain(errorMessage);
+
+    act(() => disclosure?.click());
+
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(errorMessage);
+  });
+
+  it("shows regular tool errors only after explicitly expanding the call", () => {
+    const errorMessage =
+      "Error running update-slide: replace found no matches.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="update-slide"
+          args={{}}
+          result={errorMessage}
+          isError
+          isRunning={false}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure?.textContent).toContain("update slide");
+    expect(container.textContent).not.toContain(errorMessage);
+
+    act(() => disclosure?.click());
+
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+  });
+
+  it("shows specialized tool errors only after explicitly expanding the call", () => {
+    const errorMessage = "The command failed.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="run-command"
+          args={{}}
+          result={errorMessage}
+          isError
+          isRunning={false}
+          structuredMeta={{
+            toolKind: "bash",
+            command: "pnpm test",
+            cwd: "/repo",
+            exitCode: 1,
+          }}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+
+    act(() => disclosure?.click());
+
+    expect(container.textContent).toContain(errorMessage);
+  });
+
+  it("bypasses native tool renderers for failures and keeps details collapsed", () => {
+    const errorMessage = "The action failed.";
+    registerToolRenderer({
+      id: "app.response-insights",
+      match: "response-insights",
+      Component: AppRenderer,
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="response-insights"
+          args={{}}
+          result={errorMessage}
+          isError
+          isRunning={false}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(container.textContent).not.toContain("App renderer wins");
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(errorMessage);
+
+    act(() => disclosure?.click());
+
+    expect(container.textContent).toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+  });
+
+  it("shows fallback details for delegated failures without error text", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isError
+          isRunning={false}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure?.textContent).toContain("Asked Analytics");
+    expect(disclosure?.textContent).not.toContain("Error");
+    expect(container.textContent).not.toContain(
+      "No error details are available.",
+    );
+    expect(container.querySelector(".text-destructive")).toBeNull();
+
+    act(() => disclosure?.click());
+
+    expect(container.textContent).toContain("No error details are available.");
+  });
+
+  it("shows failed delegated subtool details only after that tool is expanded", () => {
+    const errorMessage = "The warehouse query failed.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          argsText='{"task":"query the warehouse"}'
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "complete",
+              reasoning: [],
+              toolCalls: [
+                {
+                  id: "query-1",
+                  name: "query-warehouse",
+                  status: "failed",
+                  result: errorMessage,
+                },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    const delegation = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    act(() => delegation?.click());
+    const subtool = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    ).find((button) => button.textContent?.includes("query warehouse"));
+    expect(subtool?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(errorMessage);
+
+    act(() => subtool?.click());
+
+    expect(subtool?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(errorMessage);
+  });
+
+  it("keeps failed delegated subtools expandable without error text", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          argsText='{"task":"query the warehouse"}'
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "complete",
+              reasoning: [],
+              toolCalls: [
+                {
+                  id: "query-1",
+                  name: "query-warehouse",
+                  status: "failed",
+                },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    const delegation = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    act(() => delegation?.click());
+    const subtool = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    ).find((button) => button.textContent?.includes("query warehouse"));
+    expect(subtool?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(
+      "No error details are available.",
+    );
+
+    act(() => subtool?.click());
+
+    expect(subtool?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("No error details are available.");
+  });
+
   it("keeps an unresolved delegated agent visibly running when chat state dips", () => {
     act(() => {
       root.render(
@@ -526,6 +774,35 @@ describe("ToolCallDisplay native renderers", () => {
     expect(
       container.querySelector("[data-agent-native-cube-loader]"),
     ).toBeNull();
+  });
+
+  it("keeps fallback tool errors collapsed until explicitly expanded", () => {
+    const errorMessage =
+      "Error running update-slide: replace found no matches.";
+    act(() => {
+      root.render(
+        <ToolCallFallback
+          toolName="update-slide"
+          args={{}}
+          argsText="{}"
+          result={errorMessage}
+          isError
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+
+    act(() => disclosure?.click());
+
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain(errorMessage);
+    expect(container.querySelector(".text-destructive")).toBeNull();
   });
 
   it("does not animate a tool row that mounts already resolved", () => {
@@ -990,7 +1267,7 @@ describe("ToolCallDisplay native renderers", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
-          catalog={{
+          catalog={createToolkitI18nCatalog({
             sourceLocale: "en-US",
             messages: {
               agentChat: {
@@ -1001,7 +1278,7 @@ describe("ToolCallDisplay native renderers", () => {
                 },
               },
             },
-          }}
+          })}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
@@ -1330,6 +1607,44 @@ describe("ToolCallDisplay native renderers", () => {
     expect(
       container.querySelector("[data-agent-native-cube-loader]"),
     ).not.toBeNull();
+  });
+
+  it("keeps reconnect tool errors expandable without showing them in the row", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "failed-tool-1",
+        toolName: "update-slide",
+        argsText: "",
+        args: {},
+        isError: true,
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).toContain("update slide");
+    expect(container.textContent).not.toContain(
+      "No error details are available.",
+    );
+    expect(
+      container.querySelector("[data-agent-native-cube-loader]"),
+    ).toBeNull();
+
+    act(() => disclosure?.click());
+
+    expect(container.textContent).toContain("No error details are available.");
+    expect(container.querySelector(".text-destructive")).toBeNull();
   });
 
   it("does not spin frozen reconnect activity cards", () => {
@@ -2029,32 +2344,25 @@ describe("ReasoningCell", () => {
     expect(container.textContent).toContain("verify the join keys first.");
   });
 
-  it("keeps its own disclosure inside the shared work disclosure", () => {
+  it("keeps work details inside the shared work disclosure", () => {
     act(() => {
       root.render(
         <WorkedForSummary>
-          <ReasoningCell text="I should verify the join keys first." />
+          <div>Tool call details</div>
         </WorkedForSummary>,
       );
     });
 
-    expect(container.querySelectorAll("button")).toHaveLength(1);
-    expect(container.textContent).not.toContain("verify the join keys first.");
+    const button = container.querySelector("button");
+    expect(button?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Tool call details");
 
     act(() => {
-      container.querySelector("button")?.click();
+      button?.click();
     });
 
-    const buttons = Array.from(container.querySelectorAll("button"));
-    expect(buttons).toHaveLength(2);
-    expect(container.textContent).toContain("Thought");
-    expect(container.textContent).not.toContain("verify the join keys first.");
-
-    act(() => {
-      buttons[1]?.click();
-    });
-
-    expect(container.textContent).toContain("verify the join keys first.");
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Tool call details");
   });
 
   it('shows a shimmering "Thinking" label while streaming', () => {
@@ -2278,6 +2586,54 @@ describe("WorkedForSummary", () => {
     container.remove();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("omits completed reasoning while preserving tools and the final response", () => {
+    const finalResponse = "The warehouse shows 12% growth.";
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          argsText={finalResponse}
+          result="Agent call completed"
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 3,
+              startedAt: 1,
+              updatedAt: 3,
+              durationMs: 5_000,
+              activePhase: "complete",
+              reasoning: ["This private thought should not appear."],
+              toolCalls: [
+                {
+                  id: "query-1",
+                  name: "query-warehouse",
+                  status: "completed",
+                },
+              ],
+              response: ["The query returned a 12% increase."],
+            },
+          }}
+        />,
+      );
+    });
+
+    const workedFor = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    ).find((button) => button.textContent?.includes("Worked for"));
+    expect(workedFor).not.toBeNull();
+    act(() => workedFor?.click());
+
+    expect(container.textContent).not.toContain("This private thought");
+    expect(container.textContent).toContain("query warehouse");
+    expect(container.textContent).toContain(
+      "The query returned a 12% increase.",
+    );
+    expect(container.textContent).toContain(finalResponse);
   });
 
   it("does not flash open when a completed summary remounts", () => {

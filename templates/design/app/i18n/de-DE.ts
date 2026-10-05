@@ -169,6 +169,12 @@ export default {
     openAgentSettings: "Agent verwalten",
     labTweaks: "Design-Anpassungen",
     labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
+    labFullAppBuilding: "Vollständige Apps erstellen",
+    labFullAppBuildingDescription:
+      "Probiere aus, mit Builder aus deinen Designs funktionsfähige Apps zu erstellen.",
+    labDesignReviewTools: "Tools zur Designprüfung",
+    labDesignReviewToolsDescription:
+      "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -210,7 +216,7 @@ export default {
       tokenLabel: "Figma-Zugriffstoken",
       tokenPlaceholder: "Figma-Zugriffstoken einfügen",
       connecting: "Verbindung wird hergestellt…",
-      connect: "Verbinden",
+      connect: "Builder.io verwenden",
       getToken: "Token abrufen",
       importFrame: "Frame importieren",
       chooseFrame: "Frame wählen",
@@ -1273,6 +1279,7 @@ export default {
       verifying: "Quelle und Laufzeit werden überprüft…",
       retryWithAgent: "Quellprüfung wiederholen",
       copyPrompt: "Prompt an deinen Agent kopieren",
+      copyAgentPrompt: "Agentenprompt kopieren",
       copyFullPrompt: "Vollständigen Prompt kopieren",
       abortPreview: "Vorschau abbrechen und interagieren",
       agentMessage:
@@ -1378,6 +1385,16 @@ export default {
         "PNG-Aufnahmen sind in schreibgeschützten Vorschauen nicht verfügbar",
       pngSaveError: "PNG konnte nicht gespeichert werden",
       pngExportError: "PNG konnte nicht exportiert werden",
+      exportTooLarge:
+        "Der Export ist zu groß. Anfragen sind auf 5 MB begrenzt. Verkleinern Sie eingebettete Ressourcen oder Rasterabmessungen und versuchen Sie es erneut.",
+      exportResourcesUnavailable:
+        "Der Export konnte nicht exakt gerendert werden, weil Bilder, Schriftarten oder Stylesheets nicht verfügbar sind. Prüfen Sie diese Ressourcen und versuchen Sie es erneut.",
+      exportTimedOut:
+        "Der Export hat das Zeitlimit überschritten. Versuchen Sie es erneut oder verkleinern Sie das Design.",
+      exportBusy:
+        "Ein anderer Export wird gerade gerendert. Warten Sie kurz und versuchen Sie es erneut.",
+      exportChromiumUnavailable:
+        "Der Export ist nicht verfügbar, weil der Renderer nicht gestartet werden konnte. Versuchen Sie es später erneut.",
       pdfExportError: "PDF konnte nicht exportiert werden",
       pdfDownloaded: "PDF heruntergeladen",
       pdfAllScreensDownloaded: "PDF heruntergeladen (Alle Screens)",
@@ -1761,8 +1778,8 @@ export default {
     designPromptTitle: "Lass uns dein erstes Design erstellen",
     recent: "Zuletzt verwendet",
     browseAllTemplates: "Alle ansehen",
-    connectBuilderIo: "Builder.io verbinden",
-    connectingBuilder: "Builder.io wird verbunden…",
+    connectBuilderIo: "Builder.io verwenden",
+    connectingBuilder: "Builder.io wird eingerichtet…",
     pageTitle: "Designs",
     searchPlaceholder: "Designs suchen...",
     newDesign: "Neue Design",

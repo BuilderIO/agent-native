@@ -306,7 +306,24 @@ function installAcceptanceTransportFixture(): void {
     appDir,
     "app/components/chat/ChatRouteContent.tsx",
   );
-  const source = fs.readFileSync(chatSurfacePath, "utf8");
+  let source = fs.readFileSync(chatSurfacePath, "utf8").replace(/\r\n/g, "\n");
+  const lifecycleAnchor =
+    "function ChatLifecycleTracking({ threadId }: { threadId: string }) {";
+  if (
+    !source.includes(
+      "registerAcceptanceClientDiagnostics(controller, threadId, hasActiveAgentRuns)",
+    )
+  ) {
+    assert.equal(source.split(lifecycleAnchor).length - 1, 1);
+    source = source.replace(
+      lifecycleAnchor,
+      `${lifecycleAnchor}\n  const { controller } = useAgentKit();\n  useEffect(() => registerAcceptanceClientDiagnostics(controller, threadId, hasActiveAgentRuns), [controller, threadId]);`,
+    );
+    source =
+      'import { hasActiveAgentRuns } from "@agent-native/agentkit/client";\nimport { registerAcceptanceClientDiagnostics } from "@/lib/agentkit-acceptance-transport";\n' +
+      source;
+    fs.writeFileSync(chatSurfacePath, source);
+  }
   if (source.includes("instrumentAgentKitAcceptanceTransport(")) return;
   const importAnchor = 'import { TAB_ID } from "@/lib/tab-id";';
   const transportAnchor = "    createAgentNativeAgentKitTransport({";
@@ -965,6 +982,33 @@ interface BrowserNetworkState {
   navigationCancellationUntil: number;
   inFlightRequests: Set<PlaywrightRequest>;
   requestsInFlightAtPersistenceReload: Set<PlaywrightRequest>;
+  queueOperations: Array<Record<string, unknown>>;
+}
+
+function recordQueueOperation(
+  network: BrowserNetworkState,
+  request: PlaywrightRequest,
+  stage: string,
+  status?: number,
+): void {
+  const url = new URL(request.url());
+  if (
+    request.method() !== "POST" ||
+    !/^\/_agent-native\/agent-chat\/threads\/[^/]+\/queued$/u.test(url.pathname)
+  )
+    return;
+  const body = request.postDataJSON() as {
+    mutation?: { type?: string; messageId?: string; message?: { id?: string } };
+  };
+  network.queueOperations.push({
+    at: Date.now(),
+    stage,
+    path: url.pathname,
+    operation: body.mutation?.type,
+    messageId: body.mutation?.messageId ?? body.mutation?.message?.id,
+    ...(status === undefined ? {} : { status }),
+  });
+  if (network.queueOperations.length > 200) network.queueOperations.shift();
 }
 
 function isBenignHttpError(
@@ -1312,8 +1356,8 @@ const widgetSecondBatchPrompt =
   "Render the sample booking link, then summarize it.";
 const queuedPrompt =
   "Queued follow-up: confirm production queue promotion in one sentence.";
-const rejectedSteerPrompt =
-  "Rejected steer: prove the queued message is restored before retry.";
+const failedRunQueuedPrompt =
+  "Queued after failure: verify automatic promotion.";
 const secondMarkdownPrompt =
   "Stream a second independent markdown response with a short checklist.";
 const suggestionPrompt =
@@ -1406,11 +1450,13 @@ interface LoopbackProviderState {
   widgetActionResults: string[];
   widgetRunCompleted: boolean;
   markdownChunks: number;
+  finalResponseReady: boolean;
+  releaseFinalResponse: (() => void) | null;
   markdownPartialReady: boolean;
   releaseMarkdownPartial: (() => void) | null;
   releaseIncompleteStream: (() => void) | null;
   queuedPromptSeen: boolean;
-  rejectedSteerPromptSeen: boolean;
+  failedRunQueuedPromptSeen: boolean;
   suggestionPromptSeen: boolean;
   incompleteAttempts: number;
   errors: string[];
@@ -1639,6 +1685,11 @@ async function handleLoopbackCompletion(
     const text = contentText(result.content);
     state.helloActionResults.push(text);
     assert.match(text, /Hello, AgentKit Browser!/u);
+    state.finalResponseReady = true;
+    await new Promise<void>((resolve) => {
+      state.releaseFinalResponse = resolve;
+    });
+    state.releaseFinalResponse = null;
     await streamTextResponse(
       response,
       requestNumber,
@@ -1750,12 +1801,12 @@ async function handleLoopbackCompletion(
     return;
   }
 
-  if (prompt === rejectedSteerPrompt) {
-    state.rejectedSteerPromptSeen = true;
+  if (prompt === failedRunQueuedPrompt) {
+    state.failedRunQueuedPromptSeen = true;
     await streamTextResponse(
       response,
       requestNumber,
-      ["Queue rollback preserved the exact prompt, ", "then steering retried."],
+      ["Queued message ran after ", "the previous run failed."],
       state,
     );
     return;
@@ -1805,11 +1856,13 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
     widgetActionResults: [],
     widgetRunCompleted: false,
     markdownChunks: 0,
+    finalResponseReady: false,
+    releaseFinalResponse: null,
     markdownPartialReady: false,
     releaseMarkdownPartial: null,
     releaseIncompleteStream: null,
     queuedPromptSeen: false,
-    rejectedSteerPromptSeen: false,
+    failedRunQueuedPromptSeen: false,
     suggestionPromptSeen: false,
     incompleteAttempts: 0,
     errors: [],
@@ -1855,6 +1908,7 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
     state,
     close: async () => {
       state.releaseIncompleteStream?.();
+      state.releaseFinalResponse?.();
       state.releaseMarkdownPartial?.();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
@@ -2145,6 +2199,7 @@ async function assertViewportContract(
           "mode-button",
           "voice-button",
           "send-button",
+          "stop-button",
         ].map((slot) => {
           const node = document.querySelector<HTMLElement>(
             `[data-agent-composer-slot="${slot}"]`,
@@ -2200,9 +2255,12 @@ async function assertViewportContract(
     metrics.footerBottom <= metrics.viewportHeight + 1,
     `${label}: composer footer must remain inside the viewport`,
   );
+  // While a run is active and the composer is empty, Stop takes Send's place.
   const visibleControls = metrics.controlGeometry
     .filter((control) => control.visible)
-    .map((control) => control.slot)
+    .map((control) =>
+      control.slot === "stop-button" ? "send-button" : control.slot,
+    )
     .sort();
   assert.deepEqual(
     visibleControls,
@@ -2246,6 +2304,15 @@ async function readPersistedFeedback(
       throw new Error("feedback read did not return an array");
     }
     return payload as Array<Record<string, unknown>>;
+  });
+}
+
+async function readCurrentActivityTrace(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const target = window as Window & {
+      __agentNativeCurrentActivityTrace?: string[];
+    };
+    return target.__agentNativeCurrentActivityTrace ?? [];
   });
 }
 
@@ -2498,9 +2565,9 @@ async function assertAgentKitChatAcceptance(
     30_000,
   );
   await waitForLoopbackState(
-    "the initial streamed markdown response",
+    "the completed tool action before its final model response",
     () =>
-      provider.helloActionResults.length === 1 && provider.markdownPartialReady,
+      provider.helloActionResults.length === 1 && provider.finalResponseReady,
     30_000,
   );
   network.allowInitialEphemeralThread404 = false;
@@ -2509,6 +2576,144 @@ async function assertAgentKitChatAcceptance(
   const threadPath = new URL(threadUrl).pathname;
   const threadId = threadPath.slice("/chat/".length);
   try {
+    await page
+      .locator("[data-agentkit-current-activity]")
+      .waitFor({ state: "visible" });
+    const isUsefulStatus = (label: string) =>
+      !["thinking", "starting agent", "contacting model"].includes(
+        label.toLowerCase(),
+      );
+    let activityTrace = await readCurrentActivityTrace(page);
+    const activityDeadline = Date.now() + 10_000;
+    while (
+      !activityTrace.some(isUsefulStatus) &&
+      Date.now() < activityDeadline
+    ) {
+      await sleep(50);
+      activityTrace = await readCurrentActivityTrace(page);
+    }
+    const usefulStatusIndex = activityTrace.findIndex(isUsefulStatus);
+    assert.ok(
+      usefulStatusIndex >= 0,
+      `tool run did not show its useful activity label: ${JSON.stringify(activityTrace)}`,
+    );
+    assert.ok(
+      !activityTrace
+        .slice(usefulStatusIndex + 1)
+        .some((label) => !isUsefulStatus(label)),
+      `tool run flashed back to Thinking: ${JSON.stringify(activityTrace)}`,
+    );
+    const stickyLabel = activityTrace.at(-1);
+    assert.ok(
+      stickyLabel,
+      "current activity trace must contain a visible label",
+    );
+    log(
+      `current activity trace during tool run: ${activityTrace.join(" -> ")}`,
+    );
+
+    network.requestsInFlightAtPersistenceReload.clear();
+    for (const request of network.inFlightRequests) {
+      network.requestsInFlightAtPersistenceReload.add(request);
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await chat.waitFor({ state: "visible" });
+    await composer.waitFor({ state: "visible" });
+    assert.equal(
+      new URL(page.url()).pathname,
+      threadPath,
+      "reload must preserve the active thread route",
+    );
+    await waitForStableChatSurface(page);
+    const reattachedActivitySnapshot = await page.evaluate(() => {
+      const target = window as Window & {
+        __agentKitAcceptanceDiagnostics?: () => Array<Record<string, unknown>>;
+      };
+      const diagnostics = target.__agentKitAcceptanceDiagnostics?.() ?? [];
+      return {
+        current:
+          document.querySelector("[data-agentkit-current-activity]")
+            ?.textContent ?? null,
+        activitySummaries: Array.from(
+          document.querySelectorAll(".agentkit-activities"),
+        ).map((activity) => ({
+          summary: activity.querySelector("summary")?.textContent ?? "",
+          running: activity.getAttribute("data-running"),
+        })),
+        transcriptTail:
+          document
+            .querySelector(".agentkit-transcript")
+            ?.textContent?.slice(-500) ?? "",
+        clientState: diagnostics
+          .filter((entry) => entry.type === "client.state")
+          .at(-1),
+        failures: diagnostics.filter((entry) =>
+          String(entry.type).endsWith(".failed"),
+        ),
+      };
+    });
+    log(
+      `activity state after run reload: ${JSON.stringify(reattachedActivitySnapshot)}`,
+    );
+    await page
+      .locator("[data-agentkit-current-activity]")
+      .waitFor({ state: "visible" });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    let reattachedActivityTrace = await readCurrentActivityTrace(page);
+    const reattachActivityDeadline = Date.now() + 10_000;
+    while (
+      reattachedActivityTrace.at(-1)?.toLowerCase() !==
+        stickyLabel.toLowerCase() &&
+      Date.now() < reattachActivityDeadline
+    ) {
+      await sleep(50);
+      reattachedActivityTrace = await readCurrentActivityTrace(page);
+    }
+    const reattachedUsefulStatusIndex =
+      reattachedActivityTrace.findIndex(isUsefulStatus);
+    assert.ok(
+      reattachedUsefulStatusIndex >= 0,
+      `reattached run did not restore a useful label: ${JSON.stringify(reattachedActivityTrace)}`,
+    );
+    assert.equal(
+      reattachedActivityTrace.at(-1)?.toLowerCase(),
+      stickyLabel.toLowerCase(),
+      `reattached run did not restore its latest useful label: ${JSON.stringify(reattachedActivityTrace)}`,
+    );
+    await sleep(200);
+    reattachedActivityTrace = await readCurrentActivityTrace(page);
+    assert.ok(
+      !reattachedActivityTrace
+        .slice(reattachedUsefulStatusIndex + 1)
+        .some((label) => !isUsefulStatus(label)),
+      `reattached run flashed back to Thinking: ${JSON.stringify(reattachedActivityTrace)}`,
+    );
+    assert.equal(
+      await page.locator("[data-agentkit-current-activity]").textContent(),
+      stickyLabel,
+      "the useful label must remain current after replay reattaches",
+    );
+    assert.equal(
+      await page
+        .locator("[data-agentkit-current-activity]")
+        .getAttribute("data-running"),
+      "true",
+      "reload must reattach to the still-running tool response",
+    );
+    log(
+      `current activity trace after running-run reload: ${reattachedActivityTrace.join(" -> ")}`,
+    );
+    provider.releaseFinalResponse?.();
+    provider.releaseFinalResponse = null;
+    await waitForLoopbackState(
+      "the partial final model response",
+      () => provider.markdownPartialReady,
+      30_000,
+    );
+    await waitForStableChatSurface(page);
     await waitForChatText(page, "Loopback complete");
     await waitForChatText(page, helloPrompt);
     await waitForChatText(page, "Hello, AgentKit Browser!");
@@ -2521,6 +2726,8 @@ async function assertAgentKitChatAcceptance(
       "partial markdown must render without prematurely completing bold syntax",
     );
   } finally {
+    provider.releaseFinalResponse?.();
+    provider.releaseFinalResponse = null;
     provider.releaseMarkdownPartial?.();
     provider.releaseMarkdownPartial = null;
   }
@@ -2551,10 +2758,35 @@ async function assertAgentKitChatAcceptance(
     "completed activity must transition from Working to Worked",
   );
   await helloActivity.click();
-  await page
+  const helloLabel = page
     .locator(".agentkit-activity-label")
-    .filter({ hasText: /^Hello$/u })
-    .waitFor({ state: "visible" });
+    .filter({ hasText: /^Hello$/u });
+  await helloLabel.waitFor({ state: "visible" });
+  const helloRowAlignment = await helloLabel.evaluate((label) => {
+    const row = label.closest<HTMLElement>(".agentkit-activity-row");
+    const icon = row?.querySelector<SVGSVGElement>("svg");
+    if (!row || !icon) return null;
+    const iconRect = icon.getBoundingClientRect();
+    const labelRect = label.getBoundingClientRect();
+    return {
+      display: getComputedStyle(row).display,
+      alignItems: getComputedStyle(row).alignItems,
+      iconCenter: Math.round(iconRect.top + iconRect.height / 2),
+      labelCenter: Math.round(labelRect.top + labelRect.height / 2),
+    };
+  });
+  assert.ok(
+    helloRowAlignment,
+    "the activity label must render with its source icon",
+  );
+  assert.equal(helloRowAlignment.display, "flex");
+  assert.equal(helloRowAlignment.alignItems, "center");
+  assert.equal(helloRowAlignment.iconCenter, helloRowAlignment.labelCenter);
+  await helloLabel.scrollIntoViewIfNeeded();
+  fs.mkdirSync(path.join(repoRoot, ".tmp"), { recursive: true });
+  await page.screenshot({
+    path: path.join(repoRoot, ".tmp", "agentkit-activity-row-alignment.png"),
+  });
   await helloActivity.click();
   await waitForLoopbackState(
     "the real hello action result",
@@ -2869,6 +3101,13 @@ async function assertAgentKitChatAcceptance(
         })
       : [];
     const queueDiagnostics = {
+      client: await page.evaluate(() => {
+        const diagnostics = (
+          window as Window & { __agentKitAcceptanceDiagnostics?: () => unknown }
+        ).__agentKitAcceptanceDiagnostics;
+        return diagnostics ? diagnostics() : { unavailable: true };
+      }),
+      queueOperations: network.queueOperations,
       activeRun: {
         status: endpointDiagnostics.activeRunStatus,
         body: endpointDiagnostics.activeRunBody,
@@ -2877,6 +3116,22 @@ async function assertAgentKitChatAcceptance(
         status: endpointDiagnostics.threadStatus,
         durableMessages,
         agentKitMessages,
+        runs:
+          agentKit.runs && typeof agentKit.runs === "object"
+            ? Object.values(agentKit.runs)
+                .slice(-200)
+                .map((entry) => {
+                  const run = entry as Record<string, unknown>;
+                  return {
+                    id: run.id,
+                    status: run.status,
+                    lastSequence: run.lastSequence,
+                  };
+                })
+            : null,
+        activeRunIds: Array.isArray(agentKit.activeRunIds)
+          ? agentKit.activeRunIds.slice(-200)
+          : null,
         queuedMessages: Array.isArray(repository.queuedMessages)
           ? repository.queuedMessages.length
           : null,
@@ -2888,7 +3143,10 @@ async function assertAgentKitChatAcceptance(
         .locator('.agentkit-message[data-role="assistant"]')
         .allInnerTexts(),
     };
-    console.error("Queued follow-up render diagnostics:", queueDiagnostics);
+    console.error(
+      "Queued follow-up render diagnostics:",
+      JSON.stringify(queueDiagnostics, null, 2),
+    );
     throw error;
   }
   await queue.waitFor({ state: "hidden" });
@@ -2950,8 +3208,8 @@ async function assertAgentKitChatAcceptance(
   await page
     .getByText("This partial response must not survive retry", { exact: false })
     .waitFor({ state: "visible" });
-  await fillAndSubmitComposer(page, rejectedSteerPrompt);
-  await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
+  await fillAndSubmitComposer(page, failedRunQueuedPrompt);
+  await queue.getByText(failedRunQueuedPrompt, { exact: true }).waitFor({
     state: "visible",
   });
   provider.releaseIncompleteStream?.();
@@ -2962,66 +3220,25 @@ async function assertAgentKitChatAcceptance(
     .waitFor({ state: "visible" });
   network.allowExpectedIncompleteStreamFailure = false;
   await approval.waitFor({ state: "detached" });
-  await queue
-    .getByRole("button", { name: /Steer/u })
-    .waitFor({ state: "visible" });
-  const steer = queue.getByRole("button", { name: /Steer/u });
-  await steer.click();
-  try {
-    await page
-      .getByRole("alert")
-      .filter({ hasText: "Deterministic queue steering rejection" })
-      .waitFor({ state: "visible", timeout: 30_000 });
-  } catch (error) {
-    console.error(
-      "Queue steering rejection diagnostics:",
-      JSON.stringify(
-        {
-          alerts: await page.getByRole("alert").allTextContents(),
-          queue: await queue.allInnerTexts(),
-          composerErrors: await page
-            .locator(".agentkit-composer-error")
-            .allTextContents(),
-          runFailures: await page
-            .locator(".agentkit-run-failure")
-            .allTextContents(),
-        },
-        null,
-        2,
-      ),
-    );
-    throw error;
-  }
-  await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
-    state: "visible",
-  });
-  assert.equal(
-    provider.rejectedSteerPromptSeen,
-    false,
-    "rejected steering must not submit the prompt to the provider",
-  );
-
-  await steer.click();
   await waitForLoopbackState(
-    "the exact manually steered prompt",
-    () => provider.rejectedSteerPromptSeen,
-  );
-  assert.equal(
-    provider.requests.filter(
-      (request) => request.prompt === rejectedSteerPrompt,
-    ).length,
-    1,
-    "manual steering must submit the exact queued prompt once after rollback",
+    "automatic queue promotion after run failure",
+    () => provider.failedRunQueuedPromptSeen,
   );
   await page
-    .getByText(
-      "Queue rollback preserved the exact prompt, then steering retried.",
-      { exact: true },
-    )
+    .getByText("Queued message ran after the previous run failed.", {
+      exact: true,
+    })
     .waitFor({ state: "visible" });
-  await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
+  await queue.getByText(failedRunQueuedPrompt, { exact: true }).waitFor({
     state: "detached",
   });
+  assert.equal(
+    provider.requests.filter(
+      (request) => request.prompt === failedRunQueuedPrompt,
+    ).length,
+    1,
+    "failed-run queue promotion must submit the exact prompt once",
+  );
 
   await fillAndSubmitComposer(page, incompleteRetryPrompt);
   await page
@@ -3039,7 +3256,7 @@ async function assertAgentKitChatAcceptance(
     "recovery must not leave stale human-review state",
   );
   assert.equal(
-    await queue.getByText(rejectedSteerPrompt, { exact: true }).count(),
+    await queue.getByText(failedRunQueuedPrompt, { exact: true }).count(),
     0,
     "recovery must not leave the promoted queue item behind",
   );
@@ -3274,7 +3491,7 @@ async function runBrowserSmoke(
     "loopback provider must stream multiple markdown chunks per response",
   );
   assert.equal(provider.queuedPromptSeen, true);
-  assert.equal(provider.rejectedSteerPromptSeen, true);
+  assert.equal(provider.failedRunQueuedPromptSeen, true);
   assert.equal(provider.suggestionPromptSeen, true);
   assert.equal(provider.incompleteAttempts, 3);
   assert.deepEqual(provider.errors, [], "loopback provider runtime errors");
@@ -3367,6 +3584,7 @@ async function main(): Promise<void> {
     navigationCancellationUntil: 0,
     inFlightRequests: new Set(),
     requestsInFlightAtPersistenceReload: new Set(),
+    queueOperations: [],
   };
 
   const captureCleanupError = (error: unknown) => {
@@ -3414,6 +3632,7 @@ async function main(): Promise<void> {
     await page.addInitScript(() => {
       const target = window as Window & {
         __agentNativeSmokeHistory?: string[];
+        __agentNativeCurrentActivityTrace?: string[];
       };
       const entries = (target.__agentNativeSmokeHistory ??= []);
       for (const method of ["pushState", "replaceState"] as const) {
@@ -3425,6 +3644,45 @@ async function main(): Promise<void> {
           return original.apply(this, args);
         };
       }
+
+      const activityTrace = (target.__agentNativeCurrentActivityTrace ??= []);
+      let observedActivity: Element | null = null;
+      let activityObserver: MutationObserver | undefined;
+      const documentObserver = new MutationObserver(() => {
+        const activity = document.querySelector(
+          "[data-agentkit-current-activity]",
+        );
+        if (activity !== observedActivity) {
+          activityObserver?.disconnect();
+          observedActivity = activity;
+          if (activity) {
+            activityObserver = new MutationObserver(() => {
+              const label = document
+                .querySelector("[data-agentkit-current-activity]")
+                ?.textContent?.trim();
+              if (label && activityTrace.at(-1) !== label) {
+                activityTrace.push(label);
+              }
+            });
+            activityObserver.observe(activity, {
+              childList: true,
+              characterData: true,
+              subtree: true,
+            });
+          }
+        }
+        const label = activity?.textContent?.trim();
+        if (label && activityTrace.at(-1) !== label) activityTrace.push(label);
+      });
+      documentObserver.observe(document, {
+        childList: true,
+        subtree: true,
+      });
+      const initialActivity = document.querySelector(
+        "[data-agentkit-current-activity]",
+      );
+      const initialLabel = initialActivity?.textContent?.trim();
+      if (initialLabel) activityTrace.push(initialLabel);
     });
 
     page.on("framenavigated", (frame) => {
@@ -3450,6 +3708,8 @@ async function main(): Promise<void> {
 
     page.on("request", (request) => {
       const requestUrl = new URL(request.url());
+      if (requestUrl.origin === runningOrigin)
+        recordQueueOperation(network, request, "request");
       const trackedSubmitPrompt = [queuedPrompt, incompleteRetryPrompt].find(
         (prompt) => request.postData()?.includes(prompt),
       );
@@ -3564,6 +3824,8 @@ async function main(): Promise<void> {
       const status = response.status();
       const request = response.request();
       const responseUrl = new URL(response.url());
+      if (responseUrl.origin === runningOrigin)
+        recordQueueOperation(network, request, "response", status);
       const trackedSubmitPrompt = [queuedPrompt, incompleteRetryPrompt].find(
         (prompt) => request.postData()?.includes(prompt),
       );

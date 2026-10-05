@@ -121,6 +121,31 @@ describe("ReviewCommentsPanel capabilities", () => {
     expect(mocks.latestPanelProps?.renderThreadActions).toBeUndefined();
   });
 
+  it("does not ask a signed-in viewer to sign in to comment", () => {
+    const markup = renderToStaticMarkup(
+      <ReviewCommentsPanel
+        designId="design-1"
+        canComment={false}
+        currentUserEmail="viewer@example.com"
+        signInHref="/sign-in"
+      />,
+    );
+
+    expect(markup).not.toContain("review.signInToComment");
+  });
+
+  it("offers sign-in to anonymous viewers who cannot comment", () => {
+    const markup = renderToStaticMarkup(
+      <ReviewCommentsPanel
+        designId="design-1"
+        canComment={false}
+        signInHref="/sign-in"
+      />,
+    );
+
+    expect(markup).toContain("review.signInToComment");
+  });
+
   it("shows agent routing only when the caller grants dispatch capability", () => {
     renderToStaticMarkup(
       <ReviewCommentsPanel

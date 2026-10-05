@@ -26,10 +26,12 @@ import {
 import { formatBytes, scanCleanTargets } from "./clean.js";
 import {
   loadActiveMigrationDependencies,
+  isDirectCoreDependency,
   readCliCoreVersion,
   readUpgradeEnvironment,
   resolveInstalledPackageVersion,
   selectMigrationDependencies,
+  type PackageJsonLike,
 } from "./upgrade.js";
 
 const AGENTKIT_CHAT_MIGRATION_GUIDE_URL = new URL(
@@ -176,6 +178,29 @@ function runGuard(
     case "resource-action-access":
       return scanResourceActionAccess({ root });
     case "feature-dependencies": {
+      let packageJson: unknown;
+      const packageJsonPath = path.join(root, "package.json");
+      try {
+        packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return { name, findings: [] };
+        }
+        throw new Error(
+          `Could not read ${packageJsonPath}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (
+        packageJson === null ||
+        typeof packageJson !== "object" ||
+        Array.isArray(packageJson)
+      ) {
+        throw new Error(`Invalid ${packageJsonPath}: expected a JSON object`);
+      }
+      if (!isDirectCoreDependency(packageJson as PackageJsonLike)) {
+        return { name, findings: [] };
+      }
+
       const dependencies = selectMigrationDependencies(
         loadActiveMigrationDependencies(
           root,

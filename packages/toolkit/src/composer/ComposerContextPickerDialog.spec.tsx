@@ -118,6 +118,8 @@ async function open() {
       new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
     ),
   );
+  await act(async () => row("Add context").click());
+  await act(async () => row("Design").click());
   expect(row("Attach source").hasAttribute("aria-haspopup")).toBe(false);
   await act(async () => row("Attach source").click());
   await tick();
@@ -205,7 +207,7 @@ describe("shared context URL dialog", () => {
       onAttach.mock.calls[0][0].map((item: { id: string }) => item.id),
     ).toEqual(["two"]);
   });
-  it("flattens categories and opens a single-select picker from the root", async () => {
+  it("keeps a searchable single-select picker under the Design category", async () => {
     const onSelect = vi.fn().mockResolvedValue(undefined);
     const config = {
       presentation: { type: "dialog" as const, mode: "single" as const },
@@ -223,11 +225,11 @@ describe("shared context URL dialog", () => {
         new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
       ),
     );
-    expect(
-      Array.from(document.querySelectorAll('[role="menuitem"]')).some(
-        (item) => item.textContent === "Design",
-      ),
-    ).toBe(false);
+    expect(document.querySelector('[role="searchbox"]')).toBeNull();
+    expect(row("Add context")).toBeDefined();
+    await act(async () => row("Add context").click());
+    expect(row("Design")).toBeDefined();
+    await act(async () => row("Design").click());
     expect(row("Attach source").querySelector("svg")).toBeNull();
     await act(async () => row("Attach source").click());
     await tick();

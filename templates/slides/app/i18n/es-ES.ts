@@ -46,7 +46,7 @@ const messages = {
     designSystems: "Sistemas de diseño",
   },
   settings: {
-    agentObservability: "Observabilidad del agente",
+    agentObservability: "Observabilidad",
     title: "Ajustes",
     labs: "Labs",
     labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Cuando alguien comenta o responde en tu presentación.",
     retry: "Reintentar",
+    reload: "Recargar",
     mcpAbout:
       "Conecta Slides con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Slides por ti: crear presentaciones, añadir diapositivas y exportar a PowerPoint. Solo ve lo que tú puedes ver.",
     workspaceTitle: "Espacio de trabajo",
@@ -309,6 +310,21 @@ const messages = {
     importing: "Importando...",
     importFile: "Importar archivo",
     downloadBackup: "Descargar copia de seguridad",
+    conflictStatus: "Conflicto de texto",
+    conflictStatusDescription:
+      "Revisa el texto en conflicto antes de guardar más cambios.",
+    reviewConflict: "Revisar conflicto",
+    conflictTitle: "Conflicto de texto en la diapositiva {{number}}",
+    conflictDescription:
+      "Otra versión modificó esta diapositiva mientras editabas el texto.",
+    conflictChoicesDescription:
+      "Conservar tu texto lo guarda sobre la versión más reciente. Usar el texto guardado solo reemplaza el borrador local de esta diapositiva.",
+    conflictBackupDescription:
+      "Este borrador de toda la presentación no se puede resolver diapositiva por diapositiva. Descarga una copia para conservarlo.",
+    conflictResolveFailed:
+      "No se pudo resolver el conflicto. El borrador sigue disponible en este dispositivo.",
+    conflictKeepMine: "Conservar mi texto",
+    conflictUseLatest: "Usar el texto guardado",
     importBackup: "Importar copia de seguridad",
     backupDownloaded: "Copia de seguridad descargada",
     backupDownloadFailed: "No se pudo descargar la copia de seguridad",
@@ -408,6 +424,8 @@ const messages = {
     orderedList: "Lista ordenada",
     quote: "Cita",
     blockquote: "Bloque de cita",
+    divider: "Separador",
+    horizontalRule: "Línea horizontal",
   },
   comments: {
     deleteComment: "Eliminar comentario",
@@ -430,7 +448,9 @@ const messages = {
     resolveThread: "Resolver hilo",
     reopenThread: "Reabrir hilo",
     hideReplies: "Ocultar respuestas",
-    replyCount: "{{count}} respuestas",
+    replyCount_one: "{{count}} respuesta",
+    replyCount_many: "{{count}} respuestas",
+    replyCount_other: "{{count}} respuestas",
     title: "Comentarios",
     addComment: "Añadir comentario",
     close: "Cerrar",
@@ -441,6 +461,7 @@ const messages = {
     retry: "Reintentar",
     clickToAddComment: "Haz clic para añadir un comentario",
     selectSlideToAdd: "Selecciona una diapositiva para añadir uno",
+    filters: "Filtros de comentarios",
     scope: "Ámbito de comentarios",
     thisSlide: "Esta diapositiva",
     allComments: "Todas las diapositivas",
@@ -628,9 +649,12 @@ const messages = {
     slideNumber: "Diapositiva {{number}}",
     noSlidesInSnapshot: "No hay diapositivas en esta instantánea.",
     restoreThisVersion: "Restaurar esta versión",
+    retry: "Reintentar",
     noSavedVersions: "Aún no hay versiones guardadas",
     noSavedVersionsDescription:
       "Las versiones se guardan automáticamente antes de futuras ediciones del deck.",
+    loadFailed: "No se pudieron cargar las versiones guardadas.",
+    snapshotLoadFailed: "No se pudo cargar esta versión guardada.",
   },
   editorSidebar: {
     selectSlide: "Seleccionar diapositiva {{number}}",
@@ -756,6 +780,8 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "La ejecución del agente falló antes de crear diapositivas. Consulta los detalles del chat y vuelve a intentarlo.",
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -969,8 +995,8 @@ const messages = {
           "Lee la web de la empresa indicada y crea una presentación sobre ella. Informa de errores de acceso en lugar de inventar datos.",
       },
     },
-    connectBuilderIo: "Conectar Builder.io",
-    connectingBuilder: "Conectando Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando Builder.io…",
     recent: "Recientes",
     starters: {
       pitch: {

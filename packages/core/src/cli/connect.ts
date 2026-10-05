@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +18,7 @@ import {
   writeHttpEntryForClient,
   writeJsonMcpEntryForClient,
 } from "./mcp-config-writers.js";
+import { openUrlInBrowser } from "./open-url.js";
 import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start`;
@@ -74,8 +74,10 @@ const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
   "github-copilot",
 ]);
 
-let logOutImpl = (msg: string) => process.stdout.write(`${msg}\n`);
-let logErrImpl = (msg: string) => process.stderr.write(`${msg}\n`);
+let logOutImpl: (msg: string) => void = (msg) =>
+  process.stdout.write(`${msg}\n`);
+let logErrImpl: (msg: string) => void = (msg) =>
+  process.stderr.write(`${msg}\n`);
 
 function logOut(msg: string): void {
   logOutImpl(msg);
@@ -553,23 +555,7 @@ function reconnectServerNameForMcpUrl(
 
 function openInBrowser(url: string): void {
   if (process.env.AGENT_NATIVE_NO_OPEN === "1") return;
-  try {
-    const command =
-      process.platform === "darwin"
-        ? "open"
-        : process.platform === "win32"
-          ? "cmd"
-          : "xdg-open";
-    const openArgs =
-      process.platform === "win32" ? ["/c", "start", "", url] : [url];
-    const child = spawn(command, openArgs, {
-      stdio: "ignore",
-      detached: true,
-    });
-    child.unref();
-  } catch {
-    // Non-fatal: the user can open the URL manually (we already printed it).
-  }
+  openUrlInBrowser(url);
 }
 
 interface DeviceStartResponse {
@@ -1870,10 +1856,7 @@ async function resolveReconnectTarget(
   const urlList = [...byUrl.keys()];
   if (shouldPrompt(deps)) {
     const clack = await import("@clack/prompts");
-    const result = await clack.select<
-      { value: string; label: string; hint: string }[],
-      string
-    >({
+    const result = await clack.select({
       message:
         "Multiple Agent-Native apps found. Which one do you want to reconnect?",
       options: urlList.map((u) => {
@@ -1889,9 +1872,9 @@ async function resolveReconnectTarget(
       clack.cancel("Cancelled.");
       return null;
     }
-    const bucket = byUrl.get(result as string);
+    const bucket = byUrl.get(result);
     const chosen = bucket
-      ? (preferredReconnectEntry(result as string, bucket) ?? bucket[0])
+      ? (preferredReconnectEntry(result, bucket) ?? bucket[0])
       : undefined;
     if (!chosen || !bucket) return null;
     return {

@@ -2,6 +2,7 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -81,9 +82,15 @@ function renderSecretsSection(root: Root, focusKey?: string) {
       catalog={toolkitI18nCatalog}
       persistPreference={false}
     >
-      <TooltipProvider>
-        <SecretsSection focusKey={focusKey} />
-      </TooltipProvider>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TooltipProvider>
+          <SecretsSection focusKey={focusKey} />
+        </TooltipProvider>
+      </QueryClientProvider>
     </AgentNativeI18nProvider>,
   );
 }
@@ -110,11 +117,21 @@ async function openRow(label: string) {
   await click(toggle);
 }
 
-function mockFetchWithSecrets(secrets: unknown[]) {
+const adminOrgMe = {
+  email: "admin@example.test",
+  orgId: "org-1",
+  orgName: "Acme",
+  role: "admin",
+  icon: null,
+  iconRevision: 0,
+};
+
+function mockFetchWithSecrets(secrets: unknown[], orgMe: unknown = adminOrgMe) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
+      if (url.endsWith("/org/me")) return Response.json(orgMe);
       if (url.endsWith("/secrets/adhoc")) {
         return Response.json([
           {
@@ -173,6 +190,9 @@ describe("SecretsSection", () => {
     const fetchMock = vi.fn<typeof fetch>((input, init) => {
       if (String(input).endsWith("/secrets/adhoc")) {
         return Promise.resolve(Response.json([]));
+      }
+      if (String(input).endsWith("/org/me")) {
+        return Promise.resolve(Response.json(adminOrgMe));
       }
       secretRequests += 1;
       if (secretRequests === 1) {
@@ -340,6 +360,24 @@ describe("SecretsSection", () => {
     expect(container.querySelector('[aria-label="Key name"]')).toBeTruthy();
     expect(container.querySelector('[aria-label="Secret value"]')).toBeTruthy();
     expect(container.querySelector('[aria-label="Scope"]')).toBeTruthy();
+    expect(
+      container.querySelector('[aria-label="Scope"]')?.textContent,
+    ).toContain("Workspace");
+  });
+
+  it("saves a member's custom key personally without a scope picker", async () => {
+    mockFetchWithSecrets(registeredSecrets, { ...adminOrgMe, role: "member" });
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+    await openNewMenu();
+    const customItem = Array.from(
+      document.querySelectorAll('[role="option"]'),
+    ).find((item) => item.textContent?.includes("Custom key"));
+    await click(customItem);
+
+    expect(container.querySelector('[aria-label="Key name"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Scope"]')).toBeNull();
   });
 
   it("filters the key list as you search", async () => {

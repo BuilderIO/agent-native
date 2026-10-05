@@ -36,7 +36,7 @@ vi.mock("../settings/api-keys/api-keys-client.js", () => keys);
 vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: { orgName: "Acme" } }),
 }));
-vi.mock("./useIntegrationStatus.js", () => ({
+vi.mock("@agent-native/core/client/integrations/useIntegrationStatus", () => ({
   useIntegrationStatus: () => ({ statuses: [], loading: false, refetch() {} }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -356,6 +356,15 @@ describe("IntegrationDetailPage", () => {
     expect(url.searchParams.get("scope")).toBe("user");
     expect(navigate).not.toHaveBeenCalled();
     expect(rowText("sign-in")).toContain("OAuth");
+  });
+
+  it("connects an admin's server for the organization unless they pick Just me", async () => {
+    await render("context7");
+    const { action } = await renderHeader();
+    await act(async () => action?.click());
+    expect(createServer).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scope: "org" }),
+    );
   });
 
   it("lets an admin share a public server with the organization", async () => {

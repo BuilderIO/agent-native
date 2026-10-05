@@ -11,10 +11,7 @@ import {
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
 } from "@agent-native/core/action-ui";
-import {
-  AgentNativeI18nProvider as CoreAgentNativeI18nProvider,
-  type AgentNativeI18nProviderProps,
-} from "@agent-native/core/client/i18n";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import {
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
@@ -32,16 +29,7 @@ import {
 } from "../chat/tool-render-registry.js";
 import { AgentKitActionWidget } from "./action-widget.js";
 
-const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
-
-function AgentNativeI18nProvider(props: AgentNativeI18nProviderProps) {
-  return (
-    <CoreAgentNativeI18nProvider
-      {...props}
-      catalog={props.catalog ?? toolkitI18nCatalog}
-    />
-  );
-}
+const catalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("AgentKitActionWidget", () => {
   it("resolves the renderer with stored action args and structured result", async () => {
@@ -229,7 +217,7 @@ describe("AgentKitActionWidget", () => {
     try {
       await act(async () => {
         root.render(
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
             <AgentKitProvider controller={client} threadId="thread-1">
               <>
                 <AgentKitActionWidget value={formsWidget} threadId="thread-1" />
@@ -316,7 +304,7 @@ describe("AgentKitActionWidget", () => {
     try {
       await act(async () => {
         root.render(
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
             <AgentKitProvider controller={client} threadId="thread-1">
               <>
                 {widgets.map((widget) => (
@@ -399,7 +387,7 @@ describe("AgentKitActionWidget", () => {
     try {
       await act(async () => {
         root.render(
-          <AgentNativeI18nProvider persistPreference={false}>
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
             <AgentKitProvider controller={client} threadId="thread-1">
               {widgets.map((widget) => (
                 <AgentKitActionWidget

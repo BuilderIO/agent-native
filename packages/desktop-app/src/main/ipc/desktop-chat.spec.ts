@@ -195,7 +195,7 @@ describe("desktop chat relay target URLs", () => {
     expect(
       stripCodexMcpConfig(
         [
-          'model = "gpt-5.6-luna"',
+          'model = "gpt-6-luna"',
           "",
           '[mcp_servers."stale-app"]',
           'url = "https://stale.example/mcp"',
@@ -204,7 +204,7 @@ describe("desktop chat relay target URLs", () => {
           "shell_snapshot = true",
         ].join("\n"),
       ),
-    ).toBe('model = "gpt-5.6-luna"\n\n[features]\nshell_snapshot = true');
+    ).toBe('model = "gpt-6-luna"\n\n[features]\nshell_snapshot = true');
   });
 
   it("returns an authenticated desktop-owned terminal endpoint", () => {

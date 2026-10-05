@@ -167,6 +167,12 @@ export default {
     openAgentSettings: "에이전트 관리",
     labTweaks: "디자인 트윅",
     labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
+    labFullAppBuilding: "전체 앱 만들기",
+    labFullAppBuildingDescription:
+      "Builder로 디자인을 바탕으로 작동하는 앱을 만들어 보세요.",
+    labDesignReviewTools: "디자인 검토 도구",
+    labDesignReviewToolsDescription:
+      "디자인의 접근성 문제를 확인하고 시각적 변경 사항을 비교하세요.",
     mcpAbout:
       "Design을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Design에서 디자인을 만들고 편집할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
@@ -207,7 +213,7 @@ export default {
       tokenLabel: "Figma 액세스 토큰",
       tokenPlaceholder: "Figma 액세스 토큰 붙여넣기",
       connecting: "연결 중…",
-      connect: "연결",
+      connect: "Builder.io 사용",
       getToken: "토큰 받기",
       importFrame: "프레임 가져오기",
       chooseFrame: "프레임 선택",
@@ -1250,6 +1256,7 @@ export default {
       verifying: "소스와 런타임 확인 중…",
       retryWithAgent: "소스 확인 다시 시도",
       copyPrompt: "에이전트에 프롬프트 복사",
+      copyAgentPrompt: "에이전트 프롬프트 복사",
       copyFullPrompt: "전체 프롬프트 복사",
       abortPreview: "미리보기를 중단하고 상호작용",
       agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
@@ -1351,6 +1358,16 @@ export default {
         "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
       pngSaveError: "PNG를 저장할 수 없음",
       pngExportError: "PNG를 내보낼 수 없음",
+      exportTooLarge:
+        "내보내기 크기가 너무 큽니다. 요청 한도는 5MB입니다. 포함된 리소스나 래스터 크기를 줄이고 다시 시도하세요.",
+      exportResourcesUnavailable:
+        "하나 이상의 이미지, 글꼴 또는 스타일시트를 사용할 수 없어 정확히 렌더링하지 못했습니다. 해당 리소스를 확인하고 다시 시도하세요.",
+      exportTimedOut:
+        "내보내기 시간이 초과되었습니다. 다시 시도하거나 디자인 크기를 줄이세요.",
+      exportBusy:
+        "다른 내보내기를 렌더링 중입니다. 잠시 기다린 후 다시 시도하세요.",
+      exportChromiumUnavailable:
+        "렌더러를 시작할 수 없어 내보내기를 사용할 수 없습니다. 나중에 다시 시도하세요.",
       pdfExportError: "PDF를 내보낼 수 없습니다.",
       pdfDownloaded: "PDF 다운로드됨",
       pdfAllScreensDownloaded: "PDF 다운로드됨 (모든 화면)",
@@ -1716,8 +1733,8 @@ export default {
     designPromptTitle: "첫 번째 디자인을 만들어 볼까요?",
     recent: "최근",
     browseAllTemplates: "모두 둘러보기",
-    connectBuilderIo: "Builder.io 연결",
-    connectingBuilder: "Builder.io 연결 중…",
+    connectBuilderIo: "Builder.io 사용",
+    connectingBuilder: "Builder.io 설정 중…",
     pageTitle: "Design",
     searchPlaceholder: "디자인 검색...",
     newDesign: "새로운 Design",

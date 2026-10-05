@@ -6,15 +6,10 @@ import {
   type Response,
 } from "@playwright/test";
 
-import { DESIGN_REVIEW_PANEL } from "../shared/design-flags";
+import { DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
-import {
-  designFrame,
-  enableFeatureFlag,
-  gotoEditor,
-  selectByText,
-} from "./helpers";
+import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
 
 let designId: string;
 let fileId: string;
@@ -190,26 +185,23 @@ test("token CSS-var edits update the iframe live and persist after reload", asyn
 test("Review panel runs an audit and applies an inline a11y fix", async ({
   page,
 }) => {
-  const disableReviewPanel = await enableFeatureFlag(
-    page,
-    DESIGN_REVIEW_PANEL.key,
-  );
+  const restoreReviewPanel = await enableLab(page, DESIGN_REVIEW_TOOLS_LAB.key);
   try {
     await gotoEditor(page, designId);
     await runReviewPanelAudit(page);
   } finally {
-    await disableReviewPanel();
+    await restoreReviewPanel();
   }
 });
 
 async function runReviewPanelAudit(page: Page): Promise<void> {
-  const reviewToggle = page.getByRole("button", {
+  await page.getByRole("tab", { name: "Design", exact: true }).click();
+  const reviewHeading = page.getByRole("heading", {
     name: "Review",
     exact: true,
   });
-  await reviewToggle.scrollIntoViewIfNeeded();
-  await expect(reviewToggle).toBeVisible();
-  await reviewToggle.click();
+  await reviewHeading.scrollIntoViewIfNeeded();
+  await expect(reviewHeading).toBeVisible();
 
   await expect(page.getByTestId("review-panel")).toBeVisible();
 

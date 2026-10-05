@@ -70,6 +70,34 @@ describe("DocumentToolbar clipboard behavior", () => {
   let root: Root;
   let queryClient: QueryClient;
 
+  function renderToolbar(suggesting = false) {
+    root.render(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(DocumentToolbar, {
+              documentId: "clipboard-fixture",
+              utilityPanel: null,
+              onUtilityPanelChange: () => {},
+              canSuggest: true,
+              suggesting,
+              onCaptureEditorSelection: mocks.captureSelection,
+              onPreserveEditorSelection: mocks.preserveSelection,
+              onRestoreEditorSelection: mocks.restoreSelection,
+              onSuggestingChange: mocks.suggestingChange,
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+
   beforeEach(async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(
@@ -89,32 +117,7 @@ describe("DocumentToolbar clipboard behavior", () => {
       defaultOptions: { queries: { retry: false } },
     });
 
-    await act(async () => {
-      root.render(
-        createElement(
-          MemoryRouter,
-          null,
-          createElement(
-            TooltipProvider,
-            null,
-            createElement(
-              QueryClientProvider,
-              { client: queryClient },
-              createElement(DocumentToolbar, {
-                documentId: "clipboard-fixture",
-                utilityPanel: null,
-                onUtilityPanelChange: () => {},
-                canSuggest: true,
-                onCaptureEditorSelection: mocks.captureSelection,
-                onPreserveEditorSelection: mocks.preserveSelection,
-                onRestoreEditorSelection: mocks.restoreSelection,
-                onSuggestingChange: mocks.suggestingChange,
-              }),
-            ),
-          ),
-        ),
-      );
-    });
+    await act(async () => renderToolbar());
   });
 
   afterEach(async () => {
@@ -276,7 +279,7 @@ describe("DocumentToolbar clipboard behavior", () => {
       container.querySelector('[aria-label="editor.toolbar.copyLink"]'),
     ).toBeNull();
   });
-  it("captures the editor selection before pointer-opening Suggest edits", async () => {
+  it("clears superseded Suggest edits focus timers before unmounting", async () => {
     const editor = document.createElement("div");
     editor.tabIndex = 0;
     document.body.append(editor);
@@ -308,9 +311,53 @@ describe("DocumentToolbar clipboard behavior", () => {
       candidate.textContent?.includes("editor.toolbar.suggestEdits"),
     );
     expect(item).not.toBeUndefined();
-    await act(async () => item!.click());
-    expect(mocks.suggestingChange).toHaveBeenCalledWith(true);
-    expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
+    const setTimeout = vi.spyOn(window, "setTimeout");
+    const clearTimeout = vi.spyOn(window, "clearTimeout");
+    try {
+      await act(async () => item!.click());
+      expect(mocks.suggestingChange).toHaveBeenCalledWith(true);
+      expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+
+      const focusTimeouts = () =>
+        setTimeout.mock.calls.flatMap(([, delay], index) =>
+          delay === 50 ? [setTimeout.mock.results[index]?.value] : [],
+        );
+      const [firstFocusTimeout] = focusTimeouts();
+      expect(firstFocusTimeout).toBeDefined();
+
+      await act(async () => renderToolbar(true));
+      const secondTrigger = container.querySelector<HTMLButtonElement>(
+        '[aria-label="editor.toolbar.morePageActions"]',
+      )!;
+      await act(async () => {
+        secondTrigger.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+      });
+      const secondItem = Array.from(
+        document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find((candidate) =>
+        candidate.textContent?.includes("editor.toolbar.stopSuggesting"),
+      );
+      expect(secondItem).not.toBeUndefined();
+      await act(async () => secondItem!.click());
+      expect(mocks.suggestingChange).toHaveBeenLastCalledWith(false);
+
+      const [, secondFocusTimeout] = focusTimeouts();
+      expect(secondFocusTimeout).toBeDefined();
+      expect(clearTimeout).toHaveBeenCalledWith(firstFocusTimeout);
+
+      await act(async () => root.render(null));
+
+      expect(clearTimeout).toHaveBeenCalledWith(secondFocusTimeout);
+    } finally {
+      vi.useRealTimers();
+    }
 
     editor.remove();
   });

@@ -128,7 +128,7 @@ describe("RootShell tree stability", () => {
     expect(screen.getAllByTestId("page")[0]).toBe(before);
   });
 
-  it("keeps closed Docs sidebars out of screen-refresh sync", async () => {
+  it("keeps Docs sidebars out of screen-refresh sync", async () => {
     const { RootShell } = await import("./root");
     render(<RootShell mounted />);
     await vi.dynamicImportSettled();

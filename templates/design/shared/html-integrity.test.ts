@@ -688,7 +688,7 @@ describe("Design HTML structural integrity", () => {
         expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
         return performance.now() - start;
       });
-      return Math.min(...samples);
+      return samples.sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
     };
     time(build(400));
     const small = time(build(800));
@@ -705,7 +705,7 @@ describe("Design HTML structural integrity", () => {
         expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
         return performance.now() - start;
       });
-      return Math.min(...samples);
+      return samples.sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
     };
     time(build(1000));
     const small = time(build(2000));

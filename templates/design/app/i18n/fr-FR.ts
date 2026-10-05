@@ -170,6 +170,12 @@ export default {
     openAgentSettings: "Gérer l’agent",
     labTweaks: "Ajustements de design",
     labTweaksDescription: "Essayez les ajustements de design avec l’IA.",
+    labFullAppBuilding: "Création d’applications complètes",
+    labFullAppBuildingDescription:
+      "Essayez de créer des applications fonctionnelles à partir de vos designs avec Builder.",
+    labDesignReviewTools: "Outils de révision des designs",
+    labDesignReviewToolsDescription:
+      "Vérifiez l’accessibilité de vos designs et comparez les changements visuels.",
     mcpAbout:
       "Connectez Design à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Design pour vous : créer des designs et les modifier. Elle ne voit que ce que vous pouvez voir.",
   },
@@ -210,7 +216,7 @@ export default {
       tokenLabel: "Jeton d’accès Figma",
       tokenPlaceholder: "Collez le jeton d’accès Figma",
       connecting: "Connexion…",
-      connect: "Connecter",
+      connect: "Utiliser Builder.io",
       getToken: "Obtenir un jeton",
       importFrame: "Importer la frame",
       chooseFrame: "Choisir une frame",
@@ -1274,6 +1280,7 @@ export default {
       verifying: "Vérification de la source et du runtime…",
       retryWithAgent: "Réessayer la vérification de la source",
       copyPrompt: "Copier le prompt vers votre agent",
+      copyAgentPrompt: "Copier le prompt de l’agent",
       copyFullPrompt: "Copier le prompt complet",
       abortPreview: "Annuler l’aperçu et interagir",
       agentMessage:
@@ -1379,6 +1386,16 @@ export default {
         "La capture PNG n’est pas disponible dans les aperçus en lecture seule",
       pngSaveError: "Impossible d’enregistrer PNG",
       pngExportError: "Impossible d’exporter PNG",
+      exportTooLarge:
+        "L’export est trop volumineux. Les requêtes sont limitées à 5 Mo ; réduisez les ressources intégrées ou les dimensions de rastérisation, puis réessayez.",
+      exportResourcesUnavailable:
+        "L’export n’a pas pu être rendu fidèlement, car une ou plusieurs images, polices ou feuilles de style sont indisponibles. Vérifiez ces ressources, puis réessayez.",
+      exportTimedOut:
+        "Le délai d’export a expiré. Réessayez ou réduisez la taille du design.",
+      exportBusy:
+        "Un autre export est en cours de rendu. Patientez un instant, puis réessayez.",
+      exportChromiumUnavailable:
+        "L’export est indisponible, car le moteur de rendu n’a pas pu démarrer. Réessayez plus tard.",
       pdfExportError: "Impossible d’exporter le PDF",
       pdfDownloaded: "PDF téléchargé",
       pdfAllScreensDownloaded: "PDF téléchargé (tous les écrans)",
@@ -1754,8 +1771,8 @@ export default {
     designPromptTitle: "Créons votre premier design",
     recent: "Récents",
     browseAllTemplates: "Tout parcourir",
-    connectBuilderIo: "Connecter Builder.io",
-    connectingBuilder: "Connexion à Builder.io…",
+    connectBuilderIo: "Utiliser Builder.io",
+    connectingBuilder: "Configuration de Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "Rechercher des modèles...",
     newDesign: "Nouveau Design",

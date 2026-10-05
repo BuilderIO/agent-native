@@ -105,15 +105,17 @@ const LARGE_METRICS = [
   "clip-share-signups-30d",
 ];
 
-const SIGNED_IN_ACTIVITY_METRICS = [
+const SIGNED_IN_SESSION_ACTIVITY_METRICS = [
   "repeat-users",
   "recurring-users-by-template",
   "recurring-users-by-template-bar",
+  "dau-over-time",
+  "wau-over-time",
+];
+const CONTENT_OR_CHAT_RETENTION_METRICS = [
   "retention-over-time",
   "one-day-retention-by-template",
   "seven-day-retention-by-template",
-  "dau-over-time",
-  "wau-over-time",
 ];
 
 beforeEach(() => {
@@ -369,8 +371,8 @@ describe("compose-dashboard", () => {
     }
   });
 
-  it("counts retention and active-user panels from signed-in session activity", () => {
-    for (const metric of SIGNED_IN_ACTIVITY_METRICS) {
+  it("counts active-user panels from signed-in session activity", () => {
+    for (const metric of SIGNED_IN_SESSION_ACTIVITY_METRICS) {
       const panel = buildPanel(metric)!;
       expect(panel.sql).toContain(
         "event_name IN ('session status', 'session_status')",
@@ -384,6 +386,20 @@ describe("compose-dashboard", () => {
       expect(panel.sql).toContain("NULLIF(user_key");
       expect(panel.sql).toContain("lower(COALESCE");
       expect(panel.sql).toContain("<> 'docs'");
+    }
+  });
+
+  it("counts retention from authenticated content and chat activity", () => {
+    for (const metric of CONTENT_OR_CHAT_RETENTION_METRICS) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("'auth_user_id'");
+      expect(panel.sql).toContain("'action_completed'");
+      expect(panel.sql).toContain("'generation_completed'");
+      expect(panel.sql).toContain("'run_started'");
+      expect(panel.sql).not.toContain(
+        "event_name IN ('session status', 'session_status')",
+      );
+      expect(panel.sql).not.toContain("signed_in = 'true'");
     }
   });
 

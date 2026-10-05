@@ -1089,6 +1089,7 @@ pub(crate) fn prepare_clip_sink(
         ),
         voice_cleanup_enabled,
         CustomWriterOutput::ClipHls,
+        false,
         None,
     )?;
     let gate = Arc::new(ClipSinkGate::new());
@@ -1287,6 +1288,7 @@ impl CustomScreenCaptureWriter {
         mix_live: bool,
         voice_cleanup_enabled: bool,
         output: CustomWriterOutput,
+        live_upload_enabled: bool,
         audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
     ) -> Result<Self, String> {
         use objc2::msg_send;
@@ -1302,10 +1304,7 @@ impl CustomScreenCaptureWriter {
         #[link(name = "UniformTypeIdentifiers", kind = "framework")]
         extern "C" {}
 
-        let segmented = segmented_output_enabled(
-            output,
-            crate::remote_flags::current().custom_sck_pipeline_live_upload_enabled,
-        );
+        let segmented = segmented_output_enabled(output, live_upload_enabled);
         unsafe {
             let writer_cls = av_class_named("AVAssetWriter")
                 .ok_or_else(|| "AVAssetWriter missing".to_string())?;
@@ -3728,6 +3727,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     defer_recording_output: bool,
     force_segmented_output: bool,
     emit_recorder_stop: bool,
+    live_upload_enabled: bool,
     prefetched_content: Option<SCShareableContent>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     eprintln!("[clips-tray] starting custom screen capture backend");
@@ -3818,6 +3818,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         mix_live,
         voice_cleanup_enabled,
         output,
+        live_upload_enabled,
         audio_producer,
     )?;
     let recording_enabled = Arc::new(AtomicBool::new(!defer_recording_output));

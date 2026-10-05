@@ -1870,9 +1870,14 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       bytesUploaded: 100,
       lastCommittedIndex: 0,
     });
-    mockRenewUploadLease
-      .mockResolvedValueOnce({ held: true })
-      .mockResolvedValueOnce({ held: true });
+    // Mirror the real lease: it is only held while the row still carries the
+    // generation the caller asked to renew.
+    mockRenewUploadLease.mockImplementation(async (_id, options) => {
+      const row = mockSelectRows.rows[0] as Record<string, unknown>;
+      return row.uploadGenerationId === (options as any).generationId
+        ? { held: true }
+        : { held: false, staleAttempt: true };
+    });
     mockRelayChunk.mockImplementationOnce(async () => {
       (mockSelectRows.rows[0] as Record<string, unknown>).uploadGenerationId =
         "generation-b";
@@ -1887,14 +1892,18 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       body: new Uint8Array([1]),
     });
 
-    await expect(handler({} as any)).resolves.toEqual(
-      expect.objectContaining({ restartRequired: true }),
+    // generation-a lost the row to generation-b while its provider call was in
+    // flight, so the expired response must be reported as a stale attempt. A
+    // restartRequired answer would send the client to tear down the session
+    // that now belongs to generation-b.
+    const result = await handler({} as any);
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, staleAttempt: true }),
     );
+    expect(result).not.toHaveProperty("restartRequired");
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();
-    expect(mockDeleteResumableSession).not.toHaveBeenCalledWith(
-      "rec-1",
-      "generation-b",
-    );
+    expect(mockCompareAndSetResumableSession).not.toHaveBeenCalled();
   });
 
   it("settles a delayed provider success before returning stale ownership", async () => {

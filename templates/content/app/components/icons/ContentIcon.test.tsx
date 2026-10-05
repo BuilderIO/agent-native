@@ -37,4 +37,20 @@ describe("Content image icons", () => {
 
     expect(markup).toContain('src="https://cdn.example.com/imported-logo.png"');
   });
+
+  it("renders a private image through Content's authorized byte route", () => {
+    const markup = renderToStaticMarkup(
+      <ContentIcon
+        value={{
+          version: 1,
+          kind: "image",
+          authority: "private-icon",
+          assetId: "asset_123",
+        }}
+      />,
+    );
+
+    expect(markup).toContain('src="/api/private-icons/asset_123"');
+    expect(markup).not.toContain("cdn.builder.io");
+  });
 });

@@ -24,6 +24,25 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
 }));
 
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useT: () => (key: string, options?: Record<string, unknown>) => {
+    const messages: Record<string, string> = {
+      "agentChat.common.cancel": "Cancel",
+      "agentChat.common.retry": "Retry",
+      "agentChat.recovery.stuckNoProgress":
+        "No progress. The agent may have hit a server timeout or lost its connection.",
+      "agentChat.recovery.stuckRetrying": "Retrying automatically now.",
+      "agentChat.recovery.stuckTitle": "This chat looks stuck.",
+      "agentChat.recovery.stuckWithDuration":
+        "No progress for {{seconds}}s. The agent may have hit a server timeout or lost its connection.",
+    };
+    return (messages[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, name: string) =>
+      String(options?.[name] ?? ""),
+    );
+  },
+}));
+
 function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 500) {
   return {
     ok,

@@ -192,6 +192,7 @@ const LIFECYCLE_PROPERTY_KEYS = [
   "cta_name",
   "link_type",
   "run_id",
+  "llm_chat_eligible",
   "thread_id",
   "turn_id",
   "chat_tab_id",

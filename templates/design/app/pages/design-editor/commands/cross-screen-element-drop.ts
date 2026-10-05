@@ -45,7 +45,10 @@ import {
 } from "@/pages/design-editor/html-layer-positioning";
 import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import { applyPortableStyleSnapshotToHtml } from "@/pages/design-editor/portable-style";
-import { resolveRuntimeStructureMoveExecutionMode } from "@/pages/design-editor/react-semantic-handoff";
+import {
+  resolveRuntimeStructureMoveExecutionMode,
+  type ReactGridPlacement,
+} from "@/pages/design-editor/react-semantic-handoff";
 
 import {
   insertClonedHtmlLayers,
@@ -82,6 +85,32 @@ function absoluteDropPoint(
     x: targetLocalPoint.x - targetAnchorRect.left,
     y: targetLocalPoint.y - targetAnchorRect.top,
   };
+}
+
+function applyGridPlacementToHtml(
+  content: string,
+  nodeId: string | undefined,
+  placement:
+    | { column: number; columnEnd: number; row: number; rowEnd: number }
+    | undefined,
+): string | null {
+  if (!placement) return content;
+  if (!nodeId) return null;
+  let nextContent = content;
+  for (const [property, value] of [
+    ["grid-column", `${placement.column} / ${placement.columnEnd}`],
+    ["grid-row", `${placement.row} / ${placement.rowEnd}`],
+  ]) {
+    const patch = applyVisualEdit(nextContent, {
+      kind: "style",
+      target: { nodeId },
+      property,
+      value,
+    });
+    if (patch.result.status !== "applied") return null;
+    nextContent = patch.content;
+  }
+  return nextContent;
 }
 
 export function absolutePlacePointForDrop(args: {
@@ -246,6 +275,7 @@ export interface CrossScreenElementDropArgs {
     subjectLayerId: string,
     targetLayerId: string,
     placement: "before" | "after" | "inside",
+    gridPlacement?: ReactGridPlacement,
   ) => boolean;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setCreatedOverviewLayerSelection: Dispatch<
@@ -316,6 +346,7 @@ export function runCrossScreenElementDrop(
     targetAnchorSelector,
     targetAnchorPlacement,
     targetDropMode,
+    targetGridPlacement,
     targetAnchorRect,
     targetLocalPoint,
     sourcePointerOffset,
@@ -338,6 +369,12 @@ export function runCrossScreenElementDrop(
     targetAnchorSelector?: string;
     targetAnchorPlacement?: "before" | "after" | "inside";
     targetDropMode?: "flow-insert" | "absolute-container";
+    targetGridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
     targetAnchorRect?: {
       left: number;
       top: number;
@@ -388,11 +425,11 @@ export function runCrossScreenElementDrop(
     node: sourceNodeId ?? sourceSelector,
     blocked: !canEditDesign
       ? "read-only design"
-      : sourceScreenId === targetScreenId
+      : sourceScreenId === targetScreenId && !duplicate
         ? "same screen — nothing to move"
         : null,
   });
-  if (sourceScreenId === targetScreenId) return;
+  if (sourceScreenId === targetScreenId && !duplicate) return;
 
   const findLayerOwner = (
     screenId: string,
@@ -604,6 +641,7 @@ export function runCrossScreenElementDrop(
         pendingNodeId: targetAnchorPendingNodeId,
       },
       placement: targetAnchorPlacement ?? "inside",
+      gridPlacement: targetGridPlacement,
     });
     setRuntimeStructureDeleteRequest({
       requestId: deleteRequestId,
@@ -683,6 +721,7 @@ export function runCrossScreenElementDrop(
           pendingNodeId: targetAnchorPendingNodeId,
         },
         placement: targetAnchorPlacement ?? "inside",
+        gridPlacement: targetGridPlacement,
       });
       return;
     }
@@ -787,7 +826,17 @@ export function runCrossScreenElementDrop(
       });
       return;
     }
-    const nextDestContent = nextContent.content;
+    const nextDestContent = applyGridPlacementToHtml(
+      nextContent.content,
+      nextContent.rootNodeIds[0],
+      targetGridPlacement,
+    );
+    if (!nextDestContent) {
+      toast.error(t("designEditor.toasts.layerMoveFailed"), {
+        duration: 4000,
+      });
+      return;
+    }
     if (isShaderWriteInFlight(targetScreenId)) {
       toast.error(t("designEditor.toasts.saveConflict"));
       return;
@@ -940,6 +989,7 @@ export function runCrossScreenElementDrop(
         pendingNodeId: targetAnchorPendingNodeId,
       },
       placement: targetAnchorPlacement ?? "inside",
+      gridPlacement: targetGridPlacement,
     });
     return;
   }
@@ -952,6 +1002,7 @@ export function runCrossScreenElementDrop(
       sourceOwnerEntry[0],
       targetOwnerEntry[0],
       targetAnchorPlacement ?? "inside",
+      targetGridPlacement,
     );
     return;
   }
@@ -1189,7 +1240,17 @@ export function runCrossScreenElementDrop(
       ` anchorRect=${targetAnchorRect ? `${Math.round(targetAnchorRect.left)},${Math.round(targetAnchorRect.top)}` : "none"}` +
       ` grab=${point(sourcePointerOffset)}`,
   );
-  const nextDestContent = placed.content;
+  const nextDestContent = applyGridPlacementToHtml(
+    placed.content,
+    destNodeAttrId,
+    targetGridPlacement,
+  );
+  if (!nextDestContent) {
+    toast.error(t("designEditor.toasts.layerMoveFailed"), {
+      duration: 4000,
+    });
+    return;
+  }
 
   try {
     prepareAcceptedSourceContent(result.sourceHtml, {

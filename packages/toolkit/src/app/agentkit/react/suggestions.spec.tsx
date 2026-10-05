@@ -31,7 +31,8 @@ vi.mock("../../../agentkit.js", async (importOriginal) => {
         const handle = {
           focus: vi.fn(),
           submitWithText: async (text: string) => {
-            if (props.disabled || props.submitting) return;
+            if (props.disabled || props.submissionDisabled || props.submitting)
+              return;
             if (props.onBeforeSubmit && !(await props.onBeforeSubmit())) return;
             await props.onSubmit(text, draft.files, draft.references, {
               intent: "immediate",
@@ -137,6 +138,55 @@ async function setup() {
 }
 
 describe("standalone follow-up submission", () => {
+  it.each([false, true])(
+    "blocks suggestions while the host disables submission (custom slot: %s)",
+    async (custom) => {
+      const { runtime } = await setup();
+      let customPending: boolean | undefined;
+      let selectCustomSuggestion:
+        | ((suggestion: AgentSuggestion) => void)
+        | undefined;
+
+      await act(async () =>
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-1"
+            slots={
+              custom
+                ? {
+                    suggestions: ({ pending, onSelect }) => {
+                      customPending = pending;
+                      selectCustomSuggestion = onSelect;
+                      return (
+                        <button type="button" disabled={pending}>
+                          Custom next
+                        </button>
+                      );
+                    },
+                  }
+                : undefined
+            }
+          >
+            <AgentKitComposer autoFocus={false} submissionDisabled />
+          </AgentKitProvider>,
+        ),
+      );
+
+      if (custom) {
+        expect(customPending).toBe(true);
+        await act(async () => selectCustomSuggestion?.(suggestion));
+      } else {
+        const button = [...container.querySelectorAll("button")].find(
+          (item) => item.textContent === suggestion.label,
+        );
+        expect(button?.disabled).toBe(true);
+      }
+
+      expect(runtime.startRun).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([false, true])(
     "sends the full suggestion through the normal composer with displayed context (custom slot: %s)",
     async (custom) => {

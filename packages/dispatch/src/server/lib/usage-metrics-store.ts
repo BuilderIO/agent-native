@@ -18,6 +18,7 @@ import {
   type UsageBillingMode,
 } from "@agent-native/core/usage";
 
+import { isDispatchEnvironmentAdmin } from "./admin-config.js";
 import {
   listWorkspaceApps,
   type WorkspaceAppSummary,
@@ -371,22 +372,6 @@ function appUsageKey(value: string | null | undefined): string {
 function appOwner(app: WorkspaceAppSummary): string | null {
   const owner = app.owner?.trim();
   return owner || null;
-}
-
-function envEmails(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function isEnvAdmin(email: string): boolean {
-  const normalized = email.trim().toLowerCase();
-  return [
-    ...envEmails("DISPATCH_ADMIN_EMAILS"),
-    ...envEmails("WORKSPACE_OWNER_EMAIL"),
-    ...envEmails("DISPATCH_DEFAULT_OWNER_EMAIL"),
-  ].includes(normalized);
 }
 
 async function detectUsageEngineName(): Promise<string | null> {
@@ -939,7 +924,7 @@ async function assertCanViewMetrics(viewScope: UsageMetricsScope): Promise<{
   const role = await getViewerOrgRole(orgId, viewerEmail);
   if (
     viewScope === "me" ||
-    isEnvAdmin(viewerEmail) ||
+    isDispatchEnvironmentAdmin(viewerEmail) ||
     role === "owner" ||
     role === "admin"
   ) {
@@ -985,7 +970,9 @@ export async function listDispatchUsageMetrics(input: {
   }
   const selectedAppOwner = selectedApp ? appOwner(selectedApp) : null;
   const isMetricsAdmin = Boolean(
-    isEnvAdmin(viewerEmail) || role === "owner" || role === "admin",
+    isDispatchEnvironmentAdmin(viewerEmail) ||
+    role === "owner" ||
+    role === "admin",
   );
   if (
     viewScope === "app" &&

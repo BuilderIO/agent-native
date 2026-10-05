@@ -47,14 +47,7 @@ const clientState = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/toolkit/app/chat/chat-first", () => ({
-  CHAT_FIRST_DEFAULT_APP_IDS: [
-    "content",
-    "design",
-    "mail",
-    "calendar",
-    "clips",
-  ],
+vi.mock("@agent-native/toolkit/app/chat/chat-first/app-pane", () => ({
   ChatFirstAppPane: ({
     app,
     embedUrl,
@@ -88,10 +81,13 @@ vi.mock("@agent-native/toolkit/app/chat/chat-first", () => ({
         : null}
     </div>
   ),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/chat-first-copy", () => ({
   defaultChatFirstCopy: (key: string) => key,
 }));
 
-vi.mock("@agent-native/toolkit/app/chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
   AgentSidebar: () => null,
 }));
 

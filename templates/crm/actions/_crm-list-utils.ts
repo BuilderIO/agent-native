@@ -1,4 +1,8 @@
 import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  decryptSecretValue,
+  encryptSecretValue,
+} from "@agent-native/core/secrets/crypto";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   aliasedTable,
@@ -6,6 +10,7 @@ import {
   asc,
   desc,
   eq,
+  getTableColumns,
   gt,
   gte,
   inArray,
@@ -124,12 +129,19 @@ export async function requireCrmList(
   minRole: "viewer" | "editor",
 ): Promise<CrmListRow> {
   const [list] = await db
-    .select()
+    .select(getTableColumns(schema.crmLists))
     .from(schema.crmLists)
+    .innerJoin(
+      schema.crmConnections,
+      eq(schema.crmConnections.id, schema.crmLists.connectionId),
+    )
     .where(
       and(
         eq(schema.crmLists.id, listId),
         accessFilter(schema.crmLists, schema.crmListShares, undefined, minRole),
+        // Lists can hold records from other connections, so the list's own
+        // connection gates its metadata, attributes, and entries.
+        accessFilter(schema.crmConnections, schema.crmConnectionShares),
       ),
     )
     .limit(1);
@@ -816,6 +828,29 @@ export function decodeCrmCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
   const value = Number.parseInt(cursor, 10);
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+// A list-entry offset counts withheld rows it skipped, so it is sealed rather
+// than handed back as a plain number.
+export function encodeSealedCrmCursor(offset: number): string {
+  return encryptSecretValue(String(offset));
+}
+
+export function decodeSealedCrmCursor(cursor: string | undefined): number {
+  if (!cursor) return 0;
+  const unreadable = () =>
+    new CrmListError(
+      "crm-list-cursor-invalid",
+      "CRM list entry cursor is not readable. Restart without a cursor.",
+    );
+  let value: number;
+  try {
+    value = Number(decryptSecretValue(cursor));
+  } catch (error) {
+    throw Object.assign(unreadable(), { cause: error });
+  }
+  if (!Number.isSafeInteger(value) || value < 0) throw unreadable();
+  return value;
 }
 
 export function attributeSummary(attribute: CrmListAttribute) {

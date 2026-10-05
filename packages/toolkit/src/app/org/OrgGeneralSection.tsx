@@ -1,3 +1,4 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useIconPickerLabels, useT } from "@agent-native/core/client/i18n";
 import {
   useOrg,
@@ -8,8 +9,11 @@ import {
   useSwitchOrg,
   useSetOrgWorkspaceUrl,
 } from "@agent-native/core/client/org";
-import { uploadEditorImage } from "@agent-native/core/client/uploads";
-import { useFileUploadStatus } from "@agent-native/core/client/uploads/use-file-upload-status";
+import {
+  uploadWorkspacePrivateIcon,
+  workspacePrivateIconLibraryUrl,
+  workspacePrivateIconUrl,
+} from "@agent-native/core/client/uploads";
 import type { IconValue } from "@agent-native/core/icons";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
 import { ResourceIcon, ResourceIconPicker } from "@agent-native/toolkit/icons";
@@ -368,31 +372,37 @@ export function OrgIconControl({
 }) {
   const t = useT();
   const iconPickerLabels = useIconPickerLabels();
-  const fileUploadStatus = useFileUploadStatus(canEdit);
-  const fileStorageConfigured =
-    fileUploadStatus.data?.configured === true && !fileUploadStatus.isError;
+  const { data: org } = useOrg();
+  const uploadedIcons = useActionQuery<{
+    assets: Array<{ id: string; alt?: string }>;
+  }>("list-workspace-icons", {}, { enabled: canEdit && !!org?.orgId });
   return canEdit ? (
     <ResourceIconPicker
       value={icon}
+      uploadedImages={(uploadedIcons.data?.assets ?? []).map((asset) => ({
+        version: 1,
+        kind: "image",
+        authority: "private-icon",
+        assetId: asset.id,
+        ...(asset.alt ? { alt: asset.alt } : {}),
+      }))}
+      uploadedImagesError={Boolean(uploadedIcons.error)}
+      onUploadedImagesRetry={() => {
+        void uploadedIcons.refetch();
+      }}
       onValueChange={async (next) => {
         await setVisualIdentity.mutateAsync(next);
       }}
-      onUpload={
-        fileStorageConfigured
-          ? async (file) => {
-              const uploaded = await uploadEditorImage(file);
-              return {
-                version: 1,
-                kind: "image",
-                authority: "url",
-                assetId: uploaded.src,
-                alt: uploaded.alt || file.name,
-              };
-            }
-          : undefined
-      }
+      onUpload={async (file) => {
+        const uploaded = await uploadWorkspacePrivateIcon(file);
+        void uploadedIcons.refetch();
+        return uploaded;
+      }}
+      formatUploadError={() => iconPickerLabels.uploadFailed}
       resolveImageUrl={(image) =>
-        image.authority === "url" ? image.assetId : undefined
+        image.assetId === (icon?.kind === "image" ? icon.assetId : null)
+          ? workspacePrivateIconUrl(org?.orgId ?? "", image)
+          : workspacePrivateIconLibraryUrl(org?.orgId ?? "", image)
       }
       disabled={setVisualIdentity.isPending}
       labels={{
@@ -439,7 +449,7 @@ export function OrgIconControl({
           value={icon}
           size={16}
           resolveImageUrl={(image) =>
-            image.authority === "url" ? image.assetId : undefined
+            workspacePrivateIconUrl(org?.orgId ?? "", image)
           }
           fallback={<IconUsersGroup className="size-4 text-muted-foreground" />}
         />
@@ -450,7 +460,7 @@ export function OrgIconControl({
       value={icon}
       size={16}
       resolveImageUrl={(image) =>
-        image.authority === "url" ? image.assetId : undefined
+        workspacePrivateIconUrl(org?.orgId ?? "", image)
       }
       fallback={<IconUsersGroup className="size-4 text-muted-foreground" />}
     />

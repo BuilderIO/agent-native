@@ -200,12 +200,35 @@ describe("responsive Interact wiring", () => {
   });
 
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
-    const consentAnchor = "const key = `design-localhost-write-consent-request";
+    const consentAnchor =
+      "const localhostConsentRequestQuery = useActionQuery(";
     const consentIndex = source.indexOf(consentAnchor);
     expect(consentIndex).toBeGreaterThan(0);
-    const consent = source.slice(consentIndex - 900, consentIndex);
-    expect(consent).toContain("!id || !canEditDesign");
-    expect(consent).not.toContain("!id || !isSignedIn");
+    const consentQuery = source.slice(consentIndex, consentIndex + 700);
+    expect(consentQuery).toContain("enabled: Boolean(id && canEditDesign)");
+    expect(consentQuery).not.toContain("isSignedIn");
+    expect(consentQuery).toContain("localhostConsentRequestRefetchInterval({");
+    expect(consentQuery).toContain(
+      "failedClearKey: failedLocalhostConsentClear",
+    );
+
+    const consentEffect = source.slice(
+      source.indexOf(
+        "// Agent requests run in a design-scoped capability session",
+      ),
+      source.indexOf("const activeScreenBaseWidthPx"),
+    );
+    expect(consentEffect).toMatch(/!id\s*\|\|\s*!canEditDesign/);
+    expect(consentEffect).not.toMatch(/!id\s*\|\|\s*!isSignedIn/);
+    expect(consentEffect).toContain("localhostConsentRequestQuery.refetch()");
+    expect(consentEffect).toContain("setFailedLocalhostConsentClear");
+    expect(consentEffect).not.toContain(
+      "lastLocalhostConsentRequestRef.current ===",
+    );
+    expect(consentEffect).toContain('if (disposition === "ignore") return;');
+    expect(consentEffect).toContain(
+      'const retryingClear = disposition === "retry-clear";',
+    );
 
     const commandChannel = source.slice(
       source.indexOf("designEditorCommandFromSearchParams(\n") - 600,

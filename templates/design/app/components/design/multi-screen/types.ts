@@ -165,6 +165,7 @@ export interface DuplicateRequest {
 export interface ScreenContentRenderOptions {
   onBootStart?: () => void;
   onBootReady?: () => void;
+  onRuntimeReload?: () => void;
   cacheKey?: string | number | null;
 }
 
@@ -282,6 +283,7 @@ export interface MultiScreenCanvasProps {
     geometry: FrameGeometry,
     options?: ScreenContentRenderOptions,
   ) => ReactNode;
+  onScreenRuntimeReload?: (screenId: string, frameId: string) => void;
   screenContentRenderKey?: string | number | null;
   screenSnapshotsById?: Record<string, { html: string } | undefined>;
   tweakValues?: Record<string, string>;
@@ -296,6 +298,7 @@ export interface MultiScreenCanvasProps {
       active: boolean;
       onBootStart?: () => void;
       onBootReady?: () => void;
+      onRuntimeReload?: () => void;
     },
   ) => ReactNode;
   onScreenSelectionChange?: (ids: string[]) => void;
@@ -333,6 +336,12 @@ export interface MultiScreenCanvasProps {
     targetAnchorSelector?: string;
     targetAnchorPlacement?: "before" | "after" | "inside";
     targetDropMode?: CrossScreenDropMode;
+    targetGridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
     targetAnchorRect?: CrossScreenHitTestAnchorRect;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
@@ -836,9 +845,17 @@ export interface CrossScreenHitTestResult {
   pendingNodeId?: string;
   anchorSelector?: string;
   placement?: CrossScreenDropPlacement;
+  guidePlacement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
   dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
+  guideRect?: CrossScreenHitTestAnchorRect;
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
 }
 
 export interface CrossScreenDragElementRect {
@@ -862,6 +879,7 @@ export interface CanvasLayerMarqueeSelection {
 
 export interface CrossScreenDropGuide {
   placement: CrossScreenDropPlacement;
+  guidePlacement?: CrossScreenDropPlacement;
   axis: CrossScreenDropAxis;
   boardRect: FrameGeometry;
 }

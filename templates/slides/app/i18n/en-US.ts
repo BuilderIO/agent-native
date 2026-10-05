@@ -46,7 +46,7 @@ const messages = {
     designSystems: "Design Systems",
   },
   settings: {
-    agentObservability: "Agent Observability",
+    agentObservability: "Observability",
     title: "Settings",
     labs: "Labs",
     labsIntro: "Preview experimental features before they ship.",
@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "When someone comments on or replies in your deck.",
     retry: "Retry",
+    reload: "Reload",
     mcpAbout:
       "Connect Slides to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Slides for you: create decks, add slides, and export to PowerPoint. It sees only what you can see.",
     workspaceTitle: "Workspace",
@@ -128,7 +129,7 @@ const messages = {
       "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+      "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     sentToAgent: "Sent to agent",
     imageUploadGenericError: "Something went wrong uploading this image.",
     uploading: "Uploading…",
@@ -302,6 +303,21 @@ const messages = {
     importing: "Importing...",
     importFile: "Import file",
     downloadBackup: "Download backup",
+    conflictStatus: "Text conflict",
+    conflictStatusDescription:
+      "Review the conflicting text before saving more changes.",
+    reviewConflict: "Review conflict",
+    conflictTitle: "Slide {{number}} has a text conflict",
+    conflictDescription:
+      "Another version changed this slide while your text was being edited.",
+    conflictChoicesDescription:
+      "Keeping your text saves it over the latest version. Using saved text replaces only this slide's local draft.",
+    conflictBackupDescription:
+      "This full-deck draft can't be resolved one slide at a time. Download a backup to keep it safe.",
+    conflictResolveFailed:
+      "Couldn't resolve the conflict. Your draft is still available on this device.",
+    conflictKeepMine: "Keep my text",
+    conflictUseLatest: "Use saved text",
     importBackup: "Import backup",
     backupDownloaded: "Backup downloaded",
     backupDownloadFailed: "Could not download backup",
@@ -399,6 +415,8 @@ const messages = {
     orderedList: "Ordered list",
     quote: "Quote",
     blockquote: "Blockquote",
+    divider: "Divider",
+    horizontalRule: "Horizontal rule",
   },
   comments: {
     deleteComment: "Delete comment",
@@ -421,7 +439,8 @@ const messages = {
     resolveThread: "Resolve thread",
     reopenThread: "Reopen thread",
     hideReplies: "Hide replies",
-    replyCount: "{{count}} replies",
+    replyCount_one: "{{count}} reply",
+    replyCount_other: "{{count}} replies",
     title: "Comments",
     addComment: "Add comment",
     close: "Close",
@@ -432,6 +451,7 @@ const messages = {
     retry: "Retry",
     clickToAddComment: "Click to add a comment",
     selectSlideToAdd: "Select a slide to add one",
+    filters: "Comment filters",
     scope: "Comment scope",
     thisSlide: "This slide",
     allComments: "All slides",
@@ -614,9 +634,12 @@ const messages = {
     slideNumber: "Slide {{number}}",
     noSlidesInSnapshot: "No slides in this snapshot.",
     restoreThisVersion: "Restore this version",
+    retry: "Retry",
     noSavedVersions: "No history yet",
     noSavedVersionsDescription:
       "History is saved automatically before future deck edits.",
+    loadFailed: "Could not load saved versions.",
+    snapshotLoadFailed: "Could not load this saved version.",
   },
   editorSidebar: {
     selectSlide: "Select slide {{number}}",
@@ -735,10 +758,12 @@ const messages = {
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+      "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
     exportFailed: "Export failed",
+    agentRunFailed:
+      "The agent run failed before creating any slides. Check the chat for details, then try again.",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",
@@ -943,8 +968,8 @@ const messages = {
           "Read the supplied company website and create a presentation about the company. Report access failures instead of inventing facts.",
       },
     },
-    connectBuilderIo: "Connect Builder.io",
-    connectingBuilder: "Connecting Builder.io…",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     recent: "Recent",
     starters: {
       pitch: {
@@ -968,7 +993,7 @@ const messages = {
     fileStorageStatusUnavailable:
       "Couldn't check object storage. Retry before uploading files.",
     fileStorageSetupRequired:
-      "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+      "No object storage is connected. Use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     decksTitle: "Decks",
     deckLengthQuestion: "How long should this deck be?",
     deckLengthHeader: "Deck length",
@@ -1000,7 +1025,7 @@ const messages = {
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
     referenceFileStorageUnavailable:
-      "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
+      "File storage is not configured. Use Builder.io or another file provider to import reference files.",
     attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",

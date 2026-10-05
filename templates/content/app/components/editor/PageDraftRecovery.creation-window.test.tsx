@@ -42,6 +42,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
+  ensurePreviewDocumentDraftRead: vi.fn().mockResolvedValue(undefined),
   isDocumentUpdateConflict: () => false,
   isDocumentUpdatePreservationRequired: () => false,
   isDocumentUpdateSuperseded: () => false,

@@ -6,3 +6,8 @@ export {
 export { useUploadResource } from "./use-upload-resource.js";
 export { useFileUploadStatus } from "./use-file-upload-status.js";
 export { fetchFileUploadStatus } from "../client-status-requests.js";
+export {
+  uploadWorkspacePrivateIcon,
+  workspacePrivateIconLibraryUrl,
+  workspacePrivateIconUrl,
+} from "./private-icon.js";

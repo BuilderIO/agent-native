@@ -55,7 +55,7 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   openAgentSidebar: () => {},
 }));
 
-vi.mock("@agent-native/core/client/sharing", () => ({
+vi.mock("@agent-native/toolkit/app/sharing", () => ({
   ShareButton: () => null,
 }));
 

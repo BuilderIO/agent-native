@@ -61,6 +61,38 @@ describe("useAgentEngineConfigured", () => {
     vi.unstubAllGlobals();
   });
 
+  it("refreshes cached missing readiness after the provider connects", async () => {
+    let configured = false;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return jsonResponse({ configured, chatEligible: configured });
+      }
+      return jsonResponse([]);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toBe("missing");
+    configured = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      fetch.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/agent-engine/status"),
+      ),
+    ).toHaveLength(2);
+    expect(container.textContent).toBe("configured");
+  });
+
   it("does not let a stale missing-key event override current Builder status", async () => {
     vi.stubGlobal(
       "fetch",

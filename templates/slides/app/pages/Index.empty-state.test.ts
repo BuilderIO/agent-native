@@ -10,13 +10,14 @@ const source = readFileSync(
 );
 
 describe("Slides home header", () => {
-  it("keeps search and import available without create or filter controls", () => {
+  it("hides empty-state search and filters while keeping import available", () => {
     const headerStart = source.indexOf("const homeHeaderActions = useMemo(");
     const header = source.slice(
       headerStart,
       source.indexOf("</HomeHeaderActions>", headerStart),
     );
 
+    expect(header).toContain("hasDecks ? (");
     expect(header).toContain("<DeckSearchInput");
     expect(header).toContain("<ImportDeckButton");
     expect(header).not.toContain("<DeckFilterMenu");

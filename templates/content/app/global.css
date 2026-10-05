@@ -2388,6 +2388,14 @@ audio.media-block__content {
   }
 }
 
+.notion-editor .suggestion-settling-original {
+  display: none;
+}
+
+.notion-editor .suggestion-settling-text[data-suggestion-widget] {
+  color: inherit;
+}
+
 .notion-editor .suggestion-proposed-text,
 .notion-editor .suggestion-deleted-text {
   cursor: text;

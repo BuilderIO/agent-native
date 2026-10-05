@@ -70,6 +70,29 @@ describe("agent chat startup", () => {
     expect(anonymousHandler).not.toContain("resolveAdditionalActions");
   });
 
+  it("tracks run starts in production, anonymous, and dev chat handlers", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const productionHandler = source.slice(
+      source.indexOf("const prodHandler ="),
+      source.indexOf("const anonymousHandler ="),
+    );
+    const anonymousHandler = source.slice(
+      source.indexOf("const anonymousHandler ="),
+      source.indexOf("// Build the dev handler"),
+    );
+    const devHandler = source.slice(
+      source.indexOf("devHandler = createProductionAgentHandler({"),
+      source.indexOf("// ─── Durable background agent-chat run processor"),
+    );
+
+    for (const handler of [productionHandler, anonymousHandler, devHandler]) {
+      expect(handler).toContain('"run_started"');
+    }
+  });
+
   it("keeps transient database failures structured on the stream route", () => {
     const source = readFileSync(
       new URL("./agent-chat-plugin.ts", import.meta.url),

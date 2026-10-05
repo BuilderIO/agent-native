@@ -52,7 +52,8 @@ vi.mock("../editor/FigmaLinkComposerBubble", () => ({
     onComposerTextChange: () => {},
   }),
 }));
-vi.mock("./Header", () => ({
+vi.mock("./Header", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./Header")>()),
   Header: () => null,
   MobileHeaderActions: () => null,
 }));

@@ -53,6 +53,10 @@ export function getEditorMarkdown(editor: Editor): string {
 
 const EMITTED_RING_MAX = 16;
 const PEER_SETTLE_MS = 2500;
+// A non-lead client leaves a newer snapshot to the lead; if the lead has not
+// converged the doc by then (it never refetched), adopt it rather than keep a
+// Yjs doc that disagrees with SQL until the next reload drops unsaved text.
+const LEAD_FAILOVER_MS = PEER_SETTLE_MS * 2;
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
   if (ring[ring.length - 1] === value) return;
@@ -90,6 +94,13 @@ export interface UseCollabReconcileOptions {
   }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
   requestInitialSeed?: (editor: Editor, value: string) => Promise<Uint8Array>;
+  /**
+   * Flipping editability around the initial seed emits `update` unless this is
+   * set. Set it when `update` saves the document, so that the flip is not
+   * mistaken for an edit. Editors that leave it off rely on the emission to
+   * report edits typed before the seed settled, which were ignored until then.
+   */
+  quietSeedEditability?: boolean;
   onInitialSeedError?: (error: unknown) => void;
   overlapPolicy?: "conflict" | "prefer-live";
   editable: boolean;
@@ -115,6 +126,12 @@ export interface UseCollabReconcileOptions {
 export interface UseCollabReconcileResult {
   collab: boolean;
   initialSeedFailed: boolean;
+  /**
+   * True from the moment a server-seeded document exists until its first seed
+   * has been applied. The editor must stay read-only meanwhile: text typed into
+   * the still-empty document is merged with the seed rather than placed after it.
+   */
+  initialSeedPending: boolean;
   retryInitialSeed: () => void;
   isSettingContentRef: MutableRefObject<boolean>;
   shouldIgnoreUpdate: (transaction: Transaction) => boolean;
@@ -171,6 +188,7 @@ export function useCollabReconcile({
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   requestInitialSeed,
+  quietSeedEditability = false,
   onInitialSeedError,
   overlapPolicy = "conflict",
   editable,
@@ -336,6 +354,11 @@ export function useCollabReconcile({
   }, [collab, awareness, ydoc]);
 
   const seededRef = useRef(false);
+  const [seeded, setSeeded] = useState(false);
+  const markSeeded = () => {
+    seededRef.current = true;
+    if (requestInitialSeed) setSeeded(true);
+  };
   const [initialSeedFailed, setInitialSeedFailed] = useState(false);
   const [initialSeedRetry, setInitialSeedRetry] = useState(0);
   useEffect(() => {
@@ -343,8 +366,9 @@ export function useCollabReconcile({
     if (seededRef.current) return;
     if (!collabSynced) return;
     if (collabBackedSnapshot) {
-      seededRef.current = true;
-      if (requestInitialSeed) editor.setEditable(editable);
+      markSeeded();
+      if (requestInitialSeed)
+        editor.setEditable(editable, !quietSeedEditability);
       return;
     }
     if (contentRevision) {
@@ -352,7 +376,7 @@ export function useCollabReconcile({
       reportedConflictRevisionRef.current = null;
     }
     if (!value.trim()) {
-      seededRef.current = true;
+      markSeeded();
       const fragment = ydoc.getXmlFragment("default");
       const currentMarkdown = getMarkdown(editor);
       if (fragment.length === 0 && !currentMarkdown.trim()) return;
@@ -389,7 +413,7 @@ export function useCollabReconcile({
     }
     if (!seedLead) {
       const releaseTimer = setTimeout(() => {
-        seededRef.current = true;
+        markSeeded();
       }, 0);
       return () => clearTimeout(releaseTimer);
     }
@@ -407,12 +431,13 @@ export function useCollabReconcile({
           fragmentLength: fragment.length,
         })
       ) {
-        seededRef.current = true;
-        if (requestInitialSeed) editor.setEditable(editable);
+        markSeeded();
+        if (requestInitialSeed)
+          editor.setEditable(editable, !quietSeedEditability);
         return;
       }
       if (requestInitialSeed) {
-        editor.setEditable(false);
+        editor.setEditable(false, !quietSeedEditability);
         const initialNodes = fragment.toArray().map((node) => ({
           node,
           serialized: node.toString(),
@@ -434,9 +459,9 @@ export function useCollabReconcile({
               lastAppliedSerializedRef.current = serialized;
               if (contentUpdatedAt)
                 lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-              seededRef.current = true;
+              markSeeded();
               setInitialSeedFailed(false);
-              editor.setEditable(editable);
+              editor.setEditable(editable, !quietSeedEditability);
             })
             .catch((error: unknown) => {
               if (cancelled || editor.isDestroyed) return;
@@ -474,14 +499,14 @@ export function useCollabReconcile({
       lastAppliedValueRef.current = value;
       lastAppliedSerializedRef.current = serialized;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-      seededRef.current = true;
+      markSeeded();
     }, 0);
     return () => {
       cancelled = true;
       clearTimeout(seedTimer);
       if (retryTimer) clearTimeout(retryTimer);
       if (requestInitialSeed && !editor.isDestroyed)
-        editor.setEditable(editable);
+        editor.setEditable(editable, !quietSeedEditability);
     };
   }, [
     collab,
@@ -502,6 +527,7 @@ export function useCollabReconcile({
     initialSeedRetry,
   ]);
 
+  const syncedBeforeAdoptRef = useRef<string | null>(null);
   const peerReconcileWaitRef = useRef<{
     editor: Editor;
     ydoc: YDoc | null;
@@ -512,6 +538,7 @@ export function useCollabReconcile({
     isLeadClient: boolean;
     editable: boolean;
     deadline: number | null;
+    leadDeadline: number | null;
   } | null>(null);
 
   useEffect(() => {
@@ -542,6 +569,7 @@ export function useCollabReconcile({
         isLeadClient,
         editable,
         deadline: null,
+        leadDeadline: null,
       };
     }
     const peerWait = peerReconcileWaitRef.current!;
@@ -761,18 +789,45 @@ export function useCollabReconcile({
         contentRevision !== authoritativeBaseRef.current.revision &&
         !!contentUpdatedAt &&
         contentUpdatedAt === lastAppliedUpdatedAtRef.current;
+      // A parent that derives `value` and `contentUpdatedAt` separately can
+      // render the new timestamp next to the old value first. That render
+      // marks the timestamp applied, so the new value that follows it would
+      // never be adopted.
+      const valueChangedAtSameTimestamp =
+        !contentRevision &&
+        !!contentUpdatedAt &&
+        contentUpdatedAt === lastAppliedUpdatedAtRef.current &&
+        lastAppliedValueRef.current !== null &&
+        value !== lastAppliedValueRef.current;
       const externalNewer =
         revisionChangedAtSameTimestamp ||
+        valueChangedAtSameTimestamp ||
         !lastAppliedUpdatedAtRef.current ||
         !contentUpdatedAt ||
         contentUpdatedAt > lastAppliedUpdatedAtRef.current;
 
       if (collab && !isLeadClient) {
         peerWait.deadline = null;
-        if (contentUpdatedAt && !externalNewer) {
-          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        if (!externalNewer) {
+          peerWait.leadDeadline = null;
+          if (contentUpdatedAt) {
+            lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+          }
+          return;
         }
-        return;
+        peerWait.leadDeadline ??= Date.now() + LEAD_FAILOVER_MS;
+        const leadRemaining = peerWait.leadDeadline - Date.now();
+        if (leadRemaining > 0) {
+          retry = setTimeout(() => apply(deferred), leadRemaining);
+          return;
+        }
+        // A live doc that moved on since the last snapshot holds typing the
+        // snapshot predates (a peer's save lags the Yjs state); adopting it
+        // would delete that text for every peer. SQL catches up on the next save.
+        if (!editorUnchangedSinceApply) {
+          peerWait.leadDeadline = null;
+          return;
+        }
       }
 
       if (typingRecently) {
@@ -794,6 +849,43 @@ export function useCollabReconcile({
           currentIsRegisteredLocalEmission)
       ) {
         peerWait.deadline = null;
+        return;
+      }
+
+      // A snapshot another writer saved can reach this tab before the Yjs
+      // updates that carry the same text (a collab poll lags the action poll),
+      // and applying it first inserts that text a second time when they land.
+      // Snapshots with revisions are told apart from their collab copy by the
+      // revision protocol above instead.
+      const snapshotKey = contentUpdatedAt ?? "";
+      if (
+        collab &&
+        externalNewer &&
+        !contentRevision &&
+        requestCollabSync &&
+        syncedBeforeAdoptRef.current !== snapshotKey
+      ) {
+        // Adopting without the catch-up is the behavior before this step
+        // existed, so a failed sync degrades to it, loudly.
+        const adopt = () => {
+          syncedBeforeAdoptRef.current = snapshotKey;
+          if (!cancelled) apply(deferred);
+        };
+        void requestCollabSync().then(
+          (result) => {
+            if (result.status === "failed") {
+              console.warn("Adopting a saved snapshot without a live sync");
+            }
+            adopt();
+          },
+          (error: unknown) => {
+            console.warn(
+              "Adopting a saved snapshot without a live sync:",
+              error,
+            );
+            adopt();
+          },
+        );
         return;
       }
 
@@ -960,6 +1052,7 @@ export function useCollabReconcile({
     overlapPolicy,
     collabBackedSnapshot,
     pendingCollabSnapshot,
+    requestCollabSync,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
@@ -1011,6 +1104,7 @@ export function useCollabReconcile({
   return {
     collab,
     initialSeedFailed,
+    initialSeedPending: Boolean(requestInitialSeed) && collab && !seeded,
     retryInitialSeed: () => {
       setInitialSeedFailed(false);
       setInitialSeedRetry((retry) => retry + 1);

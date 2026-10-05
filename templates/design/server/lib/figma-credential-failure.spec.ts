@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 
+import { isAgentConnectionRequiredError } from "@agent-native/core/action";
 import { createProviderApiRuntime } from "@agent-native/core/provider-api";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -47,18 +49,23 @@ describe("provider credential failures", () => {
   });
 
   it("recognizes an unresolvable credential from the real runtime", async () => {
-    const error = await captureExecuteError(
-      runtimeWith({
-        credentialContext: {
-          userEmail: "designer@example.com",
-          organizationId: "org-1",
-        },
-        resolveCredential: () => null,
-      }),
+    const error = await runWithRequestContext(
+      { userEmail: "designer@example.com", orgId: "org-1" },
+      () =>
+        captureExecuteError(
+          runtimeWith({
+            credentialContext: {
+              userEmail: "designer@example.com",
+              organizationId: "org-1",
+            },
+            resolveCredential: () => null,
+          }),
+        ),
     );
 
     expect(error).toBeInstanceOf(Error);
-    expect(isProviderCredentialFailure(error)).toBe(true);
+    expect(isAgentConnectionRequiredError(error)).toBe(true);
+    expect(isProviderCredentialFailure(error)).toBe(false);
   });
 
   it("recognizes the Design app's own missing-context refusal", () => {

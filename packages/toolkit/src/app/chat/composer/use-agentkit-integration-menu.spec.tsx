@@ -93,6 +93,7 @@ describe("shared AgentKit integration submenu", () => {
       container.querySelector('button[aria-label="Add context"]')!,
       "ArrowDown",
     );
+    await key(row("Add context"), "ArrowRight");
     expect(row("Integrations").getAttribute("aria-haspopup")).toBe("menu");
     await key(row("Integrations"), "ArrowRight");
   }
@@ -100,7 +101,7 @@ describe("shared AgentKit integration submenu", () => {
     await render();
     await open();
     expect(pathname).toBe("/home");
-    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(2);
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(3);
     expect(document.body.textContent).toContain(
       "No integrations available for this app.",
     );
@@ -129,6 +130,7 @@ describe("shared AgentKit integration submenu", () => {
       "ArrowDown",
     );
     expect(document.body.textContent).not.toContain("GitHub");
+    await key(row("Add context"), "ArrowRight");
     await key(row("Integrations"), "ArrowRight");
     expect(row("GitHub").querySelector("svg")).toBeNull();
     expect(row("Slack")).toBeDefined();
@@ -172,7 +174,7 @@ describe("shared AgentKit integration submenu", () => {
     await render();
     await open();
     await key(row("Connect an integration…"), "Escape");
-    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(2);
     expect(document.activeElement).toBe(row("Integrations"));
     expect(pathname).toBe("/home");
   });

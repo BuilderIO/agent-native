@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultOrgAppLinks,
   dispatchAppsHref,
+  dispatchIntegrationsHref,
   isWorkspaceAppEnvironment,
   parseWorkspaceAppLinks,
   visibleOrgAppLinks,
@@ -65,6 +66,9 @@ describe("org switcher app links", () => {
     expect(apps?.[1]?.href).toBe("http://127.0.0.1:8080/mail/home");
     expect(dispatchAppsHref(apps ?? [])).toBe(
       "http://127.0.0.1:8080/dispatch/apps",
+    );
+    expect(dispatchIntegrationsHref(apps ?? [])).toBe(
+      "http://127.0.0.1:8080/dispatch/integrations",
     );
   });
 

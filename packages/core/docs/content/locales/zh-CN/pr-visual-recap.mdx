@@ -207,7 +207,7 @@ skill：
 
 除了后端选择之外，以下这些仓库变量还可以调整代理的运行方式：
 
-- **`VISUAL_RECAP_MODEL`** 固定传给 CLI 的模型（`--model`）——例如 Codex 用 `gpt-5.6-luna`，一个 Claude 模型 id，或者 DeepSeek 用 `deepseek-chat`。对 `openai-compatible` 而言这是必需的。对于**Claude**后端，不设置它现在会默认使用 `claude-sonnet-5`；如果想使用其他 Claude 模型（比如更便宜的 `claude-haiku-4-5`），需要显式设置该变量。对于**Codex**后端，不设置它会使用 Codex CLI 自身的默认模型。
+- **`VISUAL_RECAP_MODEL`** 固定传给 CLI 的模型（`--model`）——例如 Codex 用 `gpt-5.6-luna`，一个 Claude 模型 id，或者 DeepSeek 用 `deepseek-chat`。对 `openai-compatible` 而言这是必需的。对于**Claude**后端，不设置它现在会默认使用 `claude-sonnet-5-5`；如果想使用其他 Claude 模型（比如更便宜的 `claude-haiku-4-5`），需要显式设置该变量。对于**Codex**后端，不设置它会使用 Codex CLI 自身的默认模型。
 - **`VISUAL_RECAP_REASONING`** 设置推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。它适用于 Codex 后端；Claude 的推理由模型自身驱动，因此这个变量在 Claude 上会被忽略。
 - **`VISUAL_RECAP_BASE_URL`** 为 `openai-compatible` 后端选择 HTTP(S) 基础 URL。请使用服务商的 OpenAI 兼容端点，比如 DeepSeek 或 Kimi，并且不要把凭据嵌入到 URL 中。
 - **`VISUAL_RECAP_SKILL_SOURCE`** 控制提示词的新鲜度：`auto`/不设置时使用最新打包的 skill 指引，而 `repo` 会固定使用仓库内已提交的本地 `visual-recap` skill 文件夹。
@@ -235,7 +235,7 @@ URL 和模型 id。其他 OpenAI 兼容服务商也使用同样这三项设置�
 
 要降低成本：
 
-- **固定使用更便宜的模型。** 对于简单或较小的仓库，为 Claude 设置 `VISUAL_RECAP_MODEL=claude-haiku-4-5`——这是最便宜的 Claude 档位；`claude-sonnet-5`（默认值）是均衡档位。
+- **固定使用更便宜的模型。** 对于简单或较小的仓库，为 Claude 设置 `VISUAL_RECAP_MODEL=claude-haiku-4-5`——这是最便宜的 Claude 档位；`claude-sonnet-5-5`（默认值）是均衡档位。
 - **切换到 Codex，并使用更便宜的模型。** 设置 `VISUAL_RECAP_AGENT=codex`，配合 `VISUAL_RECAP_MODEL=gpt-5.6-luna`（最便宜的 GPT-5.6 档位）或 `gpt-5.6-terra`（中间档位），并设置 `VISUAL_RECAP_REASONING=low` 进一步削减推理 token 的花费。推理深度只适用于 Codex。
 - **指向更便宜的 OpenAI 兼容服务商。** 设置 `VISUAL_RECAP_AGENT=openai-compatible`，并把 `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` 指向 DeepSeek、Kimi 或任何其他 OpenAI 兼容端点。
 - **要求显式的 PR 标签。** 设置 `VISUAL_RECAP_REQUIRED_LABELS=visual recap`，这样工作流仍会安装，但会跳过回顾，直到 PR 带上该标签。当希望多个标签都可以触发时，使用逗号分隔的列表，例如 `visual recap,recap`。打上列表中的任意一个标签，都会立即唤醒该工作流。
@@ -290,18 +290,18 @@ npx @agent-native/recap-cli@latest recap setup
 
 ### 可选项（仅当你更改默认值时才需要）
 
-| Secret / 变量                  | 默认值                                        | 何时需要它                                                                                                                                                                                                                  |
-| ------------------------------ | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`               | —                                             | Secret。与 `VISUAL_RECAP_AGENT=codex` 一起设置，用于改用 Codex 运行回顾。                                                                                                                                                   |
-| `VISUAL_RECAP_API_KEY`         | —                                             | Secret。与 `VISUAL_RECAP_AGENT=openai-compatible` 一起设置，用于 DeepSeek、Kimi 或其他 OpenAI 兼容服务商。                                                                                                                  |
-| `VISUAL_RECAP_AGENT`           | `claude`                                      | 变量。选择编码代理后端（`claude`、`codex` 或 `openai-compatible`）。                                                                                                                                                        |
-| `VISUAL_RECAP_BASE_URL`        | 兼容后端下为必需                              | 变量。OpenAI 兼容后端的 HTTP(S) 基础 URL；不接受在其中包含凭据。                                                                                                                                                            |
-| `VISUAL_RECAP_MODEL`           | Claude 为 `claude-sonnet-5`；兼容后端下为必需 | 变量。OpenAI 兼容后端所使用的服务商模型 id（该后端下为必需）。对于 Claude，不设置时现在默认使用 `claude-sonnet-5`——可设置以覆盖，例如设为最便宜档位的 `claude-haiku-4-5`。对于 Codex，不设置时使用 Codex CLI 自身的默认值。 |
-| `VISUAL_RECAP_REASONING`       | 各模型自身的默认值                            | 变量。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。适用于 Codex 后端。                                                                                                                                  |
-| `VISUAL_RECAP_REQUIRED_LABELS` | —                                             | 变量。以逗号分隔的 PR 标签列表。设置后，门禁会跳过回顾，直到 PR 带上列表中至少一个标签，例如 `visual recap`。                                                                                                               |
-| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                        | 变量，仅适用于复制版本（可复用的调用方会忽略它）。设为 `false` 后，不再在每次推送时生成回顾。之后只在 PR 打开、重新打开、标记为可审阅或合并时，以及打上 `recap` 标签时生成回顾。仅打上必需标签不会触发回顾。                |
-| `RECAP_CLI_VERSION`            | `latest`                                      | 变量。固定工作流安装的 `@agent-native/recap-cli` 版本——例如 `1.5.0`。参见 [Version pinning](#version-pinning-copy-variant)。                                                                                                |
-| `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`               | Secret。仅当把 Plans 应用自托管在不同源上时才需要。                                                                                                                                                                         |
+| Secret / 变量                  | 默认值                                          | 何时需要它                                                                                                                                                                                                                    |
+| ------------------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`               | —                                               | Secret。与 `VISUAL_RECAP_AGENT=codex` 一起设置，用于改用 Codex 运行回顾。                                                                                                                                                     |
+| `VISUAL_RECAP_API_KEY`         | —                                               | Secret。与 `VISUAL_RECAP_AGENT=openai-compatible` 一起设置，用于 DeepSeek、Kimi 或其他 OpenAI 兼容服务商。                                                                                                                    |
+| `VISUAL_RECAP_AGENT`           | `claude`                                        | 变量。选择编码代理后端（`claude`、`codex` 或 `openai-compatible`）。                                                                                                                                                          |
+| `VISUAL_RECAP_BASE_URL`        | 兼容后端下为必需                                | 变量。OpenAI 兼容后端的 HTTP(S) 基础 URL；不接受在其中包含凭据。                                                                                                                                                              |
+| `VISUAL_RECAP_MODEL`           | Claude 为 `claude-sonnet-5-5`；兼容后端下为必需 | 变量。OpenAI 兼容后端所使用的服务商模型 id（该后端下为必需）。对于 Claude，不设置时现在默认使用 `claude-sonnet-5-5`——可设置以覆盖，例如设为最便宜档位的 `claude-haiku-4-5`。对于 Codex，不设置时使用 Codex CLI 自身的默认值。 |
+| `VISUAL_RECAP_REASONING`       | 各模型自身的默认值                              | 变量。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。适用于 Codex 后端。                                                                                                                                    |
+| `VISUAL_RECAP_REQUIRED_LABELS` | —                                               | 变量。以逗号分隔的 PR 标签列表。设置后，门禁会跳过回顾，直到 PR 带上列表中至少一个标签，例如 `visual recap`。                                                                                                                 |
+| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                          | 变量，仅适用于复制版本（可复用的调用方会忽略它）。设为 `false` 后，不再在每次推送时生成回顾。之后只在 PR 打开、重新打开、标记为可审阅或合并时，以及打上 `recap` 标签时生成回顾。仅打上必需标签不会触发回顾。                  |
+| `RECAP_CLI_VERSION`            | `latest`                                        | 变量。固定工作流安装的 `@agent-native/recap-cli` 版本——例如 `1.5.0`。参见 [Version pinning](#version-pinning-copy-variant)。                                                                                                  |
+| `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                 | Secret。仅当把 Plans 应用自托管在不同源上时才需要。                                                                                                                                                                           |
 
 该工作流会自动检测该如何调用它的辅助 CLI（在这个 monorepo 内部
 使用本地源码，在其他地方则使用已发布的 `@agent-native/recap-cli`），

@@ -1,5 +1,4 @@
 import {
-  requestAgentChatThreadOpen,
   sendToAgentChat,
   sendToAgentChatAndConfirm,
 } from "@agent-native/core/client/agent-chat";
@@ -49,8 +48,6 @@ import {
   IconMessages,
   IconThumbUp,
   IconThumbDown,
-  IconClock,
-  IconCoin,
   IconTool,
   IconMoodSmile,
   IconChartBar,
@@ -79,8 +76,12 @@ import {
 } from "./ObservabilityReviewSummaryButton.js";
 import { OutputPreview, parseOutputPreview } from "./OutputPreview.js";
 import {
+  RunInsightsConversations,
+  RunInsightsOverview,
+  type RunFilter,
+} from "./RunInsights.js";
+import {
   useObservabilityOverview,
-  useTraces,
   useTraceDetail,
   usePromoteTraceEval,
   useFeedbackList,
@@ -93,22 +94,8 @@ import {
   useOutputReviewDetail,
   useSaveInstructionUpdate,
   useSaveReviewFeedback,
-  type TraceSummary,
   type Experiment,
 } from "./useObservability.js";
-
-function formatCost(centsX100: number): string {
-  const cents = centsX100 / 100;
-  if (cents < 1) return `${cents.toFixed(3)}¢`;
-  if (cents < 100) return `${cents.toFixed(2)}¢`;
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-function formatCostCents(cents: number): string {
-  if (cents < 1) return `${cents.toFixed(3)}¢`;
-  if (cents < 100) return `${cents.toFixed(2)}¢`;
-  return `$${(cents / 100).toFixed(2)}`;
-}
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -454,144 +441,58 @@ function LoadingState() {
   );
 }
 
-function OverviewTab({ days }: { days: number }) {
-  const t = useT();
-  const { data, isLoading } = useObservabilityOverview(days);
-
-  if (isLoading) return <LoadingState />;
-  if (!data) return <EmptyState message={t("observability.noData")} />;
-
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      <MetricCard
-        label={t("observability.totalRuns")}
-        value={String(data.totalRuns)}
-        icon={<IconActivity size={16} />}
-      />
-      <MetricCard
-        label={t("observability.totalCost")}
-        value={formatCostCents(data.totalCostCents)}
-        icon={<IconCoin size={16} />}
-      />
-      <MetricCard
-        label={t("observability.avgLatency")}
-        value={formatDuration(data.avgDurationMs)}
-        icon={<IconClock size={16} />}
-      />
-      <MetricCard
-        label={t("observability.toolSuccess")}
-        value={formatPercent(data.toolSuccessRate)}
-        icon={<IconTool size={16} />}
-      />
-      <MetricCard
-        label={t("observability.thumbsUp")}
-        value={formatPercent(data.thumbsUpRate)}
-        icon={<IconThumbUp size={16} />}
-      />
-      <MetricCard
-        label={t("observability.avgEvalScore")}
-        value={data.avgEvalScore.toFixed(2)}
-        icon={<IconMoodSmile size={16} />}
-      />
-    </div>
-  );
-}
-
-function ConversationsTab({ days }: { days: number }) {
-  const t = useT();
-  const { data: traces, isLoading } = useTraces(days);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-
-  if (selectedRunId) {
-    return (
-      <TraceDetailView
-        key={selectedRunId}
-        runId={selectedRunId}
-        onBack={() => setSelectedRunId(null)}
-      />
-    );
-  }
-
-  if (isLoading) return <LoadingState />;
-  if (!traces || traces.length === 0)
-    return <EmptyState message={t("observability.noConversations")} />;
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
-      <table className="w-full table-fixed text-left text-xs">
-        <thead>
-          <tr className="border-b border-border bg-muted/30">
-            <th className="px-3 py-2 font-medium text-muted-foreground w-[15%]">
-              {t("observability.run")}
-            </th>
-            <th className="px-3 py-2 font-medium text-muted-foreground w-[20%]">
-              {t("observability.model")}
-            </th>
-            <th className="px-3 py-2 font-medium text-muted-foreground">
-              {t("observability.duration")}
-            </th>
-            <th className="px-3 py-2 font-medium text-muted-foreground">
-              {t("observability.cost")}
-            </th>
-            <th className="px-3 py-2 font-medium text-muted-foreground">
-              {t("observability.tools")}
-            </th>
-            <th className="px-3 py-2 font-medium text-muted-foreground">
-              {t("observability.time")}
-            </th>
-            <th className="w-8" />
-          </tr>
-        </thead>
-        <tbody>
-          {traces.map((trace: TraceSummary) => (
-            <tr
-              key={trace.runId}
-              onClick={() => setSelectedRunId(trace.runId)}
-              className="border-b border-border last:border-b-0 cursor-pointer hover:bg-accent/30"
-            >
-              <td className="px-3 py-2 font-mono text-foreground truncate">
-                {truncateId(trace.runId)}
-              </td>
-              <td className="px-3 py-2 text-muted-foreground truncate">
-                {trace.model || "unknown"}
-              </td>
-              <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                {formatDuration(trace.totalDurationMs)}
-              </td>
-              <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                {formatCost(trace.totalCostCentsX100)}
-              </td>
-              <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                {trace.toolCalls}
-                {trace.failedTools > 0 && (
-                  <span className="ml-1 text-red-500">
-                    {t("observability.failedCount", {
-                      count: trace.failedTools,
-                    })}
-                  </span>
-                )}
-              </td>
-              <td className="px-3 py-2 text-muted-foreground truncate">
-                {timeAgo(trace.createdAt)}
-              </td>
-              <td className="px-3 py-2">
-                <IconChevronRight size={14} className="text-muted-foreground" />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function TraceDetailView({
-  runId,
-  onBack,
+function OverviewTab({
+  days,
+  onShowRuns,
 }: {
-  runId: string;
-  onBack: () => void;
+  days: number;
+  onShowRuns: (filter: RunFilter) => void;
 }) {
+  const t = useT();
+  const { data } = useObservabilityOverview(days);
+  return (
+    <RunInsightsOverview
+      days={days}
+      onShowRuns={onShowRuns}
+      extraStats={
+        data
+          ? [
+              {
+                label: t("observability.thumbsUp"),
+                value: formatPercent(data.thumbsUpRate),
+              },
+              {
+                label: t("observability.avgEvalScore"),
+                value: data.avgEvalScore.toFixed(2),
+              },
+            ]
+          : []
+      }
+    />
+  );
+}
+
+function ConversationsTab({
+  days,
+  filter,
+  onClearFilter,
+}: {
+  days: number;
+  filter: RunFilter | null;
+  onClearFilter: () => void;
+}) {
+  return (
+    <RunInsightsConversations
+      days={days}
+      filter={filter}
+      onClearFilter={onClearFilter}
+      renderRawTrace={(runId) => <RawTrace runId={runId} />}
+    />
+  );
+}
+
+/** Every recorded span for a run, with inputs, outputs and metadata when captured. */
+function RawTrace({ runId }: { runId: string }) {
   const t = useT();
   const { data, isLoading } = useTraceDetail(runId);
   const [expandedSpanId, setExpandedSpanId] = useState<string | null>(null);
@@ -602,280 +503,209 @@ function TraceDetailView({
   const canPromote =
     !!data && !promote.isPending && (!needsNeedle || needle.length > 0);
 
+  if (isLoading) return <LoadingState />;
+  if (!data) return null;
   return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <input
+          type="text"
+          value={mustContain}
+          onChange={(event) => setMustContain(event.target.value)}
+          disabled={promote.isPending}
+          placeholder={t(
+            needsNeedle
+              ? "observability.promoteMustContain"
+              : "observability.promoteMustContainOptional",
+          )}
+          aria-label={t("observability.promoteMustContainLabel", {
+            defaultValue: "Text the promoted eval reply must contain",
+          })}
+          className="w-56 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
+        />
         <button
-          onClick={onBack}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          type="button"
+          disabled={!canPromote}
+          onClick={() =>
+            promote.mutate({
+              runId,
+              ...(needle ? { mustContain: needle } : {}),
+            })
+          }
+          className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
         >
-          <IconArrowLeft size={14} />
-          {t("observability.backToList")}
+          {promote.isPending
+            ? t("observability.promotingToEval")
+            : t("observability.promoteToEval")}
         </button>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <input
-            type="text"
-            value={mustContain}
-            onChange={(event) => setMustContain(event.target.value)}
-            disabled={promote.isPending || !data}
-            placeholder={t(
-              needsNeedle
-                ? "observability.promoteMustContain"
-                : "observability.promoteMustContainOptional",
-            )}
-            aria-label={t("observability.promoteMustContainLabel", {
-              defaultValue: "Text the promoted eval reply must contain",
-            })}
-            className="w-56 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
-          />
-          <button
-            type="button"
-            disabled={!canPromote}
-            onClick={() =>
-              promote.mutate({
-                runId,
-                ...(needle ? { mustContain: needle } : {}),
-              })
-            }
-            className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
-          >
-            {promote.isPending
-              ? t("observability.promotingToEval")
-              : t("observability.promoteToEval")}
-          </button>
-        </div>
       </div>
       {needsNeedle && needle.length === 0 && (
-        <p className="mb-3 text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {t("observability.promoteNeedsContains")}
         </p>
       )}
-
       {promote.isSuccess && promote.data && (
-        <p className="mb-3 text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {t("observability.promotedEval", { id: promote.data.dataset.id })}{" "}
           {t("observability.promotedEvalHint", { runId })}
         </p>
       )}
       {promote.isError && (
-        <p className="mb-3 text-xs text-destructive">
+        <p className="text-xs text-destructive">
           {promote.error instanceof Error
             ? promote.error.message
             : t("observability.promoteEvalFailed")}
         </p>
       )}
-
-      {isLoading && <LoadingState />}
-
-      {data && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-end">
-            {data.summary.threadId && (
-              <button
-                type="button"
-                onClick={() =>
-                  requestAgentChatThreadOpen({
-                    threadId: data.summary.threadId!,
-                  })
-                }
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <IconMessages size={14} />
-                {t("observability.openFullConversation")}
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
-              <div className="text-[10px] text-muted-foreground mb-1">
-                {t("observability.model")}
-              </div>
-              <div className="text-sm font-medium text-foreground truncate">
-                {data.summary.model || "unknown"}
-              </div>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
-              <div className="text-[10px] text-muted-foreground mb-1">
+      <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
+        <table className="w-full table-fixed text-left text-xs">
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              <th className="px-3 py-2 font-medium text-muted-foreground w-[15%]">
+                {t("observability.type")}
+              </th>
+              <th className="px-3 py-2 font-medium text-muted-foreground w-[35%]">
+                {t("observability.name")}
+              </th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">
                 {t("observability.duration")}
-              </div>
-              <div className="text-sm font-medium tabular-nums text-foreground">
-                {formatDuration(data.summary.totalDurationMs)}
-              </div>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
-              <div className="text-[10px] text-muted-foreground mb-1">
-                {t("observability.cost")}
-              </div>
-              <div className="text-sm font-medium tabular-nums text-foreground">
-                {formatCost(data.summary.totalCostCentsX100)}
-              </div>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-card p-3 text-card-foreground">
-              <div className="text-[10px] text-muted-foreground mb-1">
-                {t("observability.spans")}
-              </div>
-              <div className="text-sm font-medium tabular-nums text-foreground">
-                {data.summary.totalSpans}
-              </div>
-            </div>
-          </div>
+              </th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">
+                {t("observability.tokens")}
+              </th>
+              <th className="px-3 py-2 font-medium text-muted-foreground">
+                {t("observability.status")}
+              </th>
+              <th className="w-10" />
+            </tr>
+          </thead>
+          <tbody>
+            {data.spans.map((span) => {
+              const expanded = expandedSpanId === span.id;
+              const metadata = span.metadata ?? {};
+              const fields: Array<{ label: string; value: unknown }> = [];
+              if (Object.hasOwn(metadata, "input")) {
+                fields.push({
+                  label: t("observability.input"),
+                  value: metadata.input,
+                });
+              } else if (span.spanType === "tool_call") {
+                fields.push({
+                  label: t("observability.input"),
+                  value: t("observability.notCaptured"),
+                });
+              }
+              if (Object.hasOwn(metadata, "output")) {
+                fields.push({
+                  label: t("observability.output"),
+                  value: metadata.output,
+                });
+              } else if (span.spanType === "tool_call") {
+                fields.push({
+                  label: t("observability.output"),
+                  value: t("observability.notCaptured"),
+                });
+              }
+              if (span.errorMessage || span.status === "error") {
+                fields.push({
+                  label: t("observability.error"),
+                  value: span.errorMessage ?? t("observability.notCaptured"),
+                });
+              }
+              const otherMetadata = Object.fromEntries(
+                Object.entries(metadata).filter(
+                  ([key]) => key !== "input" && key !== "output",
+                ),
+              );
+              if (Object.keys(otherMetadata).length > 0) {
+                fields.push({
+                  label: t("observability.metadata"),
+                  value: otherMetadata,
+                });
+              }
+              if (fields.length === 0) {
+                fields.push({
+                  label: t("observability.metadata"),
+                  value: t("observability.notCaptured"),
+                });
+              }
 
-          <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
-            <table className="w-full table-fixed text-left text-xs">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="px-3 py-2 font-medium text-muted-foreground w-[15%]">
-                    {t("observability.type")}
-                  </th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground w-[35%]">
-                    {t("observability.name")}
-                  </th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground">
-                    {t("observability.duration")}
-                  </th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground">
-                    {t("observability.tokens")}
-                  </th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground">
-                    {t("observability.status")}
-                  </th>
-                  <th className="w-10" />
-                </tr>
-              </thead>
-              <tbody>
-                {data.spans.map((span) => {
-                  const expanded = expandedSpanId === span.id;
-                  const metadata = span.metadata ?? {};
-                  const fields: Array<{ label: string; value: unknown }> = [];
-                  if (Object.hasOwn(metadata, "input")) {
-                    fields.push({
-                      label: t("observability.input"),
-                      value: metadata.input,
-                    });
-                  } else if (span.spanType === "tool_call") {
-                    fields.push({
-                      label: t("observability.input"),
-                      value: t("observability.notCaptured"),
-                    });
-                  }
-                  if (Object.hasOwn(metadata, "output")) {
-                    fields.push({
-                      label: t("observability.output"),
-                      value: metadata.output,
-                    });
-                  } else if (span.spanType === "tool_call") {
-                    fields.push({
-                      label: t("observability.output"),
-                      value: t("observability.notCaptured"),
-                    });
-                  }
-                  if (span.errorMessage || span.status === "error") {
-                    fields.push({
-                      label: t("observability.error"),
-                      value:
-                        span.errorMessage ?? t("observability.notCaptured"),
-                    });
-                  }
-                  const otherMetadata = Object.fromEntries(
-                    Object.entries(metadata).filter(
-                      ([key]) => key !== "input" && key !== "output",
-                    ),
-                  );
-                  if (Object.keys(otherMetadata).length > 0) {
-                    fields.push({
-                      label: t("observability.metadata"),
-                      value: otherMetadata,
-                    });
-                  }
-                  if (fields.length === 0) {
-                    fields.push({
-                      label: t("observability.metadata"),
-                      value: t("observability.notCaptured"),
-                    });
-                  }
-
-                  return (
-                    <Fragment key={span.id}>
-                      <tr className="border-b border-border last:border-b-0">
-                        <td className="px-3 py-2 truncate">
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {span.spanType.replace("_", " ")}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 font-medium text-foreground truncate">
-                          {span.name}
-                        </td>
-                        <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                          {formatDuration(span.durationMs)}
-                        </td>
-                        <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                          {span.inputTokens + span.outputTokens > 0
-                            ? `${span.inputTokens} / ${span.outputTokens}`
-                            : "-"}
-                        </td>
-                        <td className="px-3 py-2">
-                          <StatusBadge status={span.status} />
-                        </td>
-                        <td className="px-2 py-2 text-right">
-                          <button
-                            type="button"
-                            aria-label={t(
-                              expanded
-                                ? "observability.hideDetails"
-                                : "observability.viewDetails",
-                            )}
-                            aria-expanded={expanded}
-                            aria-controls={
-                              expanded ? `span-details-${span.id}` : undefined
-                            }
-                            onClick={() =>
-                              setExpandedSpanId(expanded ? null : span.id)
-                            }
-                            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                          >
-                            <IconChevronRight
-                              size={14}
-                              className={cn(
-                                "transition-transform",
-                                expanded && "rotate-90",
-                              )}
-                            />
-                          </button>
-                        </td>
-                      </tr>
-                      {expanded && (
-                        <tr id={`span-details-${span.id}`}>
-                          <td
-                            colSpan={6}
-                            className="border-b border-border p-3"
-                          >
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              {fields.map(({ label, value }) => (
-                                <div key={label} className="min-w-0">
-                                  <div className="mb-1 text-[10px] font-medium text-muted-foreground">
-                                    {label}
-                                  </div>
-                                  <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 font-mono text-xs text-foreground">
-                                    {typeof value === "string"
-                                      ? value || '""'
-                                      : (JSON.stringify(value, null, 2) ??
-                                        String(value))}
-                                  </pre>
-                                </div>
-                              ))}
+              return (
+                <Fragment key={span.id}>
+                  <tr className="border-b border-border last:border-b-0">
+                    <td className="px-3 py-2 truncate">
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        {span.spanType.replace("_", " ")}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-medium text-foreground truncate">
+                      {span.name}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                      {formatDuration(span.durationMs)}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                      {span.inputTokens + span.outputTokens > 0
+                        ? `${span.inputTokens} / ${span.outputTokens}`
+                        : "-"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={span.status} />
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <button
+                        type="button"
+                        aria-label={t(
+                          expanded
+                            ? "observability.hideDetails"
+                            : "observability.viewDetails",
+                        )}
+                        aria-expanded={expanded}
+                        aria-controls={
+                          expanded ? `span-details-${span.id}` : undefined
+                        }
+                        onClick={() =>
+                          setExpandedSpanId(expanded ? null : span.id)
+                        }
+                        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        <IconChevronRight
+                          size={14}
+                          className={cn(
+                            "transition-transform",
+                            expanded && "rotate-90",
+                          )}
+                        />
+                      </button>
+                    </td>
+                  </tr>
+                  {expanded && (
+                    <tr id={`span-details-${span.id}`}>
+                      <td colSpan={6} className="border-b border-border p-3">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {fields.map(({ label, value }) => (
+                            <div key={label} className="min-w-0">
+                              <div className="mb-1 text-[10px] font-medium text-muted-foreground">
+                                {label}
+                              </div>
+                              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 font-mono text-xs text-foreground">
+                                {typeof value === "string"
+                                  ? value || '""'
+                                  : (JSON.stringify(value, null, 2) ??
+                                    String(value))}
+                              </pre>
                             </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -3219,6 +3049,12 @@ function ObservabilityDashboardContent({
   const t = useT();
   const [localTab, setLocalTab] = useState<TabId>("overview");
   const [days, setDays] = useState(7);
+  const [runFilter, setRunFilter] = useState<RunFilter | null>(null);
+  const showRuns = (filter: RunFilter) => {
+    setRunFilter(filter);
+    if (routeBasePath && navigate) navigate(`${routeBasePath}/conversations`);
+    else setLocalTab("conversations");
+  };
   const visibleTabs = showHumanReview
     ? TABS
     : TABS.filter((tab) => tab.id !== "review");
@@ -3303,7 +3139,7 @@ function ObservabilityDashboardContent({
       </div>
 
       <TabsContent value="overview" className="mt-0">
-        <OverviewTab days={days} />
+        <OverviewTab days={days} onShowRuns={showRuns} />
       </TabsContent>
       {showHumanReview && (
         <TabsContent value="review" className="mt-0">
@@ -3314,7 +3150,11 @@ function ObservabilityDashboardContent({
         </TabsContent>
       )}
       <TabsContent value="conversations" className="mt-0">
-        <ConversationsTab days={days} />
+        <ConversationsTab
+          days={days}
+          filter={runFilter}
+          onClearFilter={() => setRunFilter(null)}
+        />
       </TabsContent>
       <TabsContent value="evals" className="mt-0">
         <EvalsTab days={days} />

@@ -97,6 +97,7 @@ const VIOLATION_FILES = {
 const CLEAN_FILES = {
   "package.json": JSON.stringify({
     name: "app",
+    dependencies: { "@agent-native/core": "^0.198.0" },
     scripts: { build: "vite build" },
   }),
 };
@@ -405,6 +406,89 @@ describe("runDoctorScan", () => {
 
     expect(report.findings).toEqual([]);
     expect(report.ok).toBe(true);
+  });
+
+  it("only checks configured migration peers for packages using Core", () => {
+    const migrationManifests = [
+      {
+        sinceVersion: "0.110.0",
+        moves: {},
+        dependencies: [
+          {
+            name: "@electric-sql/pglite",
+            version: "^0.5.8",
+            when: "pglite-database" as const,
+          },
+        ],
+      },
+    ];
+    const shellEnvironment = { DATABASE_URL: "" };
+    const sharedRoot = makeTempAppRoot({
+      "package.json": JSON.stringify({ name: "@workspace/shared" }),
+    });
+    const appRoot = makeTempAppRoot({
+      "package.json": JSON.stringify({
+        name: "app",
+        dependencies: { "@agent-native/core": "^0.198.0" },
+      }),
+    });
+
+    const sharedReport = runDoctorScan({
+      root: sharedRoot,
+      only: ["feature-dependencies"],
+      shellEnvironment,
+      migrationManifests,
+    });
+    const appReport = runDoctorScan({
+      root: appRoot,
+      only: ["feature-dependencies"],
+      shellEnvironment,
+      migrationManifests,
+    });
+
+    expect(sharedReport.findings).toEqual([]);
+    expect(appReport.findings).toEqual([
+      expect.objectContaining({
+        guard: "feature-dependencies",
+        message: expect.stringContaining("@electric-sql/pglite@^0.5.8"),
+      }),
+    ]);
+  });
+
+  it("skips feature dependency checks when package.json is absent", () => {
+    const root = makeTempAppRoot({});
+    const report = runDoctorScan({
+      root,
+      only: ["feature-dependencies"],
+      shellEnvironment: { DATABASE_URL: "" },
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {},
+          dependencies: [
+            {
+              name: "@electric-sql/pglite",
+              version: "^0.5.8",
+              when: "pglite-database",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(report.findings).toEqual([]);
+  });
+
+  it("rejects non-object package manifests before resolving peers", () => {
+    const root = makeTempAppRoot({ "package.json": "null" });
+
+    expect(() =>
+      runDoctorScan({
+        root,
+        only: ["feature-dependencies"],
+        shellEnvironment: { DATABASE_URL: "" },
+      }),
+    ).toThrow(/Invalid .*package\.json: expected a JSON object/);
   });
 
   it.each([

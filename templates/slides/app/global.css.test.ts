@@ -49,6 +49,13 @@ function backgroundColorOf(html: string, selector: string): string {
   return getComputedStyle(element).backgroundColor;
 }
 
+function propertyOf(html: string, selector: string, property: string): string {
+  document.body.innerHTML = html;
+  const element = document.querySelector(selector);
+  if (!element) throw new Error(`No element for ${selector}`);
+  return getComputedStyle(element).getPropertyValue(property);
+}
+
 beforeAll(() => {
   const style = document.createElement("style");
   style.textContent = readFileSync(
@@ -89,6 +96,40 @@ describe("slide-content text colors", () => {
       '<div style="padding: 80px 110px; background: #fdf6ec; color: #292524">' +
       "<h1>Onboarding New Customers</h1></div></div>";
     expect(colorOf(html, "h1")).toBe("inherit");
+  });
+
+  it("limits relative code and quote styling to newly authored marks", () => {
+    const baseline = document.createElement("style");
+    baseline.textContent =
+      ".slide-content code { font-size: 16px; white-space: nowrap; }" +
+      ".slide-content blockquote { font-size: 20px; font-style: italic; opacity: 0.8; }";
+    document.head.appendChild(baseline);
+
+    const existing = RAW_SLIDE(
+      '<div style="font-size: 40px; line-height: 1.2"><code>existing</code>' +
+        "<blockquote>Existing quote</blockquote></div>",
+    );
+    expect(propertyOf(existing, "code", "font-size")).toBe("16px");
+    expect(propertyOf(existing, "code", "white-space")).toBe("nowrap");
+    expect(propertyOf(existing, "blockquote", "font-size")).toBe("20px");
+    expect(propertyOf(existing, "blockquote", "font-style")).toBe("italic");
+    expect(propertyOf(existing, "blockquote", "opacity")).toBe("0.8");
+
+    const html = RAW_SLIDE(
+      '<div style="font-size: 40px; line-height: 1.2">' +
+        '<code data-slide-authoring-format="code">inline</code>' +
+        '<blockquote data-slide-authoring-format="quote">Quoted text</blockquote></div>',
+    );
+
+    expect(propertyOf(html, "code", "font-size")).toBe("35.2px");
+    expect(propertyOf(html, "code", "line-height")).toBe("inherit");
+    expect(propertyOf(html, "code", "white-space")).toBe("inherit");
+    expect(propertyOf(html, "blockquote", "font-size")).toBe("inherit");
+    expect(propertyOf(html, "blockquote", "line-height")).toBe("inherit");
+    expect(propertyOf(html, "blockquote", "font-style")).toBe("inherit");
+    expect(propertyOf(html, "blockquote", "opacity")).toBe("1");
+
+    baseline.remove();
   });
 
   it("keeps the selected question option's primary background", () => {

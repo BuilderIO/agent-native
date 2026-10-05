@@ -209,6 +209,61 @@ describe("useChatModels", () => {
     expect(["claude-sonnet-5", "claude-opus-4-8"]).toContain(selected);
   });
 
+  it("refreshes the active picker catalog after engine configuration changes", async () => {
+    const engines: unknown[] = [
+      {
+        name: "anthropic",
+        label: "Claude",
+        supportedModels: ["claude-sonnet-5"],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+      },
+    ];
+    actionMocks.callAction.mockImplementation(async () => ({ engines }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.includes("env-status")) {
+          return Response.json([
+            { key: "ANTHROPIC_API_KEY", configured: true },
+          ]);
+        }
+        if (url.includes("builder/status")) {
+          return Response.json({ configured: false });
+        }
+        return new Response("{}");
+      }),
+    );
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="lab-catalog-refresh" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const catalog = container.querySelector(
+      '[data-testid="probe-catalog-state"]',
+    );
+    expect(catalog?.textContent).toBe("anthropic:true");
+
+    engines.push({
+      name: "chatgpt-subscription",
+      label: "ChatGPT plan access",
+      supportedModels: ["gpt-5.6-sol"],
+      requiredEnvVars: [],
+    });
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(catalog?.textContent).toBe(
+      "anthropic:true,chatgpt-subscription:true",
+    );
+  });
+
   it("clears the selection when the catalog can route nothing", async () => {
     stubCatalog({ engines: [] });
 

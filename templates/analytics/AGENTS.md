@@ -1,8 +1,7 @@
 # Analytics — Agent Guide
 
-Analytics is an agent-native BI workspace for sources, queries, dashboards,
-charts, and warehouse integrations; dashboards are canonical and legacy
-analyses remain readable.
+Analytics owns sources, queries, charts, and dashboards. Dashboards are
+canonical; legacy analyses remain readable.
 
 ## Skills
 
@@ -45,8 +44,8 @@ Read the relevant skill before deeper work:
    For `query-agent-native-analytics`, set `showTable: true` only when the user
    explicitly asks to see query rows; one-cell numeric results render as a
    compact Analysis result card.
-5. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
-   cannot answer; don't chunk queryable questions. See `adhoc-analysis`.
+5. **Chunk only reading.** For 30+ qualitative items a query cannot answer,
+   group 5-10. See `adhoc-analysis`.
 
 State confidence, never a dead end: cite the dashboard or query used (note
 certified ones); label figures "Unverified" when no live query ran.
@@ -54,13 +53,9 @@ certified ones); label figures "Unverified" when no live query ran.
 ## Core Rules
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- A sibling app sends natural-language or shaped input over A2A, never SQL; this
-  app owns schema, source selection, and tools. Prefer natural-language
-  delegation; shaped reads are stable contracts.
-- Analytics owns first-party product usage, app/template events, agent-native
-  signups, conversions, and other curated product metrics. Answer sibling-app
-  delegations with the built-in source and query catalog; sibling agents should
-  send a natural-language question, never SQL.
+- Sibling apps delegate product usage, app events, signups, conversions, and
+  other metrics over A2A in natural language, never SQL. Analytics owns schema,
+  source selection, and tools; shaped reads are stable contracts.
 - Delegation: choose defaults; label partial.
 - Never invent data or source semantics; include source, window, filters, sample
   size, join method, and caveats.
@@ -88,11 +83,23 @@ certified ones); label figures "Unverified" when no live query ran.
   multi-step work, unavailable actions, or unsupported writes.
 - Reports/alerts use SQL actions; cap at five recipients.
 
+## Sessions
+
+- `list-session-recordings` filters scoped replays by date, app, duration,
+  signals, visitor type, and email domain. Use `paginated: true` for sorted
+  pages with a real total and app counts; the default returns an array.
+- With the Sessions triage Lab on, `didEvents` / `didNotEvents` filter by
+  tracked events. Get real names and session counts from
+  `list-session-event-names`, and event health from `list-event-catalog`. Both
+  read Analytics' own index, which covers sessions only from its coverage
+  start. Never query BigQuery for these views.
+
 ## Application State
 
 - `navigation` exposes the current dashboard, analysis, source, chart, and
   selection. `navigate` moves the user between supported Analytics surfaces,
-  `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
+  `"sessions"`, `"event-catalog"`, `"monitoring"`, and `"agents"`. Use
+  `view-screen` when the
   active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`
   with `type="dashboard-panel"`. Read `dashboard-management` for the

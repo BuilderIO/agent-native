@@ -15,7 +15,8 @@ const mocks = vi.hoisted(() => ({
   setContext: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   actionErrorMessage: () => undefined,
   getBrowserTabId: () => "test-tab",
   useActionMutation: (name: string) =>

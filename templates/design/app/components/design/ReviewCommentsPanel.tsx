@@ -237,7 +237,7 @@ export function ReviewCommentsPanel({
         className,
       )}
     >
-      {!canComment && signInHref ? (
+      {!canComment && !normalizedUserEmail && signInHref ? (
         <Button
           asChild
           variant="outline"

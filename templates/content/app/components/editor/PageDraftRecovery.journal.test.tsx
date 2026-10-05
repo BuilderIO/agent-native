@@ -25,6 +25,7 @@ const state = vi.hoisted(() => ({
       editGeneration: number;
       saveAttemptId?: string;
       priorSaveAttemptIds?: string[];
+      equivalentSaveAttemptIds?: string[];
     };
     writtenAt: number;
     recoveryStatus?: "retained_in_history";
@@ -39,12 +40,12 @@ const state = vi.hoisted(() => ({
   sweep: vi.fn(),
   draft: null as null | Record<string, unknown>,
   read: vi.fn(),
+  verify: vi.fn(),
+  session: null as null | { email: string; orgId: string },
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: state.receipt,
-  useSession: () => ({
-    session: { email: "writer@example.test", orgId: "org" },
-  }),
+  useSession: () => ({ session: state.session }),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -57,6 +58,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import { toast } from "sonner";
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
+  ensurePreviewDocumentDraftRead: (...args: unknown[]) => state.verify(...args),
   isDocumentUpdateConflict: (result: { conflict?: boolean }) =>
     result.conflict === true,
   isDocumentUpdatePreservationRequired: (result: {
@@ -146,11 +148,13 @@ describe("Page browser journal recovery", () => {
     vi.clearAllMocks();
     state.entries = [];
     state.draft = null;
+    state.session = { email: "writer@example.test", orgId: "org" };
     state.read.mockImplementation(
       () => state.entries.find((entry) => !entry.recoveryStatus) ?? null,
     );
     state.receipt.mockResolvedValue({ found: false });
     state.refetch.mockResolvedValue(undefined);
+    state.verify.mockResolvedValue(undefined);
     state.rebase.mockResolvedValue({ status: "saved", document: page });
     state.upsert.mockResolvedValue({
       status: "saved",
@@ -343,13 +347,73 @@ describe("Page browser journal recovery", () => {
     );
   });
 
+  it("clears a journal confirmed by an attempt that sent the same draft", async () => {
+    // A hidden tab's keepalive copy can land while the flush that replaced its
+    // attempt ID never sends. Replaying would reapply a rename that another
+    // writer has since reverted.
+    state.entries = [
+      {
+        ...entry("first", "Local"),
+        snapshot: {
+          ...entry("first", "Local").snapshot,
+          saveAttemptId: "flush-attempt",
+          equivalentSaveAttemptIds: ["keepalive-attempt"],
+        },
+      },
+    ];
+    state.receipt.mockImplementation(
+      async (
+        _action: string,
+        args: {
+          browserSaveAttemptId: string;
+        },
+      ) => ({ found: args.browserSaveAttemptId === "keepalive-attempt" }),
+    );
+
+    await act(async () => render());
+    expect(state.receipt).toHaveBeenCalledWith(
+      "get-document-save-attempt",
+      { id: "page", browserSaveAttemptId: "flush-attempt" },
+      { method: "GET" },
+    );
+    expect(state.receipt).toHaveBeenCalledWith(
+      "get-document-save-attempt",
+      { id: "page", browserSaveAttemptId: "keepalive-attempt" },
+      { method: "GET" },
+    );
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.entries).toEqual([]);
+  });
+
   it("does not inspect local drafts before the current session passes access", async () => {
     state.entries = [entry("first", "Local")];
-    state.receipt.mockRejectedValue(new Error("access denied"));
+    state.verify.mockRejectedValue(new Error("access denied"));
     await act(async () => render());
     expect(state.read).not.toHaveBeenCalled();
     expect(state.rebase).not.toHaveBeenCalled();
     expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  it("holds the editor until the session is known, then replays the journal", async () => {
+    // The session cache expires, so a page opened later can mount before its
+    // session read returns. The editor must not show the saved body over a
+    // journal it has not replayed.
+    state.session = null;
+    state.entries = [entry("first", "Local")];
+    state.rebase.mockResolvedValue({
+      status: "saved",
+      document: { ...page, content: "Local" },
+    });
+    await act(async () => render());
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(state.read).not.toHaveBeenCalled();
+
+    state.session = { email: "writer@example.test", orgId: "org" };
+    await act(async () => render());
+    expect(state.rebase).toHaveBeenCalledTimes(1);
+    expect(state.entries).toEqual([]);
+    expect(container.querySelector("textarea")).not.toBeNull();
   });
 
   it("checks a confirmed save receipt before replaying a pending attempt", async () => {

@@ -1,7 +1,7 @@
 import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
 import { drizzle as drizzleProxy } from "drizzle-orm/pg-proxy";
 
-import { withDbExec, type DbExec } from "../db/client.js";
+import { getScopedDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
@@ -505,17 +505,18 @@ async function resolveAccessImpl(
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected | null> {
   const registered = requireShareableResource(resourceType);
-  const transaction = rawCtx.transaction;
+  const transaction = rawCtx.transaction ?? getScopedDbExec();
   const transactionDb = transaction
     ? drizzleProxy(async (query, params) => {
         const result = await transaction.execute({ sql: query, args: params });
         return { rows: result.rows.map((row) => Object.values(row)) };
       })
     : null;
+  const transactionCtx = transaction ? { ...rawCtx, transaction } : rawCtx;
   const reg = transactionDb
     ? { ...registered, getDb: () => transactionDb }
     : registered;
-  const ctx = resolveRegisteredAccessContext(reg, rawCtx);
+  const ctx = resolveRegisteredAccessContext(reg, transactionCtx);
 
   const resource = await loadResourceForAccess(reg, resourceId, options);
   if (!resource) return null;

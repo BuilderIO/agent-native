@@ -57,6 +57,30 @@ function trigger() {
 }
 
 describe("BuilderConnectPopover before the status read resolves", () => {
+  it("uses existing-account sign-in when provisioning is unavailable", () => {
+    const onConnect = vi.fn();
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      provisionAccount: true,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: false,
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { flow, onConnect },
+        trigger(),
+      ),
+    );
+
+    click(connectButton());
+
+    expect(onConnect).toHaveBeenCalledWith(false);
+    expect(flow.start).not.toHaveBeenCalled();
+  });
+
   it("never replays a queued click into the popup path", () => {
     const onConnect = vi.fn();
     const retry = vi.fn(() => true);
@@ -116,7 +140,12 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     render(
       React.createElement(
         BuilderConnectPopover,
-        { flow, onConnect, contentTestId: "consent" },
+        {
+          flow,
+          onConnect,
+          contentTestId: "consent",
+          primaryTestId: "create",
+        },
         trigger(),
       ),
     );
@@ -135,6 +164,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
           },
           onConnect,
           contentTestId: "consent",
+          primaryTestId: "create",
         },
         trigger(),
       ),
@@ -144,6 +174,69 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     const consent = document.querySelector("[data-testid='consent']");
     expect(consent).not.toBeNull();
     expect(consent?.className).toContain("z-[330]");
+    const create = consent?.querySelector<HTMLButtonElement>(
+      "[data-testid='create']",
+    );
+    expect(create).not.toBeNull();
+    click(create!);
+    expect(onConnect).toHaveBeenCalledWith(true);
+  });
+
+  it("stacks the create and sign-in buttons together with the terms below them", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry: vi.fn(() => true),
+      statusResolved: false,
+      statusReadSettledCount: 0,
+      agentNativeProvisioningEnabled: false,
+    };
+    const props = {
+      onConnect: vi.fn(),
+      contentTestId: "consent",
+      primaryTestId: "create",
+      secondaryTestId: "sign-in",
+    };
+
+    render(
+      React.createElement(BuilderConnectPopover, { flow, ...props }, trigger()),
+    );
+    click(connectButton());
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow: {
+            ...flow,
+            statusResolved: true,
+            statusReadSettledCount: 1,
+            agentNativeProvisioningEnabled: true,
+          },
+          ...props,
+        },
+        trigger(),
+      ),
+    );
+
+    const consent = document.querySelector("[data-testid='consent']");
+    const create = consent?.querySelector("[data-testid='create']");
+    const signIn = consent?.querySelector("[data-testid='sign-in']");
+    const terms = Array.from(consent?.querySelectorAll("p") ?? []).find((p) =>
+      p.querySelector("a"),
+    );
+    expect(create && signIn && terms).toBeTruthy();
+    expect(consent?.textContent).toContain(
+      "Included free with a Builder.io account",
+    );
+    expect(consent?.textContent).toContain("60 monthly Agent Credits");
+    expect(signIn?.parentElement).toBe(create?.parentElement);
+    expect(create!.compareDocumentPosition(signIn!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(signIn!.compareDocumentPosition(terms!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(signIn!.className).toContain("bg-secondary");
   });
 
   it("releases the queued click when the read it triggered settles unresolved", () => {

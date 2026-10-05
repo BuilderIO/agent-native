@@ -4,6 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
+      connectBuilder: "Builder.io を使う",
       providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
     common: { retry: "再試行" },
@@ -221,7 +222,7 @@ const messages = {
     sharedWithYou: "あなたと共有",
     storageStillDisconnected: "ストレージがまだ接続されていません",
     finishBuilderOrS3:
-      "Builder.io ポップアップを終了するか、S3 ストレージを構成してから、再試行してください。",
+      "Builder.io ストレージを使用するか、S3 互換ストレージを設定してから再試行してください。",
     loomImportResumed: "Loom インポートが再開されました",
     clipUploadResumed: "クリップのアップロードが再開されました",
     couldNotRetryLoom: "Loom インポートを再試行できませんでした",
@@ -268,9 +269,9 @@ const messages = {
     savingWentWrong: "このクリップの保存中に問題が発生しました。",
     finishingClip: "クリップを仕上げています…",
     loomSourcePreserved:
-      "Loom ソース リンクは保持されます。 Builder.io または S3 ストレージを接続すると、Clips は自身のコピーの保存を再試行します。",
+      "Loom ソースリンクは保持されています。Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用すると、Clips はコピーの保存を再試行します。",
     clipDataPreserved:
-      "クリップデータは引き続き保存されます。 Builder.io または S3 ストレージを接続すると、Clips が自動的にアップロードします。",
+      "クリップデータは保持されています。Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用すると、Clips が自動的にアップロードします。",
     details: "詳細",
     importingLoom: "Loom をインポートしています...",
     uploadingSavedClip: "保存したクリップをアップロードしています…",
@@ -396,13 +397,13 @@ const messages = {
     savingWentWrong: "このクリップの保存中に問題が発生しました。",
     finishingClip: "このクリップを仕上げています...",
     loomPreservedManage:
-      "Loom ソース リンクは保持されます。 Builder.io または S3 ストレージを接続してから、インポートを再試行してください。",
+      "Loom ソースリンクは保持されています。Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用してから、インポートを再試行してください。",
     videoPreservedManage:
-      "ビデオは保存されています。 Builder.io または S3 ストレージを接続すると、Clips がアップロードを完了します。",
+      "動画は保持されています。Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用すると、Clips がアップロードを完了します。",
     creatorNeedsStorage:
-      "このクリップが終了する前に、作成者は Builder.io または S3 ストレージに接続する必要があります。",
+      "このクリップを完成させるには、作成者が Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用する必要があります。",
     signInStorage:
-      "これが自分のクリップの場合は、ここにサインインして Builder.io または S3 ストレージに接続し、アップロードを完了します。",
+      "自分のクリップの場合は、ここにサインインして Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用し、アップロードを完了してください。",
     uploadNotCompleteSession:
       "アップロードはまだ完了していません。このクリップのダッシュボードを開くか、作成者にストレージを確認するよう依頼してください。",
     uploadNotCompleteSignIn:
@@ -543,9 +544,9 @@ const messages = {
     cleanupBuilderFailed:
       "Builder.io が接続されているにもかかわらず、クリーンアップが完了できませんでした。ネイティブのトランスクリプトが保存されました。",
     cleanupPaused:
-      "クリーンアップは一時停止されています。設定で AI を接続してください: Builder.io (無料クレジット) または自分の LLM キー。",
+      "クリーンアップは一時停止中です。設定で AI に Builder.io を使用してください（無料クレジット）。または自分の LLM キーを追加してください。",
     builderNoResponse:
-      "ビルダーからは返事がありませんでした。ポップアップを許可して、再試行してください。",
+      "Builder から応答がありませんでした。もう一度お試しください。",
     saveFailed: "保存に失敗しました ({{status}})",
     savedRetrying: "保存されました。文字起こしを再試行しています…",
     getGroqKey: "Groq キーを取得する",
@@ -809,6 +810,11 @@ const messages = {
     agentTitle: "エージェントを管理",
     pageTitle: "設定 · Clips",
     labs: "Labs",
+    labResilientRecording: "復元に強い録画",
+    labResilientRecordingDescription:
+      "録画のアップロードを高速化し、中断後の復元機能を改善します。",
+    labResilientRecordingMixedDescription:
+      "以前の録画設定が引き続き有効です。オンまたはオフを選んで設定を統一してください。",
     labsIntro:
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labVideoEditing: "動画編集",
@@ -1108,7 +1114,7 @@ const messages = {
     pickAtLeastTwo: "結合する録画を少なくとも 2 件選択してください",
     videoUrlMissing: "1 件以上の録画に準備済みの動画 URL がありません",
     connectStorage:
-      "録画を結合する前にストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。",
+      "録画を結合する前に Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用してください。",
     created: "結合録画を作成しました",
     failed: "録画の結合に失敗しました",
     noOtherRecordings: "他に利用できる録画はありません。",
@@ -1220,14 +1226,14 @@ const messages = {
     elapsed: "経過時間",
     cancel: "録画を破棄",
     cancelShortcut: "破棄 (⌥⇧C)",
-    discardConfirmTitle: "この録画を破棄しますか?",
+    discardConfirmTitle: "この録画を削除しますか？",
     discardConfirmDescription:
       "この操作は元に戻せません。これまでの録画内容は完全に削除されます。",
     resume: "再開",
     discardRecording: "録画を破棄",
     restart: "録画をやり直す",
     restartShortcut: "やり直す (⌥⇧R)",
-    restartQuestion: "新しい録画を開始しますか?",
+    restartQuestion: "この録画を削除してやり直しますか？",
     restartConfirm: "やり直す",
   },
   countdownOverlay: {
@@ -1457,26 +1463,22 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合は、ブラウザーのタブで開いてください。それ以外の場合は、このサイトのポップアップを許可して再試行してください。",
+      "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
-      "Builder.io に接続できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
+      "Builder.io を設定できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
     checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
-      "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
+      "5 分以内に Builder から応答がありませんでした。もう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    connectBuilder: "Builder.io を使用",
+    description:
+      "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
     createBuilderAccount: "Builder.io アカウントを作成",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
-    builderConsentPrefix: "Builder.io アカウントを作成すると、当社の",
-    builderTerms: "利用規約",
-    builderConsentAnd: "および",
-    builderPrivacy: "プライバシーポリシー",
     free: "無料",
-    configureS3: "S3 互換ストレージを設定",
     whyPrompt: "なぜこれが表示されていますか？",
     whyDescription:
-      "Clips は 100% 無料でオープンソースのアプリなので、クリップを保存する方法を接続する必要があります。Builder.io で無料プランのストレージと AI を使うか、S3 互換オブジェクトストレージと自分の LLM キーを使用します。",
+      "Clips は 100% 無料のオープンソースアプリなので、クリップを保存する方法が必要です。無料プランのストレージと AI には Builder.io を、または S3 互換オブジェクトストレージと自分の LLM キーを使用してください。",
   },
   captureInstall: {
     title: "Choose your recorder (ローカライズ済み)",
@@ -1812,13 +1814,67 @@ const messages = {
     storageConnectedReopeningRecorder:
       "ストレージに接続しました。レコーダーを再度開いています...",
     connectStorageToFinish:
-      "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
+      "次の画面で Builder.io ストレージ（無料プランのストレージと AI）を使用するか、S3 互換ストレージを設定してください。Clips が保存を完了します。",
     connectStorageToRetryLoom:
-      "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
-    leaveConfirmTitle: "このページを離れて録画を破棄しますか?",
+      "次の画面で Builder.io ストレージ（無料プランのストレージと AI）を使用するか、S3 互換ストレージを設定してください。Clips がインポートを再試行します。",
+    leaveConfirmTitle: "この録画から離れますか？",
     leaveConfirmDescription:
-      "録画中のデータはまだ保存が完了していません。今このページを離れると破棄されます。",
+      "この録画はこのタブにしかありません。先にコピーをダウンロードしない限り、離れると削除されます。",
     leaveAndDiscard: "離れて破棄する",
+    recordingWithoutSound:
+      "音声なしで録画しています。文字起こしを作成するにはマイクをオンにしてください。",
+    pendingStorageTitle: "録画を保存するにはストレージを接続してください",
+    pendingStorageDescription:
+      "ストレージを接続すると、Clips がすぐにアップロードします。",
+    storageConnectedUploading:
+      "ストレージを接続しました。録画をアップロードしています…",
+    downloadCopy: "コピーをダウンロード",
+    localRecordingOpenElsewhere:
+      "その録画は別の Clips タブでまだ開いています。",
+    uploadWaitingForConnection:
+      "アップロードを一時停止しました。Clips が自動で再試行します。",
+    uploadDidNotFinish: "アップロードが完了しませんでした。",
+    unfinishedRecording: "アップロードが完了していない録画があります",
+    finishUpload: "アップロードを完了",
+    leaveKeepDescription:
+      "Clips はこのブラウザに保存し、次に戻ったときにアップロードの完了を案内します。「離れて破棄する」を選ぶと完全に削除されます。",
+    leaveAndKeep: "保存して離れる",
+    copySafeInBrowser: "録画はこのブラウザに安全に保存されています。",
+    copyOnlyInThisTab:
+      "この録画はこのタブにしかありません。タブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyFull:
+      "このブラウザの空き容量が不足しているため、Clips は予備コピーを保存できません。アップロードが終わるまでこのタブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyFailed:
+      "Clips はこのブラウザに予備コピーを保存できませんでした。アップロードが終わるまでこのタブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyUnreadable:
+      "このブラウザにある録画のコピーを読み取れませんでした。",
+    recordingOwnedByAnotherAccount:
+      "この録画は別のアカウントのものです。アップロードするには、このブラウザでそのアカウントにログインしてください。",
+    unclaimedRecording:
+      "このブラウザに、どのアカウントにも紐づいていない録画があります",
+    reviewRecording: "確認",
+    claimRecordingPrompt:
+      "この録画はまだどのアカウントにも紐づいていません。{{email}} にアップロードしますか？",
+    claimRecording: "自分のアカウントにアップロード",
+    lowBrowserStorage:
+      "このブラウザの空き容量が少ないため、長い録画は予備コピーに収まらない可能性があります。アップロードが終わるまでこのタブを開いたままにしてください。",
+    recordingEndMissing:
+      "この録画の最後が保存されませんでした。Clips は保存できた分をアップロードし、コピーを残します。",
+    uploadedPartialCopyKept:
+      "このブラウザに保存された分をアップロードしました。最後が欠けている可能性があるため、Clips はコピーをここに残しました。",
+    uploadUnverifiedCopyKept:
+      "録画全体がアップロードされたことを Clips が確認できなかったため、コピーをここに残しました。",
+    copyKeptAfterUpload:
+      "この録画はアップロードされましたが、完全かどうかを Clips が確認できなかったため、コピーをここに残しました。",
+    localCopyLockUnavailable:
+      "ほかのタブがこの録画を使っていないことを Clips が確認できないため、ここからアップロードも削除もしません。代わりにコピーをダウンロードしてください。",
+    uploadAgain: "もう一度アップロード",
+    keptCopyWaiting: "Clips がこのブラウザに録画のコピーを残しています",
+    savedRecordingsUnreadable:
+      "このブラウザに保存された録画を Clips が読み取れませんでした。",
+    remindTomorrow: "明日もう一度通知",
+    stillProcessingCopyKept:
+      "この録画はまだ処理中のため、Clips はコピーをここに残しました。完了を待つか、もう一度アップロードしてください。",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",
@@ -1965,6 +2021,8 @@ const messages = {
     retry: "再試行",
     retrying: "再試行中…",
     retryFailed: "このアップロードを再試行できませんでした。",
+    retryCheckFailed:
+      "このアップロードを再試行できるか確認できませんでした。ページを更新して再試行してください。",
     retryUnavailableHere:
       "再試行は、この録画を行ったデバイスまたはブラウザでのみ利用できます。",
     viewsCount: "{{count}} 回表示",

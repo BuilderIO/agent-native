@@ -21,6 +21,7 @@ vi.mock("sonner", () => ({
 }));
 
 import {
+  documentPropertiesPlaceholder,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useSetDocumentProperty,
@@ -46,6 +47,53 @@ describe("documentPropertiesResponseMatchesScope", () => {
         properties: [],
       }),
     ).toBe(true);
+  });
+});
+
+describe("documentPropertiesPlaceholder", () => {
+  const field = (databaseId: string | null, id = "blocks") =>
+    ({
+      definition: { id, databaseId, type: "blocks" },
+      value: "Body",
+      editable: true,
+    }) as never;
+
+  it("lets the page read stand in for its own collection without edit rights", () => {
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-1", [
+        field("database-1"),
+        field("database-1", "notes"),
+      ]),
+    ).toEqual({
+      documentId: "row-1",
+      databaseId: "database-1",
+      canEditValues: false,
+      canManageSchema: false,
+      properties: [field("database-1"), field("database-1", "notes")],
+    });
+  });
+
+  it("does not stand in for another scope or an unknown field list", () => {
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-2", [
+        field("database-1"),
+      ]),
+    ).toBeUndefined();
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-1", [
+        field("database-1"),
+        field(null, "shared"),
+      ]),
+    ).toBeUndefined();
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-1", []),
+    ).toBeUndefined();
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-1", undefined),
+    ).toBeUndefined();
+    expect(
+      documentPropertiesPlaceholder("row-1", null, [field(null)]),
+    ).toBeUndefined();
   });
 });
 

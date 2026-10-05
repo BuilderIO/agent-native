@@ -129,13 +129,16 @@ const messages: ToolkitAgentChatTranslation = {
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
   "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
+  "onboarding.builderIncludedFreeWithAccount": "Builder.io 계정에 무료로 포함",
+  "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
   "onboarding.builderActivateTitle": "무료 크레딧 활성화",
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
-  "onboarding.builderAccountExistsDescription": "연결하려면 로그인하세요.",
+  "onboarding.builderAccountExistsDescription":
+    "계정을 사용하려면 로그인하세요.",
   "onboarding.builderActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
   "onboarding.builderOrgActivationDescription":
-    "한 번의 클릭으로 Builder.io 계정을 만들고 조직용으로 연결합니다.",
+    "한 번의 클릭으로 Builder.io 계정을 만들어 조직에서 사용할 수 있도록 합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
   "onboarding.builderConsentPrefix": "Builder.io 계정을 만들면 당사의",
   "onboarding.builderTerms": "서비스 약관",
@@ -143,7 +146,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있습니다",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
-  "onboarding.builderConnecting": "Builder.io 무료 크레딧 연결 중",
+  "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":
     "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
   "onboarding.builderConnectionDescription":
@@ -158,8 +161,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.fileStorage.title": "파일 업로드를 위해 저장소 연결",
   "onboarding.fileStorage.statusUnavailable": "저장소를 확인할 수 없습니다",
   "onboarding.fileStorage.description":
-    "Builder.io(무료)를 연결하거나 자체 S3 호환 객체 스토리지를 구성하세요.",
-  "onboarding.fileStorage.reconnectBuilder": "Builder.io 다시 연결",
+    "Builder.io(무료)를 사용하거나 자체 S3 호환 객체 스토리지를 구성하세요.",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io 사용",
   "onboarding.fileStorage.custom": "사용자 지정 키 사용",
   "onboarding.fileStorage.customDescription":
     "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
@@ -380,12 +383,14 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "자동",
   "composer.builderModelCredits": "Claude, OpenAI 및 Gemini 무료 크레딧",
   "composer.chatGptSubscription": "ChatGPT 구독",
+  "composer.chatgptManageUsage": "사용량 관리",
+  "composer.chatgptPlanUsing": "ChatGPT 요금제 사용 중",
   "composer.closePreview": "미리보기 닫기",
   "composer.configureProviderKeys": "Anthropic, OpenAI 또는 다른 제공업체 설정",
   "composer.connectAbove": "계속하려면 위에서 AI를 연결하세요...",
-  "composer.connectBuilder": "Builder.io 연결",
+  "composer.connectBuilder": "Builder.io 사용",
   "composer.connectKeys": "키 연결",
-  "composer.connectingBuilder": "Builder.io 연결 중…",
+  "composer.connectingBuilder": "Builder.io 설정 중…",
   "composer.costHigher": "높은 비용",
   "composer.costLower": "낮은 비용",
   "composer.costMedium": "중간 비용",
@@ -503,7 +508,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "받아쓰기({{shortcut}})",
   "voice.dictation.stopRecording": "녹음 중지",
   "voice.dictation.transcribing": "텍스트로 변환 중…",
-  "voiceMode.connectBuilder": "Builder.io 연결",
+  "voiceMode.connectBuilder": "Builder.io 사용",
   "voiceMode.end": "음성 모드 종료",
   "voiceMode.entryButtonLabel": "마이크 사용",
   "voiceMode.errors.channelDisconnected":
@@ -558,7 +563,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "표현력이 풍부하고 다재다능함",
   "voiceMode.settings.voiceStyle": "음성 스타일",
   "voiceMode.setupDescription":
-    "Builder.io를 연결하여 무료 크레딧이 포함된 관리형 음성을 사용하거나 직접 키를 추가하세요.",
+    "무료 크레딧이 제공되는 관리형 음성에는 Builder.io를 사용하거나 직접 키를 추가하세요.",
+  "transcription.builderCtaDescription":
+    "무료 크레딧과 API 키 없이 더 높은 품질의 텍스트 변환을 위해 Builder.io를 사용하세요.",
+  "voiceMode.googleRealtimeDescription":
+    "Google 자격 증명이 설정되었습니다. 관리형 실시간 세션을 만들려면 Builder.io(무료 플랜 제공)를 사용하세요.",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "서비스 계정 JSON이 설정되었습니다. 관리형 실시간 WebSocket 세션을 만들려면 Builder.io(무료 플랜 제공)를 사용하세요.",
+  "voiceMode.builderGeminiDescription":
+    "Gemini Flash-Lite 텍스트 변환과 Luna 텍스트 정리에 Builder.io를 사용하세요. Google 키가 필요하지 않습니다.",
   "voiceMode.setupTitle": "음성 모드 설정",
   "voiceMode.showChat": "채팅 표시",
   "voiceMode.start": "음성 채팅 시작",
@@ -577,7 +590,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "채팅을 불러오는 중...",
   "empty.prompt": "무엇을 도와드릴까요?",
   "error.afterDuration": "{{duration}} 후 {{headline}}",
-  "error.failed": "에이전트에서 오류가 발생했습니다",
+  "error.chatgptPlanUsageLimit": "ChatGPT 요금제 사용 한도에 도달했습니다.",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI에서 이 ChatGPT 요금제의 사용 한도를 확인하지 못했습니다. ChatGPT 사용량을 확인하거나 다른 모델을 사용해 보세요.",
+  "error.failed": "에이전트 실행이 완료되기 전에 실패했습니다.",
   "error.render": "이 콘텐츠를 표시할 수 없습니다.",
   "error.stopped": "에이전트가 완료 전에 중지되었습니다",
   "errorMessages.agentConnection":
@@ -585,7 +601,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "이 PDF는 비밀번호로 보호되어 있어 읽을 수 없습니다. 비밀번호 보호를 해제하거나 관련 텍스트를 붙여넣은 후 다시 시도하세요.",
   "errorMessages.builderAuthentication":
-    "Builder가 연결된 자격 증명을 거부했습니다. 설정에서 Builder.io를 다시 연결한 후 다시 시도하세요.",
+    "Builder가 연결된 자격 증명을 거부했습니다. 설정에서 Builder.io를 다시 사용한 다음 다시 시도하세요.",
   "errorMessages.builderModelUnauthorized":
     "이 모델의 제공업체가 요청을 거부했습니다. 다른 모델을 선택한 후 다시 시도하세요.",
   "errorMessages.errorPrefix": "오류: {{message}}",
@@ -600,10 +616,18 @@ const messages: ToolkitAgentChatTranslation = {
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
   "errorMessages.malformedRequest":
     "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.requestTooLarge":
+    "이 요청은 서버 크기 제한을 초과했습니다(HTTP 413). 새 채팅을 시작하거나 큰 첨부 파일 또는 참조를 제거한 뒤 다시 시도하세요.",
+  "errorMessages.runInterrupted": "에이전트가 완료하기 전에 중지되었습니다.",
+  "errorMessages.runFailed": "에이전트 실행이 실패했습니다.",
+  "errorMessages.runUnverified":
+    "이 채팅에서 에이전트를 더 이상 추적할 수 없습니다. 에이전트가 아직 실행 중일 수 있습니다. 새로고침하여 진행 상황을 확인하세요.",
+  "errorMessages.runSignedOut":
+    "로그아웃되어 이 채팅에서 에이전트를 추적할 수 없습니다. 다시 로그인한 후 새로고침하세요.",
   "errorMessages.malformedRequestAttachment":
     "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
   "errorMessages.noProviderConnected":
-    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 연 다음 Builder.io(무료 요금제 제공)를 연결하거나 제공업체 키를 추가하세요.",
+    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 열고 Builder.io(무료 플랜 제공)를 사용하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
   "errorMessages.providerAuthentication":
     "모델 제공업체가 저장된 API 키를 거부했습니다. 설정 → 연동 → API 키에서 키를 업데이트한 후 다시 시도하세요.",
@@ -781,7 +805,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.gong.useCase":
     "영업 통화, 스크립트, 거래 인사이트, 계정 요약",
   "mcpIntegrations.catalog.gong.setupNote":
-    "Gong에서는 기술 관리자가 MCP 연동을 만들고 개인 또는 공유 승인 방식을 선택해야 합니다. 연결하기 전에 생성된 클라이언트 ID와 시크릿을 구성해야 합니다.",
+    "Gong 기술 관리자가 개인 또는 공유 승인을 선택해 MCP 연동을 만들어야 합니다. 수동 등록에서는 생성된 클라이언트 ID와 시크릿을 워크스페이스 시크릿 `GONG_MCP_CLIENT_ID` 및 `GONG_MCP_CLIENT_SECRET`으로 저장하세요. 자동 등록에는 클라이언트 인증 정보가 필요하지 않습니다.",
   "mcpIntegrations.catalog.semgrep.description":
     "코드에서 보안 문제를 스캔합니다.",
   "mcpIntegrations.catalog.semgrep.useCase":
@@ -991,6 +1015,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.revertQuestion":
     "이 지점으로 되돌릴까요? 이후 변경 사항은 사라집니다.",
   "message.restoreRequestFailed": "복원 요청에 실패했습니다.",
+  "message.historyUnavailable": "변경 기록을 불러올 수 없습니다.",
   "message.threadNotFound":
     "이 채팅 스레드는 더 이상 사용할 수 없습니다. 새 채팅을 시작하거나 예상치 못한 문제라면 다시 시도하세요.",
   "message.restoring": "복원 중...",
@@ -1072,15 +1097,17 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.steerHint": "이 메시지를 다음에 보내기",
   "queue.moreActions": "추가 작업",
   "queue.moveToTop": "맨 위로 이동",
-  "recovery.connectingBuilder": "Builder.io에 연결 중",
+  "recovery.connectingBuilder": "Builder.io 설정 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
+  "recovery.retryAttachmentUnavailable":
+    "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
   "recovery.deferredSubmissionFailed":
     "이 메시지를 보내지 못했습니다. 연결 또는 채팅 설정을 확인한 다음 다시 시도하세요.",
   "recovery.credentialRejected":
     "모델 제공업체가 저장된 자격 증명을 거부했습니다. Builder.io 연결 또는 제공업체 키를 업데이트한 후 이 메시지를 다시 시도하세요.",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents가 연결되지 않았습니다. 이 호스팅 코드 변경 작업을 실행하려면 설정에서 Builder.io를 연결하세요. 모델 제공업체 키는 채팅과 기타 AI 기능에서 계속 사용할 수 있지만 Builder Cloud Agent를 인증하지는 않습니다.",
+    "Builder Cloud Agents가 연결되지 않았습니다. 호스팅 코드 변경 작업을 실행하려면 설정에서 Builder.io를 사용하세요. 모델 제공업체 키는 채팅과 기타 AI 기능에서 계속 사용할 수 있지만 Builder Cloud Agent를 인증하지는 않습니다.",
   "recovery.diagnoseRetry": "진단 후 다시 시도",
   "recovery.forkDescription": "이 대화를 별도의 채팅 스레드로 분기합니다.",
   "recovery.forkFailed":
@@ -1102,7 +1129,7 @@ const messages: ToolkitAgentChatTranslation = {
     "에이전트가 아직 작업 중인지 확인하기 위해 서버에 연결할 수 없습니다. 메시지를 다시 보내 재시도하세요.",
   "recovery.streamEnded":
     "이전 에이전트 스트림이 실행 복구 중 종료되었습니다. 계속하거나 다시 시도하여 실행에 다시 연결하세요.",
-  "recovery.reconnectBuilder": "Builder.io 다시 연결",
+  "recovery.reconnectBuilder": "Builder.io 사용",
   "secrets.addCustomKeyNamed": '사용자 지정 키로 "{{name}}" 추가',
   "secrets.chooseKey": "키 선택",
   "secrets.customKey": "사용자 지정 키",
@@ -1145,10 +1172,13 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "Builder.io(무료 크레딧)를 사용하거나 직접 제공업체 키를 추가하세요.",
   "setup.connectAi": "AI 연결",
-  "setup.connectBuilder": "Builder.io 연결",
+  "setup.connectBuilder": "Builder.io 사용",
+  "setup.connectionsDescription":
+    "설정 상태, Builder.io 액세스, 앱 시크릿, 워크스페이스 연결을 한곳에서 관리하세요.",
   "setup.connectPlaceholder": "AI를 연결하여 채팅 시작...",
   "setup.connectToChat": "AI를 연결하여 채팅",
   "setup.connectToStart": "AI를 연결하여 채팅 시작",
+  "setup.modelListUnavailable": "모델을 불러오지 못했습니다.",
   "setup.providerStatusUnavailable":
     "AI를 사용할 수 있는지 확인할 수 없습니다.",
   "agentNativeClips.meetingAsk.placeholder": "무엇이든 물어보세요",
@@ -1243,6 +1273,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}}에게 요청 중...",
   "tool.elapsed": "{{duration}} 경과",
   "tool.askingAgentFailed": "{{agent}}에게 요청하는 중 오류 발생",
+  "tool.failedWithoutDetails": "오류 세부 정보가 없습니다.",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",
   "tool.interrupted":
@@ -1342,6 +1373,165 @@ const messages: ToolkitAgentChatTranslation = {
   "usage.providerSpendDetail": "Builder 청구 외 제공업체 사용 또는 이전 호출",
   "usage.providerSpendToday": "오늘 기타 또는 분류되지 않은 사용량: {{amount}}",
   "usage.driverCreditsAndUsd": "Builder 크레딧 / USD",
+  "observability.insights.verdictSmooth": "문제없이 작동 중",
+  "observability.insights.verdictLook_other": "확인해볼 점 {{count}}개",
+  "observability.insights.verdictProblems_other": "문제 {{count}}개",
+  "observability.insights.spentSummary_other":
+    "지난 {{days}}일 동안 프롬프트 {{count}}개에 {{amount}}를 사용했습니다.",
+  "observability.insights.handledLabel": "Agent-Native가 처리:",
+  "observability.insights.handledHeading": "Agent-Native가 처리",
+  "observability.insights.handledParallel":
+    "도구 호출 {{count}}개를 동시에 실행해 하나씩 실행할 때보다 약 {{duration}} 더 빨랐습니다.",
+  "observability.insights.handledRecovered_other":
+    "도구 오류 {{count}}건에서 멈추지 않고 복구했습니다.",
+  "observability.insights.avgPerPrompt": "프롬프트당 평균",
+  "observability.insights.completed": "완료",
+  "observability.insights.completedDetail": "최근 {{total}}개 중 {{done}}개",
+  "observability.insights.completedRecovered_other":
+    "최근 {{total}}개 중 {{done}}개(도구 오류 {{count}}건 복구 후)",
+  "observability.insights.typicalTime": "일반적인 소요 시간",
+  "observability.insights.median": "중앙값",
+  "observability.insights.sampleNote":
+    "완료율, 일반 소요 시간, Agent-Native가 처리한 내용, 발견 사항은 전체 {{total}}개 중 최근 {{shown}}개 프롬프트 기준입니다.",
+  "observability.insights.changeSame": "이전 기간과 동일",
+  "observability.insights.changeUp": "↑ {{percent}}%(이전 기간 대비)",
+  "observability.insights.changeDown": "↓ {{percent}}%(이전 기간 대비)",
+  "observability.insights.kindProblem": "문제",
+  "observability.insights.kindSaving": "절약",
+  "observability.insights.kindInfo": "참고",
+  "observability.insights.fixLabel": "해결 방법:",
+  "observability.insights.openPrompt": "프롬프트 열기",
+  "observability.insights.seePrompts_other": "프롬프트 {{count}}개 보기",
+  "observability.insights.erroredTitle_other":
+    "프롬프트 {{count}}개가 오류로 종료됨",
+  "observability.insights.erroredBody": "에이전트가 완료되기 전에 멈췄습니다.",
+  "observability.insights.erroredFix":
+    "프롬프트를 열면 멈추기 전 마지막으로 수행한 작업을 확인할 수 있습니다.",
+  "observability.insights.toolFailedTitle_other":
+    "{{tool}} 도구가 프롬프트 {{count}}개에서 실패했습니다",
+  "observability.insights.toolFailedSaid": '표시된 오류: "{{error}}"',
+  "observability.insights.toolFailedGeneric": "도구에서 오류가 발생했습니다.",
+  "observability.insights.toolRecoveredAll":
+    "에이전트가 매번 복구하고 작업을 완료했습니다.",
+  "observability.insights.toolRecoveredSome":
+    "에이전트가 그중 {{count}}건에서 복구하고 완료했습니다.",
+  "observability.insights.restartTitle":
+    "다시 시작하는 데 약 {{amount}}가 들었습니다(지출의 {{percent}}%)",
+  "observability.insights.restartBody":
+    "최근 프롬프트 {{total}}개 중 {{count}}개에서 {{reason}} 이후 이미 보낸 내용을 재사용하지 않고 전체 대화를 다시 보냈습니다.",
+  "observability.insights.reasonToolLookup": "새 도구를 가져온",
+  "observability.insights.reasonPrefixChanged": "지침 앞부분이 바뀐",
+  "observability.insights.fixToolLookup":
+    "initialToolNames로 이 앱이 사용하는 도구를 미리 로드하면 프롬프트 전체에서 도구 목록이 바뀌지 않습니다.",
+  "observability.insights.fixPrefixChanged":
+    "타임스탬프나 단계별 상태처럼 계속 바뀌는 내용은 시스템 프롬프트에 넣지 마세요.",
+  "observability.insights.priciestTitle":
+    "프롬프트 1개가 최근 지출의 {{percent}}%를 차지했습니다",
+  "observability.insights.priciestBody_other":
+    '"{{prompt}}"는 {{count}}단계에 걸쳐 {{amount}}가 들었습니다.',
+  "observability.insights.untitledPrompt": "제목 없는 프롬프트",
+  "observability.insights.promptsHeading": "프롬프트",
+  "observability.insights.showing": "{{count}}개 표시 중",
+  "observability.insights.sortNewest": "최신순",
+  "observability.insights.sortCost": "비용 높은순",
+  "observability.insights.emptyPrompts":
+    "이 기간에는 아직 프롬프트가 없습니다. 완료되면 몇 초 후 여기에 표시됩니다.",
+  "observability.insights.promptNotSaved":
+    "프롬프트 텍스트가 저장되지 않았습니다",
+  "observability.insights.ratedHelpful": "도움됨으로 평가",
+  "observability.insights.ratedUnhelpful": "도움 안 됨으로 평가",
+  "observability.insights.notRated": "평가 없음",
+  "observability.insights.stoppedWithError": "오류로 중단됨",
+  "observability.insights.detailsUnavailable":
+    "단계별 세부 정보는 더 이상 확인할 수 없습니다",
+  "observability.insights.answered": "답변 완료",
+  "observability.insights.finished": "종료",
+  "observability.insights.startedOverShort": "{{count}}× 다시 시작",
+  "observability.insights.recoveredShort_other":
+    "도구 오류 {{count}}건에서 복구",
+  "observability.insights.toolsFailedShort_other": "도구 {{count}}개 실패",
+  "observability.insights.headerDuration": "{{duration}} 만에",
+  "observability.insights.stepsCount_other": "{{count}}단계",
+  "observability.insights.whatItDid": "수행한 작업:",
+  "observability.insights.replyNotSaved":
+    "이 프롬프트의 답변 텍스트는 저장되지 않았습니다.",
+  "observability.insights.showAll": "전체 보기",
+  "observability.insights.showLess": "간략히 보기",
+  "observability.insights.moreTools": "+{{count}}개 더",
+  "observability.insights.failedSuffix": "실패",
+  "observability.insights.timesCount": "{{label}} ×{{count}}",
+  "observability.insights.startedOverNote_other":
+    "{{reason}} 이후 {{count}}번 다시 시작했습니다. 이로 인해 {{total}} 중 약 {{amount}}가 들었습니다.",
+  "observability.insights.toolFailedNote_other":
+    "{{tool}} 도구가 {{count}}번 실패했습니다.",
+  "observability.insights.toolFailedRecoveredNote_other":
+    "{{tool}} 도구가 {{count}}번 실패했지만 에이전트가 계속 진행해 완료했습니다.",
+  "observability.insights.showSteps_other": "{{count}}단계 보기",
+  "observability.insights.hideSteps": "단계 숨기기",
+  "observability.insights.costDetails": "비용 세부 정보 및 점검",
+  "observability.insights.turnReply": "답변 작성",
+  "observability.insights.turnThought": "충분히 검토",
+  "observability.insights.startedOverTag": "다시 시작",
+  "observability.insights.toolFailedTag": "도구 실패",
+  "observability.insights.turnContext":
+    "컨텍스트로 {{tokens}} 토큰을 보냈고, 그중 {{percent}}%는 이전 내용을 재사용했습니다.",
+  "observability.insights.turnExpired":
+    "일시 중지 후 저장된 컨텍스트가 만료되었습니다. 이는 정상적인 동작입니다.",
+  "observability.insights.turnOutput": "{{tokens}} 토큰을 출력했습니다.",
+  "observability.insights.turnRestart":
+    "{{reason}} 이후 다시 시작해 재사용할 때보다 약 {{amount}} 더 들었습니다.",
+  "observability.insights.noCacheCompare":
+    "정가 기준으로, 이전 컨텍스트를 재사용해 이 프롬프트의 비용이 {{noCache}}에서 {{estimated}}로 줄었습니다.",
+  "observability.insights.partReused": "재사용한 컨텍스트",
+  "observability.insights.partSaved": "캐시에 저장",
+  "observability.insights.partNew": "새 컨텍스트",
+  "observability.insights.partOutput": "모델이 생성한 출력",
+  "observability.insights.checksHeading": "자동 점검",
+  "observability.insights.checksNone": "기록된 항목이 없습니다.",
+  "observability.insights.checksGraded": "(모델이 채점함)",
+  "observability.insights.checksNote":
+    "프레임워크 점검은 결과가 좋았는지가 아니라 실행 과정(오류, 단계, 속도)을 확인합니다.",
+  "observability.insights.lookedForTools": "도구 추가 조회",
+  "observability.insights.prevPrompt": "이전 프롬프트 (K)",
+  "observability.insights.nextPrompt": "다음 프롬프트 (J)",
+  "observability.insights.toolVerb.add": "{{object}} 추가",
+  "observability.insights.toolVerb.analyze": "{{object}} 분석",
+  "observability.insights.toolVerb.apply": "{{object}} 적용",
+  "observability.insights.toolVerb.capture": "{{object}} 캡처",
+  "observability.insights.toolVerb.check": "{{object}} 확인",
+  "observability.insights.toolVerb.connect": "{{object}} 연결",
+  "observability.insights.toolVerb.create": "{{object}} 만들기",
+  "observability.insights.toolVerb.delete": "{{object}} 삭제",
+  "observability.insights.toolVerb.duplicate": "{{object}} 복제",
+  "observability.insights.toolVerb.edit": "{{object}} 편집",
+  "observability.insights.toolVerb.export": "{{object}} 내보내기",
+  "observability.insights.toolVerb.fetch": "{{object}} 가져오기",
+  "observability.insights.toolVerb.find": "{{object}} 찾기",
+  "observability.insights.toolVerb.generate": "{{object}} 생성",
+  "observability.insights.toolVerb.index": "{{object}} 색인화",
+  "observability.insights.toolVerb.insert": "{{object}} 삽입",
+  "observability.insights.toolVerb.list": "{{object}} 목록 조회",
+  "observability.insights.toolVerb.move": "{{object}} 이동",
+  "observability.insights.toolVerb.navigate": "{{object}} 이동",
+  "observability.insights.toolVerb.open": "{{object}} 열기",
+  "observability.insights.toolVerb.present": "{{object}} 제시",
+  "observability.insights.toolVerb.propose": "{{object}} 제안",
+  "observability.insights.toolVerb.query": "{{object}} 조회",
+  "observability.insights.toolVerb.read": "{{object}} 읽기",
+  "observability.insights.toolVerb.remove": "{{object}} 제거",
+  "observability.insights.toolVerb.rename": "{{object}} 이름 변경",
+  "observability.insights.toolVerb.reply": "{{object}} 답장",
+  "observability.insights.toolVerb.resolve": "{{object}} 해결",
+  "observability.insights.toolVerb.run": "{{object}} 실행",
+  "observability.insights.toolVerb.save": "{{object}} 저장",
+  "observability.insights.toolVerb.search": "{{object}} 검색",
+  "observability.insights.toolVerb.send": "{{object}} 전송",
+  "observability.insights.toolVerb.set": "{{object}} 설정",
+  "observability.insights.toolVerb.take": "{{object}} 가져오기",
+  "observability.insights.toolVerb.update": "{{object}} 업데이트",
+  "observability.insights.toolVerb.upload": "{{object}} 업로드",
+  "observability.insights.toolVerb.view": "{{object}} 보기",
+  "observability.insights.toolVerb.write": "{{object}} 작성",
   "billing.builderCreditLimitTitle": "Builder 크레딧을 모두 사용했습니다",
   "billing.builderCreditLimitEmailBody":
     "연결된 Builder 계정의 크레딧이 소진되어 AI 요청이 중단되었습니다. Builder 플랜을 업그레이드하면 계속 이용할 수 있습니다.",
@@ -1364,6 +1554,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "내 예상 비용",
   "settings.usage.yourCreditSpend": "내 Builder.io 크레딧 사용량",
   "settings.usage.calls": "호출",
+  "settings.usage.chatgptPlanUsage": "ChatGPT 요금제 사용량",
   "settings.usage.tokens": "토큰",
   "settings.usage.activePeople": "활성 사용자",
   "settings.usage.history": "사용 기록",
@@ -1731,6 +1922,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsFootnote":
     "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
   "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
+  "settingsShell.appGroup.labsReadError":
+    "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
   "settingsShell.appGroup.mcpAbout":
@@ -1748,7 +1941,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "모든 업데이트 보기",
   "settingsShell.backToApp": "{{app}}(으)로 돌아가기",
   "settingsShell.breadcrumbLabel": "탐색 경로",
-  "settingsShell.builder.connect": "연결",
+  "settingsShell.builder.connect": "Builder.io 사용",
   "settingsShell.builder.connected": "연결됨",
   "settingsShell.builder.connectedTo": "연결됨 · {{space}}",
   "settingsShell.builder.connection": "연결",
@@ -1760,6 +1953,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io 연결을 해제하지 못했습니다.",
   "settingsShell.builder.disconnectTitle": "Builder.io 연결을 해제할까요?",
   "settingsShell.builder.grantsFailed": "Builder.io 연결을 읽지 못했습니다.",
+  "settingsShell.builder.setupStartFailed":
+    "Builder.io 설정을 시작할 수 없습니다. 이 페이지를 새로고침한 후 다시 시도하세요.",
+  "settingsShell.builder.setupHostFailed":
+    "이 채팅 호스트에서 Builder를 열 수 없습니다. 브라우저 탭에서 앱을 열고 Builder.io 설정을 다시 시도하세요(무료 플랜 제공).",
+  "settingsShell.builder.setupFailed":
+    "Builder.io 설정이 완료되지 않았습니다. 다시 시도하거나 직접 키를 사용하세요.",
   "settingsShell.builder.loss.defaultStops":
     "조직 제공자를 추가할 때까지 채팅이 중지됩니다.",
   "settingsShell.builder.loss.defaultSwitches":
@@ -1775,9 +1974,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "다시 연결해야 합니다.",
   "settingsShell.builder.orgFallback": "조직",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "연결되지 않았습니다. 연결하면 {{org}}의 모든 사람이 사용할 수 있습니다.",
+    "연결되지 않았습니다. Builder.io를 사용하면 {{org}}의 모든 사용자가 이용할 수 있습니다.",
   "settingsShell.builder.orgNotConnectedMember":
-    "연결되지 않았습니다. 소유자나 관리자가 연결할 수 있습니다.",
+    "연결되지 않았습니다. 소유자나 관리자가 모두를 위해 Builder.io를 활성화할 수 있습니다.",
   "settingsShell.builder.organization": "조직",
   "settingsShell.builder.personal": "개인",
   "settingsShell.builder.personalConnected": "연결됨. 나만 사용합니다.",
@@ -1788,7 +1987,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "연결됨 · {{space}}. 조직 연결 대신 나만 사용합니다.",
   "settingsShell.builder.personalNotConnected":
-    "내 계정을 연결하세요. 나만 사용합니다.",
+    "내 Builder.io 계정을 사용하세요. 나만 사용할 수 있습니다.",
   "settingsShell.builder.personalRestricted":
     "소유자와 관리자가 개인 API 키를 제한했습니다.",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2330,7 +2529,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "연결됨. Builder.io로 표시된 모든 서비스는 계정 크레딧으로 작동합니다.",
   "settingsInfra.builderNotConnected":
-    "연결되지 않음. 각 서비스를 직접 설정하거나 Builder.io를 연결해 계정 크레딧을 사용하세요.",
+    "연결되지 않았습니다. 각 서비스를 직접 설정하거나 Builder.io를 사용해 계정 크레딧을 적용하세요.",
+  "settingsInfra.builderOverrideDescription":
+    "배포 대체 설정을 사용할 수 있습니다. 이를 재정의하려면 내 Builder.io 계정을 사용하세요.",
+  "settingsInfra.builderStorageHint":
+    "객체 스토리지는 업로드 파일을 보존하고 스레드 전체에서 URL을 재사용할 수 있게 합니다. 아래에서 Builder.io 또는 S3 호환 버킷을 사용하세요.",
   "settingsInfra.builderUnknown": "Builder.io 연결을 확인할 수 없습니다.",
   "settingsInfra.manage": "관리",
   "settingsInfra.connect": "연결",
@@ -2501,13 +2704,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "연결됨 · {{space}}",
   "settingsModel.builderConnectedPlain": "연결됨",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "연결되지 않았습니다. 연결하면 {{org}}의 모든 사용자가 사용할 수 있습니다.",
+    "연결되지 않았습니다. Builder.io를 사용하면 {{org}}의 모든 사용자가 이용할 수 있습니다.",
   "settingsModel.builderOrgNotConnectedMember":
-    "연결되지 않았습니다. 소유자나 관리자가 연결할 수 있습니다.",
+    "연결되지 않았습니다. 소유자나 관리자가 모두를 위해 Builder.io를 활성화할 수 있습니다.",
   "settingsModel.builderPersonalConnect":
-    "내 계정을 연결해 내 Builder.io 크레딧을 사용하세요.",
+    "내 Builder.io 계정을 사용해 계정 크레딧에 액세스하세요.",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "내 계정을 연결해 조직 연결 대신 사용하세요.",
+    "조직 연결 대신 내 Builder.io 계정을 사용하세요.",
   "settingsModel.builderPersonalOverOrg":
     "연결됨 · {{space}}. 조직 연결 대신 사용됩니다.",
   "settingsModel.builderPersonalOverOrgPlain":
@@ -2517,10 +2720,31 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "변경",
   "settingsModel.chatgptConnected": "연결됨",
   "settingsModel.chatgptDescription":
-    "ChatGPT 요금제로 Codex 엔진을 사용합니다.",
+    "ChatGPT 요금제로 사용 가능한 OpenAI 모델을 이용하세요.",
   "settingsModel.chatgptPopupBlocked":
     "이 사이트의 팝업을 허용한 다음 다시 시도하세요.",
-  "settingsModel.chatgptTitle": "ChatGPT 구독",
+  "settingsModel.chatgptTitle": "ChatGPT 요금제 액세스",
+  "settingsModel.chatgptAddAccount": "다른 계정 추가",
+  "settingsModel.chatgptConnecting": "연결 중…",
+  "settingsModel.chatgptContinue": "ChatGPT로 계속",
+  "settingsModel.chatgptDisconnect": "연결 해제",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT 연결을 해제할까요?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} 계정이 이 앱에서 로그아웃되고 에이전트가 ChatGPT 요금제를 더 이상 사용하지 않습니다. 언제든 다시 로그인할 수 있습니다.",
+  "settingsModel.chatgptDisconnecting": "연결 해제하는 중…",
+  "settingsModel.chatgptRemoveLegacySignIn": "이전 로그인 삭제",
+  "settingsModel.chatgptLegacySignInDetails":
+    "이전 ChatGPT 로그인이 저장되어 있습니다. 공식 흐름에서는 사용할 수 없습니다.",
+  "settingsModel.chatgptManageAccess": "ChatGPT에서 관리",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "여기서는 연결을 해제했습니다. ChatGPT에서는 액세스가 계속 유지될 수 있습니다.",
+  "settingsModel.chatgptLocalOnly":
+    "오픈 소스 앱은 loopback callback을 사용해 로컬에서 실행하면 신청 없이 이용할 수 있으며, 파트너 신청은 필요하지 않습니다. *.agent-native.com에서 호스팅되는 앱에는 운영자 승인과 호스팅 callback이 필요합니다.",
+  "settingsModel.chatgptNoDirectUse":
+    "이 ChatGPT 계정을 사용하려면 다시 연결하고 모델 직접 액세스를 허용하세요.",
+  "settingsModel.chatgptReconnect": "다시 연결",
+  "settingsModel.chatgptSelectAccount": "ChatGPT 계정",
+  "settingsModel.chatgptUsageLimit": "ChatGPT 요금제 사용 한도에 도달했습니다.",
   "settingsModel.checkAgain": "다시 확인",
   "settingsModel.checkedJustNow": "방금 확인했습니다.",
   "settingsModel.checkedOn": "{{date}}에 확인했습니다.",
@@ -2530,8 +2754,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "저장된 키를 확인하는 중",
   "settingsModel.chooseModel": "모델 선택",
   "settingsModel.clear": "지우기",
-  "settingsModel.connect": "연결",
-  "settingsModel.connecting": "연결하는 중…",
   "settingsModel.defaultModelDescription":
     "앱에서 따로 설정하지 않으면 모든 앱에서 사용됩니다.",
   "settingsModel.defaultModelNeedsProvider":
@@ -2684,6 +2906,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.registryLink": "Global A2A Registry 둘러보기",
   "settingsSubAgents.connectTitle": "{{name}} 연결",
   "settingsSubAgents.close": "닫기",
+  "observability.insights.rawTrace": "원시 트레이스 (모든 스팬과 입력/출력)",
 };
 
 export default messages;

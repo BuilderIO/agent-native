@@ -29,12 +29,13 @@ export function resolveSvgExportIframe<
   T extends { getAttribute(name: string): string | null },
 >(iframes: Iterable<T>, activePreviewFrameId?: string | null): T | null {
   const candidates = Array.from(iframes);
-  if (activePreviewFrameId) {
-    const active = candidates.find(
-      (iframe) =>
-        iframe.getAttribute("data-screen-iframe-id") === activePreviewFrameId,
+  if (activePreviewFrameId != null) {
+    return (
+      candidates.find(
+        (iframe) =>
+          iframe.getAttribute("data-screen-iframe-id") === activePreviewFrameId,
+      ) ?? null
     );
-    if (active) return active;
   }
   return candidates.length === 1 ? (candidates[0] ?? null) : null;
 }
@@ -53,13 +54,17 @@ export async function runDownloadSvg(
 ) {
   const iframe = resolveSvgExportIframe(
     document.querySelectorAll<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
+      "iframe[data-screen-iframe-id], iframe[data-design-preview-iframe]",
     ),
     activePreviewFrameId,
   );
+  if (!iframe) {
+    toast.error(t("designEditor.toasts.openScreenSvg"));
+    return;
+  }
   const doc = iframe?.contentDocument;
   if (!doc?.documentElement) {
-    toast.error(t("designEditor.toasts.openScreenSvg"));
+    toast.error(t("designEditor.toasts.svgExportError"));
     return;
   }
 

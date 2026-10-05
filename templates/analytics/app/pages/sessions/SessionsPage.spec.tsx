@@ -4,12 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  formatSessionDuration,
-  sessionDeviceLabel,
-  shouldShowZeroMinuteRecoveryAction,
-  useDebouncedUrlFilter,
-} from "./SessionsPage";
+import { formatSessionDuration, useDebouncedUrlFilter } from "./SessionsPage";
 
 let setFilterInput: ((value: string) => void) | null = null;
 
@@ -83,7 +78,6 @@ describe("useDebouncedUrlFilter", () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 });
-
 describe("formatSessionDuration", () => {
   it("shows whole-minute labels for session playlist rows", () => {
     expect(formatSessionDuration(13 * 60_000 + 32_000)).toBe("13m");
@@ -101,39 +95,5 @@ describe("formatSessionDuration", () => {
     expect(formatSessionDuration(42_000)).toBe("0m");
     expect(formatSessionDuration(59_499)).toBe("0m");
     expect(formatSessionDuration(59_500)).toBe("1m");
-  });
-});
-
-describe("shouldShowZeroMinuteRecoveryAction", () => {
-  it("offers the override only when matching sessions were filtered out", () => {
-    expect(shouldShowZeroMinuteRecoveryAction(false, 0, 1)).toBe(true);
-    expect(shouldShowZeroMinuteRecoveryAction(false, 0, 0)).toBe(false);
-    expect(shouldShowZeroMinuteRecoveryAction(false, 1, 1)).toBe(false);
-    expect(shouldShowZeroMinuteRecoveryAction(true, 0, 1)).toBe(false);
-  });
-});
-
-describe("sessionDeviceLabel", () => {
-  it("uses explicit OS metadata when present", () => {
-    expect(
-      sessionDeviceLabel({
-        metadata: { os: { name: "macOS", version: "15.5" } },
-      }),
-    ).toBe("macOS 15.5");
-  });
-
-  it("falls back to user-agent inference", () => {
-    expect(
-      sessionDeviceLabel({
-        metadata: {
-          userAgent:
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-      }),
-    ).toBe("Windows");
-  });
-
-  it("returns null when no OS signal is available", () => {
-    expect(sessionDeviceLabel({ metadata: {} })).toBeNull();
   });
 });

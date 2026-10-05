@@ -7,10 +7,31 @@ export const threadMessagesCache = new Map<
 
 export const THREAD_CACHE_TTL = 5 * 60 * 1000;
 
-export function threadCacheKey(ownerEmail: string, threadId: string) {
-  return `${ownerEmail}:${threadId}`;
+export function threadCacheKey(
+  ownerEmail: string,
+  threadId: string,
+  accountEmail?: string,
+) {
+  return `${ownerEmail}\u0000${accountEmail?.trim().toLowerCase() ?? ""}\u0000${threadId}`;
 }
 
-export function invalidateThreadCache(ownerEmail: string, threadId: string) {
-  threadMessagesCache.delete(threadCacheKey(ownerEmail, threadId));
+export function invalidateThreadCache(
+  ownerEmail: string,
+  threadId: string,
+  accountEmail?: string,
+) {
+  if (accountEmail) {
+    threadMessagesCache.delete(
+      threadCacheKey(ownerEmail, threadId, accountEmail),
+    );
+    return;
+  }
+
+  const prefix = `${ownerEmail}\u0000`;
+  const suffix = `\u0000${threadId}`;
+  for (const key of threadMessagesCache.keys()) {
+    if (key.startsWith(prefix) && key.endsWith(suffix)) {
+      threadMessagesCache.delete(key);
+    }
+  }
 }

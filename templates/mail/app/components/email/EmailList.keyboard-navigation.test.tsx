@@ -258,6 +258,7 @@ function Harness({
   emails = messages,
   onCompose,
   accountErrors,
+  read,
   emailsError,
   isLoading,
   isFetching,
@@ -273,6 +274,7 @@ function Harness({
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
   accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
+  read?: React.ComponentProps<typeof EmailList>["read"];
   emailsError?: React.ComponentProps<typeof EmailList>["emailsError"];
   isLoading?: boolean;
   isFetching?: boolean;
@@ -303,6 +305,7 @@ function Harness({
         onCompose={onCompose}
         refetchEmails={refetchEmails}
         accountErrors={accountErrors}
+        read={read}
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         showPrioritySort={showPrioritySort}
@@ -428,6 +431,54 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(retryButton.disabled).toBe(false);
     fireEvent.click(retryButton);
     expect(refetchEmails).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the rows and shows a non-blocking notice while Gmail cools down", async () => {
+    vi.useFakeTimers();
+    mocks.view = "inbox";
+    const refetchEmails = vi.fn();
+    const cooldownUntil = Date.now() + 20_000;
+
+    render(
+      <Harness
+        read={{
+          freshness: "cached",
+          staleSince: Date.now() - 60_000,
+          cooldownUntil,
+          retryAfterMs: 20_000,
+        }}
+        refetchEmails={refetchEmails}
+      />,
+    );
+
+    expect(rows().length).toBeGreaterThan(0);
+    const notice = screen
+      .getByText("mail.error.rateLimitDescription")
+      .closest('[role="status"]');
+    expect(notice?.textContent).toContain("mail.error.tryAgainIn");
+    expect(
+      screen.queryByRole("button", { name: "mail.error.tryAgainIn" }),
+    ).toBeNull();
+
+    // Nothing is requested while Gmail is cooling down...
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(19_000);
+    });
+    expect(refetchEmails).not.toHaveBeenCalled();
+    // ...and one live read is requested once the named cooldown ends.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(refetchEmails).toHaveBeenCalledOnce();
+  });
+
+  it("shows no notice for live rows", () => {
+    mocks.view = "inbox";
+
+    render(<Harness read={{ freshness: "live" }} />);
+
+    expect(screen.queryByText("mail.error.rateLimitDescription")).toBeNull();
+    expect(rows().length).toBeGreaterThan(0);
   });
 
   it("requires duplicate-risk confirmation before retrying an uncertain scheduled email", () => {

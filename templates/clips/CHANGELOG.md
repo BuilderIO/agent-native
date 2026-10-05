@@ -3,6 +3,45 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-02
+
+### Fixed
+
+- Recording reminders and other actionable notifications show their message above the buttons
+- Temporary upload authorization failures remain retryable, while permanently rejected Builder credentials trigger storage setup errors.
+
+## 2026-10-01
+
+### Improved
+
+- Clip pages show layout-matched skeletons while loading
+- Signed-out viewers now see that they need to sign in before commenting on shared clips.
+- The Connect storage card is simpler: one Create Builder.io account button opens the same account popover as the rest of the app, with S3-compatible storage as the alternative
+- You can start recording before connecting storage: the web recorder keeps a copy in your browser and the desktop app saves to Movies/Clips, and the recording uploads once you connect storage. If an upload is interrupted, Clips offers to finish it the next time you open it
+
+### Fixed
+
+- Camera repositioning keeps the recording controls visible
+- Desktop clips no longer play as a short fragment when a video chunk loads incompletely while the clip is still being processed
+- Existing Builder connections sign in from storage setup
+- Loom imports no longer stay stuck if their upload worker stops.
+- Storage setup recovers when Builder connects after cancellation
+- The dictation shortcut now responds to every quick tap, the voice bar no longer disappears mid-dictation, and AI cleanup works again.
+- Deleted dictations disappear from your history right away instead of after a few seconds
+- Dictation shortcuts stay hidden when voice dictation is disabled.
+- Opening a recording link no longer flashes a "Recording not found" message before the recording loads
+- The Screenshots view labels its list Screenshots instead of Recordings
+
+## 2026-09-30
+
+### Improved
+
+- Storage setup checks finish faster when starting a recording.
+- Dark mode gives the sidebars a darker surface than the center
+- Sidebars use clearer surface contrast
+- Recording saved notifications keep the Copy link action available.
+- Clips desktop confirms copied links with a check mark.
+
 ## 2026-09-29
 
 ### Improved
@@ -11,6 +50,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
 - Clips Desktop shows a brief confirmation after copying a share link
 - Chat composers no longer show temporary status rows.
 - Fixed library and signup loading flashes and made desktop recording startup cues and countdowns reliable.
@@ -26,6 +67,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Choose faster recording uploads and improved recovery together in Settings → Labs, while recordings already in progress keep their original behavior.
 - The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
 - Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
 - The chat sidebar matches the app navigation color, with tighter composer spacing.
@@ -78,7 +120,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Clips settings are reorganized in the new Settings: General with Recordings and Meetings tabs, Notifications, and Slack link previews under Channels.
 - The account menu at the bottom of the sidebar shows your photo, name, and organization, and holds Settings, Usage, Get apps and extensions, and Log out
 - Video storage now uses the shared storage form, and Clear credentials asks before it removes your storage keys
-- Connect Builder storage by creating an account in one click.
+- Use Builder storage by creating an account in one click.
 - Public clip embeds and meeting notes show richer link previews.
 - The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
 - Shared clips remember your sidebar choice and help new viewers understand why to sign up.

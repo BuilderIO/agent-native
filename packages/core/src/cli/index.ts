@@ -11,6 +11,7 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { buildStepFailureReport } from "./build-failure-report.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
 import { cliSpawnOptions, runDevServer } from "./process.js";
 import {
@@ -431,11 +432,15 @@ function runBuildStep(
       const cwd = process.cwd();
       const { template, app } = inferBuildContext(cwd);
       const childCommand = `${cmd} ${cmdArgs.join(" ")}`;
-      const err = new Error(
-        `Build step "${opts.label}" failed with exit code ${exitCode}` +
-          (template ? ` (template=${template})` : "") +
-          (app ? ` (app=${app})` : ""),
-      );
+      const report = buildStepFailureReport({
+        label: opts.label,
+        exitCode,
+        signal: signal ?? null,
+        stderrTail: stderrBuf,
+        template,
+        app,
+      });
+      const err = report.error;
       void captureOptionalSentryException(err, {
         tags: {
           buildStep: opts.label,
@@ -453,13 +458,8 @@ function runBuildStep(
       });
       captureCliException(err, {
         handled: false,
-        tags: {
-          source: "build-step",
-          buildStep: opts.label,
-          ...(template ? { template } : {}),
-          ...(app ? { app } : {}),
-        },
-        extra: { exitCode, signal: signal ?? null },
+        tags: report.tags,
+        extra: report.extra,
       });
       flushTelemetryAndExit(exitCode);
     });
@@ -1212,6 +1212,7 @@ Options:
   --eager                       With workspace dev, start every app immediately
   --prewarm                     With workspace dev, warm non-default apps in the background
   --no-prewarm                  With workspace dev, keep non-default apps lazy
+  --no-open                     With workspace dev, do not open a browser
   --url <url>                   URL to audit with audit-agent-web
 
 Feedback:  ${FEEDBACK_URL}

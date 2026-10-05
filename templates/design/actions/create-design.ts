@@ -80,6 +80,11 @@ export default defineAction({
       height: 680,
     }),
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (
     {
       id: providedId,

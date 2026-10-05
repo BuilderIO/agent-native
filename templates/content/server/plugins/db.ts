@@ -1,5 +1,7 @@
 import { runMigrations } from "@agent-native/core/db";
+import { searchIndexMigration } from "@agent-native/core/search";
 
+import { documentSearchIndex } from "../db/index.js";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
@@ -1395,6 +1397,31 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX CONCURRENTLY document_sync_links_remote_page_idx ON document_sync_links (remote_page_id)`,
       },
     },
+    {
+      version: 116,
+      name: "content-private-icon-references",
+      sql: `CREATE TABLE IF NOT EXISTS content_private_icon_references (
+        element_type TEXT NOT NULL,
+        element_id TEXT NOT NULL,
+        asset_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_private_icon_reference_element_unique
+        ON content_private_icon_references (element_type, element_id);
+      CREATE INDEX IF NOT EXISTS content_private_icon_reference_asset_idx
+        ON content_private_icon_references (asset_id);
+      CREATE INDEX IF NOT EXISTS content_private_icon_reference_document_idx
+        ON content_private_icon_references (document_id)`,
+    },
+    // Creates the core search tables and installs the triggers that keep
+    // the document index fresh (docs/search-architecture.md).
+    searchIndexMigration(documentSearchIndex, {
+      version: 117,
+      name: "search-index-documents",
+    }),
   ],
   { table: "content_migrations" },
 );

@@ -104,6 +104,12 @@ Together the two layers mean an interrupted run that already had a real side eff
 
 </Callout>
 
+## Automatic continuation after a time limit {#auto-continue}
+
+When the server stops a turn at its run time limit and nothing server-side picks it up, the chat continues it on its own, in the **same turn**. The resumed run gets the thread's tool calls and results plus the journal note above, so finished steps are reused, and an identical repeat of a write — including a cross-app `call-agent` delegation, whose idempotency key is derived from the turn — returns the recorded result instead of being sent again. The chat shows a _Resuming_ status, and Stop keeps working.
+
+A turn continues automatically **at most three times**. The count is stored with the turn's runs, so reloading the page does not reset it, and a second tab cannot double it. After that, or after any error, stop, cancellation, or credential or rate limit, the turn ends with **Continue** available and waits for you.
+
 ## What's next
 
 - [**Real-Time Sync**](/docs/real-time-collaboration) — how the durable run ledger streams to the client and replays on reconnect.

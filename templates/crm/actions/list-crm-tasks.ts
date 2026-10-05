@@ -1,7 +1,8 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { listCrmTasks } from "../server/db/crm-store.js";
+import { crmScopeResolver } from "../server/lib/crm-query.js";
 
 export default defineAction({
   description:
@@ -18,5 +19,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: (input) => listCrmTasks(input),
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  run: (input, ctx?: ActionRunContext) =>
+    listCrmTasks(input, { resolveScope: crmScopeResolver(ctx) }),
 });

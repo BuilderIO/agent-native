@@ -6,6 +6,7 @@ import {
   fetchZoomAccessToken,
   hasProcessingTranscript,
   listZoomRecordings,
+  listZoomUserIds,
   nextZoomCursorFrom,
   normalizeZoomRecording,
   parseZoomVtt,
@@ -286,5 +287,51 @@ describe("Zoom sync window helpers", () => {
         earliest: "2026-08-31",
       }),
     ).toBe("2026-08-31");
+  });
+});
+describe("Zoom error detail", () => {
+  it("names the token step and Zoom's OAuth reason", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            reason: "Invalid client_id or client_secret",
+            error: "invalid_client",
+          }),
+          { status: 400 },
+        ),
+      ),
+    );
+    const error = await fetchZoomAccessToken({
+      accountId: "acct",
+      clientId: "id",
+      clientSecret: "secret",
+    }).catch((err: unknown) => err);
+    expect(error).toMatchObject({ status: 400, step: "token request" });
+    expect((error as Error).message).toBe(
+      "Zoom token request failed with status 400 (code invalid_client): Invalid client_id or client_secret.",
+    );
+  });
+
+  it("names the user-list step and the missing scope", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 4711,
+            message:
+              "Invalid access token, does not contain scopes:[user:read:list_users:admin].",
+          }),
+          { status: 400 },
+        ),
+      ),
+    );
+    const error = await listZoomUserIds("token").catch((err: unknown) => err);
+    expect((error as Error).message).toContain(
+      "Zoom user list failed with status 400 (code 4711)",
+    );
+    expect((error as Error).message).toContain("user:read:list_users:admin");
   });
 });

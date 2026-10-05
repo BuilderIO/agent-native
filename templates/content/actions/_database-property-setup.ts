@@ -3,10 +3,15 @@ import {
   parseIconValue,
   serializeIconValue,
 } from "@agent-native/core/icons";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
   parsePropertyOptions,
@@ -467,6 +472,14 @@ export async function runConfigureDocumentProperty(
       if (input.operation === "create") {
         const propertyId = nanoid();
         const definition = input.definition;
+        const userEmail = getRequestUserEmail();
+        if (!userEmail)
+          setupError("UNAUTHENTICATED", "Authentication is required.", 401);
+        await verifyPrivateIconAssignment({
+          icon: definition.icon,
+          userEmail,
+          orgId: context.database.orgId,
+        });
         const options: DocumentPropertyOptions =
           definition.type === "relation"
             ? {
@@ -510,6 +523,14 @@ export async function runConfigureDocumentProperty(
           position: Number(maxPosition?.max ?? -1) + 1,
           createdAt: now,
           updatedAt: now,
+        });
+        await syncPrivateIconReference(tx, {
+          elementType: "property",
+          elementId: propertyId,
+          documentId: context.database.documentId,
+          icon: definition.icon,
+          ownerEmail: context.database.ownerEmail,
+          orgId: context.database.orgId,
         });
         await configureNaturalKey(
           tx,
@@ -571,6 +592,16 @@ export async function runConfigureDocumentProperty(
         );
       }
       const nextOptions = applyOptionEdits(existing, input.patch.optionEdits);
+      if (input.patch.icon !== undefined) {
+        const userEmail = getRequestUserEmail();
+        if (!userEmail)
+          setupError("UNAUTHENTICATED", "Authentication is required.", 401);
+        await verifyPrivateIconAssignment({
+          icon: input.patch.icon,
+          userEmail,
+          orgId: context.database.orgId,
+        });
+      }
       const now = new Date().toISOString();
       const nextValues = {
         name: input.patch.name ?? existing.name,
@@ -608,6 +639,16 @@ export async function runConfigureDocumentProperty(
           .update(schema.documentPropertyDefinitions)
           .set({ ...nextValues, updatedAt: now })
           .where(eq(schema.documentPropertyDefinitions.id, existing.id));
+        if (input.patch.icon !== undefined) {
+          await syncPrivateIconReference(tx, {
+            elementType: "property",
+            elementId: existing.id,
+            documentId: context.database.documentId,
+            icon: nextValues.icon,
+            ownerEmail: context.database.ownerEmail,
+            orgId: context.database.orgId,
+          });
+        }
         await configureNaturalKey(
           tx,
           context,

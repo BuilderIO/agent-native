@@ -17,6 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 async function readAppStateClient<T = unknown>(key: string): Promise<T | null> {
@@ -1278,8 +1279,41 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   if (playerDataQuery.isLoading) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">
-        {t("editorLayout.loadingRecording")}
+      <div
+        aria-busy="true"
+        className={cn(
+          "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background",
+          className,
+        )}
+      >
+        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+            <div
+              className={
+                // guard:allow-raw-color — the editor preview needs a black video stage
+                "flex min-h-0 min-w-0 flex-1 basis-[220px] items-center justify-center overflow-hidden bg-black p-4"
+              }
+            >
+              <Skeleton className="h-full w-full rounded" />
+            </div>
+            <div className="flex h-10 shrink-0 items-center gap-2 border-y border-border px-2">
+              <Skeleton className="h-7 w-24 rounded-md" />
+              <Skeleton className="h-7 w-24 rounded-md" />
+              <Skeleton className="ms-auto h-7 w-20 rounded-md" />
+            </div>
+            <div className="shrink-0 border-t border-border bg-card/30">
+              <div className="flex h-9 items-center gap-2 px-2">
+                <Skeleton className="h-6 w-36 rounded-md" />
+                <Skeleton className="h-4 w-4 rounded-full" />
+              </div>
+              <div className="space-y-2 p-3">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-11/12" />
+                <Skeleton className="h-4 w-4/5" />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

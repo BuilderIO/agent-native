@@ -8,6 +8,10 @@ import { readBody, getSession } from "@agent-native/core/server";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
+  gmailReadState,
+  GMAIL_QUOTA_COOLDOWN_ERROR_CODE,
+} from "@shared/gmail-freshness.js";
+import {
   isInboxScopedAppLabel,
   mailLabelMatches,
 } from "@shared/gmail-labels.js";
@@ -29,6 +33,7 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 
+import { readCachedInboxEmails } from "../lib/cached-inbox-reads.js";
 import {
   incrementSendFrequency,
   getContactFrequencyMap,
@@ -49,6 +54,12 @@ import {
   filterInboxScopedThreadMessages,
   filterLabelMessages,
 } from "../lib/gmail-query.js";
+import {
+  countGmailCooldown,
+  gmailCooldownBody,
+  readOwnerGmailCooldowns,
+  summarizeGmailCooldowns,
+} from "../lib/gmail-quota.js";
 import {
   gmailGetMessage,
   gmailGetThread,
@@ -152,6 +163,7 @@ async function getCachedLabelMap(
   if (cached && cached.expiresAt > Date.now()) return cached.map;
 
   const labelMap = new Map<string, string>();
+  let complete = true;
   await Promise.all(
     accountTokens.map(async ({ accessToken }) => {
       try {
@@ -161,13 +173,18 @@ async function getCachedLabelMap(
             labelMap.set(label.id, label.name);
           }
         }
-      } catch {}
+      } catch {
+        complete = false;
+      }
     }),
   );
-  labelMapCache.set(cacheKey, {
-    map: labelMap,
-    expiresAt: Date.now() + LABEL_CACHE_TTL,
-  });
+  // A cooldown must not leave a label-less map cached for five minutes.
+  if (complete) {
+    labelMapCache.set(cacheKey, {
+      map: labelMap,
+      expiresAt: Date.now() + LABEL_CACHE_TTL,
+    });
+  }
   return labelMap;
 }
 
@@ -464,6 +481,81 @@ function gmailErrorStatus(error: unknown): {
   return { status: parsed ? Number(parsed) : 502 };
 }
 
+/** Error body for a failed Gmail call; a cooldown carries its typed fields. */
+function gmailErrorBody(error: unknown): Record<string, unknown> {
+  return {
+    error: (error as any)?.message,
+    ...(error instanceof GmailQuotaCooldownError
+      ? gmailCooldownBody(error)
+      : {}),
+  };
+}
+
+type CooldownRead = {
+  ownerEmail: string;
+  view: string;
+  q?: string;
+  label?: string;
+  limit: number;
+  /** A later page needs a live Gmail cursor; the store only has page one. */
+  pageToken?: string;
+};
+
+/**
+ * A Gmail cooldown answers a list read with the synced inbox store when the
+ * view can be served from it (`freshness: "cached"` / `"stale"`), and otherwise
+ * with a typed 429. Either way no Gmail call is made and the client gets the
+ * cooldown as data instead of a bare failure.
+ */
+async function respondToGmailCooldown(
+  event: H3Event,
+  read: CooldownRead,
+  cooldown: { retryAfterMs: number; cooldownUntil: number },
+  accountEmails?: readonly string[],
+) {
+  const accounts =
+    accountEmails ??
+    (await getConnectedAccountsWithErrors(read.ownerEmail)).accounts;
+  const cached = read.pageToken
+    ? null
+    : await readCachedInboxEmails({
+        ownerEmail: read.ownerEmail,
+        view: read.view,
+        q: read.q,
+        label: read.label,
+        limit: read.limit,
+        accountEmails: accounts,
+      }).catch((error: unknown) => {
+        console.error("[listEmails] cached inbox read failed:", error);
+        return null;
+      });
+  if (cached) {
+    const readState = gmailReadState(cooldown, cached.syncedAt, Date.now());
+    countGmailCooldown(
+      "served_cached",
+      readState.freshness === "stale" ? "stale" : "cached",
+    );
+    return {
+      emails: cached.emails,
+      totalEstimate: cached.totalEstimate,
+      read: readState,
+    };
+  }
+  countGmailCooldown("typed_429");
+  setResponseStatus(event, 429);
+  setResponseHeader(
+    event,
+    "Retry-After",
+    String(Math.min(Math.max(1, Math.ceil(cooldown.retryAfterMs / 1000)), 300)),
+  );
+  return {
+    error: new GmailQuotaCooldownError(cooldown.retryAfterMs).message,
+    errorCode: GMAIL_QUOTA_COOLDOWN_ERROR_CODE,
+    retryAfterMs: cooldown.retryAfterMs,
+    cooldownUntil: cooldown.cooldownUntil,
+  };
+}
+
 export const listEmails = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const {
@@ -492,8 +584,16 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
   }
 
   if (await isConnected(email)) {
+    const { pageToken } = getQuery(event) as { pageToken?: string };
+    const cooldownRead: CooldownRead = {
+      ownerEmail: email,
+      view,
+      q,
+      label,
+      limit: pageLimit,
+      pageToken,
+    };
     try {
-      const { pageToken } = getQuery(event) as { pageToken?: string };
       let pageTokens: Record<string, string> | undefined;
       if (pageToken) {
         try {
@@ -502,6 +602,22 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
           );
         } catch {
           // ignore malformed tokens
+        }
+      }
+
+      // One indexed read. While every account is cooling down, answer from the
+      // persisted cooldown: no token refresh, no quota reservation, no Gmail.
+      const cooling = await readOwnerGmailCooldowns(email);
+      if (cooling.size > 0) {
+        const { accounts } = await getConnectedAccountsWithErrors(email);
+        const snapshot = summarizeGmailCooldowns(cooling, accounts);
+        if (snapshot?.allAccounts) {
+          return await respondToGmailCooldown(
+            event,
+            cooldownRead,
+            snapshot,
+            accounts,
+          );
         }
       }
 
@@ -544,15 +660,15 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       if (!listResult.ok) {
         setMailAccountErrorsHeader(event, tokenErrors);
         if (listResult.isQuotaError) {
-          setResponseStatus(event, 429);
-          setResponseHeader(
+          const retryAfterMs = (listResult.retryAfterSeconds ?? 60) * 1000;
+          return await respondToGmailCooldown(
             event,
-            "Retry-After",
-            String(listResult.retryAfterSeconds),
+            cooldownRead,
+            { retryAfterMs, cooldownUntil: Date.now() + retryAfterMs },
+            accountTokens.map((account) => account.email),
           );
-        } else {
-          setResponseStatus(event, 502);
         }
+        setResponseStatus(event, 502);
         return { error: listResult.message };
       }
 
@@ -578,6 +694,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         ...(resultSizeEstimate && { totalEstimate: resultSizeEstimate }),
       };
     } catch (error: any) {
+      if (error instanceof GmailQuotaCooldownError) {
+        return await respondToGmailCooldown(event, cooldownRead, error);
+      }
       console.error("[listEmails] Gmail error:", error.message);
       setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };
@@ -683,12 +802,6 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   const threadId = getRouterParam(event, "threadId") as string;
   const { accountEmail } = getQuery(event) as { accountEmail?: string };
 
-  const cacheKey = threadCacheKey(email, threadId);
-  const cached = threadMessagesCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.messages;
-  }
-
   if (await isConnected(email)) {
     try {
       let resolvedAccount: string | undefined;
@@ -704,6 +817,14 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
               ? { accountErrors: error.data.accountErrors }
               : {}),
           };
+        }
+      }
+      if (resolvedAccount) {
+        const cached = threadMessagesCache.get(
+          threadCacheKey(email, threadId, resolvedAccount),
+        );
+        if (cached && cached.expiresAt > Date.now()) {
+          return cached.messages;
         }
       }
       const { tokens: accountTokens, errors } = await getAccountTokens(
@@ -734,7 +855,7 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
             (a: any, b: any) =>
               new Date(a.date).getTime() - new Date(b.date).getTime(),
           );
-          threadMessagesCache.set(cacheKey, {
+          threadMessagesCache.set(threadCacheKey(email, threadId, acctEmail), {
             messages,
             expiresAt: Date.now() + THREAD_CACHE_TTL,
           });
@@ -747,7 +868,7 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
           if (retryAfterSeconds !== undefined) {
             setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
           }
-          return { error: error.message };
+          return gmailErrorBody(error);
         }
       }
       if (candidateTokens.length > 0) {
@@ -810,7 +931,7 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
         if (retryAfterSeconds !== undefined) {
           setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
         }
-        return { error: error.message };
+        return gmailErrorBody(error);
       }
     }
     if (accountTokens.length > 0) {
@@ -867,7 +988,7 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
         ["SPAM"],
         ["INBOX"],
       )) as { historyId?: string } | undefined;
-      invalidateThreadCache(email, threadId!);
+      invalidateThreadCache(email, threadId!, acct);
       await syncInboxLabelDelta(email, acct, [threadId!], {
         add: ["SPAM"],
         remove: ["INBOX"],
@@ -952,7 +1073,7 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
         ["SPAM"],
         ["INBOX"],
       )) as { historyId?: string } | undefined;
-      invalidateThreadCache(email, msg.threadId);
+      invalidateThreadCache(email, msg.threadId, acct);
       await syncInboxLabelDelta(email, acct, [msg.threadId], {
         add: ["SPAM"],
         remove: ["INBOX"],
@@ -1058,7 +1179,7 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
         undefined,
         ["INBOX"],
       )) as { historyId?: string } | undefined;
-      invalidateThreadCache(email, threadId);
+      invalidateThreadCache(email, threadId, acct);
       await syncInboxLabelDelta(email, acct, [threadId], {
         remove: ["INBOX"],
         providerHistoryId: updated?.historyId,
@@ -1275,7 +1396,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       }
 
       if (sent.threadId) {
-        invalidateThreadCache(email, sent.threadId);
+        invalidateThreadCache(email, sent.threadId, selectedEmail);
       }
       invalidateListCacheForOwner(email);
 

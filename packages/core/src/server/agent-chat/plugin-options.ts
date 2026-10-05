@@ -23,9 +23,15 @@ export interface AgentChatPluginOptions {
     scope: AgentChatScope,
     run: ActiveRun,
   ) => void | Promise<void>;
+  /**
+   * Runs once per run chunk. `turnContinues` is true when the run stopped at a
+   * continuation boundary, so the turn is not finished: a continuation run
+   * with a new run id carries it on.
+   */
   onAgentRunComplete?: (
     scope: AgentChatScope | null | undefined,
     run: ActiveRun,
+    outcome: { turnContinues: boolean },
   ) => void | Promise<void>;
   actions?:
     | Record<string, ActionEntry>
@@ -80,6 +86,7 @@ export interface AgentChatPluginOptions {
         | Record<string, MentionProvider>
         | Promise<Record<string, MentionProvider>>);
   appId?: string;
+  clientCompatibilityVersion?: string;
   connectApps?: boolean;
   backgroundMcpTools?: "requested" | "all";
   resolveMcpActionEntry?: McpActionEntryOptions["resolveActionEntry"];

@@ -1,6 +1,11 @@
 import { resolveSignInReturnHref } from "@agent-native/core/client/sign-in-return";
-import { useSession } from "@agent-native/core/client/use-session";
-import React, { useEffect, useRef } from "react";
+import {
+  isSessionNavigationPending,
+  navigateForSession,
+  useSession,
+} from "@agent-native/core/client/use-session";
+import { subscribeSessionNavigation } from "@agent-native/core/shared/ssr-session-bootstrap";
+import React, { useEffect, useRef, useSyncExternalStore } from "react";
 
 import { AppShellSkeleton } from "../shared/AppShellSkeleton.js";
 
@@ -43,21 +48,31 @@ function ResolvedSessionGate({
   signedOut,
 }: Omit<RequireSessionProps, "bypass">) {
   const { session, status, retry } = useSession();
-  const redirectedRef = useRef(false);
-
-  const mustRedirect = status === "unauthenticated" && redirect;
+  // Only the session endpoint's definitive "signed out" sends a visitor to
+  // sign-in; loading and unavailable never navigate.
+  const signInHref =
+    status === "unauthenticated" && redirect ? resolveSignInReturnHref() : null;
 
   useEffect(() => {
-    if (!mustRedirect) return;
-    if (redirectedRef.current) return;
-    if (typeof window === "undefined") return;
-    const signInHref = resolveSignInReturnHref();
-    if (!signInHref) return;
-    redirectedRef.current = true;
-    window.location.replace(signInHref);
-  }, [mustRedirect]);
+    if (signInHref) navigateForSession(signInHref, "signed_out");
+  }, [signInHref]);
 
-  if (status === "loading") return <>{fallback ?? <AppShellSkeleton />}</>;
+  const navigationPending = useSyncExternalStore(
+    subscribeSessionNavigation,
+    isSessionNavigationPending,
+    () => false,
+  );
+  const appShownRef = useRef(false);
+
+  // A navigation this load started before the app rendered (sign-in here, or
+  // the inline beta lane switch) keeps the shell down, so the app never
+  // flashes before the page leaves. An app already on screen is never
+  // unmounted for one: a lane switch cancelled by a beforeunload "Stay" would
+  // take its unsaved state with it. A claim the page never leaves on is
+  // released after a stall window, which brings the app back.
+  if (status === "loading" || (navigationPending && !appShownRef.current)) {
+    return <>{fallback ?? <AppShellSkeleton />}</>;
+  }
   if (status === "unavailable") {
     return <SessionUnavailableNotice retry={retry} />;
   }
@@ -65,6 +80,7 @@ function ResolvedSessionGate({
     if (redirect) return <>{fallback ?? <AppShellSkeleton />}</>;
     return <>{signedOut ?? null}</>;
   }
+  appShownRef.current = true;
   return <>{children}</>;
 }
 

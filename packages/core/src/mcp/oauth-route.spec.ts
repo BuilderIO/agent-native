@@ -150,7 +150,11 @@ const {
   handleMcpOAuthProtectedResourceMetadata,
   getMcpOAuthAudiences,
 } = await import("./oauth-route.js");
-const { MCP_LEGACY_ROUTE_PREFIX } = await import("./route-paths.js");
+const {
+  MCP_DIRECTORY_ROUTE_PREFIX,
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+} = await import("./route-paths.js");
 const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 function event(
@@ -159,6 +163,7 @@ function event(
     headers?: Record<string, string>;
     query?: Record<string, string>;
     body?: Record<string, string> | string;
+    pathname?: string;
   } = {},
 ) {
   return {
@@ -170,7 +175,7 @@ function event(
     },
     query: opts.query ?? {},
     body: opts.body ?? {},
-    url: { pathname: "" },
+    url: { pathname: opts.pathname ?? "" },
   } as any;
 }
 
@@ -313,6 +318,51 @@ describe("MCP OAuth route", () => {
     expect(buildMcpOAuthChallenge(event(), MCP_LEGACY_ROUTE_PREFIX)).toContain(
       `resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource?resource=%2F_agent-native%2Fmcp"`,
     );
+  });
+
+  it("keeps the directory OAuth resource separate from the existing MCP route", async () => {
+    expect(getMcpOAuthAudiences(event(), MCP_DIRECTORY_ROUTE_PREFIX)).toEqual([
+      `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    ]);
+
+    const protectedRes = handleMcpOAuthProtectedResourceMetadata(
+      event({ query: { resource: MCP_DIRECTORY_ROUTE_PREFIX } }),
+    );
+    await expect(protectedRes.json()).resolves.toMatchObject({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      authorization_servers: ["https://mail.agent-native.com"],
+    });
+    expect(
+      buildMcpOAuthChallenge(event(), MCP_DIRECTORY_ROUTE_PREFIX),
+    ).toContain(
+      `resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource?resource=${encodeURIComponent(MCP_DIRECTORY_ROUTE_PREFIX)}"`,
+    );
+    expect(getMcpOAuthAudiences(event())).toEqual([
+      "https://mail.agent-native.com/mcp",
+      "https://mail.agent-native.com/_agent-native/mcp",
+    ]);
+
+    const pathForm = handleMcpOAuthProtectedResourceMetadata(
+      event({
+        pathname: "/.well-known/oauth-protected-resource/mcp/directory",
+      }),
+    );
+    await expect(pathForm.json()).resolves.toMatchObject({
+      resource: "https://mail.agent-native.com/mcp/directory",
+    });
+    const mountedSuffix = handleMcpOAuthProtectedResourceMetadata(
+      event({ pathname: MCP_DIRECTORY_ROUTE_PREFIX }),
+    );
+    await expect(mountedSuffix.json()).resolves.toMatchObject({
+      resource: "https://mail.agent-native.com/mcp/directory",
+    });
+    const mismatchedPathForm = handleMcpOAuthProtectedResourceMetadata(
+      event({
+        pathname: "/mcp/directory",
+        query: { resource: MCP_PUBLIC_ROUTE_PREFIX },
+      }),
+    );
+    expect(mismatchedPathForm.status).toBe(404);
   });
 
   it("registers public OAuth clients with safe redirect URIs", async () => {
@@ -780,100 +830,103 @@ describe("MCP OAuth route", () => {
     await expect(res.text()).resolves.toContain("Sign in");
   });
 
-  it("approves an authorization code and exchanges it for scoped MCP tokens", async () => {
-    const client = await (
-      await handleMcpOAuth(
+  it.each([
+    "https://mail.agent-native.com/mcp",
+    "https://mail.agent-native.com/mcp/directory",
+  ])(
+    "preserves the protected resource through authorization-code exchange for %s",
+    async (resource) => {
+      const client = await (
+        await handleMcpOAuth(
+          event({
+            method: "POST",
+            body: {
+              redirect_uris: ["http://localhost:5555/callback"],
+            } as any,
+          }),
+          "/register",
+        )
+      ).json();
+      const verifier = "v".repeat(50);
+      const consent = await handleMcpOAuth(
+        event({
+          query: {
+            response_type: "code",
+            client_id: client.client_id,
+            redirect_uri: "http://localhost:5555/callback",
+            resource,
+            scope: "mcp:read mcp:apps",
+            state: "state-123",
+            code_challenge: challenge(verifier),
+            code_challenge_method: "S256",
+          },
+        }),
+        "/authorize",
+        { appName: "Mail" },
+      );
+      const consentHtml = await consent.text();
+      const consentToken =
+        consentHtml.match(/name="consent_token" value="([^"]+)"/)?.[1] ?? "";
+      expect(consentToken).not.toBe("");
+      const authorize = await handleMcpOAuth(
         event({
           method: "POST",
           body: {
-            redirect_uris: ["http://localhost:5555/callback"],
-          } as any,
+            decision: "approve",
+            response_type: "code",
+            client_id: client.client_id,
+            redirect_uri: "http://localhost:5555/callback",
+            resource,
+            scope: "mcp:read mcp:apps",
+            state: "state-123",
+            code_challenge: challenge(verifier),
+            code_challenge_method: "S256",
+            consent_token: consentToken,
+          },
         }),
-        "/register",
-      )
-    ).json();
-    const verifier = "v".repeat(50);
-    const consent = await handleMcpOAuth(
-      event({
-        query: {
-          response_type: "code",
-          client_id: client.client_id,
-          redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/mcp",
-          scope: "mcp:read mcp:apps",
-          state: "state-123",
-          code_challenge: challenge(verifier),
-          code_challenge_method: "S256",
-        },
-      }),
-      "/authorize",
-      { appName: "Mail" },
-    );
-    const consentHtml = await consent.text();
-    const consentToken =
-      consentHtml.match(/name="consent_token" value="([^"]+)"/)?.[1] ?? "";
-    expect(consentToken).not.toBe("");
-    const authorize = await handleMcpOAuth(
-      event({
-        method: "POST",
-        body: {
-          decision: "approve",
-          response_type: "code",
-          client_id: client.client_id,
-          redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/mcp",
-          scope: "mcp:read mcp:apps",
-          state: "state-123",
-          code_challenge: challenge(verifier),
-          code_challenge_method: "S256",
-          consent_token: consentToken,
-        },
-      }),
-      "/authorize",
-      { appName: "Mail" },
-    );
-    expect(authorize.status).toBe(302);
-    const location = authorize.headers.get("location")!;
-    const code = new URL(location).searchParams.get("code")!;
-    expect(location).toContain("state=state-123");
-    expect(new URL(location).searchParams.get("iss")).toBe(
-      "https://mail.agent-native.com",
-    );
+        "/authorize",
+        { appName: "Mail" },
+      );
+      expect(authorize.status).toBe(302);
+      const location = authorize.headers.get("location")!;
+      const code = new URL(location).searchParams.get("code")!;
+      expect(location).toContain("state=state-123");
+      expect(new URL(location).searchParams.get("iss")).toBe(
+        "https://mail.agent-native.com",
+      );
 
-    const token = await handleMcpOAuth(
-      event({
-        method: "POST",
-        body: {
-          grant_type: "authorization_code",
-          client_id: client.client_id,
-          redirect_uri: "http://localhost:5555/callback",
-          code,
-          code_verifier: verifier,
-        },
-      }),
-      "/token",
-    );
-    expect(token.status).toBe(200);
-    const body = await token.json();
-    expect(body).toMatchObject({
-      token_type: "Bearer",
-      expires_in: 30 * 86400,
-      scope: "mcp:read mcp:apps",
-    });
-    expect(body.refresh_token).toBeTruthy();
-    await expect(
-      verifyMcpOAuthAccessToken(
-        body.access_token,
-        "https://mail.agent-native.com/mcp",
-      ),
-    ).resolves.toMatchObject({
-      userEmail: "steve@example.com",
-      orgId: "org_123",
-      orgDomain: "builder.io",
-      scopes: ["mcp:read", "mcp:apps"],
-      clientId: client.client_id,
-    });
-  });
+      const token = await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            grant_type: "authorization_code",
+            client_id: client.client_id,
+            redirect_uri: "http://localhost:5555/callback",
+            code,
+            code_verifier: verifier,
+          },
+        }),
+        "/token",
+      );
+      expect(token.status).toBe(200);
+      const body = await token.json();
+      expect(body).toMatchObject({
+        token_type: "Bearer",
+        expires_in: 30 * 86400,
+        scope: "mcp:read mcp:apps",
+      });
+      expect(body.refresh_token).toBeTruthy();
+      await expect(
+        verifyMcpOAuthAccessToken(body.access_token, resource),
+      ).resolves.toMatchObject({
+        userEmail: "steve@example.com",
+        orgId: "org_123",
+        orgDomain: "builder.io",
+        scopes: ["mcp:read", "mcp:apps"],
+        clientId: client.client_id,
+      });
+    },
+  );
 
   it("honors the active organization when choosing the default", async () => {
     getActiveOrgSettingMock.mockResolvedValue({ orgId: "org_456" });

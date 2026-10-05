@@ -236,6 +236,7 @@ export default defineAction({
 
     await deleteAppStateByPrefix(`recording-chunks-${args.id}-`);
     await deleteAppState(`recording-upload-${args.id}`);
+    await deleteAppState(`recording-recovery-policy-${args.id}`);
     await deleteAppState(`recording-compression-${args.id}`);
     await deleteAppState(`recording-blob-${args.id}`);
     await deleteAppState(`recording-thumbnail-asset-${args.id}`);

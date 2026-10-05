@@ -458,6 +458,19 @@ ALTER TABLE mail_gmail_quota_budgets
 ALTER TABLE mail_gmail_quota_budgets
   ALTER COLUMN updated_at TYPE BIGINT USING updated_at::BIGINT;`,
     },
+    {
+      version: 38,
+      name: "mail-gmail-token-accounts",
+      sql: `CREATE TABLE IF NOT EXISTS mail_gmail_token_accounts (
+    token_hash TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    created_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
+      ON mail_gmail_token_accounts(expires_at);`,
+    },
   ],
   { table: "mail_migrations" },
 );

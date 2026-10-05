@@ -1,8 +1,4 @@
-import {
-  CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
-  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-  CHATGPT_SUBSCRIPTION_LAB_KEY,
-} from "@agent-native/core/agent/chatgpt-subscription-contract";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import { PROVIDER_ENV_PLACEHOLDERS } from "@agent-native/core/agent/engine/provider-env-vars";
 import { useDevMode } from "@agent-native/core/client/agent-chat";
 import {
@@ -32,8 +28,6 @@ import {
 } from "@agent-native/core/client/client-status-requests";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
-import { useLabState } from "@agent-native/core/client/labs/use-lab";
-import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { useOrg } from "@agent-native/core/client/org";
 import {
   buildSettingsRoute,
@@ -103,6 +97,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useId,
   useMemo,
   useRef,
 } from "react";
@@ -127,6 +122,7 @@ import { AutomationsSection } from "./AutomationsSection.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
+import { ChatGPTSubscriptionRow } from "./model/ChatGPTSubscriptionRow.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import {
@@ -139,10 +135,8 @@ import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { StorageSettingsForm } from "./StorageSettingsForm.js";
 import { UsageSection } from "./UsageSection.js";
-import { useProviderKeySaveScope } from "./use-provider-key-save-scope.js";
+import { useCredentialSaveScope } from "./use-credential-save-scope.js";
 import {
-  isPopupClosed,
-  POPUP_CLOSED_CONFIRMATION_GRACE_MS,
   type BuilderConnectFlow,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -152,6 +146,7 @@ import {
   useSettingsPanelController,
 } from "./useSettingsPanelController.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
+import { WhoField } from "./WhoField.js";
 const ManageButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof ToolkitButton>
@@ -292,7 +287,7 @@ function UseBuilderCard({
   credentialSource,
   trackingSource = "settings_panel_builder_card",
   trackingFlow = "connect_llm",
-  label = "Connect Builder.io",
+  label,
   subtitle = "Builder.io free credits to start - no API key needed.",
   dim,
   compact = false,
@@ -310,7 +305,9 @@ function UseBuilderCard({
   dim?: boolean;
   compact?: boolean;
 }) {
+  const t = useT();
   const isPage = useSettingsSurface() === "page";
+  const connectLabel = label ?? t("agentChat.setup.connectBuilder");
   const effectiveConnected = connected || builderFlow.configured;
   const effectiveOrgName = builderFlow.orgName ?? orgName;
   const effectiveCredentialSource =
@@ -357,7 +354,7 @@ function UseBuilderCard({
         {envManaged ? (
           <p className={cn("text-muted-foreground mt-1", bodyCls)}>
             {credentialSource === "env"
-              ? "Deployment fallback is available. Connect your own account to override it."
+              ? t("agentChat.settingsInfra.builderOverrideDescription")
               : "Using your connected Builder account. Deployment fallback is still available."}
           </p>
         ) : null}
@@ -394,7 +391,9 @@ function UseBuilderCard({
           disabled={builderFlow.connecting}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
         >
-          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting
+            ? t("agentChat.composer.connectingBuilder")
+            : connectLabel}
           {builderFlow.connecting ? (
             <IconLoader2 size={14} className="animate-spin" />
           ) : null}
@@ -428,7 +427,9 @@ function UseBuilderCard({
                 isPage ? "text-sm" : "text-[12px]",
               )}
             >
-              {builderFlow.connecting ? "Connecting Builder.io..." : label}
+              {builderFlow.connecting
+                ? t("agentChat.composer.connectingBuilder")
+                : connectLabel}
             </span>
             {builderFlow.connecting && (
               <IconLoader2
@@ -472,7 +473,9 @@ function UseBuilderCard({
             isPage ? "text-sm" : "text-[11px]",
           )}
         >
-          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting
+            ? t("agentChat.composer.connectingBuilder")
+            : connectLabel}
           {builderFlow.connecting ? (
             <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
           ) : null}
@@ -782,277 +785,6 @@ const PROVIDER_DOCS: Record<string, string> = {
   "ai-sdk:cohere": "https://dashboard.cohere.com/api-keys",
 };
 
-interface ChatGPTSubscriptionStatus {
-  connected: boolean;
-  reconnectRequired: boolean;
-}
-
-function ChatGPTSubscriptionCard({
-  currentEngine,
-  canUpdateDefault,
-  onConfigured,
-  grouped = false,
-}: {
-  currentEngine: string;
-  /** "Use in chat" changes the default model, so it needs owner/admin. */
-  canUpdateDefault: boolean | null;
-  onConfigured: () => void;
-  grouped?: boolean;
-}) {
-  const isPage = useSettingsSurface() === "page";
-  const t = useT();
-  const lab = useLabState(CHATGPT_SUBSCRIPTION_LAB_KEY);
-  const [status, setStatus] = useState<ChatGPTSubscriptionStatus | null>(null);
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const popupRef = useRef<Window | null>(null);
-  const popupClosedAtRef = useRef<number | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const next = (await callAction(
-        "get-chatgpt-subscription-status" as any,
-        {} as any,
-        { method: "GET" },
-      )) as ChatGPTSubscriptionStatus;
-      setStatus(next);
-      return next;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-      return null;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (lab.isSuccess && lab.enabled) void refresh();
-  }, [lab.enabled, lab.isSuccess, refresh]);
-
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (
-        event.origin === window.location.origin &&
-        event.data?.type === "agent-native-chatgpt-subscription-connected"
-      ) {
-        popupRef.current = null;
-        popupClosedAtRef.current = null;
-        setConnecting(false);
-        void refresh().then((next) => {
-          if (next?.connected) onConfigured();
-        });
-      }
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [onConfigured, refresh]);
-
-  useEffect(() => {
-    if (!connecting || !popupRef.current) return;
-    const timer = window.setInterval(() => {
-      if (!isPopupClosed(popupRef.current)) return;
-      popupClosedAtRef.current ??= Date.now();
-      if (
-        Date.now() - popupClosedAtRef.current <=
-        POPUP_CLOSED_CONFIRMATION_GRACE_MS
-      ) {
-        return;
-      }
-      window.clearInterval(timer);
-      popupRef.current = null;
-      popupClosedAtRef.current = null;
-      setConnecting(false);
-      void refresh().then((next) => {
-        if (next?.connected) onConfigured();
-      });
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [connecting, onConfigured, refresh]);
-
-  const connect = useCallback(() => {
-    setError(null);
-    const popup = openOAuthPopup({
-      initialUrl: agentNativePath(
-        "/_agent-native/agent-engine/chatgpt-subscription/start",
-      ),
-      features: "popup,width=520,height=720",
-    });
-    if (!popup) {
-      setError(
-        t("agentPanel.chatgptSubscriptionPopupBlocked", {
-          defaultValue: "Allow pop-ups for this site, then try again.",
-        }),
-      );
-      return;
-    }
-    popupRef.current = popup;
-    popupClosedAtRef.current = null;
-    setConnecting(true);
-  }, [t]);
-
-  const disconnect = useCallback(async () => {
-    setError(null);
-    try {
-      await callAction("disconnect-chatgpt-subscription" as any, {} as any);
-      setStatus({ connected: false, reconnectRequired: false });
-      onConfigured();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }, [onConfigured]);
-
-  const selectSubscriptionEngine = useCallback(async () => {
-    setError(null);
-    try {
-      await callAction(
-        "manage-agent-engine" as any,
-        {
-          action: "set",
-          engine: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-          model: CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
-        } as any,
-      );
-      onConfigured();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }, [onConfigured]);
-
-  if (!lab.isSuccess || !lab.enabled) return null;
-
-  const connected = status?.connected === true;
-  const inUse = currentEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME;
-  const title = t("agentPanel.chatgptSubscriptionTitle", {
-    defaultValue: "ChatGPT subscription",
-  });
-  const description = t("agentPanel.chatgptSubscriptionDescription", {
-    defaultValue:
-      "Experimental Codex access through your ChatGPT subscription.",
-  });
-  const statusLabel = connected ? (
-    <span className="flex shrink-0 items-center gap-1 text-primary">
-      <IconCheck size={isPage ? 14 : 11} />
-      {inUse
-        ? t("agentPanel.chatgptSubscriptionInUse", {
-            defaultValue: "In use",
-          })
-        : t("agentPanel.chatgptSubscriptionConnected", {
-            defaultValue: "Connected",
-          })}
-    </span>
-  ) : null;
-  const actions = !connected ? (
-    <Button
-      type="button"
-      intent="primary"
-      emphasis="solid"
-      onClick={connect}
-      disabled={connecting}
-      className={cn(
-        "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-70",
-        isPage ? "text-sm" : "text-[11px]",
-      )}
-    >
-      {connecting
-        ? t("agentPanel.chatgptSubscriptionConnecting", {
-            defaultValue: "Connecting…",
-          })
-        : status?.reconnectRequired
-          ? t("agentPanel.chatgptSubscriptionReconnect", {
-              defaultValue: "Reconnect",
-            })
-          : t("agentPanel.chatgptSubscriptionConnect", {
-              defaultValue: "Connect ChatGPT",
-            })}
-    </Button>
-  ) : (
-    <>
-      {!inUse && canUpdateDefault !== false ? (
-        <Button
-          type="button"
-          intent="primary"
-          emphasis="solid"
-          onClick={() => void selectSubscriptionEngine()}
-          className={cn(
-            "rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90",
-            isPage ? "text-sm" : "text-[11px]",
-          )}
-        >
-          {t("agentPanel.chatgptSubscriptionUse", {
-            defaultValue: "Use in chat",
-          })}
-        </Button>
-      ) : null}
-      <Button
-        type="button"
-        intent="neutral"
-        emphasis="outline"
-        onClick={() => void disconnect()}
-        className={cn(
-          "rounded-md border border-border px-3 py-1.5 text-foreground hover:bg-accent/40",
-          isPage ? "text-sm" : "text-[11px]",
-        )}
-      >
-        {t("agentPanel.chatgptSubscriptionDisconnect", {
-          defaultValue: "Disconnect",
-        })}
-      </Button>
-    </>
-  );
-
-  if (isPage) {
-    return (
-      <SettingsRow
-        className={cn(grouped ? "border-b border-border/60" : "-mx-5 sm:-mx-6")}
-        label={title}
-        description={description}
-        status={statusLabel}
-        control={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {actions}
-          </div>
-        }
-      >
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      </SettingsRow>
-    );
-  }
-
-  return (
-    <div
-      className={cn(
-        "rounded-md border border-border bg-accent/20",
-        isPage ? "px-4 py-3.5" : "px-3 py-3",
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p
-            className={cn("font-medium text-foreground", subTextClass(isPage))}
-          >
-            {title}
-          </p>
-          <p
-            className={cn(
-              "mt-0.5 text-muted-foreground",
-              noteTextClass(isPage),
-            )}
-          >
-            {description}
-          </p>
-        </div>
-        {statusLabel}
-      </div>
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-        {actions}
-      </div>
-      {error ? (
-        <p className={cn("mt-2 text-destructive", noteTextClass(isPage))}>
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 function LLMSectionInner({
   builderFlow,
   builderLoading,
@@ -1359,9 +1091,12 @@ function LLMSectionInner({
   const keyEntryVisible = !!envVar && !(envConfigured || settingsConfigured);
   const {
     scope: keySaveScope,
+    canChoose: canChooseKeyScope,
+    setScope: setKeySaveScope,
     roleUnavailable: keySaveRoleUnavailable,
     retry: retryKeySaveRole,
-  } = useProviderKeySaveScope();
+  } = useCredentialSaveScope();
+  const keyScopeId = useId();
 
   const handleFindOllamaModels = () => {
     setOllamaModelsLoading(true);
@@ -1584,12 +1319,7 @@ function LLMSectionInner({
         <SettingsLoadingRow controlCount={2} />
       ) : (
         <>
-          <ChatGPTSubscriptionCard
-            currentEngine={currentEngine}
-            canUpdateDefault={canUpdateDefault}
-            onConfigured={notifyConfigChanged}
-            grouped={isPage && grouped}
-          />
+          <ChatGPTSubscriptionRow />
           <div
             className={cn(
               isPage
@@ -1622,7 +1352,7 @@ function LLMSectionInner({
                   credentialSource={credentialSource}
                   trackingSource="llm_settings"
                   trackingFlow="connect_llm"
-                  label="Connect Builder.io"
+                  label={t("agentChat.setup.connectBuilder")}
                   compact
                 />
               )}
@@ -1655,7 +1385,7 @@ function LLMSectionInner({
                       credentialSource={credentialSource}
                       trackingSource="llm_settings"
                       trackingFlow="connect_llm"
-                      label="Connect Builder.io"
+                      label={t("agentChat.setup.connectBuilder")}
                     />
                   ) : undefined
                 }
@@ -2031,6 +1761,17 @@ function LLMSectionInner({
                       </Button>
                     </div>
                   ) : null}
+                  {canChooseKeyScope &&
+                  keySaveScope &&
+                  (keyEntryVisible || endpointChanged) ? (
+                    <WhoField
+                      id={keyScopeId}
+                      choice
+                      scope={keySaveScope}
+                      disabled={saving}
+                      onChange={setKeySaveScope}
+                    />
+                  ) : null}
 
                   <div className="flex items-center gap-2">
                     <Button
@@ -2136,24 +1877,7 @@ function LLMSectionInner({
                     </p>
                   )}
                   {keySaveRoleUnavailable && (
-                    <div
-                      role="alert"
-                      className={cn(
-                        "flex flex-wrap items-center gap-1.5 text-destructive",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      <IconAlertCircle size={isPage ? 14 : 10} />
-                      {t("agentPanel.saveScopeRoleUnavailable")}
-                      <Button
-                        intent="neutral"
-                        emphasis="ghost"
-                        onClick={retryKeySaveRole}
-                        className="h-auto px-1 py-0 font-medium text-foreground underline underline-offset-2"
-                      >
-                        {t("agentChat.common.retry")}
-                      </Button>
-                    </div>
+                    <SaveScopeRoleAlert onRetry={retryKeySaveRole} />
                   )}
                   {providerSettingsError && (
                     <div
@@ -2787,6 +2511,31 @@ function AppModelDefaultsSectionInner({
   );
 }
 
+function SaveScopeRoleAlert({ onRetry }: { onRetry: () => void }) {
+  const t = useT();
+  const isPage = useSettingsSurface() === "page";
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex flex-wrap items-center gap-1.5 text-destructive",
+        isPage ? "text-xs" : "text-[10px]",
+      )}
+    >
+      <IconAlertCircle size={isPage ? 14 : 10} />
+      {t("agentPanel.saveScopeRoleUnavailable")}
+      <Button
+        intent="neutral"
+        emphasis="ghost"
+        onClick={onRetry}
+        className="h-auto px-1 py-0 font-medium text-foreground underline underline-offset-2"
+      >
+        {t("agentChat.common.retry")}
+      </Button>
+    </div>
+  );
+}
+
 export function EmailSectionInner({
   open,
   onToggle,
@@ -2810,6 +2559,14 @@ export function EmailSectionInner({
     "resend",
   );
   const [envLoaded, setEnvLoaded] = useState(false);
+  const {
+    scope: emailScope,
+    canChoose: canChooseEmailScope,
+    setScope: setEmailScope,
+    roleUnavailable: emailRoleUnavailable,
+    retry: retryEmailRole,
+  } = useCredentialSaveScope();
+  const emailScopeId = useId();
 
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/env-status"))
@@ -2826,6 +2583,10 @@ export function EmailSectionInner({
   const fromConfigured =
     envKeys.find((k) => k.key === "EMAIL_FROM")?.configured ?? false;
   const anyConfigured = resendConfigured || sendgridConfigured;
+  const emailNeedsSave = !(
+    (emailProvider === "resend" ? resendConfigured : sendgridConfigured) &&
+    fromConfigured
+  );
 
   useEffect(() => {
     if (sendgridConfigured && !resendConfigured) {
@@ -2834,12 +2595,13 @@ export function EmailSectionInner({
   }, [resendConfigured, sendgridConfigured]);
 
   const save = async (vars: Array<{ key: string; value: string }>) => {
+    if (!emailScope) return;
     setSaving(true);
     try {
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars }),
+        body: JSON.stringify({ vars, scope: emailScope }),
       });
       if (res.ok) {
         setSaved(true);
@@ -2896,6 +2658,18 @@ export function EmailSectionInner({
               setEmailProvider(value as "resend" | "sendgrid")
             }
           />
+          {canChooseEmailScope && emailScope && emailNeedsSave ? (
+            <WhoField
+              id={emailScopeId}
+              choice
+              scope={emailScope}
+              disabled={saving}
+              onChange={setEmailScope}
+            />
+          ) : null}
+          {emailRoleUnavailable && emailNeedsSave ? (
+            <SaveScopeRoleAlert onRetry={retryEmailRole} />
+          ) : null}
 
           {emailProvider === "resend" ? (
             <ManualSetupCard
@@ -2929,7 +2703,7 @@ export function EmailSectionInner({
                     intent="primary"
                     emphasis="solid"
                     onClick={saveResend}
-                    disabled={!resendKey.trim() || saving}
+                    disabled={!resendKey.trim() || saving || !emailScope}
                     className={emailBtnCls}
                   >
                     {saving ? (
@@ -2969,7 +2743,7 @@ export function EmailSectionInner({
                       intent="primary"
                       emphasis="solid"
                       onClick={saveResend}
-                      disabled={!fromAddr.trim() || saving}
+                      disabled={!fromAddr.trim() || saving || !emailScope}
                       className={emailBtnCls}
                     >
                       {saving ? (
@@ -3016,7 +2790,7 @@ export function EmailSectionInner({
                     intent="primary"
                     emphasis="solid"
                     onClick={saveSendgrid}
-                    disabled={!sendgridKey.trim() || saving}
+                    disabled={!sendgridKey.trim() || saving || !emailScope}
                     className={emailBtnCls}
                   >
                     {saving ? (
@@ -3056,7 +2830,7 @@ export function EmailSectionInner({
                       intent="primary"
                       emphasis="solid"
                       onClick={saveSendgrid}
-                      disabled={!fromAddr.trim() || saving}
+                      disabled={!fromAddr.trim() || saving || !emailScope}
                       className={emailBtnCls}
                     >
                       {saving ? (
@@ -4194,7 +3968,7 @@ function SettingsPanelContent({
                 trackingFlow="file_upload"
               />
               <ManualSetupCard
-                hint="Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Connect Builder or use an S3-compatible bucket below."
+                hint={t("agentChat.settingsInfra.builderStorageHint")}
                 docsUrl={docsUrl("file-uploads", {
                   campaign: "onboarding",
                   content: "file_upload_settings",

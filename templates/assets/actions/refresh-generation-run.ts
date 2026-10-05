@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, ne } from "drizzle-orm";
@@ -191,7 +191,10 @@ export default defineAction({
           };
         }
       }
-      throw new Error("Generation run not found.");
+      fail("Generation run not found.", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
     }
     const draftAccess = await assertCanDraftAuthoredBy(
       run.libraryId,

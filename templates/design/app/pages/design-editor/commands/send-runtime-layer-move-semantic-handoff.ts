@@ -11,7 +11,10 @@ import {
   reactSourceAnchorForPendingEdit,
   reactSourceAnchorUnavailableReason,
 } from "@/pages/design-editor/pending-edits";
-import { buildRuntimeReactStructureMoveHandoff } from "@/pages/design-editor/react-semantic-handoff";
+import {
+  buildRuntimeReactStructureMoveHandoff,
+  type ReactGridPlacement,
+} from "@/pages/design-editor/react-semantic-handoff";
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface SendRuntimeLayerMoveSemanticHandoffArgs {
@@ -45,6 +48,7 @@ export function runSendRuntimeLayerMoveSemanticHandoff(
   subjectLayerId: string,
   targetLayerId: string,
   placement: "before" | "after" | "inside",
+  gridPlacement?: ReactGridPlacement,
 ): boolean {
   const subjectOwner = codeLayerOwnerByNodeIdRef.current.get(subjectLayerId);
   const targetOwner = codeLayerOwnerByNodeIdRef.current.get(targetLayerId);
@@ -94,6 +98,7 @@ export function runSendRuntimeLayerMoveSemanticHandoff(
     subjectAnchor,
     targetAnchor,
     placement,
+    gridPlacement,
     sourceScreenId: subjectOwner.fileId,
     targetScreenId: targetOwner.fileId,
   });

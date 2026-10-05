@@ -1,3 +1,60 @@
+## 0.164.25
+
+### Patch Changes
+
+- 562194a: Stop sending `temperature` on model requests that carry Claude thinking. Effort
+  defaults to High on every reasoning-capable Claude model, so internal callers
+  that asked only for `temperature: 0` — the Observational Memory compactor, eval
+  judges, sentiment inference — always got a 400 ("`temperature` may only be set
+  to 1 when thinking is enabled or in adaptive mode"). The Anthropic, AI SDK, and
+  Builder gateway engines now drop the sampling parameters when thinking is on or
+  when the model family removed them, and Observational Memory compaction runs at
+  low effort so thinking cannot consume its whole output budget.
+
+## 0.164.24
+
+### Patch Changes
+
+- 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
+- 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
+
+## 0.164.23
+
+### Patch Changes
+
+- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
+
+## 0.164.22
+
+### Patch Changes
+
+- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
+- 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
+
+## 0.164.21
+
+### Patch Changes
+
+- 68f299c: Clarify deployment targets and document Agent-Native app configuration.
+
+## 0.164.20
+
+### Patch Changes
+
+- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
+## 0.164.19
+
+### Patch Changes
+
+- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
+
+## 0.164.18
+
+### Patch Changes
+
+- b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
 ## 0.164.17
 
 ### Patch Changes

@@ -114,6 +114,7 @@ describe("Content parity eval scenarios", () => {
       "builder-source-review-readonly",
       "database-bulk-row-reliability",
       "database-create-property-preservation",
+      "database-distinct-row-patches",
       "database-source-scope",
       "document-search-edit",
       "local-file-source-truth",
@@ -156,7 +157,7 @@ describe("Content parity eval scenarios", () => {
     );
 
     expect(report.failed).toBe(0);
-    expect(report.skipped).toBe(6);
+    expect(report.skipped).toBe(7);
     expect(report.results.every((row) => row.status === "skipped")).toBe(true);
   });
 

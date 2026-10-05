@@ -86,6 +86,7 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
         op: "patch-slide",
         slideId: "a",
         fields: { background: null },
+        baseFields: { background: { present: true, value: "bg-red" } },
       },
     ]);
     expectRoundTrip(before, op);
@@ -292,7 +293,12 @@ describe("deriveInverseOp / applyOpToDeck round-trips", () => {
     const inverse = deriveInverseOp(before, op);
     expect(cleared.slides[0]?.background).toBeUndefined();
     expect(inverse).toEqual([
-      { op: "patch-slide", slideId: "a", fields: { background: "blue" } },
+      {
+        op: "patch-slide",
+        slideId: "a",
+        fields: { background: "blue" },
+        baseFields: { background: { present: false } },
+      },
     ]);
     expect(applyOpToDeck(cleared, inverse![0]!)).toEqual(
       expect.objectContaining({ slides: [slide("a", { background: "blue" })] }),

@@ -5,7 +5,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import type { UploadMode } from "@shared/recording-core.js";
@@ -19,10 +18,10 @@ import {
   type H3Event,
 } from "h3";
 
-import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
 import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
+import { snapshotUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -178,12 +177,6 @@ export async function handleResetRecordingChunks(
     setResponseStatus(event, 400);
     return { error: "A supported video mimeType is required for retry" };
   }
-  const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
-    userEmail: ownerEmail,
-    userKey: ownerEmail,
-    orgId,
-  });
-
   const compression: CompressionMeta | null = body?.compression
     ? {
         originalBytes: pickNumber(body.compression.originalBytes),
@@ -224,6 +217,14 @@ export async function handleResetRecordingChunks(
       setResponseStatus(event, 409);
       return { error: "Recording is already ready" };
     }
+
+    // New recordings snapshot at creation; a missing snapshot here belongs to older work.
+    const recoveryEnabled = await snapshotUploadRecoveryPolicy(
+      ownerEmail,
+      orgId,
+      recordingId,
+      true,
+    );
 
     const requestedAttemptId =
       typeof body?.attemptId === "string" &&

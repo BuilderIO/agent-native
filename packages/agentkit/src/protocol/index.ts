@@ -969,6 +969,7 @@ export interface AgentQueuedMessage {
   createdAt: string;
   attachments?: FilePart[];
   metadata?: AgentProtocolMetadata;
+  options?: AgentRunOptions;
 }
 
 export interface ListThreadsInput {
@@ -988,6 +989,10 @@ export interface ThreadIdInput {
 
 export interface ThreadMessageInput extends ThreadIdInput {
   messageId: string;
+}
+
+export interface SteerQueuedMessageInput extends ThreadMessageInput {
+  interruptActiveRun?: boolean;
 }
 
 export interface CreateThreadInput {
@@ -1010,16 +1015,21 @@ export interface ForkThreadInput extends ThreadIdInput {
 
 export interface QueueMessageInput {
   threadId: ThreadId;
+  id?: string;
   text: string;
   attachments?: FilePart[];
   metadata?: AgentProtocolMetadata;
+  options?: AgentRunOptions;
 }
 
 export interface QueueMessageResult {
   message: AgentQueuedMessage;
 }
 
-export type SteerQueuedMessageResult = StartRunResult | void;
+export type SteerQueuedMessageResult =
+  | (StartRunResult & { alreadySubmitted?: true })
+  | { alreadyRemoved: true }
+  | void;
 
 export interface AgentTransportThreadOperations {
   persistThreadSnapshot?(
@@ -1064,7 +1074,7 @@ export interface AgentTransportThreadOperations {
   ): Promise<QueueMessageResult>;
   /** Wait for the server's thread run slot before promoting this message. */
   steerQueuedMessage?(
-    input: ThreadMessageInput,
+    input: SteerQueuedMessageInput,
     context?: AgentRequestContext,
   ): Promise<SteerQueuedMessageResult>;
   removeQueuedMessage?(
@@ -1142,6 +1152,11 @@ export interface StartRunInput {
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
+  queuePromotion?: {
+    messageId: string;
+    claimId: string;
+    turnId: string;
+  };
 }
 
 export interface AgentResumeEntry {

@@ -17,6 +17,8 @@ export type RemoteAgentAuthErrorCode =
 
 export class RemoteAgentAuthError extends Error {
   readonly code: RemoteAgentAuthErrorCode;
+  /** `code` under the field run and action errors carry to the client. */
+  readonly errorCode: RemoteAgentAuthErrorCode;
   readonly statusCode?: number;
   readonly credentialRef?: string;
   readonly tokenUrl?: string;
@@ -32,6 +34,7 @@ export class RemoteAgentAuthError extends Error {
     super(options.message, { cause: options.cause });
     this.name = "RemoteAgentAuthError";
     this.code = options.code;
+    this.errorCode = options.code;
     this.statusCode = options.statusCode;
     this.credentialRef = options.credentialRef;
     this.tokenUrl = options.tokenUrl;

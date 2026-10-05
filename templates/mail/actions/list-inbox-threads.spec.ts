@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   readCachedLabels: vi.fn(),
   readSyncAccounts: vi.fn(),
   readInboxPushGeneration: vi.fn(),
+  readGmailQuotaCooldowns: vi.fn(),
   getUserSetting: vi.fn(),
   readLocalEmails: vi.fn(),
 }));
@@ -53,6 +54,7 @@ vi.mock("../server/lib/inbox-store.js", () => ({
   readCachedLabels: mocks.readCachedLabels,
   readSyncAccounts: mocks.readSyncAccounts,
   readInboxPushGeneration: mocks.readInboxPushGeneration,
+  readGmailQuotaCooldowns: mocks.readGmailQuotaCooldowns,
   inboxRowToItem: (row: any) => ({
     id: row.latestMessageId,
     threadId: row.threadId,
@@ -129,6 +131,7 @@ beforeEach(() => {
     },
   ]);
   mocks.readInboxPushGeneration.mockResolvedValue(0);
+  mocks.readGmailQuotaCooldowns.mockResolvedValue(new Map());
   mocks.readSettings.mockResolvedValue({
     combineInbox: false,
     pinnedLabels: undefined,
@@ -145,6 +148,91 @@ beforeEach(() => {
 });
 
 describe("list-inbox-threads action", () => {
+  it("reports a Gmail cooldown as read state next to the rows instead of failing", async () => {
+    const until = Date.now() + 40_000;
+    mocks.readInboxThreads.mockResolvedValue([row({})]);
+    mocks.readGmailQuotaCooldowns.mockResolvedValue(new Map([[OWNER, until]]));
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.items).toHaveLength(1);
+    expect(result.read).toMatchObject({
+      freshness: "cached",
+      cooldownUntil: until,
+    });
+    expect(result.read?.retryAfterMs).toBeGreaterThan(0);
+    expect(result.read?.staleSince).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("reports rows as live when no account is cooling down", async () => {
+    mocks.readInboxThreads.mockResolvedValue([row({})]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.read).toEqual({ freshness: "live" });
+  });
+
+  it("marks cooled-down rows stale once the last sync is old", async () => {
+    mocks.readInboxThreads.mockResolvedValue([row({})]);
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: null,
+        lastPushGeneration: 0,
+        lastSyncedAt: Date.now() - 30 * 60_000,
+        lastError: null,
+        labels: null,
+      },
+    ]);
+    mocks.readGmailQuotaCooldowns.mockResolvedValue(
+      new Map([[OWNER, Date.now() + 40_000]]),
+    );
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.read?.freshness).toBe("stale");
+  });
+
+  it("exposes a rejected credential as the typed needs_reauth account state", async () => {
+    mocks.readInboxThreads.mockResolvedValue([row({})]);
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: OWNER,
+        status: "needs_reauth",
+        historyId: "100",
+        fullSyncPageToken: null,
+        lastPushGeneration: 0,
+        lastSyncedAt: Date.now() - 60_000,
+        lastError: "Google API error (401): invalid authentication credentials",
+        labels: null,
+      },
+    ]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(result.accounts).toEqual([
+      expect.objectContaining({
+        accountEmail: OWNER,
+        state: "needs_reauth",
+        error: expect.stringContaining("401"),
+      }),
+    ]);
+  });
+
   it("shows All first by default and returns every inbox thread in it", async () => {
     mocks.readInboxThreads.mockResolvedValue([
       row({ threadId: "t1", latestMessageId: "m1", isAutomated: false }),

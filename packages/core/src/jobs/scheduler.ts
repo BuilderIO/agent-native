@@ -5,7 +5,33 @@ import {
   type Resource,
 } from "../resources/store.js";
 import {
+  countAutomationCredentialState,
+  trackAutomationPaused,
+  trackAutomationResumed,
+} from "./automation-events.js";
+import {
+  applyAutomationFailure,
+  classifyAutomationFailure,
+  CLEAR_FAILURE_STATE,
+  CONFIG_INVALID_ERROR_CODE,
+  hasStalePause,
+  isMissingCredentialCode,
+  isPausedByFramework,
+  isReservedIdentityBlocked,
+  isTransientPauseProbeDue,
+  OWNER_MISSING_ERROR_CODE,
+  OWNER_RESERVED_ERROR_CODE,
+  pauseNow,
+  RESUME_AUTOMATION_PATCH,
+  reservedIdentityMessage,
+  runtimeFailureNextRun,
+  TRANSIENT_PROBE_RESUME_PATCH,
+  withDeliveryNote,
+  type AutomationFailure,
+} from "./automation-outcome.js";
+import {
   backgroundRunCutOffReason,
+  checkBackgroundAutomationCredentials,
   isBackgroundAutomationRunActive,
   resolveBackgroundAutomationIdentity,
   runBackgroundAutomation,
@@ -26,6 +52,7 @@ import {
   patchJobFrontmatterFields,
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
+  type JobFrontmatterPatch,
 } from "./frontmatter.js";
 import {
   dispatchRemoteAutomation,
@@ -45,6 +72,7 @@ import {
   renewAutomationSchedulerLease,
   AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS,
 } from "./scheduler-health.js";
+import { reapStaleWork } from "./stale-reaper.js";
 
 export {
   classifyJobFrontmatter,
@@ -76,6 +104,8 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
 const MAX_IDENTITY_PREFLIGHTS_PER_TICK = MAX_CONCURRENT_SCHEDULED_JOBS * 4;
 const IDENTITY_FAILURE_RETRY_MS = 5 * 60_000;
+const MAX_PAUSED_RECHECKS_PER_TICK = 8;
+const PAUSED_RECHECK_MS = 15 * 60_000;
 const _activeScheduledJobs = new Set<string>();
 const _preflightingScheduledJobs = new Set<string>();
 
@@ -194,6 +224,19 @@ async function processRecurringJobsWithLease(
     console.error("[recurring-jobs] Upload receipt cleanup failed:", error);
   }
 
+  // Throttled and row-capped inside; runs here, not at startup, so a cold
+  // start does no sweeping.
+  try {
+    const reaped = await reapStaleWork();
+    if (reaped && (reaped.automationRuns > 0 || reaped.a2aTasks > 0)) {
+      console.warn(
+        `[recurring-jobs] Closed ${reaped.automationRuns} stale automation run(s) and ${reaped.a2aTasks} stale A2A task(s).`,
+      );
+    }
+  } catch (error) {
+    console.error("[recurring-jobs] Stale work reaper failed:", error);
+  }
+
   const nowMs = Date.now();
   await recordSchedulerHealthForScopes({
     appId: deps.appId,
@@ -233,6 +276,7 @@ async function processRecurringJobsWithLease(
       meta: JobFrontmatter;
       body: string;
     }> = [];
+    const pausedRechecks: PausedRecheck[] = [];
 
     for (const resource of jobResources) {
       if (!resource.path.endsWith(".md")) continue;
@@ -251,6 +295,15 @@ async function processRecurringJobsWithLease(
           null,
       );
 
+      // Whoever flipped `enabled` left the old pause fields behind: the owner
+      // lifted the pause, so the job starts from a clean slate.
+      if (hasStalePause(meta)) {
+        await clearPauseFields(resource, meta, body);
+        continue;
+      }
+
+      // Settled before the pause check: "Run now" on a paused job leaves it
+      // `running`, and only these branches finish that run.
       if (meta.lastStatus === "running" && meta.executionHostId) {
         await reconcileRemoteJob(resource, meta, now);
         continue;
@@ -270,6 +323,19 @@ async function processRecurringJobsWithLease(
         }
         if (await updateResource(resource, meta, body)) {
           await recoverStaleAutomationHistory(resource.owner, resource.path);
+        }
+        continue;
+      }
+
+      if (isPausedByFramework(meta)) {
+        const kind = isTransientPauseProbeDue(meta, now)
+          ? "probe"
+          : isMissingCredentialCode(meta.pausedReason) &&
+              isRecheckDue(meta, now)
+            ? "credential"
+            : null;
+        if (kind && pausedRechecks.length < MAX_PAUSED_RECHECKS_PER_TICK) {
+          pausedRechecks.push({ kind, resource, meta, body });
         }
         continue;
       }
@@ -331,6 +397,20 @@ async function processRecurringJobsWithLease(
           resource: candidate.resource,
         });
         if (!identity.ok) {
+          // A gone owner or a broken identity config will not heal on its own,
+          // so the job is disabled once with the reason. An owner that merely
+          // could not be verified is retried after a cooldown.
+          if (
+            identity.code === OWNER_MISSING_ERROR_CODE ||
+            identity.code === CONFIG_INVALID_ERROR_CODE
+          ) {
+            await disableAutomation(candidate.resource, candidate.meta, now, {
+              code: identity.code,
+              message: identity.reason,
+              precondition: true,
+            });
+            continue;
+          }
           await recordIdentityFailure(
             candidate.resource,
             candidate.meta,
@@ -338,6 +418,14 @@ async function processRecurringJobsWithLease(
             now,
             identity.reason,
           );
+          continue;
+        }
+        if (isReservedIdentityBlocked(identity.identity.userEmail)) {
+          await disableAutomation(candidate.resource, candidate.meta, now, {
+            code: OWNER_RESERVED_ERROR_CODE,
+            message: reservedIdentityMessage(identity.identity.userEmail),
+            precondition: true,
+          });
           continue;
         }
         if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) {
@@ -350,6 +438,8 @@ async function processRecurringJobsWithLease(
         _preflightingScheduledJobs.delete(candidate.key);
       }
     }
+
+    await resumeRecoveredPauses(pausedRechecks, deps, now);
 
     if (dueJobs.length > 0) dispatchedAt = Date.now();
     await recordSchedulerHealthForScopes({
@@ -487,6 +577,149 @@ function hasRecentIdentityFailure(meta: JobFrontmatter, now: Date): boolean {
   );
 }
 
+function jobNameOf(resource: Resource): string {
+  return resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
+}
+
+function isRecheckDue(meta: JobFrontmatter, now: Date): boolean {
+  const lastCheckMs = meta.lastCheck ? Date.parse(meta.lastCheck) : Number.NaN;
+  return (
+    !Number.isFinite(lastCheckMs) ||
+    now.getTime() - lastCheckMs >= PAUSED_RECHECK_MS
+  );
+}
+
+/**
+ * Disables a job whose precondition failed before any run could start.
+ * Nothing ran, so nothing is written but the job's own frontmatter: no thread,
+ * no `agent_runs` row, and no history row.
+ */
+async function disableAutomation(
+  resource: Resource,
+  meta: JobFrontmatter,
+  now: Date,
+  failure: AutomationFailure,
+): Promise<void> {
+  console.warn(
+    `[recurring-jobs] Disabling job "${jobNameOf(resource)}" (${failure.code}): ${failure.message}`,
+  );
+  const written = await updateResource(
+    resource,
+    { ...meta, lastCheck: now.toISOString() },
+    "",
+    pauseNow(failure, now).patch,
+  );
+  if (written) {
+    trackAutomationPaused({
+      name: jobNameOf(resource),
+      failure,
+      consecutiveFailures: 1,
+      surface: "preflight",
+    });
+  }
+}
+
+async function clearPauseFields(
+  resource: Resource,
+  meta: JobFrontmatter,
+  body: string,
+): Promise<void> {
+  await updateResource(resource, meta, body, RESUME_AUTOMATION_PATCH);
+}
+
+interface PausedRecheck {
+  /** `probe`: a transient pause whose backoff elapsed; `credential`: an absent credential. */
+  kind: "probe" | "credential";
+  resource: Resource;
+  meta: JobFrontmatter;
+  body: string;
+}
+
+function nextRunAfterResume(meta: JobFrontmatter, now: Date) {
+  return meta.schedule && isValidCron(meta.schedule)
+    ? nextOccurrence(meta.schedule, now, meta.timezone).toISOString()
+    : meta.nextRun;
+}
+
+/**
+ * A job paused for an absent credential resumes by itself once its run
+ * identity can reach an LLM, so connecting a provider is the whole fix
+ * (checked at most every 15 minutes per job). A transient pause (spent
+ * credits, a provider or platform outage) is lifted for one probe run once
+ * its backoff elapses. A few jobs per tick.
+ */
+async function resumeRecoveredPauses(
+  paused: PausedRecheck[],
+  deps: SchedulerDeps,
+  now: Date,
+): Promise<void> {
+  for (const { kind, resource, meta, body } of paused) {
+    try {
+      if (kind === "probe") {
+        if (
+          await updateResource(
+            resource,
+            { ...meta, nextRun: nextRunAfterResume(meta, now) },
+            body,
+            TRANSIENT_PROBE_RESUME_PATCH,
+          )
+        ) {
+          console.log(
+            `[recurring-jobs] Probing "${jobNameOf(resource)}" again after its ${meta.pausedReason} pause.`,
+          );
+        }
+        continue;
+      }
+      const identity = await resolveBackgroundAutomationIdentity({
+        name: jobNameOf(resource),
+        meta,
+        body,
+        resource,
+      });
+      const recovered =
+        identity.ok &&
+        (
+          await checkBackgroundAutomationCredentials(
+            {
+              ownerEmail: identity.identity.userEmail,
+              orgId: identity.identity.orgId,
+            },
+            deps,
+          )
+        ).ok;
+      if (!recovered) {
+        await updateResource(
+          resource,
+          { ...meta, lastCheck: now.toISOString() },
+          body,
+        );
+        continue;
+      }
+      if (
+        await updateResource(
+          resource,
+          { ...meta, nextRun: nextRunAfterResume(meta, now) },
+          body,
+          { ...RESUME_AUTOMATION_PATCH, enabled: true },
+        )
+      ) {
+        console.log(
+          `[recurring-jobs] Resumed "${jobNameOf(resource)}": its LLM credential is available again.`,
+        );
+        trackAutomationResumed({
+          name: jobNameOf(resource),
+          via: "credential_recovered",
+        });
+      }
+    } catch (error) {
+      console.warn(
+        `[recurring-jobs] Could not recheck paused job "${jobNameOf(resource)}":`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+}
+
 async function reconcileRemoteJob(
   resource: Resource,
   meta: JobFrontmatter,
@@ -517,17 +750,32 @@ async function reconcileRemoteJob(
         historyError,
       );
     });
-    await recordExecutionOutcome(resource, {
-      lastRun: meta.lastRun,
-      lastStatus: remote.state === "completed" ? "success" : "error",
-      lastError: error,
-      remoteRequestId: undefined,
-      remoteCommandId: undefined,
-      remoteRunId: undefined,
-      remoteAutomationRunId: undefined,
-      remoteAdvanceSchedule: undefined,
-      advanceSchedule: meta.remoteAdvanceSchedule !== false,
-    });
+    await recordExecutionOutcome(
+      resource,
+      {
+        lastRun: meta.lastRun,
+        lastStatus: remote.state === "completed" ? "success" : "error",
+        lastError: error,
+        remoteRequestId: undefined,
+        remoteCommandId: undefined,
+        remoteRunId: undefined,
+        remoteAutomationRunId: undefined,
+        remoteAdvanceSchedule: undefined,
+        advanceSchedule: meta.remoteAdvanceSchedule !== false,
+      },
+      remote.state === "completed"
+        ? undefined
+        : {
+            failure: {
+              code: "remote_execution_failed",
+              message: error ?? "The remote execution host failed.",
+              precondition: false,
+            },
+            // A "Run now" dispatch does not advance the schedule; like a local
+            // manual run, it never moves the streak.
+            countTowardPause: meta.remoteAdvanceSchedule !== false,
+          },
+    );
     console.log(
       `[recurring-jobs] Remote job "${resource.path}" reached ${remote.state}.`,
     );
@@ -539,17 +787,28 @@ async function reconcileRemoteJob(
     await finishRemoteAutomationHistory(meta, "failed", message).catch(
       () => undefined,
     );
-    await recordExecutionOutcome(resource, {
-      lastRun: meta.lastRun,
-      lastStatus: "error",
-      lastError: message,
-      remoteRequestId: undefined,
-      remoteCommandId: undefined,
-      remoteRunId: undefined,
-      remoteAutomationRunId: undefined,
-      remoteAdvanceSchedule: undefined,
-      advanceSchedule: meta.remoteAdvanceSchedule !== false,
-    });
+    await recordExecutionOutcome(
+      resource,
+      {
+        lastRun: meta.lastRun,
+        lastStatus: "error",
+        lastError: message,
+        remoteRequestId: undefined,
+        remoteCommandId: undefined,
+        remoteRunId: undefined,
+        remoteAutomationRunId: undefined,
+        remoteAdvanceSchedule: undefined,
+        advanceSchedule: meta.remoteAdvanceSchedule !== false,
+      },
+      {
+        failure: {
+          code: "remote_execution_unavailable",
+          message,
+          precondition: false,
+        },
+        countTowardPause: meta.remoteAdvanceSchedule !== false,
+      },
+    );
     console.error(
       `[recurring-jobs] Remote job "${resource.path}" failed:`,
       message,
@@ -654,19 +913,35 @@ async function executeJob(
           ? err.message.slice(0, 200)
           : "Remote dispatch failed";
       const reportedError = `${lastError}. No delivery was confirmed.`;
-      await recordExecutionOutcome(resource, {
-        lastRun: meta.lastRun,
-        lastStatus: "error",
-        lastError: reportedError,
-        remoteRequestId: undefined,
-        remoteCommandId: undefined,
-        remoteRunId: undefined,
-        remoteAutomationRunId: undefined,
-        remoteAdvanceSchedule: undefined,
-        advanceSchedule: options.advanceSchedule,
-      });
+      await recordExecutionOutcome(
+        resource,
+        {
+          lastRun: meta.lastRun,
+          lastStatus: "error",
+          lastError: reportedError,
+          remoteRequestId: undefined,
+          remoteCommandId: undefined,
+          remoteRunId: undefined,
+          remoteAutomationRunId: undefined,
+          remoteAdvanceSchedule: undefined,
+          advanceSchedule: options.advanceSchedule,
+        },
+        {
+          failure: {
+            code: "remote_dispatch_failed",
+            message: lastError,
+            precondition: false,
+          },
+          countTowardPause: !options.manual,
+        },
+      );
       if (options.historyId) {
-        await finishAutomationRun(options.historyId, "error", reportedError);
+        await finishAutomationRun(
+          options.historyId,
+          "error",
+          reportedError,
+          "remote_dispatch_failed",
+        );
       }
       console.error(
         `[recurring-jobs] Job "${jobName}" remote dispatch failed:`,
@@ -714,6 +989,7 @@ async function executeJob(
         usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
         requestContext,
         ...(options.historyId ? { historyId: options.historyId } : {}),
+        ...(options.manual ? { manual: true } : {}),
         actionCaller: "automation" as const,
         actionAutomation: {
           triggerId: resource.id,
@@ -735,16 +1011,22 @@ async function executeJob(
     console.log(`[recurring-jobs] Job "${jobName}" completed.`);
     return { status: "success", runId: result.runId };
   } catch (err) {
-    const lastError =
-      err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-    const reportedError = `${lastError}. No delivery was confirmed.`;
-    await recordExecutionOutcome(resource, {
-      lastRun: meta.lastRun,
-      lastStatus: "error",
-      lastError: reportedError,
-      advanceSchedule: options.advanceSchedule,
-    });
-    console.error(`[recurring-jobs] Job "${jobName}" failed:`, reportedError);
+    const failure = classifyAutomationFailure(err);
+    const reportedError = withDeliveryNote(failure.message);
+    await recordExecutionOutcome(
+      resource,
+      {
+        lastRun: meta.lastRun,
+        lastStatus: "error",
+        lastError: reportedError,
+        advanceSchedule: options.advanceSchedule,
+      },
+      { failure, countTowardPause: !options.manual },
+    );
+    console.error(
+      `[recurring-jobs] Job "${jobName}" failed (${failure.code}):`,
+      reportedError,
+    );
     return { status: "error", error: reportedError };
   }
 }
@@ -797,6 +1079,7 @@ async function updateResource(
   resource: Resource,
   meta: JobFrontmatter,
   _body: string,
+  extra: JobFrontmatterPatch = {},
 ): Promise<boolean> {
   const content = patchJobFrontmatterFields(resource.content, {
     lastRun: meta.lastRun,
@@ -809,6 +1092,7 @@ async function updateResource(
     remoteRunId: meta.remoteRunId,
     remoteAutomationRunId: meta.remoteAutomationRunId,
     remoteAdvanceSchedule: meta.remoteAdvanceSchedule,
+    ...extra,
   });
   const written = await resourcePutIfCurrent({
     owner: resource.owner,
@@ -834,9 +1118,16 @@ type ExecutionOutcome = Pick<
   | "remoteAdvanceSchedule"
 > & { advanceSchedule?: boolean };
 
+interface ExecutionFailure {
+  failure: AutomationFailure;
+  /** A manual run records its cause but never pauses the automation. */
+  countTowardPause: boolean;
+}
+
 async function recordExecutionOutcome(
   resource: Resource,
   outcome: ExecutionOutcome,
+  failed?: ExecutionFailure,
 ): Promise<void> {
   const latest = await resourceGetByPath(resource.owner, resource.path);
   if (!latest) {
@@ -855,20 +1146,70 @@ async function recordExecutionOutcome(
 
   const { advanceSchedule, ...execution } = outcome;
   const meta: JobFrontmatter = { ...current.meta, ...execution };
+  const now = new Date();
+  let extra: JobFrontmatterPatch = {};
+  let resumed = false;
+  let pausedAfter: number | undefined;
+  if (failed) {
+    const transition = applyAutomationFailure(
+      current.meta,
+      failed.failure,
+      now,
+      { countTowardPause: failed.countTowardPause },
+    );
+    extra = transition.patch;
+    if (transition.pause) {
+      pausedAfter = transition.consecutiveFailures;
+      console.warn(
+        `[recurring-jobs] Paused "${resource.path}" after ${transition.consecutiveFailures} consecutive ${failed.failure.code} failures: ${failed.failure.message}`,
+      );
+    }
+  } else if (outcome.lastStatus === "success") {
+    // A successful run proves the cause is gone: an automation the framework
+    // paused (this can only be a manual run) resumes with a clean slate.
+    resumed = isPausedByFramework(current.meta);
+    extra = resumed
+      ? { ...CLEAR_FAILURE_STATE, enabled: true }
+      : CLEAR_FAILURE_STATE;
+  }
   if (
-    advanceSchedule !== false &&
+    (advanceSchedule !== false || resumed) &&
     meta.schedule &&
     isValidCron(meta.schedule)
   ) {
     meta.nextRun = nextOccurrence(
       meta.schedule,
-      new Date(),
+      now,
       meta.timezone,
     ).toISOString();
+    if (failed && failed.countTowardPause && !failed.failure.precondition) {
+      const count = Number(extra.consecutiveFailures ?? 1);
+      meta.nextRun = runtimeFailureNextRun(
+        new Date(meta.nextRun),
+        now,
+        count,
+      ).toISOString();
+    }
   }
-  if (!(await updateResource(latest, meta, current.body))) {
+  if (!(await updateResource(latest, meta, current.body, extra))) {
     console.log(
       `[recurring-jobs] "${resource.path}" changed while its outcome was being recorded; dropping the outcome.`,
     );
+    return;
+  }
+  if (failed) countAutomationCredentialState(failed.failure.code);
+  if (failed && pausedAfter !== undefined) {
+    trackAutomationPaused({
+      name: jobNameOf(resource),
+      failure: failed.failure,
+      consecutiveFailures: pausedAfter,
+      surface: "scheduler",
+    });
+  }
+  if (resumed) {
+    trackAutomationResumed({
+      name: jobNameOf(resource),
+      via: "successful_run",
+    });
   }
 }

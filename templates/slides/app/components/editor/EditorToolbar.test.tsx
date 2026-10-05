@@ -25,8 +25,11 @@ const mocks = vi.hoisted(() => ({
   ),
   isPromptUploadAuthRequiredError: vi.fn(() => false),
   isPromptUploadLimitError: vi.fn(() => false),
-  isPromptUploadNetworkError: vi.fn(() => false),
+  isPromptUploadNetworkError: vi.fn((_error?: unknown) => false),
   isPromptUploadStorageStatusError: vi.fn(() => false),
+  toastError: vi.fn(),
+  deckContentConflicts: [] as Array<{ slideId: string; canResolve: boolean }>,
+  resolveDeckContentConflict: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -36,6 +39,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       : key === "creativeContext.share.tabLabel"
         ? "Context"
         : key,
+}));
+
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), {
+    error: (...args: unknown[]) => mocks.toastError(...args),
+    success: vi.fn(),
+  }),
 }));
 
 vi.mock("@agent-native/toolkit/app/progress", () => ({
@@ -60,10 +70,15 @@ vi.mock("@/components/visual-editor", () => ({
 }));
 
 vi.mock("@/context/DeckContext", () => ({
+  getDeckSaveError: () => undefined,
   getStaleContentConflictSlideId: () => undefined,
   hasFailedDeckSave: () => false,
   hasUnsavedDeckChanges: () => false,
-  useDecks: () => ({ resolveContentConflict: vi.fn() }),
+  useDeckContentConflicts: () => mocks.deckContentConflicts,
+  useDecks: () => ({
+    resolveContentConflict: vi.fn(),
+    resolveDeckContentConflict: mocks.resolveDeckContentConflict,
+  }),
   useSaveState: () => ({ saving: false }),
 }));
 
@@ -183,6 +198,7 @@ const deckWithSlides: Deck = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.creativeContextLabEnabled.value = true;
+  mocks.deckContentConflicts = [];
 });
 
 afterEach(() => {
@@ -190,6 +206,33 @@ afterEach(() => {
 });
 
 describe("<EditorToolbar>", () => {
+  it("keeps the deck title read-only for viewers", () => {
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          canEdit={false}
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByDisplayValue("Test deck")).toHaveProperty(
+      "readOnly",
+      true,
+    );
+    expect(screen.getByText("editorToolbar.viewOnly")).toBeTruthy();
+  });
+
   it.each([
     [200, { slideCount: 2 }],
     [500, { error: "Import failed" }],
@@ -246,6 +289,68 @@ describe("<EditorToolbar>", () => {
       );
     },
   );
+
+  it("shows a retryable, markup-free failure when the import service answers with a gateway page", async () => {
+    const uploaded = {
+      path: "uploads/import.pdf",
+      originalName: "import.pdf",
+      filename: "import.pdf",
+      type: "application/pdf",
+      size: 3,
+    };
+    const file = new File(["pdf"], "import.pdf", { type: "application/pdf" });
+    mocks.uploadPromptFiles.mockResolvedValue([uploaded]);
+    mocks.cleanupUploadedPromptFiles.mockResolvedValue(undefined);
+    mocks.isPromptUploadNetworkError.mockImplementation(
+      (error: unknown) =>
+        (error as { errorCode?: string }).errorCode ===
+        "upload_service_unavailable",
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          "<!DOCTYPE html><html><head><title>504 Gateway Time-out</title></head></html>",
+          { status: 504 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+        />
+      </TooltipProvider>,
+    );
+    const input = document.querySelector<HTMLInputElement>(
+      'input[type="file"][accept=".pptx,.docx,.pdf"]',
+    )!;
+
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(1));
+    const [title, options] = mocks.toastError.mock.calls[0] as [
+      string,
+      { description: string; action?: { label: string; onClick: () => void } },
+    ];
+    expect(title).toBe("editorToolbar.importFailed");
+    expect(JSON.stringify([title, options.description])).not.toMatch(
+      /<!DOCTYPE|<html/i,
+    );
+    expect(options.action?.label).toBe("home.retry");
+
+    options.action?.onClick();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
 
   it("registers the editor actions in the Cmd+K palette", () => {
     const onAddEmptySlide = vi.fn();

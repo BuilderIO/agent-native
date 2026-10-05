@@ -11,17 +11,13 @@ import {
   type HslaColor,
   type RgbaColor,
 } from "@shared/color-utils";
-import type { ShaderDescriptor } from "@shared/shader-presets";
 import {
   IconChevronDown,
   IconCircleOff as IconNoneFill,
   IconColorPicker,
   IconDroplet as IconShaderFill,
-  IconGrain as IconNoiseFill,
-  IconGridPattern as IconPatternFill,
   IconPhoto as IconImageFill,
   IconSquareFilled as IconSolid,
-  IconVideo as IconVideoFill,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -73,7 +69,6 @@ import {
   parseImageFillCss,
   type ImageFillValue,
 } from "./ImageFillControls";
-import { ShaderFillsPanel } from "./ShaderFillsPanel";
 
 export type DesignColorMode = "hex" | "rgb" | "hsl" | "hsb";
 export type DesignGradientType = "linear" | "radial" | "angular" | "diamond";
@@ -85,10 +80,7 @@ export type DesignPaintType =
   | "angular"
   | "diamond"
   | "image"
-  | "video"
   | "shader"
-  | "noise"
-  | "pattern"
   | "none";
 
 export interface DesignFillRow {
@@ -186,14 +178,7 @@ export interface DesignColorPickerProps {
   onRemoveGradientStop?: (id: string) => void;
   documentColors?: string[];
   supportedPaintTypes?: DesignPaintType[];
-  shaderContext?: {
-    designId?: string;
-    fileId?: string;
-    nodeId?: string;
-    selector?: string;
-  };
   glslShaderContext?: GlslShaderPanelContext;
-  onShaderChange?: (descriptor: ShaderDescriptor, css: string) => void;
   labels?: Partial<DesignColorPickerLabels>;
   allowDesignHistoryHotkeys?: boolean;
   onDesignHistoryHotkey?: () => void;
@@ -402,10 +387,7 @@ const PAINT_TYPES: Array<{
   { type: "angular", label: "Angular", Icon: IconAngularGradient }, // i18n-ignore paint type label
   { type: "diamond", label: "Diamond", Icon: IconDiamondGradient }, // i18n-ignore paint type label
   { type: "image", label: "Image", Icon: IconImageFill }, // i18n-ignore paint type label
-  { type: "video", label: "Video", Icon: IconVideoFill }, // i18n-ignore paint type label
   { type: "shader", label: "Shader", Icon: IconShaderFill }, // i18n-ignore paint type label
-  { type: "noise", label: "Noise", Icon: IconNoiseFill }, // i18n-ignore paint type label
-  { type: "pattern", label: "Pattern", Icon: IconPatternFill }, // i18n-ignore paint type label
   { type: "none", label: "None", Icon: IconNoneFill }, // i18n-ignore paint type label
 ];
 
@@ -416,10 +398,6 @@ const GRADIENT_TYPES = new Set<DesignPaintType>([
   "diamond",
 ]);
 
-const NOISE_FALLBACK_CSS =
-  "repeating-conic-gradient(#0000 0% 25%, #00000010 0% 50%) 0 0 / 6px 6px, #8a8a8a";
-const PATTERN_FALLBACK_CSS =
-  "repeating-linear-gradient(45deg, #00000014 0 6px, #ffffff14 6px 12px), #9aa0a6";
 const BLEND_MODE_OPTIONS = [
   { value: "normal", label: "Normal" },
   { value: "multiply", label: "Multiply" },
@@ -484,9 +462,7 @@ export function DesignColorPicker({
   onGradientTypeChange,
   documentColors,
   supportedPaintTypes,
-  shaderContext,
   glslShaderContext,
-  onShaderChange,
   labels,
   allowDesignHistoryHotkeys = false,
   onDesignHistoryHotkey,
@@ -559,14 +535,13 @@ export function DesignColorPicker({
   const [imageFill, setImageFill] = useState<ImageFillValue>(
     () => parsedImageFill ?? { url: "", fit: "fill" },
   );
-  const [shaderDescriptor, setShaderDescriptor] =
-    useState<ShaderDescriptor | null>(null);
 
-  const visiblePaintTypes = supportedPaintTypes
-    ? PAINT_TYPES.filter((entry) => supportedPaintTypes.includes(entry.type))
-    : PAINT_TYPES;
   const isPaintTypeSupported = (type: DesignPaintType) =>
-    !supportedPaintTypes || supportedPaintTypes.includes(type);
+    (type !== "shader" || glslShaderContext !== undefined) &&
+    (!supportedPaintTypes || supportedPaintTypes.includes(type));
+  const visiblePaintTypes = PAINT_TYPES.filter((entry) =>
+    isPaintTypeSupported(entry.type),
+  );
 
   const rawEffectivePaintType: DesignPaintType =
     localPaintType ?? paintType ?? inferPaintType(value, effectiveOpacity);
@@ -771,18 +746,6 @@ export function DesignColorPicker({
     notifyChangeComplete();
   };
 
-  const previewShader = (descriptor: ShaderDescriptor, css: string) => {
-    setShaderDescriptor(descriptor);
-    emitPaintValue(css);
-  };
-
-  const commitShader = (descriptor: ShaderDescriptor, css: string) => {
-    setShaderDescriptor(descriptor);
-    onShaderChange?.(descriptor, css);
-    emitPaintValue(css);
-    notifyChangeComplete();
-  };
-
   const setPaintType = (nextType: DesignPaintType) => {
     if (disabled) return;
     if (!isPaintTypeSupported(nextType)) return;
@@ -826,28 +789,12 @@ export function DesignColorPicker({
     }
     if (nextType === "image") {
       const nextImageFill = parsedImageFill ?? imageFill;
-      if (onImageFillChange && nextImageFill.url) {
+      if (!nextImageFill.url) return;
+      if (onImageFillChange) {
         onImageFillChange(nextImageFill);
         return;
       }
-      emitPaintValue(
-        nextImageFill.url ? imageFillToCss(nextImageFill) : "transparent",
-      );
-      notifyChangeComplete();
-      return;
-    }
-    if (nextType === "video") {
-      emitPaintValue("transparent");
-      notifyChangeComplete();
-      return;
-    }
-    if (nextType === "noise") {
-      emitPaintValue(NOISE_FALLBACK_CSS);
-      notifyChangeComplete();
-      return;
-    }
-    if (nextType === "pattern") {
-      emitPaintValue(PATTERN_FALLBACK_CSS);
+      emitPaintValue(imageFillToCss(nextImageFill));
       notifyChangeComplete();
       return;
     }
@@ -1094,7 +1041,7 @@ export function DesignColorPicker({
           side="left"
           align="start"
           sideOffset={8}
-          className="z-[10000] w-[252px] p-0 shadow-xl"
+          className="w-[252px] p-0 shadow-xl"
           data-design-chrome-region="right-panel"
           data-design-history-hotkeys={
             allowDesignHistoryHotkeys ? "true" : undefined
@@ -1127,25 +1074,11 @@ export function DesignColorPicker({
                   if (effectivePaintType === "shader") setPaintType("solid");
                 }}
               />
-            ) : view === "shader" ? (
-              <ShaderFillsPanel
-                descriptor={shaderDescriptor ?? undefined}
-                applyContext={shaderContext}
-                disabled={disabled}
-                onApply={previewShader}
-                onCommit={commitShader}
-                onBack={() => {
-                  setView("picker");
-                  if (effectivePaintType === "shader") {
-                    if (!shaderDescriptor) setPaintType("solid");
-                  }
-                }}
-              />
             ) : (
               <>
                 {/* ── Paint-type icon row (design-editor, full-width tabs) ─── */}
-                {/* Up to 11 types, split across two rows (first row capped at
-                    6 columns). When `supportedPaintTypes` restricts the set
+                {/* Up to 8 types in one grid capped at 6 columns, so every tab
+                    keeps the same size when the list wraps. When `supportedPaintTypes` restricts the set
                     (e.g. solid-only for strokes), only the allowed tabs
                     render — never a tab that would silently discard its
                     write. Each icon is a clearly-hittable 36×32px target with
@@ -1154,15 +1087,7 @@ export function DesignColorPicker({
                 {visiblePaintTypes.length > 1 && (
                   <div className="border-b border-border/70 px-2 pt-2 pb-1.5">
                     {(() => {
-                      const firstRowCount = Math.min(
-                        6,
-                        visiblePaintTypes.length,
-                      );
-                      const firstRow = visiblePaintTypes.slice(
-                        0,
-                        firstRowCount,
-                      );
-                      const secondRow = visiblePaintTypes.slice(firstRowCount);
+                      const columns = Math.min(6, visiblePaintTypes.length);
                       const renderTab = ({
                         type,
                         label,
@@ -1193,7 +1118,7 @@ export function DesignColorPicker({
                             </TooltipTrigger>
                             <TooltipContent
                               side="bottom"
-                              className="z-[10010] text-[10px]"
+                              className="text-[10px]"
                               onEscapeKeyDown={closeFromTooltipEscape}
                             >
                               {label}
@@ -1202,29 +1127,14 @@ export function DesignColorPicker({
                         );
                       };
                       return (
-                        <>
-                          <div
-                            className={cn(
-                              "grid gap-1",
-                              secondRow.length > 0 && "mb-1",
-                            )}
-                            style={{
-                              gridTemplateColumns: `repeat(${firstRowCount}, minmax(0, 1fr))`,
-                            }}
-                          >
-                            {firstRow.map(renderTab)}
-                          </div>
-                          {secondRow.length > 0 && (
-                            <div
-                              className="grid gap-1"
-                              style={{
-                                gridTemplateColumns: `repeat(${secondRow.length}, minmax(0, 1fr))`,
-                              }}
-                            >
-                              {secondRow.map(renderTab)}
-                            </div>
-                          )}
-                        </>
+                        <div
+                          className="grid gap-1"
+                          style={{
+                            gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                          }}
+                        >
+                          {visiblePaintTypes.map(renderTab)}
+                        </div>
                       );
                     })()}
                     {/* Active-type label — shows which mode is selected */}
@@ -1246,47 +1156,6 @@ export function DesignColorPicker({
                   </div>
                 )}
 
-                {/* ── Video fill: source field ────────────────────────────── */}
-                {effectivePaintType === "video" && (
-                  <div className="px-3 py-2">
-                    <p className="mb-1.5 text-[10px] text-muted-foreground">
-                      {
-                        "Paste a video URL to use as the fill." /* i18n-ignore */
-                      }
-                    </p>
-                    <Input
-                      defaultValue=""
-                      disabled={disabled}
-                      placeholder={"Video URL (mp4, webm)" /* i18n-ignore */}
-                      aria-label={"Video URL" /* i18n-ignore */}
-                      spellCheck={false}
-                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          const url = e.currentTarget.value.trim();
-                          if (url) {
-                            emitPaintValue(
-                              `url("${url}") center / cover no-repeat`,
-                            );
-                            notifyChangeComplete();
-                          }
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const url = e.currentTarget.value.trim();
-                        if (url) {
-                          emitPaintValue(
-                            `url("${url}") center / cover no-repeat`,
-                          );
-                          notifyChangeComplete();
-                        }
-                      }}
-                    />
-                  </div>
-                )}
-
                 {/* ── Gradient editor (linear / radial / angular / diamond) ── */}
                 {activeGradient && (
                   <div>
@@ -1302,7 +1171,7 @@ export function DesignColorPicker({
                 )}
 
                 {/* ── 2D Saturation/Brightness field ──────────────────────── */}
-                {/* Hidden for non-color fills (image/video/noise/pattern). */}
+                {/* Hidden for image fills. */}
                 {(effectivePaintType === "solid" ||
                   effectivePaintType === "none" ||
                   activeGradient) && (
@@ -1360,7 +1229,6 @@ export function DesignColorPicker({
                             </button>
                           </TooltipTrigger>
                           <TooltipContent
-                            className="z-[10010]"
                             onEscapeKeyDown={closeFromTooltipEscape}
                           >
                             {
@@ -1574,7 +1442,6 @@ export function DesignColorPicker({
                             />
                           </TooltipTrigger>
                           <TooltipContent
-                            className="z-[10010]"
                             onEscapeKeyDown={closeFromTooltipEscape}
                           >
                             {currentHex}
@@ -2279,10 +2146,7 @@ function triggerLabel(type: DesignPaintType, color: RgbaColor): string {
   if (type === "solid") return toDisplayHex(color);
   if (type === "none") return "None";
   if (type === "image") return "Image";
-  if (type === "video") return "Video";
   if (type === "shader") return "Shader";
-  if (type === "noise") return "Noise";
-  if (type === "pattern") return "Pattern";
   return `${type[0].toUpperCase()}${type.slice(1)}`;
 }
 

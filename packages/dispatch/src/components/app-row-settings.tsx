@@ -1,4 +1,4 @@
-import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/toolkit/app/chat/chat-first";
+import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/toolkit/app/chat/chat-first/app-open-actions";
 import { IconPlus, IconSettings } from "@tabler/icons-react";
 
 import { Button } from "./ui/button";

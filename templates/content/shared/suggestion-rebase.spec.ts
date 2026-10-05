@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { canonicalizeNfm } from "./nfm";
-import { resolveMarkdownSuggestionRange } from "./suggestion-rebase";
+import {
+  resolveMarkdownSuggestionRange,
+  resolveOutsideChange,
+} from "./suggestion-rebase";
 
 function change(before: string, from: number, to: number, inserted: string) {
   return {
@@ -20,6 +23,21 @@ function change(before: string, from: number, to: number, inserted: string) {
 }
 
 describe("resolveMarkdownSuggestionRange", () => {
+  it.each([
+    { current: "Notice. Alpha\nBeta\nTail", expected: { from: 14, to: 18 } },
+    { current: "Alpha\nBeta\nTail Peer.", expected: { from: 6, to: 10 } },
+    { current: "Notice. Alpha\nBeta\nTail Peer.", expected: null },
+    { current: "Alpha\nOther\nTail Beta", expected: null },
+    { current: "Alpha\nBeta\nBeta\nTail", expected: null },
+  ])(
+    "maps only strictly outside changes: $current",
+    ({ current, expected }) => {
+      expect(
+        resolveOutsideChange("Alpha\nBeta\nTail", current, { from: 6, to: 10 }),
+      ).toEqual(expected);
+    },
+  );
+
   const before =
     "Alpha Beta Gamma. Added words.\nThe team will publish on Monday.";
   const end = before.indexOf("\n");
@@ -299,6 +317,44 @@ describe("resolveMarkdownSuggestionRange", () => {
       from: canonical.indexOf(target),
       to: canonical.indexOf(target) + target.length,
     });
+  });
+
+  it.each([
+    ["First.\n\nSecond.\n\nThird.", 14, 13],
+    ["Same.\n\nSame.\n\nSame.", 11, 10],
+  ])(
+    "maps an unchanged interior insertion through paragraph canonicalization: %s",
+    (saved, from, expected) => {
+      expect(
+        resolveMarkdownSuggestionRange(
+          canonicalizeNfm(saved),
+          change(saved, from, from, " accepted"),
+        ),
+      ).toEqual({ from: expected, to: expected });
+    },
+  );
+
+  it("refuses each ambiguous collapsed separator between several paragraphs", () => {
+    const saved = "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.";
+    for (const match of saved.matchAll(/\n\n/g)) {
+      const from = match.index! + 1;
+      expect(
+        resolveMarkdownSuggestionRange(
+          canonicalizeNfm(saved),
+          change(saved, from, from, "Inserted."),
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("does not use canonicalization to relocate an insertion into extra repeated context", () => {
+    const saved = "Same.\n\nSame.\n\nSame.";
+    expect(
+      resolveMarkdownSuggestionRange(
+        "Same.\nSame.\nSame.\nSame.",
+        change(saved, 11, 11, " accepted"),
+      ),
+    ).toBeNull();
   });
 
   it.each([

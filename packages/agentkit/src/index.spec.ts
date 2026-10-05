@@ -55,6 +55,7 @@ describe("AgentKit root entrypoint", () => {
   it("exposes only the protocol and headless client surface", () => {
     expect(agentKit).toHaveProperty("AGENTKIT_PROTOCOL_VERSION");
     expect(agentKit).toHaveProperty("createAgentKitClient");
+    expect(agentKit).toHaveProperty("splitAgentKitMessageContext");
     expect(agentKit).not.toHaveProperty("createAgentKitHttpTransport");
     expect(agentKit).not.toHaveProperty("AgentKitRoot");
     expect(agentKit).not.toHaveProperty("assertAgentTransportConformance");

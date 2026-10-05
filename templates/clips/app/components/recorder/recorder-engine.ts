@@ -47,6 +47,9 @@ import {
   deleteRecordingBackup,
   putRecordingBackupChunk,
   putRecordingBackupMeta,
+  updateRecordingBackupMeta,
+  verifyServerCopy,
+  type RecordingBackupMeta,
 } from "@/lib/recording-backup";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
@@ -109,6 +112,33 @@ export type RecorderState =
   | "complete"
   | "error";
 
+/** Waits before retrying a failed local-copy write; a full disk never retries. */
+const BACKUP_WRITE_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
+
+function isQuotaError(error: Error): boolean {
+  return (
+    error.name === "QuotaExceededError" ||
+    /quota|disk|space/i.test(error.message)
+  );
+}
+
+async function retryBackupWrite(write: () => Promise<unknown>): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await write();
+      return;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(errorMessage(err));
+      const delay = BACKUP_WRITE_RETRY_DELAYS_MS[attempt];
+      if (isQuotaError(error) || delay === undefined) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+/** How long a released recorder may take to hand over its final chunk. */
+const RELEASE_FINAL_CHUNK_TIMEOUT_MS = 5_000;
+
 const RECORDING_AT_RISK_STATES = new Set<RecorderState>([
   "recording",
   "paused",
@@ -140,6 +170,13 @@ export interface RecorderEngineOptions {
   }) => void;
   onError?: (err: Error) => void;
   onWarning?: (message: string) => void;
+  /**
+   * The local copy stopped being written (after retries). The recording is
+   * still in memory; the UI warns once, in the user's language.
+   */
+  onLocalCopyFailed?: (reason: "quota" | "unavailable") => void;
+  /** Stop finished without the recorder's final chunk; the end may be lost. */
+  onIncompleteCapture?: () => void;
   onCameraEnded?: () => void;
   onDisplayTrackEnded?: () => void;
   onResolvedDisplaySurface?: (surface: DisplaySurface | null) => void;
@@ -158,6 +195,8 @@ export interface RecorderFinalizeResult {
   videoUrl: string | null;
   status?: string;
   waitingForStorage?: boolean;
+  /** Stopped with no upload target; the bytes live only in the local copy. */
+  localOnly?: boolean;
   durationMs: number;
   width: number;
   height: number;
@@ -459,6 +498,23 @@ export class RecorderEngine {
   private lastFinalizeMeta: RecordingFinalizeMeta | null = null;
   private backupChunkIndex = 0;
   private backupMirrorQueue: Promise<void> = Promise.resolve();
+  private backupError: Error | null = null;
+  /** Set by an explicit discard; later recorder data must not recreate the copy. */
+  private discarded = false;
+  /** False when the recorder never delivered its final chunk on Stop. */
+  private captureComplete = true;
+  /** Set once Stop saw the final chunk; a later chunk must not undo it. */
+  private backupCompletedAt: string | null = null;
+  /** Settles once a Stop in flight has seen (or given up on) the final chunk. */
+  private finalChunkSettled: Promise<unknown> | null = null;
+  /** The copy was deleted; a late chunk must not recreate part of it. */
+  private backupCleared = false;
+  private backupDetails: {
+    ownerEmail: string | null;
+    title: string | null;
+    createdAt: string;
+  } | null = null;
+  private localOnly = false;
   private compressionAbort: AbortController | null = null;
   private uploadAbort: AbortController | null = null;
   private uploadMode: UploadMode = "buffered";
@@ -741,6 +797,34 @@ export class RecorderEngine {
     };
   }
 
+  /** The stopped recording held in memory, for when its local copy failed. */
+  getBufferedRecordingSource(): {
+    blob: Blob;
+    mimeType: string;
+    durationMs: number;
+    width: number;
+    height: number;
+    hasAudio: boolean;
+    hasCamera: boolean;
+    ownerEmail: string | null;
+    whole: boolean;
+  } | null {
+    const meta = this.lastFinalizeMeta;
+    if (!meta || this.localChunks.length === 0) return null;
+    const mimeType = this.mimeType || "video/webm";
+    return {
+      blob: new Blob(this.localChunks, { type: mimeType }),
+      mimeType,
+      durationMs: meta.durationMs,
+      width: meta.dimensions.width,
+      height: meta.dimensions.height,
+      hasAudio: meta.hasAudio,
+      hasCamera: meta.hasCamera,
+      ownerEmail: this.backupDetails?.ownerEmail ?? null,
+      whole: this.captureComplete,
+    };
+  }
+
   canRetryUpload(): boolean {
     return (
       this.state === "error" &&
@@ -1000,6 +1084,47 @@ export class RecorderEngine {
     this.opts.uploadMode = target.uploadMode ?? "buffered";
     this.uploadAttemptId = null;
     this.uploadGenerationId = null;
+    this.localOnly = false;
+  }
+
+  /**
+   * Record with no server row: every chunk goes only to the local copy, and
+   * `stop()` returns once that copy is complete instead of uploading.
+   */
+  setLocalOnlyTarget(recordingId: string): void {
+    this.opts.recordingId = recordingId;
+    this.opts.uploadUrl = "";
+    this.opts.abortUrl = "";
+    this.opts.resetUrl = "";
+    this.opts.uploadMode = "buffered";
+    this.uploadAttemptId = null;
+    this.uploadGenerationId = null;
+    this.localOnly = true;
+  }
+
+  isLocalOnly(): boolean {
+    return this.localOnly;
+  }
+
+  setBackupDetails(details: {
+    ownerEmail: string | null;
+    title: string | null;
+  }): void {
+    this.backupDetails = { ...details, createdAt: new Date().toISOString() };
+  }
+
+  getRecordingId(): string {
+    return this.opts.recordingId;
+  }
+
+  /** False when neither a microphone nor shared tab/system audio is captured. */
+  capturesAudio(): boolean {
+    return this.hasAudioTrack();
+  }
+
+  /** The first local-copy write failure, e.g. a full disk; null while safe. */
+  getBackupError(): Error | null {
+    return this.backupError;
   }
 
   async start(): Promise<void> {
@@ -1021,6 +1146,7 @@ export class RecorderEngine {
     }
     this.combinedStream = this.buildCombinedStream();
     this.stopPromise = null;
+    this.finalChunkSettled = null;
     this.recordedCameraVideo = false;
 
     try {
@@ -1077,6 +1203,12 @@ export class RecorderEngine {
     this.totalRecordedBytes = 0;
     this.lastFinalizeMeta = null;
     this.backupChunkIndex = 0;
+    this.backupError = null;
+    this.discarded = false;
+    this.captureComplete = true;
+    this.backupCompletedAt = null;
+    this.backupCleared = false;
+    this.startRecordingBackup();
     this.uploadAbort = new AbortController();
     this.uploadMode = this.opts.uploadMode ?? "buffered";
     this.uploadAttemptId = null;
@@ -1093,7 +1225,7 @@ export class RecorderEngine {
     const recorder = this.recorder!;
     recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
-      if (!blob || blob.size === 0) return;
+      if (!blob || blob.size === 0 || this.discarded) return;
       this.localChunks.push(blob);
       this.totalRecordedBytes += blob.size;
       this.localChunkRevision += 1;
@@ -1221,6 +1353,7 @@ export class RecorderEngine {
         this.emitError(err);
         throw err;
       }
+      this.finalChunkSettled = finalDataAvailable;
 
       backupCaptureComplete = await finalDataAvailable;
     }
@@ -1236,8 +1369,14 @@ export class RecorderEngine {
       hasCamera,
     };
     this.lastFinalizeMeta = finalizeMeta;
+    this.captureComplete = backupCaptureComplete;
     if (backupCaptureComplete) {
       this.markRecordingBackupComplete(finalizeMeta);
+    } else {
+      // The end of the recording never arrived: the copy uploads what it has
+      // but is never deleted automatically, and the user is told.
+      this.updateRecordingBackup({ incomplete: true });
+      this.opts.onIncompleteCapture?.();
     }
 
     this.cameraLive = false;
@@ -1250,6 +1389,16 @@ export class RecorderEngine {
           t.stop();
         } catch {}
       });
+    }
+
+    if (this.localOnly) {
+      this.cleanupTracks();
+      await this.backupMirrorQueue;
+      this.transition("complete");
+      return {
+        ...this.toFinalizeResult(undefined, finalizeMeta),
+        localOnly: true,
+      };
     }
 
     let result: Record<string, unknown> | undefined;
@@ -1359,7 +1508,41 @@ export class RecorderEngine {
   private clearRecordingDataIfReady(
     result: Record<string, unknown> | undefined,
   ): void {
+    if (result?.status === "processing") {
+      this.updateRecordingBackup({
+        state: "uploaded",
+        serverRecordingId: this.opts.recordingId,
+      });
+    }
     if (result?.status !== "ready") return;
+    // "ready" is not proof: the copy goes only when the server reports the
+    // exact bytes this recorder produced and the recording ended cleanly.
+    const proof = verifyServerCopy(
+      {
+        sourceSizeBytes:
+          typeof result.sourceSizeBytes === "number"
+            ? result.sourceSizeBytes
+            : null,
+        durationMs:
+          typeof result.durationMs === "number" ? result.durationMs : null,
+      },
+      {
+        bytes: this.totalRecordedBytes,
+        durationMs: this.lastFinalizeMeta?.durationMs ?? 0,
+      },
+    );
+    if (!this.captureComplete || proof !== "verified") {
+      this.updateRecordingBackup({
+        state: "uploaded",
+        serverRecordingId: this.opts.recordingId,
+        keptAfterUpload: !this.captureComplete
+          ? "partial"
+          : proof === "mismatch"
+            ? "mismatch"
+            : "unverified",
+      });
+      return;
+    }
     this.localChunks = [];
     this.lastFinalizeMeta = null;
     this.clearRecordingBackup();
@@ -1600,7 +1783,10 @@ export class RecorderEngine {
     }
   }
 
-  async cancel(failureCode = "unknown"): Promise<void> {
+  async cancel(failureCode = "recording_interrupted"): Promise<void> {
+    // Before the recorder stops: its final chunk arrives afterwards and must
+    // not write a new copy behind the delete.
+    this.discarded = true;
     this.streamingRecoveryGeneration += 1;
     this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;
@@ -1640,6 +1826,7 @@ export class RecorderEngine {
     this.lastFinalizeMeta = null;
     this.clearRecordingBackup();
     this.transition("idle");
+    await this.backupMirrorQueue;
 
     if (this.opts.abortUrl) {
       try {
@@ -1650,7 +1837,7 @@ export class RecorderEngine {
             reason:
               failureCode === "user_cancelled"
                 ? "Recording cancelled by user"
-                : failureCode === "unknown"
+                : failureCode === "recording_interrupted"
                   ? "Recording interruption has unknown cause"
                   : failureCode === "storage_setup_required"
                     ? "Video storage is not connected yet"
@@ -1664,6 +1851,47 @@ export class RecorderEngine {
         // ignore — best effort
       }
     }
+  }
+
+  /**
+   * Let go of capture and network work without discarding anything: the page
+   * is closing or the recorder unmounted, and the local copy is what a later
+   * visit recovers. Only `cancel()` (an explicit discard) deletes it.
+   */
+  release(): Promise<void> {
+    this.streamingRecoveryGeneration += 1;
+    this.streamingRecovery.reset();
+    this.streamingUploadGeneration += 1;
+    // A Stop already in flight has asked for the final chunk; wait for it.
+    let stopped: Promise<unknown> = this.finalChunkSettled ?? Promise.resolve();
+    const recorder = this.recorder;
+    try {
+      if (recorder && recorder.state !== "inactive") {
+        stopped = new Promise<void>((resolve) => {
+          recorder.addEventListener("stop", () => resolve(), { once: true });
+        });
+        recorder.stop();
+      }
+    } catch {
+      // coercion-ok: a recorder that already stopped has nothing to release.
+      stopped = Promise.resolve();
+    }
+    stopped = Promise.race([
+      stopped,
+      new Promise((resolve) =>
+        setTimeout(resolve, RELEASE_FINAL_CHUNK_TIMEOUT_MS),
+      ),
+    ]);
+    const releaseErr = makeAbortError("Recorder released");
+    this.compressionAbort?.abort(releaseErr);
+    this.compressionAbort = null;
+    this.uploadAbort?.abort(releaseErr);
+    this.uploadAbort = null;
+    this.cleanupTracks();
+    this.transition("idle");
+    // The final chunk lands just before `stop`; the copy is whole (and safe
+    // for another tab to take) only once it and every queued write settle.
+    return stopped.then(() => this.backupMirrorQueue);
   }
 
   private buildMixedAudioTrack(
@@ -2477,61 +2705,129 @@ export class RecorderEngine {
     );
   }
 
-  private mirrorChunkToBackup(blob: Blob): void {
+  /** The copy's metadata as of now, read when its write is queued. */
+  private backupMetaNow(
+    recordingId: string,
+    chunkCount: number,
+  ): RecordingBackupMeta {
+    const dimensions = this.readDimensions();
+    // A recorder can deliver one more chunk after Stop's final one; that
+    // chunk extends a finished copy instead of reopening it.
+    const completedAt = this.backupCompletedAt;
+    return {
+      recordingId,
+      mimeType: this.mimeType,
+      durationMs: chunkCount === 0 ? 0 : Math.round(this.getElapsedMs()),
+      width: dimensions.width,
+      height: dimensions.height,
+      hasAudio: this.hasAudioTrack(),
+      hasCamera: this.recordedCameraVideo,
+      bytes: this.totalRecordedBytes,
+      chunkCount,
+      savedAt: new Date().toISOString(),
+      completedAt,
+      state: completedAt ? "recorded-local" : "recording",
+      localOnly: this.localOnly,
+    };
+  }
+
+  /** Recovery can find the copy before its first chunk exists. */
+  private startRecordingBackup(): void {
     const recordingId = this.opts.recordingId;
     if (!recordingId || recordingId === "__pending__") return;
+    const meta = {
+      ...this.backupMetaNow(recordingId, 0),
+      ...this.backupDetails,
+    };
+    this.backupMirrorQueue = this.backupMirrorQueue
+      .then(() => retryBackupWrite(() => putRecordingBackupMeta(meta)))
+      .catch((err) => this.rememberBackupFailure(err));
+  }
+
+  private mirrorChunkToBackup(blob: Blob): void {
+    const recordingId = this.opts.recordingId;
+    if (!recordingId || recordingId === "__pending__" || this.backupCleared) {
+      return;
+    }
     const index = this.backupChunkIndex++;
-    const dimensions = this.readDimensions();
-    const hasCamera = this.recordedCameraVideo;
+    const meta = this.backupMetaNow(recordingId, index + 1);
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(async () => {
-        await putRecordingBackupChunk(recordingId, index, blob);
-        await putRecordingBackupMeta({
-          recordingId,
-          mimeType: this.mimeType,
-          durationMs: Math.round(this.getElapsedMs()),
-          width: dimensions.width,
-          height: dimensions.height,
-          hasAudio: this.hasAudioTrack(),
-          hasCamera,
-          bytes: this.totalRecordedBytes,
-          chunkCount: index + 1,
-          savedAt: new Date().toISOString(),
-          completedAt: null,
-        });
+        if (this.backupError) return;
+        await retryBackupWrite(() =>
+          putRecordingBackupChunk(recordingId, index, blob, meta),
+        );
       })
-      .catch(() => {});
+      .catch((err) => this.rememberBackupFailure(err));
   }
 
   private markRecordingBackupComplete(meta: RecordingFinalizeMeta): void {
     const recordingId = this.opts.recordingId;
     if (!recordingId || recordingId === "__pending__") return;
+    const completedAt = new Date().toISOString();
+    this.backupCompletedAt = completedAt;
+    // Counted now: a chunk that arrives while this write waits is listed by
+    // its own write, once it is stored.
+    const bytes = this.totalRecordedBytes;
+    const chunkCount = this.backupChunkIndex;
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(() => {
-        const completedAt = new Date().toISOString();
-        return putRecordingBackupMeta({
-          recordingId,
-          mimeType: this.mimeType,
-          durationMs: meta.durationMs,
-          width: meta.dimensions.width,
-          height: meta.dimensions.height,
-          hasAudio: meta.hasAudio,
-          hasCamera: meta.hasCamera,
-          bytes: this.totalRecordedBytes,
-          chunkCount: this.backupChunkIndex,
-          savedAt: completedAt,
-          completedAt,
-        });
+        if (this.backupError) return;
+        return retryBackupWrite(() =>
+          putRecordingBackupMeta({
+            recordingId,
+            mimeType: this.mimeType,
+            durationMs: meta.durationMs,
+            width: meta.dimensions.width,
+            height: meta.dimensions.height,
+            hasAudio: meta.hasAudio,
+            hasCamera: meta.hasCamera,
+            bytes,
+            chunkCount,
+            savedAt: completedAt,
+            completedAt,
+            state: "recorded-local",
+          }),
+        );
       })
-      .catch(() => {});
+      .catch((err) => this.rememberBackupFailure(err));
+  }
+
+  private updateRecordingBackup(
+    patch: Parameters<typeof updateRecordingBackupMeta>[1],
+  ): void {
+    const recordingId = this.opts.recordingId;
+    if (!recordingId || recordingId === "__pending__") return;
+    this.backupMirrorQueue = this.backupMirrorQueue
+      .then(async () => {
+        if (this.backupError) return;
+        await retryBackupWrite(() =>
+          updateRecordingBackupMeta(recordingId, patch),
+        );
+      })
+      .catch((err) => this.rememberBackupFailure(err));
+  }
+
+  private rememberBackupFailure(err: unknown): void {
+    if (this.backupError) return;
+    const error = err instanceof Error ? err : new Error(errorMessage(err));
+    this.backupError = error;
+    console.warn("[recorder] local copy write failed:", error);
+    this.opts.onLocalCopyFailed?.(
+      isQuotaError(error) ? "quota" : "unavailable",
+    );
   }
 
   private clearRecordingBackup(): void {
     const recordingId = this.opts.recordingId;
     if (!recordingId || recordingId === "__pending__") return;
+    this.backupCleared = true;
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(() => deleteRecordingBackup(recordingId))
-      .catch(() => {});
+      .catch(() => {
+        // coercion-ok: a leftover copy is offered for recovery, then
+        // cleaned up once its server row reads ready.
+      });
   }
 
   private async acquireWakeLock(): Promise<void> {

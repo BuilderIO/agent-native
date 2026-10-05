@@ -1,6 +1,6 @@
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat/AgentPanel";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 

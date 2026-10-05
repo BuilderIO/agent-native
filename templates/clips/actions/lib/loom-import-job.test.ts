@@ -65,6 +65,13 @@ vi.mock("../../server/db/index.js", () => ({
       id: "id",
       ownerEmail: "ownerEmail",
       loomImportClaimId: "loomImportClaimId",
+      loomImportClaimedAt: "loomImportClaimedAt",
+      uploadLeaseExpiresAt: "uploadLeaseExpiresAt",
+      status: "status",
+      updatedAt: "updatedAt",
+      durationMs: "durationMs",
+      sourceWindowTitle: "sourceWindowTitle",
+      createdAt: "createdAt",
     },
     recordingTranscripts: { recordingId: "recordingId" },
   },
@@ -103,7 +110,8 @@ describe("runLoomImportJob", () => {
   beforeEach(() => {
     mockSelectRows.queue = [];
     mockUpdateWhere.mockClear();
-    mockReturning.mockClear();
+    mockReturning.mockReset();
+    mockReturning.mockResolvedValue([{ id: "updated-recording" }]);
     mockUpdateSet.mockClear();
     mockInsertValues.mockClear();
     mockWriteAppState.mockClear();
@@ -116,7 +124,107 @@ describe("runLoomImportJob", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
+  });
+
+  it("confirms its claim before starting Loom media work", async () => {
+    mockSelectRows.queue.push([
+      {
+        id: "rec_start_lease",
+        durationMs: 5_000,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_start_lease",
+      },
+    ]);
+    mockReturning.mockResolvedValueOnce([]);
+
+    const result = await runLoomImportJob({
+      recordingId: "rec_start_lease",
+      ownerEmail: "owner@example.com",
+      claimId: "claim_start_lease",
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      failureReason: "The Loom import lease was lost before media was saved.",
+    });
+    expect(mockDownloadLoomVideo).not.toHaveBeenCalled();
+    expect(mockUploadFile).not.toHaveBeenCalled();
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
+  it("renews its claim during media work and refuses ready after lease loss", async () => {
+    vi.useFakeTimers();
+    mockSelectRows.queue.push([
+      {
+        id: "rec_lease",
+        durationMs: 5_000,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_lease",
+      },
+    ]);
+    let finishDownload!: (media: {
+      bytes: Uint8Array;
+      mimeType: string;
+      sizeBytes: number;
+    }) => void;
+    let finishUpload!: (upload: {
+      url: string;
+      provider: string;
+      id: string;
+    }) => void;
+    mockDownloadLoomVideo.mockReturnValue(
+      new Promise((resolve) => {
+        finishDownload = resolve;
+      }),
+    );
+    mockUploadFile.mockReturnValue(
+      new Promise((resolve) => {
+        finishUpload = resolve;
+      }),
+    );
+
+    const job = runLoomImportJob({
+      recordingId: "rec_lease",
+      ownerEmail: "owner@example.com",
+      claimId: "claim_lease",
+    });
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadLeaseExpiresAt: expect.any(String),
+        loomImportClaimedAt: expect.any(String),
+      }),
+    );
+    expect(JSON.stringify(mockUpdateWhere.mock.calls[0]?.[0])).toContain(
+      "claim_lease",
+    );
+
+    mockReturning.mockResolvedValueOnce([]);
+    finishDownload({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+    });
+    await vi.waitFor(() => expect(mockUploadFile).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    finishUpload({
+      url: "https://cdn.example.com/rec_lease.mp4",
+      provider: "builder",
+      id: "asset_lease",
+    });
+
+    await expect(job).resolves.toEqual({
+      status: "failed",
+      failureReason: "The Loom import lease was lost before media was saved.",
+    });
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
   });
 
   it("downloads, reuploads, and marks the recording ready", async () => {

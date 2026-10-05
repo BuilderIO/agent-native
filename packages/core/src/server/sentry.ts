@@ -1,4 +1,10 @@
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import {
+  isSqlQueryFailureText,
+  isSqlStatementText,
+  redact,
+  redactErrorStack,
+} from "../tracking/redaction.js";
 import type { AuthSession } from "./auth.js";
 import {
   resolveDeployEnvironment,
@@ -21,6 +27,117 @@ function parseTracesSampleRate(): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0 || n > 1) return 0;
   return n;
+}
+
+function isStructuredSqlQuery(value: object): value is Record<string, unknown> {
+  if (Array.isArray(value)) return false;
+  const query = "query" in value ? value.query : undefined;
+  const sql = "sql" in value ? value.sql : undefined;
+  const message = "message" in value ? value.message : undefined;
+  return [query, sql, message].some(
+    (candidate) =>
+      typeof candidate === "string" && isSqlStatementText(candidate),
+  );
+}
+
+function hasSqlFailureSignal(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value === "string") return isSqlStatementText(value);
+  if (value == null || typeof value !== "object" || seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+  return (
+    isStructuredSqlQuery(value) ||
+    Object.values(value).some((child) => hasSqlFailureSignal(child, seen))
+  );
+}
+
+function isSqlLogEntryFailure(value: unknown): boolean {
+  if (typeof value === "string") return isSqlQueryFailureText(value);
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return (
+    isStructuredSqlQuery(value) ||
+    Object.values(value).some(
+      (child) => typeof child === "string" && isSqlQueryFailureText(child),
+    )
+  );
+}
+
+function redactSerializedCauseParams(value: unknown): void {
+  const seen = new WeakSet<object>();
+  let cause = value;
+  while (
+    cause !== null &&
+    typeof cause === "object" &&
+    !Array.isArray(cause) &&
+    !seen.has(cause)
+  ) {
+    seen.add(cause);
+    const record = cause as Record<string, unknown>;
+    if ("params" in record) record.params = "<redacted>";
+    cause = record.cause;
+  }
+}
+
+function redactSentryEventPayload(
+  value: unknown,
+  sqlFailure = false,
+  eventRoot = false,
+  seen = new WeakSet<object>(),
+  nestedSqlAssociation = false,
+): void {
+  if (value == null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+
+  const record = value as Record<string, unknown>;
+  const directlySqlAssociated =
+    sqlFailure ||
+    isStructuredSqlQuery(value) ||
+    (!eventRoot &&
+      Object.values(record).some(
+        (child) => typeof child === "string" && isSqlStatementText(child),
+      ));
+  const redactSqlParams =
+    directlySqlAssociated ||
+    (nestedSqlAssociation && hasSqlFailureSignal(value));
+  const stackContext = { name: record.name, message: record.message };
+  for (const [key, child] of Object.entries(record)) {
+    if (redactSqlParams && key.toLowerCase() === "params") {
+      record[key] = "<redacted>";
+    } else if (typeof child === "string") {
+      record[key] =
+        key.toLowerCase() === "stack"
+          ? (redactErrorStack({ ...stackContext, stack: child }) ??
+            redact(child))
+          : redact(child);
+    } else {
+      const breadcrumbDataSqlAssociation =
+        !eventRoot &&
+        key.toLowerCase() === "data" &&
+        typeof record.message === "string" &&
+        isSqlStatementText(record.message);
+      const childNestedSqlAssociation =
+        nestedSqlAssociation ||
+        (eventRoot &&
+          ["contexts", "breadcrumbs", "extra", "exception"].includes(
+            key.toLowerCase(),
+          ));
+      redactSentryEventPayload(
+        child,
+        breadcrumbDataSqlAssociation ||
+          (directlySqlAssociated && key.toLowerCase() === "data"),
+        false,
+        seen,
+        childNestedSqlAssociation,
+      );
+    }
+  }
 }
 
 export function initServerSentry(): Promise<boolean> {
@@ -54,6 +171,48 @@ export function initServerSentry(): Promise<boolean> {
 
           if (!shouldReportErrorSignal(errorSignalFromSentryEvent(event))) {
             return null;
+          }
+
+          const hasSqlLogEntryFailure = isSqlLogEntryFailure(event.logentry);
+          const hasSqlExceptionValue = event.exception?.values?.some(
+            (exception) =>
+              typeof exception.value === "string" &&
+              isSqlStatementText(exception.value),
+          );
+          const hasSqlRootFailure =
+            (typeof event.message === "string" &&
+              isSqlStatementText(event.message)) ||
+            hasSqlExceptionValue ||
+            hasSqlLogEntryFailure;
+          const hasSqlFailure =
+            hasSqlRootFailure ||
+            hasSqlFailureSignal([
+              event.contexts,
+              event.breadcrumbs,
+              event.extra,
+            ]);
+          redactSentryEventPayload(event, false, true);
+          const serialized = event.extra?.__serialized__;
+          if (
+            hasSqlRootFailure &&
+            serialized !== null &&
+            typeof serialized === "object" &&
+            !Array.isArray(serialized)
+          ) {
+            redactSerializedCauseParams(
+              (serialized as Record<string, unknown>).cause,
+            );
+          }
+          if (hasSqlFailure) {
+            const root = event as unknown as Record<string, unknown>;
+            if ("params" in root) root.params = "<redacted>";
+            if (event.extra && typeof event.extra === "object") {
+              const extra = event.extra as Record<string, unknown>;
+              if ("params" in extra) extra.params = "<redacted>";
+            }
+          }
+          if (hasSqlLogEntryFailure && event.logentry) {
+            delete event.logentry.params;
           }
 
           if (event.request) {

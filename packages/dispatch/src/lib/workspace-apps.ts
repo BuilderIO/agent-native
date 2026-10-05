@@ -1,3 +1,4 @@
+import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first-state";
 import {
   getClientSurface,
   isInBuilderFrame,
@@ -7,7 +8,6 @@ import {
   resolveEnvironmentTargets,
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
-import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/toolkit/app/chat/chat-first";
 
 import {
   CANONICAL_WORKSPACE_SSO_APP_ORIGINS,

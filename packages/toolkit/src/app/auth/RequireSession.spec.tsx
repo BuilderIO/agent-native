@@ -5,16 +5,21 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const useSessionMock = vi.fn();
-vi.mock("@agent-native/core/client/use-session", () => ({
+vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-session")
+  >()),
   useSession: () => useSessionMock(),
 }));
 
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { navigateForSession } from "@agent-native/core/client/use-session";
 import {
   decodeContinuation,
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "@agent-native/core/shared/sign-in-journey";
+import { SESSION_NAVIGATION_STALL_MS } from "@agent-native/core/shared/ssr-session-bootstrap";
 
 import { RequireSession } from "./RequireSession.js";
 
@@ -73,6 +78,7 @@ afterEach(() => {
     configurable: true,
     value: originalLocation,
   });
+  delete window.__agentNativeNavigationStarted;
   vi.clearAllMocks();
 });
 
@@ -185,6 +191,67 @@ describe("RequireSession", () => {
       expect(replaceMock).not.toHaveBeenCalled();
     }
     vi.unstubAllEnvs();
+  });
+
+  it("keeps an authenticated app mounted when a lane switch it never left on is claimed", () => {
+    useSessionMock.mockReturnValue({
+      session: { userId: "u1", email: "a@builder.io" },
+      isLoading: false,
+      status: "authenticated",
+    });
+    const mounts = vi.fn();
+    function Editor() {
+      React.useEffect(() => mounts(), []);
+      return <div data-testid="protected">editor</div>;
+    }
+    render(
+      <RequireSession>
+        <Editor />
+      </RequireSession>,
+    );
+
+    // The badge claims the page for the beta lane; a beforeunload "Stay"
+    // (unsaved edits) keeps the document here.
+    act(() => {
+      navigateForSession("https://beta.mail.example.com/inbox");
+    });
+    render(
+      <RequireSession>
+        <Editor />
+      </RequireSession>,
+    );
+
+    expect(container.querySelector('[data-testid="protected"]')).not.toBeNull();
+    expect(mounts).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds the app while a navigation claimed before it rendered is in flight, then renders it if the page stays", () => {
+    vi.useFakeTimers();
+    try {
+      useSessionMock.mockReturnValue({
+        session: { userId: "u1", email: "a@builder.io" },
+        isLoading: false,
+        status: "authenticated",
+      });
+      // The inline lane script claimed the page before React rendered.
+      navigateForSession("https://beta.mail.example.com/inbox");
+      render(
+        <RequireSession>
+          <Child />
+        </RequireSession>,
+      );
+      expect(container.querySelector('[data-testid="protected"]')).toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(SESSION_NAVIGATION_STALL_MS);
+      });
+
+      expect(
+        container.querySelector('[data-testid="protected"]'),
+      ).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not redirect twice across re-renders", () => {

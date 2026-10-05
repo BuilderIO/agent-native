@@ -9,7 +9,6 @@ import dotenv from "dotenv";
 import {
   isMigrationManifestActive,
   loadMigrationManifestsForProject,
-  type MigrationManifest,
   type MigrationDependency,
   type MigrationDependencyCondition,
 } from "../package-lifecycle/migration-manifest.js";
@@ -418,7 +417,7 @@ export function selectMigrationDependencies(
   return [...selected.values()];
 }
 
-function isDirectCoreDependency(pkg: PackageJsonLike): boolean {
+export function isDirectCoreDependency(pkg: PackageJsonLike): boolean {
   return [pkg.dependencies, pkg.devDependencies, pkg.optionalDependencies].some(
     (dependencies) => Boolean(dependencies?.["@agent-native/core"]),
   );
@@ -595,6 +594,15 @@ function applyMigrationDependencyAdditions(
     }
     writeJsonFile(file, read.value);
   }
+}
+
+export function addConfiguredMigrationDependencies(
+  project: UpgradeProject,
+  shellEnvironment: NodeJS.ProcessEnv = process.env,
+): void {
+  applyMigrationDependencyAdditions(
+    planMigrationDependencyAdditions(project, shellEnvironment),
+  );
 }
 
 export function pinResolvedAgentNativeVersions(
@@ -1188,10 +1196,17 @@ export async function runUpgrade(
     | undefined;
 
   if (opts.codemods) {
-    const codemodModule = await loadOptionalPeer(
-      "ts-morph",
-      () => import("./migration-codemod.js"),
-    );
+    // Keep this specifier computed so client builds do not package the Node-only codemod.
+    const codemodModulePath = new URL(
+      [
+        "./migration-codemod",
+        import.meta.url.endsWith(".ts") ? "ts" : "js",
+      ].join("."),
+      import.meta.url,
+    ).href;
+    const codemodModule = await loadOptionalPeer<
+      typeof import("./migration-codemod.js")
+    >("ts-morph", () => import(/* @vite-ignore */ codemodModulePath));
     const codemodResult = codemodModule.runMigrationCodemods({
       root: project.root,
       targetExists: codemodModule.createMigrationPlanningTargetResolver(

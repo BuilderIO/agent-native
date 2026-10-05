@@ -688,9 +688,15 @@ export function InboxPage() {
     isFetchingNextPage: emailsIsFetchingNextPage,
     isFetchNextPageError: emailsIsFetchNextPageError,
     accountErrors: emailsAccountErrors,
+    read: emailsRead,
   } = useEmails(emailView, searchQuery, effectiveLabel, {
     enabled: !isInboxView,
   });
+  const listRead = isInboxView
+    ? inboxThreads.isPlaceholderData
+      ? undefined
+      : inboxThreads.data?.read
+    : emailsRead;
 
   const rawEmails = isInboxView ? inboxItems : fetchedEmails;
   const hasEmailData = isInboxView
@@ -1093,6 +1099,7 @@ export function InboxPage() {
             isFetching={isFetching}
             emailsError={emailsError}
             accountErrors={accountErrors}
+            read={listRead}
             labels={
               isInboxView ? (inboxMetadata?.labels ?? EMPTY_LABELS) : undefined
             }

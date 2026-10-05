@@ -2618,7 +2618,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70 pt-3">
+            <div className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70">
               <AppSidebarFooter
                 collapsed={false}
                 collapsible={false}

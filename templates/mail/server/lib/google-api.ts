@@ -237,6 +237,13 @@ function makeGoogleRequestAggregateError(
   return new NativeAggregateError(errors, message);
 }
 
+/** Carries the HTTP status so callers classify a 401 by value, not by text. */
+function googleApiError(status: number, detail: string): Error {
+  return Object.assign(new Error(`Google API error (${status}): ${detail}`), {
+    status,
+  });
+}
+
 async function markGmailQuotaSuccessAfterResponse(
   accessToken: string,
   shouldClearCooldown: boolean,
@@ -352,7 +359,7 @@ export async function googleFetch(
         (data as any)?.error?.message ||
         (data as any)?.error_description ||
         res.statusText;
-      throw new Error(`Google API error (${res.status}): ${msg}`);
+      throw googleApiError(res.status, msg);
     }
 
     if (gmailRequest)
@@ -791,8 +798,9 @@ async function gmailBatchGet(
       );
       throw new GmailQuotaCooldownError(effectiveCooldownMs);
     }
-    throw new Error(
-      `Google API error (${res.status}): Gmail batch failed: ${text || res.statusText}`,
+    throw googleApiError(
+      res.status,
+      `Gmail batch failed: ${text || res.statusText}`,
     );
   }
 

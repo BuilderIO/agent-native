@@ -87,6 +87,12 @@ describe("editor side panels", () => {
       "onContextMenuLayer={readOnly ? undefined : handleLayerContextMenu}",
     );
     expect(editorSource).toContain("{slideElementContextMenuContent}");
+    expect(editorSource).toContain("<ContextMenuSub>");
+    expect(editorSource).toContain('t("styleInspector.order")');
+    expect(editorSource).toContain('handleArrangeSelected("front")');
+    expect(editorSource).toContain('handleArrangeSelected("forward")');
+    expect(editorSource).toContain('handleArrangeSelected("backward")');
+    expect(editorSource).toContain('handleArrangeSelected("back")');
   });
 });
 

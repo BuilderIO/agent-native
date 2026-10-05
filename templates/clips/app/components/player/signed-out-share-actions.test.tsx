@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { decodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,11 +26,23 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-function expectSignInHref(href: string, returnTo: string, signUp = false) {
-  const url = new URL(href, "http://localhost");
+function expectSignInHref(
+  href: string | null | undefined,
+  returnTo: string,
+  tab?: "signup",
+) {
+  expect(href).toBeTypeOf("string");
+  const url = new URL(href!, "https://clips.example.test");
   expect(url.pathname).toBe("/sign-in");
-  expect(decodeContinuation(url.searchParams.get("c"))).toBe(returnTo);
-  if (signUp) expect(url.searchParams.get("tab")).toBe("signup");
+  const continuation = url.searchParams.get("c");
+  expect(continuation).not.toBeNull();
+  expect(
+    decodeURIComponent(
+      atob(continuation!.replace(/-/g, "+").replace(/_/g, "/")),
+    ),
+  ).toBe(returnTo);
+  url.searchParams.delete("c");
+  expect(Object.fromEntries(url.searchParams)).toEqual(tab ? { tab } : {});
 }
 
 describe("SignedOutShareActions", () => {
@@ -66,13 +77,15 @@ describe("SignedOutShareActions", () => {
 
   it("shows sign-in and free-account links that return to the shared clip", () => {
     expectSignInHref(buildShareSignInHref("clip/1"), "/share/clip/1");
-    expectSignInHref(buildShareSignUpHref("clip/1"), "/share/clip/1", true);
+    expectSignInHref(buildShareSignUpHref("clip/1"), "/share/clip/1", "signup");
 
     renderActions({ recordingId: "clip/1" });
 
-    const signInLink = container.querySelector<HTMLAnchorElement>("a");
+    const signInLink = container.querySelector<HTMLAnchorElement>(
+      'a[href^="/sign-in?"]',
+    );
     expect(signInLink).not.toBeNull();
-    expectSignInHref(signInLink!.href, "/share/clip/1");
+    expectSignInHref(signInLink?.getAttribute("href"), "/share/clip/1");
     expect(signInLink?.textContent).toContain("sharePage.signIn");
     expect(container.textContent).toContain("sharePage.getClipsFree");
   });
@@ -86,13 +99,13 @@ describe("SignedOutShareActions", () => {
     renderActions({ recordingId: "clip/1", startAt: "1:30" });
 
     expectSignInHref(
-      container.querySelector("a")!.href,
+      container.querySelector("a")?.getAttribute("href"),
       "/share/clip/1?at=1%3A30",
     );
     expectSignInHref(
-      container.querySelectorAll("a")[1]!.href,
+      container.querySelectorAll("a")[1]?.getAttribute("href"),
       "/share/clip/1?at=1%3A30",
-      true,
+      "signup",
     );
   });
 
@@ -104,17 +117,20 @@ describe("SignedOutShareActions", () => {
     expectSignInHref(
       buildShareSignUpHref("clip/1", "90", "comments"),
       "/share/clip/1?at=90&panel=comments",
-      true,
+      "signup",
     );
 
     renderActions({ recordingId: "clip/1", startAt: "90", panel: "comments" });
 
     const links = container.querySelectorAll("a");
-    expectSignInHref(links[0]!.href, "/share/clip/1?at=90&panel=comments");
     expectSignInHref(
-      links[1]!.href,
+      links[0]?.getAttribute("href"),
       "/share/clip/1?at=90&panel=comments",
-      true,
+    );
+    expectSignInHref(
+      links[1]?.getAttribute("href"),
+      "/share/clip/1?at=90&panel=comments",
+      "signup",
     );
   });
 

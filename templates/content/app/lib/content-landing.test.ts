@@ -10,6 +10,7 @@ vi.mock("@agent-native/core/client/application-state", () => ({
 
 import {
   contentLandingRecoveryTarget,
+  isPersonalLanding,
   readContentLandingRecovery,
   rememberContentLandingDocument,
 } from "./content-landing";
@@ -89,6 +90,27 @@ describe("rememberContentLandingDocument", () => {
     ).rejects.toThrow("state unavailable");
   });
 
+  it("records each page open where /home returns as well as in its space", async () => {
+    writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
+
+    await rememberContentLandingDocument(
+      { documentId: "doc-1", title: "Plan" },
+      "space-1",
+    );
+
+    expect(writeClientAppState).toHaveBeenCalledTimes(2);
+    for (const key of [
+      "content-last-location-v1",
+      "content-last-location-v2:space-1",
+    ]) {
+      expect(writeClientAppState).toHaveBeenCalledWith(
+        key,
+        { documentId: "doc-1", title: "Plan" },
+        { requestSource: "content-landing" },
+      );
+    }
+  });
+
   it("stores exact destinations separately for each Content space", async () => {
     writeClientAppState.mockResolvedValue({ documentId: "doc-1" });
 
@@ -146,5 +168,19 @@ describe("readContentLandingRecovery", () => {
     ]) {
       expect(readContentLandingRecovery(state)).toBeNull();
     }
+  });
+});
+
+describe("isPersonalLanding", () => {
+  it("is /home without a space or a page to explain", () => {
+    const home = { pathname: "/home", search: "", state: null };
+    expect(isPersonalLanding(home)).toBe(true);
+    expect(isPersonalLanding({ ...home, search: "?spaceId=space-1" })).toBe(
+      false,
+    );
+    expect(
+      isPersonalLanding({ ...home, state: { unavailableDocumentId: "inbox" } }),
+    ).toBe(false);
+    expect(isPersonalLanding({ ...home, pathname: "/page/inbox" })).toBe(false);
   });
 });

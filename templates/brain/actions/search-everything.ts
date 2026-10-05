@@ -111,7 +111,7 @@ export default defineAction({
         const answerPolicy = evaluateSourceAnswerPolicy({
           sourceIds: result.source?.id ? [result.source.id] : [],
           sourcePolicies,
-          contentUpdatedAt: result.updatedAt,
+          contentUpdatedAt: result.capturedAt ?? result.updatedAt,
           resultType: "capture",
           reviewed: false,
         });

@@ -159,6 +159,11 @@ export default {
     openAgentSettings: "管理代理",
     labTweaks: "設計微調",
     labTweaksDescription: "試用 AI 設計微調功能。",
+    labFullAppBuilding: "建構完整應用程式",
+    labFullAppBuildingDescription:
+      "試用 Builder，根據你的設計建構可運作的應用程式。",
+    labDesignReviewTools: "設計審查工具",
+    labDesignReviewToolsDescription: "檢查設計中的無障礙問題並比較視覺變更。",
     mcpAbout:
       "將 Design 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Design 中工作：建立和編輯設計。它只能看到你有權看到的內容。",
   },
@@ -811,7 +816,7 @@ export default {
     makeItRealCard: {
       open: "開啟",
       choose: "選擇",
-      connect: "連接",
+      connect: "使用 Builder.io",
       generating: "生成中",
       generate: "生成",
       migrationFailed: "遷移失敗，請再試一次。",
@@ -1223,6 +1228,7 @@ export default {
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
+      copyAgentPrompt: "複製代理提示",
       copyFullPrompt: "複製完整提示",
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
@@ -1293,6 +1299,14 @@ export default {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      exportTooLarge:
+        "匯出內容過大。請求上限為 5 MB；請減少內嵌資源或點陣尺寸後再試一次。",
+      exportResourcesUnavailable:
+        "由於一個或多個圖片、字型或樣式表無法使用，因此無法準確轉譯匯出內容。請檢查這些資源後再試一次。",
+      exportTimedOut: "匯出逾時。請重試，或縮小設計尺寸。",
+      exportBusy: "另一個匯出正在轉譯。請稍候片刻再試一次。",
+      exportChromiumUnavailable:
+        "由於轉譯器無法啟動，匯出暫時無法使用。請稍後再試一次。",
       pdfExportError: "無法匯出 PDF",
       pdfDownloaded: "PDF 已下載",
       pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",
@@ -1767,8 +1781,8 @@ export default {
     designPromptTitle: "讓我們建立你的第一個設計",
     recent: "最近",
     browseAllTemplates: "瀏覽全部",
-    connectBuilderIo: "連線 Builder.io",
-    connectingBuilder: "正在連線 Builder.io…",
+    connectBuilderIo: "使用 Builder.io",
+    connectingBuilder: "正在設定 Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "搜尋設計...",
     newDesign: "新Design",

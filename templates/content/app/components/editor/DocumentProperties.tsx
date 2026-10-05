@@ -2084,6 +2084,7 @@ export function PropertyManagementPopover({
 
       <EmojiPicker
         icon={property.definition.icon ?? null}
+        assetScopeDocumentId={databaseDocumentId}
         open={iconPickerOpen}
         onOpenChange={setIconPickerOpen}
         anchored

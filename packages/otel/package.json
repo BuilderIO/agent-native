@@ -1,0 +1,52 @@
+{
+  "name": "@agent-native/otel",
+  "version": "0.0.0",
+  "private": true,
+  "description": "OpenTelemetry SDK wiring for Agent-Native apps: exports core's metrics and traces over OTLP when OTEL_EXPORTER_OTLP_ENDPOINT is set.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/otel"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest --run src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/context-async-hooks": "^2.11.0",
+    "@opentelemetry/exporter-metrics-otlp-proto": "^0.222.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-metrics": "^2.11.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0"
+  },
+  "devDependencies": {
+    "@agent-native/core": "workspace:*",
+    "@types/node": "^24.2.1",
+    "typescript-7": "catalog:",
+    "vitest": "^4.1.5"
+  },
+  "peerDependencies": {
+    "@agent-native/core": "*"
+  }
+}

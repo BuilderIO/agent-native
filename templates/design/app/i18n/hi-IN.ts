@@ -166,6 +166,12 @@ export default {
     openAgentSettings: "एजेंट प्रबंधित करें",
     labTweaks: "डिज़ाइन ट्वीक",
     labTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
+    labFullAppBuilding: "पूरे ऐप बनाएँ",
+    labFullAppBuildingDescription:
+      "Builder से अपने डिज़ाइन के आधार पर काम करने वाले ऐप बनाने की कोशिश करें।",
+    labDesignReviewTools: "डिज़ाइन समीक्षा टूल",
+    labDesignReviewToolsDescription:
+      "अपने डिज़ाइन में सुगम्यता संबंधी समस्याएँ जाँचें और दृश्य बदलावों की तुलना करें।",
     mcpAbout:
       "Design को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Design में काम कर सकता है: डिज़ाइन बनाना और उन्हें संपादित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
@@ -206,7 +212,7 @@ export default {
       tokenLabel: "Figma एक्सेस टोकन",
       tokenPlaceholder: "Figma access token paste करें",
       connecting: "कनेक्ट हो रहा है…",
-      connect: "कनेक्ट करें",
+      connect: "Builder.io इस्तेमाल करें",
       getToken: "Token पाएँ",
       importFrame: "Frame import करें",
       chooseFrame: "Frame चुनें",
@@ -1247,6 +1253,7 @@ export default {
       verifying: "Source और runtime सत्यापित हो रहे हैं…",
       retryWithAgent: "Source verification फिर करें",
       copyPrompt: "Prompt अपने agent को कॉपी करें",
+      copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
       copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",
@@ -1345,6 +1352,16 @@ export default {
       pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
       pngSaveError: "PNG सहेजा नहीं जा सका",
       pngExportError: "PNG निर्यात नहीं किया जा सका",
+      exportTooLarge:
+        "निर्यात बहुत बड़ा है। अनुरोध की सीमा 5 MB है; एम्बेड किए गए संसाधन या रास्टर आयाम कम करके फिर कोशिश करें।",
+      exportResourcesUnavailable:
+        "एक या अधिक छवियाँ, फ़ॉन्ट या स्टाइलशीट उपलब्ध न होने के कारण निर्यात सही ढंग से रेंडर नहीं हो सका। इन संसाधनों की जाँच करके फिर कोशिश करें।",
+      exportTimedOut:
+        "निर्यात का समय समाप्त हो गया। फिर कोशिश करें या डिज़ाइन का आकार कम करें।",
+      exportBusy:
+        "एक अन्य निर्यात अभी रेंडर हो रहा है। थोड़ा इंतज़ार करें और फिर कोशिश करें।",
+      exportChromiumUnavailable:
+        "रेंडरर शुरू न हो पाने के कारण निर्यात उपलब्ध नहीं है। बाद में फिर कोशिश करें।",
       pdfExportError: "PDF निर्यात नहीं किया जा सका",
       pdfDownloaded: "PDF डाउनलोड किया गया",
       pdfAllScreensDownloaded: "PDF डाउनलोड किया गया (सभी स्क्रीन)",
@@ -1707,8 +1724,8 @@ export default {
     designPromptTitle: "आइए अपना पहला डिज़ाइन बनाएं",
     recent: "हाल के",
     browseAllTemplates: "सभी ब्राउज़ करें",
-    connectBuilderIo: "Builder.io कनेक्ट करें",
-    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    connectBuilderIo: "Builder.io इस्तेमाल करें",
+    connectingBuilder: "Builder.io सेट अप हो रहा है…",
     pageTitle: "Designs",
     searchPlaceholder: "डिज़ाइन खोजें...",
     newDesign: "नया Design",

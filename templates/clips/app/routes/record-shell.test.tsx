@@ -11,7 +11,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { RecorderRouteStatus, RecordingErrorCard } from "./record";
+import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
+
+import {
+  RecorderRouteStatus,
+  RecordingErrorCard,
+  RecordingLeaveChoices,
+} from "./record";
 
 describe("record route lifecycle shell", () => {
   let container: HTMLDivElement;
@@ -46,6 +52,51 @@ describe("record route lifecycle shell", () => {
     expect(uploadFlow).toContain("failureCode: responseError.failureCode");
     expect(uploadFlow).toContain("...uploadAbortMetadata(err)");
   });
+
+  it.each([true, false])(
+    "keeps the recording unless Leave and discard is chosen (canKeep=%s)",
+    (canKeep) => {
+      const onKeep = vi.fn();
+      const onDiscard = vi.fn();
+      const onDownload = vi.fn();
+      act(() => {
+        root.render(
+          <AlertDialog open>
+            <AlertDialogContent>
+              <RecordingLeaveChoices
+                canKeep={canKeep}
+                onKeep={onKeep}
+                onDiscard={onDiscard}
+                onDownload={onDownload}
+              />
+            </AlertDialogContent>
+          </AlertDialog>,
+        );
+      });
+      const button = (label: string) =>
+        Array.from(document.body.querySelectorAll("button")).find(
+          (el) => el.textContent?.trim() === label,
+        );
+
+      expect(document.body.textContent).toContain(
+        canKeep
+          ? "recordRoute.leaveKeepDescription"
+          : "recordRoute.leaveConfirmDescription",
+      );
+      if (canKeep) {
+        act(() => button("recordRoute.leaveAndKeep")!.click());
+        expect(onKeep).toHaveBeenCalledOnce();
+      } else {
+        expect(button("recordRoute.leaveAndKeep")).toBeUndefined();
+        act(() => button("recordRoute.downloadCopy")!.click());
+        expect(onDownload).toHaveBeenCalledOnce();
+      }
+      expect(onDiscard).not.toHaveBeenCalled();
+
+      act(() => button("recordRoute.leaveAndDiscard")!.click());
+      expect(onDiscard).toHaveBeenCalledOnce();
+    },
+  );
 
   it("announces real progress without including action controls", () => {
     act(() => {

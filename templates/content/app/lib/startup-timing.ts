@@ -8,6 +8,23 @@ export const SIDEBAR_FILES_ROWS_DOM_MARK = "sidebar-files-rows-dom";
 export const CONTENT_EDITABLE_MARK = "content-editable";
 export const PAINTED_MARK_SUFFIX = ":painted";
 
+// Layout-stability anchors. A placeholder and the element that replaces it
+// carry the same name, and `trace-startup.mjs --stability` fails a load when a
+// named element moves after it first appears.
+export type StartupAnchor =
+  | "title"
+  | "body"
+  | "sidebar-space"
+  | "sidebar-search"
+  | "sidebar-section-pinned"
+  | "sidebar-section-recent"
+  | "sidebar-section-files"
+  | "sidebar-files-first-row";
+
+export function startupAnchor(name: StartupAnchor) {
+  return { "data-startup-anchor": name };
+}
+
 // Element Timing does not report every app-rendered element, and hidden tabs
 // never paint, so each milestone is also marked at DOM commit and again after
 // the next frame.

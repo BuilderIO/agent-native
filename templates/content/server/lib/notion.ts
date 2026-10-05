@@ -109,6 +109,11 @@ function iconForNotion(icon: IconValue | string | null | undefined) {
   if (!parsed) return undefined;
   if (parsed.kind === "emoji") return { type: "emoji", emoji: parsed.emoji };
   if (parsed.kind === "image") {
+    if (parsed.authority === "private-icon") {
+      throw new Error(
+        "Private image icons cannot be pushed to Notion until an authorized export is available.",
+      );
+    }
     return { type: "external", external: { url: parsed.assetId } };
   }
   return undefined;

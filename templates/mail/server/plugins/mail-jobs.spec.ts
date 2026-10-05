@@ -591,6 +591,10 @@ describe("Mail background job scheduling", () => {
       expect(query.sql).toContain("LEFT JOIN mail_sync_accounts");
       expect(query.sql).toContain("LIMIT ?");
       expect(query.sql).not.toContain("oauth_tokens.tokens");
+      // Accounts whose credential Google rejected are not swept until reauthed.
+      expect(query.sql).toContain(
+        "COALESCE(mail_sync_accounts.status, 'idle') <> 'needs_reauth'",
+      );
     }
   });
 

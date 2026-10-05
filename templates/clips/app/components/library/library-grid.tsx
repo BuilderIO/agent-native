@@ -56,7 +56,10 @@ import {
   useVideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
-import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
+import {
+  LocalCopyInUseError,
+  retryRecordingUploadFromBackup,
+} from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
 import { resolveVideoMimeType } from "@/lib/video-metadata";
 
@@ -206,6 +209,8 @@ export function LibraryGrid({
   extraActions,
 }: LibraryGridProps) {
   const t = useT();
+  const recordingsHeading =
+    kind === "image" ? t("navigation.screenshots") : t("navigation.recordings");
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -512,7 +517,11 @@ export function LibraryGrid({
     try {
       await retryRecordingUploadFromBackup(rec.id);
     } catch (err: any) {
-      toast.error(err?.message ?? t("clipsFinalRaw.retryFailed"));
+      toast.error(
+        err instanceof LocalCopyInUseError
+          ? t("recordRoute.localRecordingOpenElsewhere")
+          : (err?.message ?? t("clipsFinalRaw.retryFailed")),
+      );
     } finally {
       void refetch();
     }
@@ -776,13 +785,13 @@ export function LibraryGrid({
                   )}
 
                   {recordings.length > 0 && (
-                    <section aria-label={t("navigation.recordings")}>
+                    <section aria-label={recordingsHeading}>
                       {visibleFolders.length > 0 && (
                         <h2
                           id="library-recordings-heading"
                           className="mb-3 text-sm font-semibold text-foreground"
                         >
-                          {t("navigation.recordings")}
+                          {recordingsHeading}
                         </h2>
                       )}
                       <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">

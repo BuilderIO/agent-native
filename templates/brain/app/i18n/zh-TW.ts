@@ -345,7 +345,7 @@ const messages = {
     attempt: "次嘗試",
     attempts: "次嘗試",
     nextCheck: "下一步檢查",
-    waitingForWorker: "等待 Brain 蒸餾工作人員編寫知識或傳送此捕獲以供審核。",
+    waitingForWorker: "等待 Brain 蒸餾工作人員根據此捕獲編寫知識。",
     source: "來源",
     ignore: "忽略",
     noCapturesTitle: "沒有與此檢視匹配的捕獲",

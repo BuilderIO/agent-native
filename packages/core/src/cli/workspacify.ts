@@ -77,7 +77,7 @@ export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
     ],
     NODE_PTY_BUILD_DEPENDENCY,
   );
-  const updated = document.toString();
+  const updated = document.toString({ lineWidth: 0 });
 
   if (updated !== current) fs.writeFileSync(workspacePath, updated);
 }

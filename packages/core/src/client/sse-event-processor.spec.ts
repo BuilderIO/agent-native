@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { LLM_MISSING_CREDENTIALS_MESSAGE } from "../agent/engine/credential-errors.js";
 import { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } from "../app-config/run-lifecycle-invariants.js";
 import { subscribeChatFirstOpenApp } from "./chat-first-state.js";
 import {
@@ -2139,7 +2140,8 @@ describe("SSE event processor error classification", () => {
       metadata: {
         custom: {
           runError: {
-            message: "No LLM provider is connected",
+            message: LLM_MISSING_CREDENTIALS_MESSAGE,
+            details: "No LLM provider is connected",
             errorCode: "missing_credentials",
           },
         },
@@ -3612,7 +3614,7 @@ describe("SSE event processor error classification", () => {
                 providerLabel: "Builder.io",
                 reason: "Builder.io is not connected for this workspace.",
                 message:
-                  "Builder.io is not connected. Connect Builder.io to continue.",
+                  "Builder.io is not connected for this workspace. Use Builder.io to continue: choose the button shown here, or set up Builder.io in Settings.",
               },
             }),
           },

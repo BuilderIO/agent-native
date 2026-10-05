@@ -21,6 +21,7 @@ import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
+  documentPropertiesPlaceholder,
   documentPropertiesResponseMatchesScope,
   useDocumentProperties,
   useReorderDocumentProperty,
@@ -59,6 +60,8 @@ interface DocumentBlockFieldsProps {
    * when there are multiple Blocks fields.
    */
   primaryEditor: ReactNode;
+  /** The fields the page read returned, used until the property read lands. */
+  pageProperties?: DocumentProperty[];
   onAdditionalContentChange?: (
     documentId: string,
     propertyId: string,
@@ -274,10 +277,15 @@ export function DocumentBlockFields({
   enteringSuggestion = false,
   onPrimaryFieldAvailabilityChange,
   primaryEditor,
+  pageProperties,
   onAdditionalContentChange,
 }: DocumentBlockFieldsProps) {
   const t = useT();
-  const query = useDocumentProperties(documentId, databaseId);
+  const placeholder = useMemo(
+    () => documentPropertiesPlaceholder(documentId, databaseId, pageProperties),
+    [databaseId, documentId, pageProperties],
+  );
+  const query = useDocumentProperties(documentId, databaseId, { placeholder });
   const canEditFields =
     canEdit &&
     query.data?.canEditValues === true &&

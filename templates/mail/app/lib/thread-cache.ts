@@ -18,19 +18,18 @@ type ThreadFetchResult = {
 
 type WarmTarget = string | { id: string; accountEmail?: string };
 
-const STORAGE_KEY = "mail.threadCache.v1";
-const STORAGE_TTL = 60 * 60 * 1000;
-const STORAGE_MAX_ENTRIES = 50;
-const STORAGE_MAX_BYTES = 3 * 1024 * 1024;
 const BACKGROUND_RATE_LIMIT_COOLDOWN_MS = 90 * 1000;
 const BACKGROUND_AUTH_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 const WARM_BATCH_LIMIT = 4;
 
 type Globals = {
+  __mailThreadCacheFormat?: number;
+  __mailThreadOwner?: string | null;
   __mailThreadCache?: Map<string, CacheEntry>;
   __mailThreadInflight?: Map<string, Promise<ThreadFetchResult>>;
   __mailThreadSubscribers?: Map<string, Set<() => void>>;
   __mailThreadVersions?: Map<string, number>;
+  __mailThreadCacheGeneration?: number;
 };
 const g = globalThis as Globals;
 const cache = (g.__mailThreadCache ??= new Map());
@@ -41,20 +40,102 @@ const inflight: Map<
 const subscribers = (g.__mailThreadSubscribers ??= new Map());
 const versions = (g.__mailThreadVersions ??= new Map());
 let backgroundCooldownUntil = 0;
+let sessionScope: string | undefined;
+let accountScope: string | undefined;
 
-function getVersion(threadId: string): number {
-  return versions.get(threadId) ?? 0;
+if (g.__mailThreadCacheFormat !== 2) {
+  cache.clear();
+  inflight.clear();
+  subscribers.clear();
+  versions.clear();
+  g.__mailThreadCacheGeneration = (g.__mailThreadCacheGeneration ?? 0) + 1;
+  g.__mailThreadCacheFormat = 2;
+  g.__mailThreadOwner = null;
 }
 
-function clearOwnedInflight(
-  threadId: string,
-  request: Promise<ThreadFetchResult>,
-) {
-  if (inflight.get(threadId) === request) inflight.delete(threadId);
+function normalizeAccountEmail(accountEmail?: string): string | null {
+  return accountEmail?.trim().toLowerCase() || null;
 }
 
-function notify(threadId: string) {
-  const set = subscribers.get(threadId);
+function cacheKey(threadId: string, accountEmail?: string): string {
+  return JSON.stringify([
+    g.__mailThreadOwner ?? null,
+    normalizeAccountEmail(accountEmail),
+    threadId,
+  ]);
+}
+
+function threadIdFromCacheKey(key: string): string | undefined {
+  const parsed: unknown = JSON.parse(key);
+  return Array.isArray(parsed) &&
+    parsed.length === 3 &&
+    typeof parsed[2] === "string"
+    ? parsed[2]
+    : undefined;
+}
+
+function keysForThread(threadId: string): string[] {
+  return Array.from(
+    new Set([
+      ...cache.keys(),
+      ...inflight.keys(),
+      ...subscribers.keys(),
+      ...versions.keys(),
+    ]),
+  ).filter((key) => threadIdFromCacheKey(key) === threadId);
+}
+
+export function getThreadCacheOwner(): string | null {
+  return g.__mailThreadOwner ?? null;
+}
+
+export function setThreadCacheOwner(owner: string | null): void {
+  const nextOwner = owner?.trim() || null;
+  if (getThreadCacheOwner() === nextOwner) return;
+  g.__mailThreadOwner = nextOwner;
+  clearThreadCache();
+}
+
+function getVersion(key: string): number {
+  return versions.get(key) ?? 0;
+}
+
+function getFetchVersion(key: string): string {
+  return `${g.__mailThreadCacheGeneration ?? 0}:${getVersion(key)}`;
+}
+
+export function clearThreadCache(): void {
+  const keys = new Set([
+    ...cache.keys(),
+    ...inflight.keys(),
+    ...subscribers.keys(),
+  ]);
+  g.__mailThreadCacheGeneration = (g.__mailThreadCacheGeneration ?? 0) + 1;
+  cache.clear();
+  inflight.clear();
+  versions.clear();
+  backgroundCooldownUntil = 0;
+  queueMicrotask(() => keys.forEach(notify));
+}
+
+export function setThreadCacheSessionScope(scope: string): void {
+  if (sessionScope === scope) return;
+  sessionScope = scope;
+  clearThreadCache();
+}
+
+export function setThreadCacheAccountScope(scope: string): void {
+  if (accountScope === scope) return;
+  accountScope = scope;
+  clearThreadCache();
+}
+
+function clearOwnedInflight(key: string, request: Promise<ThreadFetchResult>) {
+  if (inflight.get(key) === request) inflight.delete(key);
+}
+
+function notify(key: string) {
+  const set = subscribers.get(key);
   if (!set) return;
   for (const fn of set) fn();
 }
@@ -153,85 +234,64 @@ async function fetchThread(
   return { messages: await res.json(), providerSnapshotId };
 }
 
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-function loadFromStorage() {
+function clearLegacyThreadStorage() {
   if (typeof window === "undefined") return;
-  if (cache.size > 0) return;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, CacheEntry>;
-    const now = Date.now();
-    for (const [id, entry] of Object.entries(parsed)) {
-      if (!entry || now - entry.fetchedAt > STORAGE_TTL) continue;
-      cache.set(id, { ...entry, providerSnapshotId: undefined });
-    }
-  } catch {
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {}
+    window.localStorage.removeItem("mail.threadCache.v1");
+  } catch (error) {
+    console.warn("Could not clear the legacy Mail thread cache:", error);
   }
 }
 
-function scheduleFlush() {
-  if (typeof window === "undefined") return;
-  if (flushTimer) return;
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    flushToStorage();
-  }, 250);
+export function getCachedThread(
+  threadId: string,
+  accountEmail?: string,
+): EmailMessage[] | undefined {
+  return cache.get(cacheKey(threadId, accountEmail))?.messages;
 }
 
-function flushToStorage() {
-  if (typeof window === "undefined") return;
-  try {
-    const entries = [...cache.entries()].sort(
-      (a, b) => b[1].fetchedAt - a[1].fetchedAt,
-    );
-    const out: Record<string, CacheEntry> = {};
-    let bytes = 0;
-    let count = 0;
-    for (const [id, entry] of entries) {
-      if (count >= STORAGE_MAX_ENTRIES) break;
-      const serialized = JSON.stringify(entry);
-      if (bytes + serialized.length > STORAGE_MAX_BYTES) break;
-      out[id] = entry;
-      bytes += serialized.length;
-      count++;
-    }
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
-  } catch {
-    // Quota exceeded or private mode — silently give up, in-memory cache still works
-  }
-}
-
-export function getCachedThread(threadId: string): EmailMessage[] | undefined {
-  return cache.get(threadId)?.messages;
-}
-
-export function setCachedThread(threadId: string, messages: EmailMessage[]) {
-  cache.set(threadId, {
+export function setCachedThread(
+  threadId: string,
+  messages: EmailMessage[],
+  accountEmail?: string,
+) {
+  const resolvedAccountEmail =
+    accountEmail ??
+    messages.find((message) => message.accountEmail)?.accountEmail;
+  const key = cacheKey(threadId, resolvedAccountEmail);
+  cache.set(key, {
     messages,
     fetchedAt: Date.now(),
-    providerSnapshotId: cache.get(threadId)?.providerSnapshotId,
+    providerSnapshotId: cache.get(key)?.providerSnapshotId,
   });
-  notify(threadId);
-  scheduleFlush();
+  notify(key);
 }
 
-export function supersedeCachedThreadFetch(threadId: string) {
-  const superseded = inflight.delete(threadId);
-  versions.set(threadId, getVersion(threadId) + 1);
+export function supersedeCachedThreadFetch(
+  threadId: string,
+  accountEmail?: string,
+) {
+  const keys = accountEmail
+    ? [cacheKey(threadId, accountEmail)]
+    : keysForThread(threadId);
+  if (keys.length === 0) keys.push(cacheKey(threadId));
+  let superseded = false;
+  for (const key of keys) {
+    superseded = inflight.delete(key) || superseded;
+    versions.set(key, getVersion(key) + 1);
+  }
   return superseded;
 }
 
 export function invalidateCachedThread(threadId: string) {
-  cache.delete(threadId);
-  inflight.delete(threadId);
-  versions.set(threadId, getVersion(threadId) + 1);
-  notify(threadId);
-  scheduleFlush();
+  const keys = keysForThread(threadId);
+  if (keys.length === 0) keys.push(cacheKey(threadId));
+  for (const key of keys) {
+    cache.delete(key);
+    inflight.delete(key);
+    versions.set(key, getVersion(key) + 1);
+    notify(key);
+  }
 }
 
 const STALE_AFTER = 60 * 1000;
@@ -240,41 +300,41 @@ export function ensureThread(
   threadId: string,
   accountEmail?: string,
 ): Promise<EmailMessage[]> {
-  const cached = cache.get(threadId);
+  const key = cacheKey(threadId, accountEmail);
+  const cached = cache.get(key);
   if (cached) {
     if (
       Date.now() - cached.fetchedAt > STALE_AFTER &&
-      !inflight.get(threadId) &&
+      !inflight.get(key) &&
       canRunBackgroundFetch()
     ) {
       void backgroundRefresh(threadId, accountEmail);
     }
     return Promise.resolve(cached.messages);
   }
-  const existing = inflight.get(threadId);
+  const existing = inflight.get(key);
   if (existing) return existing.then(({ messages }) => messages);
-  const startedVersion = getVersion(threadId);
+  const startedVersion = getFetchVersion(key);
   const p = fetchThread(threadId, accountEmail)
     .then((result) => {
-      if (getVersion(threadId) !== startedVersion) {
-        clearOwnedInflight(threadId, p);
+      if (getFetchVersion(key) !== startedVersion) {
+        clearOwnedInflight(key, p);
         return result;
       }
-      cache.set(threadId, {
+      cache.set(key, {
         messages: result.messages,
         fetchedAt: Date.now(),
         providerSnapshotId: result.providerSnapshotId,
       });
-      clearOwnedInflight(threadId, p);
-      notify(threadId);
-      scheduleFlush();
+      clearOwnedInflight(key, p);
+      notify(key);
       return result;
     })
     .catch((err) => {
-      clearOwnedInflight(threadId, p);
+      clearOwnedInflight(key, p);
       throw err;
     });
-  inflight.set(threadId, p);
+  inflight.set(key, p);
   return p.then(({ messages }) => messages);
 }
 
@@ -284,38 +344,38 @@ function backgroundRefresh(
 ): Promise<ThreadFetchResult> {
   if (!canRunBackgroundFetch())
     return Promise.resolve({
-      messages: cache.get(threadId)?.messages ?? [],
+      messages: cache.get(cacheKey(threadId, accountEmail))?.messages ?? [],
       providerSnapshotId: 0,
     });
-  const startedVersion = getVersion(threadId);
+  const key = cacheKey(threadId, accountEmail);
+  const startedVersion = getFetchVersion(key);
   const p = fetchThread(threadId, accountEmail)
     .then((result) => {
-      if (getVersion(threadId) !== startedVersion) {
-        clearOwnedInflight(threadId, p);
+      if (getFetchVersion(key) !== startedVersion) {
+        clearOwnedInflight(key, p);
         return result;
       }
-      const prev = cache.get(threadId);
-      cache.set(threadId, {
+      const prev = cache.get(key);
+      cache.set(key, {
         messages: result.messages,
         fetchedAt: Date.now(),
         providerSnapshotId: result.providerSnapshotId,
       });
-      clearOwnedInflight(threadId, p);
-      scheduleFlush();
+      clearOwnedInflight(key, p);
       const prevJson = prev ? JSON.stringify(prev.messages) : "";
       const nextJson = JSON.stringify(result.messages);
       if (
         prevJson !== nextJson ||
         prev?.providerSnapshotId !== result.providerSnapshotId
       )
-        notify(threadId);
+        notify(key);
       return result;
     })
     .catch(() => {
-      clearOwnedInflight(threadId, p);
+      clearOwnedInflight(key, p);
       return { messages: [], providerSnapshotId: 0 };
     });
-  inflight.set(threadId, p);
+  inflight.set(key, p);
   return p;
 }
 
@@ -327,7 +387,10 @@ export function warmThreads(targets: WarmTarget[], concurrency = 2) {
   if (!canRunBackgroundFetch()) return;
   const queue = targets
     .map(normalizeTarget)
-    .filter((target) => !cache.has(target.id) && !inflight.has(target.id))
+    .filter((target) => {
+      const key = cacheKey(target.id, target.accountEmail);
+      return !cache.has(key) && !inflight.has(key);
+    })
     .slice(0, WARM_BATCH_LIMIT);
   if (queue.length === 0) return;
   let active = 0;
@@ -361,20 +424,21 @@ export function useThreadCache(
   isLoading: boolean;
 } {
   const [, force] = useState(0);
+  const key = threadId ? cacheKey(threadId, accountEmail) : undefined;
   useEffect(() => {
-    if (!threadId) return;
+    if (!key) return;
     const fn = () => force((n) => n + 1);
-    let set = subscribers.get(threadId);
+    let set = subscribers.get(key);
     if (!set) {
       set = new Set();
-      subscribers.set(threadId, set);
+      subscribers.set(key, set);
     }
     set.add(fn);
     return () => {
       set!.delete(fn);
-      if (set!.size === 0) subscribers.delete(threadId);
+      if (set!.size === 0) subscribers.delete(key);
     };
-  }, [threadId]);
+  }, [key]);
 
   if (!threadId) {
     return {
@@ -384,7 +448,7 @@ export function useThreadCache(
       isLoading: false,
     };
   }
-  const hit = cache.get(threadId);
+  const hit = cache.get(key!);
   if (hit) {
     return {
       messages: hit.messages,
@@ -393,14 +457,14 @@ export function useThreadCache(
       isLoading: false,
     };
   }
-  if (!inflight.has(threadId)) {
+  if (!inflight.has(key!)) {
     void ensureThread(threadId, accountEmail).catch(() => {});
   }
   return {
     messages: placeholder,
     providerSnapshotId: 0,
     isFromCache: false,
-    isLoading: inflight.has(threadId),
+    isLoading: inflight.has(key!),
   };
 }
 
@@ -413,13 +477,6 @@ if (typeof window !== "undefined") {
     invalidate: invalidateCachedThread,
     size: () => cache.size,
     keys: () => [...cache.keys()],
-    flush: () => flushToStorage(),
-    clearStorage: () => {
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-        console.log("[thread-cache] localStorage cleared");
-      } catch {}
-    },
   };
 
   (window as any).__showSkeleton = () => {
@@ -436,9 +493,6 @@ if (typeof window !== "undefined") {
       return origFetch.call(window, url, opts);
     } as typeof fetch;
     cache.clear();
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {}
     console.log(
       "[skeleton] Thread API blocked, cache cleared. Click an email to see the skeleton.",
     );
@@ -456,4 +510,5 @@ if (typeof window !== "undefined") {
   };
 }
 
-loadFromStorage();
+// Thread bodies are private account data and must not survive a sign-out.
+clearLegacyThreadStorage();

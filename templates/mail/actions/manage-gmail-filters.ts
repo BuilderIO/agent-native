@@ -2,6 +2,7 @@ import { ActionContractError, defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
+import { assertGmailNotCoolingDown } from "../server/lib/gmail-quota.js";
 import {
   gmailCreateFilter,
   gmailCreateLabel,
@@ -511,6 +512,7 @@ async function allAccounts(): Promise<ConnectedAccount[]> {
       { errorCode: "GOOGLE_ACCOUNT_NOT_CONNECTED", statusCode: 400 },
     );
   }
+  await assertGmailNotCoolingDown(accounts.map((account) => account.email));
   return accounts;
 }
 

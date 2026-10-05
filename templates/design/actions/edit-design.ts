@@ -254,6 +254,11 @@ export default defineAction({
         });
       }
     }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (
     {
       designId,

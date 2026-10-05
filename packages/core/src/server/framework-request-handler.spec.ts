@@ -8,6 +8,7 @@ import {
 import { isServerRuntimeStarted } from "../db/server-runtime.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { createTrackingEventScope } from "../observability/tracing.js";
+import { createOpenAiAppsChallengeHandler } from "./core-routes-plugin.js";
 import {
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
@@ -446,6 +447,23 @@ describe("framework request handler", () => {
       pathname: "/",
       path: "/",
     });
+  });
+
+  it("does not serve the OpenAI challenge token on a suffix path", async () => {
+    const nitroApp = createNitroApp();
+    const path = "/.well-known/openai-apps-challenge";
+    let challengeEvent: any;
+    getH3App(nitroApp).use(
+      path,
+      createOpenAiAppsChallengeHandler(() => "challenge-token"),
+    );
+
+    const result = await dispatch(nitroApp, `${path}/extra`, (event) => {
+      challengeEvent = event;
+    });
+
+    expect(result).toBe("");
+    expect(challengeEvent.res.status).toBe(404);
   });
 
   it("dispatches the public MCP alias under APP_BASE_PATH", async () => {

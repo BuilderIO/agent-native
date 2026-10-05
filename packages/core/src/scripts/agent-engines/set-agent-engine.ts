@@ -4,6 +4,7 @@
  */
 
 import { ActionContractError, type ActionRunContext } from "../../action.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../../agent/chatgpt-subscription-contract.js";
 import {
   recordDefaultAgentEngineRefusal,
   resolveDefaultAgentEngineAuthority,
@@ -11,6 +12,7 @@ import {
   type DefaultAgentEngineChangeMeta,
   type DefaultAgentEngineContext,
 } from "../../agent/default-agent-engine.js";
+import { listChatGPTSubscriptionModels } from "../../agent/engine/chatgpt-subscription-engine.js";
 import {
   listAgentEngines,
   getAgentEngineEntry,
@@ -22,6 +24,8 @@ import {
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
+import { getUserLabEnabled } from "../../labs/store.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -41,7 +45,7 @@ export const tool: ActionTool = {
       model: {
         type: "string",
         description:
-          "Model ID to use with this engine (e.g. 'gpt-5.6-sol', 'claude-sonnet-5'). Defaults to the engine's default model if omitted.",
+          "Model ID to use with this engine (e.g. 'gpt-5.6-sol', 'claude-sonnet-5-5'). Defaults to the engine's default model if omitted.",
       },
     },
     required: ["engine"],
@@ -61,7 +65,8 @@ export type SelectDefaultAgentEngineResult =
     }
   | { status: "refused"; message: string }
   | { status: "invalid"; message: string }
-  | { status: "missing-credentials"; message: string };
+  | { status: "missing-credentials"; message: string }
+  | { status: "unavailable"; message: string };
 
 /**
  * Validate an engine/model pair and save it as the default for the caller's
@@ -90,6 +95,16 @@ export async function selectDefaultAgentEngine(
     });
     return { status: "refused", message: authority.message };
   }
+  if (
+    engineName === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+    authority.scope === "org"
+  ) {
+    return {
+      status: "invalid",
+      message:
+        "ChatGPT plan access is personal and cannot be selected as an organization default.",
+    };
+  }
 
   const entry = getAgentEngineEntry(engineName);
   if (!entry) {
@@ -109,25 +124,76 @@ export async function selectDefaultAgentEngine(
     };
   }
 
-  const requestedModel = input.model?.trim() || entry.defaultModel;
+  const chatGPTEmail =
+    entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME
+      ? (ctx.userEmail ?? getRequestUserEmail())
+      : undefined;
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    if (!chatGPTEmail) {
+      return {
+        status: "missing-credentials",
+        message: "A signed-in user is required to use ChatGPT plan access.",
+      };
+    }
+    if (!(await getUserLabEnabled(chatGPTEmail, CHATGPT_SUBSCRIPTION_LAB))) {
+      return {
+        status: "unavailable",
+        message:
+          "Enable ChatGPT plan access in Settings → Labs before selecting this engine.",
+      };
+    }
+  }
+
+  const credentialEmail = chatGPTEmail ?? ctx.userEmail;
+  const credentialIdentity = credentialEmail
+    ? { userEmail: credentialEmail }
+    : undefined;
+  const needsCredentialIdentity =
+    entry.name === "builder" || entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME;
+  const usable =
+    credentialIdentity && needsCredentialIdentity
+      ? await isStoredEngineUsableForRequest({ engine: engineName }, entry, {
+          credentialIdentity,
+        })
+      : await isStoredEngineUsableForRequest({ engine: engineName }, entry);
+  if (!usable) {
+    return {
+      status: "missing-credentials",
+      message:
+        engineName === CHATGPT_SUBSCRIPTION_ENGINE_NAME
+          ? "Connect a ChatGPT account with direct model access before selecting this engine."
+          : `Engine "${engineName}" requires the following credentials which are not configured for this request: ${entry.requiredEnvVars.join(", ")}. The engine will fail at runtime without them.`,
+    };
+  }
+
+  let requestedModel = input.model?.trim() || entry.defaultModel;
+  if (engineName === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    try {
+      const catalog = await listChatGPTSubscriptionModels(chatGPTEmail!);
+      if (!requestedModel) requestedModel = catalog.models[0] ?? "";
+      if (!requestedModel || !catalog.models.includes(requestedModel)) {
+        return {
+          status: "invalid",
+          message:
+            "Choose a visible model from the selected ChatGPT account's model list.",
+        };
+      }
+    } catch (error) {
+      return {
+        status: "unavailable",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to load the ChatGPT account's model list.",
+      };
+    }
+  }
   const acceptsCustomModels = await resolveEngineAcceptsCustomModels(entry);
   const preserveCustomModels = await resolveEnginePreservesCustomModels(entry);
   const resolvedModel = normalizeModelForEngine(entry, requestedModel, {
     acceptsCustomModels,
     preserveCustomModels,
   });
-
-  const usable = await isStoredEngineUsableForRequest(
-    { engine: engineName },
-    entry,
-  );
-  if (!usable) {
-    const missingEnvVars = entry.requiredEnvVars.join(", ");
-    return {
-      status: "missing-credentials",
-      message: `Engine "${engineName}" requires the following credentials which are not configured for this request: ${missingEnvVars}. The engine will fail at runtime without them.`,
-    };
-  }
 
   await writeDefaultAgentEngineSelection(
     authority,
@@ -164,6 +230,9 @@ export async function run(
   if (result.status === "invalid") return `Error: ${result.message}`;
   if (result.status === "missing-credentials") {
     return `Warning: ${result.message}`;
+  }
+  if (result.status === "unavailable") {
+    return `Error: ${result.message}`;
   }
 
   const normalizedNote =

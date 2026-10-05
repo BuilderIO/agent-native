@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -86,7 +86,8 @@ export default defineAction({
   }),
   run: async ({ designId, componentId, newName }, context) => {
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
     if (
       designSourceTypeFromData((access.resource as { data?: unknown }).data) !==
       "inline"

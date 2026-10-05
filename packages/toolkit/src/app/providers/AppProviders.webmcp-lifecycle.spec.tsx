@@ -11,7 +11,10 @@ vi.mock("@agent-native/core/client/webmcp", () => ({
   createAgentNativeServerActionWebMcpRegistration: registrationFactory,
 }));
 
-vi.mock("@agent-native/core/client/use-session", () => ({
+vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-session")
+  >()),
   useSession: () => ({ status: sessionStatus.value, session: null }),
 }));
 

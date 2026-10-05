@@ -1386,9 +1386,8 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
   await installIframePaintProbe(iframe, "overview-navigation-stable");
 
   const world = page.locator("[data-multi-screen-canvas-world]");
-  const surface = world.locator("..");
-  const surfaceBox = await surface.boundingBox();
-  if (!surfaceBox) throw new Error("missing overview canvas surface");
+  const initialIframeBox = await iframe.boundingBox();
+  if (!initialIframeBox) throw new Error("missing overview iframe bounds");
   const initialTransform = await world.evaluate(
     (element) => (element as HTMLElement).style.transform,
   );
@@ -1399,8 +1398,8 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
     "true",
   );
   const start = {
-    x: surfaceBox.x + Math.min(40, surfaceBox.width / 4),
-    y: surfaceBox.y + Math.min(40, surfaceBox.height / 4),
+    x: initialIframeBox.x + initialIframeBox.width / 2,
+    y: initialIframeBox.y + initialIframeBox.height / 2,
   };
   await dragBetween(page, start, { x: start.x + 80, y: start.y + 56 });
   await expect
@@ -1413,9 +1412,11 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
   const beforeZoom = await world.evaluate(
     (element) => (element as HTMLElement).style.transform,
   );
+  const zoomIframeBox = await iframe.boundingBox();
+  if (!zoomIframeBox) throw new Error("missing overview iframe after pan");
   await page.mouse.move(
-    surfaceBox.x + surfaceBox.width / 2,
-    surfaceBox.y + surfaceBox.height / 2,
+    zoomIframeBox.x + zoomIframeBox.width / 2,
+    zoomIframeBox.y + zoomIframeBox.height / 2,
   );
   await page.keyboard.down(process.platform === "darwin" ? "Meta" : "Control");
   await page.mouse.wheel(0, -240);

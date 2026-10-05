@@ -14,12 +14,13 @@ metadata:
 
 ## Why this is a cost question
 
-Every agent-native workflow draws on one org-wide pool of GitHub-hosted runners,
-about 60 concurrent jobs on the Team plan. Measured 2026-09-29: 57 running and
-126–165 queued, and the `Fast tests` gate waited a median 445 s just for a slot.
-Minutes are free for this OSS repo; slots are not. A job a change cannot affect
-does not just waste its own minutes. It delays every other open PR. Two or three
-PR pushes can fill the pool, so scope is the lever, not faster hardware.
+Every agent-native workflow draws on one org-wide pool of GitHub-hosted runners.
+On the Team plan it held 60 concurrent jobs, and on 2026-09-29 the `Fast tests`
+gate waited a median 445 s just for a slot. BuilderIO moved to Enterprise
+Cloud in October 2026, which raises the pool to 500 jobs (50 macOS). Minutes
+are free for this OSS repo; slots are shared with every private repo. Scope
+still matters, because a job a change cannot affect delays other PRs once the
+pool fills, but parallelism that cuts the critical path is now worth a slot.
 
 `scripts/ci-change-scope.ts` is the one place that decides what a change runs.
 It classifies the changed paths into a full or targeted run and emits one output
@@ -55,10 +56,16 @@ root script test forces a full run.
 Fast-test lanes run Vitest with `VITEST_CONCURRENCY=100%`, one worker per
 core. The shared config's 25% default is for laptops, and on CI's 4-vCPU
 runners it meant one worker: a core shard took 542 s at one worker and 201 s
-at four, on the same CPU time. So two lanes at full width replace five
-single-worker ones, and each lane dropped also saves its ~100 s of setup and a
-runner slot. Every core is already busy at 100%, so more workers or lanes buy
-nothing.
+at four, on the same CPU time. On the 60-slot pool that let two full-width
+lanes replace five, but each lane then ran ~18 min of packages one after
+another. With 500 slots CI plans eight lanes (`LANES` in `ci.yml`): each costs
+~100 s of setup, and the planner balances lanes by test-file count.
+
+- **Large packages are sharded too.** `splitLargePackages` in
+  `scripts/ci-test-lanes.ts` splits a package heavier than a fair lane share
+  into Vitest `--shard`s, so Design no longer sets the floor for every lane.
+  Only a bare `vitest` test script can be sharded, and no shard drops below
+  `MIN_SHARD_FILES`.
 
 - **Let CI override the worker count.** A package that pins `maxWorkers`
   goes through `resolveMaxWorkers(process.env, fallback)`; a literal
@@ -81,10 +88,10 @@ nothing.
 | Rule | Why, from this repo |
 |---|---|
 | Give a job its own check in `CHECK_NAMES` whose condition names the paths that can change its result. Never borrow another job's output. | The Postgres connection budget reused `neon_query_budget` and ran on every template edit. Its probe imports only `@agent-native/core/db`. |
-| Per-app work takes a list output, not a boolean. Shared packages or a full run select every app; a template change selects that template; an empty selection turns the check off. If the check is on and the list is empty, the job fails. | `query_budget_apps` and `ssr_boot_apps`: a one-template PR built and measured all 16 templates (12–13 min). The beta publisher's `discover-sites` publishes only sites whose dependency closure changed. |
-| Split the expensive step from the cheap one. Keep the cheap check on every run and gate the expensive step on its narrower inputs. | Android: `expo export` still runs on every shared-package PR, but the Gradle compile, the bulk of the ~23 min Android job, runs only when `packages/mobile-app`, the lockfile, or the workflow changed. |
-| A path filter covers the job's whole dependency closure, including install-time inputs: root `package.json`, `pnpm-workspace.yaml`, the prebuild script, and the lockfile. | The desktop canary filter missed the bundled Chrome extension and then the postinstall inputs. Each gap skipped runs that should have caught a break. |
-| Subscribe only to events that can change the outcome. Validators pin some trigger sets, e.g. `scripts/validate-*-workflow.ts` and `scripts/package-release-workflow.test.ts`; update them in the same change. | Content product conformance reran on `labeled`/`unlabeled` but never reads labels. |
+| Per-app work takes a list output, not a boolean. Shared packages or a full run select every app; a template change selects that template; an empty selection turns the check off. If the check is on and the list is empty, the job fails. | `query_budget_apps` and `ssr_boot_apps`: a one-template PR built and measured all 16 templates (12–13 min). When shared code selects every template, `query_budget_matrix` splits them across two jobs. The beta publisher's `discover-sites` publishes only sites whose dependency closure changed. |
+| Split the expensive step from the cheap one. Keep the cheap check on every run and gate the expensive step on its narrower inputs. | Android: `expo export` runs whenever a file Metro bundles changes, but the Gradle compile, the bulk of the ~23 min Android job, runs only when `packages/mobile-app`, the lockfile, or the workflow changed. |
+| A path filter covers the job's whole dependency closure, including install-time inputs: root `package.json`, `pnpm-workspace.yaml`, the prebuild script, and the lockfile. | The desktop canary filter missed the bundled Chrome extension and then the postinstall inputs. Each gap skipped runs that should have caught a break. `guard:mobile-build-paths` traces Metro's imports and fails when the mobile filter misses one. |
+| Subscribe only to events that can change the outcome. Validators pin some trigger sets, e.g. `scripts/validate-*-workflow.ts` and `scripts/package-release-workflow.test.ts`; update them in the same change. | Content product conformance reran on `labeled`/`unlabeled` but never reads labels, and on title edits although it reads the body only for its declaration. |
 | Do not add a job for under a minute of work. Checkout, install, and a pool slot cost more than the check. Fold it into a job with the same setup, and do not duplicate what `pnpm guards` already runs. | Consolidation took PR pushes from ~31 to ~23 jobs. It folded PGlite locking into Content DB tests, privacy evals into Brain evals, QA static into Security guards, and the changeset check into Lint & format, and dropped a drizzle guard job `pnpm guards` covered. |
 | Batch periodic publishing on a schedule with change detection, instead of once per merge. | Nightly npm snapshots publish every 3 h, and only when a publishable path changed since the last successful scheduled run. |
 | PR workflows cancel superseded runs: `group: <name>-${{ github.event.pull_request.number \|\| github.ref }}` with `cancel-in-progress: true`. Publishers on `main` use `cancel-in-progress: false` so a deploy is never killed mid-flight. An event rejected only by a job `if` still joins the run's group and cancels a real run, so filter it in `on:` or give ignored events a throwaway group. | Visual Recap events the gate ignored used to cancel an in-progress recap; they now get a throwaway group. |

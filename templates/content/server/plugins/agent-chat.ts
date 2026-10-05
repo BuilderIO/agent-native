@@ -9,6 +9,7 @@ import { and, eq } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
 import { getDb, schema } from "../db/index.js";
+import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
 import {
   documentChatStartVersionId,
@@ -195,6 +196,7 @@ export default createAgentChatPlugin({
     externalAgents: { writes: "allowlisted" },
     instructions:
       "Find documents with list-documents or search-documents; read with get-document (pull-document for raw Markdown). Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. Use update-document for metadata and browser rewrites. For provider data use provider-api-catalog → provider-api-docs → provider-api-request.",
+    directoryProfile: CHATGPT_DIRECTORY_PROFILE,
   },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,

@@ -39,12 +39,26 @@ function loadMigrationExecutionStorage(): Promise<
 }
 
 function isLocalFunctionRuntime(env: NodeJS.ProcessEnv): boolean {
-  return (
-    env.NODE_ENV === "test" ||
+  const localEmulator =
     env.NETLIFY_LOCAL === "true" ||
     env.NETLIFY_DEV === "true" ||
     env.AWS_SAM_LOCAL === "true" ||
-    env.VERCEL_ENV === "development"
+    env.VERCEL_ENV === "development";
+  if (localEmulator) return true;
+
+  if (env.NODE_ENV !== "test") return false;
+
+  return !(
+    hasCloudflareRuntime() ||
+    env.NETLIFY_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_VERSION ||
+    env.LAMBDA_TASK_ROOT ||
+    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+    env.VERCEL_FUNCTION_ID ||
+    env.VERCEL_REGION ||
+    env.NETLIFY === "true" ||
+    env.VERCEL === "1"
   );
 }
 
@@ -54,8 +68,9 @@ function isCloudflareProductionRuntime(env: NodeJS.ProcessEnv): boolean {
   };
   return (
     hasCloudflareRuntime() &&
-    (runtime.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ ??
-      env.NODE_ENV === "production")
+    (env.NODE_ENV === "test" ||
+      (runtime.__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__ ??
+        env.NODE_ENV === "production"))
   );
 }
 

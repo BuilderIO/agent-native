@@ -417,6 +417,7 @@ pub fn run() {
             shortcuts::register_shortcuts(app)?;
             shortcuts::install_countdown_local_key_monitor(app);
             shortcuts::install_popover_dismiss_handler(app);
+            clips::install_voice_flow_state_listener(app);
 
             meetings_watcher::spawn_watcher(app.handle().clone());
             adhoc_meetings_watcher::spawn_watcher(app.handle().clone());

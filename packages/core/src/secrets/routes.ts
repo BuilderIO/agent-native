@@ -76,6 +76,10 @@ import { describeSecretUsage } from "./usage.js";
 
 export type SecretSource = "personal" | "workspace" | "vault";
 
+export const SECRET_REJECTED_ERROR_CODE = "secret_rejected";
+export const SECRET_VALIDATION_UNAVAILABLE_ERROR_CODE =
+  "secret_validation_unavailable";
+
 function secretSource(
   scope: SecretScope,
   description: string | null | undefined,
@@ -442,21 +446,33 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
       const result = await secret.validator(value);
       const ok = typeof result === "boolean" ? result : result?.ok === true;
       if (!ok) {
-        setResponseStatus(event, 400);
+        const retryable =
+          typeof result === "object" && result?.retryable === true;
+        setResponseStatus(event, retryable ? 503 : 400);
         const err =
           typeof result === "object" && result && result.error
             ? String(result.error)
             : "Validator rejected the value";
-        return { error: redactSecretFromMessage(err, value) };
+        return {
+          error: redactSecretFromMessage(err, value),
+          errorCode: retryable
+            ? SECRET_VALIDATION_UNAVAILABLE_ERROR_CODE
+            : SECRET_REJECTED_ERROR_CODE,
+          retryable,
+        };
       }
     } catch (err) {
-      setResponseStatus(event, 400);
+      // A validator that cannot reach its provider (network, timeout) has
+      // not judged the value; answering 400 told users a good key was bad.
+      setResponseStatus(event, 503);
       const message =
         err instanceof Error
-          ? `Validator threw: ${err.message}`
-          : "Validator threw";
+          ? `Could not verify the value right now: ${err.message}`
+          : "Could not verify the value right now";
       return {
         error: redactSecretFromMessage(message, value),
+        errorCode: SECRET_VALIDATION_UNAVAILABLE_ERROR_CODE,
+        retryable: true,
       };
     }
   }

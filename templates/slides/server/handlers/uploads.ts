@@ -1,7 +1,12 @@
 import fs from "fs";
 import path from "path";
 
-import { isPrivateBlobConfiguredForRequest } from "@agent-native/core/private-blob";
+import {
+  attachmentFailureToError,
+  describeAttachmentFailure,
+  isAttachmentError,
+  isPrivateBlobConfiguredForRequest,
+} from "@agent-native/core/private-blob";
 import { getRequestOrgId } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -22,8 +27,8 @@ import {
 import { tenantUploadDir } from "../lib/tenant-files.js";
 import {
   isHostedSlidesRuntime,
-  deleteUploadedReferenceBlob,
-  storeUploadedReferenceBlob,
+  deleteUploadedReference,
+  mintUploadedReference,
 } from "../lib/uploaded-reference-storage.js";
 import {
   canSaveAsUploadedAsset,
@@ -219,30 +224,15 @@ export async function saveUploadedReferenceFile(args: {
       : args.type || "application/octet-stream");
   let uploadedPath: string;
   if (isHostedSlidesRuntime()) {
-    let reference: string | null;
-    try {
-      reference = await storeUploadedReferenceBlob({
-        email: args.email,
-        orgId,
-        data: args.data,
-        filename,
-        mimeType: resolvedType,
-      });
-    } catch {
-      throw Object.assign(
-        new Error("Private file storage failed while saving the upload."),
-        { statusCode: 503 },
-      );
-    }
-    if (!reference) {
-      throw Object.assign(
-        new Error(
-          "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before uploading reference files.",
-        ),
-        { statusCode: 503 },
-      );
-    }
-    uploadedPath = reference;
+    const minted = await mintUploadedReference({
+      email: args.email,
+      orgId,
+      data: args.data,
+      filename,
+      mimeType: resolvedType,
+    });
+    if (minted.status !== "ok") throw attachmentFailureToError(minted, "save");
+    uploadedPath = minted.ref;
   } else {
     const uploadDir = tenantUploadDir(args.email);
     await fs.promises.mkdir(uploadDir, { recursive: true });
@@ -278,6 +268,38 @@ export async function saveUploadedReferenceFile(args: {
     filename,
     type: resolvedType,
     size: args.data.length,
+  };
+}
+
+/**
+ * The wire shape of a failed upload. Typed attachment errors carry their own
+ * status, code and details; the client branches on those, never on the text.
+ */
+function describeUploadFailure(reason: unknown): {
+  message: string;
+  statusCode: number;
+  errorCode?: string;
+  details?: Record<string, unknown>;
+} {
+  const typed = (reason ?? {}) as {
+    statusCode?: unknown;
+    errorCode?: unknown;
+    details?: unknown;
+  };
+  const message = isAttachmentError(reason)
+    ? describeAttachmentFailure(reason.failure, "save").message
+    : reason instanceof Error
+      ? reason.message
+      : "Invalid upload";
+  return {
+    message,
+    statusCode: typeof typed.statusCode === "number" ? typed.statusCode : 400,
+    ...(typeof typed.errorCode === "string"
+      ? { errorCode: typed.errorCode }
+      : {}),
+    ...(typed.details && typeof typed.details === "object"
+      ? { details: typed.details as Record<string, unknown> }
+      : {}),
   };
 }
 
@@ -346,28 +368,19 @@ export const uploadFiles = defineEventHandler(async (event) => {
       if (failedResultIndex !== -1) {
         await Promise.allSettled(
           successfulResults.map((result) =>
-            deleteUploadedReferenceBlob(result.value.path, email),
+            deleteUploadedReference(result.value.path, email),
           ),
         );
         const failedResult = results[failedResultIndex];
         const failedFile = fileParts[failedResultIndex];
-        const failedReason =
-          failedResult?.status === "rejected" ? failedResult.reason : undefined;
-        const errorMessage =
-          failedReason instanceof Error
-            ? failedReason.message
-            : "Invalid upload";
-        const errorStatusCode =
-          typeof failedReason === "object" &&
-          failedReason !== null &&
-          "statusCode" in failedReason
-            ? failedReason.statusCode
-            : undefined;
-        const statusCode =
-          typeof errorStatusCode === "number" ? errorStatusCode : 400;
-        setResponseStatus(event, statusCode);
+        const failure = describeUploadFailure(
+          failedResult?.status === "rejected" ? failedResult.reason : undefined,
+        );
+        setResponseStatus(event, failure.statusCode);
         return {
-          error: `File "${failedFile?.filename || "upload"}": ${errorMessage}`,
+          error: `File "${failedFile?.filename || "upload"}": ${failure.message}`,
+          ...(failure.errorCode ? { errorCode: failure.errorCode } : {}),
+          ...(failure.details ? { details: failure.details } : {}),
           failedFileName: failedFile?.filename,
         };
       }
@@ -404,15 +417,15 @@ export const deleteUploadedFile = defineEventHandler(async (event) => {
     async () => {
       try {
         return {
-          deleted: await deleteUploadedReferenceBlob(
-            body.path as string,
-            email,
-          ),
+          deleted: await deleteUploadedReference(body.path as string, email),
         };
       } catch (error) {
-        setResponseStatus(event, 400);
+        const failure = describeUploadFailure(error);
+        setResponseStatus(event, failure.statusCode);
         return {
-          error: error instanceof Error ? error.message : "Invalid upload",
+          error: failure.message,
+          ...(failure.errorCode ? { errorCode: failure.errorCode } : {}),
+          ...(failure.details ? { details: failure.details } : {}),
         };
       }
     },

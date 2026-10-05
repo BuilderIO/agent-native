@@ -342,6 +342,7 @@ struct NativeFullscreenSession {
 #[derive(Clone)]
 struct RestartInfo {
     safe_id: String,
+    live_upload_enabled: bool,
     include_audio: bool,
     capture_system_audio: bool,
     mic_captured_in_file: bool,
@@ -669,6 +670,7 @@ pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
         capture_region,
         defer_recording_output,
         true,
+        false,
         false,
         None,
     )
@@ -2798,6 +2800,8 @@ pub async fn native_fullscreen_recording_resume(
 
     let (backend, _w, _h) = start_segment_backend(
         &app,
+        session.custom_pipeline,
+        restart.live_upload_enabled,
         &restart.safe_id,
         restart.include_audio,
         restart.capture_system_audio,
@@ -3113,6 +3117,7 @@ mod detached_discard_tests {
             pause_failure: None,
             restart: RestartInfo {
                 safe_id: "test".to_string(),
+                live_upload_enabled: false,
                 include_audio: false,
                 capture_system_audio: false,
                 mic_captured_in_file: false,
@@ -3188,6 +3193,8 @@ fn pending_recording_file_stem(safe_id: &str, pid: u32) -> String {
 
 fn start_segment_backend(
     app: &AppHandle,
+    custom_pipeline: bool,
+    live_upload_enabled: bool,
     safe_id: &str,
     include_audio: bool,
     capture_system_audio: bool,
@@ -3203,7 +3210,7 @@ fn start_segment_backend(
     {
         let _ = safe_id;
         let sck_result = refuse_if_capture_stop_pending().and_then(|()| {
-            if crate::remote_flags::current().use_custom_sck_pipeline {
+            if custom_pipeline {
                 start_custom_screencapturekit_backend_at(
                     app,
                     segment_path,
@@ -3218,6 +3225,7 @@ fn start_segment_backend(
                     false,
                     false,
                     true,
+                    live_upload_enabled,
                     None,
                 )
             } else {
@@ -3290,6 +3298,8 @@ fn start_segment_backend(
     {
         let _ = (
             app,
+            custom_pipeline,
+            live_upload_enabled,
             safe_id,
             include_audio,
             capture_system_audio,
@@ -5336,7 +5346,8 @@ fn start_screencapturekit_recording(
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
-    let use_custom_sck_pipeline = crate::remote_flags::current().use_custom_sck_pipeline;
+    let recording_flags = crate::remote_flags::current();
+    let use_custom_sck_pipeline = recording_flags.use_custom_sck_pipeline;
     eprintln!(
         "[clips-tray] starting ScreenCaptureKit recording. use_custom_sck_pipeline = {}, path -> {}",
         use_custom_sck_pipeline,
@@ -5372,6 +5383,7 @@ fn start_screencapturekit_recording(
             defer_recording_output,
             false,
             true,
+            recording_flags.custom_sck_pipeline_live_upload_enabled,
             take_prefetched_shareable_content(target_display_id),
         )?
     } else {
@@ -5399,6 +5411,7 @@ fn start_screencapturekit_recording(
         height.or(fallback_height),
         RestartInfo {
             safe_id: safe_id.to_string(),
+            live_upload_enabled: recording_flags.custom_sck_pipeline_live_upload_enabled,
             include_audio,
             capture_system_audio,
             mic_captured_in_file: include_audio,
@@ -5464,6 +5477,7 @@ fn start_screencapture_recording(
         h.or(fallback_height),
         RestartInfo {
             safe_id: safe_id.to_string(),
+            live_upload_enabled: false,
             include_audio,
             capture_system_audio,
             mic_captured_in_file: include_audio,
@@ -9469,6 +9483,7 @@ mod segment_recovery_tests {
             pause_failure: None,
             restart: RestartInfo {
                 safe_id: "test".to_string(),
+                live_upload_enabled: false,
                 include_audio: true,
                 capture_system_audio: false,
                 mic_captured_in_file: false,

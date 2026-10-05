@@ -341,6 +341,7 @@ interface EditPanelProps {
       connectionId?: string;
     },
   ) => void;
+  onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
   onRemoveScreen?: () => void;
   screenSourcePending?: boolean;
@@ -1095,6 +1096,7 @@ function ScreenGeometryProperties({
   selectedScreenSource,
   localhostConnections = [],
   onScreenSourceChange,
+  onScreenUrlChange,
   onAddLocalhostScreen,
   onRemoveScreen,
   screenSourcePending = false,
@@ -1124,6 +1126,7 @@ function ScreenGeometryProperties({
       connectionId?: string;
     },
   ) => void;
+  onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
   onRemoveScreen?: () => void;
   screenSourcePending?: boolean;
@@ -1133,6 +1136,7 @@ function ScreenGeometryProperties({
   const noop = useCallback(() => {}, []);
   const editable = Boolean(onGeometryChange);
   const sourceEditable = Boolean(onScreenSourceChange);
+  const urlEditable = sourceEditable || Boolean(onScreenUrlChange);
   const persistedSourceType = selectedScreenSource?.sourceType ?? "static";
   const heightMode = screen.heightMode ?? "auto";
   const [sourceMode, setSourceMode] = useState<"static" | "url">(
@@ -1159,19 +1163,24 @@ function ScreenGeometryProperties({
   const commitUrl = useCallback(
     (nextConnectionId = connectionDraft) => {
       const url = sourceUrlDraft.trim();
-      if (!sourceEditable || !url || screenSourcePending) return;
-      onScreenSourceChange?.(screen.id, {
-        sourceType: "url",
-        url,
-        ...(nextConnectionId ? { connectionId: nextConnectionId } : {}),
-      });
+      if (!urlEditable || !url || screenSourcePending) return;
+      if (onScreenUrlChange) {
+        onScreenUrlChange(screen.id, url);
+      } else {
+        onScreenSourceChange?.(screen.id, {
+          sourceType: "url",
+          url,
+          ...(nextConnectionId ? { connectionId: nextConnectionId } : {}),
+        });
+      }
     },
     [
       connectionDraft,
+      onScreenUrlChange,
       onScreenSourceChange,
       screen.id,
       screenSourcePending,
-      sourceEditable,
+      urlEditable,
       sourceUrlDraft,
     ],
   );
@@ -1256,7 +1265,6 @@ function ScreenGeometryProperties({
                 <Input
                   value={sourceUrlDraft}
                   onChange={(event) => setSourceUrlDraft(event.target.value)}
-                  onBlur={() => commitUrl()}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
@@ -1269,7 +1277,7 @@ function ScreenGeometryProperties({
                   }}
                   placeholder={t("editPanel.screenSource.urlPlaceholder")}
                   aria-label={t("editPanel.screenSource.urlLabel")}
-                  disabled={!sourceEditable || screenSourcePending}
+                  disabled={!urlEditable || screenSourcePending}
                   className="h-6 min-w-0 flex-1 text-[11px]"
                 />
                 <Button
@@ -1278,7 +1286,7 @@ function ScreenGeometryProperties({
                   variant="secondary"
                   className="h-6 shrink-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none hover:bg-[var(--design-editor-panel-raised-bg)]"
                   disabled={
-                    !sourceEditable ||
+                    !urlEditable ||
                     screenSourcePending ||
                     !sourceUrlDraft.trim()
                   }
@@ -2206,6 +2214,7 @@ export const EditPanel = memo(function EditPanel({
   sourceLocationSnapshotFailed = false,
   localhostConnections,
   onScreenSourceChange,
+  onScreenUrlChange,
   onAddLocalhostScreen,
   onRemoveScreen,
   screenSourcePending,
@@ -2395,6 +2404,27 @@ export const EditPanel = memo(function EditPanel({
     onShaderSourceApplied,
     onEditCode,
   ]);
+  const screenGlslShaderContext: GlslShaderPanelContext | undefined =
+    useMemo(() => {
+      const screenFileId = selectedScreenGeometry?.id;
+      const nodeId = selectedScreenElement?.sourceId;
+      if (!designId || !screenFileId || !nodeId) return undefined;
+      return {
+        designId,
+        fileId: screenFileId,
+        nodeId,
+        selector: selectedScreenElement?.selector,
+        onApplied: onShaderSourceApplied,
+        onEditCode,
+      };
+    }, [
+      designId,
+      selectedScreenGeometry?.id,
+      selectedScreenElement?.sourceId,
+      selectedScreenElement?.selector,
+      onShaderSourceApplied,
+      onEditCode,
+    ]);
   const documentColorPalette = useDocumentColorPalette(files);
   const selectedScreenElements = useMemo(
     () => (selectedScreenElement ? [selectedScreenElement] : []),
@@ -2881,6 +2911,7 @@ export const EditPanel = memo(function EditPanel({
                     onScreenSourceChange={
                       readOnly ? undefined : onScreenSourceChange
                     }
+                    onScreenUrlChange={readOnly ? undefined : onScreenUrlChange}
                     onAddLocalhostScreen={
                       readOnly ? undefined : onAddLocalhostScreen
                     }
@@ -2922,6 +2953,7 @@ export const EditPanel = memo(function EditPanel({
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                         documentColorPalette={documentColorPalette}
+                        glslShaderContext={screenGlslShaderContext}
                       />
                       <StrokeProperties
                         key={`stroke:${selectedScreenElementSectionKey}`}
@@ -2934,6 +2966,7 @@ export const EditPanel = memo(function EditPanel({
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
+                        glslShaderContext={screenGlslShaderContext}
                       />
                       <SelectionColorsProperties
                         elements={selectedScreenElements}

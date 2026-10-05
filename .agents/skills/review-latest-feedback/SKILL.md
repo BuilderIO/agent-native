@@ -51,15 +51,16 @@ its owning boundary; do not reject it because the suggestion is unsuitable.
 
 For a parent with multiple symptoms, record a disposition for each symptom
 before claiming it. A subjective or out-of-scope suggestion does not close a
-separate defect. Keep `👀` on the parent once claimed, and add `✅` only after
-every actionable defect in that parent has a verified fix.
+separate defect.
 
-### Checkmark gate
+### Reaction gate
 
-`✅` is for verified **Fixed** only, after Phase 2's four bars. For a shared
-fix, add it to every claimed report it resolves. **Shipped** and **Live
-verified** alone do not qualify. Never remove reactions; newer evidence
-controls status.
+Add `✅` to every claimed thread resolved by a verified **Fixed** item (all
+Phase 2 bars). Add `🎫` when any investigated item remains unfixed, including
+subjective, deferred, or out-of-scope work; it means “not fixed” and does not
+imply an existing ticket. Mixed threads get both. **Shipped** or **Live
+verified** alone do not earn `✅`. Use the ledger and newer evidence for current
+disposition. Never remove reactions.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -70,19 +71,15 @@ means you found neither a fix nor a useful question; state why in the thread.
 
 ### Authoritative disposition vocabulary
 
-Use one disposition per ledger row; keep its wording in the recap and thread or
-linked work:
-
-Record terminal disposition in the thread or linked work; if neither states
-it, reply once. Current status comes from text or work, never the eye. For
-clusters, use one owner status listing each source permalink and **Clustered**
-state; reply in a non-owner only for a distinct question or update.
+Use one disposition per row; record it in the recap and, if unstated, in the
+thread or linked work. Current status comes from text or work, never the eye.
+For clusters, post one owner status with each source permalink and
+**Clustered**; reply in a non-owner only for a distinct question or update.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
-  **Clustered**, or **Abandoned - no answer in 4 days**. Record an unstated
-  terminal disposition in the thread or linked work; add `✅` only for verified
-  fixes.
+  **Clustered**, or **Abandoned - no answer in 4 days**. Apply the reaction
+  gate above.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
   **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
@@ -91,11 +88,10 @@ state; reply in a non-owner only for a distinct question or update.
 - **Foreign ownership:** **Owned elsewhere** only when the latest thread update
   or linked work confirms another active owner; an eye alone is claim history.
 
-After source merge, **Fixed** is terminal; track publication, beta, and live
-work separately. Link follow-ups with the original issue, target package/
-release/runtime, owner, and verification command or URL. Do not rediscover or
-reopen closed fixes through open-issue scans. **Clustered** closes one row but
-retains it.
+After merge, **Fixed** closes the source issue; track publication, beta, and
+live follow-up separately. Link each to the source, package/release/runtime,
+owner, and verification command or URL. Open-issue scans must not reopen closed
+fixes. **Clustered** closes one row but retains it.
 
 Enumerate `slack_read_channel` newest backward through `next_cursor` until a
 parent is older than 5 days. Record the oldest in-range parent as the scan
@@ -455,40 +451,53 @@ instruction or prompt exception.
 
 ### The bar for saying "Fixed"
 
-Say **Fixed** only when all four hold: named symptom; exact pre/post
-reproduction; clean or triaged sibling sweep; and verified change in the merged
-shipping snapshot with source or built layer named. **Shipped** adds
-build/deploy provenance; **Live verified** adds target-runtime proof. Otherwise
-use a narrower disposition without implying beta or production health. Upvoted
-improvements state requested versus actual behavior and use **Shipped**.
+Phase 2 defines the proof bars for **Fixed**, **Shipped**, and
+**Live verified**. Upvoted improvements state requested versus actual behavior
+and use **Shipped**.
 
 ## Phase 3: reply
 
-Start GitHub issue comments by thanking the reporter for opening the issue;
-start Slack feedback replies by thanking them for sharing the issue. Then give
-the status or ask a question. Follow `address-feedback-with-replies` for the
-remaining Slack reply voice and wording. Every reply ends with
-`this was sent from a bot.` after the plain-language status.
+Thank issue reporters for opening it and Slack reporters for sharing. Give the
+status or ask a useful question. Follow `address-feedback-with-replies` for
+Slack voice. End each Slack reply with `this was sent from a bot.` after its
+plain-language status.
 
-Reply with a new status or useful information; do not repeat a status already
-in the thread.
+Use everyday words for nontechnical readers. In one short paragraph, say what
+we did, what we didn't do when relevant, and what's next. Give a simple reason
+when useful. Keep technical proof in the recap or PR.
 
-- **Fixed** / **Shipped** / **Live verified** - meet the applicable bars above.
-  A live-verified row may be silent if its observation is recorded. For
-  packages, name the published version when available; otherwise name the
-  merged fix and list publication plus the upgrade/re-scaffold follow-up without
-  claiming the published package is fixed. Name beta URL/runtime only when
-  exercised; never substitute a future beta promise for release or live proof.
+Share only new or useful information.
+
+### After a PR merges
+
+After a Slack-fix PR merges, update each affected thread once, including
+clusters. This is the only exception to the single-owner rule; name the fix.
+For beta app fixes, check that the merge-triggered publisher run succeeded before
+sharing timing. Then say when the update should appear in plain language. If
+the run is missing or failed, say publication is pending and report the
+publisher issue.
+For packages, say when the update should be available. Never claim live without
+runtime proof.
+
+For mixed reports, list each unaddressed item and why, including subjective or
+out-of-scope items. Ask one targeted question if needed. Say clear deferred
+work will be ticketed, but claim a ticket only if created or linked. Keep both
+`✅` and `🎫`. If merge comes later, carry source permalinks and the reply
+obligation into the ledger and finish after merge.
+
+- **Fixed** / **Shipped** / **Live verified** - meet Phase 2's proof bars. A
+  recorded live observation may be silent, except merged Slack fixes still get
+  the reply above. Follow the package publication rules above; name beta/runtime
+  only when exercised.
   Use **Shipped** for upvoted improvements.
 - **In progress** — name the active work when it will continue beyond this run;
   acknowledge existing concrete ownership. Ask nothing.
 - **A question** — subject to the budget below.
 
-Unclaimed scope and noise get only an internal recap row. An unverified defect
-earns a targeted question when one answer would unblock it; otherwise record
-**Open - no question** once in the thread. Keep our eye and do not add `✅` for
-this terminal disposition. Cluster duplicate causes.
-Re-read the full thread before replying and stay out of active human work.
+Unclaimed scope/noise gets an internal recap row. Ask about an unverified defect
+only when one answer would unblock it; otherwise record **Open - no question**
+once. Cluster duplicates. Re-read threads before replying and stay out of
+active human work.
 
 ### The question budget
 
@@ -535,8 +544,8 @@ Use `/ship` for PR ownership, push, and merge checks. Never push to another
 person's PR without explicit authorization for that exact PR in this request.
 Push-only authorization means `ship_mode=ready-only`; merging requires separate
 authorization for that PR. Without push authorization, hand off as pending.
-Carry cursors, reports, evidence, owners, sibling results, and dispositions
-into the PR body.
+Carry feedback evidence and dispositions into PRs; reference only issues the
+PR fixes.
 Keep source-tested, built, deployed, and observed-live claims separate.
 
 Carry exact tracker row ids and the reproduction ledger into the PR or release

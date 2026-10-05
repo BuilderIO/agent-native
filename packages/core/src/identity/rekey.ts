@@ -125,6 +125,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "integration_remote_devices", column: "owner_email" },
   { table: "agent_harness_sessions", column: "owner_email" },
   { table: "workspace_apps", column: "owner_email" },
+  { table: "private_icon_assets", column: "owner_email" },
   { table: "application_state", column: "session_id", mode: "state-session" },
   { table: "oauth_tokens", column: "owner", mode: "unsupported-oauth" },
   { table: "workspace_connections", column: "owner_email" },

@@ -32,12 +32,10 @@ describe("Mail email iframe document", () => {
     );
   });
 
-  it("uses srcDoc/load instead of replacing the mounted iframe document", () => {
+  it("uses srcDoc instead of writing into the mounted iframe document", () => {
     const source = readFileSync(join(HERE, "EmailThread.tsx"), "utf8");
     expect(source).toContain('data-agent-native-session-replay=""');
     expect(source).toContain("srcDoc={iframeDocument}");
-    expect(source).toContain("setIframeReady(true)");
-    expect(source).toContain("setIframeLoadVersion((version) => version + 1)");
     expect(source).toContain(
       'sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"',
     );

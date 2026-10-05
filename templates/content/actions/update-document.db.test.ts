@@ -579,6 +579,76 @@ describe("update-document compare-and-swap", () => {
     ]);
   });
 
+  it("accepts an editor generation resent from a rebased base as the same delivery", async () => {
+    for (const rebasedFirst of [false, true]) {
+      const base = "First passage\nSecond passage";
+      const id = await createDocument({ content: base });
+      const baseRevision = documentRevisionToken(0, base);
+      const editorSessionId = nextId("rebased-session");
+      const save = (args: {
+        content: string;
+        baseRevision: string;
+        authoredBaseContent: string;
+        editorEditGeneration: number;
+      }) =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            {
+              id,
+              ...args,
+              authoredBaseRevision: args.baseRevision,
+              authoredCandidateContent: args.content,
+              editorSessionId,
+              browserSaveAttemptId: nextId("rebased-attempt"),
+            },
+            { caller: "frontend", userEmail: OWNER },
+          ),
+        );
+      const first = "First passage edited\nSecond passage";
+      await save({
+        content: first,
+        baseRevision,
+        authoredBaseContent: base,
+        editorEditGeneration: 1,
+      });
+      const afterFirst = await documentRow(id);
+      const second = "First passage edited\nSecond passage edited";
+      // A hidden tab's keepalive copy or the page's draft journal sends
+      // generation 2 from the base recorded before generation 1 landed...
+      const sendOriginal = () =>
+        save({
+          content: second,
+          baseRevision,
+          authoredBaseContent: base,
+          editorEditGeneration: 2,
+        });
+      // ...and the editor's own flush sends it rebased onto generation 1.
+      // Either delivery can arrive first.
+      const sendRebased = () =>
+        save({
+          content: second,
+          baseRevision: documentRevisionToken(
+            afterFirst.bodyRevision,
+            afterFirst.content,
+          ),
+          authoredBaseContent: afterFirst.content,
+          editorEditGeneration: 2,
+        });
+      const earlier = await (rebasedFirst ? sendRebased() : sendOriginal());
+      const later = await (rebasedFirst ? sendOriginal() : sendRebased());
+
+      expect(earlier.bodyIntentOutcome).toEqual({ status: "applied" });
+      expect(later.bodyIntentOutcome).toEqual(earlier.bodyIntentOutcome);
+      expect((await documentRow(id)).content).toBe(second);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documentBodyIntents)
+          .where(eq(schema.documentBodyIntents.documentId, id)),
+      ).toHaveLength(2);
+    }
+  });
+
   it("replays a displaced editor generation through a new transport attempt", async () => {
     const base = "Shared passage\nOther passage";
     const id = await createDocument({ content: base });

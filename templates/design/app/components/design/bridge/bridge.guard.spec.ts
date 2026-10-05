@@ -9,7 +9,7 @@ import {
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import { build } from "esbuild";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
@@ -48,13 +48,12 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
   name: string,
   nextFunction: string,
   globals: Record<string, unknown>,
+  bridgeFilename = "editor-chrome.bridge.ts",
 ): T {
-  const source = readFileSync(
-    join(bridgeDir, "editor-chrome.bridge.ts"),
-    "utf8",
-  );
-  const start = source.indexOf(`  function ${name}(`);
-  const end = source.indexOf(`\n  function ${nextFunction}(`, start);
+  const source = readFileSync(join(bridgeDir, bridgeFilename), "utf8");
+  const start = source.indexOf(`function ${name}(`);
+  const next = source.indexOf(`function ${nextFunction}(`, start);
+  const end = source.lastIndexOf("\n", next);
   if (start < 0 || end < 0) {
     throw new Error(`Could not isolate ${name} from the bridge source`);
   }
@@ -63,6 +62,523 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
     `${ts.transpile(source.slice(start, end), { target: ts.ScriptTarget.ES2020 })}; return ${name};`,
   )(...Object.values(globals)) as T;
 }
+
+describe("cross-screen grid source span resolution", () => {
+  it("does not fabricate a one-track span when source geometry is unavailable", () => {
+    const sourceGrid = {};
+    const source = { parentElement: sourceGrid };
+    const getSourceGridSpan = compileBridgeFunction<
+      (element: Element | null) => { columns: number; rows: number } | undefined
+    >("crossScreenGridSpanForElement", "postCrossScreenDrag", {
+      window: { getComputedStyle: () => ({ display: "grid" }) },
+      gridTrackLayoutForElement: () => null,
+      gridItemAxisPlacement: () => ({ span: 1 }),
+      gridItemAxisSpanForSource: () => null,
+    });
+
+    expect(getSourceGridSpan(source as unknown as Element)).toBeUndefined();
+  });
+
+  it.each([
+    { start: "start", end: "end", expected: null },
+    { start: "-4", end: "-2", expected: null },
+    { start: "2", end: "4", expected: 2 },
+    { start: "span 3", end: "auto", expected: 3 },
+    { start: "auto", end: "auto", expected: 1 },
+  ])(
+    "resolves source spans from authored axis placement ($start / $end)",
+    ({ start, end, expected }) => {
+      const element = {};
+      const stylesByElement = new Map([
+        [
+          element,
+          {
+            gridColumnStart: start,
+            gridColumnEnd: end,
+            gridRowStart: "auto",
+            gridRowEnd: "auto",
+          },
+        ],
+      ]);
+      const getSourceAxisSpan = compileBridgeFunction<
+        (
+          element: Element,
+          layout: null,
+          axis: "column" | "row",
+        ) => number | null
+      >("gridItemAxisSpanForSource", "crossScreenGridSpanForElement", {
+        window: {
+          getComputedStyle: (node: object) => stylesByElement.get(node),
+        },
+        gridLinePosition: (value: string) => {
+          const numeric = value.trim().match(/^(\d+)$/);
+          return numeric ? Number(numeric[1]) : null;
+        },
+      });
+
+      expect(getSourceAxisSpan(element as Element, null, "column")).toBe(
+        expected,
+      );
+    },
+  );
+
+  it("walks through display:contents ancestors to the grid formatting parent", () => {
+    const grid = {};
+    const flattened = { parentElement: grid };
+    const source = { parentElement: flattened };
+    const layout = {};
+    const displayFor = new Map([
+      [grid, "grid"],
+      [flattened, "contents"],
+    ]);
+    const gridTrackLayoutForElement = vi.fn((element: unknown) =>
+      element === grid ? layout : null,
+    );
+    const gridItemAxisSpanForSource = vi.fn(
+      (_element: unknown, _layout: unknown, axis: "column" | "row") =>
+        axis === "column" ? 2 : 3,
+    );
+    const getSourceGridSpan = compileBridgeFunction<
+      (element: Element | null) => { columns: number; rows: number } | undefined
+    >("crossScreenGridSpanForElement", "postCrossScreenDrag", {
+      window: {
+        getComputedStyle: (element: object) => ({
+          display: displayFor.get(element),
+        }),
+      },
+      gridTrackLayoutForElement,
+      gridItemAxisPlacement: () => ({ span: 1 }),
+      gridItemAxisSpanForSource,
+    });
+
+    expect(getSourceGridSpan(source as unknown as Element)).toEqual({
+      columns: 2,
+      rows: 3,
+    });
+    expect(gridTrackLayoutForElement).toHaveBeenCalledWith(grid);
+    expect(gridItemAxisSpanForSource).toHaveBeenCalledTimes(2);
+    expect(gridItemAxisSpanForSource).toHaveBeenCalledWith(
+      source,
+      layout,
+      "column",
+    );
+    expect(gridItemAxisSpanForSource).toHaveBeenCalledWith(
+      source,
+      layout,
+      "row",
+    );
+  });
+});
+
+describe("editor drop-container primitive eligibility", () => {
+  it("accepts both rectangle primitive markers and rejects non-containers", () => {
+    const isContainerDropTarget = compileBridgeFunction<
+      (element: unknown) => boolean
+    >("isContainerDropTarget", "edgePlacementForRect", {
+      BRIDGE_ADOPTING_PRIMITIVES: {
+        frame: true,
+        rectangle: true,
+        rect: true,
+      },
+      BRIDGE_CONTAINER_TAGS: ["div"],
+      BRIDGE_INTERACTIVE_LEAF_TAGS: [],
+      BRIDGE_LEAF_TAGS: [],
+      BRIDGE_TEXT_TAGS: [],
+      document: { body: {}, documentElement: {} },
+      hasOnlyLeafContent: () => false,
+      isLayerInteractionBlocked: () => false,
+      isOverlayElement: () => false,
+      window: { getComputedStyle: () => ({ display: "block" }) },
+    });
+    const primitive = (kind: string, attribute = "data-an-primitive") => ({
+      tagName: "DIV",
+      getAttribute: (name: string) => (name === attribute ? kind : null),
+    });
+
+    expect(isContainerDropTarget(primitive("rectangle"))).toBe(true);
+    expect(
+      isContainerDropTarget(primitive("rect", "data-agent-native-primitive")),
+    ).toBe(true);
+    expect(isContainerDropTarget(primitive("text"))).toBe(false);
+  });
+});
+
+describe("bridge oversized-drop receiver guards", () => {
+  it("requires both dimensions for non-wrapping column receivers", () => {
+    const dropFitsContainer = compileBridgeFunction<
+      (container: Element, sourceWidth: number, sourceHeight: number) => boolean
+    >("dropFitsContainer", "isOutsideIframeViewport", {
+      dropContentSize: () => ({ width: 180, height: 160 }),
+      window: {
+        getComputedStyle: () => ({
+          display: "flex",
+          flexDirection: "column",
+          flexWrap: "nowrap",
+        }),
+      },
+    });
+
+    expect(dropFitsContainer({} as Element, 220, 96)).toBe(false);
+  });
+
+  it.each([
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      flexDirection: "row",
+      containerSize: { width: 236, height: 64 },
+      sourceSize: { width: 100, height: 80 },
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      flexDirection: "row",
+      containerSize: { width: 236, height: 64 },
+      sourceSize: { width: 100, height: 80 },
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      flexDirection: "column",
+      containerSize: { width: 180, height: 160 },
+      sourceSize: { width: 220, height: 96 },
+    },
+  ])(
+    "rejects cross-axis overflow in $bridgeFilename $flexDirection flex receivers",
+    ({
+      bridgeFilename,
+      nextFunction,
+      flexDirection,
+      containerSize,
+      sourceSize,
+    }) => {
+      const dropFitsContainer = compileBridgeFunction<
+        (
+          container: Element,
+          sourceWidth: number,
+          sourceHeight: number,
+        ) => boolean
+      >(
+        "dropFitsContainer",
+        nextFunction,
+        {
+          dropContentSize: () => containerSize,
+          window: {
+            getComputedStyle: () => ({
+              display: "flex",
+              flexDirection,
+              flexWrap: "nowrap",
+            }),
+          },
+        },
+        bridgeFilename,
+      );
+
+      expect(
+        dropFitsContainer({} as Element, sourceSize.width, sourceSize.height),
+      ).toBe(false);
+    },
+  );
+
+  it.each([
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      style: { display: "flex", flexDirection: "row", flexWrap: "nowrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: true,
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "isFlexContainer",
+      style: {
+        display: "inline-flex",
+        flexDirection: "column",
+        flexWrap: "nowrap",
+      },
+      containerSize: { width: 124, height: 300 },
+      sourceSize: { width: 140, height: 80 },
+      expected: true,
+    },
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      style: { display: "flex", flexDirection: "row", flexWrap: "wrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: false,
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      style: { display: "grid", flexDirection: "row", flexWrap: "nowrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: false,
+    },
+  ])(
+    "uses main-axis fit only for single-line auto-layout fallback in $bridgeFilename",
+    ({
+      bridgeFilename,
+      nextFunction,
+      style,
+      containerSize,
+      sourceSize,
+      expected,
+    }) => {
+      const dropFitsAutoLayoutFallback = compileBridgeFunction<
+        (
+          container: Element,
+          sourceWidth: number,
+          sourceHeight: number,
+        ) => boolean
+      >(
+        "dropFitsAutoLayoutFallback",
+        nextFunction,
+        {
+          dropFitsContainer: () => false,
+          dropContentSize: () => containerSize,
+          window: { getComputedStyle: () => style },
+        },
+        bridgeFilename,
+      );
+
+      expect(
+        dropFitsAutoLayoutFallback(
+          {} as Element,
+          sourceSize.width,
+          sourceSize.height,
+        ),
+      ).toBe(expected);
+    },
+  );
+
+  it("keeps the two-dimensional fit check for static receivers", () => {
+    const dropFitsContainer = compileBridgeFunction<
+      (container: Element, sourceWidth: number, sourceHeight: number) => boolean
+    >("dropFitsContainer", "isOutsideIframeViewport", {
+      dropContentSize: () => ({ width: 180, height: 160 }),
+      window: {
+        getComputedStyle: () => ({
+          display: "block",
+          flexDirection: "row",
+          flexWrap: "nowrap",
+        }),
+      },
+    });
+
+    expect(dropFitsContainer({} as Element, 220, 96)).toBe(false);
+    expect(dropFitsContainer({} as Element, 180, 160)).toBe(true);
+  });
+
+  it("does not promote an oversized drop beyond the top-level receiver to body", () => {
+    const body = { parentElement: null } as unknown as Element;
+    const root = {
+      parentElement: body,
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 160,
+        height: 120,
+      }),
+    } as unknown as Element;
+    const nested = {
+      parentElement: root,
+      getAttribute: () => null,
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 80,
+      }),
+    } as unknown as Element;
+    const dragEl = {} as Element;
+    const target = {
+      anchor: nested,
+      placement: "inside",
+      dropMode: "flow-insert",
+    };
+    const nearestChildInsertionTarget = vi.fn(() => ({
+      anchor: body,
+      placement: "after",
+      dropMode: "flow-insert",
+    }));
+    const applyFreeDropSizeGuard = compileBridgeFunction<
+      (
+        dropTarget: typeof target,
+        ev: { clientX: number; clientY: number },
+      ) => unknown
+    >("applyFreeDropSizeGuard", "cancelAutoLayoutTargetResolution", {
+      ignoreAutoLayoutHeld: () => false,
+      isPlatformPrimaryChord: () => false,
+      dropContainerForTarget: (value: typeof target) => value.anchor,
+      dragEl,
+      groupOthers: [],
+      dragElStartRect: { width: 220, height: 96 },
+      document: { body, documentElement: {} },
+      isContainerDropTarget: () => true,
+      isAutoLayoutElement: (element: Element) => element === root,
+      isAutoLayoutFlowTarget: () => true,
+      isAbsolutePrimitiveContainer: () => false,
+      isFreeformRelativeContainer: () => false,
+      dropFitsContainer: (element: Element) => element === body,
+      dropFitsAutoLayoutFallback: () => false,
+      parentFlowAxis: () => "y",
+      nearestChildInsertionTarget,
+    });
+
+    expect(applyFreeDropSizeGuard(target, { clientX: 80, clientY: 80 })).toBe(
+      null,
+    );
+    expect(nearestChildInsertionTarget).not.toHaveBeenCalled();
+  });
+});
+
+describe("source vector stroke overlay reconciliation", () => {
+  type FakeNode = {
+    tagName: string;
+    attributes: Record<string, string>;
+    sourceOwned: boolean;
+    children: FakeNode[];
+    parent: FakeNode | null;
+    hasAttribute: (name: string) => boolean;
+    getAttribute: (name: string) => string | null;
+    remove: () => void;
+  };
+
+  function fakeNode(
+    tagName: string,
+    attributes: Record<string, string> = {},
+    sourceOwned = false,
+  ): FakeNode {
+    const node: FakeNode = {
+      tagName,
+      attributes,
+      sourceOwned,
+      children: [],
+      parent: null,
+      hasAttribute: (name) =>
+        Object.prototype.hasOwnProperty.call(attributes, name),
+      getAttribute: (name) => attributes[name] ?? null,
+      remove: () => {
+        if (!node.parent) return;
+        node.parent.children = node.parent.children.filter(
+          (child) => child !== node,
+        );
+        node.parent = null;
+      },
+    };
+    return node;
+  }
+
+  function append(parent: FakeNode, child: FakeNode): void {
+    child.parent = parent;
+    parent.children.push(child);
+  }
+
+  function strokePair(id: string, sourceOwned: boolean): FakeNode[] {
+    return [
+      fakeNode("defs", { "data-an-vector-stroke-defs": "", id }, sourceOwned),
+      fakeNode(
+        "use",
+        { "data-an-vector-stroke-overlay": "", href: `#${id}` },
+        sourceOwned,
+      ),
+    ];
+  }
+
+  function makeMorphElement() {
+    const reconcile = compileBridgeFunction<
+      (
+        live: FakeNode,
+        next: FakeNode,
+        sourceOwned: (node: FakeNode) => boolean,
+      ) => void
+    >("reconcileRuntimeVectorStrokeOverlay", "morphElement", {});
+    const morphChildren = vi.fn((live: FakeNode, next: FakeNode) => {
+      next.children.forEach((child) => {
+        const marker = child.hasAttribute("data-an-vector-stroke-defs")
+          ? "data-an-vector-stroke-defs"
+          : child.hasAttribute("data-an-vector-stroke-overlay")
+            ? "data-an-vector-stroke-overlay"
+            : null;
+        if (!marker) return;
+        const identity = marker.endsWith("defs") ? "id" : "href";
+        const value = child.getAttribute(identity);
+        const sourceNodeExists = live.children.some(
+          (candidate) =>
+            candidate.sourceOwned &&
+            candidate.tagName === child.tagName &&
+            candidate.hasAttribute(marker) &&
+            candidate.getAttribute(identity) === value,
+        );
+        if (!sourceNodeExists) {
+          append(live, fakeNode(child.tagName, { ...child.attributes }, true));
+        }
+      });
+    });
+    const morphElement = compileBridgeFunction<
+      (live: FakeNode, next: FakeNode, context: object) => void
+    >("morphElement", "morphRuntimeBody", {
+      morphFormState: vi.fn(),
+      sourceMetaFor: vi.fn(),
+      morphAttributes: vi.fn(),
+      declaresRuntimeChildren: vi.fn(() => false),
+      templateContentOf: vi.fn(() => null),
+      reconcileRuntimeVectorStrokeOverlay: reconcile,
+      isSourceOwned: (node: FakeNode) => node.sourceOwned,
+      morphChildren,
+    });
+    return { morphElement, morphChildren };
+  }
+
+  it("replaces the runtime pair with one canonical source pair and keeps unrelated runtime nodes", () => {
+    const live = fakeNode("svg");
+    append(live, fakeNode("path", { d: "M0 0 L10 10" }, true));
+    strokePair("an-vector-stroke-runtime-7-geometry", false).forEach((child) =>
+      append(live, child),
+    );
+    const runtimeWidget = fakeNode("g", { "data-runtime-widget": "" });
+    append(live, runtimeWidget);
+
+    const next = fakeNode("svg");
+    append(next, fakeNode("path", { d: "M0 0 L10 10" }, true));
+    strokePair("an-vector-stroke-pen-1", true).forEach((child) =>
+      append(next, child),
+    );
+
+    makeMorphElement().morphElement(live, next, {});
+
+    const defs = live.children.filter((child) =>
+      child.hasAttribute("data-an-vector-stroke-defs"),
+    );
+    const overlays = live.children.filter((child) =>
+      child.hasAttribute("data-an-vector-stroke-overlay"),
+    );
+    expect(defs).toHaveLength(1);
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0]?.getAttribute("href")).toBe("#an-vector-stroke-pen-1");
+    expect(live.children).toContain(runtimeWidget);
+  });
+
+  it("preserves runtime stroke markup unless source declares the complete pair", () => {
+    const live = fakeNode("svg");
+    strokePair("an-vector-stroke-runtime-7-geometry", false).forEach((child) =>
+      append(live, child),
+    );
+    const next = fakeNode("svg");
+    append(next, fakeNode("defs", { "data-an-vector-stroke-defs": "" }, true));
+
+    makeMorphElement().morphElement(live, next, {});
+
+    expect(
+      live.children.filter((child) =>
+        child.hasAttribute("data-an-vector-stroke-overlay"),
+      ),
+    ).toHaveLength(1);
+  });
+});
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
@@ -124,6 +640,44 @@ function hydratedEditorChromeBridgeScriptWithLiveReflow(
     "__LIVE_REFLOW_ENABLED__",
     "true",
   );
+}
+
+async function crossScreenDragStartFor(
+  page: Page,
+  selector: string,
+): Promise<Record<string, unknown> | undefined> {
+  await page.evaluate(() => {
+    window.__bridgeMessages = [];
+    window.postMessage = ((message: unknown) => {
+      window.__bridgeMessages?.push(
+        message as { type?: string; phase?: string },
+      );
+    }) as typeof window.postMessage;
+  });
+  const sourceBox = await page.locator(selector).boundingBox();
+  expect(sourceBox).not.toBeNull();
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2,
+    sourceBox!.y + sourceBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2 + 40,
+    sourceBox!.y + sourceBox!.height / 2 + 40,
+    { steps: 4 },
+  );
+  const start = await page.evaluate(() => {
+    const starts = (window.__bridgeMessages ?? []).filter(
+      (message) =>
+        message.type === "agent-native:cross-screen-drag" &&
+        message.phase === "start",
+    );
+    return starts[starts.length - 1] as unknown as
+      | Record<string, unknown>
+      | undefined;
+  });
+  await page.mouse.up();
+  return start;
 }
 
 function hydratedBoardEditorChromeBridgeScriptWithOffset(
@@ -530,6 +1084,312 @@ it("keeps cancel cleanup compatible with held modifiers", () => {
   expect(cancel).toContain("bridgeSpaceKeyPressed = false");
   expect(cancel).not.toContain("bridgeIgnoreAutoLayoutKeyPressed = false");
 });
+
+it(
+  "answers cross-screen modifier snapshot probes with the current S-key state",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html>
+<html>
+  <head><style>html, body { margin: 0; width: 100%; height: 100%; } #target { position: absolute; left: 100px; top: 100px; width: 120px; height: 80px; }</style></head>
+  <body><div id="target" data-agent-native-node-id="target"></div></body>
+</html>`);
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "Linux x86_64",
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const snapshots = await page.evaluate(() => {
+        const messages: Array<Record<string, unknown>> = [];
+        (window as any).__bridgeMessages = messages;
+        window.postMessage = ((message: unknown) => {
+          messages.push(message as Record<string, unknown>);
+        }) as typeof window.postMessage;
+        const requestSnapshot = (requestId: string) =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: {
+                type: "agent-native:cross-screen-modifier-snapshot-probe",
+                requestId,
+              },
+              source: window,
+            }),
+          );
+
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "s", bubbles: true }),
+        );
+        requestSnapshot("held");
+        document.dispatchEvent(
+          new KeyboardEvent("keyup", { key: "s", bubbles: true }),
+        );
+        requestSnapshot("released");
+
+        return messages.filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-modifier-snapshot",
+        );
+      });
+
+      expect(snapshots).toHaveLength(2);
+      expect(snapshots[0]).toMatchObject({
+        requestId: "held",
+        ignoreAutoLayout: true,
+      });
+      expect(snapshots[1]).toMatchObject({
+        requestId: "released",
+        ignoreAutoLayout: false,
+      });
+      expect(snapshots[0].changedAt).toEqual(expect.any(Number));
+      expect(snapshots[1].changedAt).toEqual(expect.any(Number));
+      expect(snapshots[1].changedAt as number).toBeGreaterThanOrEqual(
+        snapshots[0].changedAt as number,
+      );
+
+      await page.mouse.click(160, 140);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+      await page.mouse.move(160, 140);
+      await page.mouse.down();
+      await page.mouse.move(200, 180, { steps: 4 });
+      await page.waitForFunction(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).some(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        ),
+      );
+      await page.keyboard.down("s");
+      const activeSnapshotId = await page.evaluate(() => {
+        const dragStarts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        );
+        return dragStarts[dragStarts.length - 1]?.sourceDeleteRequestId as
+          | string
+          | undefined;
+      });
+      expect(activeSnapshotId).toEqual(expect.any(String));
+      const activeSnapshot = await page.evaluate((snapshotId: string) => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:cross-screen-modifier-snapshot-probe",
+              requestId: "active-release",
+              snapshotId,
+            },
+            source: window,
+          }),
+        );
+        return (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).find(
+          (message) =>
+            message.type === "agent-native:cross-screen-modifier-snapshot" &&
+            message.requestId === "active-release",
+        );
+      }, activeSnapshotId!);
+      expect(activeSnapshot).toMatchObject({
+        ignoreAutoLayout: true,
+      });
+      await page.mouse.up();
+      await page.keyboard.up("s");
+
+      await page.waitForFunction(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).some(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "end",
+        ),
+      );
+      const firstSnapshotId = await page.evaluate(
+        () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).find(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "end",
+          )?.sourceDeleteRequestId,
+      );
+      expect(firstSnapshotId).toEqual(expect.any(String));
+
+      await page.mouse.click(160, 140);
+      await page.mouse.move(160, 140);
+      await page.mouse.down();
+      await page.mouse.move(200, 180, { steps: 4 });
+      await page.waitForFunction(
+        () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).filter(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "start",
+          ).length >= 2,
+      );
+      await page.mouse.up();
+      await page.waitForFunction(
+        () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).filter(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "end",
+          ).length >= 2,
+      );
+      const snapshotIds = await page.evaluate(() =>
+        ((window as any).__bridgeMessages as Array<Record<string, unknown>>)
+          .filter(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "end",
+          )
+          .map((message) => message.sourceDeleteRequestId),
+      );
+      expect(snapshotIds).toHaveLength(2);
+      expect(snapshotIds[0]).toBe(firstSnapshotId);
+
+      const releaseSnapshots = await page.evaluate((ids) => {
+        const messages = (window as any).__bridgeMessages as Array<
+          Record<string, unknown>
+        >;
+        messages.length = 0;
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "s", bubbles: true }),
+        );
+        ids.forEach((snapshotId, index) =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: {
+                type: "agent-native:cross-screen-modifier-snapshot-probe",
+                requestId: `ended-drag-${index}`,
+                snapshotId,
+              },
+              source: window,
+            }),
+          ),
+        );
+        return messages.filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-modifier-snapshot",
+        );
+      }, snapshotIds);
+      expect(releaseSnapshots).toHaveLength(2);
+      expect(releaseSnapshots[0]).toMatchObject({
+        requestId: "ended-drag-0",
+        ignoreAutoLayout: true,
+      });
+      expect(releaseSnapshots[1]).toMatchObject({
+        requestId: "ended-drag-1",
+        ignoreAutoLayout: false,
+      });
+      expect(releaseSnapshots[0].changedAt).toEqual(expect.any(Number));
+      expect(releaseSnapshots[1].changedAt).toEqual(expect.any(Number));
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "timestamps parent modifier transitions on the parent window's clock",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(
+        '<iframe id="source" srcdoc="<!doctype html><html><body></body></html>"></iframe>',
+      );
+      const sourceFrame = page.frames()[1]!;
+      await sourceFrame.evaluate(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "Linux x86_64",
+        });
+      });
+      await sourceFrame.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await sourceFrame.waitForSelector(
+        '[data-agent-native-edit-overlay="shield"]',
+      );
+      const skewedSourceTimeOrigin = await sourceFrame.evaluate(() => {
+        const timeOrigin = Date.now() + 60_000;
+        Object.defineProperty(window, "performance", {
+          configurable: true,
+          value: { timeOrigin, now: () => 0 },
+        });
+        return timeOrigin;
+      });
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event) => {
+          if (
+            (event.data as Record<string, unknown> | null)?.type ===
+            "agent-native:cross-screen-modifier-snapshot"
+          ) {
+            (window as any).__bridgeMessages.push(event.data);
+          }
+        });
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "s", bubbles: true }),
+        );
+      });
+      await sourceFrame.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:cross-screen-modifier-snapshot-probe",
+              requestId: "parent-clock",
+            },
+            source: window.parent,
+          }),
+        );
+      });
+      await page.waitForFunction(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).some((message) => message.requestId === "parent-clock"),
+      );
+      const snapshot = await page.evaluate(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).find((message) => message.requestId === "parent-clock"),
+      );
+      const parentNow = await page.evaluate(
+        () => performance.timeOrigin + performance.now(),
+      );
+      expect(snapshot?.ignoreAutoLayout).toBe(true);
+      expect(snapshot?.changedAt).toBeLessThan(skewedSourceTimeOrigin - 1_000);
+      expect(
+        Math.abs((snapshot?.changedAt as number) - parentNow),
+      ).toBeLessThan(1_000);
+    } finally {
+      await browser.close();
+    }
+  },
+);
 
 describe("generated bridge modules", () => {
   const bridgeFiles = getBridgeFiles();
@@ -1106,12 +1966,6 @@ it(
         viewport: { width: 900, height: 700 },
       });
       page.on("pageerror", (err) => pageErrors.push(err.message));
-      await page.evaluate(() => {
-        (window as any).__bridgeMessages = [];
-        window.addEventListener("message", (event: MessageEvent) => {
-          (window as any).__bridgeMessages.push(event.data);
-        });
-      });
 
       await page.setContent(`<!doctype html>
 <html>
@@ -1136,6 +1990,12 @@ it(
     <button id="target" data-agent-native-node-id="target-button">Target</button>
   </body>
 </html>`);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          (window as any).__bridgeMessages.push(event.data);
+        });
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
@@ -1172,6 +2032,19 @@ it(
           messageTypes: ((window as any).__bridgeMessages ?? []).map(
             (message: { type?: string }) => message.type,
           ),
+          cancelRequestIds: (
+            (window as any).__bridgeMessages as Array<{
+              type?: string;
+              phase?: string;
+              sourceDeleteRequestId?: string;
+            }>
+          )
+            .filter(
+              (message) =>
+                message.type === "agent-native:cross-screen-drag" &&
+                message.phase === "cancel",
+            )
+            .map((message) => message.sourceDeleteRequestId),
         };
       });
 
@@ -1179,6 +2052,8 @@ it(
       expect(result.top).toBe("140px");
       expect(result.messageTypes).not.toContain("visual-style-change");
       expect(result.messageTypes).not.toContain("visual-structure-change");
+      expect(result.cancelRequestIds.length).toBeGreaterThan(0);
+      expect(result.cancelRequestIds.every(Boolean)).toBe(true);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -6080,6 +6955,14 @@ describe("editor chrome bridge — text editing session", () => {
           }
         }, keystrokeCount);
 
+        // The coalesced post is sent from a requestAnimationFrame, which a
+        // loaded CI runner can delay past a fixed wait. Wait for the first post,
+        // then give any uncoalesced extras time to land before counting.
+        await page.waitForFunction(
+          () => (window as any).__textEditingStateCount > 0,
+          undefined,
+          { timeout: 5_000 },
+        );
         await page.waitForTimeout(80);
 
         const postedCount = await page.evaluate(
@@ -6686,6 +7569,400 @@ it(
   },
 );
 
+it.each(["200px", "20000px"])(
+  "positions oversized CSS radius handles at the rendered corner (%s)",
+  { timeout: 30_000 },
+  async (borderRadius) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:${borderRadius}"></div>
+  <div id="effective-reference" style="position:absolute;left:300px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:50px"></div>
+</body></html>`);
+
+      const renderedTarget = await page.locator("#target").screenshot();
+      const renderedReference = await page
+        .locator("#effective-reference")
+        .screenshot();
+      expect(renderedTarget).toEqual(renderedReference);
+
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(94, 94);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("nw radius handle is not visible");
+      const targetBox = await page.locator("#target").boundingBox();
+      if (!targetBox) throw new Error("target is not visible");
+      expect(
+        Math.abs(handleBox.x + handleBox.width / 2 - (targetBox.x + 54)),
+      ).toBeLessThan(1.5);
+      expect(
+        Math.abs(handleBox.y + handleBox.height / 2 - (targetBox.y + 54)),
+      ).toBeLessThan(1.5);
+
+      const radiusValues = await page.locator("#target").evaluate((element) => {
+        const target = element as HTMLElement;
+        return {
+          inline: target.style.borderRadius,
+          computed: getComputedStyle(target).borderTopLeftRadius,
+        };
+      });
+      expect(radiusValues).toEqual({
+        inline: borderRadius,
+        computed: borderRadius,
+      });
+
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2 + 1,
+        handleBox.y + handleBox.height / 2 + 1,
+        { steps: 2 },
+      );
+      const readRadius = () =>
+        page.locator("#target").evaluate((element) => {
+          const target = element as HTMLElement;
+          return {
+            inline: target.style.borderRadius,
+            computed: getComputedStyle(target).borderTopLeftRadius,
+          };
+        });
+      const duringTinyDrag = await readRadius();
+      await page.mouse.up();
+      const afterTinyDrag = await readRadius();
+      for (const radiusValues of [duringTinyDrag, afterTinyDrag]) {
+        const [draggedRadiusX, draggedRadiusY] = radiusValues.computed
+          .split(/\s+/)
+          .map(Number.parseFloat);
+        expect(draggedRadiusX).toBeGreaterThanOrEqual(50);
+        expect(draggedRadiusX).toBeLessThan(55);
+        expect(draggedRadiusY).toBeGreaterThanOrEqual(49);
+        expect(draggedRadiusY).toBeLessThanOrEqual(50);
+        expect(radiusValues.inline).not.toBe("0px");
+      }
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps untouched normalized corners stable during an Alt radius drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(94, 94);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const centers = () =>
+        page.evaluate(() =>
+          ["nw", "ne", "se", "sw"].map((corner) => {
+            const handle = document.querySelector<HTMLElement>(
+              `[data-agent-native-radius-handle="${corner}"]`,
+            );
+            if (!handle) throw new Error(`${corner} radius handle is missing`);
+            const rect = handle.getBoundingClientRect();
+            return {
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+            };
+          }),
+        );
+      const before = await centers();
+      await page.mouse.move(before[0].x, before[0].y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(before[0].x - 1, before[0].y - 1, { steps: 2 });
+      const during = await centers();
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      expect(during[0].x).toBeLessThan(before[0].x);
+      expect(during[0].y).toBeLessThan(before[0].y);
+      expect(
+        Math.hypot(during[0].x - before[0].x, during[0].y - before[0].y),
+      ).toBeLessThan(2);
+      for (const index of [1, 2, 3]) {
+        expect(
+          Math.hypot(
+            during[index].x - before[index].x,
+            during[index].y - before[index].y,
+          ),
+        ).toBeLessThan(1);
+      }
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "49px",
+        borderTopRightRadius: "50px",
+        borderBottomRightRadius: "50px",
+        borderBottomLeftRadius: "50px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "does not snap a lone oversized corner below its rendered radius during Alt drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(144, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const before = await handle.boundingBox();
+      if (!before) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: before.x + before.width / 2,
+        y: before.y + before.height / 2,
+      };
+      await page.mouse.move(start.x, start.y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const during = await handle.boundingBox();
+      if (!during) throw new Error("nw radius handle disappeared during drag");
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      const moved = {
+        x: during.x + during.width / 2,
+        y: during.y + during.height / 2,
+      };
+      expect(Math.abs(moved.x - (start.x - 1))).toBeLessThan(1.5);
+      expect(Math.abs(moved.y - (start.y - 1))).toBeLessThan(1.5);
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps a lone asymmetric oversized corner editable from its normalized rendered origin",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:300px 200px"></div>
+  <div id="effective-reference" style="position:absolute;left:300px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:150px 100px"></div>
+</body></html>`);
+
+      expect(await page.locator("#target").screenshot()).toEqual(
+        await page.locator("#effective-reference").screenshot(),
+      );
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(194, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const before = await handle.boundingBox();
+      if (!before) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: before.x + before.width / 2,
+        y: before.y + before.height / 2,
+      };
+      expect(Math.abs(start.x - 194)).toBeLessThan(1.5);
+      expect(Math.abs(start.y - 144)).toBeLessThan(1.5);
+
+      await page.mouse.move(start.x, start.y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const during = await handle.boundingBox();
+      if (!during) throw new Error("nw radius handle disappeared during drag");
+      const moved = {
+        x: during.x + during.width / 2,
+        y: during.y + during.height / 2,
+      };
+      expect(Math.abs(moved.x - (start.x - 1))).toBeLessThan(1.5);
+      expect(Math.abs(moved.y - (start.y - 1))).toBeLessThan(1.5);
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "149px 99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
+      const persisted = await page.locator("#target").evaluate((element) => {
+        const target = element as HTMLElement;
+        return {
+          inline: target.style.borderTopLeftRadius,
+          computed: getComputedStyle(target).borderTopLeftRadius,
+        };
+      });
+      expect(persisted).toEqual({
+        inline: "149px 99px",
+        computed: "149px 99px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps a lone asymmetric oversized corner under the pointer during a whole-shape drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:300px 200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(194, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const initialBox = await handle.boundingBox();
+      if (!initialBox) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: initialBox.x + initialBox.width / 2,
+        y: initialBox.y + initialBox.height / 2,
+      };
+      expect(Math.abs(start.x - 194)).toBeLessThan(1.5);
+      expect(Math.abs(start.y - 144)).toBeLessThan(1.5);
+
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const duringBox = await handle.boundingBox();
+      if (!duringBox)
+        throw new Error("nw radius handle disappeared during drag");
+      expect(
+        Math.abs(duringBox.x + duringBox.width / 2 - (start.x - 1)),
+      ).toBeLessThan(1.5);
+      expect(
+        Math.abs(duringBox.y + duringBox.height / 2 - (start.y - 1)),
+      ).toBeLessThan(1.5);
+      await page.mouse.up();
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "149px 99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it(
   "shows the radius handle when selection changes under a stationary pointer",
   { timeout: 30_000 },
@@ -7195,7 +8472,10 @@ it(
   <div id="zero-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:340px;width:120px;height:80px;background:#ddd;opacity:0"></div>
   <div id="filter-opacity-rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:640px;top:580px;width:80px;height:80px;background:#ddd;filter:opacity(0)"></div>
   <div style="position:absolute;left:780px;top:580px;filter:blur(0) opacity(0)"><div id="filter-opacity-ancestor-rectangle" data-agent-native-primitive="rectangle" style="width:80px;height:80px;background:#ddd"></div></div>
+  <svg id="stroke-rectangle-vector" data-an-primitive="rectangle" viewBox="0 0 100 100" style="position:absolute;left:200px;top:600px;width:100px;height:100px"><path d="M 10 10 H 90 V 90 H 10 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
   <svg id="stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:640px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
+  <svg id="zero-opacity-stroke-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:760px;top:440px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4" stroke-opacity="0"></path></svg>
+  <svg id="stroke-only-path" data-an-primitive="path" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:520px;top:300px;width:80px;height:80px"><path d="M 50 0 L 100 100 L 0 100 Z" fill="none" stroke="#222" stroke-width="4"></path></svg>
   <svg id="opacity-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:40px;width:80px;height:80px"><g opacity="0"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
   <svg id="visibility-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:140px;width:80px;height:80px"><g visibility="hidden"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
   <svg id="display-group-polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[50,0,null,null,null,null,null],[100,100,null,null,null,null,null],[0,100,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:780px;top:240px;width:80px;height:80px"><g display="none"><path d="M 50 0 L 100 100 L 0 100 Z" fill="#222"></path></g></svg>
@@ -7231,7 +8511,8 @@ it(
         ["rectangle", 4],
         ["visible-gradient-rectangle", 4],
         ["stroke-rectangle", 4],
-        ["stroke-polygon", 3],
+        ["stroke-rectangle-vector", 4],
+        ["stroke-polygon", 0],
         ["visible-paint-server-polygon", 3],
         ["visible-pattern-polygon", 3],
         ["inherited-pattern-polygon", 3],
@@ -7259,7 +8540,10 @@ it(
         "zero-opacity-rectangle",
         "filter-opacity-rectangle",
         "filter-opacity-ancestor-rectangle",
+        "stroke-rectangle-vector",
         "stroke-polygon",
+        "zero-opacity-stroke-polygon",
+        "stroke-only-path",
         "opacity-group-polygon",
         "visibility-group-polygon",
         "display-group-polygon",
@@ -7557,6 +8841,22 @@ it(
             await waitForRadiusHandleVisibility(true);
           }
         }
+        if (id === "stroke-polygon") {
+          const box = await page.locator(`#${id}`).boundingBox();
+          if (!box) throw new Error(`${id} is not visible`);
+          await page.mouse.move(box.x + box.width / 2, box.y + 2);
+          const visibleAfterHover = await page
+            .locator("[data-agent-native-radius-handle]")
+            .evaluateAll(
+              (handles) =>
+                handles.filter(
+                  (handle) =>
+                    getComputedStyle(handle as HTMLElement).visibility ===
+                    "visible",
+                ).length,
+            );
+          expect(visibleAfterHover, id).toBe(0);
+        }
         if (id === "stroke-rectangle") {
           await page.mouse.move(644, 244);
           const visibleAtCorner = await page.evaluate(() =>
@@ -7573,25 +8873,6 @@ it(
               ),
           );
           expect(visibleAtCorner).toEqual(["nw"]);
-        }
-        if (id === "stroke-polygon") {
-          const box = await page.locator(`#${id}`).boundingBox();
-          if (!box) throw new Error("stroke polygon is not visible");
-          await page.mouse.move(box.x + box.width / 2, box.y + 2);
-          const visibleAtVertex = await page.evaluate(() =>
-            Array.from(
-              document.querySelectorAll<HTMLElement>(
-                "[data-agent-native-radius-handle]",
-              ),
-            )
-              .filter(
-                (handle) => getComputedStyle(handle).visibility === "visible",
-              )
-              .map((handle) =>
-                handle.getAttribute("data-agent-native-radius-handle"),
-              ),
-          );
-          expect(visibleAtVertex).toEqual(["vertex-0"]);
         }
         if (
           id === "no-paint-rectangle" ||
@@ -10331,6 +11612,567 @@ it(
 );
 
 it(
+  "runtime export snapshots preserve live stylesheet rules and responsive image sources",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html>
+<html><head><style id="head-rules">#head-target { color: black; }</style></head>
+<body><div id="body-target">CSSOM</div>
+<picture><source media="(min-width: 1px)" srcset="data:image/svg+xml,%3Csvg%20id='chosen'%20xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"><img id="responsive-image" src="data:image/svg+xml,%3Csvg%20id='fallback'%20xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E" srcset="data:image/svg+xml,%3Csvg%20id='retina'%20xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E 2x"></picture>
+</body></html>`);
+      await page.evaluate(() => {
+        (window as any).__resourceRequests = [];
+        window.fetch = (async (input: RequestInfo | URL) => {
+          (window as any).__resourceRequests.push(String(input));
+          return new Response(new Blob(["<svg/>"], { type: "image/svg+xml" }), {
+            status: 200,
+          });
+        }) as typeof fetch;
+        const linkedStylesheet = document.createElement("link");
+        linkedStylesheet.id = "link-rules";
+        linkedStylesheet.rel = "stylesheet";
+        linkedStylesheet.href = "https://export.test/assets/site.css";
+        const linkedSheet = new CSSStyleSheet();
+        linkedSheet.replaceSync(
+          "#link-target { background-image: url('pixel.svg'); }",
+        );
+        linkedSheet.insertRule("#link-target { font-weight: 700; }");
+        Object.defineProperty(linkedStylesheet, "sheet", {
+          configurable: true,
+          value: linkedSheet,
+        });
+        document.head.append(linkedStylesheet);
+        document
+          .querySelector<HTMLStyleElement>("#head-rules")!
+          .sheet!.insertRule("#head-target { font-weight: 700; }");
+        const bodyStyle = document.createElement("style");
+        bodyStyle.id = "body-rules";
+        document.body.append(bodyStyle);
+        bodyStyle.sheet!.insertRule("#body-target { letter-spacing: 3px; }");
+      });
+      await collectBridgeMessages(page);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        ),
+      );
+
+      const snapshot = await page.evaluate(() => {
+        const html = ((window as any).__bridgeMessages ?? []).find(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        )?.payload?.html as string;
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return {
+          headRules: doc.querySelector("#head-rules")?.textContent,
+          linkRules: doc.querySelector("#link-rules")?.textContent,
+          baseMarker: doc
+            .querySelector("#link-rules")
+            ?.hasAttribute("data-agent-native-stylesheet-base"),
+          bodyRules: doc.querySelector("#body-rules")?.textContent,
+          imageSrc: doc
+            .querySelector<HTMLImageElement>("#responsive-image")
+            ?.getAttribute("src"),
+          imageSrcset: doc
+            .querySelector("#responsive-image")
+            ?.hasAttribute("srcset"),
+          pictureSources: doc.querySelectorAll("picture source").length,
+          resourceRequests: (window as any).__resourceRequests,
+        };
+      });
+
+      expect(snapshot.headRules).toContain("font-weight: 700");
+      expect(snapshot.linkRules).toContain("data:image/svg+xml;base64,");
+      expect(snapshot.baseMarker).toBe(false);
+      expect(snapshot.resourceRequests).toEqual([
+        "https://export.test/assets/pixel.svg",
+      ]);
+      expect(snapshot.bodyRules).toContain("letter-spacing: 3px");
+      expect(snapshot.imageSrc).toContain("id='chosen'");
+      expect(snapshot.imageSrcset).toBe(false);
+      expect(snapshot.pictureSources).toBe(0);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "runtime export resource inlining fails when its shared deadline aborts fetches",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalTimeout = AbortSignal.timeout;
+        const originalFetch = window.fetch;
+        let timeoutMs = 0;
+        let receivedSignal: AbortSignal | undefined;
+        Object.defineProperty(AbortSignal, "timeout", {
+          configurable: true,
+          value: (milliseconds: number) => {
+            timeoutMs = milliseconds;
+            const controller = new AbortController();
+            window.setTimeout(() => controller.abort(), 0);
+            return controller.signal;
+          },
+        });
+        window.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+          receivedSignal = init?.signal ?? undefined;
+          return Promise.resolve({
+            ok: true,
+            body: new ReadableStream<Uint8Array>({
+              start(controller) {
+                receivedSignal?.addEventListener(
+                  "abort",
+                  () =>
+                    controller.error(new DOMException("Aborted", "AbortError")),
+                  { once: true },
+                );
+              },
+            }),
+          } as Response);
+        }) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            '<!doctype html><html><body><img src="https://export.test/slow.png"></body></html>',
+          );
+          return {
+            ...exportResult,
+            timeoutMs,
+            signalAborted: receivedSignal?.aborted,
+          };
+        } finally {
+          window.fetch = originalFetch;
+          Object.defineProperty(AbortSignal, "timeout", {
+            configurable: true,
+            value: originalTimeout,
+          });
+        }
+      });
+
+      expect(result.timeoutMs).toBe(15_000);
+      expect(result.signalAborted).toBe(true);
+      expect(result.complete).toBe(false);
+      expect(result.errorCode).toBe("export_resources_unavailable");
+      expect(result.html).toContain("resource-timeout");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "runtime export resource streams cancel when a resource exceeds its byte cap",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        let reads = 0;
+        let canceled = false;
+        window.fetch = (async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                reads += 1;
+                controller.enqueue(new Uint8Array(4_000_001));
+              },
+              cancel() {
+                canceled = true;
+              },
+            }),
+            { headers: { "content-type": "image/png" } },
+          )) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            '<!doctype html><html><body><img src="https://export.test/large.png"></body></html>',
+          );
+          return { ...exportResult, reads, canceled };
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(false);
+      expect(result.errorCode).toBe("export_too_large");
+      expect(result.html).toContain("export-resource-size-limit");
+      expect(result.reads).toBeLessThanOrEqual(2);
+      expect(result.canceled).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "runtime export resource streams enforce the shared byte cap",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        window.fetch = (async () => {
+          let sent = false;
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                if (sent) controller.close();
+                else {
+                  sent = true;
+                  controller.enqueue(new Uint8Array(3_000_000));
+                }
+              },
+            }),
+            { headers: { "content-type": "image/png" } },
+          );
+        }) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            `<!doctype html><html><head><style>
+.card { background-image: url("https://export.test/one.png"), url("https://export.test/two.png"), url("https://export.test/three.png"); }
+</style></head><body></body></html>`,
+          );
+          return exportResult;
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(false);
+      expect(result.errorCode).toBe("export_too_large");
+      expect(result.html).toContain("export-resource-size-limit");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "runtime layer snapshots reject serialized resource payloads above 5 MB",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.route("https://export.test/**", (route) => route.abort());
+      await page.setContent(`<!doctype html><html><body>
+<img id="snapshot-image" src="https://export.test/large.png" width="1" height="1">
+</body></html>`);
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        window.fetch = (async () =>
+          new Response(
+            new Blob([new Uint8Array(3_800_000)], { type: "image/png" }),
+          )) as typeof fetch;
+      });
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot-error" &&
+              message.payload?.reason === "snapshot-too-large",
+          ),
+        undefined,
+        { timeout: 10_000 },
+      );
+      const result = await page.evaluate(() => {
+        const messages = (window as any).__bridgeMessages ?? [];
+        return {
+          errors: messages.filter(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot-error" &&
+              message.payload?.reason === "snapshot-too-large",
+          ).length,
+          snapshots: messages.filter(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot",
+          ).length,
+        };
+      });
+
+      expect(result.errors).toBe(1);
+      expect(result.snapshots).toBe(0);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "CSS resource rewriting ignores comments and strings",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        (window as any).__resourceRequests = [];
+        window.fetch = (async (input: RequestInfo | URL) => {
+          (window as any).__resourceRequests.push(String(input));
+          return new Response(new Blob(["pixel"], { type: "image/png" }), {
+            status: 200,
+          });
+        }) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            `<!doctype html><html><head><style>
+/* @import url("https://export.test/comment.css"); url("https://export.test/comment.png") */
+.card { content: "url(https://export.test/string.png)"; background-image: url("https://export.test/image.png"); }
+</style></head><body></body></html>`,
+          );
+          const doc = new DOMParser().parseFromString(
+            exportResult.html,
+            "text/html",
+          );
+          return {
+            ...exportResult,
+            css: doc.querySelector("style")?.textContent,
+            requests: (window as any).__resourceRequests,
+          };
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(true);
+      expect(result.requests).toEqual(["https://export.test/image.png"]);
+      expect(result.css).toContain("https://export.test/comment.png");
+      expect(result.css).toContain("https://export.test/string.png");
+      expect(result.css).toContain("data:image/png;base64,");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "deduplicates CSS resources and bounds concurrent fetches",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        let active = 0;
+        let maximumActive = 0;
+        const requests: string[] = [];
+        window.fetch = (async (input: RequestInfo | URL) => {
+          const url = String(input);
+          requests.push(url);
+          active += 1;
+          maximumActive = Math.max(maximumActive, active);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          active -= 1;
+          return new Response(new Blob(["pixel"], { type: "image/png" }));
+        }) as typeof fetch;
+        try {
+          const rules = Array.from(
+            { length: 8 },
+            (_, index) =>
+              `.asset-${index} { background-image: url("https://export.test/${index}.png"); }`,
+          );
+          rules.push(
+            '.reused { background-image: url("https://export.test/shared.svg#one"), url("https://export.test/shared.svg#two"), url("https://export.test/shared.svg#one"); }',
+          );
+          const exportResult = await bridge.inlineExportResources(
+            `<!doctype html><html><head><style>${rules.join("\n")}</style></head><body></body></html>`,
+          );
+          const doc = new DOMParser().parseFromString(
+            exportResult.html,
+            "text/html",
+          );
+          return {
+            ...exportResult,
+            css: doc.querySelector("style")?.textContent,
+            requests,
+            maximumActive,
+          };
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(true);
+      expect(result.requests).toHaveLength(9);
+      expect(
+        result.requests.filter((url: string) => url.endsWith("shared.svg")),
+      ).toHaveLength(1);
+      expect(result.maximumActive).toBeGreaterThan(1);
+      expect(result.maximumActive).toBeLessThanOrEqual(4);
+      expect(result.css).toContain("data:image/png;base64,cGl4ZWw=#one");
+      expect(result.css).toContain("data:image/png;base64,cGl4ZWw=#two");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "preserves media qualifiers when inlining CSS imports",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        window.fetch = (async () =>
+          new Response(".theme { color: red; }", {
+            headers: { "content-type": "text/css" },
+          })) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            `<!doctype html><html><head><style>@import url("https://export.test/theme.css") screen and (min-width: 640px);</style></head><body></body></html>`,
+          );
+          const doc = new DOMParser().parseFromString(
+            exportResult.html,
+            "text/html",
+          );
+          return {
+            ...exportResult,
+            css: doc.querySelector("style")?.textContent,
+          };
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(true);
+      expect(result.css).toMatch(/\)\s+screen and \(min-width: 640px\);/);
+      expect(result.css).toContain("data:text/css");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "runtime export snapshots preserve live form state and reject uncapturable surfaces",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage();
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html>
+<html><body>
+  <input id="weight" type="range" min="100" max="900" value="400">
+  <textarea id="tester">Initial text</textarea>
+  <input id="enabled" type="checkbox" checked>
+  <select id="style"><option value="display">Display</option><option value="text" selected>Text</option></select>
+  <input id="password" type="password" value="initial">
+  <canvas id="chart" width="20" height="20"></canvas>
+  <iframe srcdoc="<p>Embedded document</p>" title="Preview"></iframe>
+</body></html>`);
+      await page.evaluate(() => {
+        (document.querySelector("#weight") as HTMLInputElement).value = "620";
+        (document.querySelector("#tester") as HTMLTextAreaElement).value =
+          "Live specimen text";
+        (document.querySelector("#enabled") as HTMLInputElement).checked =
+          false;
+        (document.querySelector("#style") as HTMLSelectElement).value =
+          "display";
+        (document.querySelector("#password") as HTMLInputElement).value =
+          "private text";
+      });
+      await collectBridgeMessages(page);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        ),
+      );
+
+      const snapshot = await page.evaluate(() => {
+        const html = ((window as any).__bridgeMessages ?? []).find(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        )?.payload?.html as string;
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return {
+          rangeValue: doc.querySelector("#weight")?.getAttribute("value"),
+          textareaValue: doc.querySelector("#tester")?.textContent,
+          checkboxChecked: doc
+            .querySelector("#enabled")
+            ?.hasAttribute("checked"),
+          selectedOption: doc
+            .querySelector("#style option[selected]")
+            ?.getAttribute("value"),
+          passwordValue: doc.querySelector("#password")?.getAttribute("value"),
+          failures: doc.documentElement.getAttribute(
+            "data-agent-native-export-resource-failures",
+          ),
+        };
+      });
+      expect(snapshot).toEqual({
+        rangeValue: "620",
+        textareaValue: "Live specimen text",
+        checkboxChecked: false,
+        selectedOption: "display",
+        passwordValue: "xxxxxxxxxxxx",
+        failures: "canvas-unavailable,embedded-document-unavailable",
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "runtime Layers ignores animation churn but refreshes semantic layout and tree mutations",
   { timeout: 30_000 },
   async () => {
@@ -10873,6 +12715,61 @@ it("editor chrome bridge appends cross-parent drops into plain frames but keeps 
   expect(reorderTargetForPoint(sourceOutside, 20, 70)).toBe(slot);
 });
 
+it("editor chrome bridge retains the nested auto-layout parent while Space is held", () => {
+  const body = { parentElement: null } as unknown as Element;
+  const outer = { parentElement: body } as unknown as Element;
+  const row = {
+    parentElement: outer,
+    getBoundingClientRect: () => ({
+      left: 100,
+      top: 100,
+      right: 300,
+      bottom: 220,
+    }),
+  } as unknown as Element;
+  const dragged = { parentElement: row } as unknown as Element;
+  const sibling = { parentElement: row } as unknown as Element;
+  const document = {
+    body,
+    documentElement: { parentElement: null },
+  } as unknown as Document;
+  const slot = {
+    anchor: sibling,
+    placement: "after",
+    axis: "x",
+    dropMode: "flow-insert",
+  };
+  let insertionSlotAvailable = true;
+  const flowMoveTargetForPoint = compileBridgeFunction<
+    (
+      el: Element,
+      x: number,
+      y: number,
+      excludeEls?: Element[],
+      keepCurrentParent?: boolean,
+    ) => Record<string, unknown>
+  >("flowMoveTargetForPoint", "ignoreAutoLayoutForDropTarget", {
+    document,
+    elementFromEditorPoint: () => outer,
+    nearestChildInsertionTarget: (parent: Element) =>
+      parent === row && insertionSlotAvailable ? slot : null,
+    parentFlowAxis: () => "x",
+    isAutoLayoutElement: (element: Element) =>
+      element === outer || element === row,
+  });
+
+  expect(flowMoveTargetForPoint(dragged, 420, 150, undefined, true)).toBe(slot);
+  insertionSlotAvailable = false;
+  expect(
+    flowMoveTargetForPoint(dragged, 420, 150, undefined, true),
+  ).toMatchObject({
+    anchor: row,
+    placement: "inside",
+    axis: "x",
+    dropMode: "flow-insert",
+  });
+});
+
 it("editor chrome bridge promotes an empty body drop through clipped frames to the board root", () => {
   const body = { parentElement: null } as unknown as Element;
   const outer = {
@@ -10931,6 +12828,7 @@ it("editor chrome bridge promotes an empty body drop through clipped frames to t
     },
     nearestChildInsertionTarget: () => null,
     isEmptyDropContainer: () => false,
+    elementFromEditorPointIgnoring: () => body,
   });
 
   expect(flowMoveTargetForPoint(el, 500, 500)).toMatchObject({
@@ -10979,7 +12877,7 @@ it("editor chrome bridge keeps a top-level plain-frame receiver distinct from a 
   };
   const flowMoveTargetForPoint = compileBridgeFunction<
     (el: Element, x: number, y: number) => Record<string, unknown>
-  >("flowMoveTargetForPoint", "clipsOverflow", {
+  >("flowMoveTargetForPoint", "ignoreAutoLayoutForDropTarget", {
     document,
     window: {
       getComputedStyle: () => ({ display: "block" }),
@@ -10995,8 +12893,14 @@ it("editor chrome bridge keeps a top-level plain-frame receiver distinct from a 
       receiverIsAutoLayout && element === receiver,
     isContainerDropTarget: (element: Element) =>
       element === receiver || element === exitedFrame,
+    elementFromEditorPointIgnoring: () => pointHit,
     parentFlowAxis: () => "y",
     isEmptyDropContainer: () => false,
+    unnestAbsoluteToScreenRoot: () => ({
+      anchor: receiver,
+      placement: "after",
+      dropMode: "absolute-container",
+    }),
   });
 
   expect(flowMoveTargetForPoint(child, 240, 150)).toMatchObject({
@@ -11187,6 +13091,11 @@ it.each([
     >("nearestChildInsertionTarget", "screenRootFlowInsertionTargetForPoint", {
       draggableElementChildren: () => [first, second],
       gridCellInsertionTarget: () => null,
+      isReverseFlexFlow: compileBridgeFunction(
+        "isReverseFlexFlow",
+        "reorderTargetForPoint",
+        {},
+      ),
       parentFlowAxis: () => axis,
       window: {
         getComputedStyle: () => ({
@@ -11205,6 +13114,116 @@ it.each([
       anchor: first,
       placement: "after",
       axis,
+    });
+  },
+);
+
+it.each([
+  {
+    axis: "x",
+    flexDirection: "row-reverse",
+    direction: "ltr",
+    x: 120,
+    y: 140,
+    placement: "after",
+  },
+  {
+    axis: "y",
+    flexDirection: "column-reverse",
+    direction: "ltr",
+    x: 140,
+    y: 120,
+    placement: "after",
+  },
+  {
+    axis: "x",
+    flexDirection: "row",
+    direction: "rtl",
+    x: 120,
+    y: 140,
+    placement: "after",
+  },
+  {
+    axis: "x",
+    flexDirection: "row",
+    direction: "ltr",
+    x: 120,
+    y: 140,
+    placement: "before",
+  },
+])(
+  "editor chrome bridge applies reverse-flow order to a direct-child fallback",
+  ({ axis, flexDirection, direction, x, y, placement }) => {
+    const body = { parentElement: null } as unknown as Element;
+    const container = {
+      parentElement: body,
+    } as unknown as Element;
+    const child = {
+      parentElement: container,
+      closest: () => null,
+      getAttribute: () => null,
+      getBoundingClientRect: () => ({
+        left: 100,
+        top: 100,
+        right: 200,
+        bottom: 180,
+        width: 100,
+        height: 80,
+      }),
+    } as unknown as Element;
+    const dragged = { parentElement: body } as unknown as Element;
+    const document = {
+      body,
+      documentElement: { parentElement: null },
+    } as unknown as Document;
+    const isReverseFlexFlow = compileBridgeFunction(
+      "isReverseFlexFlow",
+      "reorderTargetForPoint",
+      {},
+    );
+    const autoLayoutInsertionTargetForPoint = compileBridgeFunction<
+      (
+        el: Element,
+        clientX: number,
+        clientY: number,
+      ) => {
+        anchor: Element;
+        placement: string;
+        axis: string;
+        dropMode: string;
+      } | null
+    >("autoLayoutInsertionTargetForPoint", "unnestAbsoluteToScreenRoot", {
+      document,
+      window: {
+        getComputedStyle: () => ({
+          display: "flex",
+          flexDirection,
+          direction,
+          gridTemplateColumns: "",
+        }),
+      },
+      elementFromEditorPointIgnoring: () => child,
+      isOverlayElement: () => false,
+      isLayerInteractionBlocked: () => false,
+      isAutoLayoutElement: (element: Element) => element === container,
+      isContainerDropTarget: (element: Element) => element === container,
+      isTextBearingLeaf: (element: Element) => element === container,
+      isTemplateCloneElement: () => false,
+      isAbsolutePrimitiveContainer: () => false,
+      isFreeformRelativeContainer: () => false,
+      wrappedFlexMainAxis: () => null,
+      parentFlowAxis: () => axis,
+      nearestChildInsertionTarget: () => null,
+      screenRootFlowInsertionTargetForPoint: () => null,
+      unnestAbsoluteToScreenRoot: () => null,
+      isReverseFlexFlow,
+    });
+
+    expect(autoLayoutInsertionTargetForPoint(dragged, x, y)).toMatchObject({
+      anchor: child,
+      placement,
+      axis,
+      dropMode: "flow-insert",
     });
   },
 );
@@ -11870,7 +13889,28 @@ it(
             .textContent?.trim(),
         };
       });
-      expect(chipResult.childIds).toEqual(["itemB", "itemA"]);
+      const chipMoves = (await readBridgeMessages(page))
+        .filter(
+          (message) =>
+            message.type === "visual-structure-change" &&
+            (message as { sourceId?: string }).sourceId === "itemA",
+        )
+        .map((message) => {
+          const move = message as {
+            anchorSourceId?: string;
+            placement?: string;
+            dropMode?: string;
+          };
+          return {
+            anchorSourceId: move.anchorSourceId,
+            placement: move.placement,
+            dropMode: move.dropMode,
+          };
+        });
+      expect(
+        chipResult.childIds,
+        JSON.stringify({ chipMoves, pageErrors }),
+      ).toEqual(["itemB", "itemA"]);
       expect(chipResult.itemBText).toBe("Beta");
       const chipMove = (await readBridgeMessages(page)).find(
         (message) =>
@@ -13598,6 +15638,104 @@ it(
 );
 
 it(
+  "editor chrome bridge declines grid-cell targets occupied by in-flow generated items",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><head><style>
+        #grid::before { content: ""; grid-column: 2; grid-row: 1; width: 80px; height: 80px; }
+      </style></head><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:300px;top:80px;width:160px;height:80px;display:grid;grid-template-columns:80px 80px;grid-template-rows:80px;box-sizing:border-box">
+          <div id="occupied" data-agent-native-node-id="occupied" style="grid-column:1;grid-row:1;width:80px;height:80px"></div>
+        </div>
+      </body></html>`);
+      const bridgeScript = hydratedEditorChromeBridgeScript().replace(
+        "function nearestChildInsertionTarget(",
+        "window.__testGridCellInsertionTarget = gridCellInsertionTarget;\nfunction nearestChildInsertionTarget(",
+      );
+      await page.addScriptTag({ content: bridgeScript });
+
+      const target = await page.evaluate(() => {
+        const grid = document.querySelector<Element>("#grid")!;
+        const occupied = document.querySelector<Element>("#occupied")!;
+        return (window as any).__testGridCellInsertionTarget(
+          grid,
+          420,
+          120,
+          [occupied],
+          [],
+        );
+      });
+
+      expect(target).toBeNull();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge bounds RTL displaced guides to the occupied partial span",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="source" data-agent-native-node-id="source"
+          style="position:absolute;left:40px;top:400px;width:80px;height:44px;background:#6366f1">Source</div>
+        <div id="grid" data-agent-native-node-id="grid"
+          style="position:absolute;left:300px;top:80px;width:320px;height:80px;display:grid;direction:rtl;grid-template-columns:repeat(4,80px);grid-template-rows:80px;box-sizing:border-box">
+          <div id="span" data-agent-native-node-id="span" style="grid-column:1 / 3;grid-row:1;background:#a855f7">Span</div>
+        </div>
+      </body></html>`);
+      const bridgeScript = hydratedEditorChromeBridgeScript().replace(
+        "function nearestChildInsertionTarget(",
+        "window.__testGridCellInsertionTarget = gridCellInsertionTarget;\nfunction nearestChildInsertionTarget(",
+      );
+      expect(bridgeScript).not.toBe(hydratedEditorChromeBridgeScript());
+      await page.addScriptTag({ content: bridgeScript });
+
+      const target = await page.locator("#span").boundingBox();
+      expect(target).toMatchObject({ x: 460, y: 80, width: 160, height: 80 });
+      const targetResult = await page.evaluate(() => {
+        const grid = document.querySelector<Element>("#grid")!;
+        const occupant = document.querySelector<Element>("#span")!;
+        const source = document.querySelector<Element>("#source")!;
+        return (window as any).__testGridCellInsertionTarget(
+          grid,
+          600,
+          120,
+          [occupant],
+          [source],
+        );
+      });
+      expect(targetResult.guideRect).toEqual({
+        left: target!.x,
+        top: target!.y,
+        width: target!.width,
+        height: target!.height,
+      });
+      expect(targetResult.persistencePlacement).toBe("after");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge posts element-hover only when the hovered element actually changes, not on every raw pointermove",
   { timeout: 30_000 },
   async () => {
@@ -13921,6 +16059,246 @@ it(
       });
       expect(start?.sourceCloneHtml).toBe(preLiftHtml);
       await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge preserves an RTL source item's authored grid span on drag start",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 80px; display: grid; direction: rtl; grid-template-columns: repeat(4, 80px); grid-auto-columns: 80px; grid-template-rows: 80px; }
+      #target { grid-column: 1 / -1; grid-row: 1; justify-self: start; align-self: start; width: 40px; height: 40px; background: #6366f1; }
+      #implicit { grid-column: 6; grid-row: 1; width: 20px; height: 20px; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="target" data-agent-native-node-id="target">Target</div><div id="implicit" data-agent-native-node-id="implicit">Implicit</div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.postMessage = ((message: unknown) => {
+          (window as any).__bridgeMessages.push(message);
+        }) as typeof window.postMessage;
+      });
+
+      const sourceBox = await page.locator("#target").boundingBox();
+      expect(sourceBox).toMatchObject({
+        y: 100,
+        width: 40,
+        height: 40,
+      });
+      expect(sourceBox).not.toBeNull();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2,
+        sourceBox!.y + sourceBox!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2 + 40,
+        sourceBox!.y + sourceBox!.height / 2 + 40,
+        { steps: 4 },
+      );
+
+      const start = await page.evaluate(() => {
+        const starts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        );
+        return starts[starts.length - 1];
+      });
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toEqual({
+        columns: 4,
+        rows: 1,
+      });
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge preserves reversed explicit source grid spans on drag start",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 80px; display: grid; grid-template-columns: repeat(4, 80px); grid-template-rows: 80px; }
+      #target { grid-column: 4 / 2; grid-row: 1; justify-self: start; align-self: start; width: 40px; height: 40px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="target" data-agent-native-node-id="target">Target</div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.postMessage = ((message: unknown) => {
+          (window as any).__bridgeMessages.push(message);
+        }) as typeof window.postMessage;
+      });
+
+      const sourceBox = await page.locator("#target").boundingBox();
+      expect(sourceBox).not.toBeNull();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2,
+        sourceBox!.y + sourceBox!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2 + 40,
+        sourceBox!.y + sourceBox!.height / 2 + 40,
+        { steps: 4 },
+      );
+
+      const start = await page.evaluate(() => {
+        const starts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        );
+        return starts[starts.length - 1];
+      });
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toEqual({
+        columns: 2,
+        rows: 1,
+      });
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each([
+  {
+    kind: "named",
+    columns: "[start] 80px [middle] 80px [end]",
+    placement: "start / end",
+  },
+  {
+    kind: "negative",
+    columns: "repeat(4, 80px)",
+    placement: "-4 / -2",
+  },
+])(
+  "omits unresolved $kind source grid lines when track geometry is unavailable",
+  { timeout: 30_000 },
+  async ({ columns, placement }) => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 80px; display: grid; grid-template-columns: ${columns}; grid-template-rows: 80px; transform: rotate(2deg); transform-origin: top left; }
+      #target { grid-column: ${placement}; grid-row: 1; justify-self: start; align-self: start; width: 160px; height: 40px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="target" data-agent-native-node-id="target">Target</div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      expect(
+        await page
+          .locator("#grid")
+          .evaluate((grid) => getComputedStyle(grid).transform),
+      ).not.toBe("none");
+
+      const start = await crossScreenDragStartFor(page, "#target");
+
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toBeUndefined();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "captures authored source grid spans through display:contents wrappers",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 160px; display: grid; grid-template-columns: repeat(4, 80px); grid-template-rows: repeat(2, 80px); }
+      #flattened { display: contents; }
+      #target { grid-column: 2 / 4; grid-row: 1 / 3; justify-self: start; align-self: start; width: 160px; height: 160px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="flattened"><div id="target" data-agent-native-node-id="target">Target</div></div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const start = await crossScreenDragStartFor(page, "#target");
+
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toEqual({
+        columns: 2,
+        rows: 2,
+      });
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

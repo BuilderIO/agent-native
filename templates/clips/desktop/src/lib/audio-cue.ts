@@ -1,7 +1,9 @@
 export interface AudioCue {
-  playBeforeCapture(): Promise<void>;
+  playBeforeCapture(signal?: AbortSignal): Promise<void>;
   cleanup(): void;
 }
+
+type CueOutcome = "played" | "timed_out" | "failed" | "cancelled";
 
 const CUE_PLAY_TIMEOUT_MS = 1000;
 const CUE_SETTLE_MS = 80;
@@ -12,35 +14,57 @@ function wait(ms: number): Promise<void> {
 }
 
 const noopAudioCue: AudioCue = {
-  async playBeforeCapture() {},
+  async playBeforeCapture(signal) {
+    console.warn(
+      `[clips-recorder] start cue outcome=${signal?.aborted ? "cancelled" : "unavailable"}`,
+    );
+  },
   cleanup() {},
 };
 
 async function playBeforeCapture(
   play: () => Promise<void>,
   cleanup: () => void,
+  signal?: AbortSignal,
 ): Promise<void> {
-  let timedOut = false;
-  let timer: ReturnType<typeof window.setTimeout> | null = null;
-  try {
-    await Promise.race([
-      play(),
-      new Promise<void>((resolve) => {
-        timer = window.setTimeout(() => {
-          timedOut = true;
-          resolve();
-        }, CUE_PLAY_TIMEOUT_MS);
-      }),
-    ]);
-  } catch (err) {
-    console.warn("[clips-recorder] start cue unavailable:", err);
-  } finally {
-    if (!timedOut && timer !== null) window.clearTimeout(timer);
-  }
-  if (timedOut) {
+  if (signal?.aborted) {
+    console.warn("[clips-recorder] start cue outcome=cancelled");
     cleanup();
     return;
   }
+  let timer: ReturnType<typeof window.setTimeout> | null = null;
+  let abortHandler: (() => void) | null = null;
+  const deadline = performance.now() + CUE_PLAY_TIMEOUT_MS;
+  const playback = play().then<CueOutcome, CueOutcome>(
+    () => (performance.now() < deadline ? "played" : "timed_out"),
+    (err) => {
+      console.warn("[clips-recorder] start cue outcome=failed:", err);
+      return "failed";
+    },
+  );
+  const timeout = new Promise<CueOutcome>((resolve) => {
+    timer = window.setTimeout(() => resolve("timed_out"), CUE_PLAY_TIMEOUT_MS);
+  });
+  const cancellation = signal
+    ? new Promise<CueOutcome>((resolve) => {
+        abortHandler = () => resolve("cancelled");
+        if (signal.aborted) abortHandler();
+        else signal.addEventListener("abort", abortHandler, { once: true });
+      })
+    : new Promise<CueOutcome>(() => {});
+  const outcome = await Promise.race([playback, timeout, cancellation]);
+  if (timer !== null && outcome !== "timed_out") {
+    window.clearTimeout(timer);
+  }
+  if (abortHandler) signal?.removeEventListener("abort", abortHandler);
+  if (outcome !== "played") {
+    if (outcome !== "failed") {
+      console.warn(`[clips-recorder] start cue outcome=${outcome}`);
+    }
+    cleanup();
+    return;
+  }
+  console.info("[clips-recorder] start cue outcome=played");
   await wait(CUE_SETTLE_MS);
 }
 
@@ -110,18 +134,14 @@ export function createAudioCue(): AudioCue {
     };
 
     const play = async () => {
-      if (played || closed) return playPromise ?? Promise.resolve();
+      if (closed) throw new Error("Audio cue context is closed");
+      if (played) return playPromise ?? Promise.resolve();
       played = true;
       playPromise = (async () => {
         if (ctx.state !== "running") await ctx.resume();
         await scheduleTone(ctx);
       })();
-      try {
-        await playPromise;
-      } catch (err) {
-        console.warn("[clips-recorder] start cue unavailable:", err);
-        cleanup();
-      }
+      await playPromise;
     };
 
     ctx.resume().catch((err) => {
@@ -130,7 +150,7 @@ export function createAudioCue(): AudioCue {
     idleTimer = window.setTimeout(cleanup, CUE_IDLE_CLEANUP_MS);
 
     return {
-      playBeforeCapture: () => playBeforeCapture(play, cleanup),
+      playBeforeCapture: (signal) => playBeforeCapture(play, cleanup, signal),
       cleanup,
     };
   } catch (err) {

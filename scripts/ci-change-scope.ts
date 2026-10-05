@@ -66,6 +66,29 @@ const FULL_CHECK_FILES = new Set([
   "vitest.shared.ts",
 ]);
 
+const DESIGN_CANVAS_E2E_FILES = new Set([
+  "templates/design/e2e/base-url.ts",
+  "templates/design/e2e/chrome-geometry.reference.ts",
+  "templates/design/e2e/corner-radius-handle-drag.spec.ts",
+  "templates/design/e2e/cross-screen-auto-layout-parity.spec.ts",
+  "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
+  "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
+  "templates/design/e2e/drag-and-drop.shared.ts",
+  "templates/design/e2e/global-setup.ts",
+  "templates/design/e2e/global-teardown.ts",
+  "templates/design/e2e/helpers.ts",
+  "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/playwright.config.ts",
+]);
+
+const DESIGN_CANVAS_CONFIG_FILES = new Set([
+  "templates/design/agent-native.config.ts",
+  "templates/design/agent-native.json",
+  "templates/design/package.json",
+  "templates/design/react-router.config.ts",
+  "templates/design/vite.config.ts",
+]);
+
 const CHECK_NAMES = [
   "lint",
   "typecheck",
@@ -83,6 +106,9 @@ const CHECK_NAMES = [
   "agentkit_acceptance",
   "neon_query_budget",
   "neon_connection_budget",
+  "design_canvas_interaction_e2e",
+  "slides_chat_e2e",
+  "slides_authoring_e2e",
   "changeset",
 ] as const;
 
@@ -122,6 +148,10 @@ const CREATIVE_CONTEXT_QUERY_BUDGET_APPS = [
   "slides",
 ] as const satisfies readonly (typeof QUERY_BUDGET_APPS)[number][];
 
+// The query budget splits its apps across this many jobs. Each job pays for
+// its own checkout, install, and dist restore, so a third shard buys less.
+export const QUERY_BUDGET_SHARD_COUNT = 2;
+
 // Apps the SSR cold-start smoke builds and imports. Shared packages rebuild
 // every one; a template change rebuilds only that template.
 export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
@@ -140,8 +170,11 @@ export type ChangeScope = {
   testWorkspaceFilters: string[];
   scriptTests: string[];
   queryBudgetApps: string[];
+  queryBudgetShards: QueryBudgetShard[];
   ssrBootApps: string[];
 };
+
+export type QueryBudgetShard = { shard: string; apps: string[] };
 
 export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
@@ -348,6 +381,30 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+function isDesignDndRuntimePath(path: string): boolean {
+  if (
+    DESIGN_CANVAS_E2E_FILES.has(path) ||
+    DESIGN_CANVAS_CONFIG_FILES.has(path)
+  ) {
+    return true;
+  }
+
+  const designAppSource =
+    path.startsWith("templates/design/app/") &&
+    !path.startsWith("templates/design/app/i18n/") &&
+    !path.startsWith("templates/design/app/assets/") &&
+    !/\/i18n-[^/]+\.ts$/u.test(path) &&
+    /\.(?:[cm]?[jt]sx?|css)$/u.test(path);
+  const designSharedRuntimeSource =
+    (path.startsWith("templates/design/actions/") ||
+      path.startsWith("templates/design/server/") ||
+      path.startsWith("templates/design/shared/") ||
+      path.startsWith("templates/design/.generated/bridge/")) &&
+    /\.(?:[cm]?[jt]sx?)$/u.test(path);
+
+  return designAppSource || designSharedRuntimeSource;
+}
+
 function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   return (
@@ -384,6 +441,20 @@ function queryBudgetAppsFor(
     }
   }
   return QUERY_BUDGET_APPS.filter((app) => selectedApps.has(app));
+}
+
+export function shardQueryBudgetApps(
+  apps: readonly string[],
+): QueryBudgetShard[] {
+  const shards = Array.from(
+    { length: Math.min(QUERY_BUDGET_SHARD_COUNT, apps.length) },
+    () => [] as string[],
+  );
+  apps.forEach((app, index) => shards[index % shards.length].push(app));
+  return shards.map((shardApps, index) => ({
+    shard: `${index + 1}/${shards.length}`,
+    apps: shardApps,
+  }));
 }
 
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
@@ -451,6 +522,17 @@ function buildChecks(
     measuresEveryQueryBudgetApp(changedPaths) ||
     hasPath(changedPaths, "packages/creative-context/") ||
     changedQueryBudgetApps(changedPaths).length > 0;
+  const slidesE2eChanged =
+    hasPath(changedPaths, "templates/slides/") ||
+    coreChanged ||
+    toolkitChanged ||
+    hasPath(changedPaths, "packages/creative-context/");
+  const slidesChatE2eChanged = slidesE2eChanged || agentkitChanged;
+  const designCanvasInteractionE2eChanged =
+    changedPaths.some(isDesignDndRuntimePath) ||
+    coreChanged ||
+    toolkitChanged ||
+    hasPath(changedPaths, "packages/creative-context/");
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
@@ -488,6 +570,9 @@ function buildChecks(
     // The probe imports only core's database client, so templates cannot
     // move it.
     neon_connection_budget: coreChanged,
+    design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
+    slides_chat_e2e: slidesChatE2eChanged,
+    slides_authoring_e2e: slidesE2eChanged,
     changeset: changedPaths.some(isChangesetPath),
   };
 }
@@ -512,6 +597,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
         ]),
       ) as CheckSelection)
     : buildChecks(changedPaths, full);
+  const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
 
   return {
     changedPaths,
@@ -522,7 +608,8 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     workspaceFilters,
     testWorkspaceFilters,
     scriptTests: scriptTestsForPaths(changedPaths),
-    queryBudgetApps: queryBudgetAppsFor(changedPaths, full, checks),
+    queryBudgetApps,
+    queryBudgetShards: shardQueryBudgetApps(queryBudgetApps),
     ssrBootApps: ssrBootAppsFor(changedPaths, full, checks),
   };
 }
@@ -545,7 +632,7 @@ function writeOutputs(scope: ChangeScope): void {
       `changed_count=${scope.changedPaths.length}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
-      `query_budget_apps=${JSON.stringify(scope.queryBudgetApps)}`,
+      `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
       `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(

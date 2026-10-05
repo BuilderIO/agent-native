@@ -75,7 +75,7 @@ const COMMAND_FIXTURE = `<!doctype html>
 
 function preview(page: Page): Locator {
   return page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .contentFrame()
     .locator("body");
@@ -108,7 +108,9 @@ async function previewPoint(
   cssX: number,
   cssY: number,
 ): Promise<{ x: number; y: number }> {
-  const iframe = page.locator("iframe[data-design-preview-iframe]").first();
+  const iframe = page
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
+    .first();
   const iframeBox = await iframe.boundingBox();
   if (!iframeBox) throw new Error("preview iframe has no box");
   const size = await preview(page).evaluate(() => ({
@@ -146,27 +148,29 @@ async function runtimeState(page: Page, id: string) {
 }
 
 async function visibleInsertionGuides(page: Page) {
-  return preview(page)
-    .locator("[data-agent-native-insertion-guide]")
-    .evaluateAll((elements) =>
-      elements
-        .map((element) => {
-          const htmlElement = element as HTMLElement;
-          const style = getComputedStyle(htmlElement);
-          const rect = htmlElement.getBoundingClientRect();
-          return {
-            display: style.display,
-            width: rect.width,
-            height: rect.height,
-            borderTop: style.borderTopWidth,
-            borderLeft: style.borderLeftWidth,
-          };
-        })
-        .filter(
-          (guide) =>
-            guide.display !== "none" && guide.width > 0 && guide.height > 0,
-        ),
-    );
+  return preview(page).evaluate((body) =>
+    Array.from(
+      body.ownerDocument.querySelectorAll(
+        "[data-agent-native-insertion-guide]",
+      ),
+    )
+      .map((element) => {
+        const htmlElement = element as HTMLElement;
+        const style = getComputedStyle(htmlElement);
+        const rect = htmlElement.getBoundingClientRect();
+        return {
+          display: style.display,
+          width: rect.width,
+          height: rect.height,
+          borderTop: style.borderTopWidth,
+          borderLeft: style.borderLeftWidth,
+        };
+      })
+      .filter(
+        (guide) =>
+          guide.display !== "none" && guide.width > 0 && guide.height > 0,
+      ),
+  );
 }
 
 async function visibleDuplicateState(page: Page) {
@@ -222,7 +226,7 @@ test("literal Control after pointerdown removes a flow child from flow and it re
     await page.mouse.move(start.x + 5, start.y + 4, { steps: 2 });
     await page.keyboard.down("Control");
     await page.mouse.move(target.x, target.y, { steps: 18 });
-    await page.waitForTimeout(120);
+    await expect.poll(() => visibleInsertionGuides(page)).not.toHaveLength(0);
 
     const held = await runtimeState(page, "control-child");
     const peerHeld = await node(page, "control-target-peer").boundingBox();
@@ -238,6 +242,7 @@ test("literal Control after pointerdown removes a flow child from flow and it re
       ),
       JSON.stringify({ held, guidesHeld }),
     ).toBe(true);
+    expect(guidesHeld).not.toHaveLength(0);
 
     await page.mouse.up();
     await page.keyboard.up("Control");
@@ -483,7 +488,7 @@ test("late Alt flow reorder duplicates without moving the source and Escape is b
     await page.mouse.move(start.x + 5, start.y + 4, { steps: 2 });
     await page.keyboard.down("Alt");
     await page.mouse.move(destination.x, destination.y, { steps: 18 });
-    await page.waitForTimeout(120);
+    await expect.poll(() => visibleInsertionGuides(page)).not.toHaveLength(0);
 
     const heldSource = await runtimeState(page, "control-child");
     const heldClones = await visibleDuplicateState(page);

@@ -37,6 +37,7 @@ export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
+  callActionBlob,
   callActionWithRetry,
   tryCallActionKeepalive,
   useActionQuery,
@@ -48,6 +49,10 @@ export {
   type KeepaliveActionCallRejectionReason,
   type KeepaliveActionCallResult,
 } from "../use-action.js";
+export {
+  actionErrorCode,
+  isTerminalActionError,
+} from "../action-failure-circuit.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";
 export {
   APP_CHAT_SIDEBAR_STATE_EVENT,

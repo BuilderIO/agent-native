@@ -113,6 +113,17 @@ static COUNTDOWN_SHORTCUTS_GENERATION: AtomicU64 = AtomicU64::new(0);
 static COUNTDOWN_SHORTCUTS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static DICTATION_ESCAPE_SHORTCUT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
+#[derive(Default)]
+struct PendingVoiceStart {
+    pending: bool,
+    released: bool,
+}
+
+static PENDING_VOICE_START: Mutex<PendingVoiceStart> = Mutex::new(PendingVoiceStart {
+    pending: false,
+    released: false,
+});
+
 fn custom_voice_shortcut() -> &'static Mutex<Option<Shortcut>> {
     CUSTOM_VOICE_SHORTCUT.get_or_init(|| Mutex::new(None))
 }
@@ -791,6 +802,9 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                     }
                     eprintln!("[clips-tray] {source} up — stopping voice dictation");
                     sync_dictation_escape_shortcut(app.clone(), false);
+                    if mark_released_if_start_pending() {
+                        return;
+                    }
                     emit_voice_shortcut(app, "voice:shortcut-stop", source, false);
                 }
             }
@@ -845,11 +859,34 @@ fn emit_voice_shortcut(
     if wake {
         remember_voice_target(app);
         wake_popover_for_voice(app);
+        if let Ok(mut pending) = PENDING_VOICE_START.lock() {
+            *pending = PendingVoiceStart {
+                pending: true,
+                released: false,
+            };
+        }
         let app = app.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(80));
-            if should_emit_delayed_voice_start(&app, source) {
+            // A tap shorter than the wake delay is still a deliberate press
+            // (toggle mode depends on it), so deliver it as start + stop in
+            // order rather than dropping it.
+            let released_early = PENDING_VOICE_START
+                .lock()
+                .map(|mut pending| {
+                    let released = pending.released;
+                    *pending = PendingVoiceStart::default();
+                    released
+                })
+                .unwrap_or(false);
+            if released_early || is_dictation_active(&app) {
                 let _ = app.emit(event, serde_json::json!({ "source": source }));
+                if released_early {
+                    let _ = app.emit(
+                        "voice:shortcut-stop",
+                        serde_json::json!({ "source": source }),
+                    );
+                }
             } else {
                 hide_voice_wake_popover(&app);
             }
@@ -857,6 +894,17 @@ fn emit_voice_shortcut(
         return;
     }
     let _ = app.emit(event, serde_json::json!({ "source": source }));
+}
+
+fn mark_released_if_start_pending() -> bool {
+    let Ok(mut pending) = PENDING_VOICE_START.lock() else {
+        return false;
+    };
+    if pending.pending {
+        pending.released = true;
+        return true;
+    }
+    false
 }
 
 fn should_emit_delayed_voice_start(app: &tauri::AppHandle, source: &'static str) -> bool {

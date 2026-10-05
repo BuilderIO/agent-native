@@ -39,6 +39,7 @@ import {
   peopleGetProfile,
   registerGmailAccountToken,
 } from "./google-api.js";
+import { clearSyncAccountReauth } from "./inbox-store.js";
 import { getMailProviderApiRuntime } from "./provider-api.js";
 import { resolveGoogleSenderIdentity } from "./sender-identity.js";
 import { invalidateThreadCache } from "./thread-cache.js";
@@ -117,7 +118,7 @@ async function resolveManagedGmailClientForOwner(
       )
     : await resolveManagedGmailClient();
   if (client) {
-    registerGmailAccountToken(
+    await registerGmailAccountToken(
       client.accessToken,
       ownerEmail ?? client.email,
       client.email,
@@ -225,6 +226,8 @@ async function refreshAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
+  /** Google just rejected the stored token, so it is no fallback. */
+  storedTokenRejected = false,
 ): Promise<{ accessToken: string; expiresAt: number }> {
   if (!tokens.refresh_token) {
     await deleteOAuthTokens("google", accountId);
@@ -249,6 +252,7 @@ async function refreshAccessToken(
     // because we're inside the 5-minute pre-expiry buffer — fall back to
     // it so a flaky moment doesn't 502 the inbox.
     if (
+      !storedTokenRejected &&
       tokens.access_token &&
       tokens.expiry_date &&
       Date.now() < tokens.expiry_date
@@ -288,6 +292,7 @@ async function getValidAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
+  forceRefresh = false,
 ): Promise<string> {
   if (!tokens.access_token && !tokens.refresh_token) {
     throw new Error(
@@ -298,6 +303,7 @@ async function getValidAccessToken(
   let accessToken: string;
   let expiresAt = tokens.expiry_date ?? Date.now() + 60 * 60_000;
   if (
+    !forceRefresh &&
     tokens.expiry_date &&
     tokens.access_token &&
     Date.now() < tokens.expiry_date - 5 * 60 * 1000
@@ -310,9 +316,12 @@ async function getValidAccessToken(
       accessToken = refreshed.accessToken;
       expiresAt = refreshed.expiresAt;
     } else {
-      const promise = refreshAccessToken(accountId, tokens, owner).finally(() =>
-        refreshInflight.delete(accountId),
-      );
+      const promise = refreshAccessToken(
+        accountId,
+        tokens,
+        owner,
+        forceRefresh,
+      ).finally(() => refreshInflight.delete(accountId));
       refreshInflight.set(accountId, promise);
       const refreshed = await promise;
       accessToken = refreshed.accessToken;
@@ -320,7 +329,7 @@ async function getValidAccessToken(
     }
   }
 
-  registerGmailAccountToken(
+  await registerGmailAccountToken(
     accessToken,
     owner ?? accountId,
     accountId,
@@ -419,12 +428,13 @@ export async function exchangeCode(
     tokens as unknown as Record<string, unknown>,
     owner ?? email,
   );
-  registerGmailAccountToken(
+  await registerGmailAccountToken(
     tokens.access_token,
     owner ?? email,
     email,
     tokens.expiry_date,
   );
+  await clearSyncAccountReauth(owner ?? email, email);
 
   try {
     await startWatch(tokens.access_token);
@@ -469,11 +479,14 @@ export async function getClientForAccount(
   });
 }
 
-export async function getClientFromAccount(account: {
-  accountId: string;
-  owner?: string;
-  tokens: Record<string, unknown>;
-}): Promise<{ accessToken: string; email: string } | null> {
+export async function getClientFromAccount(
+  account: {
+    accountId: string;
+    owner?: string;
+    tokens: Record<string, unknown>;
+  },
+  options: { forceRefresh?: boolean } = {},
+): Promise<{ accessToken: string; email: string } | null> {
   if (!hasGmailScope(account.tokens)) return null;
   const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens) return null;
@@ -483,13 +496,21 @@ export async function getClientFromAccount(account: {
     account.accountId,
     tokens,
     ownerForRefresh,
+    options.forceRefresh,
   );
   return { accessToken, email: account.accountId };
 }
 
+/**
+ * `forceRefresh` exchanges the refresh token even though the stored access
+ * token looks unexpired: Google just answered 401 to it. A refresh Google
+ * refuses for good (`invalid_grant`) throws; so does a transient refresh
+ * failure, instead of handing back the rejected token.
+ */
 export async function getClientForConnectedAccount(
   ownerEmail: string,
   accountEmail: string,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<{ accessToken: string; email: string } | null> {
   const oauthAccount = (await listOAuthAccountsByOwner("google", ownerEmail))
     .filter((account) => hasGmailScope(account.tokens))
@@ -498,10 +519,10 @@ export async function getClientForConnectedAccount(
         account.accountId.toLowerCase() === accountEmail.toLowerCase(),
     );
   if (oauthAccount) {
-    return getClientFromAccount({
-      ...oauthAccount,
-      owner: ownerEmail,
-    });
+    return getClientFromAccount(
+      { ...oauthAccount, owner: ownerEmail },
+      options,
+    );
   }
   const managed = await resolveManagedGmailClientForOwner(ownerEmail);
   if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
@@ -2792,7 +2813,7 @@ export async function markAllUnreadReadForAccount(input: {
   invalidateHistoryCacheForAccount(accountEmail);
   invalidateListCacheForOwner(ownerEmail);
   for (const threadId of new Set(selected.map((message) => message.threadId))) {
-    invalidateThreadCache(ownerEmail, threadId);
+    invalidateThreadCache(ownerEmail, threadId, accountEmail);
   }
 
   let remaining: GmailMessageReference[];

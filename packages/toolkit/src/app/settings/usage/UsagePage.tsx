@@ -27,7 +27,12 @@ import {
   ToggleGroupItem,
 } from "@agent-native/toolkit/ui/toggle-group";
 import { cn } from "@agent-native/toolkit/utils";
-import { IconChartBar, IconChartLine, IconTool } from "@tabler/icons-react";
+import {
+  IconChartBar,
+  IconChartLine,
+  IconExternalLink,
+  IconTool,
+} from "@tabler/icons-react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
@@ -224,6 +229,9 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
     "get-usage-metrics",
     { sinceDays, scope, app },
     { placeholderData: keepPreviousData },
+  );
+  const chatGPTStatus = useActionQuery<{ connected: boolean }>(
+    "get-chatgpt-subscription-status" as never,
   );
   const data = query.data;
   const canViewOrganization =
@@ -486,6 +494,18 @@ export function UsagePage({ context }: { context: SettingsPageContext }) {
             </SelectItem>
           </SelectContent>
         </Select>
+      ) : null}
+      {chatGPTStatus.data?.connected ? (
+        <Button asChild variant="ghost" size="sm" className="ml-auto">
+          <a
+            href="https://chatgpt.com/settings/usage"
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("agentChat.settings.usage.chatgptPlanUsage")}
+            <IconExternalLink aria-hidden />
+          </a>
+        </Button>
       ) : null}
     </div>
   );

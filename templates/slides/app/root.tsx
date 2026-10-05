@@ -36,7 +36,7 @@ import {
 } from "@/components/editor/editor-command-model";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { DeckProvider } from "@/context/DeckContext";
+import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
 import "@/lib/register-chat-renderers";
@@ -219,7 +219,12 @@ function AppContent() {
     setCmdkOpen(true);
   }, []);
   const shouldHandleContentEditableCommandMenuShortcut = useCallback(
-    () => location.pathname !== "/home",
+    (event: KeyboardEvent) =>
+      location.pathname !== "/home" &&
+      !(
+        event.target instanceof Element &&
+        event.target.closest('[data-editing-block="true"]')
+      ),
     [location.pathname],
   );
   useCommandMenuShortcut(handleCommandMenuShortcut, {
@@ -325,7 +330,11 @@ function AppContent() {
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
-      <DeckProvider key={DECK_KEY} realtimeEnabled={isDeckEditor}>
+      <DeckProvider
+        key={DECK_KEY}
+        realtimeEnabled={isDeckEditor}
+        openDeckId={deckIdFromPathname(location.pathname)}
+      >
         <AppLayout>
           <Outlet />
         </AppLayout>

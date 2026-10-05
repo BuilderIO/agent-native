@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import type { UploadMode } from "@shared/recording-core.js";
@@ -12,6 +12,7 @@ import {
   trackRecordingFailure,
   type RecordingFailureCode,
 } from "../server/lib/recording-failures.js";
+import { snapshotUploadRecoveryPolicy } from "../server/lib/recording-policy.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -47,6 +48,9 @@ export function classifyInitialUploadFailure(error: unknown): {
         : typeof error === "string"
           ? error
           : "";
+  const isSignedUrlFailure = /builder\.io signed-url request failed/i.test(
+    message,
+  );
   const messageStatus = /\b(?:failed|failure|error)\s*\((\d{3})\)/i.exec(
     message,
   )?.[1];
@@ -63,12 +67,13 @@ export function classifyInitialUploadFailure(error: unknown): {
       ? details.failureStage
       : "multipart_start";
   const failureCode = normalizeRecordingFailureCode(details.failureCode);
+  // A nested signed-URL response does not mean the account needs reauthorization.
   const storageSetupRequired =
     failureCode === "storage_setup_required" ||
     details.errorCode === "builder_oauth_reauthorization_required" ||
-    httpStatus === 401 ||
-    httpStatus === 403 ||
-    /credentials?[^.\n]*(?:not configured|missing)|not connected|reconnect builder(?:\.io)?|scope mismatch|missing its space id/i.test(
+    details.errorCode === "builder_credentials_rejected" ||
+    (!isSignedUrlFailure && (httpStatus === 401 || httpStatus === 403)) ||
+    /credentials?[^.\n]*(?:not configured|missing)|not connected|(?:reconnect|use) builder(?:\.io)?|scope mismatch|missing its space id/i.test(
       message,
     );
 
@@ -95,6 +100,15 @@ export default defineAction({
   run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
+    if (
+      args.expectedOwnerEmail &&
+      args.expectedOwnerEmail.toLowerCase() !== ownerEmail.toLowerCase()
+    ) {
+      fail("This recording belongs to another account.", {
+        errorCode: "recording_owner_mismatch",
+        statusCode: 409,
+      });
+    }
     const id = args.id || nanoid();
     const now = new Date().toISOString();
     const title = args.title?.trim() || DEFAULT_RECORDING_TITLE;
@@ -105,9 +119,10 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
+    const visibility = await getDefaultRecordingVisibility(
       organizationId,
       actionContext?.userEmail ?? ownerEmail,
+      args.visibility,
     );
 
     const spaceIds = await validateRecordingScope(db, {
@@ -116,6 +131,8 @@ export default defineAction({
       spaceIds: args.spaceIds ?? [],
       folderId: args.folderId,
     });
+
+    await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
     await db.insert(schema.recordings).values({
       id,
@@ -133,7 +150,7 @@ export default defineAction({
       uploadLeaseExpiresAt: uploadLeaseExpiry(),
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
-      visibility: args.visibility ?? defaultVisibility,
+      visibility,
       width: args.width ?? 0,
       height: args.height ?? 0,
       ownerEmail,
@@ -188,13 +205,13 @@ export default defineAction({
         status: "failed",
         progress: 0,
         failureReason: reason,
-        storageSetupRequired: reason === STORAGE_SETUP_REQUIRED_REASON,
+        storageSetupRequired: failure.failureCode === "storage_setup_required",
         updatedAt: failedAt,
       });
       throw createError({
         statusCode: 503,
         statusMessage: reason,
-        data: { retryable: true },
+        data: { retryable: failure.failureCode !== "storage_setup_required" },
       });
     };
 

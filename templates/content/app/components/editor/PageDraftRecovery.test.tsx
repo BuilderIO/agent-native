@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   remove: vi.fn(),
   resolve: vi.fn(),
   refetch: vi.fn(),
+  verify: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: vi.fn().mockResolvedValue({ draft: null }),
@@ -35,6 +36,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/hooks/use-documents", () => ({
   documentQueryFilter: (id: string) => ({ id }),
+  ensurePreviewDocumentDraftRead: (...args: unknown[]) => state.verify(...args),
   isDocumentUpdateConflict: (result: { conflict?: boolean }) =>
     result.conflict === true,
   isDocumentUpdatePreservationRequired: (result: {
@@ -108,6 +110,7 @@ describe("Page draft recovery", () => {
     vi.clearAllMocks();
     state.draft = null;
     state.refetch.mockResolvedValue(undefined);
+    state.verify.mockResolvedValue(undefined);
     state.update.mockResolvedValue({
       ...page,
       title: "Draft",

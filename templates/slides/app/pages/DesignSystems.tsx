@@ -57,6 +57,8 @@ export default function DesignSystems() {
   >(undefined);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const deleteMutation = useActionMutation("delete-design-system");
+  const showHeaderCreateAction =
+    isLoading || Boolean(error) || designSystems.length > 0;
 
   const handleCardClick = (id: string) => {
     setEditingId(id);
@@ -151,7 +153,7 @@ export default function DesignSystems() {
   useSetHeaderActions(
     useMemo(
       () =>
-        systemsEnabled ? (
+        systemsEnabled && showHeaderCreateAction ? (
           <Button
             size="sm"
             onClick={() => {
@@ -164,7 +166,7 @@ export default function DesignSystems() {
             {t("designSystems.new")}
           </Button>
         ) : null,
-      [t, systemsEnabled],
+      [t, systemsEnabled, showHeaderCreateAction],
     ),
   );
 

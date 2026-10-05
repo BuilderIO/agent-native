@@ -11,7 +11,7 @@ const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
 const mockGetRequestContext = vi.fn<
   [],
-  { isSyntheticTraffic?: boolean } | undefined
+  { isSyntheticTraffic?: boolean; isIntegrationCaller?: boolean } | undefined
 >();
 const mockIsLocalDatabase = vi.fn<[], boolean>();
 const mockResolveOrgIdForEmail = vi.fn<[string], Promise<string | null>>();
@@ -184,6 +184,8 @@ beforeEach(() => {
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.NOTION_CLIENT_ID;
   delete process.env.NOTION_CLIENT_SECRET;
+  delete process.env.SLACK_SIGNING_SECRET;
+  delete process.env.SLACK_BOT_TOKEN;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
@@ -1627,6 +1629,97 @@ describe("resolveSecret (generic)", () => {
     ).toBe(true);
   });
 
+  describe("Slack signing secret for a hosted integration owner", () => {
+    beforeEach(() => {
+      process.env.NODE_ENV = "production";
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      mockIsLocalDatabase.mockReturnValue(false);
+      mockGetRequestUserEmail.mockReturnValue("owner@example.test");
+      mockGetRequestOrgId.mockReturnValue("test-org");
+      mockGetRequestContext.mockReturnValue({ isIntegrationCaller: true });
+    });
+
+    it("resolves the app signing secret from deploy configuration after scoped misses", async () => {
+      process.env.SLACK_SIGNING_SECRET = "fake-deploy-signing-secret";
+
+      await expect(
+        resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+      ).resolves.toMatchObject({
+        value: "fake-deploy-signing-secret",
+        source: "env",
+        lookupFailed: false,
+      });
+    });
+
+    it.each(["user", "org"])(
+      "preserves the %s signing secret ahead of deploy configuration",
+      async (scope) => {
+        process.env.SLACK_SIGNING_SECRET = "fake-deploy-signing-secret";
+        mockReadAppSecret.mockImplementation(async (query) =>
+          query.scope === scope
+            ? { value: "fake-scoped-signing-secret" }
+            : null,
+        );
+
+        await expect(
+          resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+        ).resolves.toMatchObject({
+          value: "fake-scoped-signing-secret",
+          source: scope,
+        });
+      },
+    );
+
+    it("does not let synthetic traffic inherit the deployed signing secret", async () => {
+      process.env.SLACK_SIGNING_SECRET = "fake-deploy-signing-secret";
+      mockGetRequestContext.mockReturnValue({
+        isIntegrationCaller: true,
+        isSyntheticTraffic: true,
+      });
+
+      await expect(resolveSecret("SLACK_SIGNING_SECRET")).resolves.toBeNull();
+    });
+
+    it("keeps absence and unrelated identity-bearing deployment credentials blocked", async () => {
+      process.env.GITHUB_TOKEN = "fake-deploy-github-token";
+
+      await expect(resolveSecret("SLACK_SIGNING_SECRET")).resolves.toBeNull();
+      await expect(resolveSecret("GITHUB_TOKEN")).resolves.toBeNull();
+    });
+
+    it.each([undefined, "fake-deploy-signing-secret"])(
+      "reports an unreadable store with deploy secret %s",
+      async (deploySecret) => {
+        if (deploySecret) process.env.SLACK_SIGNING_SECRET = deploySecret;
+        const cause = new Error("db query timed out after 12000ms");
+        mockReadAppSecret.mockRejectedValue(cause);
+
+        await expect(
+          resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+        ).resolves.toEqual({ value: null, lookupFailed: true, cause });
+        await expect(
+          resolveSecret("SLACK_SIGNING_SECRET"),
+        ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+      },
+    );
+
+    it("does not bypass an unreadable org signing secret after a user-scope miss", async () => {
+      process.env.SLACK_SIGNING_SECRET = "fake-deploy-signing-secret";
+      const cause = new Error("db query timed out after 12000ms");
+      mockReadAppSecret.mockImplementation(async ({ scope }) => {
+        if (scope === "org") throw cause;
+        return null;
+      });
+
+      await expect(
+        resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+      ).resolves.toEqual({ value: null, lookupFailed: true, cause });
+      await expect(
+        resolveSecret("SLACK_SIGNING_SECRET"),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    });
+  });
+
   it("uses app-provided Notion OAuth client env in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
     process.env.NOTION_CLIENT_ID = "notion-deploy-client-id";
@@ -2030,6 +2123,42 @@ describe("unreadable credential store is not 'not configured'", () => {
     await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
       CredentialStoreUnavailableError,
     );
+  });
+
+  it("fails every resolver on an org lookup failure instead of answering with the caller's own credential", async () => {
+    const membershipTimeout = Object.assign(
+      new Error("membership query timed out"),
+      { code: "57014" },
+    );
+    mockResolveOrgIdForEmail.mockRejectedValue(membershipTimeout);
+    mockReadAppSecret.mockImplementation(async ({ scope, key }) =>
+      scope === "user"
+        ? { value: `personal-${key}`, last4: "onal", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveSecretDetailed("SVC_TOKEN")).resolves.toMatchObject({
+      value: null,
+      lookupFailed: true,
+    });
+    await expect(resolveSecret("SVC_TOKEN")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+    await expect(
+      resolveSecretPair(["SVC_ID", "SVC_SECRET"]),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+
+    // The Builder resolvers read the personal-key policy first; let that read
+    // answer so the failure under test is the resolver's own org lookup.
+    mockResolveOrgIdForEmail.mockResolvedValueOnce(null);
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: null,
+      lookupFailed: true,
+    });
+    mockResolveOrgIdForEmail.mockResolvedValueOnce(null);
+    await expect(
+      resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
   });
 
   it("still returns null (definitively absent) when the store answers with no row", async () => {
@@ -2538,7 +2667,7 @@ describe("Builder gateway credential lane", () => {
   });
 
   it("rewrites a gateway-lane rejection for a visitor and leaves an owner's alone", () => {
-    const ownerFacing = "Connect Builder.io in Settings to enable this.";
+    const ownerFacing = "Use Builder.io in Settings to enable this.";
     expect(gatewayLaneUnavailableMessage(ownerFacing)).toBe(ownerFacing);
 
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -2736,13 +2865,13 @@ describe("Restrict personal API keys", () => {
   it("uses the org key instead of a restricted member's personal key", async () => {
     restrictOrg("member");
     storeRows({
-      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
-      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
     });
 
     await expect(
       resolveSecretDetailed("ANTHROPIC_API_KEY"),
-    ).resolves.toMatchObject({ value: "sk-ant-org", source: "org" });
+    ).resolves.toMatchObject({ value: "test-anthropic-org", source: "org" });
     expect(
       mockReadAppSecret.mock.calls.some((call) => call[0].scope === "user"),
     ).toBe(false);
@@ -2763,29 +2892,34 @@ describe("Restrict personal API keys", () => {
     await expect(resolveSecret("OPENAI_API_KEY")).resolves.toBeNull();
   });
 
-  it("keeps an owner's or admin's personal key", async () => {
+  it("keeps an owner's or admin's personal key as their fallback", async () => {
     for (const role of ["owner", "admin"]) {
       restrictOrg(role);
       storeRows({
-        "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
-        [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+        "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
       });
       await expect(
         resolveSecretDetailed("ANTHROPIC_API_KEY"),
-      ).resolves.toMatchObject({ value: "sk-ant-personal", source: "user" });
+      ).resolves.toMatchObject({
+        value: "test-anthropic-personal",
+        source: "user",
+      });
     }
   });
 
   it("uses the member's personal key again once the restriction is off", async () => {
     restrictOrg("member", false);
     storeRows({
-      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
-      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
     });
 
     await expect(
       resolveSecretDetailed("ANTHROPIC_API_KEY"),
-    ).resolves.toMatchObject({ value: "sk-ant-personal", source: "user" });
+    ).resolves.toMatchObject({
+      value: "test-anthropic-personal",
+      source: "user",
+    });
   });
 
   it("leaves a member's other personal secrets alone", async () => {
@@ -2802,7 +2936,9 @@ describe("Restrict personal API keys", () => {
     mockGetSetting.mockRejectedValue(
       new Error("db query timed out after 12000ms"),
     );
-    storeRows({ "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal" });
+    storeRows({
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+    });
 
     await expect(
       resolveSecretDetailed("ANTHROPIC_API_KEY"),
@@ -2830,23 +2966,65 @@ describe("Restrict personal API keys", () => {
     );
   });
 
-  it("runs every role on their own Builder key pair ahead of the org's", async () => {
-    for (const role of ["owner", "admin", "member"]) {
+  it("runs an owner or admin on the org's credentials ahead of their own, and a member on theirs", async () => {
+    const rows = {
+      "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+      "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+      [`org:${ORG}:BUILDER_PRIVATE_KEY`]: "bpk-org",
+      [`org:${ORG}:BUILDER_PUBLIC_KEY`]: "pub-org",
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
+      "user:member@b.com:SVC_ID": "id-personal",
+      "user:member@b.com:SVC_SECRET": "secret-personal",
+      [`org:${ORG}:SVC_ID`]: "id-org",
+      [`org:${ORG}:SVC_SECRET`]: "secret-org",
+    };
+    for (const [role, expected] of [
+      ["owner", "org"],
+      ["admin", "org"],
+      ["member", "personal"],
+    ] as const) {
       restrictOrg(role, false);
-      storeRows({
-        "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
-        "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
-        [`org:${ORG}:BUILDER_PRIVATE_KEY`]: "bpk-org",
-        [`org:${ORG}:BUILDER_PUBLIC_KEY`]: "pub-org",
-      });
+      storeRows(rows);
       await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
-        privateKey: "bpk-personal",
-        source: "user",
+        privateKey: `bpk-${expected}`,
+        source: expected === "org" ? "org" : "user",
       });
       await expect(
         resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
-      ).resolves.toBe("bpk-personal");
+      ).resolves.toBe(`bpk-${expected}`);
+      await expect(
+        resolveSecretDetailed("ANTHROPIC_API_KEY"),
+      ).resolves.toMatchObject({
+        value: `test-anthropic-${expected}`,
+        source: expected === "org" ? "org" : "user",
+      });
+      await expect(
+        resolveSecretPair(["SVC_ID", "SVC_SECRET"]),
+      ).resolves.toEqual([`id-${expected}`, `secret-${expected}`]);
     }
+  });
+
+  it("fails an owner's lookup when their role can't be read, instead of running on their own key", async () => {
+    mockGetSetting.mockResolvedValue(null);
+    mockGetDbExec.mockReturnValue({
+      execute: vi.fn(async () => {
+        throw new Error("db query timed out");
+      }),
+    });
+    storeRows({
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
+      "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+      "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+    });
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: true });
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: null,
+      lookupFailed: true,
+    });
   });
 
   it("falls back to an admin's own Builder key pair when the org has none", async () => {

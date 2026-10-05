@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import {
   auth,
+  discoverOAuthServerInfo,
   refreshAuthorization,
   validateAuthorizationResponseIssuer,
   type AuthorizationServerMetadata,
@@ -501,6 +502,7 @@ export interface McpOAuthProviderOptions {
   serverUrl: string;
   redirectUrl: string;
   state: string;
+  tokenEndpointAuthMethod?: OAuthClientMetadata["token_endpoint_auth_method"];
   clientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   discoveryState?: McpOAuthDiscoveryState;
@@ -515,6 +517,20 @@ export interface McpOAuthProviderOptions {
     state: McpOAuthDiscoveryState,
     clientMetadataUrl: string | undefined,
   ) => void;
+}
+
+function dynamicClientAuthMethod(
+  metadata: AuthorizationServerMetadata | undefined,
+): OAuthClientMetadata["token_endpoint_auth_method"] {
+  const methods = metadata?.token_endpoint_auth_methods_supported;
+  if (!Array.isArray(methods)) return "client_secret_basic";
+  if (methods.includes("none")) return "none";
+  for (const method of ["client_secret_basic", "client_secret_post"] as const) {
+    if (methods.includes(method)) return method;
+  }
+  throw new Error(
+    "MCP OAuth server does not support a client authentication method this connector can register with.",
+  );
 }
 
 function issuerForDiscovery(
@@ -633,7 +649,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     this.metadata = {
       ...brandedOAuthClientMetadata(),
       redirect_uris: [options.redirectUrl],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method: options.tokenEndpointAuthMethod ?? "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       application_type: applicationTypeForRedirect(options.redirectUrl),
@@ -853,11 +869,40 @@ export async function startMcpOAuthAuthorization(
       googleScopes,
     );
   }
-  if (!options.clientInformation && options.discoveryState) {
-    assertRegisterableClient(options.discoveryState, undefined);
+  const resourceMetadataUrl = options.resourceMetadataUrl
+    ? checkedRemoteUrl(options.resourceMetadataUrl, "resource metadata").href
+    : undefined;
+  const discoveredState =
+    !options.clientInformation && !options.discoveryState
+      ? await discoverOAuthServerInfo(serverUrl, {
+          fetchFn: guardedOAuthFetch(),
+          ...(resourceMetadataUrl
+            ? { resourceMetadataUrl: new URL(resourceMetadataUrl) }
+            : {}),
+        })
+      : undefined;
+  const discoveryState =
+    options.discoveryState ??
+    (discoveredState
+      ? {
+          ...discoveredState,
+          ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
+        }
+      : undefined);
+  if (discoveryState) validateDiscoveryUrls(discoveryState);
+  if (!options.clientInformation && discoveryState) {
+    assertRegisterableClient(discoveryState, undefined);
   }
   const provider = new McpOAuthClientProvider({
     ...options,
+    ...(discoveryState ? { discoveryState } : {}),
+    ...(!options.clientInformation
+      ? {
+          tokenEndpointAuthMethod: dynamicClientAuthMethod(
+            discoveryState?.authorizationServerMetadata,
+          ),
+        }
+      : {}),
     ...(options.clientInformation
       ? {}
       : { onDiscoveryState: assertRegisterableClient }),
@@ -1094,13 +1139,15 @@ export async function revokeMcpOAuthCredentials(options: {
 /**
  * Resolve an access token for the MCP manager. Refreshing happens only when a
  * token is near expiry, so ordinary manager reconfiguration does not perform
- * a network request for every connector.
+ * a network request for every connector. `forceRefresh` is for a caller whose
+ * request was just refused with 401 by a token that had not expired yet.
  */
 export async function getMcpOAuthAccessToken(options: {
   key: string;
   scope: "user" | "org";
   scopeId: string;
   serverUrl: string;
+  forceRefresh?: boolean;
 }): Promise<string | null> {
   const validation = validateRemoteUrl(options.serverUrl);
   if (!validation.ok || !validation.url) return null;
@@ -1113,6 +1160,7 @@ export async function getMcpOAuthAccessToken(options: {
       validateCredential: (credential) =>
         serverUrlsMatch(credential.serverUrl, serverUrl),
       expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
+      forceRefresh: options.forceRefresh,
       refresh: async ({ credential: credentials }) => {
         const refreshToken = credentials.tokens.refresh_token;
         const discovery = credentials.discoveryState;

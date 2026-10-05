@@ -8,7 +8,11 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CoreComposerRuntimeProvider } from "./runtime-adapters.js";
+import { DeferredBuilderConnectPopover } from "../../settings/deferred-builder-connect-popover.js";
+import {
+  CoreComposerRuntimeProvider,
+  coreComposerAdapters,
+} from "./runtime-adapters.js";
 
 const formatters = { formatNumber: (value: number) => String(value) };
 const translate = (key: string) => key;
@@ -54,5 +58,12 @@ describe("CoreComposerRuntimeProvider", () => {
     expect(seen).toHaveLength(3);
     expect(seen[1]).toBe(seen[0]);
     expect(seen[2]).toBe(seen[0]);
+  });
+
+  it("routes composer Builder connects through the consent popover", () => {
+    // Without it, the model picker and voice setup fall back to sign-in only.
+    expect(coreComposerAdapters.builder?.BuilderConnectPopover).toBe(
+      DeferredBuilderConnectPopover,
+    );
   });
 });

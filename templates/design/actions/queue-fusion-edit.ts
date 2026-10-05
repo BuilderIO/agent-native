@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -10,8 +9,8 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
 import "../server/db/index.js";
-import { FULL_APP_BUILDING } from "../shared/full-app.js";
 
 const targetSchema = z.object({
   selector: z
@@ -54,7 +53,7 @@ export default defineAction({
       .describe("Optional target context for the element/screen being edited."),
   }),
   run: async ({ designId, instruction, screenFileId, target }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

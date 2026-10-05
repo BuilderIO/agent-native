@@ -33,6 +33,20 @@ export function readContentLandingRecovery(
     : null;
 }
 
+// /home with no space and no unavailable page to explain returns to the last
+// page opened anywhere, which is the page a last-location hint names.
+export function isPersonalLanding(location: {
+  pathname: string;
+  search: string;
+  state: unknown;
+}) {
+  return (
+    location.pathname === CONTENT_LANDING_PATH &&
+    !new URLSearchParams(location.search).get("spaceId") &&
+    !readContentLandingRecovery(location.state)
+  );
+}
+
 let landingWriteQueue = Promise.resolve();
 
 export function rememberContentLandingDocument(
@@ -56,13 +70,19 @@ export function rememberContentLandingDocument(
       : targetOrDocumentId;
   const spaceId =
     typeof targetOrDocumentId === "string" ? undefined : spaceIdOrTitle;
+  // The unscoped key is where /home returns, so every page open records it,
+  // whatever space the page is in; the space key is where that space returns.
+  const keys = [
+    CONTENT_LAST_LOCATION_STATE_KEY,
+    ...(spaceId ? [contentSpaceLastLocationStateKey(spaceId)] : []),
+  ];
   const write = landingWriteQueue.then(() =>
-    writeClientAppState<ContentLastLocationState>(
-      spaceId
-        ? contentSpaceLastLocationStateKey(spaceId)
-        : CONTENT_LAST_LOCATION_STATE_KEY,
-      target,
-      { requestSource: "content-landing" },
+    Promise.all(
+      keys.map((key) =>
+        writeClientAppState<ContentLastLocationState>(key, target, {
+          requestSource: "content-landing",
+        }),
+      ),
     ),
   );
   const result = write.then(() => undefined);

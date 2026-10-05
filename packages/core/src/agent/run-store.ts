@@ -11,6 +11,11 @@ import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
+import { isRequestedStopAbortReason } from "./abort-reasons.js";
+import {
+  admitAutoContinue,
+  type AutoContinueRefusalCode,
+} from "./auto-continue.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -290,6 +295,7 @@ export async function ensureRunTables(): Promise<void> {
         ["dispatch_payload", "TEXT"],
         ["in_flight_since", "BIGINT"],
         ["continuation_order", "BIGINT"],
+        ["auto_continue_of", "TEXT"],
       ] as const) {
         await ensureColumnExists(
           "agent_runs",
@@ -1029,6 +1035,37 @@ function assertTurnInitiatorMatches(
   }
 }
 
+/** The live run that keeps `tryClaimRunSlot` from claiming the thread. */
+async function selectSlotHoldingRunId(
+  executor: Pick<ReturnType<typeof getDbExec>, "execute">,
+  threadId: string,
+  now: number,
+  maxStaleMs?: number,
+): Promise<string | undefined> {
+  const explicitCutoff = typeof maxStaleMs === "number";
+  const active = await executor.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE thread_id = ?
+            AND status = 'running'
+            AND ${terminalRunEventExclusionSql()}
+            AND ${livenessBasisSql()} >= ${explicitCutoff ? "?" : backgroundAwareStaleCutoffSql()}
+          ORDER BY started_at DESC LIMIT 1`,
+    args: [threadId, explicitCutoff ? now - maxStaleMs : now],
+  });
+  return (active.rows[0] as { id?: string } | undefined)?.id;
+}
+
+/**
+ * The run currently holding the thread's run slot, read without claiming it,
+ * so a request can refuse before work it would only repeat after a 409.
+ */
+export async function getSlotHoldingRunId(
+  threadId: string,
+): Promise<string | undefined> {
+  await ensureRunTables();
+  return selectSlotHoldingRunId(getDbExec(), threadId, Date.now());
+}
+
 export async function tryClaimRunSlot(
   threadId: string,
   runId: string,
@@ -1040,12 +1077,15 @@ export async function tryClaimRunSlot(
     dispatchPayload?: string;
     continuationOrder?: number;
     turnInitiator?: AgentTurnInitiator;
+    /** The time-limit stop this run automatically continues. */
+    autoContinueOf?: string;
   },
 ): Promise<{
   claimed: boolean;
   activeRunId: string | null;
   completedRunId?: string;
   turnAborted?: boolean;
+  autoContinueRefused?: AutoContinueRefusalCode;
 }> {
   await ensureRunTables();
   const client = getDbExec();
@@ -1078,17 +1118,12 @@ export async function tryClaimRunSlot(
         options.turnInitiator,
       );
     }
-    const explicitCutoff = typeof maxStaleMs === "number";
-    const active = await tx.execute({
-      sql: `SELECT id FROM agent_runs
-            WHERE thread_id = ?
-              AND status = 'running'
-              AND ${terminalRunEventExclusionSql()}
-              AND ${livenessBasisSql()} >= ${explicitCutoff ? "?" : backgroundAwareStaleCutoffSql()}
-            ORDER BY started_at DESC LIMIT 1`,
-      args: [threadId, explicitCutoff ? now - maxStaleMs : now],
-    });
-    const activeRunId = (active.rows[0] as { id?: string } | undefined)?.id;
+    const activeRunId = await selectSlotHoldingRunId(
+      tx,
+      threadId,
+      now,
+      maxStaleMs,
+    );
     if (activeRunId) return { claimed: false, activeRunId };
 
     if (replayCompletedTurn) {
@@ -1128,11 +1163,60 @@ export async function tryClaimRunSlot(
       }
     }
 
+    // Admitted under the thread's slot lock, so two tabs continuing the same
+    // stop start one run and the count of continuations stays exact.
+    if (options?.autoContinueOf) {
+      const turnRuns = await tx.execute({
+        sql: `SELECT id, status, terminal_reason, completed_at,
+                     COUNT(auto_continue_of) OVER () AS auto_continues,
+                     MIN(started_at) OVER () AS turn_started_at
+              FROM agent_runs
+              WHERE thread_id = ? AND turn_id = ?
+                AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+              ORDER BY started_at DESC LIMIT 1`,
+        args: [threadId, turnId],
+      });
+      const row = turnRuns.rows[0] as
+        | {
+            id: string;
+            status: string;
+            terminal_reason: string | null;
+            completed_at: number | string | null;
+            auto_continues: number | string;
+            turn_started_at: number | string;
+          }
+        | undefined;
+      const admission = admitAutoContinue({
+        turn: row
+          ? {
+              newest: {
+                id: row.id,
+                status: row.status,
+                terminalReason: row.terminal_reason,
+                completedAt:
+                  row.completed_at === null ? null : Number(row.completed_at),
+              },
+              autoContinues: Number(row.auto_continues),
+              startedAt: Number(row.turn_started_at),
+            }
+          : null,
+        stoppedRunId: options.autoContinueOf,
+        nowMs: now,
+      });
+      if (!admission.admit) {
+        return {
+          claimed: false,
+          activeRunId: null,
+          autoContinueRefused: admission.code,
+        };
+      }
+    }
+
     const continuationOrder =
       normalizeContinuationOrder(options?.continuationOrder) ??
       (await nextContinuationOrder(tx, threadId, turnId));
     const inserted = await tx.execute({
-      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order, auto_continue_of) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
       args: [
         runId,
         threadId,
@@ -1143,6 +1227,7 @@ export async function tryClaimRunSlot(
         options?.dispatchMode ?? null,
         options?.dispatchPayload ?? null,
         continuationOrder,
+        options?.autoContinueOf ?? null,
       ],
     });
     if ((inserted.rowsAffected ?? 0) !== 1) {
@@ -1923,9 +2008,6 @@ export async function getRunStatus(runId: string): Promise<string | null> {
   return String((rows[0] as { status: string }).status);
 }
 
-const TURN_ENDING_ABORT_REASONS = new Set(["user", "displaced"]);
-const USER_INITIATED_ABORT_REASONS = new Set(["user", "abort"]);
-
 const RECOVERABLE_ABORT_REASONS = new Set(["background_worker_died"]);
 
 export function terminalEventForAbortReason(
@@ -1938,11 +2020,7 @@ export function terminalEventForAbortReason(
       reason: normalized as ContinuationReason,
     };
   }
-  if (
-    TURN_ENDING_ABORT_REASONS.has(normalized) ||
-    USER_INITIATED_ABORT_REASONS.has(normalized) ||
-    normalized.startsWith("user_")
-  ) {
+  if (isRequestedStopAbortReason(normalized)) {
     return {
       type: "done",
       ...(normalized !== "displaced" ? { reason: "user" } : {}),

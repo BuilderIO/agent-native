@@ -356,6 +356,13 @@ describe("/api/public-recording route", () => {
   it("exposes an interrupted upload as failed immediately after a share reload", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetQuery.mockReturnValue({ id: "rec-1" });
+    // Same rule as the real lookup: only a "processing" row can be awaiting
+    // media verification, so the answer depends on the status the handler
+    // forwards rather than on a canned value.
+    mockIsMediaVerificationPending.mockImplementation(
+      async (args: { recordingStatus: string }) =>
+        args.recordingStatus === "processing",
+    );
     mockGetDb.mockReturnValue(
       createDbWithSelectResults([
         [
@@ -374,14 +381,22 @@ describe("/api/public-recording route", () => {
       ]),
     );
 
-    await expect(handler(event as any)).resolves.toMatchObject({
+    const result = await handler(event as any);
+
+    // The share page renders the interrupted state from these fields, and must
+    // not keep showing a verification spinner for a row that already failed.
+    expect(result).toMatchObject({
       recording: {
         status: "failed",
         uploadProgress: 40,
         failureReason:
           "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+        verificationPending: false,
       },
     });
+    expect(mockIsMediaVerificationPending).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingStatus: "failed" }),
+    );
   });
 
   it("allows a scoped agent access token to load private clips without changing visibility", async () => {

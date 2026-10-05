@@ -40,8 +40,6 @@ export function OceanBookingBackground({ className }: { className: string }) {
     );
   }
 
-  if (background === "probing") return null;
-
   return (
     <StarfieldBackground
       className={`${className} opacity-[0.3] dark:opacity-[0.15]`}

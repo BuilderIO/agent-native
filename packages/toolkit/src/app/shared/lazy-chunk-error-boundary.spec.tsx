@@ -12,6 +12,7 @@ vi.mock("@agent-native/core/client/route-chunk-recovery", () => ({
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { LazyChunkErrorBoundary } from "./LazyChunkErrorBoundary.js";
 import { LazyChunkRetryFallback } from "./LazyChunkRetryFallback.js";
 
@@ -42,6 +43,7 @@ describe("LazyChunkErrorBoundary", () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
+          catalog={createToolkitI18nCatalog({ messages: {} })}
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}

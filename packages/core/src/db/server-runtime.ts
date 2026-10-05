@@ -82,11 +82,9 @@ export function isLocalPlatformEmulator(
 }
 
 /**
- * A platform marker proves a real hosted invocation. Not the same question as
- * `isHostedFunctionInvocationRuntime()` in `./migration-runtime.js`, which
- * the schema guards use and which treats `NODE_ENV=test` and an unflagged
- * Cloudflare runtime as local. Folding the two together would let either
- * value switch the database refusal off on a real deploy.
+ * A platform marker proves a real hosted invocation. The schema guard's
+ * serverless classifier uses the same marker precedence, while retaining its
+ * stricter production check for an unmarked Cloudflare runtime.
  */
 export function hasHostedInvocationMarker(
   env: NodeJS.ProcessEnv = process.env,

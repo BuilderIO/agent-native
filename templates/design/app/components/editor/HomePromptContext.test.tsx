@@ -1,5 +1,5 @@
-import type { AssistantChatComposerContext } from "@agent-native/toolkit/app/chat/chat";
 // @vitest-environment happy-dom
+import type { AssistantChatComposerContext } from "@agent-native/toolkit/app/chat/chat";
 import { snapshotComposerContextItems } from "@agent-native/toolkit/app/chat/composer/index";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -55,6 +55,7 @@ vi.mock("./design-start-pickers", () => ({
 }));
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  getBrowserTabId: () => "tab-1",
   useSession: () => ({ session: mocks.session }),
   callAction: (...args: unknown[]) => mocks.call(...args),
   useChangeVersions: () => mocks.refresh,

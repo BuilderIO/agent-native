@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import MultiTabSource from "./MultiTabAssistantChat.tsx?raw";
+import rawMultiTabSource from "./MultiTabAssistantChat.tsx?raw";
+
+const MultiTabSource = rawMultiTabSource.replace(/\r\n/g, "\n");
 
 describe("MultiTabAssistantChat message count", () => {
   it("forwards the host callback instead of only counting tabs", () => {

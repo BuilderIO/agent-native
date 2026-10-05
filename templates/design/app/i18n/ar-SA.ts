@@ -165,6 +165,12 @@ export default {
     openAgentSettings: "إدارة الوكيل",
     labTweaks: "تعديلات التصميم",
     labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
+    labFullAppBuilding: "إنشاء تطبيقات كاملة",
+    labFullAppBuildingDescription:
+      "جرّب إنشاء تطبيقات تعمل انطلاقًا من تصاميمك باستخدام Builder.",
+    labDesignReviewTools: "أدوات مراجعة التصميم",
+    labDesignReviewToolsDescription:
+      "افحص تصاميمك بحثًا عن مشكلات إمكانية الوصول وقارن التغييرات المرئية.",
     mcpAbout:
       "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
@@ -658,7 +664,7 @@ export default {
     makeItRealCard: {
       open: "فتح",
       choose: "اختيار",
-      connect: "ربط",
+      connect: "استخدم Builder.io",
       generating: "جارٍ الإنشاء",
       generate: "إنشاء",
       migrationFailed: "فشل الترحيل. يُرجى المحاولة مرة أخرى.",
@@ -1241,6 +1247,7 @@ export default {
       verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
       retryWithAgent: "إعادة التحقق من المصدر",
       copyPrompt: "نسخ الموجه إلى وكيلك",
+      copyAgentPrompt: "نسخ موجه الوكيل",
       copyFullPrompt: "نسخ الموجه الكامل",
       abortPreview: "إلغاء المعاينة والتفاعل",
       agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
@@ -1341,6 +1348,14 @@ export default {
         "التقاط PNG غير متاح في المعاينات المخصصة للقراءة فقط",
       pngSaveError: "تعذر حفظ PNG",
       pngExportError: "تعذر تصدير PNG",
+      exportTooLarge:
+        "حجم التصدير كبير جدًا. الحد الأقصى للطلب 5 MB؛ قلّل الأصول المضمّنة أو أبعاد الصورة ثم حاول مرة أخرى.",
+      exportResourcesUnavailable:
+        "تعذر عرض التصدير بدقة لأن صورة أو خطًا أو ورقة أنماط واحدة أو أكثر غير متاحة. تحقّق من هذه الموارد ثم حاول مرة أخرى.",
+      exportTimedOut: "انتهت مهلة التصدير. حاول مرة أخرى أو قلّل حجم التصميم.",
+      exportBusy: "يجري عرض تصدير آخر. انتظر قليلًا ثم حاول مرة أخرى.",
+      exportChromiumUnavailable:
+        "التصدير غير متاح لتعذر بدء أداة العرض. حاول مرة أخرى لاحقًا.",
       pdfExportError: "تعذر تصدير PDF",
       pdfDownloaded: "تم تنزيل PDF",
       pdfAllScreensDownloaded: "تم تنزيل PDF (كل الشاشات)",
@@ -1700,8 +1715,8 @@ export default {
     designPromptTitle: "لنصمم أول تصميم لك",
     recent: "الأخيرة",
     browseAllTemplates: "تصفح الكل",
-    connectBuilderIo: "ربط Builder.io",
-    connectingBuilder: "جارٍ ربط Builder.io…",
+    connectBuilderIo: "استخدم Builder.io",
+    connectingBuilder: "جارٍ إعداد Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "تصاميم البحث...",
     newDesign: "جديد Design",

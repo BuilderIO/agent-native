@@ -15,6 +15,15 @@ name: Beta E2E (browser)
 # the answer; a third advisory lane reports real-but-not-blocking findings so a
 # red run always means "do not promote".
 #
+# Shape of a run: `discover` and `gate` (typecheck and helper tests, once) start
+# together; the public shards, fleet, and advisory lanes start as soon as
+# `discover` is done, and the authenticated shards as soon as `gate` passes. The
+# lanes are independent, so they overlap, with the matrix `max-parallel` caps
+# below bounding how many runners hit the shared CDN and databases at once.
+# Every job has a `timeout-minutes` sized from observed runtimes and, inside it,
+# a Playwright `globalTimeout` that ends a hung run with a reported failure and
+# an uploadable results file rather than a cancelled job with neither.
+#
 # The workflow itself has no push or schedule trigger. The authenticated lane
 # spends model tokens against the credential selected by its caller, and most
 # beta apps share a database with production, so the explicit manual entrypoint
@@ -117,8 +126,12 @@ on:
         required: false
         default: ""
 
+# One group per kind of run. Runs that sign in share the e2e account and its
+# user-scoped OpenAI key, so they queue behind each other. The public lane (the
+# production pre-flight) and the signup canary use no shared credential and
+# must not wait behind a multi-minute scheduled run.
 concurrency:
-  group: beta-e2e
+  group: beta-e2e-${{ inputs.lane == 'signup' && 'signup' || inputs.lane == 'public' && 'public' || 'authed' }}
   cancel-in-progress: false
 
 permissions:
@@ -185,21 +198,44 @@ jobs:
           console.log(`Sharding ${apps.length} host(s): ${apps.join(", ")}`);
           NODE
 
+  # Typecheck and helper unit tests, once for the whole run. `e2e/` is not a
+  # workspace package, so the repo-wide typecheck never sees it; failing here
+  # stops the authenticated shards before any token is spent.
+  gate:
+    name: Typecheck and helper tests
+    if: ${{ inputs.lane != 'public' && inputs.lane != 'signup' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/beta-e2e-setup
+        with:
+          browser: "false"
+      - name: Typecheck the suite
+        run: pnpm typecheck:e2e
+      - name: Test beta E2E helper contracts
+        # Every pure-helper spec next to the helpers, so a new one is picked up
+        # without editing this list.
+        run: pnpm exec tsx --test e2e/beta/lib/*.spec.ts
+
   public:
     name: ${{ matrix.app }} public sweep
     needs: discover
     if: ${{ needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 4
+      # Eight, not the sixteen the 437s measurement used: the fleet sits behind
+      # one CDN that throttles bursty datacenter traffic.
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
       BETA_E2E_APPS: ${{ matrix.app }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: public-${{ matrix.app }}
+      BETA_E2E_GLOBAL_TIMEOUT_MINUTES: "7"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
@@ -222,15 +258,16 @@ jobs:
 
   fleet:
     name: Fleet-wide checks
-    needs: [discover, public]
+    needs: discover
     if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
       BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: fleet
+      BETA_E2E_GLOBAL_TIMEOUT_MINUTES: "7"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
@@ -245,35 +282,135 @@ jobs:
         if: ${{ always() }}
         with:
           name: beta-e2e-fleet-${{ github.run_id }}
-          path: e2e/beta/playwright-report/
+          path: |
+            e2e/beta/playwright-report/
+            e2e/beta/test-results/
           if-no-files-found: warn
           retention-days: 7
 
+  # One job per slot, independent of each other and of the unauthenticated
+  # lanes. `timeout` is the job limit; `global_timeout` is Playwright's own, a
+  # few minutes under it, so a hang is reported rather than killed. Slow slots
+  # come first so they start in the first wave of `max-parallel`.
+  #
+  # `chat` is split per app: each turn bills luna and each shard writes the
+  # user-scoped OpenAI key only on its own host, so a hang or failure on one
+  # app is isolated and named instead of taking the whole cluster with it. No
+  # two slots may install the key on the same host at once.
+  #
+  # The journeys are split by area into `journeys-*` projects so no slot has to
+  # fit ~75 serial tests in one limit. `shard` (`n/m`) splits one project across
+  # several slots with Playwright's own `--shard`; a project's shards must be
+  # 1/m..m/m exactly once. `e2e/beta/lib/suite-partition.spec.ts` (run by `gate`)
+  # lists every slot's tests and fails unless the slots cover each project's
+  # tests exactly once, so a spec cannot fall outside every slot.
   authed:
-    name: Authenticated ${{ matrix.cluster }}
-    needs: [discover, advisory]
-    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'public' && inputs.lane != 'signup' }}
+    name: Authenticated ${{ matrix.slot }}
+    needs: [discover, gate]
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && needs.gate.result == 'success' && inputs.lane != 'public' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 5
       matrix:
         include:
-          - cluster: registry
-            project: registry
-          - cluster: chat
+          # Slides carries the realtime test (>= 10 idle minutes, and it does not
+          # retry), so it gets the most room.
+          - slot: chat-slides
+            cluster: chat
             project: chat
-          - cluster: journeys
-            project: journeys
-          - cluster: design
+            app: slides
+            timeout: 30
+            global_timeout: 27
+          - slot: chat-analytics
+            cluster: chat
+            project: chat
+            app: analytics
+            timeout: 30
+            global_timeout: 25
+          - slot: chat-chat
+            cluster: chat
+            project: chat
+            app: chat
+            timeout: 30
+            global_timeout: 25
+          # 13 tests of 5 to 10 page loads each, split over two runners.
+          - slot: journeys-session-1
+            cluster: journeys
+            project: journeys-session
+            app: ""
+            shard: 1/2
+            timeout: 30
+            global_timeout: 25
+          - slot: journeys-session-2
+            cluster: journeys
+            project: journeys-session
+            app: ""
+            shard: 2/2
+            timeout: 30
+            global_timeout: 25
+          # [credentials] (12, one per app) and [settings-keys] (3).
+          - slot: journeys-credentials
+            cluster: journeys
+            project: journeys-credentials
+            app: ""
+            timeout: 30
+            global_timeout: 25
+          # [slides-import], [forms], [design-systems], [dispatch-apps].
+          - slot: journeys-flows
+            cluster: journeys
+            project: journeys-flows
+            app: ""
+            timeout: 30
+            global_timeout: 25
+          # The original journeys (38 tests, 4 to 11 minutes when healthy).
+          - slot: journeys-core
+            cluster: journeys
+            project: journeys-core
+            app: ""
+            timeout: 20
+            global_timeout: 15
+          - slot: chat-content
+            cluster: chat
+            project: chat
+            app: content
+            timeout: 20
+            global_timeout: 15
+          - slot: chat-dispatch
+            cluster: chat
+            project: chat
+            app: dispatch
+            timeout: 20
+            global_timeout: 15
+          - slot: design
+            cluster: design
             project: design
+            app: design
+            timeout: 15
+            global_timeout: 11
+          - slot: registry
+            cluster: registry
+            project: registry
+            app: ""
+            timeout: 10
+            global_timeout: 7
     env:
-      BETA_E2E_APPS: ${{ matrix.cluster == 'design' && 'design' || needs.discover.outputs.apps }}
+      # A shard with `app` runs only that app, and only when the run selected
+      # it; the unsharded slots run whenever something other than design alone
+      # was selected (design has its own slot).
+      SHARD_SELECTED: ${{ matrix.app == '' && needs.discover.outputs.apps != 'design' || matrix.app != '' && contains(format(',{0},', needs.discover.outputs.apps), format(',{0},', matrix.app)) }}
+      BETA_E2E_APPS: ${{ matrix.app || needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
+      # True when the caller narrowed the run (an app list or a title filter), so
+      # a slot with nothing to run is expected rather than a broken partition.
+      BETA_E2E_NARROWED: ${{ (inputs.apps != '' && inputs.apps != 'all') || inputs.grep != '' }}
+      BETA_E2E_PROJECT: ${{ matrix.project }}
+      BETA_E2E_SHARD: ${{ matrix.shard || '' }}
       BETA_E2E_AUTHED: "1"
       BETA_E2E_CLUSTER: ${{ matrix.cluster }}
-      BETA_E2E_REPORT_SLOT: authed-${{ matrix.cluster }}
+      BETA_E2E_REPORT_SLOT: authed-${{ matrix.slot }}
+      BETA_E2E_GLOBAL_TIMEOUT_MINUTES: ${{ matrix.global_timeout }}
       BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
       BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
       BETA_E2E_SESSION_TOKEN_CRM: ${{ secrets.BETA_E2E_SESSION_TOKEN_CRM }}
@@ -283,46 +420,56 @@ jobs:
       BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        if: ${{ matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design' }}
+        if: ${{ env.SHARD_SELECTED == 'true' }}
       - uses: ./.github/actions/beta-e2e-setup
-        if: ${{ matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design' }}
-      - name: Authenticated ${{ matrix.cluster }}
-        if: ${{ matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design' }}
+        if: ${{ env.SHARD_SELECTED == 'true' }}
+      - name: Authenticated ${{ matrix.slot }}
+        if: ${{ env.SHARD_SELECTED == 'true' }}
         # Global setup fails loudly if a credential is missing rather than
         # degrading to an anonymous run that would pass without testing
         # anything. The clusters are separate so a provider failure cannot
         # hide registry or journey regressions.
-        # A title filter can select only public/fleet tests, though. Ask
-        # Playwright for the authenticated selection first with auth disabled;
-        # --list does not run globalSetup, so an empty selection skips the
-        # credentialed setup without turning a requested auth run into a pass.
+        # A narrowed run (an app list or a title filter) can leave a slot with
+        # nothing to run, though. Ask Playwright for the authenticated selection
+        # first with auth disabled; --list does not run globalSetup, so an empty
+        # selection skips the credentialed setup without turning a requested
+        # auth run into a pass. Playwright reports an empty --shard as a
+        # successful zero-test listing and any other empty selection as an
+        # "Error: No tests found" failure; both are the same fact here. A
+        # full-fleet run with nothing to run is a broken partition, so it fails.
         run: |
-          if [ -n "$BETA_E2E_GREP" ]; then
-            selection_file="$(mktemp)"
-            trap 'rm -f "$selection_file"' EXIT
-            set +e
-            BETA_E2E_AUTHED=0 pnpm e2e:beta \
-              --project=${{ matrix.project }} \
-              --grep "$BETA_E2E_GREP" --list >"$selection_file" 2>&1
-            selection_status="$?"
-            set -e
-            cat "$selection_file"
-            if [ "$selection_status" -ne 0 ]; then
-              if grep -q "Error: No tests found" "$selection_file" && grep -q "Total: 0 tests in 0 files" "$selection_file"; then
-                echo "No authenticated tests match BETA_E2E_GREP; skipping authenticated setup."
-                exit 0
-              fi
-              echo "Authenticated test selection failed before execution." >&2
-              exit "$selection_status"
-            fi
-            pnpm e2e:beta --project=${{ matrix.project }} --grep "$BETA_E2E_GREP" --pass-with-no-tests
-          else
-            pnpm e2e:beta --project=${{ matrix.project }}
+          set -euo pipefail
+          select_args=("--project=$BETA_E2E_PROJECT")
+          if [ -n "$BETA_E2E_SHARD" ]; then
+            select_args+=("--shard=$BETA_E2E_SHARD")
           fi
+          if [ -n "$BETA_E2E_GREP" ]; then
+            select_args+=(--grep "$BETA_E2E_GREP")
+          fi
+          selection_file="$(mktemp)"
+          trap 'rm -f "$selection_file"' EXIT
+          set +e
+          BETA_E2E_AUTHED=0 pnpm e2e:beta "${select_args[@]}" --list >"$selection_file" 2>&1
+          selection_status="$?"
+          set -e
+          cat "$selection_file"
+          if grep -q "Total: 0 tests in 0 files" "$selection_file" && { [ "$selection_status" -eq 0 ] || grep -q "Error: No tests found" "$selection_file"; }; then
+            if [ "$BETA_E2E_NARROWED" = "true" ]; then
+              echo "No authenticated tests in this slot match the app or title selection; skipping authenticated setup."
+              exit 0
+            fi
+            echo "::error::Slot $BETA_E2E_REPORT_SLOT selected no tests for a full-fleet run. Its project or shard no longer matches any spec." >&2
+            exit 1
+          fi
+          if [ "$selection_status" -ne 0 ]; then
+            echo "Authenticated test selection failed before execution." >&2
+            exit "$selection_status"
+          fi
+          pnpm e2e:beta "${select_args[@]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ always() && (matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design') }}
+        if: ${{ always() && env.SHARD_SELECTED == 'true' }}
         with:
-          name: beta-e2e-authed-${{ matrix.cluster }}-${{ github.run_id }}
+          name: beta-e2e-authed-${{ matrix.slot }}-${{ github.run_id }}
           path: |
             e2e/beta/playwright-report/
             e2e/beta/test-results/
@@ -332,14 +479,15 @@ jobs:
   advisory:
     name: Advisory findings (non-gating)
     if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
-    needs: [discover, fleet]
+    needs: discover
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     env:
       BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: advisory
+      BETA_E2E_GLOBAL_TIMEOUT_MINUTES: "7"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
@@ -355,7 +503,9 @@ jobs:
         if: ${{ always() }}
         with:
           name: beta-e2e-advisory-${{ github.run_id }}
-          path: e2e/beta/playwright-report/
+          path: |
+            e2e/beta/playwright-report/
+            e2e/beta/test-results/
           if-no-files-found: warn
           retention-days: 7
 

@@ -188,6 +188,13 @@ const targets: PackageTarget[] = [
     tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/embedding.tsbuildinfo"],
   },
   {
+    id: "otel",
+    name: "@agent-native/otel",
+    dir: "packages/otel",
+    expectedOutputs: exportedDistOutputs("packages/otel"),
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/otel.tsbuildinfo"],
+  },
+  {
     id: "dispatch",
     name: "@agent-native/dispatch",
     dir: "packages/dispatch",
@@ -209,6 +216,7 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "scheduling",
     "dispatch",
     "pinpoint",
+    "otel",
   ],
   postinstall: [
     "agentkit",
@@ -223,6 +231,7 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "scheduling",
     "embedding",
     "dispatch",
+    "otel",
   ],
 };
 

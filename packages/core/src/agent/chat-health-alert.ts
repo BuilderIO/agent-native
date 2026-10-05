@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import { notifyWithDelivery } from "../notifications/registry.js";
+import { buildFailureContext } from "../observability/failure-context.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { deleteSettingIfValue, mutateSetting } from "../settings/store.js";
 
@@ -11,6 +12,7 @@ const MIN_TURNS = 5;
 const BAD_RATE_THRESHOLD = 0.5;
 const COOLDOWN_MS = 60 * 60_000;
 const CLAIM_LEASE_MS = 5 * 60_000;
+const SAMPLE_FAILED_RUNS = 3;
 
 const LAST_ALERT_SETTING_KEY = "chat-health-alert:last-slack-alert-at";
 
@@ -62,6 +64,39 @@ async function countRecentTurns(since: number): Promise<TurnCounts> {
     turns: Number(row?.turns ?? 0),
     bad: Number(row?.bad ?? 0),
   };
+}
+
+/**
+ * The latest failed turns as one line each, so whoever reads the alert can open
+ * a failing thread instead of asking for an example.
+ */
+async function sampleFailedRuns(since: number): Promise<string[]> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, thread_id, error_code, terminal_reason
+            FROM agent_runs
+           WHERE started_at >= ?
+             AND status = 'errored'
+             AND turn_id IS NOT NULL
+             AND id NOT LIKE 'job-%'
+           ORDER BY started_at DESC
+           LIMIT ${SAMPLE_FAILED_RUNS}`,
+    args: [since],
+  });
+  return rows.flatMap((raw) => {
+    const row = raw as Record<string, unknown>;
+    if (typeof row.id !== "string" || !row.id) return [];
+    const threadId =
+      typeof row.thread_id === "string" && row.thread_id
+        ? row.thread_id
+        : undefined;
+    const reason = [row.error_code, row.terminal_reason]
+      .filter((part): part is string => typeof part === "string" && !!part)
+      .join(" / ");
+    const where = threadId
+      ? (buildFailureContext({ threadId }).threadUrl ?? `thread ${threadId}`)
+      : "thread unknown";
+    return [`- ${where} (run ${row.id}${reason ? `, ${reason}` : ""})`];
+  });
 }
 
 async function countStaleA2ATasks(now: number): Promise<number> {
@@ -250,6 +285,20 @@ export async function checkChatHealthAndAlert(
       ? `${staleA2ATasks} delegated A2A task${staleA2ATasks === 1 ? " is" : "s are"} past the recovery window.`
       : "",
   ].filter(Boolean);
+  let samples = "";
+  if (badTurnRate) {
+    try {
+      const lines = await sampleFailedRuns(now - WINDOW_MS);
+      if (lines.length > 0) {
+        samples =
+          ` Latest failed turns:\n${lines.join("\n")}\n` +
+          `Inspect one with get-agent-thread-debug (pass its run id).`;
+      }
+    } catch (error) {
+      // The alert is worth sending without examples, and says so.
+      samples = ` Latest failed turns could not be read: ${String(error)}.`;
+    }
+  }
   let delivery: Awaited<ReturnType<typeof notifyWithDelivery>>;
   try {
     delivery = await runWithRequestContext(
@@ -261,7 +310,7 @@ export async function checkChatHealthAndAlert(
             title,
             body:
               `${details.join(" ")} Run \`node scripts/chat-health.mjs --hours 1\` for the ` +
-              `per-reason breakdown.`,
+              `per-reason breakdown.${samples}`,
             channels: ["slack"],
             metadata: {
               turns: counts.turns,
