@@ -134,14 +134,17 @@ jobs:
               return false;
             }
 
-            async function wasSupersededPendingRun(run) {
-              const jobs = await github.rest.actions.listJobsForWorkflowRun({
+            async function listRunJobs(runId) {
+              return github.paginate(github.rest.actions.listJobsForWorkflowRun, {
                 owner,
                 repo,
-                run_id: run.id,
-                per_page: 1,
+                run_id: runId,
+                per_page: 100,
               });
-              if (jobs.data.total_count > 0) return false;
+            }
+
+            async function wasSupersededPendingRun(run, jobs) {
+              if (jobs.length > 0) return false;
               const runCreatedAt = Date.parse(run.created_at || "");
               const runUpdatedAt = Date.parse(run.updated_at || "");
               if (
@@ -151,7 +154,7 @@ jobs:
               ) {
                 return false;
               }
-                return (await listAutoPublishRuns()).some(
+              return (await listAutoPublishRuns()).some(
                 (candidate) => {
                   const candidateCreatedAt = Date.parse(candidate.created_at || "");
                   return (
@@ -320,15 +323,55 @@ jobs:
               return parentSha;
             }
 
+            // A job cancelled before it ran a step (e.g. no runner acquired it)
+            // did nothing, so re-running it cannot repeat part of a release.
+            function neverStarted(job) {
+              return job.conclusion === "cancelled" && (job.steps?.length ?? 0) === 0;
+            }
+
+            // With gateJob, that job alone decides the stage: the rest of the
+            // run (downstream notification) is reported, never awaited.
+            function judgeRun(run, jobs, gateJob) {
+              if (gateJob) {
+                const gate = jobs.find((job) => job.name === gateJob);
+                if (gate?.conclusion === "success") {
+                  return {
+                    verdict: "success",
+                    others: jobs.filter(
+                      (job) =>
+                        job !== gate &&
+                        job.conclusion !== "success" &&
+                        job.conclusion !== "skipped",
+                    ),
+                  };
+                }
+                if (run.status !== "completed") return { verdict: "pending", others: [] };
+              } else {
+                if (run.status !== "completed") return { verdict: "pending", others: [] };
+                if (run.conclusion === "success") return { verdict: "success", others: [] };
+              }
+              const unsuccessful = jobs.filter(
+                (job) => !["success", "skipped", "neutral"].includes(job.conclusion),
+              );
+              return {
+                verdict:
+                  unsuccessful.length > 0 && unsuccessful.every(neverStarted)
+                    ? "rerun"
+                    : "failure",
+                others: unsuccessful,
+              };
+            }
+
             async function waitForRun(
               run,
               label,
               timeoutMs,
-              { retryIfSupersededPending = false } = {},
+              { retryIfSupersededPending = false, gateJob } = {},
             ) {
               const deadline = phaseDeadline(timeoutMs);
               let lastStatus = "";
               let lastLoggedAt = 0;
+              let rerunFromAttempt = 0;
               while (Date.now() < deadline) {
                 const current = await getRun(run.id);
                 const now = Date.now();
@@ -340,23 +383,48 @@ jobs:
                   lastStatus = current.status;
                   lastLoggedAt = now;
                 }
-                if (current.status === "completed") {
-                  if (current.conclusion !== "success") {
-                    if (
-                      retryIfSupersededPending &&
-                      current.conclusion === "cancelled" &&
-                      (await wasSupersededPendingRun(current))
-                    ) {
-                      core.warning(
-                        `${label} was superseded while pending; waiting for a free slot before retrying.`,
-                      );
-                      return null;
+                const jobs =
+                  gateJob || (current.status === "completed" && current.conclusion !== "success")
+                    ? await listRunJobs(run.id)
+                    : [];
+                const { verdict, others } =
+                  current.run_attempt <= rerunFromAttempt
+                    ? { verdict: "pending", others: [] }
+                    : judgeRun(current, jobs, gateJob);
+                if (verdict === "success") {
+                  for (const job of others) {
+                    if (job.status === "completed") {
+                      core.warning(`${label}: ${job.name} ended ${job.conclusion}; it does not gate this stage.`);
+                    } else {
+                      core.info(`${label}: not waiting for ${job.name} (${job.status}).`);
                     }
-                    throw new Error(
-                      `${label} ended ${current.conclusion || "without a conclusion"}: ${run.url}`,
-                    );
                   }
                   return current;
+                }
+                if (verdict === "rerun" && rerunFromAttempt === 0) {
+                  core.warning(
+                    `${label} ended ${current.conclusion} because ${others.map((job) => job.name).join(", ")} never started; re-running once.`,
+                  );
+                  rerunFromAttempt = current.run_attempt;
+                  await github.rest.actions.reRunWorkflowFailedJobs({
+                    owner,
+                    repo,
+                    run_id: run.id,
+                  });
+                } else if (verdict !== "pending") {
+                  if (
+                    retryIfSupersededPending &&
+                    current.conclusion === "cancelled" &&
+                    (await wasSupersededPendingRun(current, jobs))
+                  ) {
+                    core.warning(
+                      `${label} was superseded while pending; waiting for a free slot before retrying.`,
+                    );
+                    return null;
+                  }
+                  throw new Error(
+                    `${label} ended ${current.conclusion || "without a conclusion"}${rerunFromAttempt ? " after a re-run of never-started jobs" : ""}: ${run.url}`,
+                  );
                 }
                 const remaining = deadline - Date.now();
                 if (remaining <= 0) break;
@@ -420,8 +488,11 @@ jobs:
                   pull_number: pr.number,
                 })).data;
                 if (current.merged) {
-                  if (!current.merge_commit_sha) {
-                    throw new Error(`Stable release PR #${pr.number} merged without a commit SHA.`);
+                  // Production treats a blank source_ref as "latest main".
+                  if (!/^[0-9a-f]{40}$/.test(current.merge_commit_sha || "")) {
+                    throw new Error(
+                      `Stable release PR #${pr.number} merged without a full commit SHA: ${current.merge_commit_sha}`,
+                    );
                   }
                   core.info(`Stable release PR #${pr.number} merged at ${current.merge_commit_sha}.`);
                   return current.merge_commit_sha;
@@ -460,6 +531,7 @@ jobs:
                     },
                     "Stable npm publication",
                     remaining,
+                    { gateJob: "Prepare or publish stable npm packages" },
                   );
                   const tagSha = await getRemoteTagSha(packageTag);
                   if (!tagSha || (requireMergeTag && tagSha !== mergeSha)) {
@@ -544,95 +616,119 @@ jobs:
             // predates the coordinated source_ref input. Every build still checks
             // out the exact release commit below.
             const workflowRef = coreVersionChanged ? packageRef : "main";
-            await waitForStablePackagePublish(releaseSha, packageRef, coreVersionChanged);
+            let publicationError = null;
+            try {
+              await waitForStablePackagePublish(releaseSha, packageRef, coreVersionChanged);
+            } catch (error) {
+              publicationError = error instanceof Error ? error : new Error(String(error));
+              core.error(
+                `${publicationError.message}\nProduction sites still release from ${releaseSha}; desktop apps are skipped.`,
+              );
+            }
 
-            const desktopPackage = await readJsonAt(
-              releaseSha,
-              "packages/desktop-app/package.json",
-            );
-            const clipsPackage = await readJsonAt(
-              releaseSha,
-              "templates/clips/desktop/package.json",
-            );
             const sitesManifest = await readJsonAt(
               releaseSha,
               "scripts/netlify-production-sites.json",
             );
+            const productionSites = Object.entries(sitesManifest)
+              .filter(([, site]) =>
+                typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),
+              )
+              .map(([name]) => name);
+            if (productionSites.length === 0) {
+              throw new Error("The production site manifest contains no *.agent-native.com sites.");
+            }
+
             let desktopVersion;
             let clipsVersion;
-            let productionSites;
-            try {
-              // Private desktop packages do not advance in the npm release commit.
-              desktopVersion = await reserveStableVersion(
-                "v",
-                stableVersion(desktopPackage.version, "Desktop app"),
+            if (!publicationError) {
+              const desktopPackage = await readJsonAt(
                 releaseSha,
+                "packages/desktop-app/package.json",
               );
-              clipsVersion = await reserveStableVersion(
-                "clips-v",
-                stableVersion(clipsPackage.version, "Clips desktop app"),
+              const clipsPackage = await readJsonAt(
                 releaseSha,
+                "templates/clips/desktop/package.json",
               );
-              productionSites = Object.entries(sitesManifest)
-                .filter(([, site]) =>
-                  typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),
-                )
-                .map(([name]) => name);
-              if (productionSites.length === 0) {
-                throw new Error("The production site manifest contains no *.agent-native.com sites.");
+              try {
+                // Private desktop packages do not advance in the npm release commit.
+                desktopVersion = await reserveStableVersion(
+                  "v",
+                  stableVersion(desktopPackage.version, "Desktop app"),
+                  releaseSha,
+                );
+                clipsVersion = await reserveStableVersion(
+                  "clips-v",
+                  stableVersion(clipsPackage.version, "Clips desktop app"),
+                  releaseSha,
+                );
+              } catch (error) {
+                await cleanupReservedTags();
+                throw error;
               }
-            } catch (error) {
-              await cleanupReservedTags();
-              throw error;
+              core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
             }
-            core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
 
             // Downstream workflows own these reserved tags after dispatch.
-            const [desktop, clips, production] = await Promise.all([
-              dispatch("desktop-release.yml", workflowRef, {
-                channel: "production",
-                version: desktopVersion,
-                source_ref: releaseSha,
-              }),
-              dispatch("clips-desktop-release.yml", workflowRef, {
-                channel: "production",
-                version: clipsVersion,
-                source_ref: releaseSha,
-              }),
-              dispatch("deploy-production-sites-prebuilt.yml", workflowRef, {
+            // Sites build from the release commit, not from npm, so a failed
+            // publication skips only the desktop apps. The package tag may not
+            // exist then, so the fleet's workflow definition comes from main.
+            const [production, desktop, clips] = await Promise.all([
+              dispatch("deploy-production-sites-prebuilt.yml", publicationError ? "main" : workflowRef, {
                 sites: productionSites.join(","),
                 source_ref: releaseSha,
                 beta_e2e: "false",
                 smoke: "true",
               }),
+              publicationError
+                ? null
+                : dispatch("desktop-release.yml", workflowRef, {
+                    channel: "production",
+                    version: desktopVersion,
+                    source_ref: releaseSha,
+                  }),
+              publicationError
+                ? null
+                : dispatch("clips-desktop-release.yml", workflowRef, {
+                    channel: "production",
+                    version: clipsVersion,
+                    source_ref: releaseSha,
+                  }),
             ]);
 
-            const downstream = await Promise.allSettled([
-              waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
-              waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
-              waitForRun(production, "Production site fleet", 120 * 60_000),
-            ]);
-            const failures = downstream
-              .filter((result) => result.status === "rejected")
-              .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
-            if (failures.length > 0) {
-              throw new Error(`Release everything had downstream failures:\n${failures.join("\n")}`);
-            }
+            const stages = [
+              ["Production site fleet", production],
+              ["Agent-Native desktop stable release", desktop],
+              ["Clips desktop stable release", clips],
+            ];
+            const downstream = await Promise.allSettled(
+              stages.map(([label, run]) => run && waitForRun(run, label, 120 * 60_000)),
+            );
+            const failures = publicationError ? [publicationError.message] : [];
+            const outcomes = downstream.map((result, index) => {
+              if (!stages[index][1]) return "skipped: stable npm publication failed";
+              if (result.status === "fulfilled") return "released";
+              failures.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+              return "failed";
+            });
 
-            await core.summary
+            const summary = core.summary
               .addHeading("Release everything")
               .addTable([
                 ["Target", "Result"],
-                ["npm packages", `${releaseType} release published`],
-                ["Agent-Native desktop", `stable v${desktopVersion}`],
-                ["Clips desktop", `stable v${clipsVersion}`],
-                ["Production sites", `${productionSites.length} *.agent-native.com apps`],
+                ["npm packages", publicationError ? "failed" : `${releaseType} release published`],
+                ["Production sites", `${outcomes[0]}: ${productionSites.length} *.agent-native.com apps`],
+                ["Agent-Native desktop", desktop ? `${outcomes[1]}: stable v${desktopVersion}` : outcomes[1]],
+                ["Clips desktop", clips ? `${outcomes[2]}: stable v${clipsVersion}` : outcomes[2]],
                 ["Source commit", releaseSha],
               ])
-              .addLink("Package release PR", releasePr.html_url)
-              .addLink("Desktop release run", desktop.url)
-              .addLink("Clips release run", clips.url)
-              .addLink("Production fleet run", production.url)
-              .write();
+              .addLink("Package release PR", releasePr.html_url);
+            for (const [label, run] of stages) {
+              if (run) summary.addBreak().addLink(`${label} run`, run.url);
+            }
+            await summary.write();
 
+            if (failures.length > 0) {
+              throw new Error(`Release everything had failures:\n${failures.join("\n")}`);
+            }
             core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);

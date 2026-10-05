@@ -158,14 +158,12 @@ describe("release everything workflow", () => {
     );
     assert.match(source, /async function waitForAutoPublishIdle\(deadline\)/);
     assert.match(source, /if \(activeRuns\.length === 0\) return true/);
-    assert.match(source, /listJobsForWorkflowRun/);
-    assert.match(source, /listJobsForWorkflowRun\(\{/);
-    assert.match(source, /per_page: 1/);
-    assert.doesNotMatch(
+    assert.match(
       source,
       /github\.paginate\(github\.rest\.actions\.listJobsForWorkflowRun/,
     );
-    assert.match(source, /wasSupersededPendingRun/);
+    assert.match(source, /wasSupersededPendingRun\(current, jobs\)/);
+    assert.match(source, /if \(jobs\.length > 0\) return false/);
     assert.match(source, /retryIfSupersededPending/);
     assert.match(source, /candidate\.id !== run\.id/);
     assert.match(source, /candidate\.event === run\.event/);
@@ -186,6 +184,175 @@ describe("release everything workflow", () => {
     assert.match(
       source,
       /Stable package release preparation dispatch exceeded the coordinator timeout/,
+    );
+  });
+
+  it("judges stages by the jobs that ran, re-running never-started jobs once", () => {
+    const source = String((coordinator.with as Workflow).script);
+    const start = source.indexOf("function neverStarted");
+    const end = source.indexOf("async function waitForRun", start);
+    assert(start >= 0 && end > start);
+    type Job = {
+      name: string;
+      status: string;
+      conclusion: string | null;
+      steps: unknown[];
+    };
+    const judgeRun = new Function(
+      `${source.slice(start, end)}; return judgeRun;`,
+    )() as (
+      run: { status: string; conclusion: string | null },
+      jobs: Job[],
+      gateJob?: string,
+    ) => { verdict: string; others: Job[] };
+
+    const ran = [{ name: "Set up job" }];
+    const job = (
+      name: string,
+      conclusion: string | null,
+      started = conclusion !== "skipped",
+    ): Job => ({
+      name,
+      status: conclusion ? "completed" : "queued",
+      conclusion,
+      steps: started ? ran : [],
+    });
+    const gate = String(
+      ((autoPublishWorkflow.jobs as Workflow).release as Workflow).name,
+    );
+    assert.match(source, new RegExp(`gateJob: "${gate}"`));
+    const verdict = (
+      run: { status: string; conclusion: string | null },
+      jobs: Job[],
+      gateJob?: string,
+    ) => {
+      const result = judgeRun(run, jobs, gateJob);
+      return [result.verdict, result.others.map((other) => other.name)];
+    };
+
+    // Publication run 37361489204 (10/5): npm published, then the notify job
+    // was never acquired by a runner and GitHub failed the run.
+    const published = [
+      job("Verify stable release merge", "success"),
+      job("Publish nightly snapshot", "skipped"),
+      job(gate, "success"),
+    ];
+    assert.deepEqual(
+      verdict(
+        { status: "completed", conclusion: "failure" },
+        [...published, job("Notify downstream repos", "cancelled", false)],
+        gate,
+      ),
+      ["success", ["Notify downstream repos"]],
+    );
+    assert.deepEqual(
+      verdict(
+        { status: "in_progress", conclusion: null },
+        [...published, job("Notify downstream repos", null, false)],
+        gate,
+      ),
+      ["success", ["Notify downstream repos"]],
+    );
+    assert.deepEqual(
+      verdict(
+        { status: "in_progress", conclusion: null },
+        [job(gate, null)],
+        gate,
+      ),
+      ["pending", []],
+    );
+    // Publication run 36763352925 (9/30): the publish job itself failed.
+    assert.deepEqual(
+      verdict(
+        { status: "completed", conclusion: "failure" },
+        [job(gate, "failure"), job("Notify downstream repos", "success")],
+        gate,
+      ),
+      ["failure", [gate]],
+    );
+    assert.deepEqual(
+      verdict(
+        { status: "completed", conclusion: "cancelled" },
+        [
+          job(gate, "cancelled", false),
+          job("Notify downstream repos", "success"),
+        ],
+        gate,
+      ),
+      ["rerun", [gate]],
+    );
+
+    // Production fleet run 36627218071 (9/29): two site jobs were cancelled
+    // while queued after sixteen deployed.
+    const fleet = [
+      ...Array.from({ length: 16 }, (_, index) =>
+        job(`site ${index}`, "success"),
+      ),
+      job("Beta E2E pre-flight", "skipped"),
+      job("design production prebuilt deploy", "cancelled", false),
+      job("slides production prebuilt deploy", "cancelled", false),
+    ];
+    assert.deepEqual(
+      verdict({ status: "completed", conclusion: "cancelled" }, fleet),
+      [
+        "rerun",
+        [
+          "design production prebuilt deploy",
+          "slides production prebuilt deploy",
+        ],
+      ],
+    );
+    assert.deepEqual(
+      verdict({ status: "completed", conclusion: "cancelled" }, [
+        ...fleet,
+        job("docs production prebuilt deploy", "cancelled"),
+      ])[0],
+      "failure",
+    );
+    assert.deepEqual(
+      verdict({ status: "completed", conclusion: "failure" }, [])[0],
+      "failure",
+    );
+    assert.deepEqual(
+      verdict({ status: "completed", conclusion: "success" }, fleet),
+      ["success", []],
+    );
+    assert.deepEqual(verdict({ status: "queued", conclusion: null }, fleet), [
+      "pending",
+      [],
+    ]);
+
+    assert.match(source, /reRunWorkflowFailedJobs/);
+    assert.match(source, /verdict === "rerun" && rerunFromAttempt === 0/);
+    assert.match(source, /current\.run_attempt <= rerunFromAttempt/);
+  });
+
+  it("releases production sites even when npm publication fails", () => {
+    const source = String((coordinator.with as Workflow).script);
+    assert.match(
+      source,
+      /try \{\s*await waitForStablePackagePublish\(releaseSha, packageRef, coreVersionChanged\);\s*\} catch \(error\) \{\s*publicationError =/,
+    );
+    assert.match(
+      source,
+      /dispatch\("deploy-production-sites-prebuilt\.yml", publicationError \? "main" : workflowRef, \{\s*sites: productionSites\.join\(","\),\s*source_ref: releaseSha,/,
+    );
+    assert.match(
+      source,
+      /publicationError\s*\? null\s*: dispatch\("desktop-release\.yml"/,
+    );
+    assert.match(
+      source,
+      /publicationError\s*\? null\s*: dispatch\("clips-desktop-release\.yml"/,
+    );
+    assert.match(source, /\^\[0-9a-f\]\{40\}\$/);
+    assert.match(
+      source,
+      /const failures = publicationError \? \[publicationError\.message\] : \[\]/,
+    );
+    assert.match(
+      source,
+      /await summary\.write\(\);\s*if \(failures\.length > 0\) \{\s*throw/,
     );
   });
 
