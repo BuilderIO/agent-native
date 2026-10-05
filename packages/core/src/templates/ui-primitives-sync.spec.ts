@@ -104,12 +104,12 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
   [
     "design",
     "tabs.tsx",
-    "uses the shadcn line variant with an underline active state",
+    "uses the shadcn line variant with an underline active state for Design home filters and library tabs",
   ],
   [
     "slides",
     "tabs.tsx",
-    "uses the shadcn line variant with an underline active state",
+    "uses the shadcn line variant with an underline active state for Slides home filters and library tabs",
   ],
 ];
 
