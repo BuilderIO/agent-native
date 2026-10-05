@@ -3888,6 +3888,11 @@ export function AgentKitComposer({
         attachmentAdapter={attachmentAdapter}
         inlineTextAttachments={inlineTextAttachments}
         rootClassName="agentkit-composer"
+        className={
+          queueCapability.visible && thread.queuedMessages.length > 0
+            ? "agent-composer-area--attached-above"
+            : undefined
+        }
         draftScope={`agentkit:${threadId}${editingMessage ? `:edit:${editingMessage.id}` : ""}`}
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
