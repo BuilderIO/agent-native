@@ -52,6 +52,7 @@ describe("release everything workflow", () => {
     });
     assert.deepEqual(workflow.permissions, {
       actions: "write",
+      checks: "read",
       contents: "write",
       "pull-requests": "read",
     });
@@ -143,6 +144,9 @@ describe("release everything workflow", () => {
     const docsDispatch = (docsWorkflow.on as Workflow)
       .workflow_dispatch as Workflow;
     const docsInputs = docsDispatch.inputs as Workflow;
+    const docsJobs = docsWorkflow.jobs as Workflow;
+    const pauseDocsBuilds = docsJobs["pause-netlify-builds"] as Workflow;
+    const restoreDocsBuilds = docsJobs["restore-netlify-builds"] as Workflow;
 
     assert.match(source, /const docsSite = sitesManifest\.fw/);
     assert.match(source, /docsSite\?\.host !== "www\.agent-native\.com"/);
@@ -156,6 +160,14 @@ describe("release everything workflow", () => {
       /waitForRun\(docs, "Agent-Native docs production site", 120 \* 60_000\)/,
     );
     assert.match(source, /\["Docs site", docsSite\.host\]/);
+    assert.match(
+      String(pauseDocsBuilds.if),
+      /github\.event_name != 'push'.*contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+    );
+    assert.match(
+      String(restoreDocsBuilds.if),
+      /always\(\).*github\.event_name != 'push'.*contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+    );
     assert.deepEqual(docsInputs, {
       source_ref: {
         description: "Optional exact commit SHA; blank uses the selected ref",

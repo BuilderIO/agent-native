@@ -75,6 +75,7 @@ jobs:
 
   pause-netlify-builds:
     name: Pause docs site's Git-connected Netlify builds
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[stable-release]') }}
     concurrency:
       group: agent-native-production-site-fw
       cancel-in-progress: false
@@ -238,7 +239,7 @@ jobs:
   restore-netlify-builds:
     name: Restore docs site's Git-connected Netlify builds
     needs: [pause-netlify-builds, migrate, deploy]
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'push' || !contains(github.event.head_commit.message, '[stable-release]')) }}
     runs-on: ubuntu-latest
     concurrency:
       group: agent-native-production-site-fw
