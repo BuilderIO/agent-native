@@ -127,11 +127,14 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "拥有 Builder.io 账户即可免费使用",
   "onboarding.builderMonthlyCredits": "每月 60 个 Agent Credits",
+  "onboarding.builderIncludedFree": "免费包含",
+  "onboarding.builderMoreServices": "+ {{count}} 项其他服务",
+  "onboarding.builderIncludedServices": "包含的服务",
   "onboarding.builderActivateTitle": "激活免费额度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 账户",
   "onboarding.builderAccountExistsDescription": "登录以使用你的账户。",
   "onboarding.builderActivationDescription":
-    "我们会一键自动为您创建 Builder.io 账户。",
+    "一键创建或连接 Builder.io 账户，即可获得免费额度。",
   "onboarding.builderOrgActivationDescription":
     "我们会一键创建你的 Builder.io 账户，让你的组织可以使用它。",
   "onboarding.builderCreateAndActivate": "创建并激活",
@@ -151,6 +154,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "打开后台代理设置",
   "onboarding.capability.llm.keySummary": "连接您自己的 AI 模型",
   "onboarding.capability.fileStorage.keySummary": "文件上传和存储",
+  "onboarding.capability.llm.why": "智能体使用语言模型理解请求并生成答复。",
+  "onboarding.capability.fileStorage.why":
+    "保存上传的图片和文件，方便智能体在对话中再次使用。",
   "onboarding.fileStorage.title": "连接存储以上传文件",
   "onboarding.fileStorage.statusUnavailable": "无法检查存储",
   "onboarding.fileStorage.description":
@@ -167,6 +173,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
+  "onboarding.capability.systemOne.why":
+    "Jev 是一个可选的决策模型，可在代理首次请求模型前帮助选择相关工具和技能。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 积分或图像提供商密钥",

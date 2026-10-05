@@ -131,12 +131,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
   "onboarding.builderIncludedFreeWithAccount": "Builder.io 계정에 무료로 포함",
   "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
+  "onboarding.builderIncludedFree": "무료 포함",
+  "onboarding.builderMoreServices": "+ 서비스 {{count}}개 더",
+  "onboarding.builderIncludedServices": "포함된 서비스",
   "onboarding.builderActivateTitle": "무료 크레딧 활성화",
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
   "onboarding.builderAccountExistsDescription":
     "계정을 사용하려면 로그인하세요.",
   "onboarding.builderActivationDescription":
-    "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
+    "한 번의 클릭으로 Builder.io 계정을 만들거나 연결해 무료 크레딧을 받으세요.",
   "onboarding.builderOrgActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 만들어 조직에서 사용할 수 있도록 합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
@@ -158,6 +161,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
   "onboarding.capability.llm.keySummary": "자체 AI 모델 연결",
   "onboarding.capability.fileStorage.keySummary": "파일 업로드 및 저장소",
+  "onboarding.capability.llm.why":
+    "에이전트는 언어 모델을 사용해 요청을 이해하고 답변을 작성합니다.",
+  "onboarding.capability.fileStorage.why":
+    "업로드한 이미지와 파일을 저장해 에이전트가 대화에서 다시 사용할 수 있도록 합니다.",
   "onboarding.fileStorage.title": "파일 업로드를 위해 저장소 연결",
   "onboarding.fileStorage.statusUnavailable": "저장소를 확인할 수 없습니다",
   "onboarding.fileStorage.description":
@@ -174,6 +181,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
+  "onboarding.capability.systemOne.why":
+    "Jev는 에이전트의 첫 모델 요청 전에 관련 도구와 스킬을 선택하도록 돕는 선택형 의사결정 모델입니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 크레딧 또는 이미지 제공업체 키",

@@ -136,13 +136,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "Builder.io アカウントに無料で含まれます",
   "onboarding.builderMonthlyCredits": "月間 60 Agent Credits",
+  "onboarding.builderIncludedFree": "無料で利用可能",
+  "onboarding.builderMoreServices": "+ 他 {{count}} 件のサービス",
+  "onboarding.builderIncludedServices": "含まれるサービス",
   "onboarding.builderActivateTitle": "無料クレジットを有効化",
   "onboarding.builderAccountExistsTitle":
     "Builder.io アカウントをすでにお持ちです",
   "onboarding.builderAccountExistsDescription":
     "ログインしてアカウントを使用してください。",
   "onboarding.builderActivationDescription":
-    "ワンクリックで Builder.io アカウントを自動的に作成します。",
+    "ワンクリックで Builder.io アカウントを作成または接続して、無料クレジットを獲得します。",
   "onboarding.builderOrgActivationDescription":
     "ワンクリックで Builder.io アカウントを作成し、組織で使えるようにします。",
   "onboarding.builderCreateAndActivate": "作成して有効化",
@@ -166,6 +169,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "独自のAIモデルを接続",
   "onboarding.capability.fileStorage.keySummary":
     "ファイルのアップロードと保存",
+  "onboarding.capability.llm.why":
+    "エージェントは言語モデルを使ってリクエストを理解し、回答を作成します。",
+  "onboarding.capability.fileStorage.why":
+    "アップロードした画像やファイルを保存し、エージェントが会話内で再利用できるようにします。",
   "onboarding.fileStorage.title": "ファイルをアップロードするストレージを接続",
   "onboarding.fileStorage.statusUnavailable":
     "ストレージを確認できませんでした",
@@ -183,6 +190,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "埋め込み",
   "onboarding.capability.embeddings.why":
     "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
+  "onboarding.capability.systemOne.why":
+    "Jev は、エージェントが最初にモデルへリクエストする前に、関連するツールやスキルを選ぶための任意の判断モデルです。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builderクレジットまたは画像プロバイダーのキー",

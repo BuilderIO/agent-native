@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { useOnboarding } from "@agent-native/core/client/onboarding/use-onboarding";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
@@ -6,9 +7,12 @@ import {
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import { IconArrowRight } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 
+import {
+  BuilderIncludedBenefitsDisclosure,
+  getBuilderIncludedCapabilities,
+} from "../onboarding/BuilderIncludedServices.js";
 import type { BuilderConnectFlow } from "./useBuilderStatus.js";
 
 type BuilderConnectTrigger = React.ReactElement<{
@@ -21,11 +25,9 @@ export interface BuilderConnectPopoverProps {
   flow: Pick<BuilderConnectFlow, "connecting" | "start"> & {
     cancel?: BuilderConnectFlow["cancel"];
     agentNativeProvisioningEnabled?: boolean;
-    accountExists?: boolean;
     retry?: () => boolean | void;
     statusResolved?: boolean;
     statusReadSettledCount?: number;
-    canConnect?: BuilderConnectFlow["canConnect"];
     provisionAccount?: boolean;
   };
   children: BuilderConnectTrigger;
@@ -35,6 +37,7 @@ export interface BuilderConnectPopoverProps {
   contentTestId?: string;
   primaryTestId?: string;
   secondaryTestId?: string;
+  replayTriggerClick?: boolean;
 }
 
 export function BuilderConnectPopover({
@@ -46,33 +49,34 @@ export function BuilderConnectPopover({
   contentTestId,
   primaryTestId,
   secondaryTestId,
+  replayTriggerClick = false,
 }: BuilderConnectPopoverProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const triggerContainerRef = useRef<HTMLSpanElement>(null);
+  const replayedTriggerClickRef = useRef(false);
   const capabilityResolved = flow.statusResolved === true;
   const showPopover =
     (defaultProvisionAccount && !capabilityResolved) ||
     (capabilityResolved && flow.agentNativeProvisioningEnabled === true);
-  const accountExists = capabilityResolved && flow.accountExists;
-  const initiatedByThisTriggerRef = useRef(false);
   const [queuedClick, setQueuedClick] = useState<{ settledAt: number } | null>(
     null,
   );
   const settledCount = flow.statusReadSettledCount ?? 0;
 
   useEffect(() => {
-    if (accountExists && initiatedByThisTriggerRef.current) {
-      initiatedByThisTriggerRef.current = false;
-      setOpen(true);
-    }
-  }, [accountExists]);
+    if (!replayTriggerClick || replayedTriggerClickRef.current) return;
+    replayedTriggerClickRef.current = true;
+    triggerContainerRef.current
+      ?.querySelector<HTMLElement>("button, a, [role='button']")
+      ?.click();
+  }, [replayTriggerClick]);
 
   const start = (provisionAccount?: boolean) => {
     const shouldProvision =
       provisionAccount ??
       (flow.agentNativeProvisioningEnabled === true &&
         (defaultProvisionAccount || flow.provisionAccount === true));
-    initiatedByThisTriggerRef.current = true;
     setOpen(false);
     if (onConnect) {
       onConnect(shouldProvision);
@@ -137,109 +141,93 @@ export function BuilderConnectPopover({
     ) : null;
 
   if (!showPopover) {
+    const wrappedTrigger = (
+      <span ref={triggerContainerRef} className="contents">
+        {trigger}
+      </span>
+    );
     return cancelAction ? (
       <span className="inline-flex max-w-full items-center gap-2">
-        {trigger}
+        {wrappedTrigger}
         {cancelAction}
       </span>
     ) : (
-      trigger
+      wrappedTrigger
     );
   }
 
   const popover = (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <span ref={triggerContainerRef} className="contents">
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      </span>
       <PopoverContent
-        align="end"
-        side="bottom"
-        sideOffset={-40}
+        align="center"
+        side="right"
+        sideOffset={8}
         aria-labelledby="builder-connect-popover-title"
         data-testid={contentTestId}
-        className="z-[330] w-80 max-w-[calc(100vw-2rem)] p-3 text-left"
+        className="z-[330] max-h-[min(640px,calc(100dvh-2rem),var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto p-3 text-left"
       >
         <div className="space-y-2.5">
           <h2
             id="builder-connect-popover-title"
             className="text-sm font-semibold text-foreground"
           >
-            {accountExists
-              ? t("agentChat.onboarding.builderAccountExistsTitle")
-              : t("agentChat.onboarding.builderActivateTitle")}
+            {t("agentChat.onboarding.builderActivateTitle")}
           </h2>
           <p className="text-xs leading-5 text-muted-foreground">
-            {accountExists
-              ? t("agentChat.onboarding.builderAccountExistsDescription")
-              : flow.canConnect?.org
-                ? t("agentChat.onboarding.builderOrgActivationDescription")
-                : t("agentChat.onboarding.builderActivationDescription")}
+            {t("agentChat.onboarding.builderActivationDescription", {
+              defaultValue:
+                "Create or connect a Builder.io account in one click to get free credits.",
+            })}
           </p>
-          <div className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
-            <p className="text-[13px] font-semibold text-foreground">
-              {t("agentChat.onboarding.builderIncludedFreeWithAccount", {
-                defaultValue: "Included free with a Builder.io account",
-              })}
-            </p>
-            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-              {t("agentChat.onboarding.builderMonthlyCredits", {
-                defaultValue: "60 monthly Agent Credits",
-              })}
-            </p>
-          </div>
+          <BuilderConnectIncludedServices />
           <div className="flex flex-col gap-2">
             <Button
               type="button"
               data-testid={primaryTestId}
               className="w-full"
-              onClick={() => start(accountExists ? false : true)}
+              onClick={() => start(true)}
               disabled={flow.connecting}
             >
               {flow.connecting ? <Spinner aria-hidden /> : null}
-              {accountExists
-                ? t("agentChat.auth.logIn")
-                : flow.connecting
-                  ? t("agentChat.onboarding.builderActivating")
-                  : t("agentChat.onboarding.builderCreateAndActivate")}
-              {!accountExists && !flow.connecting ? (
-                <IconArrowRight aria-hidden />
-              ) : null}
+              {flow.connecting
+                ? t("agentChat.onboarding.builderActivating")
+                : t("agentChat.onboarding.builderCreateAndActivate")}
             </Button>
-            {!accountExists && (
-              <Button
-                type="button"
-                variant="secondary"
-                data-testid={secondaryTestId}
-                className="w-full"
-                onClick={() => start(false)}
-                disabled={flow.connecting}
-              >
-                {t("agentChat.onboarding.builderExistingAccount")}
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="secondary"
+              data-testid={secondaryTestId}
+              className="w-full"
+              onClick={() => start(false)}
+              disabled={flow.connecting}
+            >
+              {t("agentChat.onboarding.builderExistingAccount")}
+            </Button>
           </div>
-          {!accountExists && (
-            <p className="text-[11px] leading-4 text-muted-foreground">
-              {t("agentChat.onboarding.builderConsentPrefix")}{" "}
-              <a
-                href="https://www.builder.io/legal/terms"
-                target="_blank"
-                rel="noreferrer"
-                className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {t("agentChat.onboarding.builderTerms")}
-              </a>{" "}
-              {t("agentChat.onboarding.builderConsentAnd")}{" "}
-              <a
-                href="https://www.builder.io/legal/privacy"
-                target="_blank"
-                rel="noreferrer"
-                className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {t("agentChat.onboarding.builderPrivacy")}
-              </a>
-              .
-            </p>
-          )}
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            {t("agentChat.onboarding.builderConsentPrefix")}{" "}
+            <a
+              href="https://www.builder.io/legal/terms"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {t("agentChat.onboarding.builderTerms")}
+            </a>{" "}
+            {t("agentChat.onboarding.builderConsentAnd")}{" "}
+            <a
+              href="https://www.builder.io/legal/privacy"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {t("agentChat.onboarding.builderPrivacy")}
+            </a>
+            .
+          </p>
         </div>
       </PopoverContent>
     </Popover>
@@ -252,5 +240,33 @@ export function BuilderConnectPopover({
     </span>
   ) : (
     popover
+  );
+}
+
+function BuilderConnectIncludedServices() {
+  const t = useT();
+  const { profile, loading, error } = useOnboarding();
+  const capabilities = profile
+    ? getBuilderIncludedCapabilities(profile.capabilities)
+    : [];
+
+  return (
+    <BuilderIncludedBenefitsDisclosure
+      capabilities={capabilities}
+      includedLabel={t("agentChat.onboarding.builderIncludedFree", {
+        defaultValue: "Included free",
+      })}
+      creditsLabel={t("agentChat.onboarding.builderMonthlyCredits", {
+        defaultValue: "60 monthly Agent Credits",
+      })}
+      loading={loading}
+      loadingLabel={t("agentChat.common.loading")}
+      error={
+        error || (!loading && !profile)
+          ? t("agentChat.common.chunkLoadFailed")
+          : null
+      }
+      testId="builder-included-services"
+    />
   );
 }

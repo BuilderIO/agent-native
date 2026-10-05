@@ -28,20 +28,8 @@ import type {
 } from "@agent-native/core/onboarding/types";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import { cn } from "@agent-native/toolkit/utils";
-import {
-  IconArrowRight,
-  IconCheck,
-  IconInfoCircle,
-  IconKey,
-  IconLoader2,
-  IconX,
-} from "@tabler/icons-react";
+import { IconArrowRight, IconKey, IconLoader2 } from "@tabler/icons-react";
 import React, {
   useCallback,
   useEffect,
@@ -52,6 +40,11 @@ import React, {
 import { useLocation } from "react-router";
 
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import {
+  BuilderIncludedServices,
+  CapabilityInfoButton,
+  getBuilderIncludedCapabilities,
+} from "./BuilderIncludedServices.js";
 import {
   ONBOARDING_PRIMARY_BUTTON_CLASS,
   OnboardingStepLayout,
@@ -523,10 +516,8 @@ export function FirstRunOnboarding({
 
   // Every shared service Builder.io powers, the same list Infrastructure
   // shows, plus the app's own headline capabilities it covers.
-  const builderCapabilities = profile.capabilities.filter(
-    (capability) =>
-      capability.builderIncluded &&
-      (!!capability.service || isHeadlineCapability(capability)),
+  const builderCapabilities = getBuilderIncludedCapabilities(
+    profile.capabilities,
   );
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
     if (previewMode) {
@@ -733,40 +724,10 @@ export function FirstRunOnboarding({
                     {t("agentChat.onboarding.builderMonthlyCredits")}
                   </p>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm text-muted-foreground/70">
-                    What&rsquo;s included
-                  </p>
-                  {builderCapabilities.map((capability) => {
-                    const copy = getCapabilityCopy(t, capability);
-                    return (
-                      <div
-                        key={capability.id}
-                        className="flex items-center gap-2 rounded-md px-2 py-1"
-                      >
-                        <IconCheck
-                          className="shrink-0 text-muted-foreground"
-                          size={15}
-                        />
-                        <span className="flex-1 text-xs text-foreground">
-                          {copy.label}
-                        </span>
-                        {capability.builderOnly && (
-                          <CapabilityInfoButton
-                            why={copy.why}
-                            ariaLabel={t(
-                              "agentChat.onboarding.capability.about",
-                              {
-                                defaultValue: "About {{label}}",
-                                label: copy.label,
-                              },
-                            )}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                <BuilderIncludedServices
+                  capabilities={builderCapabilities}
+                  testId="first-run-builder-services"
+                />
                 <div className="flex flex-col gap-2">
                   {canActivateBuilderFreeCredits && (
                     <button
@@ -1148,7 +1109,7 @@ type CapabilityTranslator = (
 
 type CapabilityCopy = Pick<
   OnboardingCapability,
-  "id" | "required" | "suggested" | "builderOnly"
+  "id" | "required" | "suggested"
 > & {
   label: string;
   keySummary: string;
@@ -1163,7 +1124,6 @@ function getCapabilityCopy(
     id: capability.id,
     required: capability.required,
     suggested: capability.suggested,
-    builderOnly: capability.builderOnly,
     label: capability.labelKey
       ? t(capability.labelKey, { defaultValue: capability.label })
       : capability.label,
@@ -1187,16 +1147,15 @@ function CapabilityList({
   const visibleCapabilities = useMemo(() => {
     const headline = capabilities.filter(
       (capability) =>
-        !capability.satisfiedBySignIn && isHeadlineCapability(capability),
+        !capability.satisfiedBySignIn &&
+        !capability.builderOnly &&
+        (capability.required || capability.suggested),
     );
     const required = headline.filter((capability) => capability.required);
     const suggested = headline.filter(
       (capability) => !capability.required && capability.suggested,
     );
-    const noManualPath = headline.filter(
-      (capability) => !capability.required && !capability.suggested,
-    );
-    return [...required, ...suggested, ...noManualPath];
+    return [...required, ...suggested];
   }, [capabilities]);
 
   return (
@@ -1216,24 +1175,7 @@ function CapabilityList({
   );
 }
 
-function isHeadlineCapability(capability: OnboardingCapability): boolean {
-  return (
-    capability.required || !!capability.suggested || !!capability.builderOnly
-  );
-}
-
 function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
-  // Builder-only services have no bring-your-own path, so the manual list
-  // shows them crossed out with no Required/Recommended tag instead of
-  // mislabeling them "Optional".
-  if (copy.builderOnly) {
-    return (
-      <div className="flex items-center gap-2 rounded-md px-2 py-1">
-        <IconX className="shrink-0 text-muted-foreground" size={14} />
-        <span className="flex-1 text-xs text-foreground">{copy.label}</span>
-      </div>
-    );
-  }
   return (
     <div className="flex items-center gap-2 rounded-md px-2 py-1">
       <IconKey className="shrink-0 text-muted-foreground" size={14} />
@@ -1243,37 +1185,11 @@ function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
       >
         {copy.keySummary}
       </span>
+      <CapabilityInfoButton label={copy.label} why={copy.why} />
       <span className="shrink-0 text-xs text-muted-foreground">
         {copy.required ? "Required" : "Recommended"}
       </span>
     </div>
-  );
-}
-
-function CapabilityInfoButton({
-  why,
-  ariaLabel,
-}: {
-  why: string;
-  ariaLabel: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={ariaLabel}
-          className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <IconInfoCircle size={13} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-xs text-xs">
-        {why}
-      </TooltipContent>
-    </Tooltip>
   );
 }
 

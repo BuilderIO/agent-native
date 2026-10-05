@@ -1,4 +1,4 @@
-import { cloneElement, lazy, Suspense } from "react";
+import { cloneElement, lazy, Suspense, useState } from "react";
 
 import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
 import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
@@ -15,15 +15,24 @@ export { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
 export function DeferredBuilderConnectPopover(
   props: BuilderConnectPopoverProps,
 ) {
+  const [replayTriggerClick, setReplayTriggerClick] = useState(false);
+
   return (
     <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
       <Suspense
         fallback={cloneElement(props.children, {
-          disabled: true,
           "aria-busy": true,
+          onClick: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setReplayTriggerClick(true);
+          },
         })}
       >
-        <LazyBuilderConnectPopover {...props} />
+        <LazyBuilderConnectPopover
+          {...props}
+          replayTriggerClick={replayTriggerClick}
+        />
       </Suspense>
     </LazyChunkErrorBoundary>
   );

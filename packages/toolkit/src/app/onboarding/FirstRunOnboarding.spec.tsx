@@ -844,7 +844,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("lists the included Builder.io services from the app profile", () => {
+  it("shows included Builder.io services with descriptions in tooltips", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -862,9 +862,11 @@ describe("FirstRunOnboarding", () => {
     const builderCard = document.body
       .querySelector("[data-testid='first-run-builder-create-account']")
       ?.closest("section");
-    const included = [...(builderCard?.querySelectorAll("span") ?? [])].map(
-      (node) => node.textContent?.trim(),
+    const services = builderCard?.querySelector<HTMLElement>(
+      "[data-testid='first-run-builder-services']",
     );
+    expect(services?.querySelector("details, summary")).toBeNull();
+    const included = services?.textContent ?? "";
     // Every shared service, whether or not the app recommends it, plus the
     // app's own headline capability Builder.io covers.
     for (const service of [
@@ -878,6 +880,17 @@ describe("FirstRunOnboarding", () => {
     ]) {
       expect(included).toContain(service);
     }
+    expect(included).not.toContain("Needed for chat");
+    expect(included).not.toContain("Turns speech into text");
+    expect(
+      services?.querySelectorAll("button[aria-label^='About']").length,
+    ).toBeGreaterThan(0);
+    const manualCard = document.body
+      .querySelector("[data-testid='first-run-open-key-settings']")
+      ?.closest("section");
+    expect(manualCard?.textContent).not.toContain("Design system intelligence");
+    expect(manualCard?.textContent).not.toContain("Background agents");
+    expect(manualCard?.querySelector("svg.tabler-icon-x")).toBeNull();
     // Not Builder.io capabilities, and no per-app extras.
     for (const missing of [
       "Connected agents",
@@ -886,11 +899,6 @@ describe("FirstRunOnboarding", () => {
     ]) {
       expect(document.body.textContent).not.toContain(missing);
     }
-    expect(
-      [...document.body.querySelectorAll("button")].find((button) =>
-        button.textContent?.trim().endsWith("more"),
-      ),
-    ).toBeUndefined();
   });
 
   it("does not ask Mail users to connect Gmail again in manual setup", () => {
