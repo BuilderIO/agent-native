@@ -1285,8 +1285,8 @@
         {
           "id": "COLOR-03",
           "status": "proposed",
-          "change": "Mode is one property, not tabs: Hex, RGB, HSL, HSB (sRGB) and Display P3, OKLCH (wide gamut). The controls follow it. sRGB modes and Display P3 show saturation × brightness over that space's primaries; OKLCH shows chroma (0 to 0.37) × lightness at the hue as one continuous plane: past the P3 edge it fades to the nearest color P3 can show at that lightness, with a thin line on the edge. Wide modes draw a dashed line where sRGB ends. The hue strip is the mode's own hue; in OKLCH it runs at the current lightness and chroma and fades the hues that can't hold them. Dragging hue keeps the chroma you chose: a hue that can't hold it clamps it, and the next hue that can gets it back.",
-          "prototype": "Open a Fill and switch Mode to Display P3, then OKLCH."
+          "change": "Mode is one property, not tabs: Hex, RGB, HSL, HSB (sRGB) and Display P3, OKLCH (wide gamut), and it sets the geometry. The field box is 252 × 240 in every mode, so switching never resizes the popover. sRGB modes and Display P3 use a 228px saturation × brightness square over that space's primaries, with the hue strip below; Display P3 draws a dashed line where sRGB ends. OKLCH uses a 228px hue ring, since hue is OKLCH's stable axis: inside it sits the hue's real lightness × chroma slice, lightness top to bottom and chroma scaled so the slice's tip (the most chroma the hue reaches in P3) meets the right edge. The slice shows its gaps: rows end where P3 does, with a dashed line where sRGB does. The ring runs at the current lightness and chroma and fades the hues that can't hold them, and the strip below becomes absolute chroma (0 to 0.37) at the current lightness and hue, faded past P3. Turning the ring keeps the chroma you chose: a hue that can't hold it clamps it, and the next hue that can gets it back.",
+          "prototype": "Open a Fill and switch Mode to Display P3, then OKLCH, and drag the ring."
         },
         {
           "id": "COLOR-04",
@@ -1299,6 +1299,11 @@
           "status": "proposed",
           "change": "The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. The Tokens panel's picker has no tabs.",
           "prototype": "Open a Fill and choose Libraries › Link: the fill reads Link."
+        },
+        {
+          "id": "COLOR-06",
+          "status": "question",
+          "change": "Add OKLCH's two palette aids from Hugo Daniel's picker? Lock chroma keeps chroma fixed while you change lightness and hue, and drops the hues that can't hold it from the ring. A mark on lightness shows where this hue reaches its most chroma, and clicking it jumps there."
         }
       ]
     }
