@@ -207,6 +207,53 @@ function buildUnauthorizedBody(
 }
 
 const loggedDirectoryProfileFailures = new Set<string>();
+const directoryLogMethods = new Set([
+  "initialize",
+  "notifications/initialized",
+  "server/discover",
+  "tools/list",
+  "tools/call",
+  "resources/list",
+  "resources/templates/list",
+  "resources/read",
+  "prompts/list",
+  "prompts/get",
+  "ping",
+]);
+
+function directoryLogMethod(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  if (Array.isArray(body)) return "batch";
+  const method = (body as { method?: unknown }).method;
+  if (typeof method !== "string") return "other";
+  return directoryLogMethods.has(method) ? method : "other";
+}
+
+function responseStatusFromEvent(event: H3Event): number {
+  const status =
+    event.res?.status ??
+    (event as any).node?.res?.statusCode ??
+    (event as any)._status;
+  return typeof status === "number" && Number.isInteger(status) && status > 0
+    ? status
+    : 200;
+}
+
+function responseStatusFromError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const status = error as { status?: unknown; statusCode?: unknown };
+  for (const candidate of [status.status, status.statusCode]) {
+    if (
+      typeof candidate === "number" &&
+      Number.isInteger(candidate) &&
+      candidate >= 100 &&
+      candidate <= 599
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
 
 function directoryProfileUnavailable(
   event: H3Event,
@@ -251,10 +298,11 @@ function directoryProfileUnavailable(
  *     h3 mount falls through to the next handler.
  *   - a Web `Response` or an auth-error object otherwise.
  */
-export async function handleMcpRequest(
+async function handleMcpRequestInternal(
   event: H3Event,
   config: MCPConfig,
   routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  onMcpMethod?: (method: string) => void,
 ): Promise<
   Response | string | { error: string } | Record<string, unknown> | undefined
 > {
@@ -321,6 +369,7 @@ export async function handleMcpRequest(
   }
 
   const body = method === "POST" ? await readBody(event) : undefined;
+  onMcpMethod?.(directoryLogMethod(body) ?? method);
 
   const initializeRequest = body
     ? (Array.isArray(body) ? body : [body]).find(
@@ -412,6 +461,49 @@ export async function handleMcpRequest(
     webRequest,
     method === "POST" ? { parsedBody: body } : undefined,
   );
+}
+
+export async function handleMcpRequest(
+  event: H3Event,
+  config: MCPConfig,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): Promise<
+  Response | string | { error: string } | Record<string, unknown> | undefined
+> {
+  const pathname = event.url?.pathname || "/";
+  const subpath = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+  const isDirectoryRequest =
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX && !subpath;
+  const startedAt = performance.now();
+  let method = getMethod(event);
+  let status = 500;
+
+  try {
+    const result = await handleMcpRequestInternal(
+      event,
+      config,
+      routePath,
+      (requestMethod) => {
+        method = requestMethod;
+      },
+    );
+    status =
+      result instanceof Response
+        ? result.status
+        : responseStatusFromEvent(event);
+    return result;
+  } catch (error) {
+    status = responseStatusFromError(error) ?? 500;
+    throw error;
+  } finally {
+    if (isDirectoryRequest) {
+      console.info("[mcp:directory] request", {
+        method,
+        status,
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      });
+    }
+  }
 }
 
 export function mountMCP(

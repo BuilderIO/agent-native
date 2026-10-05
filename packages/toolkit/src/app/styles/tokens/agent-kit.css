@@ -43,13 +43,17 @@
   --agent-kit-composer-block-padding-end: 1rem;
   --agent-kit-composer-min-height: 4.75rem;
   --agent-kit-composer-radius: 1.25rem;
-  --agent-kit-composer-border-opacity: 0.82;
-  --agent-kit-composer-focus-border-opacity: 1;
-  --agent-kit-composer-border-color: hsl(
-    var(--border) / var(--agent-kit-composer-border-opacity)
+  --agent-kit-composer-border-mix: 82%;
+  --agent-kit-composer-focus-border-mix: 100%;
+  --agent-kit-composer-border-color: color-mix(
+    in srgb,
+    hsl(var(--border)) var(--agent-kit-composer-border-mix),
+    transparent
   );
-  --agent-kit-composer-focus-border-color: hsl(
-    var(--border) / var(--agent-kit-composer-focus-border-opacity)
+  --agent-kit-composer-focus-border-color: color-mix(
+    in srgb,
+    hsl(var(--border)) var(--agent-kit-composer-focus-border-mix),
+    transparent
   );
   --agent-kit-composer-editor-padding-inline: 1rem;
   --agent-kit-composer-editor-padding-block-start: 0.875rem;
@@ -96,11 +100,19 @@
   }
 }
 
-.dark {
-  --agent-kit-composer-border-opacity: 0;
-  --agent-kit-composer-focus-border-opacity: 0;
-  --agent-kit-composer-border-color: transparent;
-  --agent-kit-composer-focus-border-color: transparent;
+:is(.dark, :root[data-theme="dark"]) {
+  --agent-kit-composer-border-mix: 40%;
+  --agent-kit-composer-focus-border-mix: 65%;
+  --agent-kit-composer-border-color: color-mix(
+    in srgb,
+    hsl(var(--border)) var(--agent-kit-composer-border-mix),
+    transparent
+  );
+  --agent-kit-composer-focus-border-color: color-mix(
+    in srgb,
+    hsl(var(--border)) var(--agent-kit-composer-focus-border-mix),
+    transparent
+  );
   --agent-kit-shadow-color: var(--background);
   --agent-kit-control-elevation: 0 0.0625rem 0.125rem
     hsl(var(--agent-kit-shadow-color) / 0.18);
