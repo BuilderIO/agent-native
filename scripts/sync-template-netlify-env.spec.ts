@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   hostedTelemetryIdentityEnv,
   hostedTraceSamplerEnv,
+  staleTraceSamplerDefaults,
   isAllowedHostedTemplateEnvKey,
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
@@ -199,6 +200,27 @@ describe("hostedTraceSamplerEnv", () => {
   it("leaves beta and other contexts on the SDK default", () => {
     expect(hostedTraceSamplerEnv("branch:beta")).toEqual([]);
     expect(hostedTraceSamplerEnv("deploy-preview")).toEqual([]);
+  });
+});
+
+describe("staleTraceSamplerDefaults", () => {
+  it("retires the generated ratio once a production sampler is configured without one", () => {
+    expect(
+      staleTraceSamplerDefaults("production", { sampler: "traceidratio" }),
+    ).toEqual([["OTEL_TRACES_SAMPLER_ARG", "0.01"]]);
+  });
+
+  it("leaves the ratio alone when the source sets it or the default still applies", () => {
+    expect(
+      staleTraceSamplerDefaults("production", {
+        sampler: "traceidratio",
+        samplerArg: "0.5",
+      }),
+    ).toEqual([]);
+    expect(staleTraceSamplerDefaults("production", {})).toEqual([]);
+    expect(
+      staleTraceSamplerDefaults("branch:beta", { sampler: "always_on" }),
+    ).toEqual([]);
   });
 });
 

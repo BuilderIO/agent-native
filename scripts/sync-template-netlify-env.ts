@@ -30,6 +30,7 @@ type ApiResult = {
 
 type TemplateEnvPlan = {
   entries: Array<readonly [string, string]>;
+  staleGeneratedEntries: Array<readonly [string, string]>;
   forbiddenKeys: string[];
   foundSources: string[];
   normalizedKeys: string[];
@@ -217,6 +218,7 @@ const PUBLIC_KEY_EXACT = new Set([
 ]);
 const PUBLIC_KEY_PREFIXES = HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES;
 const PRODUCTION_URL_KEYS = new Set(["APP_URL", "BETTER_AUTH_URL"]);
+const PRODUCTION_TRACE_SAMPLER_RATIO = "0.01";
 const TELEMETRY_SERVICE_NAMESPACE = "agent-native";
 const TEMPLATE_PROD_URL_BY_NAME = new Map([
   ...TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
@@ -499,6 +501,7 @@ function buildTemplateEnvPlan(
   const normalizedKeys: string[] = [];
   const skippedKeys: string[] = [];
   const entries: Array<readonly [string, string]> = [];
+  const staleGeneratedEntries: Array<readonly [string, string]> = [];
 
   for (const [key, value] of values) {
     if (value === "") continue;
@@ -528,10 +531,14 @@ function buildTemplateEnvPlan(
       context,
       values.get("OTEL_RESOURCE_ATTRIBUTES"),
     );
-    const sampler = hostedTraceSamplerEnv(context, {
+    const configuredSampler = {
       sampler: values.get("OTEL_TRACES_SAMPLER"),
       samplerArg: values.get("OTEL_TRACES_SAMPLER_ARG"),
-    });
+    };
+    const sampler = hostedTraceSamplerEnv(context, configuredSampler);
+    staleGeneratedEntries.push(
+      ...staleTraceSamplerDefaults(context, configuredSampler),
+    );
     for (const [key, value] of [...identity, ...sampler]) {
       const index = entries.findIndex(([entryKey]) => entryKey === key);
       if (index >= 0) entries.splice(index, 1);
@@ -542,6 +549,7 @@ function buildTemplateEnvPlan(
 
   return {
     entries,
+    staleGeneratedEntries,
     forbiddenKeys,
     foundSources,
     normalizedKeys,
@@ -630,8 +638,24 @@ export function hostedTraceSamplerEnv(
     ["OTEL_TRACES_SAMPLER", "parentbased_traceidratio"],
     ...(configured.samplerArg
       ? []
-      : ([["OTEL_TRACES_SAMPLER_ARG", "0.01"]] as const)),
+      : ([
+          ["OTEL_TRACES_SAMPLER_ARG", PRODUCTION_TRACE_SAMPLER_RATIO],
+        ] as const)),
   ];
+}
+
+/**
+ * Defaults an earlier sync may have written that the configured sampler now
+ * owns. Syncs only upsert, so without removal a stale 1% ratio would keep
+ * overriding an explicit sampler's own default.
+ */
+export function staleTraceSamplerDefaults(
+  context: string,
+  configured: { sampler?: string; samplerArg?: string } = {},
+): Array<readonly [string, string]> {
+  if (context !== "production" || !configured.sampler) return [];
+  if (configured.samplerArg) return [];
+  return [["OTEL_TRACES_SAMPLER_ARG", PRODUCTION_TRACE_SAMPLER_RATIO]];
 }
 
 // Values stay percent-encoded as configured; only keys are compared.
@@ -708,6 +732,57 @@ async function requestNetlifyEnv(
 
   await response.arrayBuffer();
   return { ok: response.ok, status: response.status };
+}
+
+async function removeGeneratedValue({
+  accountId,
+  context,
+  generatedValue,
+  key,
+  siteId,
+  token,
+}: {
+  accountId: string;
+  context: string;
+  generatedValue: string;
+  key: string;
+  siteId: string;
+  token: string;
+}): Promise<"removed" | "kept" | "absent"> {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "User-Agent": "agent-native-template-env-sync",
+  };
+  const read = await fetch(netlifyEnvUrl(accountId, siteId, key), { headers });
+  if (read.status === 404) {
+    await read.arrayBuffer();
+    return "absent";
+  }
+  if (!read.ok) {
+    await read.arrayBuffer();
+    throw new Error(`${key}: read failed with HTTP ${read.status}`);
+  }
+  const body = (await read.json()) as {
+    values?: Array<{ id?: string; context?: string; value?: string }>;
+  };
+  const apiContext = resolveNetlifyApiContext(context);
+  const generated = (body.values ?? []).find(
+    (entry) => entry.context === apiContext && entry.value === generatedValue,
+  );
+  // Anything other than the value this script wrote was set on purpose.
+  if (!generated?.id) return "kept";
+  const valueUrl = netlifyEnvUrl(accountId, siteId, key).replace(
+    "?",
+    `/value/${encodeURIComponent(generated.id)}?`,
+  );
+  const deleted = await fetch(valueUrl, { method: "DELETE", headers });
+  await deleted.arrayBuffer();
+  if (!deleted.ok && deleted.status !== 404) {
+    throw new Error(
+      `${key}: removing stale value failed with HTTP ${deleted.status}`,
+    );
+  }
+  return "removed";
 }
 
 async function deleteNetlifyEnv(
@@ -893,6 +968,13 @@ async function main() {
       );
     }
 
+    const staleKeys = plan.staleGeneratedEntries.map(([key]) => key);
+    if (staleKeys.length > 0) {
+      console.log(
+        `  ${options.write ? "checking" : "would check"} for generated default(s) the source now owns: ${staleKeys.join(", ")}`,
+      );
+    }
+
     if (entries.length === 0) {
       console.log("  skipped: no non-empty env values found");
       continue;
@@ -901,6 +983,18 @@ async function main() {
     if (!options.write) {
       console.log(`  would sync ${entries.length} key(s)`);
       continue;
+    }
+
+    for (const [key, generatedValue] of plan.staleGeneratedEntries) {
+      const result = await removeGeneratedValue({
+        accountId: options.accountId!,
+        context: options.context,
+        generatedValue,
+        key,
+        siteId: targetSiteId,
+        token: token!,
+      });
+      console.log(`  ${result}: ${key} (generated default)`);
     }
 
     let created = 0;
