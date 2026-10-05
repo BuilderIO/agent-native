@@ -114,11 +114,6 @@ describe("DocsSidebar", () => {
       "vercel",
       "netlify",
       "cloudflare",
-      "aws-lambda",
-      "deno-deploy",
-      "azure-static-web-apps",
-      "koyeb",
-      "render",
     ]);
     const databaseGroup = deployment?.items.find(
       (item) => item.id === "database-providers",
