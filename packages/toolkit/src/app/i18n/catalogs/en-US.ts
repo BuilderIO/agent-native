@@ -1185,6 +1185,7 @@ const messages = {
   "setup.connectPlaceholder": "Connect AI to start chatting...",
   "setup.connectToChat": "Connect AI to chat",
   "setup.connectToStart": "Connect AI to start chatting",
+  "setup.modelListUnavailable": "Couldn't load models.",
   "setup.providerStatusUnavailable": "Couldn't confirm AI is ready.",
   "agentNativeClips.meetingAsk.placeholder": "Ask anything",
   "agentNativeClips.meetingAsk.ariaLabel": "Ask anything about this meeting",
@@ -2006,6 +2007,8 @@ const messages = {
   "settingsShell.appGroup.labsFootnote":
     "These new, unstable features may have bugs.",
   "settingsShell.appGroup.labsLoadError": "Couldn't load your labs.",
+  "settingsShell.appGroup.labsReadError":
+    "Couldn't read this saved choice. Choose On or Off to set it again.",
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",

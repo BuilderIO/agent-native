@@ -483,6 +483,15 @@ function clearAuthFailure(key: string): void {
   authFailureCache.delete(key);
 }
 
+/**
+ * Forgets every replayed refusal. Call it when access is known to have
+ * changed, such as a link's status turning `allowed`: a refusal recorded
+ * before then would otherwise fail the next read for up to a minute.
+ */
+export function forgetAuthFailures(): void {
+  authFailureCache.clear();
+}
+
 function withEmbedAuthHeaders(
   input: RequestInfo | URL,
   init: RequestInit | undefined,

@@ -1,5 +1,9 @@
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensurePendingTasksTable,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
+} from "./pending-tasks-store.js";
 
 let initPromise: Promise<void> | undefined;
 
@@ -992,19 +996,27 @@ export async function deferIntegrationCampaignForRuntime(
 export async function listDueIntegrationCampaignIds(
   limit = 25,
 ): Promise<string[]> {
-  await ensureTable();
+  await Promise.all([ensureTable(), ensurePendingTasksTable()]);
   const boundedLimit = Math.max(
     1,
     Math.min(Math.floor(limit), MAX_DUE_LIST_LIMIT),
   );
   const now = Date.now();
+  // A campaign continues its integration task, so it expires with that task.
+  // Expired campaigns stay due forever and sort first, so they must be filtered
+  // here rather than skipped after selection, or they fill every batch.
   const { rows } = await getDbExec().execute({
     sql: `SELECT id FROM integration_campaigns
-          WHERE (status IN ('pending', 'waiting') AND next_run_at <= ?)
-             OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
+          WHERE ((status IN ('pending', 'waiting') AND next_run_at <= ?)
+             OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?))
+            AND EXISTS (
+              SELECT 1 FROM integration_pending_tasks task
+              WHERE task.id = integration_campaigns.integration_task_id
+                AND task.created_at >= ?
+            )
           ORDER BY next_run_at ASC, id ASC
           LIMIT ?`,
-    args: [now, now, boundedLimit],
+    args: [now, now, now - MAX_RECOVERABLE_PENDING_TASK_AGE_MS, boundedLimit],
   });
   return rows.map((row) => String((row as Record<string, unknown>).id));
 }

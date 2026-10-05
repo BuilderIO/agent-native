@@ -59,7 +59,7 @@ const labs = vi.hoisted(() => ({ editionsEnabled: true }));
 vi.mock("@agent-native/core/labs/server", async () => {
   const { PLAN_EDITIONS } = await import("../shared/labs.js");
   return {
-    getUserLabs: async () => ({ [PLAN_EDITIONS.key]: labs.editionsEnabled }),
+    getUserLabEnabled: async () => labs.editionsEnabled,
   };
 });
 vi.mock("../server/lib/local-plan-files.js", () => ({

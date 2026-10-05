@@ -161,7 +161,6 @@ describe("DocumentAccessScreen", () => {
               element={
                 <DocumentAccessScreen
                   documentId="private-doc"
-                  loading={<p>loading</p>}
                   reloading={reloading}
                   onReload={onReload}
                 />
@@ -175,20 +174,28 @@ describe("DocumentAccessScreen", () => {
     });
   }
 
+  // The editor's skeleton, with nothing read from the page.
+  function expectLoading() {
+    expect(
+      container.querySelector('[data-startup-anchor="title"]'),
+    ).not.toBeNull();
+    expect(container.textContent?.trim()).toBe("");
+  }
+
   function button(label: string) {
     return [...container.querySelectorAll("button")].find(
       (candidate) => candidate.textContent === label,
     );
   }
 
-  it("asks about this page and shows the editor's loading state meanwhile", () => {
+  it("asks about this page and shows the editor's skeleton, without its title, meanwhile", () => {
     render(undefined);
 
     expect(mocks.gate.options).toMatchObject({
       resourceType: "document",
       resourceId: "private-doc",
     });
-    expect(container.textContent).toBe("loading");
+    expectLoading();
   });
 
   it("tells an outsider the page exists but isn't theirs to open", () => {
@@ -275,12 +282,12 @@ describe("DocumentAccessScreen", () => {
 
   it("reads the page again when it can be opened, then says missing if that fails", () => {
     render({ state: "allowed", role: "owner" });
-    expect(container.textContent).toBe("loading");
+    expectLoading();
 
     act(() => mocks.gate.onAccessGranted?.());
     render({ state: "allowed", role: "owner" }, true);
     expect(onReload).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toBe("loading");
+    expectLoading();
 
     render({ state: "allowed", role: "owner" }, false);
     expect(container.querySelector("h1")?.textContent).toBe(
@@ -356,11 +363,11 @@ describe("DocumentAccessScreen", () => {
 
   it("shows the loading state while it checks who can restore", () => {
     render({ state: "trashed", role: "owner" });
-    expect(container.textContent).toBe("loading");
+    expectLoading();
 
     trashedPage("parent-doc");
     render({ state: "trashed", role: "owner" });
-    expect(container.textContent).toBe("loading");
+    expectLoading();
   });
 
   it("offers a retry instead of guessing when it can't check who can restore", () => {

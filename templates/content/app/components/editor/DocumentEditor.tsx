@@ -1352,12 +1352,6 @@ export function PageEditorSurface({
     return host === "page" ? (
       <DocumentAccessScreen
         documentId={documentId}
-        loading={
-          <DocumentEditorSkeleton
-            title={optimisticTitle}
-            iconRow={readPageIconRowHint(documentId)}
-          />
-        }
         reloading={isManualRetrying}
         onReload={() => void retryDocumentQuery({ fromAccessScreen: true })}
       />
@@ -1654,6 +1648,16 @@ export function isDocumentLoadUnavailableError(error: unknown) {
       ? (error as { status?: unknown }).status
       : undefined;
   return status === 403 || status === 404;
+}
+
+// The server merges a concurrent edit (an agent's, another tab's) into what the
+// browser sent. Only an unmodified echo is the editor's own snapshot; a merged
+// result must reach the editor as an external one or it never shows the merge.
+export function isSavedContentLocalEcho(
+  sentContent: string | undefined,
+  savedContent: string,
+): boolean {
+  return sentContent !== undefined && sentContent === savedContent;
 }
 
 export function resolveAcknowledgedDocumentSnapshot<
@@ -3068,6 +3072,7 @@ function PageEditorSessionBody({
     agentPresent,
   } = useCollaborativeDoc({
     docId: collabDocumentId,
+    activityResource: { resourceType: "document", resourceId: documentId },
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -3455,7 +3460,7 @@ function PageEditorSessionBody({
             }
           } else {
             if (
-              updates.content !== undefined &&
+              isSavedContentLocalEcho(updates.content, result.content) &&
               result.revision &&
               result.updatedAt
             ) {

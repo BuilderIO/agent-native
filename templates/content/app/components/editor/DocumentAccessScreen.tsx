@@ -9,7 +9,7 @@ import {
   type ResourceAccessGateRole,
 } from "@agent-native/core/client/sharing";
 import { ResourceAccessScreen } from "@agent-native/toolkit/app/sharing";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -18,6 +18,8 @@ import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { useRestoreDocument } from "@/hooks/use-documents";
 import { CONTENT_LANDING_PATH } from "@/lib/content-landing";
+
+import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 
 function managesPage(role: ResourceAccessGateRole | undefined) {
   return role === "owner" || role === "admin";
@@ -28,13 +30,10 @@ function managesPage(role: ResourceAccessGateRole | undefined) {
 // is in the trash. Trash reads as missing to anyone who couldn't open it.
 export function DocumentAccessScreen({
   documentId,
-  loading,
   reloading = false,
   onReload,
 }: {
   documentId: string;
-  /** Shown while the link's status loads. */
-  loading: ReactNode;
   /** Whether the page is being read again. */
   reloading?: boolean;
   /** Reads the page again once the viewer can open it. */
@@ -55,6 +54,9 @@ export function DocumentAccessScreen({
     },
   });
   const restore = useRestoreDocument();
+  // No title or icon while the status loads: one cached in this browser may
+  // belong to a page this account can no longer open.
+  const loading = <DocumentEditorSkeleton title={null} />;
 
   // Restore brings back the subtree trashed with the page, starting at the
   // page that was deleted, so it needs admin access to that page and nothing
@@ -78,7 +80,7 @@ export function DocumentAccessScreen({
   if (gate.isError) {
     return <QueryErrorState onRetry={() => void gate.refetch()} />;
   }
-  if (!gate.status) return <>{loading}</>;
+  if (!gate.status) return loading;
 
   const header = sidebarTrigger ? (
     <div className="flex h-12 shrink-0 items-center px-4">{sidebarTrigger}</div>
@@ -137,7 +139,7 @@ export function DocumentAccessScreen({
       );
     }
     if (trashedPage.isPending || (trashedWithParent && !rootGate.status)) {
-      return <>{loading}</>;
+      return loading;
     }
     const canRestore = trashedWithParent
       ? managesPage(rootGate.status?.role)
@@ -184,7 +186,7 @@ export function DocumentAccessScreen({
   // The status says the page can be opened, so it was read again; wait for
   // that read before saying anything.
   if (state === "allowed" && (reloading || reloadedFor !== documentId)) {
-    return <>{loading}</>;
+    return loading;
   }
 
   // `missing`, or `allowed` when the page still can't be read after reading

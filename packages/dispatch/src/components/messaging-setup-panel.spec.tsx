@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { saveIntegrationEnvVars } from "@agent-native/core/client/integrations";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +10,23 @@ import { TooltipProvider } from "./ui/tooltip";
 const clientState = vi.hoisted(() => ({
   statuses: [] as any[],
   envStatuses: [] as any[],
+}));
+
+const saveScope = vi.hoisted(() => ({
+  scope: "user" as "user" | "org" | null,
+  canChoose: false,
+}));
+
+vi.mock("@agent-native/toolkit/app/settings", () => ({
+  useCredentialSaveScope: () => ({
+    ...saveScope,
+    setScope: () => {},
+    orgName: "",
+    roleUnavailable: false,
+    retry: () => {},
+  }),
+  WhoField: ({ scope }: { scope: string }) =>
+    React.createElement("div", { "data-who-field": scope }),
 }));
 
 vi.mock("@agent-native/core/client/integrations", async () => ({
@@ -114,6 +132,9 @@ describe("MessagingSetupPanel", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.statuses = [];
     clientState.envStatuses = [];
+    saveScope.scope = "user";
+    saveScope.canChoose = false;
+    vi.mocked(saveIntegrationEnvVars).mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -261,5 +282,76 @@ describe("MessagingSetupPanel", () => {
     ).not.toBeNull();
     expect(container.querySelectorAll("button").length).toBeGreaterThan(0);
     expect(container.textContent).not.toContain("Save credentials");
+  });
+  async function openSlackCredentials() {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <MessagingSetupPanel />
+        </TooltipProvider>,
+      );
+      await Promise.resolve();
+    });
+    for (const label of ["Slack", "Credentials"]) {
+      const trigger = [...container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes(label),
+      );
+      await act(async () => {
+        trigger?.click();
+        await Promise.resolve();
+      });
+    }
+    const input = container.querySelector<HTMLInputElement>(
+      'input[placeholder="Enter Slack OAuth Client ID"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "client-id");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    return [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Save credentials",
+    )!;
+  }
+
+  it("saves an owner's or admin's channel credentials for the organization", async () => {
+    saveScope.scope = "org";
+    saveScope.canChoose = true;
+    const save = await openSlackCredentials();
+
+    expect(container.querySelector('[data-who-field="org"]')).not.toBeNull();
+    await act(async () => {
+      save.click();
+      await Promise.resolve();
+    });
+
+    expect(saveIntegrationEnvVars).toHaveBeenCalledWith(
+      [{ key: "SLACK_CLIENT_ID", value: "client-id" }],
+      { scope: "org" },
+    );
+  });
+
+  it("saves a member's channel credentials personally with no picker", async () => {
+    const save = await openSlackCredentials();
+
+    expect(container.querySelector("[data-who-field]")).toBeNull();
+    await act(async () => {
+      save.click();
+      await Promise.resolve();
+    });
+
+    expect(saveIntegrationEnvVars).toHaveBeenCalledWith(
+      [{ key: "SLACK_CLIENT_ID", value: "client-id" }],
+      { scope: "user" },
+    );
+  });
+
+  it("keeps Save off until the role is read", async () => {
+    saveScope.scope = null;
+    const save = await openSlackCredentials();
+
+    expect(save.disabled).toBe(true);
   });
 });

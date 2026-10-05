@@ -2192,6 +2192,7 @@ async function createBetterAuthInstance(
         appSender,
         disableClickTracking: true,
         templateId: CORE_MAGIC_LINK_EMAIL_ID,
+        authCritical: true,
       });
     },
   });
@@ -2232,6 +2233,7 @@ async function createBetterAuthInstance(
           appSender,
           disableClickTracking: true,
           templateId: CORE_RESET_PASSWORD_EMAIL_ID,
+          authCritical: true,
         });
       },
     },
@@ -2270,6 +2272,7 @@ async function createBetterAuthInstance(
           templateId: emailChange
             ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
             : CORE_VERIFY_SIGNUP_EMAIL_ID,
+          authCritical: true,
         });
       },
       afterEmailVerification: async (user, request) => {
@@ -2318,6 +2321,7 @@ async function createBetterAuthInstance(
             ...renderedEmail,
             disableClickTracking: true,
             templateId: CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+            authCritical: true,
           });
         },
       },

@@ -515,19 +515,32 @@ export async function resolveAccess(
   rawCtx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected | null> {
-  return rawCtx.transaction
-    ? withDbExec(rawCtx.transaction, () =>
-        resolveAccessImpl(resourceType, resourceId, rawCtx, options),
-      )
-    : resolveAccessImpl(resourceType, resourceId, rawCtx, options);
+  const { access } = await inAccessTransaction(rawCtx, () =>
+    loadAndResolveAccess(resourceType, resourceId, rawCtx, options),
+  );
+  return access;
 }
 
-async function resolveAccessImpl(
+function inAccessTransaction<T>(
+  ctx: AccessContext,
+  run: () => Promise<T>,
+): Promise<T> {
+  return ctx.transaction ? withDbExec(ctx.transaction, run) : run();
+}
+
+interface LoadedAccess {
+  access: ResolvedAccess | null;
+  /** The row access was resolved against, kept even when access is denied. */
+  resource: any;
+  reg: ShareableResourceRegistration;
+}
+
+async function loadAndResolveAccess(
   resourceType: string,
   resourceId: string,
-  rawCtx: AccessContext = currentAccess(),
-  options: ResolveAccessOptions = {},
-): Promise<ResolvedAccess | ResolvedAccessProjected | null> {
+  rawCtx: AccessContext,
+  options: ResolveAccessOptions,
+): Promise<LoadedAccess> {
   const registered = requireShareableResource(resourceType);
   const transaction = rawCtx.transaction ?? getScopedDbExec();
   const transactionDb = transaction
@@ -543,8 +556,20 @@ async function resolveAccessImpl(
   const ctx = resolveRegisteredAccessContext(reg, transactionCtx);
 
   const resource = await loadResourceForAccess(reg, resourceId, options);
-  if (!resource) return null;
+  if (!resource) return { access: null, resource: null, reg };
+  return {
+    access: await accessToResource(reg, resourceId, resource, ctx),
+    resource,
+    reg,
+  };
+}
 
+async function accessToResource(
+  reg: ShareableResourceRegistration,
+  resourceId: string,
+  resource: any,
+  ctx: AccessContext,
+): Promise<ResolvedAccess | null> {
   const { userEmail } = ctx;
   const normalizedUserEmail = normalizeEmailForAccess(userEmail);
 
@@ -615,24 +640,30 @@ export async function resolveAccessStatus(
   resourceId: string,
   ctx: AccessContext = currentAccess(),
 ): Promise<ResourceAccessStatus> {
-  const reg = requireShareableResource(resourceType);
+  requireShareableResource(resourceType);
   if (!normalizeEmailForAccess(ctx.userEmail)) return { state: "signed-out" };
-  const access = await resolveAccess(resourceType, resourceId, ctx, {
-    skipResourceBody: true,
+  return inAccessTransaction(ctx, async () => {
+    const loaded = await loadAndResolveAccess(resourceType, resourceId, ctx, {
+      skipResourceBody: true,
+    });
+    const { resource, reg } = loaded;
+    if (!resource) return { state: "missing" };
+    let access = loaded.access;
+    if (!access && reg.fallbackAccessContext) {
+      const fallback = await reg.fallbackAccessContext(resourceId, ctx);
+      if (fallback) {
+        access = await accessToResource(
+          reg,
+          resourceId,
+          resource,
+          resolveRegisteredAccessContext(reg, fallback),
+        );
+      }
+    }
+    const available = isResourceAvailable(reg, resource);
+    if (!access) return { state: available ? "denied" : "missing" };
+    return { state: available ? "allowed" : "trashed", role: access.role };
   });
-  if (access) {
-    return {
-      state: isResourceAvailable(reg, access.resource) ? "allowed" : "trashed",
-      role: access.role,
-    };
-  }
-  const resource = await loadResourceForAccess(reg, resourceId, {
-    skipResourceBody: true,
-  });
-  return {
-    state:
-      resource && isResourceAvailable(reg, resource) ? "denied" : "missing",
-  };
 }
 
 async function highestShareRole(
@@ -735,7 +766,7 @@ export async function assertAccess(
   ctx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected> {
-  const access = await resolveAccessImpl(
+  const { access } = await loadAndResolveAccess(
     resourceType,
     resourceId,
     ctx,

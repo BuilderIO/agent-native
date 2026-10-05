@@ -10,7 +10,6 @@ import {
 import { getAppProductionUrl } from "../../server/app-url.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { isAutozQaEmail } from "../../shared/qa-test-email.js";
 import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
 import { assertAccess } from "../access.js";
@@ -25,22 +24,6 @@ import {
 import { requireShareableResource } from "../registry.js";
 import type { ShareEmailExtras } from "../registry.js";
 import { resourceSharingChange } from "./change-result.js";
-
-export function isSyntheticQaEmail(email: string): boolean {
-  const trimmed = email.trim().toLowerCase();
-  if (isAutozQaEmail(trimmed)) return true;
-  const at = trimmed.lastIndexOf("@");
-  if (at <= 0) return false;
-  const local = trimmed.slice(0, at);
-  const domain = trimmed.slice(at + 1);
-  return (
-    local.includes("+qa") &&
-    (domain === "example.test" ||
-      domain.endsWith(".test") ||
-      domain === "example.invalid" ||
-      domain.endsWith(".invalid"))
-  );
-}
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -227,8 +210,7 @@ export default defineAction({
     const shouldNotify =
       args.notify !== false &&
       args.principalType === "user" &&
-      (await isEmailConfigured()) &&
-      !isSyntheticQaEmail(principalId);
+      (await isEmailConfigured());
     let notified = false;
     if (shouldNotify) {
       try {
@@ -340,7 +322,7 @@ export default defineAction({
             extras,
           },
         );
-        await sendEmail({
+        const sent = await sendEmail({
           to: principalId,
           subject,
           html,
@@ -349,7 +331,7 @@ export default defineAction({
           replyTo,
           templateId: CORE_RESOURCE_SHARED_EMAIL_ID,
         });
-        notified = true;
+        notified = sent.status === "sent";
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",

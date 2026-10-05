@@ -1199,6 +1199,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "AI に接続してチャットを開始...",
   "setup.connectToChat": "AI に接続してチャット",
   "setup.connectToStart": "AI に接続してチャットを開始",
+  "setup.modelListUnavailable": "モデルを読み込めませんでした。",
   "setup.providerStatusUnavailable": "AI が利用可能か確認できませんでした。",
   "agentNativeClips.meetingAsk.placeholder": "何でも聞いてください",
   "agentNativeClips.meetingAsk.ariaLabel": "この会議について質問する",
@@ -2003,6 +2004,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsFootnote":
     "これらの新しい不安定な機能にはバグがある可能性があります。",
   "settingsShell.appGroup.labsLoadError": "ラボを読み込めませんでした。",
+  "settingsShell.appGroup.labsReadError":
+    "保存された設定を読み込めませんでした。オンまたはオフを選んで設定し直してください。",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} を変更できませんでした。もう一度お試しください。",
   "settingsShell.appGroup.mcpAbout":

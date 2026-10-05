@@ -207,6 +207,7 @@ export { createExperimentsPlugin } from "./experiments/server.js";
 export {
   agentChat,
   isQaTestEmail,
+  isTestIdentityEmail,
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./shared/index.js";

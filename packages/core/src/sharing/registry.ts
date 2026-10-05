@@ -106,6 +106,17 @@ export interface ShareableResourceRegistration {
    * emailing owners once its access screen offers the request.
    */
   accessRequests?: boolean;
+  /**
+   * A context that can open the resource when the viewer's own can't, such
+   * as the authority a Content space lends its members. Only a link's status
+   * reads it, so such a viewer hears that a page is in the trash instead of
+   * missing; `resolveAccess` and the share actions use the viewer's own
+   * context, and the app applies the grant in its own access helpers.
+   */
+  fallbackAccessContext?: (
+    resourceId: string,
+    ctx: { userEmail?: string; orgId?: string },
+  ) => Promise<{ userEmail?: string; orgId?: string } | null>;
   agentReadable?:
     | false
     | {

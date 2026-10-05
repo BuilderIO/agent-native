@@ -17,11 +17,15 @@ const mocks = vi.hoisted(() => ({
   mutateAsync: vi.fn(),
   mutationError: null as Error | null,
   useActionMutation: vi.fn(),
+  forgetAuthFailures: vi.fn(),
 }));
 
 vi.mock("../use-action.js", () => ({
   useActionQuery: mocks.useActionQuery,
   useActionMutation: mocks.useActionMutation,
+}));
+vi.mock("../embed-auth.js", () => ({
+  forgetAuthFailures: mocks.forgetAuthFailures,
 }));
 
 describe("useResourceAccessGate", () => {
@@ -40,12 +44,13 @@ describe("useResourceAccessGate", () => {
     status: ResourceAccessGateStatus | undefined,
     id = "doc-1",
     enabled = true,
+    type = "document",
   ) {
     mocks.data = status;
     act(() => {
       root.render(
         <Harness
-          resourceType="document"
+          resourceType={type}
           resourceId={id}
           enabled={enabled}
           onAccessGranted={onAccessGranted}
@@ -58,6 +63,7 @@ describe("useResourceAccessGate", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.data = undefined;
     mocks.refetch.mockReset();
+    mocks.forgetAuthFailures.mockReset();
     mocks.useActionQuery.mockReset();
     mocks.useActionQuery.mockImplementation(() => ({
       data: mocks.data,
@@ -121,6 +127,25 @@ describe("useResourceAccessGate", () => {
 
     render({ state: "allowed", role: "viewer" }, "doc-2");
     expect(onAccessGranted).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts over for a different kind of resource with the same id", () => {
+    render({ state: "allowed", role: "viewer" }, "shared-id", true, "document");
+    render({ state: "allowed", role: "viewer" }, "shared-id", true, "deck");
+
+    expect(onAccessGranted).toHaveBeenCalledTimes(2);
+  });
+
+  it("forgets replayed refusals before the read is tried again", () => {
+    onAccessGranted.mockImplementation(() => {
+      expect(mocks.forgetAuthFailures).toHaveBeenCalledTimes(1);
+    });
+    render({ state: "denied" });
+    expect(mocks.forgetAuthFailures).not.toHaveBeenCalled();
+
+    render({ state: "allowed", role: "viewer" });
+
+    expect(onAccessGranted).toHaveBeenCalledTimes(1);
   });
 
   it("checks again when focus returns from another window", () => {
