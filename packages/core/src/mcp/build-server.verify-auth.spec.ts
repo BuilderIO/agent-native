@@ -26,12 +26,17 @@ vi.mock("../org/context.js", () => ({
 vi.mock("../org/membership.js", () => ({
   isOrgMemberForA2A: (...a: any[]) => isOrgMemberForA2AMock(...a),
 }));
+const checkCredentialOrgMembershipMock = vi.fn(async () => "member");
+const checkCredentialEmailRetirementMock = vi.fn(async () => "current");
+vi.mock("./credential-membership.js", () => ({
+  checkCredentialOrgMembership: (...a: any[]) =>
+    checkCredentialOrgMembershipMock(...a),
+  checkCredentialEmailRetirement: (...a: any[]) =>
+    checkCredentialEmailRetirementMock(...a),
+}));
 
-const {
-  resolveMcpIdentityOrgId,
-  verifyAuth,
-  McpIdentityVerificationUnavailableError,
-} = await import("./build-server.js");
+const { resolveMcpIdentityOrgId, verifyAuth } =
+  await import("./build-server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 const SECRET = "verify-auth-secret";
@@ -162,9 +167,10 @@ describe("verifyAuth — connect-token revoke check", () => {
       "org-evil-secret",
     );
 
-    await expect(
-      verifyAuth(`Bearer ${token}`, "alice@acme"),
-    ).rejects.toBeInstanceOf(McpIdentityVerificationUnavailableError);
+    await expect(verifyAuth(`Bearer ${token}`, "alice@acme")).resolves.toEqual({
+      authed: false,
+      unavailable: true,
+    });
   });
 
   it("rejects identity-scoped SSO JWTs on the MCP endpoint", async () => {
@@ -193,6 +199,10 @@ describe("verifyAuth — connect-token revoke check", () => {
 
   it("accepts a connect-scoped token whose jti is not revoked", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      orgId: null,
+    });
     const token = await sign({
       sub: "a@example.com",
       scope: "mcp-connect",
@@ -203,10 +213,32 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.authed).toBe(true);
     expect(res.identity).toEqual({
       userEmail: "a@example.com",
+      orgId: null,
       orgDomain: "builder.io",
     });
     expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-active");
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-active");
+  });
+
+  it("runs a connect token this app has no record of as Personal, never as its org_domain's org", async () => {
+    isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
+    resolveOrgByDomainMock.mockResolvedValue({ orgId: "org_by_domain" });
+    const token = await sign({
+      sub: "a@example.com",
+      scope: "mcp-connect",
+      jti: "jti-unknown",
+      org_domain: "builder.io",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toMatchObject({
+      authed: true,
+      identity: { userEmail: "a@example.com", orgId: null },
+    });
+    await expect(resolveMcpIdentityOrgId(res.identity)).resolves.toBe(
+      undefined,
+    );
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
   });
 
   it("restores org scope for a legacy connect JWT from its stored token row", async () => {
@@ -251,7 +283,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-personal");
   });
 
-  it("rejects a legacy connect JWT when its org lookup is unavailable", async () => {
+  it("refuses a legacy connect JWT with a retryable failure when its org lookup is unavailable", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
     const token = await sign({
@@ -260,7 +292,8 @@ describe("verifyAuth — connect-token revoke check", () => {
       jti: "jti-unavailable",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, unavailable: true });
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
   it.each([123, { id: "org_123" }, ""])(
@@ -464,7 +497,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-oauth-legacy");
   });
 
-  it("rejects a legacy connect OAuth token when its org lookup is unavailable", async () => {
+  it("refuses a legacy connect OAuth token with a retryable failure when its org lookup is unavailable", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
     const resource = "https://mail.agent-native.com/_agent-native/mcp";
@@ -479,7 +512,8 @@ describe("verifyAuth — connect-token revoke check", () => {
     const res = await verifyAuth(`Bearer ${token}`, undefined, {
       resourceUrl: resource,
     });
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, unavailable: true });
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
   it("rejects a revoked connect-minted MCP OAuth token", async () => {
@@ -498,6 +532,25 @@ describe("verifyAuth — connect-token revoke check", () => {
     });
     expect(res.authed).toBe(false);
     expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-oauth-revoked");
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a retryable outage for a connect-minted MCP OAuth token whose revocation state can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    isJtiRevokedMock.mockRejectedValue(new Error("db down"));
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth-connect@example.com",
+      clientId: "agent-native-connect",
+      scope: "mcp:read mcp:write mcp:apps",
+      resource,
+      issuer: "https://mail.agent-native.com",
+      jti: "jti-oauth-unreadable",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res).toEqual({ authed: false, unavailable: true });
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
@@ -524,7 +577,8 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity).toBeUndefined();
   });
 
-  it("fails OPEN: a store error never locks out a valid-signature token", async () => {
+  it("answers a retryable outage, not admission, when revocation state can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     isJtiRevokedMock.mockRejectedValue(new Error("db down"));
     const token = await sign({
       sub: "a@example.com",
@@ -532,8 +586,8 @@ describe("verifyAuth — connect-token revoke check", () => {
       jti: "jti-x",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res.authed).toBe(true);
-    expect(res.identity?.userEmail).toBe("a@example.com");
+    expect(res).toEqual({ authed: false, unavailable: true });
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
   it("still rejects a bad signature regardless of scope claim", async () => {
@@ -674,6 +728,381 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     });
     expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("oauth@example.com");
+  });
+});
+
+describe("verifyAuth — the token's organization must still be the user's", () => {
+  const resource = "https://mail.agent-native.com/mcp";
+
+  function oauthToken(orgId: string | null) {
+    return signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgId,
+      orgDomain: null,
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource,
+      issuer: "https://mail.agent-native.com",
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    checkCredentialOrgMembershipMock.mockResolvedValue("member");
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue(null);
+    isJtiRevokedMock.mockResolvedValue(false);
+    process.env.A2A_SECRET = SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+  });
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+  });
+
+  it("admits an OAuth token while its user is still a member of its org", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await oauthToken("org_123")}`,
+      undefined,
+      {
+        resourceUrl: resource,
+        requestOrigin: "https://mail.agent-native.com",
+      },
+    );
+    expect(res).toMatchObject({
+      authed: true,
+      identity: { userEmail: "oauth@example.com", orgId: "org_123" },
+    });
+    expect(checkCredentialOrgMembershipMock).toHaveBeenCalledTimes(1);
+    expect(checkCredentialOrgMembershipMock).toHaveBeenCalledWith({
+      orgId: "org_123",
+      email: "oauth@example.com",
+      requestOrigin: "https://mail.agent-native.com",
+    });
+  });
+
+  it("rejects an OAuth token once its user has left its org", async () => {
+    checkCredentialOrgMembershipMock.mockResolvedValue("not-member");
+    const res = await verifyAuth(
+      `Bearer ${await oauthToken("org_123")}`,
+      undefined,
+      {
+        resourceUrl: resource,
+      },
+    );
+    expect(res).toEqual({ authed: false });
+  });
+
+  it("fails closed, and says so, when the membership check cannot run", async () => {
+    checkCredentialOrgMembershipMock.mockResolvedValue("unavailable");
+    const res = await verifyAuth(
+      `Bearer ${await oauthToken("org_123")}`,
+      undefined,
+      {
+        resourceUrl: resource,
+      },
+    );
+    expect(res).toEqual({ authed: false, unavailable: true });
+  });
+
+  it("does not check membership for a Personal-scope token", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await oauthToken(null)}`,
+      undefined,
+      {
+        resourceUrl: resource,
+      },
+    );
+    expect(res).toMatchObject({ authed: true, identity: { orgId: null } });
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+  });
+
+  it("does not check membership for an A2A token without an org claim", async () => {
+    const token = await sign({
+      sub: "a@example.com",
+      org_domain: "builder.io",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res.authed).toBe(true);
+    expect(res.identity?.orgId).toBeUndefined();
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+  });
+
+  it("checks the stored org of a legacy connect token", async () => {
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      orgId: "org_legacy",
+    });
+    checkCredentialOrgMembershipMock.mockResolvedValue("not-member");
+    const token = await sign({
+      sub: "ci@example.com",
+      scope: "mcp-connect",
+      jti: "jti-legacy",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toEqual({ authed: false });
+    expect(checkCredentialOrgMembershipMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_legacy",
+        email: "ci@example.com",
+      }),
+    );
+  });
+
+  it("checks the org claim of a connect token", async () => {
+    checkCredentialOrgMembershipMock.mockResolvedValue("not-member");
+    const token = await sign({
+      sub: "svc-ci@service.org_123",
+      scope: "mcp-connect",
+      jti: "jti-service",
+      org_id: "org_123",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toEqual({ authed: false });
+    expect(checkCredentialOrgMembershipMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_123",
+        email: "svc-ci@service.org_123",
+      }),
+    );
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["legacy", "oauth"])(
+    "passes local service provenance for an authenticated %s connect credential with an org claim",
+    async (transport) => {
+      const stored = {
+        status: "found",
+        kind: "service",
+        ownerEmail: "svc-ci@service.org_123",
+        orgId: "org_123",
+      };
+      lookupConnectTokenOrgMock.mockResolvedValue(stored);
+      const token =
+        transport === "legacy"
+          ? await sign({
+              sub: stored.ownerEmail,
+              scope: "mcp-connect",
+              jti: "jti-service-provenance",
+              org_id: stored.orgId,
+            })
+          : await signMcpOAuthAccessToken({
+              ownerEmail: stored.ownerEmail,
+              orgId: stored.orgId,
+              clientId: "agent-native-connect",
+              jti: "jti-service-provenance",
+              scope: "mcp:read",
+              resource,
+              issuer: "https://mail.agent-native.com",
+            });
+
+      expect(
+        (
+          await verifyAuth(`Bearer ${token}`, undefined, {
+            resourceUrl: resource,
+          })
+        ).authed,
+      ).toBe(true);
+      expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith(
+        "jti-service-provenance",
+      );
+      expect(checkCredentialOrgMembershipMock).toHaveBeenCalledWith({
+        orgId: stored.orgId,
+        email: stored.ownerEmail,
+        requestOrigin: undefined,
+        storedConnectToken: stored,
+      });
+    },
+  );
+
+  it("answers a retryable failure for a connect token with an org claim when stored provenance is unreadable", async () => {
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
+    const token = await sign({
+      sub: "svc-ci@service.org_123",
+      scope: "mcp-connect",
+      jti: "jti-service-provenance-unavailable",
+      org_id: "org_123",
+    });
+    expect(await verifyAuth(`Bearer ${token}`)).toEqual({
+      authed: false,
+      unavailable: true,
+    });
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("does not record use of a connect token it cannot admit", async () => {
+    checkCredentialOrgMembershipMock.mockResolvedValue("unavailable");
+    const token = await sign({
+      sub: "ci@example.com",
+      scope: "mcp-connect",
+      jti: "jti-unchecked",
+      org_id: "org_123",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toEqual({ authed: false, unavailable: true });
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("records use of a connect token once its user is confirmed as a member", async () => {
+    const token = await sign({
+      sub: "ci@example.com",
+      scope: "mcp-connect",
+      jti: "jti-member",
+      org_id: "org_123",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toMatchObject({ authed: true, identity: { orgId: "org_123" } });
+    expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-member");
+  });
+
+  it("trusts the org claim of a cross-app A2A token as the signer's assertion", async () => {
+    checkCredentialOrgMembershipMock.mockResolvedValue("not-member");
+    const token = await sign({ sub: "a@example.com", org_id: "org_123" });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toMatchObject({
+      authed: true,
+      identity: { userEmail: "a@example.com", orgId: "org_123" },
+    });
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+  });
+
+  it("trusts the org claim of a first-party MCP token from a sibling app", async () => {
+    checkCredentialOrgMembershipMock.mockResolvedValue("not-member");
+    const token = await sign(
+      {
+        sub: "a@example.com",
+        scope: "mcp-connect",
+        jti: "jti-first-party-member",
+        org_id: "org_123",
+        agent_native_first_party_mcp: true,
+      },
+      SECRET,
+      { audience: "https://assets.example.com/_agent-native/mcp" },
+    );
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://assets.example.com/_agent-native/mcp",
+    });
+    expect(res).toMatchObject({
+      authed: true,
+      identity: {
+        userEmail: "a@example.com",
+        orgId: "org_123",
+        firstPartyMcp: true,
+      },
+    });
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves Personal scope for an unclaimed first-party token with no local row", async () => {
+    resolveOrgByDomainMock.mockResolvedValue({
+      orgId: "recipient-org-by-domain",
+    });
+    resolveOrgIdForEmailMock.mockResolvedValue("recipient-org-by-email");
+    const token = await sign(
+      {
+        sub: "a@example.com",
+        scope: "mcp-connect",
+        jti: "jti-first-party-unclaimed",
+        org_domain: "builder.io",
+        agent_native_first_party_mcp: true,
+      },
+      SECRET,
+      { audience: "https://assets.example.com/_agent-native/mcp" },
+    );
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://assets.example.com/_agent-native/mcp",
+    });
+    expect(res).toMatchObject({ authed: true, identity: { orgId: null } });
+    await expect(
+      resolveMcpIdentityOrgId(res.identity),
+    ).resolves.toBeUndefined();
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith(
+      "jti-first-party-unclaimed",
+    );
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("verifyAuth — a credential for an address an email change retired", () => {
+  const resource = "https://mail.agent-native.com/mcp";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    checkCredentialOrgMembershipMock.mockResolvedValue("member");
+    checkCredentialEmailRetirementMock.mockResolvedValue("current");
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue(null);
+    isJtiRevokedMock.mockResolvedValue(false);
+    process.env.A2A_SECRET = SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+  });
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+  });
+
+  it("refuses a Personal OAuth token signed before its address was renamed away", async () => {
+    checkCredentialEmailRetirementMock.mockResolvedValue("retired");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "renamed@example.com",
+      orgId: null,
+      orgDomain: null,
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource,
+      issuer: "https://mail.agent-native.com",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res).toEqual({ authed: false });
+    expect(checkCredentialEmailRetirementMock).toHaveBeenCalledWith({
+      email: "renamed@example.com",
+      issuedAt: expect.any(Number),
+    });
+  });
+
+  it("refuses a Personal connect token for a retired address and records no use", async () => {
+    checkCredentialEmailRetirementMock.mockResolvedValue("retired");
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      orgId: null,
+    });
+    const token = await sign({
+      sub: "renamed@example.com",
+      scope: "mcp-connect",
+      jti: "jti-renamed",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toEqual({ authed: false });
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a retryable failure when the retirement check cannot run", async () => {
+    checkCredentialEmailRetirementMock.mockResolvedValue("unavailable");
+    const token = await sign({
+      sub: "renamed@example.com",
+      scope: "mcp-connect",
+      jti: "jti-unreadable",
+    });
+    const res = await verifyAuth(`Bearer ${token}`);
+    expect(res).toEqual({ authed: false, unavailable: true });
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves a cross-app A2A token to its signer", async () => {
+    checkCredentialEmailRetirementMock.mockResolvedValue("retired");
+    const res = await verifyAuth(
+      `Bearer ${await sign({ sub: "renamed@example.com" })}`,
+    );
+    expect(res).toMatchObject({
+      authed: true,
+      identity: { userEmail: "renamed@example.com" },
+    });
+    expect(checkCredentialEmailRetirementMock).not.toHaveBeenCalled();
   });
 });
 

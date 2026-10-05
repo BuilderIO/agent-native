@@ -10,7 +10,9 @@ import {
 import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { isLoopbackRequest } from "../server/auth.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getH3App } from "../server/framework-request-handler.js";
+import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { trackMcpInitialize } from "./analytics.js";
 import {
@@ -298,12 +300,28 @@ export async function handleMcpRequest(
         isLoopbackOrigin(requestMeta.origin) &&
         (hasLocalOwnerHint || getAppConfig().mcp.allowDevOpen),
       resourceUrl: getMcpOAuthAudiences(event, routePath),
+      requestOrigin: getOrigin(event),
     });
   } catch (error) {
     if (!(error instanceof McpIdentityVerificationUnavailableError))
       throw error;
     setResponseStatus(event, 503);
-    return { error: "MCP identity verification is temporarily unavailable" };
+    setResponseHeader(event, "Retry-After", "5");
+    return {
+      error: "Service Unavailable",
+      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+    };
+  }
+  if (!authResult.authed && authResult.unavailable) {
+    // The token is valid but its org membership could not be checked. No auth
+    // challenge: re-authenticating would not help, and the client must keep
+    // its tokens and retry.
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "Retry-After", "5");
+    return {
+      error: "Service Unavailable",
+      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+    };
   }
   if (!authResult.authed) {
     setResponseStatus(event, 401);

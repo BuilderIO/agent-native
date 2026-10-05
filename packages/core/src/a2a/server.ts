@@ -106,13 +106,22 @@ async function verifyJwtWithSecret(
   options: jose.JWTVerifyOptions,
 ): Promise<jose.JWTPayload | null> {
   try {
-    return (
-      await jose.jwtVerify(token, new TextEncoder().encode(secret), options)
-    ).payload;
+    const { payload } = await jose.jwtVerify(
+      token,
+      new TextEncoder().encode(secret),
+      options,
+    );
+    return isMcpCredential(payload) ? null : payload;
   } catch {
     // coercion-ok: invalid signatures, expiry, or audience are rejected tokens; credential lookup failures throw separately.
     return null;
   }
+}
+
+function isMcpCredential(payload: jose.JWTPayload): boolean {
+  return (
+    payload.scope === "mcp-connect" || payload.typ === "agent-native-mcp-oauth"
+  );
 }
 
 /**

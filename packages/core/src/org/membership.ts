@@ -92,10 +92,14 @@ async function isOrgMemberWithPolicy(
   return validation.active;
 }
 
-export function isOrgMember(orgId: string, email: string): Promise<boolean> {
+export function isOrgMember(
+  orgId: string,
+  email: string,
+  options: { requireOrganizationMetadata?: boolean } = {},
+): Promise<boolean> {
   return isOrgMemberWithPolicy(orgId, email, {
-    allowMissingOrganizationTable: true,
-    requireOrganizationRecord: false,
+    allowMissingOrganizationTable: !options.requireOrganizationMetadata,
+    requireOrganizationRecord: !!options.requireOrganizationMetadata,
   });
 }
 
