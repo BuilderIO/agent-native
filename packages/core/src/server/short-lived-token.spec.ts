@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
+  COMPACT_TOKEN_PREFIX,
+  signCompactShortLivedToken,
   signGatewayAccessToken,
   signRealtimeSubscribeToken,
   signRealtimeVoiceCapability,
   signShortLivedToken,
+  verifyCompactShortLivedToken,
   verifyGatewayAccessToken,
   verifyRealtimeSubscribeToken,
   verifyRealtimeVoiceCapability,
@@ -107,6 +110,115 @@ describe("short-lived-token", () => {
     expect(verifyShortLivedToken(token, "rec_abc")).toEqual({
       ok: false,
       reason: "bad_signature",
+    });
+  });
+
+  describe("compact tokens", () => {
+    it("round-trips identity claims", () => {
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        viewerEmail: "alice@example.com",
+        agentLabel: "Fusion",
+      });
+
+      expect(token.startsWith(COMPACT_TOKEN_PREFIX)).toBe(true);
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: true,
+        viewerEmail: "alice@example.com",
+        agentLabel: "Fusion",
+      });
+    });
+
+    it("omits absent claims", () => {
+      const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: true,
+        viewerEmail: undefined,
+        agentLabel: undefined,
+      });
+    });
+
+    it("rejects a payload swapped under an existing signature", () => {
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        ttlSeconds: 60,
+      });
+      const [, sig] = token.slice(COMPACT_TOKEN_PREFIX.length).split(".");
+      const forged = `${COMPACT_TOKEN_PREFIX}${Buffer.from(
+        JSON.stringify({ e: 9e12, v: "attacker@example.com" }),
+      ).toString("base64url")}.${sig}`;
+
+      expect(verifyCompactShortLivedToken(forged, "rec_abc")).toEqual({
+        ok: false,
+        reason: "bad_signature",
+      });
+    });
+
+    it("rejects a tampered signature", () => {
+      const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
+      const [payload] = token.slice(COMPACT_TOKEN_PREFIX.length).split(".");
+
+      expect(
+        verifyCompactShortLivedToken(
+          `${COMPACT_TOKEN_PREFIX}${payload}.AAAAAAAA`,
+          "rec_abc",
+        ).ok,
+      ).toBe(false);
+    });
+
+    it("rejects a token signed for a different resource", () => {
+      const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
+
+      expect(verifyCompactShortLivedToken(token, "rec_xyz")).toEqual({
+        ok: false,
+        reason: "bad_signature",
+      });
+    });
+
+    it("rejects an expired token", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-30T12:00:00Z"));
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        ttlSeconds: 60,
+      });
+      vi.setSystemTime(new Date("2026-04-30T12:02:00Z"));
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: false,
+        reason: "expired",
+      });
+    });
+
+    it("rejects malformed tokens", () => {
+      expect(verifyCompactShortLivedToken("", "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken("v2_nodot", "rec_abc").ok).toBe(
+        false,
+      );
+      expect(verifyCompactShortLivedToken("v2_a.", "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken("v2_.b", "rec_abc").ok).toBe(false);
+    });
+
+    it("is not interchangeable with the legacy format", () => {
+      const compact = signCompactShortLivedToken({ resourceId: "rec_abc" });
+      const legacy = signShortLivedToken({ resourceId: "rec_abc" });
+
+      expect(verifyShortLivedToken(compact, "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken(legacy, "rec_abc")).toEqual({
+        ok: false,
+        reason: "malformed",
+      });
+    });
+
+    it("rejects a token once the signing secret changes", () => {
+      const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
+      process.env.OAUTH_STATE_SECRET = "a-different-secret";
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: false,
+        reason: "bad_signature",
+      });
     });
   });
 });
