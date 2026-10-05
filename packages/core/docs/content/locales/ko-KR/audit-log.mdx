@@ -28,7 +28,7 @@ When any **mutating** action runs (anything that isn't a read-only `GET`), the f
 - **Action** — the action name (e.g. `delete-recording`).
 - **배우** — `agent`, `human` 또는 `system` 및 배우의 이메일 — **에이전트 통화의 경우에도** 채워지므로 "에이전트, alice@을 대신하여 작업, …"이 표시됩니다.
 - **연결 실행** — 호출(도구 호출)을 트리거한 에이전트 `threadId` / `turnId`이므로 돌연변이는 정확한 에이전트 차례까지 추적됩니다.
-- **Surface** — `tool` (agent), `frontend`, `http`, `cli`, `mcp`, or `a2a`.
+- **Surface** — `tool` (에이전트), `frontend`, `http`, `cli`, `mcp`, `webmcp` 또는 `a2a`. `mcp`, `webmcp`, `a2a`를 통한 호출은 사용자의 자격 증명을 쓰는 외부 에이전트에서 오므로, 사용자 본인이 아니라 사용자를 대신하는 `agent`로 기록됩니다.
 - **Outcome** — `success`, `error` (with an error code), or `denied` (blocked by a human-approval gate).
 - **Inputs** — the call arguments, with credential-shaped values [redacted](#privacy).
 - **대상 및 소유자** — [scope reads](#reading)에 사용되는 작업이 변경된 리소스입니다.

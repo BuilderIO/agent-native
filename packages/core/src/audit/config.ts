@@ -42,11 +42,23 @@ export function shouldRecordAudit(
   return true;
 }
 
+/**
+ * Callers that are always an agent: the app's own agent (`tool`) and outside
+ * agents reaching the app over MCP, WebMCP, or A2A. Those arrive with the
+ * user's own token, so a signed-in email does not make the call a person's.
+ */
+export const AGENT_AUDIT_CALLERS: ReadonlySet<string> = new Set([
+  "tool",
+  "mcp",
+  "webmcp",
+  "a2a",
+]);
+
 export function deriveActorKind(
   caller: string | undefined,
   actorEmail: string | undefined | null,
 ): AuditActorKind {
-  if (caller === "tool") return "agent";
+  if (caller && AGENT_AUDIT_CALLERS.has(caller)) return "agent";
   return actorEmail ? "human" : "system";
 }
 

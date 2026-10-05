@@ -1678,6 +1678,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
   "settings.audit.action": "작업",
+  "settings.audit.agentVia": "{{protocol}}를 통한 에이전트",
   "settings.audit.allApps": "모든 앱",
   "settings.audit.app": "앱",
   "settings.audit.changedBy": "변경한 사람",

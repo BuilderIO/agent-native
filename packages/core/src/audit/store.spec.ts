@@ -164,7 +164,12 @@ describe("audit store filters + ordering", () => {
       }),
     );
     await insertAuditEvent(
-      makeEvent({ targetType: "doc", actorKind: "human", status: "error" }),
+      makeEvent({
+        targetType: "doc",
+        caller: "frontend",
+        actorKind: "human",
+        status: "error",
+      }),
     );
 
     expect(
@@ -188,6 +193,25 @@ describe("audit store filters + ordering", () => {
         { turnId: "turn-9" },
       ),
     ).toHaveLength(1);
+  });
+
+  it("reads rows recorded as human over MCP as the agent", async () => {
+    await insertAuditEvent(
+      makeEvent({ id: "legacy-mcp", caller: "mcp", actorKind: "human" }),
+    );
+    await insertAuditEvent(
+      makeEvent({ id: "click", caller: "frontend", actorKind: "human" }),
+    );
+    const scope = { userEmail: "alice@x.com" };
+
+    const legacy = await getAuditEventById("legacy-mcp", scope);
+    expect(legacy?.actorKind).toBe("agent");
+    expect(
+      (await queryAuditEvents(scope, { actorKind: "agent" })).map((e) => e.id),
+    ).toEqual(["legacy-mcp"]);
+    expect(
+      (await queryAuditEvents(scope, { actorKind: "human" })).map((e) => e.id),
+    ).toEqual(["click"]);
   });
 
   it("returns newest first and respects the limit", async () => {

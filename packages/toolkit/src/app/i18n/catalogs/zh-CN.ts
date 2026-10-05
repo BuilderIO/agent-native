@@ -1596,6 +1596,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.retry": "重试",
   "settings.storage.adminOnly": "只有组织所有者和管理员可以更改文件存储。",
   "settings.audit.action": "操作",
+  "settings.audit.agentVia": "通过 {{protocol}} 的智能体",
   "settings.audit.allApps": "所有应用",
   "settings.audit.app": "应用",
   "settings.audit.changedBy": "更改者",

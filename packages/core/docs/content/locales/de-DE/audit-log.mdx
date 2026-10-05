@@ -28,7 +28,7 @@ Wenn eine **mutierende** Aktion ausgeführt wird (alles, was kein schreibgeschü
 - **Aktion** – der Aktionsname (z. B. `delete-recording`).
 - **Akteur** – `agent`, `human` oder `system`, plus die E-Mail-Adresse des Schauspielers – wird **auch für Agentenanrufe** ausgefüllt, sodass Sie „der Agent, der für Alice@ handelt, …“ erhalten.
 - **Run linkage** – der Agent `threadId` / `turnId`, der den Aufruf (einen Tool-Aufruf) ausgelöst hat, sodass eine Mutation auf den genauen Agentenzug zurückgeführt werden kann.
-- **Oberfläche** – `tool` (Agent), `frontend`, `http`, `cli`, `mcp` oder `a2a`.
+- **Oberfläche** – `tool` (Agent), `frontend`, `http`, `cli`, `mcp`, `webmcp` oder `a2a`. Ein Aufruf über `mcp`, `webmcp` oder `a2a` kommt von einem externen Agenten mit Ihren Anmeldedaten und wird daher als `agent` in Ihrem Auftrag erfasst, nicht als Sie selbst.
 - **Ergebnis** – `success`, `error` (mit einem Fehlercode) oder `denied` (durch ein menschliches Genehmigungstor blockiert).
 - **Eingaben** – die Aufrufargumente mit anmeldeinformationsförmigen Werten [redacted](#privacy).
 - **Ziel und Eigentümer** – die Ressource, die durch die Aktion geändert wurde, verwendet für [scope reads](#reading).

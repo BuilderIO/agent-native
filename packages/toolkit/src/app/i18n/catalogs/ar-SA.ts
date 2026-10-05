@@ -1842,6 +1842,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير تخزين الملفات.",
   "settings.audit.action": "الإجراء",
+  "settings.audit.agentVia": "وكيل عبر {{protocol}}",
   "settings.audit.allApps": "كل التطبيقات",
   "settings.audit.app": "التطبيق",
   "settings.audit.changedBy": "تم التغيير بواسطة",
