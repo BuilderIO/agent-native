@@ -1571,8 +1571,12 @@ export async function instrumentAgentLoop(opts: {
             "agent.successful_tools": successfulTools,
             "agent.failed_tools": failedTools,
             "agent.duration_ms": totalDurationMs,
-            "gen_ai.usage.input_tokens": usage?.inputTokens ?? 0,
-            "gen_ai.usage.output_tokens": usage?.outputTokens ?? 0,
+            "gen_ai.usage.input_tokens": usage?.usageReported
+              ? usage.inputTokens
+              : undefined,
+            "gen_ai.usage.output_tokens": usage?.usageReported
+              ? usage.outputTokens
+              : undefined,
             "agent.cost_cents_x100": costCentsX100,
             "agent.terminal_state": effectiveTerminalOutcome?.state,
             "agent.terminal_code":

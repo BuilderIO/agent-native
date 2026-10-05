@@ -2316,6 +2316,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     const runSpan = spans.find((span) => span.name === "invoke_agent");
     expect(runSpan?.attributes["agent.llm_calls"]).toBe(2);
+    expect(runSpan?.attributes).not.toHaveProperty("gen_ai.usage.input_tokens");
+    expect(runSpan?.attributes).not.toHaveProperty(
+      "gen_ai.usage.output_tokens",
+    );
   });
 
   it("distinguishes explicit tool failures from legacy inferred errors", async () => {
