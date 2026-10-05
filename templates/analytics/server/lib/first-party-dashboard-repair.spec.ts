@@ -320,6 +320,25 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     ]);
   });
 
+  it("preserves custom BigQuery dashboard filter defaults", () => {
+    const config = {
+      filters: [
+        { id: "timeRange", default: "30d" },
+        { id: "emailFilter", default: "only_builder" },
+        { id: "appFilter", default: "all" },
+      ],
+      panels: [],
+    };
+
+    const repaired = repairKnownFirstPartyDashboardQueries(
+      FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config,
+    );
+
+    expect(repaired.changed).toBe(false);
+    expect(repaired.config.filters).toEqual(config.filters);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-21T17:00:00.000Z"));

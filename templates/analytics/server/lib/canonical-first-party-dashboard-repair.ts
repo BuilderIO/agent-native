@@ -828,6 +828,10 @@ function repairFirstPartyBigQueryDashboardFilterDefaults(
       )
       .map((filter) => [filter.id, filter.default]),
   );
+  const legacyDefaults = new Map<string, Set<unknown>>([
+    ["timeRange", new Set(["all"])],
+    ["emailFilter", new Set(["all"])],
+  ]);
   let changed = false;
   const filters = config.filters.map((filter) => {
     if (!filter || typeof filter !== "object" || Array.isArray(filter)) {
@@ -836,7 +840,14 @@ function repairFirstPartyBigQueryDashboardFilterDefaults(
     const record = filter as Record<string, unknown>;
     const expected =
       typeof record.id === "string" ? canonicalDefaults.get(record.id) : null;
-    if (!expected || record.default === expected) return filter;
+    const legacy =
+      typeof record.id === "string" ? legacyDefaults.get(record.id) : null;
+    if (
+      !expected ||
+      record.default === expected ||
+      !legacy?.has(record.default)
+    )
+      return filter;
     changed = true;
     return { ...record, default: expected };
   });
