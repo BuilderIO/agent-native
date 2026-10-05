@@ -230,6 +230,8 @@ export function WebGlWaveBackground({
     let reducedMotion = reducedMotionQuery?.matches ?? false;
 
     let dpr = 1;
+    let isVisible = false;
+    let visibilityObserver: IntersectionObserver | null = null;
     let hasPointer = false;
     let pointerX = 0;
     let pointerY = 0;
@@ -372,23 +374,19 @@ export function WebGlWaveBackground({
     const reducedMotionStaticTime = 20;
 
     function render(now: number) {
-      if (reducedMotion) {
-        rafRef.current = 0;
-        return;
+      rafRef.current = 0;
+      if (reducedMotion || !isVisible) return;
+      if (now - lastFrame >= frameBudget) {
+        lastFrame = now;
+        draw((now - startTime) * 0.001);
       }
-      rafRef.current = requestAnimationFrame(render);
-
-      if (now - lastFrame < frameBudget) return;
-      lastFrame = now;
-
-      const rect = container.getBoundingClientRect();
-      if (rect.bottom < 0 || rect.top > window.innerHeight) return;
-
-      draw((now - startTime) * 0.001);
+      if (isVisible && !reducedMotion) {
+        rafRef.current = requestAnimationFrame(render);
+      }
     }
 
     function startAnimation() {
-      if (!rafRef.current) {
+      if (!reducedMotion && isVisible && !rafRef.current) {
         rafRef.current = requestAnimationFrame(render);
       }
     }
@@ -398,6 +396,32 @@ export function WebGlWaveBackground({
         cancelAnimationFrame(rafRef.current);
         rafRef.current = 0;
       }
+    }
+
+    function updateVisibility(visible: boolean) {
+      isVisible = visible;
+      if (visible) startAnimation();
+      else stopAnimation();
+    }
+
+    function checkViewport() {
+      const rect = container.getBoundingClientRect();
+      updateVisibility(rect.bottom >= 0 && rect.top <= window.innerHeight);
+    }
+
+    if (typeof IntersectionObserver === "undefined") {
+      window.addEventListener("scroll", checkViewport, {
+        capture: true,
+        passive: true,
+      });
+      window.addEventListener("resize", checkViewport);
+      checkViewport();
+    } else {
+      visibilityObserver = new IntersectionObserver(
+        ([entry]) => updateVisibility(entry?.isIntersecting ?? false),
+        { threshold: 0 },
+      );
+      visibilityObserver.observe(container);
     }
 
     function handleReducedMotionChange() {
@@ -432,6 +456,11 @@ export function WebGlWaveBackground({
       }
       observer.disconnect();
       resizeObserver?.disconnect();
+      visibilityObserver?.disconnect();
+      if (!visibilityObserver) {
+        window.removeEventListener("scroll", checkViewport, true);
+        window.removeEventListener("resize", checkViewport);
+      }
       window.removeEventListener("resize", resize);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("mousemove", handlePointerMove);

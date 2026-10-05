@@ -672,7 +672,7 @@
       "catalogItems": ["app-auth"],
       "entrypoints": ["./app/auth", "./app/auth/server"],
       "strategy": "source-copy",
-      "sourceEntries": ["src/app/auth"],
+      "sourceEntries": ["src/app/auth", "src/wgsl-env.d.ts"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/core",

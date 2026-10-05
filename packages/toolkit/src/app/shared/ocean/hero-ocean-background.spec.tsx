@@ -62,6 +62,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   createRenderer.mockClear();
   importSpy.mockClear();
@@ -123,6 +124,35 @@ describe("HeroOceanBackground", () => {
       if (onError.mock.calls.length) throw onError.mock.calls[0]![0];
       expect(createRenderer).toHaveBeenCalled();
     });
+  });
+
+  it("starts the first-frame deadline after renderer initialization", async () => {
+    vi.useFakeTimers();
+    let finishInitialization: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      finishInitialization = resolve;
+    });
+    createRenderer.mockReturnValueOnce({ ...renderer, ready });
+    const onError = vi.fn();
+    const onReady = vi.fn();
+
+    render(<HeroOceanBackground onError={onError} onReady={onReady} />);
+    await act(async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+    expect(createRenderer).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(7_000);
+    });
+    expect(onError).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishInitialization?.();
+      await ready;
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+    expect(onReady).toHaveBeenCalledOnce();
   });
 
   it("pushes brand colours through on a theme change", async () => {

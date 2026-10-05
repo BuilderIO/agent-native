@@ -2,8 +2,10 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, extname, join, relative } from "node:path";
 
@@ -25,6 +27,22 @@ for (const sourceFile of walk("src")) {
   const output = join("dist", relative("src", sourceFile));
   mkdirSync(dirname(output), { recursive: true });
   copyFileSync(sourceFile, output);
+  if (extension === ".wgsl") {
+    writeFileSync(
+      `${output}.js`,
+      `export default ${JSON.stringify(readFileSync(sourceFile, "utf8"))};\n`,
+    );
+  }
+}
+
+for (const outputFile of walk("dist")) {
+  if (extname(outputFile) !== ".js") continue;
+  const source = readFileSync(outputFile, "utf8");
+  const rewritten = source.replace(
+    /(["'])(\.\.?\/[^"']+\.wgsl)\?raw\1/g,
+    "$1$2.js$1",
+  );
+  if (rewritten !== source) writeFileSync(outputFile, rewritten);
 }
 
 const missing = [];
@@ -52,6 +70,7 @@ for (const sourceFile of walk("src")) {
   if (extension === ".wgsl") {
     const output = join("dist", relativeSource);
     if (!existsSync(output)) missing.push(output);
+    if (!existsSync(`${output}.js`)) missing.push(`${output}.js`);
     continue;
   }
 

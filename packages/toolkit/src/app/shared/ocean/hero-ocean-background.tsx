@@ -5,6 +5,7 @@ import type { OceanRenderer } from "./renderer";
 import { OCEAN_TUNING } from "./tuning";
 
 const FADE_IN_MS = 700;
+const RENDERER_INIT_TIMEOUT_MS = 30_000;
 const FIRST_FRAME_TIMEOUT_MS = 6000;
 
 export interface HeroOceanBackgroundProps {
@@ -37,13 +38,29 @@ export function HeroOceanBackground({
 
     let renderer: OceanRenderer | undefined;
     let cancelled = false;
+    let rendererFailed = false;
     const cleanups: (() => void)[] = [];
-    const firstFrameTimeout = window.setTimeout(
-      () =>
-        onErrorRef.current(new Error("The ocean wave did not draw a frame")),
-      FIRST_FRAME_TIMEOUT_MS,
-    );
-    cleanups.push(() => window.clearTimeout(firstFrameTimeout));
+    let firstFrameTimeout: number | undefined;
+    const rendererInitTimeout = window.setTimeout(() => {
+      failRenderer(new Error("The ocean wave renderer did not initialize"));
+    }, RENDERER_INIT_TIMEOUT_MS);
+    cleanups.push(() => {
+      window.clearTimeout(rendererInitTimeout);
+      if (firstFrameTimeout !== undefined) {
+        window.clearTimeout(firstFrameTimeout);
+      }
+    });
+
+    const failRenderer = (error: unknown) => {
+      if (cancelled || rendererFailed) return;
+      rendererFailed = true;
+      window.clearTimeout(rendererInitTimeout);
+      if (firstFrameTimeout !== undefined) {
+        window.clearTimeout(firstFrameTimeout);
+      }
+      renderer?.dispose();
+      onErrorRef.current(error);
+    };
     let pointerTarget: PointerTarget = [0, 0, 0];
     let lastPointer: readonly [number, number] | undefined;
 
@@ -96,24 +113,35 @@ export function HeroOceanBackground({
 
     void import("./renderer")
       .then(({ createRenderer }) => {
-        if (cancelled) return;
+        if (cancelled || rendererFailed) return;
         renderer = createRenderer({
           canvas,
           colors: readOceanColors(container),
           fps: frameRate,
-          onError: (error) => onErrorRef.current(error),
+          onError: failRenderer,
         });
         renderer.setPointer(pointerTarget);
 
-        void renderer.firstFrame
+        void renderer.ready
           .then(() => {
-            window.clearTimeout(firstFrameTimeout);
-            if (!cancelled) {
-              setReady(true);
-              onReadyRef.current();
-            }
+            if (cancelled || rendererFailed) return;
+            window.clearTimeout(rendererInitTimeout);
+            firstFrameTimeout = window.setTimeout(
+              () =>
+                failRenderer(new Error("The ocean wave did not draw a frame")),
+              FIRST_FRAME_TIMEOUT_MS,
+            );
+            return renderer?.firstFrame;
           })
-          .catch(() => {});
+          .then(() => {
+            if (cancelled || rendererFailed) return;
+            if (firstFrameTimeout !== undefined) {
+              window.clearTimeout(firstFrameTimeout);
+            }
+            setReady(true);
+            onReadyRef.current();
+          })
+          .catch(failRenderer);
 
         const themeObserver = new MutationObserver(() => {
           renderer?.setColors(readOceanColors(container));
