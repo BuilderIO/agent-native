@@ -3,6 +3,8 @@ import type {
   DocumentEditorShape,
 } from "@/components/editor/document-editor-layout";
 
+import { LAST_LOCATION_HINT_STORAGE_KEY } from "./last-location-hint";
+
 // Before a page loads, nothing says what it will draw: whether it has an icon,
 // whether this person can edit it, whether it is a collection, or whether its
 // open comments hold the review margin open. What this browser last drew for a
@@ -92,10 +94,12 @@ export function rememberPageShape(
 }
 
 // Runs in <head> before the first paint, so the server-rendered placeholder
-// for a page holds the boxes that page last drew. The app may sit under a base
-// path, so the id is the segment after `page` wherever it appears.
+// holds the boxes a page last drew. The app may sit under a base path; on
+// `/home`, use the last-location id unless the URL selects a specific space.
 // coercion-ok: an unreadable hint only means the page may move once.
-export const CONTENT_STARTUP_PAGE_HINTS_SCRIPT = `(function(){try{var p=location.pathname.split("/"),i=p.indexOf("page");if(i<0||!p[i+1])return;var d=document.documentElement,id=decodeURIComponent(p[i+1]);function h(k){try{return JSON.parse(localStorage.getItem(k)||"{}")[id]}catch(e){}}var r=h(${JSON.stringify(
+export const CONTENT_STARTUP_PAGE_HINTS_SCRIPT = `(function(){try{var p=location.pathname.split("/").filter(Boolean),i=p.indexOf("page"),id=i>=0&&p[i+1]?decodeURIComponent(p[i+1]):null;if(!id&&p[p.length-1]==="home"&&!/[?&]spaceId=/.test(location.search))id=(JSON.parse(localStorage.getItem(${JSON.stringify(
+  LAST_LOCATION_HINT_STORAGE_KEY,
+)})||"null")||{}).documentId;if(typeof id!=="string"||!id)return;var d=document.documentElement;function h(k){try{return JSON.parse(localStorage.getItem(k)||"{}")[id]}catch(e){}}var r=h(${JSON.stringify(
   PAGE_ICON_ROWS_STORAGE_KEY,
 )}),s=h(${JSON.stringify(PAGE_SHAPES_STORAGE_KEY)});if(r==="icon"||r==="none")d.setAttribute(${JSON.stringify(
   STARTUP_PAGE_ICON_ROW_ATTRIBUTE,

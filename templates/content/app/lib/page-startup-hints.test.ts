@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { LAST_LOCATION_HINT_STORAGE_KEY } from "./last-location-hint";
 import {
   CONTENT_STARTUP_PAGE_HINTS_SCRIPT,
   STARTUP_PAGE_ICON_ROW_ATTRIBUTE,
@@ -136,6 +137,24 @@ describe("page shape hint", () => {
     ).toBeNull();
     expect(
       runStartupScript("/page/%E0%A4%A", STARTUP_PAGE_SHAPE_ATTRIBUTE),
+    ).toBeNull();
+  });
+
+  it("marks the last page's shape on home unless a space is selected", () => {
+    rememberPageShape("page-1", "review");
+    localStorage.setItem(
+      LAST_LOCATION_HINT_STORAGE_KEY,
+      JSON.stringify({ scope: "account-org", documentId: "page-1" }),
+    );
+
+    expect(runStartupScript("/home", STARTUP_PAGE_SHAPE_ATTRIBUTE)).toBe(
+      "review",
+    );
+    expect(
+      runStartupScript("/content/home", STARTUP_PAGE_SHAPE_ATTRIBUTE),
+    ).toBe("review");
+    expect(
+      runStartupScript("/home?spaceId=space-1", STARTUP_PAGE_SHAPE_ATTRIBUTE),
     ).toBeNull();
   });
 });
