@@ -69,6 +69,7 @@ import {
   type Status,
   type StyleDiff,
 } from "./lib/metrics.ts";
+import { isRetryableInfraError } from "./retry-infra.ts";
 import { readValueOption } from "./run-options.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -207,9 +208,6 @@ if (
   fatal(
     "--browser webkit|firefox is supported with --caret-qa, --authoring, --authoring-corpus, --authoring-fuzz, or --text-surface-qa",
   );
-}
-if (caretQaOnly && browserName !== "chromium") {
-  fatal("--caret-qa is supported in Chromium only");
 }
 for (const s of scenarios) {
   if (!SCENARIOS.includes(s))
@@ -694,7 +692,7 @@ async function action<T = any>(
   if (!res.ok) {
     throw new Error(
       res.status === 0
-        ? `${name} request ${res.text}`
+        ? `${method === "GET" ? "GET " : ""}${name} request ${res.text}`
         : `${name} returned HTTP ${res.status}`,
     );
   }
@@ -749,7 +747,9 @@ async function ensureSignedIn(page: Page) {
       { url, method, timeoutMs },
     );
     if ("timedOut" in result) {
-      throw new CouldNotRun(`${url} timed out after ${timeoutMs}ms`);
+      throw new CouldNotRun(
+        `${method === "GET" ? "GET " : "POST "}${url} timed out after ${timeoutMs}ms`,
+      );
     }
     return result.status;
   };
@@ -1349,12 +1349,7 @@ async function runImeEscapeRegression(
   }
 }
 
-async function runTextSurfaceQa(
-  page: Page,
-  base: string,
-  browserName: string,
-  caretOnly = false,
-) {
+async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
   const problems: string[] = [];
   const usesChromiumIme = browserName === "chromium";
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
@@ -1799,7 +1794,6 @@ async function runTextSurfaceQa(
         "slide text: line-end key moved the caret outside the editor",
       );
     }
-    if (caretOnly) return problems;
     const titleInput = page
       .locator('[data-slides-editor-root="true"] input[type="text"]')
       .first();
@@ -2234,6 +2228,194 @@ async function runTextSurfaceQa(
       problems.push(
         `text-surface QA could not delete its synthetic deck: ${String(error)}`,
       );
+    }
+  }
+  return problems;
+}
+
+async function runCaretQa(page: Page, base: string) {
+  const problems: string[] = [];
+  const slideId = "caret-qa-wrapped-row";
+  let deckId = "";
+  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true, chatEligible: true }),
+    }),
+  );
+
+  try {
+    await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+    await ensureSignedIn(page);
+    const created = await action(page, "create-deck", {
+      title: `[edit-fidelity] caret QA ${Date.now()}`,
+      slides: [
+        {
+          id: slideId,
+          content:
+            '<div class="fmd-slide"><p style="width: 118px; margin: 0"><span aria-hidden="true" style="display:inline-block;width:14px">•</span><span class="qa-wrapped-row-text">Alpha beta gamma delta epsilon zeta eta</span></p></div>',
+        },
+      ],
+    });
+    deckId = String(created.id ?? created.deckId);
+    await openSlide(page, base, deckId, 0, slideId);
+    const [target] = await listTargets(page, slideId);
+    const entryProblems: string[] = [];
+    if (
+      !target ||
+      !(await enterEdit(page, slideId, target.point, entryProblems))
+    ) {
+      throw new Error(
+        `could not open wrapped bullet text for editing${entryProblems.length ? `: ${entryProblems.join("; ")}` : ""}`,
+      );
+    }
+
+    const editor = page.locator(
+      `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`,
+    );
+    const lines = await editor.evaluate((element: HTMLElement) => {
+      const text = element.querySelector(".qa-wrapped-row-text")?.firstChild;
+      if (!(text instanceof Text)) return [];
+      const byTop = new Map<number, { start: number; end: number }>();
+      for (let offset = 0; offset < text.length; offset += 1) {
+        const range = document.createRange();
+        range.setStart(text, offset);
+        range.setEnd(text, offset + 1);
+        const rect = range.getBoundingClientRect();
+        if (!rect.height) continue;
+        const key = Math.round(rect.top);
+        const line = byTop.get(key);
+        if (line) {
+          line.start = Math.min(line.start, offset);
+          line.end = Math.max(line.end, offset + 1);
+        } else {
+          byTop.set(key, { start: offset, end: offset + 1 });
+        }
+      }
+      return [...byTop.values()]
+        .map(({ start, end }) => {
+          while (start < end && /[\t\n\v\f\r ]/.test(text.data[start])) {
+            start += 1;
+          }
+          while (end > start && /[\t\n\v\f\r ]/.test(text.data[end - 1])) {
+            end -= 1;
+          }
+          return { start, end };
+        })
+        .filter(({ start, end }) => end > start);
+    });
+    if (lines.length < 2) {
+      problems.push("wrapped bullet: fixture did not produce two visual lines");
+      return problems;
+    }
+
+    const setCaret = async (offset: number) => {
+      await editor.focus();
+      return editor.evaluate((element: HTMLElement, targetOffset: number) => {
+        const text = element.querySelector(".qa-wrapped-row-text")?.firstChild;
+        if (!(text instanceof Text)) return false;
+        const selection = window.getSelection();
+        if (!selection || targetOffset < 0 || targetOffset > text.length) {
+          return false;
+        }
+        const range = document.createRange();
+        range.setStart(text, targetOffset);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      }, offset);
+    };
+    const caretState = () =>
+      editor.evaluate((element: HTMLElement) => {
+        const span = element.querySelector(".qa-wrapped-row-text");
+        const text = span?.firstChild;
+        const selection = window.getSelection();
+        if (
+          !(span instanceof HTMLElement) ||
+          !(text instanceof Text) ||
+          !selection?.focusNode
+        ) {
+          return null;
+        }
+        let offset = selection.focusNode === text ? selection.focusOffset : -1;
+        const row = span.parentNode;
+        const index = row ? Array.from(row.childNodes).indexOf(span) : -1;
+        if (selection.focusNode === span && selection.focusOffset === 0)
+          offset = 0;
+        if (selection.focusNode === row && selection.focusOffset === index)
+          offset = 0;
+        if (selection.focusNode === row && selection.focusOffset === index + 1)
+          offset = text.length;
+        return {
+          offset,
+          inside: element.contains(selection.focusNode),
+          focused: document.activeElement === element,
+        };
+      });
+
+    for (const [index, line] of lines.entries()) {
+      const innerOffset = line.start + Math.min(1, line.end - line.start - 1);
+      if (!(await setCaret(innerOffset))) {
+        problems.push(
+          `wrapped bullet: could not place caret inside visual line ${index + 1}`,
+        );
+        continue;
+      }
+      await page.keyboard.press(lineStartKey);
+      const start = await caretState();
+      if (!start?.inside || !start.focused || start.offset !== line.start) {
+        problems.push(
+          `wrapped bullet: line-start key landed at ${start?.offset ?? "outside"}, expected ${line.start} on visual line ${index + 1}`,
+        );
+      }
+      await page.keyboard.press(lineEndKey);
+      const end = await caretState();
+      if (!end?.inside || !end.focused || end.offset !== line.end) {
+        problems.push(
+          `wrapped bullet: line-end key landed at ${end?.offset ?? "outside"}, expected ${line.end} on visual line ${index + 1}`,
+        );
+      }
+    }
+
+    const [firstLine] = lines;
+    if (!(await setCaret(firstLine.start + 1))) {
+      problems.push("wrapped bullet: could not place caret before typing");
+    } else {
+      await page.keyboard.press(lineEndKey);
+      const beforeText = await editor
+        .locator(".qa-wrapped-row-text")
+        .textContent();
+      await page.keyboard.type("!");
+      const afterText = await editor
+        .locator(".qa-wrapped-row-text")
+        .textContent();
+      if (beforeText === null) {
+        problems.push("wrapped bullet: text disappeared before typing");
+      } else if (
+        afterText !==
+        `${beforeText.slice(0, firstLine.end)}!${beforeText.slice(firstLine.end)}`
+      ) {
+        problems.push(
+          "wrapped bullet: typing after line-end moved from the caret",
+        );
+      }
+    }
+    const marker = await editor.locator('[aria-hidden="true"]').innerText();
+    if (marker !== "•")
+      problems.push("wrapped bullet: line navigation edited its marker");
+  } catch (error) {
+    problems.push(`caret QA could not finish: ${String(error)}`);
+  } finally {
+    if (deckId) {
+      try {
+        await action(page, "delete-deck", { id: deckId }, "DELETE");
+      } catch (error) {
+        problems.push(
+          `caret QA could not delete its synthetic deck: ${String(error)}`,
+        );
+      }
     }
   }
   return problems;
@@ -5593,14 +5775,15 @@ async function runCase(
             continue;
           }
           let r = await runScenario(ctx, target, scenario);
-          if (r.status === "error" && INFRA.test(r.error ?? "")) {
+          if (r.status === "error" && isRetryableInfraError(r.error ?? "")) {
             const first = r.error;
             await worker.reopen();
             ctx.page = worker.page;
             ctx.sheetPage = worker.sheetPage;
             r = await runScenario(ctx, target, scenario);
             r.retriedAfter = first;
-            r.infra = r.status === "error" && INFRA.test(r.error ?? "");
+            r.infra =
+              r.status === "error" && isRetryableInfraError(r.error ?? "");
             if (r.infra) rewriteResult(dir, r);
           }
           results.push(r);
@@ -5609,7 +5792,7 @@ async function runCase(
       }
     } catch (error) {
       report.error = String((error as Error).message ?? error).slice(0, 500);
-      report.infra = INFRA.test(report.error);
+      report.infra = isRetryableInfraError(report.error);
       console.error(`[edit-fidelity] ${c.id} slide ${i + 1}: ${report.error}`);
     }
     writeFileSync(
@@ -5633,14 +5816,11 @@ function rewriteResult(dir: string, r: ScenarioResult) {
  * or selector deadline, and a crashed page closes. Each is retried once on a
  * fresh page; one that repeats is reported apart from editor failures.
  */
-const INFRA =
-  /Execution context was destroyed|canvas not found|frame was detached|Target page, context or browser has been closed|Target crashed|net::ERR_ABORTED|Timeout \d+ms exceeded/;
-
 async function retryInfra<T>(worker: Worker, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (error) {
-    if (!INFRA.test(String((error as Error).message ?? error))) throw error;
+    if (!isRetryableInfraError(error)) throw error;
     await worker.reopen();
     return fn();
   }
@@ -5785,7 +5965,7 @@ async function main() {
 
     if (caretQaOnly) {
       const page = await context.newPage();
-      const problems = await runTextSurfaceQa(page, base, browserName, true);
+      const problems = await runCaretQa(page, base);
       await page.close();
       if (problems.length) {
         console.error(`[edit-fidelity] text caret QA: ${problems.join("; ")}`);
@@ -5921,7 +6101,7 @@ async function main() {
               openMutatesContent: false,
               targets: 0,
               error: message,
-              infra: INFRA.test(message),
+              infra: isRetryableInfraError(message),
             });
             console.error(`[edit-fidelity] ${c.id}: ${message}`);
           }

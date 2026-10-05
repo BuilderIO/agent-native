@@ -515,19 +515,25 @@ function placeCaret(node: Node, offset: number) {
   selection.addRange(range);
 }
 
+function textNodesInRange(range: Range): Text[] {
+  const root = range.commonAncestorContainer;
+  if (root instanceof Text) return [root];
+  const nodes: Text[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    nodes.push(node as Text);
+  }
+  return nodes;
+}
+
 function rowTextPoint(
   range: Range,
   marker: HTMLElement | null,
   row: HTMLElement,
   edge: "start" | "end",
 ): [Node, number] {
-  const walker = document.createTreeWalker(
-    range.commonAncestorContainer,
-    NodeFilter.SHOW_TEXT,
-  );
   let last: [Node, number] | null = null;
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const text = node as Text;
+  for (const text of textNodesInRange(range)) {
     let nestedRow = false;
     for (
       let parent = text.parentElement;
@@ -554,6 +560,98 @@ function rowTextPoint(
     last = [text, end];
   }
   return last ?? [range.startContainer, range.startOffset];
+}
+
+function rowTextVisualLinePoint(
+  textRange: Range,
+  marker: HTMLElement | null,
+  row: HTMLElement,
+  caret: Range,
+  edge: "start" | "end",
+): [Node, number] | null {
+  let lineTop: number | null = null;
+  if (caret.startContainer instanceof Text) {
+    const text = caret.startContainer;
+    let offset = Math.min(caret.startOffset, text.length - 1);
+    if (
+      offset > 0 &&
+      text.data.charCodeAt(offset) >= 0xdc00 &&
+      text.data.charCodeAt(offset) <= 0xdfff &&
+      text.data.charCodeAt(offset - 1) >= 0xd800 &&
+      text.data.charCodeAt(offset - 1) <= 0xdbff
+    ) {
+      offset -= 1;
+    }
+    if (offset >= 0) {
+      const character = document.createRange();
+      character.setStart(text, offset);
+      character.setEnd(
+        text,
+        offset + ((text.data.codePointAt(offset) ?? 0) > 0xffff ? 2 : 1),
+      );
+      const rect = character.getBoundingClientRect();
+      if (rect.height > 0) lineTop = rect.top;
+    }
+  }
+  if (lineTop === null) {
+    const caretRect = caret.getBoundingClientRect();
+    if (caretRect.height > 0) lineTop = caretRect.top;
+  }
+  if (lineTop === null) return null;
+
+  let first: [Node, number] | null = null;
+  let firstVisible: [Node, number] | null = null;
+  let last: [Node, number] | null = null;
+  let lastVisible: [Node, number] | null = null;
+  for (const text of textNodesInRange(textRange)) {
+    let nestedRow = false;
+    for (
+      let parent = text.parentElement;
+      parent && parent !== row;
+      parent = parent.parentElement
+    ) {
+      if (
+        parent.tagName === "UL" ||
+        parent.tagName === "OL" ||
+        parent.tagName === "LI" ||
+        isBulletRow(parent)
+      ) {
+        nestedRow = true;
+        break;
+      }
+    }
+    if (
+      nestedRow ||
+      marker?.contains(text) ||
+      !textRange.intersectsNode(text)
+    ) {
+      continue;
+    }
+    const start = text === textRange.startContainer ? textRange.startOffset : 0;
+    const end =
+      text === textRange.endContainer ? textRange.endOffset : text.length;
+    for (let offset = start; offset < end; ) {
+      const width = (text.data.codePointAt(offset) ?? 0) > 0xffff ? 2 : 1;
+      const character = document.createRange();
+      character.setStart(text, offset);
+      character.setEnd(text, Math.min(end, offset + width));
+      const rect = character.getBoundingClientRect();
+      if (rect.height > 0 && Math.abs(rect.top - lineTop) <= 1) {
+        const startPoint: [Node, number] = [text, offset];
+        const endPoint: [Node, number] = [text, Math.min(end, offset + width)];
+        // Wrapped whitespace can keep a Range rect after the visible line edge.
+        const visible = !/^[\t\n\v\f\r ]+$/u.test(
+          text.data.slice(offset, Math.min(end, offset + width)),
+        );
+        first ??= startPoint;
+        if (visible) firstVisible ??= startPoint;
+        last = endPoint;
+        if (visible) lastVisible = endPoint;
+      }
+      offset += width;
+    }
+  }
+  return edge === "start" ? (firstVisible ?? first) : (lastVisible ?? last);
 }
 
 /**
@@ -1842,6 +1940,7 @@ export function startInPlaceTextSession(
       row = row.parentElement
     ) {
       if (row.hasAttribute("data-slide-plain-row")) return row;
+      if (row === el && isBulletRow(row)) return row;
       if (
         row !== el &&
         row.parentElement &&
@@ -4726,9 +4825,15 @@ export function startInPlaceTextSession(
         const marker = rowMarker(row);
         const text = rowTextRange(row, marker);
         if (key === "arrowleft") {
-          placeCaret(...rowTextPoint(text, marker, row, "start"));
+          placeCaret(
+            ...(rowTextVisualLinePoint(text, marker, row, range, "start") ??
+              rowTextPoint(text, marker, row, "start")),
+          );
         } else {
-          placeCaret(...rowTextPoint(text, marker, row, "end"));
+          placeCaret(
+            ...(rowTextVisualLinePoint(text, marker, row, range, "end") ??
+              rowTextPoint(text, marker, row, "end")),
+          );
         }
         return;
       }
@@ -4747,7 +4852,10 @@ export function startInPlaceTextSession(
         event.preventDefault();
         const marker = rowMarker(row);
         const text = rowTextRange(row, marker);
-        placeCaret(...rowTextPoint(text, marker, row, "start"));
+        placeCaret(
+          ...(rowTextVisualLinePoint(text, marker, row, range, "start") ??
+            rowTextPoint(text, marker, row, "start")),
+        );
         return;
       }
     }
@@ -4815,10 +4923,28 @@ export function startInPlaceTextSession(
     ) {
       event.preventDefault();
       commands.toggleList(event.code === "Digit7" ? "ordered" : "bullet");
-    } else if (event.key === "End" && !mod && !event.shiftKey) {
-      // One character in, the caret is on the text's own line for End.
-      const range = selectionRange();
-      if (range && atRowTextStart(range)) placeCaret(range.startContainer, 1);
+    } else if (
+      event.key === "End" &&
+      !mod &&
+      !event.altKey &&
+      !event.shiftKey
+    ) {
+      const range = selectionFocusRange();
+      const row = range && legacyRowAt(range.startContainer);
+      if (range && row && !/Mac|iPhone|iPad/.test(navigator.platform)) {
+        event.preventDefault();
+        const marker = rowMarker(row);
+        const text = rowTextRange(row, marker);
+        placeCaret(
+          ...(rowTextVisualLinePoint(text, marker, row, range, "end") ??
+            rowTextPoint(text, marker, row, "end")),
+        );
+      } else {
+        // One character in, the caret is on the text's own line for End.
+        const selection = selectionRange();
+        if (selection && atRowTextStart(selection))
+          placeCaret(selection.startContainer, 1);
+      }
     } else if (event.key === "Tab" && !mod) {
       // Tab never moves focus out of the text being edited; Escape ends it.
       event.preventDefault();

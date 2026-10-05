@@ -29,6 +29,8 @@ Run the job's focused line-edge caret check for in-place slide text editing:
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --browser firefox
 ```
 
 Run the Chromium IME Escape regression in an in-place slide text session:

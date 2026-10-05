@@ -918,16 +918,19 @@ describe("in-place text session: the caret at the click point", () => {
     }
   });
 
-  it("types into the row's text, not its glyph, and steps End off the glyph at a row's start", () => {
+  it("types into a row's text, not its glyph, and keeps End out of the marker", () => {
     const el = mount(
       '<div id="t"><p><span aria-hidden="true" style="display: inline-block">•</span><span>Alpha</span></p><p><span aria-hidden="true" style="display: inline-block">•</span><span>Beta</span></p></div>',
     );
     session = startInPlaceTextSession(el);
     const alpha = textOf(el, "Alpha");
     caret(alpha, 0);
-    expect(key(el, { key: "End" }).defaultPrevented).toBe(false);
+    expect(key(el, { key: "End" }).defaultPrevented).toBe(true);
     const range = window.getSelection()!.getRangeAt(0);
-    expect([range.startContainer, range.startOffset]).toEqual([alpha, 1]);
+    expect([range.startContainer, range.startOffset]).toEqual([
+      alpha,
+      alpha.length,
+    ]);
     caret(alpha, 0);
     expect(beforeInput(el, "insertText", { data: "x" }).defaultPrevented).toBe(
       true,
@@ -960,6 +963,81 @@ describe("in-place text session: the caret at the click point", () => {
     expect(marker.textContent).toBe("•");
     expect(el.textContent).toBe("•bold nextAlpha beta");
   });
+
+  it.each([
+    ["Home", false, 6],
+    ["End", false, 10],
+    ["ArrowLeft", true, 6],
+    ["ArrowRight", true, 10],
+  ] as const)(
+    "%s moves to the wrapped visual-line edge without entering the marker",
+    (keyName, metaKey, expectedOffset) => {
+      vi.spyOn(navigator, "platform", "get").mockReturnValue(
+        metaKey ? "MacIntel" : "Linux x86_64",
+      );
+      const el = mount(
+        '<div id="t"><p><span aria-hidden="true" style="display:inline-block">•</span><span>Alpha beta gamma</span></p></div>',
+      );
+      session = startInPlaceTextSession(el);
+      const marker = el.querySelector<HTMLElement>("[aria-hidden='true']")!;
+      const text = textOf(el, "Alpha");
+
+      vi.spyOn(Range.prototype, "getBoundingClientRect").mockImplementation(
+        function (this: Range) {
+          const offset = this.startContainer === text ? this.startOffset : 0;
+          const top = offset < 6 ? 0 : offset < 11 ? 20 : 40;
+          return new DOMRect(0, top, 1, 16);
+        },
+      );
+      caret(text, 8);
+
+      const event = key(el, { key: keyName, metaKey });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect([
+        window.getSelection()!.anchorNode,
+        window.getSelection()!.anchorOffset,
+      ]).toEqual([text, expectedOffset]);
+      expect(marker.textContent).toBe("•");
+    },
+  );
+
+  it.each([
+    ["Home", false, 6],
+    ["End", false, 10],
+    ["ArrowLeft", true, 6],
+    ["ArrowRight", true, 10],
+  ] as const)(
+    "%s preserves the wrapped visual-line edge when the legacy row is the edit root",
+    (keyName, metaKey, expectedOffset) => {
+      vi.spyOn(navigator, "platform", "get").mockReturnValue(
+        metaKey ? "MacIntel" : "Linux x86_64",
+      );
+      const el = mount(
+        '<p id="t"><span aria-hidden="true" style="display:inline-block">•</span><span>Alpha beta gamma</span></p>',
+      );
+      session = startInPlaceTextSession(el);
+      const marker = el.querySelector<HTMLElement>("[aria-hidden='true']")!;
+      const text = textOf(el, "Alpha");
+      vi.spyOn(Range.prototype, "getBoundingClientRect").mockImplementation(
+        function (this: Range) {
+          const offset = this.startContainer === text ? this.startOffset : 0;
+          const top = offset < 6 ? 0 : offset < 11 ? 20 : 40;
+          return new DOMRect(0, top, 1, 16);
+        },
+      );
+      caret(text, 8);
+
+      const event = key(el, { key: keyName, metaKey });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect([
+        window.getSelection()!.anchorNode,
+        window.getSelection()!.anchorOffset,
+      ]).toEqual([text, expectedOffset]);
+      expect(marker.textContent).toBe("•");
+    },
+  );
 
   it("moves Home to the focused row for a forward cross-row selection", () => {
     const el = mount(
