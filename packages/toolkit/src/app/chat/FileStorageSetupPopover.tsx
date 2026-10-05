@@ -63,6 +63,7 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
   }
 
   const title = t("onboarding.fileStorage.title");
+  const description = t("onboarding.fileStorage.description");
   // ponytail: wide home composers open left; add an explicit placement prop if a wide sidebar needs another side.
   const useLeftSide =
     (anchorRef?.current?.getBoundingClientRect().width ?? 0) >= 500;
@@ -139,8 +140,14 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
               );
 
               return (
-                <div className={viewModel.error ? "grid gap-1.5" : undefined}>
-                  <div className="mt-2 flex gap-1.5">
+                <div className="grid gap-1.5">
+                  <div className="grid gap-0.5">
+                    <h2 className="text-sm font-medium leading-5">{title}</h2>
+                    <p className="text-xs leading-4 text-muted-foreground">
+                      {description}
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5">
                     {flow ? (
                       <BuilderConnectPopover
                         flow={flow}
