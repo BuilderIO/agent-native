@@ -36,10 +36,11 @@ describe("magic-link attribution handoff", () => {
       ...deriveSignupAttribution({ ...touch, site_landing_path: "/apps" }),
       ...deriveLastTouchAttribution({
         ...touch,
+        site_landing_path: "/blog/launch",
         touched_at: "2026-08-12T15:00:00.000Z",
       }),
     };
-    expect(Object.keys(attribution)).toHaveLength(33);
+    expect(Object.keys(attribution)).toHaveLength(34);
 
     const token = encodeMagicLinkSignupAttribution(
       { attribution },
