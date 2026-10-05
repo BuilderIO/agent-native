@@ -21,6 +21,10 @@ const JSX_FILE_RE = /\.(?:tsx|jsx)$/;
 
 const EXPORT_DEFAULT_RE =
   /\bexport\s+default\b(?!\s*interface\b)(?:\s*([A-Za-z_$][\w$]*)\s*(?:;|$))?/gm;
+// Raw-source JSX fallback: only a statement-position `export default`, so
+// strings, inline comments and inline JSX text cannot satisfy it.
+const JSX_STATEMENT_EXPORT_DEFAULT_RE =
+  /(?:^|[;}])[ \t]*export\s+default\b(?!\s*interface\b)/m;
 const EXPORT_STAR_AS_DEFAULT_RE = /\bexport\s*\*\s*as\s+default\b/;
 const COMMONJS_EXPORT_RE = /\bmodule\.exports\s*=|\bexports\.default\s*=/;
 const EXPORT_LIST_RE = /\bexport\s*(type\s+)?\{([^}]*)\}(\s*from\b)?/g;
@@ -56,12 +60,20 @@ function isRuntimeDefaultSpecifier(
   return !(tokens.length === 3 && typeOnly.has(tokens[0] ?? ""));
 }
 
-function findsDefaultExport(code: string): boolean {
+function isStatementPosition(code: string, index: number): boolean {
+  const lineStart = code.lastIndexOf("\n", index - 1) + 1;
+  const before = code.slice(lineStart, index).trimEnd();
+  return before === "" || before.endsWith(";") || before.endsWith("}");
+}
+
+/** `statementOnly` ignores `export default` mid-expression, e.g. JSX text. */
+function findsDefaultExport(code: string, statementOnly = false): boolean {
   if (EXPORT_STAR_AS_DEFAULT_RE.test(code) || COMMONJS_EXPORT_RE.test(code)) {
     return true;
   }
   const typeOnly = typeOnlyNames(code);
   for (const match of code.matchAll(EXPORT_DEFAULT_RE)) {
+    if (statementOnly && !isStatementPosition(code, match.index ?? 0)) continue;
     if (!match[1] || !typeOnly.has(match[1])) return true;
   }
   for (const match of code.matchAll(EXPORT_LIST_RE)) {
@@ -85,8 +97,9 @@ export function hasDefaultExport(
   source: string,
   options: { jsx?: boolean } = {},
 ): boolean {
-  if (findsDefaultExport(maskNonCode(source))) return true;
-  return options.jsx === true && findsDefaultExport(source);
+  const jsx = options.jsx === true;
+  if (findsDefaultExport(maskNonCode(source), jsx)) return true;
+  return jsx && JSX_STATEMENT_EXPORT_DEFAULT_RE.test(source);
 }
 
 export function scanServerPluginDefaultExport(

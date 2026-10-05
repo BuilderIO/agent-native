@@ -228,6 +228,8 @@ describe("runDoctorScan", () => {
         'interface plugin {\n  name: string;\n}\nexport { plugin as default } from "../shared/plugin";\n',
       "server/plugins/dollar.ts":
         "interface plugin$ {}\nconst plugin$ = defineNitroPlugin(() => {});\nexport default plugin$;\n",
+      "server/plugins/brace-division.ts":
+        "const half = { valueOf: () => 4 } / 2; export default defineNitroPlugin(() => half);\n",
       "server/plugins/postfix.ts":
         "let i = 0; const r = i++ / 2 + i-- / 2; export { r as default };\n",
       "server/plugins/commonjs.cjs": "module.exports = () => {};\n",
@@ -272,6 +274,8 @@ describe("runDoctorScan", () => {
         'const strip = (v: string) => v.replace(/^("|\')|(("|\')$)/g, "");',
         "const half = total / 2 / count;",
         "if (ready) /it's/.test(value);",
+        "function noop() {}",
+        "/it's/.test(value);",
         "const ratio = (a + b) / 2 / (c || 1);",
         'const n = "8" / 2; const m = `${n}` / 4;',
         'const msg = `a ${list.map((x) => `b ${x} \'`).join("`")} c`;',
@@ -312,6 +316,44 @@ describe("runDoctorScan", () => {
       "server/plugins/interface-named.ts",
       "server/plugins/interface.ts",
       "server/plugins/types-only.ts",
+    ]);
+  });
+
+  it("does not let JSX text, strings or comments stand in for a default export", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/jsx-text-only.tsx":
+        "const el = <p>export default is shown here</p>;\nregisterThing(el);\n",
+      "server/plugins/jsx-string-only.tsx":
+        'const note = "export default x";\nregisterThing(<p>{note}</p>);\n',
+      "server/plugins/jsx-comment-only.jsx":
+        "registerThing(<p />); // export default later\n",
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["server-plugin-default-export"],
+    });
+
+    expect(report.findings.map((f) => f.file)).toEqual([
+      "server/plugins/jsx-comment-only.jsx",
+      "server/plugins/jsx-string-only.tsx",
+      "server/plugins/jsx-text-only.tsx",
+    ]);
+  });
+
+  it("finds empty migrations after division by an object literal", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/db.ts":
+        "const ratio = {} / 2; export default runMigrations([]);\n",
+    });
+    const report = runDoctorScan({ root, only: ["no-empty-migrations"] });
+
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        guard: "no-empty-migrations",
+        file: "server/plugins/db.ts",
+      }),
     ]);
   });
 

@@ -127,6 +127,10 @@ function slashStartsRegex(
   if (cursor < 0) return true;
   const prev = chars[cursor] ?? "";
   if (prev === "]" || prev === "<") return false;
+  // `{...} / 2` on one line is division; a regex after `}` starts a new line.
+  if (prev === "}" && !chars.slice(cursor + 1, index).includes("\n")) {
+    return false;
+  }
   // Postfix `i++ /` and `i-- /` are division.
   if ((prev === "+" || prev === "-") && chars[cursor - 1] === prev) {
     return false;
