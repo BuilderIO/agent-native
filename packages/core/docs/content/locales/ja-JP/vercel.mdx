@@ -1,43 +1,160 @@
 ---
 title: "Vercel"
-description: "Vercel Nitro プリセットを使って、agent-native アプリをスタンドアロンでも、ワークスペースとしても Vercel にデプロイします。"
+description: "Vercel CLI を使って、スタンドアロンの Agent-Native アプリを Vercel にデプロイします。"
 ---
 
 # Vercel
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
+Vercel がアプリをホストしてくれるため、サーバーを用意したり動かし続けたりする必要はありません。ビルドによって、アプリは Vercel が直接配信するファイルと、Vercel が必要に応じて実行する関数に変換されます。また、Vercel はアプリに HTTPS 対応の公開アドレスを割り当てます。
 
-Vercel CLI または git push でデプロイします。
+このガイドでは、スタンドアロン アプリを 1 つ、ゼロからデプロイする手順を説明します。アプリを作成し、本番用のデータベースと認証シークレットを用意し、Vercel プロジェクトにリンクし、データベースを準備してから、ビルドしてデプロイします。
 
-```bash
-npx vercel deploy
-```
+<Callout tone="info">
 
-Vercel にサインインせず一時プレビューを作るには、
-`npx vercel deploy --temporary` を実行します。一時デプロイにはプロジェクトの
-環境変数が引き継がれないため、UI プレビュー以上の機能が必要な場合は
-`--env` と `--build-env` でデータベースとシークレットの値を渡してください。
+Node.js `22.22+` が必要です。
 
-ワークスペースの場合、すべてのアプリを 1 つの Vercel Build Output API バンドルにビルドします。
+</Callout>
+
+Vercel アカウントも必要です。このガイドのコマンドは自分のコンピューター上で実行してください。完成したビルドは Vercel CLI が Vercel にアップロードします。
+
+## ステップ 1: アプリを作成する {#step-1-create-the-app}
+
+新しいスタンドアロン アプリを作成します。以下の例では Chat テンプレートからアプリを作成していますが、どのテンプレートから始めてもかまいません。アプリのフォルダーに移動し、依存関係をインストールします。`corepack enable` はアプリが想定する `pnpm` のバージョンを有効にするため、`pnpm` を自分でインストールする必要はありません。
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-Vercel の Git デプロイでは、ビルドコマンドを次のように設定します。
+必要に応じて、`my-app` を自分のアプリ名に置き換えてください。このガイドの以降の手順は、アプリのフォルダー内にいることを前提としています。
+
+## ステップ 2: 環境シークレットを設定する {#step-2-configure-environment-secrets}
+
+アプリは本番用の設定を環境変数から読み取ります。
+
+| 変数                 | 必須   | 用途                                       |
+| -------------------- | ------ | ------------------------------------------ |
+| `DATABASE_URL`       | はい   | アプリを PostgreSQL データベースに接続する |
+| `BETTER_AUTH_SECRET` | はい   | ユーザー セッションに署名する              |
+| `BETTER_AUTH_URL`    | いいえ | ユーザーがアプリにアクセスする公開アドレスを設定する |
+
+以下の export により、このシェルで後続のコマンドが動作するようになります。デプロイする前に、同じ変数をホストのプロジェクトまたはサービスの環境設定にも保存してください。Vercel に保存する方法は次のステップで説明します。
+
+### データベース URL {#database-url}
+
+ローカル開発中、`DATABASE_URL` が設定されていない場合、アプリはデータをローカル データベースに保存します。デプロイしたアプリには、デプロイ後もデータを保持する本物の PostgreSQL データベースが必要です。Vercel はリクエスト間でファイルを保持しないため、データベースは Vercel の関数の外に置く必要があります。プロバイダーから接続文字列をコピーし、export します。
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel --build-only
+export DATABASE_URL='your-postgres-url-string'
 ```
 
-このワークスペースビルドは、各アプリの Nitro `vercel` 出力をルートの `.vercel/output` にコピーし、各関数に固有のマウントパス環境を与え、アプリを `/<app-id>` で配信するルート設定を書き出します。
+各プロバイダーで接続文字列を確認する場所は、[データベース プロバイダー ガイド](/docs/neon)で説明しています。
 
-## 次は何ですか
+<Callout tone="warning">
 
-- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
-- [**ワークスペースのデプロイ**](/docs/workspace-deployment) — `deploy --preset vercel` ワークスペースビルドの詳細
-- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Netlify**](/docs/netlify)、[**Cloudflare**](/docs/cloudflare) — その他の Nitro プリセット
+Neon、Supabase、Amazon RDS などの永続的な PostgreSQL プロバイダーを選択してください。
+
+</Callout>
+
+### 認証シークレット {#auth-secret}
+
+この値は一度だけ生成し、デプロイ間で変更しないでください。
+
+アプリは `BETTER_AUTH_SECRET` を使ってユーザー セッションに署名します。この値が変わると、サインイン中のすべてのユーザーがサインアウトされます。以下のコマンドでランダムな値を生成します。
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+生成した値は、パスワード マネージャーなど、安全な場所に保存してください。デプロイのたびに同じ値を使用します。
+
+### 公開 URL {#public-url}
+
+省略可能です。カスタム ドメイン、リバース プロキシ、または固定の公開オリジンを必要とする認証や OAuth のフローを使う場合に設定します。
+
+`BETTER_AUTH_URL` は、ユーザーがアプリにアクセスする公開アドレスです。設定しない場合、アプリは受信したリクエストごとに自身のアドレスを判断します。Vercel が割り当てるアドレスでは通常それで問題ありませんが、カスタム ドメインを接続する場合は、サインイン リンクや OAuth のリダイレクトがそのドメインを使うように設定してください。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## ステップ 3: プロジェクトをリンクしてシークレットを保存する {#step-3-link-the-project-and-save-the-secrets}
+
+コマンドラインから Vercel にサインインします。
+
+```bash
+npx vercel login
+```
+
+アプリのフォルダーを Vercel プロジェクトにリンクします。新しいプロジェクトを作成してください。その設定をカスタマイズする必要はありません。
+
+```bash
+npx vercel link
+```
+
+CLI はフォルダー名に基づいてプロジェクト名を提案します。提案された設定をそのまま受け入れてかまいません。アプリはステップ 5 で自分でビルドするため、Vercel 側のビルド設定は必要ないからです。
+
+必須の 2 つの変数を、プロジェクトの本番環境に保存します。
+
+```bash
+printf '%s' "$DATABASE_URL" | npx vercel env add DATABASE_URL production
+
+printf '%s' "$BETTER_AUTH_SECRET" | npx vercel env add BETTER_AUTH_SECRET production
+```
+
+各コマンドはステップ 2 で export した値を読み取って Vercel に保存するため、シークレットを手で貼り付ける必要はありません。`BETTER_AUTH_URL` を設定した場合は、同じ方法で保存してください。これらの値は、後から Vercel ダッシュボードのプロジェクト設定で確認したり変更したりすることもできます。
+
+## ステップ 4: マイグレーション {#step-4-migrate}
+
+マイグレーションは、アプリに必要なテーブルをデータベースに作成し、更新します。最初のデプロイの前にこれを実行してください。
+
+```bash
+pnpm migrate:production
+```
+
+このコマンドは自分のコンピューター上で実行され、ステップ 2 で export した `DATABASE_URL` を使って本番データベースに接続します。アプリをアップグレードした後は、新しいバージョンをデプロイする前にもう一度実行してください。
+
+## ステップ 5: デプロイ {#step-5-deploy}
+
+Vercel 向けにアプリをビルドします。
+
+```bash
+NITRO_PRESET=vercel pnpm build
+```
+
+`NITRO_PRESET=vercel` は、Vercel が想定する形式でアプリをビルドし、`.vercel/output` フォルダーに書き出します。
+
+ビルドをアップロードして公開します。
+
+```bash
+npx vercel deploy --prebuilt --prod
+```
+
+`--prebuilt` は、Vercel 上でアプリを再ビルドせずに、作成したばかりのビルドをアップロードします。`--prod` はそれを本番アドレスに公開します。本番アドレスでは、本番環境に保存した変数が使われます。
+
+コマンドが完了すると、アプリの本番アドレスが表示されます。そのアドレスを開き、最初のアカウントを作成します。
+
+## 更新をデプロイする {#deploy-updates}
+
+新しいバージョンをリリースするには、アプリのフォルダーからマイグレーション、ビルド、デプロイのコマンドをもう一度実行します。
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=vercel pnpm build
+
+npx vercel deploy --prebuilt --prod
+```
+
+プロジェクトのリンクと保存した変数はそのまま残るため、ステップ 3 を繰り返す必要はありません。
+
+## 次のステップ {#whats-next}
+
+- [**デプロイ環境変数**](/docs/deployment-environment-variables) - 本番設定の完全な一覧
+- [**SSR キャッシュ**](/docs/ssr-caching) - ホスティング ターゲットでのページ キャッシュの仕組み
+- [**デプロイ**](/docs/deployment) - ホスティング ターゲットと前提条件を比較する

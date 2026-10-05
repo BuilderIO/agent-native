@@ -1,42 +1,180 @@
 ---
 title: "Vercel"
-description: "使用 Vercel Nitro 预设将代理本机应用部署到 Vercel,可以独立部署,也可以作为工作区部署。"
+description: "使用 Vercel CLI 将独立的 Agent-Native 应用部署到 Vercel。"
 ---
 
 # Vercel
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
+Vercel 会替你托管应用，因此无需搭建或维护服务器。构建会把应用转换为 Vercel
+直接提供的文件，以及 Vercel 按需运行的函数，Vercel 还会为应用提供一个支持 HTTPS
+的公共地址。
 
-通过 Vercel CLI 或 git push 部署:
+本指南将从零开始演示如何部署一个独立应用。你将创建应用，为它配置生产数据库和
+身份验证密钥，将它关联到一个 Vercel 项目，准备好数据库，然后构建并部署它。
 
-```bash
-npx vercel deploy
-```
+<Callout tone="info">
 
-要在不登录 Vercel 的情况下创建一次性预览，请运行
-`npx vercel deploy --temporary`。临时部署不会保留项目环境变量，因此当你需要的
-不只是界面预览时，请通过 `--env` 和 `--build-env` 传入数据库与密钥值。
+需要 Node.js `22.22+`。
 
-对于工作区,把每个应用都构建进同一个 Vercel Build Output API 包:
+</Callout>
 
-```bash
-npx @agent-native/core@latest deploy --preset vercel
-```
+你还需要一个 Vercel 账户。请在你自己的电脑上运行本指南中的命令。Vercel CLI 会替你
+把完成的构建上传到 Vercel。
 
-对于 Vercel 的 Git 部署,把构建命令设置为:
+## 第 1 步：创建应用 {#step-1-create-the-app}
+
+创建新的独立应用。下面的示例基于 Chat 模板创建应用，但你可以从任何模板开始。
+进入应用的文件夹并安装依赖。`corepack enable` 会启用应用所需的 `pnpm` 版本，
+因此你无需自己安装 `pnpm`。
 
 ```bash
-npx @agent-native/core@latest deploy --preset vercel --build-only
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-这个工作区构建会把每个应用的 Nitro `vercel` 输出复制到根目录的 `.vercel/output` 中,为每个函数配置自己的挂载路径环境,并写出把各个应用服务在 `/<app-id>` 下的路由配置。
+如果愿意，可以把 `my-app` 替换为你自己的应用名称。本指南的其余部分假定你位于
+应用的文件夹中。
 
-## 下一步
+## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
 
-- [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
-- [**Workspace Deployment**](/docs/workspace-deployment) — 完整介绍 `deploy --preset vercel` 的工作区构建
-- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Netlify**](/docs/netlify) 和 [**Cloudflare**](/docs/cloudflare) — 其他 Nitro 预设
+应用从环境变量中读取其生产设置：
+
+| 变量                 | 必填 | 用途                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
+| `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
+
+下面的 export 命令让后续命令能在当前 shell 中正常运行。部署之前，请把这些变量
+同样保存到主机的项目或服务环境设置中。下一步会介绍如何在 Vercel 中保存它们。
+
+### 数据库 URL {#database-url}
+
+在本地开发期间，如果未设置 `DATABASE_URL`，应用会把数据存储在本地数据库中。
+已部署的应用需要一个真正的 PostgreSQL 数据库，在各次部署之间保留数据。Vercel
+不会在请求之间保留文件，因此数据库必须位于 Vercel 的函数之外。从你的提供商处
+复制连接字符串并导出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[数据库提供商指南](/docs/neon)介绍了在每个提供商处查找连接字符串的位置。
+
+<Callout tone="warning">
+
+请选择持久的 PostgreSQL 提供商，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 身份验证密钥 {#auth-secret}
+
+只需生成一次，并在各次部署之间保持不变。
+
+应用使用 `BETTER_AUTH_SECRET` 为用户会话签名。如果它发生变化，所有已登录的用户
+都会被登出。下面的命令会生成一个随机值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+请把生成的值保存在安全的地方，例如密码管理器。每次部署时都使用相同的值。
+
+### 公共 URL {#public-url}
+
+可选。在使用自定义域名、反向代理，或需要固定公共源的身份验证/OAuth 流程时设置它。
+
+`BETTER_AUTH_URL` 是用户访问你的应用时使用的公共地址。如果不设置，应用会根据
+每个传入请求推断自己的地址。在 Vercel 为你提供的地址上，这通常没有问题，但当你
+连接自定义域名时，请设置它，以便登录链接和 OAuth 重定向使用该域名。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 第 3 步：关联项目并保存密钥 {#step-3-link-the-project-and-save-the-secrets}
+
+从命令行登录 Vercel：
+
+```bash
+npx vercel login
+```
+
+将应用的文件夹关联到一个 Vercel 项目。创建一个新项目即可，无需自定义它的设置。
+
+```bash
+npx vercel link
+```
+
+CLI 会根据文件夹名称建议一个项目名称。接受建议的设置即可，因为你会在第 5 步中
+自己构建应用，Vercel 不需要它自己的构建设置。
+
+把两个必填变量保存到项目的生产环境中：
+
+```bash
+printf '%s' "$DATABASE_URL" | npx vercel env add DATABASE_URL production
+
+printf '%s' "$BETTER_AUTH_SECRET" | npx vercel env add BETTER_AUTH_SECRET production
+```
+
+每条命令都会读取你在第 2 步中导出的值并保存到 Vercel，因此你无需手动粘贴密钥。
+如果你设置了 `BETTER_AUTH_URL`，请用同样的方式保存它。之后你也可以在 Vercel
+控制台的项目设置中查看和更改这些值。
+
+## 第 4 步：迁移 {#step-4-migrate}
+
+迁移会在你的数据库中创建和更新应用所需的表。请在首次部署之前运行此命令：
+
+```bash
+pnpm migrate:production
+```
+
+该命令在你的电脑上运行，并使用你在第 2 步中导出的 `DATABASE_URL` 连接到生产
+数据库。升级应用之后、部署新版本之前，请再次运行它。
+
+## 第 5 步：部署 {#step-5-deploy}
+
+为 Vercel 构建应用：
+
+```bash
+NITRO_PRESET=vercel pnpm build
+```
+
+`NITRO_PRESET=vercel` 会按照 Vercel 期望的格式构建应用，并把结果写入
+`.vercel/output` 文件夹。
+
+上传构建并发布它：
+
+```bash
+npx vercel deploy --prebuilt --prod
+```
+
+`--prebuilt` 会上传你刚刚完成的构建，而不是在 Vercel 上重新构建应用。`--prod`
+会把它发布到你的生产地址，该地址使用你为生产环境保存的变量。
+
+命令完成后，会输出应用的生产地址。打开它并创建第一个账户。
+
+## 部署更新 {#deploy-updates}
+
+要发布新版本，请在应用的文件夹中再次运行迁移、构建和部署命令：
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=vercel pnpm build
+
+npx vercel deploy --prebuilt --prod
+```
+
+项目关联和已保存的变量会保持不变，因此你无需重复第 3 步。
+
+## 下一步 {#whats-next}
+
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产设置的完整列表
+- [**SSR 缓存**](/docs/ssr-caching) - 页面缓存在托管目标上的工作方式
+- [**部署**](/docs/deployment) - 比较各个托管目标及其前提条件
