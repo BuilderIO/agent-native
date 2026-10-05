@@ -166,6 +166,10 @@ export function createWebVitalsTracker(options: WebVitalsTrackerOptions) {
     hidden(): void {
       end();
     },
+    /** Drops the current page view without reporting it. */
+    discard(): void {
+      current = null;
+    },
     visible(location: WebVitalsLocation): void {
       if (!current) begin(location, "resume");
     },
@@ -303,9 +307,10 @@ export function installWebVitals(
   };
 
   tracker.startLoad(locate(), timeToFirstByte());
-  // A page loaded in a background tab: no visibilitychange will end its load,
-  // and what happens once someone switches to it is a resume like any other.
-  if (firstHiddenAt === 0) tracker.hidden();
+  // A page loaded in a background tab: nobody saw its load, so it is not a
+  // page view, and what happens once someone switches to it is a resume like
+  // any other. Ending it instead would report its TTFB as a load.
+  if (firstHiddenAt === 0) tracker.discard();
 
   const handleLcp = (entries: PerformanceEntryList) => {
     const start = activationStart();

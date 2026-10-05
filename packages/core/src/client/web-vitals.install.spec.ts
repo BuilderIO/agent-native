@@ -9,6 +9,7 @@ type ObserverCallback = (list: { getEntries: () => unknown[] }) => void;
 describe("installWebVitals", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("leaves CLS out when the browser refuses to observe layout shifts", () => {
@@ -53,7 +54,7 @@ describe("installWebVitals", () => {
       },
     ]);
   });
-  it("ends a load in a background tab, so the first visible stretch is a resume", () => {
+  it("drops a load in a background tab, so the first visible stretch is a resume", () => {
     const callbacks = new Map<string, ObserverCallback>();
     class Observer {
       static supportedEntryTypes = ["event", "layout-shift"];
@@ -73,6 +74,14 @@ describe("installWebVitals", () => {
       });
       document.dispatchEvent(new Event("visibilitychange"));
     };
+    // The document's navigation timing has a TTFB, which a reported load
+    // would carry.
+    vi.spyOn(performance, "getEntriesByType").mockImplementation((type) =>
+      type === "navigation"
+        ? ([{ responseStart: 80 }] as unknown as PerformanceEntryList)
+        : [],
+    );
+    vi.spyOn(performance, "now").mockReturnValue(5_000);
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "hidden",

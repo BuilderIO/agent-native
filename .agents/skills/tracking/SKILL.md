@@ -368,7 +368,7 @@ Other framework-level baseline events:
   `navigation_type` (`load`, `client`, or `resume` after the tab was
   hidden, sent only when it saw an interaction or layout shift), and
   `ttfb_ms`, `lcp_ms`, `inp_ms`, and `cls`. TTFB and LCP exist only for
-  document loads, and a metric the browser cannot measure (including CLS when
+  document loads, a load in a background tab is not reported, and a metric the browser cannot measure (including CLS when
   the layout-shift observer fails) is omitted rather than sent as 0. A page
   view ends on `pushState`/`popstate` to another path or when the tab is
   hidden; `replaceState` keeps it, so redirects land on the final route.
