@@ -12,6 +12,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
+import { remapDashboardViews } from "./dashboard-view-remap.js";
 
 const migrationExtensions = table("tools", {
   id: text("id").primaryKey(),
@@ -684,9 +685,14 @@ export async function migrateAnalyticsArtifacts(
 
   for (const group of dashboardDuplicates) {
     const canonical = oldest(group);
-    for (const row of group) {
-      if (row.id !== canonical.id)
-        duplicateDashboardMap.set(row.id, canonical.id);
+    const duplicates = group
+      .filter((row) => row.id !== canonical.id)
+      .sort(
+        (a, b) =>
+          a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+      );
+    for (const row of duplicates) {
+      duplicateDashboardMap.set(row.id, canonical.id);
     }
   }
   for (const group of analysisDuplicates) {
@@ -820,10 +826,12 @@ export async function migrateAnalyticsArtifacts(
         [{ sourceId: duplicateId, targetId: canonicalId }],
         runId,
       );
-      await tx
-        .update(schema.dashboardViews)
-        .set({ dashboardId: canonicalId })
-        .where(eq(schema.dashboardViews.dashboardId, duplicateId));
+      await remapDashboardViews(
+        tx,
+        schema.dashboardViews,
+        duplicateId,
+        canonicalId,
+      );
       await tx
         .update(schema.dashboardReportSubscriptions)
         .set({ dashboardId: canonicalId, updatedAt: now })

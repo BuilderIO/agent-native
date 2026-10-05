@@ -1134,7 +1134,11 @@ function SqlDashboardPageContent({
       !loaded ||
       !dashboard?.filters?.length ||
       !dashboardId ||
-      !canPersistDashboardFilterPreference(filterRestoreProgress.current)
+      !canPersistDashboardFilterPreference(
+        filterRestoreProgress.current,
+        dashboardFilterParams(searchParams),
+        searchParams.get("view") ?? undefined,
+      )
     )
       return;
     clearTimeout(saveTimer.current);

@@ -13,6 +13,11 @@ export type DashboardFilterRestoreProgress =
       filters: Record<string, string>;
       viewId?: string;
     }
+  | {
+      status: "views-failed";
+      filters: Record<string, string>;
+      viewId?: string;
+    }
   | { status: "complete" };
 
 export interface DashboardFilterPreferenceSaveGuard {
@@ -29,8 +34,15 @@ export interface DashboardFilterRestoreStep {
 
 export function canPersistDashboardFilterPreference(
   progress: DashboardFilterRestoreProgress,
+  currentFilters: Record<string, string>,
+  currentViewId: string | undefined,
 ): boolean {
-  return progress.status === "complete";
+  if (progress.status === "complete") return true;
+  if (progress.status !== "views-failed") return false;
+  return (
+    !sameDashboardFilterMap(progress.filters, currentFilters) ||
+    progress.viewId !== currentViewId
+  );
 }
 
 export function dashboardFilterPreferenceSaveState(
@@ -107,7 +119,10 @@ export function resolveDashboardFilterRestoreStep({
 }): DashboardFilterRestoreStep {
   if (progress.status === "complete") return { progress, restore: null };
 
-  if (progress.status === "fallback-applied") {
+  if (
+    progress.status === "fallback-applied" ||
+    progress.status === "views-failed"
+  ) {
     if (
       !sameDashboardFilterMap(
         progress.filters,
@@ -124,14 +139,24 @@ export function resolveDashboardFilterRestoreStep({
   if (viewsState === "loading") return { progress, restore: null };
 
   if (viewsState === "error") {
-    if (
-      progress.status === "fallback-applied" ||
-      savedFiltersState !== "success"
-    ) {
+    if (progress.status === "fallback-applied") {
       return { progress, restore: null };
     }
+    const failedProgress =
+      progress.status === "views-failed"
+        ? progress
+        : {
+            status: "views-failed" as const,
+            filters: dashboardFilterParams(searchParams),
+            viewId: searchParams.get("view") ?? undefined,
+          };
+    if (savedFiltersState !== "success") {
+      return { progress: failedProgress, restore: null };
+    }
     const filters = nonEmptyFilters(savedFilters);
-    if (Object.keys(filters).length === 0) return { progress, restore: null };
+    if (Object.keys(filters).length === 0) {
+      return { progress: failedProgress, restore: null };
+    }
     return {
       progress: { status: "fallback-applied", filters },
       restore: { filters, source: "personal" },

@@ -91,11 +91,19 @@ describe("resolveDashboardFilterRestoreStep", () => {
   it("keeps autosave paused while saved views are delayed, then applies the default", () => {
     const waiting = resolveStep({ viewsState: "loading" });
     expect(waiting).toEqual({ progress: { status: "pending" }, restore: null });
-    expect(canPersistDashboardFilterPreference(waiting.progress)).toBe(false);
+    expect(
+      canPersistDashboardFilterPreference(waiting.progress, {}, undefined),
+    ).toBe(false);
 
     const ready = resolveStep({ progress: waiting.progress });
     expect(ready.restore?.source).toBe("dashboard-default");
-    expect(canPersistDashboardFilterPreference(ready.progress)).toBe(true);
+    expect(
+      canPersistDashboardFilterPreference(
+        ready.progress,
+        { f_timeRange: "90d" },
+        "90-days",
+      ),
+    ).toBe(true);
   });
 
   it("does not replace filter changes made after restoring the personal fallback", () => {
@@ -116,7 +124,10 @@ describe("resolveDashboardFilterRestoreStep", () => {
         viewsState: "error",
         savedFiltersState: "loading",
       }),
-    ).toEqual({ progress: { status: "pending" }, restore: null });
+    ).toEqual({
+      progress: { status: "views-failed", filters: {}, viewId: undefined },
+      restore: null,
+    });
   });
 
   it("keeps retrying after a failed preference read", () => {
@@ -125,7 +136,9 @@ describe("resolveDashboardFilterRestoreStep", () => {
       savedFiltersState: "error",
     });
     expect(failed).toEqual({ progress: { status: "pending" }, restore: null });
-    expect(canPersistDashboardFilterPreference(failed.progress)).toBe(false);
+    expect(
+      canPersistDashboardFilterPreference(failed.progress, {}, undefined),
+    ).toBe(false);
 
     expect(
       resolveStep({
@@ -162,6 +175,49 @@ describe("resolveDashboardFilterRestoreStep", () => {
         undefined,
       ),
     ).toBe("changed");
+  });
+
+  it("keeps a view-list failure retryable while allowing a later user change to autosave", () => {
+    const failed = resolveStep({
+      viewsState: "error",
+      savedFilters: undefined,
+    });
+    expect(failed).toEqual({
+      progress: { status: "views-failed", filters: {} },
+      restore: null,
+    });
+    expect(
+      canPersistDashboardFilterPreference(failed.progress, {}, undefined),
+    ).toBe(false);
+
+    expect(
+      resolveStep({
+        progress: failed.progress,
+        viewsState: "success",
+      }).restore,
+    ).toEqual({
+      filters: { f_timeRange: "90d" },
+      viewId: "90-days",
+      source: "dashboard-default",
+    });
+
+    const userChanged = resolveStep({
+      progress: failed.progress,
+      viewsState: "error",
+      search: "f_timeRange=30d",
+      savedFilters: undefined,
+    });
+    expect(userChanged).toEqual({
+      progress: { status: "complete" },
+      restore: null,
+    });
+    expect(
+      canPersistDashboardFilterPreference(
+        userChanged.progress,
+        { f_timeRange: "30d" },
+        undefined,
+      ),
+    ).toBe(true);
   });
 
   it("uses the personal filters when no dashboard default exists", () => {
