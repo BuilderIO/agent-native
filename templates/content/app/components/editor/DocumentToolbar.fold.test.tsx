@@ -178,6 +178,20 @@ describe("DocumentToolbar at narrow widths", () => {
     expect(menuItem(items, "editor.toolbar.copyPageLink")).toBeUndefined();
   });
 
+  it("keeps inline Stop suggesting as the Escape focus target while page actions are visible", async () => {
+    const escapeTarget = { current: null as HTMLButtonElement | null };
+    await renderToolbar(560, {
+      suggesting: true,
+      editorEscapeTargetRef: escapeTarget,
+    });
+
+    expect(toolbarButton("editor.toolbar.stopSuggesting")).not.toBeNull();
+    expect(escapeTarget.current).toBe(
+      toolbarButton("editor.toolbar.stopSuggesting"),
+    );
+    expect(toolbarButton("editor.toolbar.morePageActions")).not.toBeNull();
+  });
+
   it("moves Stop suggesting into page actions before Comments", async () => {
     const escapeTarget = { current: null as HTMLButtonElement | null };
     await renderToolbar(400, {

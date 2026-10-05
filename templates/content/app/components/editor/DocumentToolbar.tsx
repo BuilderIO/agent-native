@@ -1011,11 +1011,11 @@ export function DocumentToolbar({
       } else if (utilityPanelFocusFallbackRef) {
         utilityPanelFocusFallbackRef.current = node;
       }
-      const escapeTarget = suggesting && !suggestingInMenu ? null : node;
+      if (suggesting && !suggestingInMenu) return;
       if (typeof editorEscapeTargetRef === "function") {
-        editorEscapeTargetRef(escapeTarget);
+        editorEscapeTargetRef(node);
       } else if (editorEscapeTargetRef) {
-        editorEscapeTargetRef.current = escapeTarget;
+        editorEscapeTargetRef.current = node;
       }
     },
     [
