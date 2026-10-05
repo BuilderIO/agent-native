@@ -306,6 +306,63 @@ describe("useNewDeckGeneration", () => {
     ).toBe(true);
   });
 
+  it("restores the pending generation thread after reopening without its route id", () => {
+    const deckId = "deck-reopen-pending-question";
+    const submitMessageId = "submit-reopen-pending-question";
+    const activeRunKey = `slides:new-deck-generation-active:${deckId}`;
+    const initial = renderHook(() =>
+      useNewDeckGenerationRun(deckId, true, submitMessageId),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId, tabId: "pending-question-thread" },
+        }),
+      );
+    });
+    expect(sessionStorage.getItem(activeRunKey)).toBe(
+      JSON.stringify({ submitMessageId, tabId: "pending-question-thread" }),
+    );
+    initial.unmount();
+
+    const reopened = renderHook(() =>
+      useNewDeckGenerationRun(deckId, false, null),
+    );
+    expect(reopened.result.current.submitMessageId).toBe(submitMessageId);
+    expect(reopened.result.current.tabId).toBe("pending-question-thread");
+
+    vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({
+      tabId: "pending-question-thread",
+      delivered: true,
+    });
+    act(() => {
+      reopened.result.current.submitQuestionContinuation({
+        message: "Answers",
+        context: "Continue the original deck generation.",
+      });
+    });
+    expect(sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ targetTabId: "pending-question-thread" }),
+      expect.objectContaining({ submitMessageId: expect.any(String) }),
+    );
+  });
+
+  it("reports malformed restored ownership instead of treating it as absent", () => {
+    sessionStorage.setItem(
+      "slides:new-deck-generation-active:deck-invalid-restoration",
+      "{invalid",
+    );
+
+    expect(() =>
+      renderHook(() =>
+        useNewDeckGenerationRun("deck-invalid-restoration", false, null),
+      ),
+    ).toThrow(
+      "Cannot restore Slides generation ownership for deck deck-invalid-restoration: invalid session data.",
+    );
+  });
+
   it.each(["answer", "skip"])(
     "targets the original generation tab for a guided-question %s",
     (choice) => {
@@ -463,6 +520,7 @@ describe("useNewDeckGeneration", () => {
     const submitMessageId = "submit-leaving-route";
     const deckId = "deck-leaving-route";
     const storageKey = `slides:new-deck-generation:${deckId}:${submitMessageId}`;
+    const activeRunStorageKey = `slides:new-deck-generation-active:${deckId}`;
     const initialProps: {
       deckId: string;
       isNewDeckRoute: boolean;
@@ -498,6 +556,7 @@ describe("useNewDeckGeneration", () => {
     });
     await act(async () => Promise.resolve());
     expect(sessionStorage.getItem(storageKey)).toBeNull();
+    expect(sessionStorage.getItem(activeRunStorageKey)).toBeNull();
   });
 
   it("clears pending continuation state when targeted delivery is rejected", async () => {
