@@ -1161,6 +1161,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         noDefaultSlides: true,
         designSystemId: selectedDesignSystem?.id ?? null,
         deferPersistence: true,
+        undoableCreation: false,
       });
     });
     if (!deck) {
