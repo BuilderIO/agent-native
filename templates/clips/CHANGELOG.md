@@ -3,10 +3,34 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-02
+## 2026-10-05
 
 ### Fixed
 
+- Confirming Discard recording now returns you to your library.
+- Discarding a recording now removes its failed upload card from your library.
+- Discarding a recovered recording no longer warns that it's open in another tab.
+- Search results identify recordings in Trash and open them with Trash navigation.
+
+## 2026-10-03
+
+### Fixed
+
+- Invalid Lab choices can be repaired from Labs settings.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup now offers one-click activation and clear existing-account sign-in.
+
+### Fixed
+
+- Cancelled Rewind Clip setup can be retried immediately
+- Long uploads (an hour or more) now transcribe reliably instead of failing.
+- Recording countdowns begin during setup, with explicit cue outcomes and startup timing
+- Recording visibility defaults no longer switch to Public when saved settings cannot be read.
+- Screen recording startup now cleans up canceled Rewind setup and keeps countdown timing reliable on older macOS.
 - Recording reminders and other actionable notifications show their message above the buttons
 - Temporary upload authorization failures remain retryable, while permanently rejected Builder credentials trigger storage setup errors.
 
