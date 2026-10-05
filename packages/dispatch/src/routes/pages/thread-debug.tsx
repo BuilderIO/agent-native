@@ -650,7 +650,7 @@ function Highlighted({ text, needle }: { text: string; needle: string }) {
     parts.push(
       <mark
         key={index}
-        className="rounded-sm bg-primary/15 px-0.5 text-foreground"
+        className="rounded-sm bg-[hsl(var(--dispatch-search-match))] px-0.5 text-foreground"
       >
         {text.slice(index, index + needle.length)}
       </mark>,
