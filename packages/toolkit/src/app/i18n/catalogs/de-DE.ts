@@ -710,6 +710,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Automatisierung, Workflows, App-Aktionen, dienstübergreifende Abläufe",
   "mcpIntegrations.catalog.zapier.setupNote":
     "Die Agent-Integration von Zapier nutzt für nicht gelistete Clients eine selbst erstellte Verbindung und ein Token. Erstelle die Verbindung in Zapier und füge dann das generierte Bearer-Token in das Header-Feld ein.",
+  "mcpIntegrations.catalog.fxmacrodata.description":
+    "FX-Kurse, Makro-Veröffentlichungen und Zentralbankdaten abfragen.",
+  "mcpIntegrations.catalog.fxmacrodata.useCase":
+    "FX-Kurse, Wirtschaftsindikatoren, Veröffentlichungskalender, Zentralbankpolitik",
+  "mcpIntegrations.catalog.fxmacrodata.setupNote":
+    "Der Remote-MCP-Endpunkt von FXMacroData liefert USD-Daten ohne Schlüssel. Füge einen FXMacroData-API-Schlüssel als `X-API-Key`-Header hinzu, um alle 22 Währungen, die vollständige Historie und Veröffentlichungen in Echtzeit freizuschalten.",
   "mcpIntegrations.auth.none": "Keine Authentifizierung",
   "mcpIntegrations.auth.headers": "Header",
   "mcpIntegrations.auth.oauth": "OAuth",
@@ -2360,6 +2366,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Fasse die Reibungspunkte auf der Preisseite zusammen",
   "settingsShell.integrationDetail.prompt.fullstory.3":
     "Wo springen Personen im Onboarding ab?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.1":
+    "Wie war der letzte US-Verbraucherpreisindex?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.2":
+    "Wann ist die nächste Zinsentscheidung der Fed?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.3":
+    "Vergleiche die Inflation in den USA und im Euroraum",
   "settingsShell.integrationDetail.prompt.github.1":
     "Fasse die Pull Requests zusammen, die auf mein Review warten",
   "settingsShell.integrationDetail.prompt.github.2":

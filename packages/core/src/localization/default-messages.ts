@@ -1795,6 +1795,13 @@ const messages = {
         setupNote:
           "Zapier's agent integration uses a user-created connection and token for unlisted clients. Create the connection in Zapier, then paste its generated bearer token into the header field.",
       },
+      fxmacrodata: {
+        description: "Query FX rates, macro releases, and central bank data.",
+        useCase:
+          "FX rates, economic indicators, release calendars, central bank policy",
+        setupNote:
+          "FXMacroData's remote MCP endpoint serves USD data without a key. Add an FXMacroData API key as an `X-API-Key` header to unlock all 22 currencies, full history, and real-time releases.",
+      },
     },
     auth: {
       none: "No auth",

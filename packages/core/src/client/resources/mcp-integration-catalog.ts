@@ -858,6 +858,34 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     headerPlaceholder: "Authorization: Bearer <zapier-mcp-token>",
     keywords: ["automation", "workflows", "actions", "apps", "integrations"],
   },
+  {
+    id: "fxmacrodata",
+    name: "FXMacroData",
+    provider: "fxmacrodata",
+    description: "Query FX rates, macro releases, and central bank data.",
+    descriptionKey: "mcpIntegrations.catalog.fxmacrodata.description",
+    useCase:
+      "FX rates, economic indicators, release calendars, central bank policy",
+    useCaseKey: "mcpIntegrations.catalog.fxmacrodata.useCase",
+    url: "https://mcp.fxmacrodata.com/mcp",
+    authMode: "none",
+    connectionMode: "direct",
+    availability: "ready",
+    verification: "verified",
+    logoUrl: mcpIntegrationLogo("fxmacrodata"),
+    supportsOrganizationScope: true,
+    docsUrl: "https://fxmacrodata.com/documentation/mcp-server",
+    setupNoteKey: "mcpIntegrations.catalog.fxmacrodata.setupNote",
+    keywords: [
+      "forex",
+      "FX rates",
+      "macroeconomics",
+      "economic calendar",
+      "inflation",
+      "central banks",
+      "interest rates",
+    ],
+  },
 ];
 
 function readRuntimeMcpIntegrationsConfig(): NormalizedMcpIntegrationsConfig {

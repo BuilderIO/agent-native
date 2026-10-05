@@ -970,6 +970,12 @@ const messages: ToolkitAgentChatTranslation = {
     "الأتمتة، وسير العمل، وإجراءات التطبيقات، والعمليات عبر الخدمات",
   "mcpIntegrations.catalog.zapier.setupNote":
     "يستخدم تكامل الوكيل في Zapier اتصالًا ورمزًا ينشئهما المستخدم للعملاء غير المدرجين. أنشئ الاتصال في Zapier، ثم الصق رمز الحامل الذي تم إنشاؤه في حقل الترويسة.",
+  "mcpIntegrations.catalog.fxmacrodata.description":
+    "استعلم عن أسعار صرف العملات والإصدارات الاقتصادية الكلية وبيانات البنوك المركزية.",
+  "mcpIntegrations.catalog.fxmacrodata.useCase":
+    "أسعار الصرف، المؤشرات الاقتصادية، تقويمات الإصدارات، سياسات البنوك المركزية",
+  "mcpIntegrations.catalog.fxmacrodata.setupNote":
+    "تقدم نقطة نهاية MCP البعيدة من FXMacroData بيانات الدولار الأمريكي دون مفتاح. أضف مفتاح FXMacroData API كترويسة `X-API-Key` لفتح جميع العملات الـ22 والسجل الكامل والإصدارات الفورية.",
   "mcpIntegrations.auth.none": "بدون مصادقة",
   "mcpIntegrations.auth.headers": "ترويسة",
   "mcpIntegrations.auth.oauth": "OAuth",
@@ -2391,6 +2397,12 @@ const messages: ToolkitAgentChatTranslation = {
     "لخّص نقاط الاحتكاك في صفحة الأسعار",
   "settingsShell.integrationDetail.prompt.fullstory.3":
     "أين يتوقف المستخدمون خلال التهيئة؟",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.1":
+    "ما آخر قراءة لمؤشر أسعار المستهلك الأمريكي؟",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.2":
+    "متى قرار الفائدة القادم للاحتياطي الفيدرالي؟",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.3":
+    "قارن التضخم في الولايات المتحدة ومنطقة اليورو",
   "settingsShell.integrationDetail.prompt.github.1":
     "لخّص طلبات السحب التي تنتظر مراجعتي",
   "settingsShell.integrationDetail.prompt.github.2":

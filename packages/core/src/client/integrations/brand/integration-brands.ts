@@ -204,6 +204,11 @@ const BRANDS: Readonly<Record<string, IntegrationBrand>> = {
     developer: "PayPal",
     prompts: prompts("paypal"),
   },
+  fxmacrodata: {
+    hue: "#00e5ff",
+    developer: "FXMacroData",
+    prompts: prompts("fxmacrodata"),
+  },
   slack: {
     unavailable: true,
     hue: "#4a154b",

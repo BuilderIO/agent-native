@@ -987,6 +987,12 @@ const messages: ToolkitAgentChatTranslation = {
     "自動化、ワークフロー、アプリアクション、サービス間の操作",
   "mcpIntegrations.catalog.zapier.setupNote":
     "Zapier のエージェント連携では、未掲載のクライアント向けにユーザーが作成した接続とトークンを使用します。Zapier で接続を作成し、生成された Bearer トークンをヘッダー欄に貼り付けてください。",
+  "mcpIntegrations.catalog.fxmacrodata.description":
+    "為替レート、マクロ経済指標の発表、中央銀行データを照会します。",
+  "mcpIntegrations.catalog.fxmacrodata.useCase":
+    "為替レート、経済指標、発表カレンダー、中央銀行の政策",
+  "mcpIntegrations.catalog.fxmacrodata.setupNote":
+    "FXMacroData のリモート MCP エンドポイントは、キーなしで USD データを提供します。22 通貨すべて、全履歴、リアルタイムの発表を利用するには、FXMacroData API キーを `X-API-Key` ヘッダーとして追加してください。",
   "mcpIntegrations.auth.none": "認証なし",
   "mcpIntegrations.auth.headers": "ヘッダー",
   "mcpIntegrations.auth.oauth": "OAuth",
@@ -2243,6 +2249,12 @@ const messages: ToolkitAgentChatTranslation = {
     "料金ページでのつまずきを要約して",
   "settingsShell.integrationDetail.prompt.fullstory.3":
     "オンボーディングのどこで離脱している？",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.1":
+    "最新の米国 CPI はいくつでしたか？",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.2":
+    "次の FRB の金利決定はいつですか？",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.3":
+    "米国とユーロ圏のインフレを比較して",
   "settingsShell.integrationDetail.prompt.github.1":
     "レビュー待ちのプルリクエストを要約して",
   "settingsShell.integrationDetail.prompt.github.2":

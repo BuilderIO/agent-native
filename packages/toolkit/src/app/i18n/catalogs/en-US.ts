@@ -968,6 +968,12 @@ const messages = {
     "Automation, workflows, app actions, cross-service operations",
   "mcpIntegrations.catalog.zapier.setupNote":
     "Zapier's agent integration uses a user-created connection and token for unlisted clients. Create the connection in Zapier, then paste its generated bearer token into the header field.",
+  "mcpIntegrations.catalog.fxmacrodata.description":
+    "Query FX rates, macro releases, and central bank data.",
+  "mcpIntegrations.catalog.fxmacrodata.useCase":
+    "FX rates, economic indicators, release calendars, central bank policy",
+  "mcpIntegrations.catalog.fxmacrodata.setupNote":
+    "FXMacroData's remote MCP endpoint serves USD data without a key. Add an FXMacroData API key as an `X-API-Key` header to unlock all 22 currencies, full history, and real-time releases.",
   "mcpIntegrations.auth.none": "No auth",
   "mcpIntegrations.auth.headers": "Header",
   "mcpIntegrations.auth.oauth": "OAuth",
@@ -2251,6 +2257,12 @@ const messages = {
     "Summarize friction on the pricing page",
   "settingsShell.integrationDetail.prompt.fullstory.3":
     "Where do people drop off in onboarding?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.1":
+    "What was the latest US CPI print?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.2":
+    "When is the next Fed rate decision?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.3":
+    "Compare inflation in the US and the euro area",
   "settingsShell.integrationDetail.prompt.github.1":
     "Summarize the pull requests waiting on my review",
   "settingsShell.integrationDetail.prompt.github.2":

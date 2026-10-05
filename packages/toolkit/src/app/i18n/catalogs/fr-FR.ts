@@ -716,6 +716,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Automatisation, flux de travail, actions d’apps, opérations entre services",
   "mcpIntegrations.catalog.zapier.setupNote":
     "L’intégration d’agent de Zapier utilise une connexion et un jeton créés par l’utilisateur pour les clients non répertoriés. Créez la connexion dans Zapier, puis collez le jeton bearer généré dans le champ d’en-tête.",
+  "mcpIntegrations.catalog.fxmacrodata.description":
+    "Interrogez les taux de change, les publications macroéconomiques et les données des banques centrales.",
+  "mcpIntegrations.catalog.fxmacrodata.useCase":
+    "Taux de change, indicateurs économiques, calendriers de publication, politique des banques centrales",
+  "mcpIntegrations.catalog.fxmacrodata.setupNote":
+    "Le point de terminaison MCP distant de FXMacroData fournit les données USD sans clé. Ajoutez une clé API FXMacroData dans l’en-tête `X-API-Key` pour débloquer les 22 devises, l’historique complet et les publications en temps réel.",
   "mcpIntegrations.auth.none": "Aucune authentification",
   "mcpIntegrations.auth.headers": "En-tête",
   "mcpIntegrations.auth.oauth": "OAuth",
@@ -2408,6 +2414,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Résume les points de friction sur la page de tarifs",
   "settingsShell.integrationDetail.prompt.fullstory.3":
     "Où les gens abandonnent-ils pendant l’onboarding ?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.1":
+    "Quel est le dernier chiffre de l’IPC américain ?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.2":
+    "Quand a lieu la prochaine décision de taux de la Fed ?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.3":
+    "Compare l’inflation aux États-Unis et dans la zone euro",
   "settingsShell.integrationDetail.prompt.github.1":
     "Résume les pull requests qui attendent ma revue",
   "settingsShell.integrationDetail.prompt.github.2":

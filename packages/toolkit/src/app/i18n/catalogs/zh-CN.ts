@@ -910,6 +910,12 @@ const messages: ToolkitAgentChatTranslation = {
     "自动化、工作流、应用操作、跨服务操作",
   "mcpIntegrations.catalog.zapier.setupNote":
     "对于未列出的客户端，Zapier 的智能体集成使用用户自行创建的连接和令牌。请在 Zapier 中创建连接，然后将生成的 Bearer 令牌粘贴到请求头字段中。",
+  "mcpIntegrations.catalog.fxmacrodata.description":
+    "查询外汇汇率、宏观经济数据发布和央行数据。",
+  "mcpIntegrations.catalog.fxmacrodata.useCase":
+    "外汇汇率、经济指标、发布日历、央行政策",
+  "mcpIntegrations.catalog.fxmacrodata.setupNote":
+    "FXMacroData 的远程 MCP 端点无需密钥即可提供美元数据。将 FXMacroData API 密钥添加为 `X-API-Key` 请求头，即可解锁全部 22 种货币、完整历史数据和实时发布。",
   "mcpIntegrations.auth.none": "无需身份验证",
   "mcpIntegrations.auth.headers": "请求头",
   "mcpIntegrations.auth.oauth": "OAuth",
@@ -2071,6 +2077,12 @@ const messages: ToolkitAgentChatTranslation = {
     "总结定价页面上的使用障碍",
   "settingsShell.integrationDetail.prompt.fullstory.3":
     "用户在入职流程的哪里流失？",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.1":
+    "美国最新的 CPI 数据是多少？",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.2":
+    "美联储下一次利率决议是什么时候？",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.3":
+    "比较美国和欧元区的通胀",
   "settingsShell.integrationDetail.prompt.github.1": "总结等待我审查的拉取请求",
   "settingsShell.integrationDetail.prompt.github.2":
     "在 agent-native 中查找有关 Slack 链接预览的 issue",

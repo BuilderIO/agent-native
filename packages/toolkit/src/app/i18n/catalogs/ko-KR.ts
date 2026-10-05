@@ -963,6 +963,12 @@ const messages: ToolkitAgentChatTranslation = {
     "자동화, 워크플로, 앱 작업, 서비스 간 작업",
   "mcpIntegrations.catalog.zapier.setupNote":
     "Zapier의 에이전트 연동은 목록에 없는 클라이언트에 대해 사용자가 만든 연결과 토큰을 사용합니다. Zapier에서 연결을 만든 다음 생성된 Bearer 토큰을 헤더 필드에 붙여 넣으세요.",
+  "mcpIntegrations.catalog.fxmacrodata.description":
+    "환율, 거시경제 지표 발표, 중앙은행 데이터를 조회합니다.",
+  "mcpIntegrations.catalog.fxmacrodata.useCase":
+    "환율, 경제 지표, 발표 일정, 중앙은행 정책",
+  "mcpIntegrations.catalog.fxmacrodata.setupNote":
+    "FXMacroData의 원격 MCP 엔드포인트는 키 없이 USD 데이터를 제공합니다. 22개 통화 전체, 전체 이력, 실시간 발표를 사용하려면 FXMacroData API 키를 `X-API-Key` 헤더로 추가하세요.",
   "mcpIntegrations.auth.none": "인증 없음",
   "mcpIntegrations.auth.headers": "헤더",
   "mcpIntegrations.auth.oauth": "OAuth",
@@ -2204,6 +2210,12 @@ const messages: ToolkitAgentChatTranslation = {
     "가격 페이지의 불편 사항을 요약해 줘",
   "settingsShell.integrationDetail.prompt.fullstory.3":
     "온보딩의 어디에서 이탈해?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.1":
+    "최근 미국 CPI 수치는 얼마였나요?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.2":
+    "다음 연준 금리 결정은 언제인가요?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.3":
+    "미국과 유로존의 인플레이션을 비교해 줘",
   "settingsShell.integrationDetail.prompt.github.1":
     "내 리뷰를 기다리는 풀 리퀘스트를 요약해 줘",
   "settingsShell.integrationDetail.prompt.github.2":

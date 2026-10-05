@@ -78,6 +78,14 @@ describe("MCP integration catalog", () => {
     expect(context7?.authMode).toBe("none");
     expect(semgrep?.url).toBe("https://mcp.semgrep.ai/mcp");
     expect(semgrep?.authMode).toBe("none");
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "fxmacrodata"),
+    ).toMatchObject({
+      url: "https://mcp.fxmacrodata.com/mcp",
+      authMode: "none",
+      connectionMode: "direct",
+      setupNoteKey: "mcpIntegrations.catalog.fxmacrodata.setupNote",
+    });
   });
 
   it("opts only verified shared-capable integrations into organization scope", () => {
@@ -243,6 +251,10 @@ describe("MCP integration catalog", () => {
       availability: "ready",
     });
     expect(cloudflare?.logoUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "fxmacrodata")
+        ?.logoUrl,
+    ).toMatch(/^data:image\/png;base64,/);
     expect(granola?.logoUrl).toMatch(/^data:image\/png;base64,/);
     expect(figma).toMatchObject({
       url: "https://mcp.figma.com/mcp",

@@ -954,6 +954,12 @@ const messages: ToolkitAgentChatTranslation = {
     "ऑटोमेशन, वर्कफ़्लो, ऐप एक्शन, क्रॉस-सर्विस ऑपरेशन",
   "mcpIntegrations.catalog.zapier.setupNote":
     "Zapier का एजेंट इंटीग्रेशन असूचीबद्ध क्लाइंट के लिए यूज़र द्वारा बनाया गया कनेक्शन और टोकन इस्तेमाल करता है। Zapier में कनेक्शन बनाएँ, फिर उसका जनरेट किया गया bearer टोकन हेडर फ़ील्ड में पेस्ट करें।",
+  "mcpIntegrations.catalog.fxmacrodata.description":
+    "FX दरें, मैक्रो रिलीज़ और केंद्रीय बैंक डेटा क्वेरी करें।",
+  "mcpIntegrations.catalog.fxmacrodata.useCase":
+    "FX दरें, आर्थिक संकेतक, रिलीज़ कैलेंडर, केंद्रीय बैंक नीति",
+  "mcpIntegrations.catalog.fxmacrodata.setupNote":
+    "FXMacroData का रिमोट MCP एंडपॉइंट बिना कुंजी के USD डेटा देता है। सभी 22 मुद्राएँ, पूरा इतिहास और रियल-टाइम रिलीज़ अनलॉक करने के लिए FXMacroData API कुंजी को `X-API-Key` हेडर के रूप में जोड़ें।",
   "mcpIntegrations.auth.none": "कोई ऑथ नहीं",
   "mcpIntegrations.auth.headers": "हेडर",
   "mcpIntegrations.auth.oauth": "OAuth",
@@ -2201,6 +2207,12 @@ const messages: ToolkitAgentChatTranslation = {
     "प्राइसिंग पेज पर आने वाली दिक्कतों का सारांश दो",
   "settingsShell.integrationDetail.prompt.fullstory.3":
     "ऑनबोर्डिंग में लोग कहाँ छोड़कर चले जाते हैं?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.1":
+    "अमेरिका का पिछला CPI आँकड़ा क्या था?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.2":
+    "Fed का अगला ब्याज दर फ़ैसला कब है?",
+  "settingsShell.integrationDetail.prompt.fxmacrodata.3":
+    "अमेरिका और यूरो क्षेत्र की महँगाई की तुलना करो",
   "settingsShell.integrationDetail.prompt.github.1":
     "मेरे रिव्यू का इंतज़ार कर रहे पुल रिक्वेस्ट का सारांश दो",
   "settingsShell.integrationDetail.prompt.github.2":

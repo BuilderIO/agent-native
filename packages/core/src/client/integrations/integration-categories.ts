@@ -52,6 +52,7 @@ const CATEGORY_BY_ID: Record<string, IntegrationCategory> = {
   sigma: "analytics",
   stripe: "finance",
   paypal: "finance",
+  fxmacrodata: "finance",
 };
 
 /** Tiles a category shows before "See {A}, {B}, and more". */

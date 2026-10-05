@@ -128,7 +128,8 @@
         "paypal",
         "box",
         "netlify",
-        "zapier"
+        "zapier",
+        "fxmacrodata"
       ],
       "entrypoints": ["./app/resources"],
       "strategy": "source-copy",
