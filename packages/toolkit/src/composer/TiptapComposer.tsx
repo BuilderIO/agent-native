@@ -2924,8 +2924,6 @@ export function TiptapComposer({
   filteredCommandsRef.current = filteredCommands;
   const filteredSkillsRef = useRef(filteredSkills);
   filteredSkillsRef.current = filteredSkills;
-  const hasContextMenuRef = useRef(hasContextMenu);
-  hasContextMenuRef.current = hasContextMenu;
   const launchersDisabledRef = useRef(disabled || contextControlsDisabled);
   launchersDisabledRef.current = disabled || contextControlsDisabled;
   const onSlashCommandRef = useRef(onSlashCommand);
