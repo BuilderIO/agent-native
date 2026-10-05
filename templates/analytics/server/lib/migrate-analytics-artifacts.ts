@@ -830,6 +830,7 @@ export async function migrateAnalyticsArtifacts(
         tx,
         schema.dashboards,
         schema.dashboardViews,
+        ctx.orgId,
         duplicateId,
         canonicalId,
       );
@@ -842,7 +843,12 @@ export async function migrateAnalyticsArtifacts(
       await tx
         .update(schema.dashboards)
         .set({ archivedAt: now, updatedAt: now, updatedBy: ctx.userEmail })
-        .where(eq(schema.dashboards.id, duplicateId));
+        .where(
+          and(
+            eq(schema.dashboards.id, duplicateId),
+            eq(schema.dashboards.orgId, ctx.orgId),
+          ),
+        );
       summary.duplicateDashboardsArchived += 1;
     }
 

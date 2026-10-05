@@ -30,7 +30,15 @@ function matches(predicate: unknown, row: Record<string, unknown>): boolean {
   return true;
 }
 
-function createTransaction(rows: ViewRow[]) {
+function createTransaction(
+  rows: ViewRow[],
+  dashboardRows = [
+    "canonical",
+    "duplicate",
+    "older-duplicate",
+    "newer-duplicate",
+  ].map((id) => ({ id, orgId: "analytics-org" })),
+) {
   const updateFields: string[] = [];
   const lockedDashboardIds: string[] = [];
   const operationOrder: string[] = [];
@@ -53,10 +61,14 @@ function createTransaction(rows: ViewRow[]) {
         },
         for: async (mode: string) => {
           if (selectedTable === dashboardsTable && mode === "update") {
-            const dashboardId = (predicate as { value?: string }).value;
-            lockedDashboardIds.push(dashboardId ?? "");
-            operationOrder.push(`lock:${dashboardId}`);
-            return dashboardId ? [{ id: dashboardId }] : [];
+            const matchesInScope = dashboardRows.filter((row) =>
+              matches(predicate, row),
+            );
+            for (const dashboard of matchesInScope) {
+              lockedDashboardIds.push(dashboard.id);
+              operationOrder.push(`lock:${dashboard.id}`);
+            }
+            return matchesInScope;
           }
           return [];
         },
@@ -83,7 +95,10 @@ const table = {
   isDefault: { name: "isDefault" },
 };
 
-const dashboardsTable = { id: { name: "id" } };
+const dashboardsTable = {
+  id: { name: "id" },
+  orgId: { name: "orgId" },
+};
 
 describe("remapDashboardViews", () => {
   it("demotes duplicate defaults when the canonical dashboard already has one", async () => {
@@ -96,6 +111,7 @@ describe("remapDashboardViews", () => {
       store.tx,
       dashboardsTable,
       table,
+      "analytics-org",
       "duplicate",
       "canonical",
     );
@@ -123,6 +139,7 @@ describe("remapDashboardViews", () => {
       store.tx,
       dashboardsTable,
       table,
+      "analytics-org",
       "older-duplicate",
       "canonical",
     );
@@ -130,6 +147,7 @@ describe("remapDashboardViews", () => {
       store.tx,
       dashboardsTable,
       table,
+      "analytics-org",
       "newer-duplicate",
       "canonical",
     );
@@ -149,5 +167,28 @@ describe("remapDashboardViews", () => {
       "canonical",
       "newer-duplicate",
     ]);
+  });
+
+  it("does not lock dashboards from another organization", async () => {
+    const store = createTransaction(
+      [],
+      [
+        { id: "canonical", orgId: "analytics-org" },
+        { id: "duplicate", orgId: "another-org" },
+      ],
+    );
+
+    await expect(
+      remapDashboardViews(
+        store.tx,
+        dashboardsTable,
+        table,
+        "analytics-org",
+        "duplicate",
+        "canonical",
+      ),
+    ).rejects.toThrow("Dashboard duplicate was not available to lock");
+    expect(store.lockedDashboardIds).toEqual(["canonical"]);
+    expect(store.operationOrder).toEqual(["lock:canonical"]);
   });
 });

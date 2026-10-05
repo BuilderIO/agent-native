@@ -2,8 +2,9 @@ import { and, eq } from "drizzle-orm";
 
 export async function remapDashboardViews(
   tx: any,
-  dashboards: { id: any },
+  dashboards: { id: any; orgId: any },
   dashboardViews: { id: any; dashboardId: any; isDefault: any },
+  orgId: string,
   duplicateId: string,
   canonicalId: string,
 ): Promise<void> {
@@ -11,11 +12,13 @@ export async function remapDashboardViews(
     const [dashboard] = await tx
       .select({ id: dashboards.id })
       .from(dashboards)
-      .where(eq(dashboards.id, dashboardId))
+      .where(and(eq(dashboards.id, dashboardId), eq(dashboards.orgId, orgId)))
       .for("update");
 
     if (!dashboard) {
-      throw new Error(`Dashboard ${dashboardId} was not available to lock`);
+      throw new Error(
+        `Dashboard ${dashboardId} was not available to lock in organization ${orgId}`,
+      );
     }
   }
 
