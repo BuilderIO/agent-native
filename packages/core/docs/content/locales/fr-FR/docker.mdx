@@ -1,15 +1,259 @@
 ---
 title: "Docker"
-description: "Localized pointer to the the Docker packaging guide."
+description: "Déployez une application Agent-Native autonome en tant que conteneur Docker."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Docker
 
-Consultez le [guide Docker en anglais](/docs/docker). Le scaffold ne crée pas
-de `Dockerfile`; copiez-y l’exemple avant d’exécuter `docker build`.
+Docker regroupe une application Agent-Native et tout ce dont elle a besoin pour
+fonctionner dans une seule image de conteneur. L'image exécute le même serveur
+Node.js que celui décrit dans le [guide Node.js](/docs/node-js). Elle se
+comporte donc de la même façon sur votre ordinateur portable, sur une machine
+virtuelle ou chez tout hébergeur qui exécute des conteneurs.
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`node`.
+Ce guide présente le déploiement d'une application autonome depuis le début.
+Vous allez créer l'application, ajouter un `Dockerfile`, fournir à l'application
+une base de données de production et un secret d'authentification, préparer la
+base de données, puis construire et exécuter le conteneur.
+
+<Callout tone="info">
+
+Node.js `22.22+` est requis.
+
+</Callout>
+
+Docker doit aussi être installé sur la machine qui construit et exécute l'image.
+Exécutez les commandes de ce guide sur le serveur qui exécutera le conteneur.
+Pour une machine virtuelle, cela signifie généralement vous y connecter d'abord
+en SSH.
+
+<a id="self-host-quickstart"></a>
+
+## Étape 1 : Créer l'application {#step-1-create-the-app}
+
+Créez votre nouvelle application autonome. L'exemple ci-dessous crée une
+application à partir du template Chat, mais vous pouvez partir de n'importe quel
+template. Placez-vous dans le dossier de l'application et installez ses
+dépendances. `corepack enable` active la version de `pnpm` attendue par
+l'application. Vous n'avez donc pas besoin d'installer `pnpm` vous-même.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Remplacez `my-app` par le nom de votre application si vous le souhaitez. La
+suite de ce guide suppose que vous vous trouvez dans le dossier de
+l'application.
+
+## Étape 2 : Créer le Dockerfile {#step-2-create-dockerfile}
+
+Une nouvelle application ne contient pas de `Dockerfile`. Vous devez donc en
+ajouter un vous-même. Vous ajoutez aussi un fichier `.dockerignore` qui tient
+les fichiers locaux à l'écart de l'image. Créez les deux fichiers dans le
+dossier racine de l'application, à côté de `package.json`.
+
+### Dockerfile {#dockerfile}
+
+Créez un fichier nommé `Dockerfile`, sans extension, et copiez-y le contenu
+suivant :
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHON=/usr/bin/python3
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY --from=build /app/.output .output
+
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Le `Dockerfile` construit l'image en deux étapes :
+
+- **Étape de build.** Installe les outils dont certaines dépendances ont besoin
+  pour compiler pendant l'installation (`python3`, `make` et `g++`), installe
+  les dépendances de l'application et construit l'application.
+- **Étape finale.** Part d'une image Node.js propre et n'y copie que le serveur
+  final depuis le dossier `.output`. L'image reste ainsi légère, et les outils
+  de build et le code source sont laissés de côté.
+
+L'image finale s'exécute en mode production et écoute sur le port `3000`.
+
+### Fichier d'exclusion Docker {#docker-ignore-file}
+
+Créez un fichier nommé `.dockerignore` et copiez-y le contenu suivant :
+
+```text filename=".dockerignore"
+node_modules
+.output
+.git
+.env
+.env.*
+data
+*.log
+```
+
+Ces entrées tiennent à l'écart de l'image les dépendances locales, les anciennes
+sorties de build, l'historique Git, les secrets locaux des fichiers `.env`, la
+base de données de développement locale dans `data` et les fichiers de logs.
+L'étape de build installe des dépendances neuves et construit l'application
+depuis le début, donc aucun de ces éléments n'est nécessaire. Exclure les
+fichiers `.env` évite aussi que vos secrets soient intégrés à l'image.
+
+## Étape 3 : Configurer les secrets d'environnement {#step-3-configure-environment-secrets}
+
+L'application lit ses paramètres de production depuis des variables
+d'environnement :
+
+| Variable             | Requise | Rôle                                                                   |
+| -------------------- | ------- | ---------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL                 |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                         |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application   |
+
+Les exports ci-dessous permettent aux commandes suivantes de fonctionner dans ce
+shell. Avant de déployer, enregistrez ces mêmes variables dans les paramètres
+d'environnement du projet ou du service chez votre hébergeur. Le conteneur les
+conservera ainsi après un redémarrage ou un nouveau déploiement.
+
+### URL de la base de données {#database-url}
+
+En développement local, l'application stocke ses données dans une base de
+données locale lorsque `DATABASE_URL` n'est pas défini. Une application déployée
+a besoin d'une vraie base de données PostgreSQL qui conserve ses données entre
+les redémarrages. Un conteneur perd tous les fichiers qu'il écrit lorsqu'il est
+remplacé. La base de données doit donc se trouver en dehors du conteneur.
+Copiez la chaîne de connexion fournie par votre fournisseur et exportez-la :
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Les [guides des fournisseurs de bases de données](/docs/neon) indiquent où
+trouver la chaîne de connexion pour chaque fournisseur.
+
+<Callout tone="warning">
+
+Choisissez un fournisseur PostgreSQL persistant, par exemple Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Secret d'authentification {#auth-secret}
+
+Générez-le une seule fois et gardez-le identique d'un déploiement à l'autre.
+
+L'application utilise `BETTER_AUTH_SECRET` pour signer les sessions utilisateur.
+S'il change, tous les utilisateurs connectés sont déconnectés. La commande
+ci-dessous génère une valeur aléatoire :
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Conservez la valeur générée en lieu sûr, par exemple dans les paramètres de
+secrets de votre hébergeur ou dans un gestionnaire de mots de passe. Utilisez la
+même valeur à chaque déploiement.
+
+### URL publique {#public-url}
+
+Facultatif. Définissez-la si vous utilisez un domaine personnalisé, un reverse
+proxy ou un flux d'authentification ou OAuth qui exige une origine publique
+fixe.
+
+`BETTER_AUTH_URL` est l'adresse publique utilisée pour accéder à votre
+application. Sans elle, l'application déduit son adresse de chaque requête
+entrante. Cela convient généralement, mais les liens de connexion et les
+redirections OAuth peuvent pointer au mauvais endroit lorsque l'application se
+trouve derrière un proxy ou un domaine personnalisé.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Étape 4 : Migrer {#step-4-migrate}
+
+Les migrations créent et mettent à jour les tables dont l'application a besoin
+dans votre base de données.
+
+Exécutez cette commande sur l'hôte, avec la `DATABASE_URL` de production, avant
+la première visite.
+
+```bash
+pnpm migrate:production
+```
+
+Exécutez la commande depuis le dossier de l'application, pas dans le conteneur.
+L'image ne contient que le serveur final et ne peut donc pas exécuter les
+migrations elle-même. La commande lit `DATABASE_URL` depuis l'environnement que
+vous avez exporté à l'étape précédente. Exécutez-la de nouveau après une mise à
+niveau de l'application, avant de démarrer la nouvelle version.
+
+## Étape 5 : Déployer {#step-5-deploy}
+
+Construisez l'image depuis le dossier de l'application :
+
+```bash
+docker build -t my-agent-native-app .
+```
+
+L'option `-t` nomme l'image `my-agent-native-app`. Vous pouvez choisir le nom
+que vous voulez. Utilisez le même nom dans la commande suivante.
+
+Exécutez le conteneur :
+
+```bash
+docker run --rm \
+  -p 3000:3000 \
+  -e DATABASE_URL \
+  -e BETTER_AUTH_SECRET \
+  my-agent-native-app
+```
+
+`-p 3000:3000` rend le port `3000` du conteneur accessible sur le port `3000` du
+serveur. Chaque option `-e` transmet au conteneur la variable du même nom depuis
+votre shell. Si vous avez défini `BETTER_AUTH_URL`, ajoutez aussi
+`-e BETTER_AUTH_URL` à la commande. `--rm` supprime le conteneur lorsqu'il
+s'arrête.
+
+Pour rendre l'application accessible depuis Internet, ouvrez le port `3000` dans
+le pare-feu du serveur, ou placez devant lui un reverse proxy comme Nginx ou
+Caddy pour servir votre domaine en HTTPS. Ouvrez ensuite l'adresse publique de
+l'application et créez le premier compte.
+
+## Garder le conteneur en marche {#keep-the-container-running}
+
+La commande `docker run` ci-dessus s'exécute dans votre terminal et s'arrête
+lorsque vous le fermez. Pour que l'application reste en marche, démarrez le
+conteneur en arrière-plan avec une politique de redémarrage. Docker le
+redémarrera ainsi après un plantage ou un redémarrage du serveur. Pour cela,
+remplacez `--rm` par `-d --restart unless-stopped`. De nombreux hébergeurs qui
+exécutent des conteneurs gèrent aussi les redémarrages à votre place.
+
+## Et ensuite {#whats-next}
+
+- [**Node.js**](/docs/node-js) - exécuter le même serveur sans conteneur
+- [**Variables d'environnement de déploiement**](/docs/deployment-environment-variables) - la liste complète des paramètres de production
+- [**Déploiement**](/docs/deployment) - comparer les cibles d'hébergement et les prérequis

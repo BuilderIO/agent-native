@@ -1,15 +1,259 @@
 ---
 title: "Docker"
-description: "Localized pointer to the the Docker packaging guide."
+description: "Stellen Sie eine eigenständige Agent-Native-App als Docker-Container bereit."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Docker
 
-Lesen Sie den [englischen Docker-Leitfaden](/docs/docker). Das Gerüst erzeugt
-keine `Dockerfile`; kopieren Sie das dort gezeigte Beispiel vor `docker build`.
+Docker verpackt eine Agent-Native-App und alles, was sie zum Ausführen braucht,
+in ein einziges Container-Image. Das Image führt denselben Node.js-Server aus,
+der in der [Node.js-Anleitung](/docs/node-js) beschrieben ist. Es verhält sich
+daher gleich auf Ihrem Laptop, auf einer virtuellen Maschine oder bei jedem
+Hoster, der Container ausführt.
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`node`.
+Diese Anleitung führt Sie Schritt für Schritt durch das Deployment einer
+eigenständigen App. Sie erstellen die App, fügen ein `Dockerfile` hinzu, geben
+der App eine Produktionsdatenbank und ein Auth-Secret, bereiten die Datenbank
+vor und bauen und starten dann den Container.
+
+<Callout tone="info">
+
+Node.js `22.22+` ist erforderlich.
+
+</Callout>
+
+Außerdem muss Docker auf der Maschine installiert sein, die das Image baut und
+ausführt. Führen Sie die Befehle dieser Anleitung auf dem Server aus, der den
+Container ausführen wird. Bei einer virtuellen Maschine bedeutet das in der
+Regel, dass Sie sich zuerst per SSH mit ihr verbinden.
+
+<a id="self-host-quickstart"></a>
+
+## Schritt 1: Die App erstellen {#step-1-create-the-app}
+
+Erstellen Sie Ihre neue eigenständige App. Das folgende Beispiel erstellt eine
+App aus dem Chat-Template, Sie können aber mit jedem Template beginnen. Wechseln
+Sie in den Ordner der App und installieren Sie ihre Abhängigkeiten.
+`corepack enable` aktiviert die `pnpm`-Version, die die App erwartet. Sie müssen
+`pnpm` also nicht selbst installieren.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Ersetzen Sie `my-app` bei Bedarf durch Ihren eigenen App-Namen. Der Rest dieser
+Anleitung geht davon aus, dass Sie sich im Ordner der App befinden.
+
+## Schritt 2: Dockerfile erstellen {#step-2-create-dockerfile}
+
+Eine neue App enthält kein `Dockerfile`, daher fügen Sie selbst eines hinzu.
+Außerdem fügen Sie eine `.dockerignore`-Datei hinzu, die lokale Dateien aus dem
+Image heraushält. Erstellen Sie beide Dateien im Stammordner der App, neben
+`package.json`.
+
+### Dockerfile {#dockerfile}
+
+Erstellen Sie eine Datei namens `Dockerfile` ohne Dateiendung und kopieren Sie
+Folgendes hinein:
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHON=/usr/bin/python3
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY --from=build /app/.output .output
+
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Das `Dockerfile` baut das Image in zwei Stufen:
+
+- **Build-Stufe.** Installiert die Werkzeuge, die manche Abhängigkeiten während
+  der Installation zum Kompilieren brauchen (`python3`, `make` und `g++`),
+  installiert die Abhängigkeiten der App und baut die App.
+- **Finale Stufe.** Beginnt mit einem sauberen Node.js-Image und kopiert nur den
+  fertigen Server aus dem Ordner `.output` hinein. So bleibt das Image klein, und
+  die Build-Werkzeuge und der Quellcode bleiben zurück.
+
+Das finale Image läuft im Produktionsmodus und lauscht auf Port `3000`.
+
+### Docker-Ignore-Datei {#docker-ignore-file}
+
+Erstellen Sie eine Datei namens `.dockerignore` und kopieren Sie Folgendes
+hinein:
+
+```text filename=".dockerignore"
+node_modules
+.output
+.git
+.env
+.env.*
+data
+*.log
+```
+
+Diese Einträge halten lokale Abhängigkeiten, alte Build-Ausgaben, den
+Git-Verlauf, lokale Secrets in `.env`-Dateien, die lokale Entwicklungsdatenbank
+in `data` und Logdateien aus dem Image heraus. Die Build-Stufe installiert
+frische Abhängigkeiten und baut die App von Grund auf, daher wird nichts davon
+benötigt. Da `.env`-Dateien ausgeschlossen sind, werden Ihre Secrets außerdem
+nicht in das Image eingebaut.
+
+## Schritt 3: Umgebungs-Secrets konfigurieren {#step-3-configure-environment-secrets}
+
+Die App liest ihre Produktionseinstellungen aus Umgebungsvariablen:
+
+| Variable             | Erforderlich | Zweck                                                                 |
+| -------------------- | ------------ | --------------------------------------------------------------------- |
+| `DATABASE_URL`       | Ja           | Verbindet die App mit ihrer PostgreSQL-Datenbank                      |
+| `BETTER_AUTH_SECRET` | Ja           | Signiert Benutzersitzungen                                            |
+| `BETTER_AUTH_URL`    | Nein         | Legt die öffentliche Adresse fest, über die Ihre App erreichbar ist   |
+
+Mit den folgenden Exporten funktionieren die nächsten Befehle in dieser Shell.
+Speichern Sie vor dem Deployment dieselben Variablen in den Umgebungseinstellungen
+des Projekts oder Dienstes bei Ihrem Hoster. So hat der Container sie auch nach
+einem Neustart oder einem neuen Deployment noch.
+
+### Datenbank-URL {#database-url}
+
+Während der lokalen Entwicklung speichert die App ihre Daten in einer lokalen
+Datenbank, wenn `DATABASE_URL` nicht gesetzt ist. Eine bereitgestellte App
+braucht eine echte PostgreSQL-Datenbank, die ihre Daten über Neustarts hinweg
+behält. Ein Container verliert alle Dateien, die er schreibt, wenn er ersetzt
+wird. Die Datenbank muss sich daher außerhalb des Containers befinden. Kopieren
+Sie den Verbindungsstring von Ihrem Anbieter und exportieren Sie ihn:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Die [Anleitungen zu Datenbankanbietern](/docs/neon) zeigen, wo Sie den
+Verbindungsstring für jeden Anbieter finden.
+
+<Callout tone="warning">
+
+Wählen Sie einen persistenten PostgreSQL-Anbieter, zum Beispiel Neon, Supabase oder Amazon RDS.
+
+</Callout>
+
+### Auth-Secret {#auth-secret}
+
+Erzeugen Sie diesen Wert einmal und lassen Sie ihn über alle Deployments hinweg
+unverändert.
+
+Die App verwendet `BETTER_AUTH_SECRET`, um Benutzersitzungen zu signieren. Wenn
+sich der Wert ändert, werden alle angemeldeten Benutzer abgemeldet. Der folgende
+Befehl erzeugt einen zufälligen Wert:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Bewahren Sie den erzeugten Wert an einem sicheren Ort auf, zum Beispiel in den
+Secret-Einstellungen Ihres Hosters oder in einem Passwort-Manager. Verwenden Sie
+bei jedem Deployment denselben Wert.
+
+### Öffentliche URL {#public-url}
+
+Optional. Setzen Sie sie, wenn Sie eine eigene Domain, einen Reverse Proxy oder
+einen Auth- bzw. OAuth-Ablauf verwenden, der einen festen öffentlichen Origin
+benötigt.
+
+`BETTER_AUTH_URL` ist die öffentliche Adresse, über die Ihre App erreichbar ist.
+Ohne diese Variable ermittelt die App ihre Adresse aus jeder eingehenden
+Anfrage. Das funktioniert meistens, aber Anmeldelinks und OAuth-Weiterleitungen
+können an die falsche Stelle zeigen, wenn die App hinter einem Proxy oder einer
+eigenen Domain liegt.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Schritt 4: Migrieren {#step-4-migrate}
+
+Migrationen erstellen und aktualisieren die Tabellen, die die App in Ihrer
+Datenbank braucht.
+
+Führen Sie dies vor dem ersten Aufruf auf dem Host gegen die Produktions-`DATABASE_URL`
+aus.
+
+```bash
+pnpm migrate:production
+```
+
+Führen Sie den Befehl im Ordner der App aus, nicht im Container. Das Image
+enthält nur den fertigen Server und kann Migrationen daher nicht selbst
+ausführen. Der Befehl liest `DATABASE_URL` aus der Umgebung, die Sie im
+vorherigen Schritt exportiert haben. Führen Sie ihn nach einem Upgrade der App
+erneut aus, bevor Sie die neue Version starten.
+
+## Schritt 5: Bereitstellen {#step-5-deploy}
+
+Bauen Sie das Image im Ordner der App:
+
+```bash
+docker build -t my-agent-native-app .
+```
+
+Das Flag `-t` gibt dem Image den Namen `my-agent-native-app`. Sie können einen
+beliebigen Namen verwenden. Verwenden Sie im nächsten Befehl denselben Namen.
+
+Starten Sie den Container:
+
+```bash
+docker run --rm \
+  -p 3000:3000 \
+  -e DATABASE_URL \
+  -e BETTER_AUTH_SECRET \
+  my-agent-native-app
+```
+
+`-p 3000:3000` macht den Port `3000` des Containers über den Port `3000` des
+Servers erreichbar. Jedes `-e`-Flag übergibt die gleichnamige Variable aus Ihrer
+Shell an den Container. Wenn Sie `BETTER_AUTH_URL` gesetzt haben, fügen Sie dem
+Befehl auch `-e BETTER_AUTH_URL` hinzu. `--rm` entfernt den Container, wenn er
+stoppt.
+
+Um die App aus dem Internet zu erreichen, öffnen Sie Port `3000` in der Firewall
+des Servers oder schalten Sie einen Reverse Proxy wie Nginx oder Caddy davor, der
+Ihre Domain über HTTPS ausliefert. Öffnen Sie dann die öffentliche Adresse der
+App und erstellen Sie das erste Konto.
+
+## Den Container dauerhaft laufen lassen {#keep-the-container-running}
+
+Der obige Befehl `docker run` läuft in Ihrem Terminal und stoppt, wenn Sie es
+schließen. Damit die App weiterläuft, starten Sie den Container im Hintergrund
+mit einer Neustartrichtlinie. So startet Docker ihn nach einem Absturz oder
+einem Neustart des Servers erneut. Ersetzen Sie dazu `--rm` durch
+`-d --restart unless-stopped`. Viele Hoster, die Container ausführen, übernehmen
+die Neustarts auch für Sie.
+
+## Was kommt als nächstes? {#whats-next}
+
+- [**Node.js**](/docs/node-js) - denselben Server ohne Container ausführen
+- [**Umgebungsvariablen für das Deployment**](/docs/deployment-environment-variables) - die vollständige Liste der Produktionseinstellungen
+- [**Deployment**](/docs/deployment) - Hosting-Ziele und Voraussetzungen vergleichen

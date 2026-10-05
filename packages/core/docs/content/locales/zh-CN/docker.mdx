@@ -1,15 +1,222 @@
 ---
 title: "Docker"
-description: "Localized pointer to the the Docker packaging guide."
+description: "将独立的 Agent-Native 应用部署为 Docker 容器。"
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Docker
 
-请参阅[英文 Docker 指南](/docs/docker)。脚手架不会生成 `Dockerfile`；运行
-`docker build` 前，请将其中的示例复制到应用中。
+Docker 会把 Agent-Native 应用及其运行所需的一切打包到一个容器镜像中。该镜像运行的
+是 [Node.js 指南](/docs/node-js)中介绍的同一个 Node.js 服务器，因此无论在你的
+笔记本电脑、虚拟机，还是任何能运行容器的主机上，它的行为都相同。
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`node`.
+本指南将从零开始演示如何部署一个独立应用。你将创建应用，添加一个 `Dockerfile`，
+为应用配置生产数据库和身份验证密钥，准备好数据库，然后构建并运行容器。
+
+<Callout tone="info">
+
+需要 Node.js `22.22+`。
+
+</Callout>
+
+你还需要在构建和运行镜像的机器上安装 Docker。本指南中的命令要在运行该容器的
+服务器上运行。如果使用虚拟机，通常需要先通过 SSH 连接到它。
+
+<a id="self-host-quickstart"></a>
+
+## 第 1 步：创建应用 {#step-1-create-the-app}
+
+创建新的独立应用。下面的示例基于 Chat 模板创建应用，但你可以从任何模板开始。
+进入应用的文件夹并安装依赖。`corepack enable` 会启用应用所需的 `pnpm` 版本，
+因此你无需自己安装 `pnpm`。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+如果愿意，可以把 `my-app` 替换为你自己的应用名称。本指南的其余部分假定你位于
+应用的文件夹中。
+
+## 第 2 步：创建 Dockerfile {#step-2-create-dockerfile}
+
+新应用不包含 `Dockerfile`，因此你需要自己添加一个。你还要添加一个 `.dockerignore`
+文件，让本地文件不会进入镜像。请在应用的根文件夹中，也就是 `package.json` 旁边，
+创建这两个文件。
+
+### Dockerfile {#dockerfile}
+
+创建一个名为 `Dockerfile` 的文件，不带文件扩展名，并复制以下内容：
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHON=/usr/bin/python3
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY --from=build /app/.output .output
+
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+这个 `Dockerfile` 分两个阶段构建镜像：
+
+- **构建阶段。** 安装某些依赖在安装期间编译所需的工具（`python3`、`make` 和
+  `g++`），安装应用的依赖，并构建应用。
+- **最终阶段。** 从一个干净的 Node.js 镜像开始，只复制 `.output` 文件夹中完成的
+  服务器。这样可以让镜像保持小巧，并把构建工具和源代码留在镜像之外。
+
+最终镜像以生产模式运行，并监听端口 `3000`。
+
+### Docker 忽略文件 {#docker-ignore-file}
+
+创建一个名为 `.dockerignore` 的文件，并复制以下内容：
+
+```text filename=".dockerignore"
+node_modules
+.output
+.git
+.env
+.env.*
+data
+*.log
+```
+
+这些条目让本地依赖、旧的构建输出、Git 历史、`.env` 文件中的本地密钥、`data` 中的
+本地开发数据库以及日志文件都不会进入镜像。构建阶段会安装全新的依赖并从零开始构建
+应用，因此这些都不需要。排除 `.env` 文件还能防止你的密钥被打包进镜像。
+
+## 第 3 步：配置环境密钥 {#step-3-configure-environment-secrets}
+
+应用从环境变量中读取其生产设置：
+
+| 变量                 | 必填 | 用途                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
+| `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
+
+下面的 export 命令让后续命令能在当前 shell 中正常运行。部署之前，请把这些变量
+同样保存到主机的项目或服务环境设置中，这样容器在重启或重新部署后仍然能获取它们。
+
+### 数据库 URL {#database-url}
+
+在本地开发期间，如果未设置 `DATABASE_URL`，应用会把数据存储在本地数据库中。
+已部署的应用需要一个真正的 PostgreSQL 数据库，在重启之间保留数据。容器被替换时，
+它写入的所有文件都会丢失，因此数据库必须位于容器之外。从你的提供商处复制连接
+字符串并导出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[数据库提供商指南](/docs/neon)介绍了在每个提供商处查找连接字符串的位置。
+
+<Callout tone="warning">
+
+请选择持久的 PostgreSQL 提供商，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 身份验证密钥 {#auth-secret}
+
+只需生成一次，并在各次部署之间保持不变。
+
+应用使用 `BETTER_AUTH_SECRET` 为用户会话签名。如果它发生变化，所有已登录的用户
+都会被登出。下面的命令会生成一个随机值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+请把生成的值保存在安全的地方，例如主机的密钥设置或密码管理器。每次部署时都使用
+相同的值。
+
+### 公共 URL {#public-url}
+
+可选。在使用自定义域名、反向代理，或需要固定公共源的身份验证/OAuth 流程时设置它。
+
+`BETTER_AUTH_URL` 是用户访问你的应用时使用的公共地址。如果不设置，应用会根据
+每个传入请求推断自己的地址。这通常没有问题，但当应用位于代理或自定义域名之后时，
+登录链接和 OAuth 重定向可能会指向错误的位置。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 第 4 步：迁移 {#step-4-migrate}
+
+迁移会在你的数据库中创建和更新应用所需的表。
+
+请在首次访问之前，在主机上针对生产环境的 `DATABASE_URL` 运行此命令。
+
+```bash
+pnpm migrate:production
+```
+
+请在应用的文件夹中运行该命令，而不是在容器内运行。镜像只包含完成的服务器，因此它
+本身无法运行迁移。该命令会从你在上一步导出的环境中读取 `DATABASE_URL`。升级应用
+之后、启动新版本之前，请再次运行它。
+
+## 第 5 步：部署 {#step-5-deploy}
+
+在应用的文件夹中构建镜像：
+
+```bash
+docker build -t my-agent-native-app .
+```
+
+`-t` 标志把镜像命名为 `my-agent-native-app`。你可以使用任何名称，并在下一条命令中
+使用相同的名称。
+
+运行容器：
+
+```bash
+docker run --rm \
+  -p 3000:3000 \
+  -e DATABASE_URL \
+  -e BETTER_AUTH_SECRET \
+  my-agent-native-app
+```
+
+`-p 3000:3000` 让容器的端口 `3000` 可以通过服务器的端口 `3000` 访问。每个 `-e`
+标志都会把 shell 中同名的变量传入容器。如果你设置了 `BETTER_AUTH_URL`，也请在命令
+中添加 `-e BETTER_AUTH_URL`。`--rm` 会在容器停止时将其删除。
+
+要从互联网访问应用，请在服务器的防火墙中开放端口 `3000`，或者在它前面放置
+Nginx 或 Caddy 等反向代理，通过 HTTPS 为你的域名提供服务。然后打开应用的公共
+地址并创建第一个账户。
+
+## 保持容器运行 {#keep-the-container-running}
+
+上面的 `docker run` 命令在你的终端中运行，关闭终端时就会停止。要让应用持续运行，
+请在后台启动容器并设置重启策略，这样 Docker 会在崩溃或服务器重启后再次启动它。
+为此，请把 `--rm` 替换为 `-d --restart unless-stopped`。许多运行容器的主机也会
+替你处理重启。
+
+## 下一步 {#whats-next}
+
+- [**Node.js**](/docs/node-js) - 不使用容器运行同一个服务器
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产设置的完整列表
+- [**部署**](/docs/deployment) - 比较各个托管目标及其前提条件
