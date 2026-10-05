@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 const PREFIX = "content-editor-mode-v1:";
 
 export type RememberedEditorMode = "suggesting" | "editing" | "unavailable";
@@ -28,4 +30,45 @@ export function rememberEditorMode(
   } catch (error) {
     console.warn("Could not remember the Page's editing mode", error);
   }
+}
+
+/**
+ * Resumes Suggesting mode after a reload that left this tab there, then
+ * remembers each later switch.
+ */
+export function useRememberedEditorMode({
+  documentId,
+  isSuggesting,
+  canResume,
+  resume,
+}: {
+  documentId: string;
+  isSuggesting: boolean;
+  /** The state a user's own switch would start from. */
+  canResume: boolean;
+  resume: () => Promise<unknown>;
+}) {
+  // Until a resume settles, the stored mode must not be overwritten with Edit
+  // mode, or a start that fails would stop the next reload from retrying.
+  const restoreRef = useRef<"pending" | "resuming" | "done" | null>(null);
+  useEffect(() => {
+    restoreRef.current ??=
+      readRememberedEditorMode(documentId) === "suggesting"
+        ? "pending"
+        : "done";
+    if (restoreRef.current === "done") return;
+    if (isSuggesting) {
+      restoreRef.current = "done";
+      return;
+    }
+    if (restoreRef.current !== "pending" || !canResume) return;
+    restoreRef.current = "resuming";
+    void resume().finally(() => {
+      if (restoreRef.current === "resuming") restoreRef.current = "done";
+    });
+  }, [canResume, documentId, isSuggesting, resume]);
+  useEffect(() => {
+    if (restoreRef.current !== "done") return;
+    rememberEditorMode(documentId, isSuggesting ? "suggesting" : "editing");
+  }, [documentId, isSuggesting]);
 }

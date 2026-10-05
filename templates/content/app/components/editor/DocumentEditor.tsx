@@ -256,10 +256,7 @@ import {
   withdrawnSessionSuggestionIds,
 } from "./suggestions/draft-session";
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
-import {
-  readRememberedEditorMode,
-  rememberEditorMode,
-} from "./suggestions/editor-mode-memory";
+import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
 import {
   createObservedSuggestionPresentationTransition,
   hydrateSuggestionPresentationTransitions,
@@ -5902,37 +5899,18 @@ function PageEditorSessionBody({
     ],
   );
 
-  // "pending" until a reload that left this tab Suggesting has resumed it;
-  // until then, the stored mode must not be overwritten with Edit mode.
-  const suggestingRestoreRef = useRef<"pending" | "done" | null>(null);
-  useEffect(() => {
-    suggestingRestoreRef.current ??=
-      readRememberedEditorMode(documentId) === "suggesting"
-        ? "pending"
-        : "done";
-    if (suggestingRestoreRef.current !== "pending") return;
-    if (isSuggesting) {
-      suggestingRestoreRef.current = "done";
-      return;
-    }
-    // Wait for the state a user's own switch would start from: a fresh Page,
-    // and for editors a live body, so the session never bases on a stale copy.
-    if (!documentFresh || !canSuggest || (canEdit && !editorCanEdit)) return;
-    suggestingRestoreRef.current = "done";
-    void handleSuggestionModeChange(true);
-  }, [
-    canEdit,
-    canSuggest,
-    documentFresh,
+  const resumeSuggestionMode = useCallback(
+    () => handleSuggestionModeChange(true),
+    [handleSuggestionModeChange],
+  );
+  useRememberedEditorMode({
     documentId,
-    editorCanEdit,
-    handleSuggestionModeChange,
     isSuggesting,
-  ]);
-  useEffect(() => {
-    if (suggestingRestoreRef.current !== "done") return;
-    rememberEditorMode(documentId, isSuggesting ? "suggesting" : "editing");
-  }, [documentId, isSuggesting]);
+    // A fresh Page, and for editors a live body, so the resumed session never
+    // bases on a stale copy.
+    canResume: documentFresh && canSuggest && (!canEdit || editorCanEdit),
+    resume: resumeSuggestionMode,
+  });
 
   const capturePageActionsSelection = useCallback(
     (includeRemembered = false) => {
