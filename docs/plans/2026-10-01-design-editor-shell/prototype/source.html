@@ -714,15 +714,15 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .row.tk input.tk-edit { margin-left: 8px; width: 104px; height: 20px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 4px; color: var(--fg); flex: none; }
 /* Color picker (COLOR-01…05): 252px popover. Custom: the mode's field, eyedropper beside hue and opacity, Previous/New beside them,
    [Mode ▾] and one joined value field, Document colors. Libraries (inspector only): tokens. Both panes share one grid cell. */
-.cpk { position: fixed; z-index: 49; width: 252px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
+.cpk { position: fixed; z-index: 49; width: 280px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
 .cpk-head { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid var(--border); }
 .cpk-head button { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted-fg); }
 .cpk-head button[aria-selected="true"] { background: var(--muted); color: var(--fg); }
 .cpk-panes { display: grid; grid-template-columns: minmax(0, 1fr); }
 .cpk-pane { grid-area: 1 / 1; min-width: 0; }
 .cpk-pane[aria-hidden="true"] { visibility: hidden; }
-.cpk-sv { position: relative; height: 240px; cursor: crosshair; touch-action: none; }
-.cpk-sv canvas { position: absolute; left: 12px; top: 12px; width: 228px; height: 228px; border-radius: 4px; }
+.cpk-sv { position: relative; height: 268px; cursor: crosshair; touch-action: none; }
+.cpk-sv canvas { position: absolute; left: 12px; top: 12px; width: 256px; height: 256px; border-radius: 4px; }
 .cpk-knob { position: absolute; z-index: 1; width: 16px; height: 16px; translate: -50% -50%; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 60%); pointer-events: none; }
 .cpk-ctl { margin-top: 10px; padding: 0 12px; display: grid; grid-template-columns: 24px 1fr 36px; column-gap: 8px; row-gap: 8px; align-items: center; }
 .cpk-eye { grid-row: span 2; width: 24px; height: 24px; border-radius: 4px; display: grid; place-items: center; }
@@ -734,23 +734,14 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-cmp { grid-row: span 2; width: 36px; height: 36px; border-radius: 6px; overflow: hidden; display: grid; grid-template-rows: 1fr 1fr; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
 .cpk-cmp > * { display: block; width: 100%; height: 100%; }
 .cpk-prev { cursor: pointer; }
-.cpk-val { margin-top: 10px; padding: 0 12px 10px; display: flex; gap: 4px; align-items: flex-start; }
-.cpk-vcol { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.cpk-mode { height: 24px; display: inline-flex; align-items: center; gap: 0; padding: 0 2px 0 6px; border: 1px solid var(--border); border-radius: 6px; color: var(--fg); flex: none; }
-.cpk-mode svg { color: var(--muted-fg); }
-.cpk-fields { flex: 1; min-width: 0; height: 24px; display: flex; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); overflow: hidden; }
-.cpk-fields:focus-within { border-color: var(--accent); }
-.cpk-fields .cell { flex: 1; min-width: 0; display: flex; align-items: center; border-left: 1px solid var(--border); }
-.cpk-fields .cell:first-child { border-left: 0; }
-.cpk-fields .hex, .cpk-caps .hex { flex: 3; }
-.cpk-fields input { flex: 1; width: 100%; min-width: 0; height: 100%; border: 0; background: none; outline: none; padding: 0 4px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--fg); }
-.cpk-fields .pct, .cpk-caps .pct { flex: none; width: 42px; }
-.cpk-fields .pct input { padding-right: 0; }
-.cpk-fields .pct span { padding: 0 5px 0 0; color: var(--muted-fg); font-size: 10px; }
-.cpk-caps { display: flex; }
-.cpk-caps span { flex: 1; min-width: 0; padding: 0 5px; font-size: 10px; line-height: 14px; color: var(--muted-fg); user-select: none; }
-.cpk-caps [data-scrub] { cursor: ew-resize; }
-.cpk-caps [data-scrub]:hover { color: var(--fg); }
+.cpk-val { margin-top: 12px; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.cpk-row { display: flex; gap: 8px; }
+.cpk-row .cpk-mode { flex: 1; }
+.cpk-row .cpk-op { width: 88px; flex: none; }
+.cpk-fields { display: flex; gap: 8px; }
+.cpk-fields .inp { flex: 1; }
+.cpk-fields .inp .pre[data-scrub]:hover { color: var(--fg); }
+.cpk-fields .inp .pre:not([data-scrub]) { cursor: default; }
 .cpk-new { position: relative; }
 .cpk-gamut { position: absolute; right: 2px; top: 2px; height: 12px; padding: 0 3px; border-radius: 3px; background: rgb(0 0 0 / 55%); color: #fff; font-size: 8px; font-weight: 600; line-height: 12px; cursor: help; }
 .cpk-doc { border-top: 1px solid var(--border); padding: 10px 12px; }
@@ -788,26 +779,27 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .tk-empty b { display: block; color: var(--fg); font-size: 12px; font-weight: 500; margin-bottom: 4px; }
 
 /* menus: Nova dropdown. Full-bleed 28px rows, no inner padding, dividers edge to edge. */
-/* Matches the toolkit's shadcn DropdownMenu: p-1 content, rounded-sm rows (px-2 py-1.5 text-sm), inset separators, xs semibold labels. */
-.menu { position: fixed; z-index: 50; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px; min-width: 128px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%); font-size: 14px; line-height: 20px; overflow: hidden; animation: swap .12s ease-out; }
-.menu button { width: 100%; height: 32px; padding: 6px 8px; border-radius: 4px; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap; }
+/* The editor's menu density, from CanvasContextMenu.tsx: 3px inset, 28px rows of 12px text with 4px corners,
+   inset separators, 11px muted shortcuts. Same structure as the toolkit's shadcn DropdownMenu, at the editor's scale. */
+.menu { position: fixed; z-index: 50; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 3px; min-width: 128px; box-shadow: 0 4px 16px rgb(0 0 0 / 16%), 0 0 0 .5px rgb(0 0 0 / 8%); font-size: 12px; line-height: 16px; overflow: hidden; animation: swap .12s ease-out; }
+.menu button { width: 100%; height: 28px; padding: 0 8px; border-radius: 4px; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap; }
 .menu button:hover, .menu button:focus-visible, .menu button.open { background: var(--hover); outline: none; }
-.menu button[disabled] { opacity: .5; cursor: default; background: none; }
-.menu button.two { height: auto; min-height: 44px; align-items: flex-start; }
+.menu button[disabled] { opacity: .35; cursor: default; background: none; }
+.menu button.two { height: auto; min-height: 40px; padding-block: 5px; align-items: flex-start; }
 .menu .tt { display: flex; flex-direction: column; min-width: 0; }
-.menu .tt small { color: var(--muted-fg); font-size: 12px; line-height: 16px; }
-.menu .kbd { margin-left: auto; padding-left: 16px; font-size: 12px; letter-spacing: .1em; opacity: .6; }
+.menu .tt small { color: var(--muted-fg); font-size: 11px; line-height: 16px; }
+.menu .kbd { margin-left: auto; padding-left: 16px; font-size: 11px; color: var(--muted-fg); opacity: .7; font-variant-numeric: tabular-nums; }
 .menu button svg { flex: none; }
 .menu button.danger { color: hsl(0 72% 51%); }
-.menu hr { border: 0; height: 1px; background: var(--muted); margin: 4px -4px; }
-.menu .lbl { padding: 6px 8px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--muted-fg); }
+.menu hr { border: 0; height: 1px; background: var(--border); opacity: .8; margin: 3px 0; }
+.menu .lbl { height: 24px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--muted-fg); }
 .menu .ck { width: 16px; display: grid; place-items: center; flex: none; }
 .menu .sub { margin-left: auto; padding-left: 16px; display: grid; }
 .menu img.mi-img { width: 16px; height: 16px; border-radius: 4px; flex: none; }
-.menu .search { height: 36px; display: flex; align-items: center; gap: 8px; padding-inline: 12px; margin: -4px -4px 4px; color: var(--muted-fg); border-bottom: 1px solid var(--border); }
-.menu .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 14px; color: var(--fg); }
-.menu .field-row { padding: 8px; margin: -4px -4px 4px; border-bottom: 1px solid var(--border); }
-.menu .field-row input { width: 100%; height: 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); padding-inline: 8px; font-size: 14px; }
+.menu .search { height: 32px; display: flex; align-items: center; gap: 8px; padding-inline: 11px; margin: -3px -3px 3px; color: var(--muted-fg); border-bottom: 1px solid var(--border); }
+.menu .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 12px; color: var(--fg); }
+.menu .field-row { padding: 8px; margin: -3px -3px 3px; border-bottom: 1px solid var(--border); }
+.menu .field-row input { width: 100%; height: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); padding-inline: 8px; font-size: 12px; }
 
 /* Top bar test (2026-10-01): every control at the 24px design-system default, ui/control text 12/16.
    Edge padding follows the edge content: 8px beside text, 4px beside a 16px glyph ((24 - 16) / 2). */
@@ -2000,7 +1992,6 @@ function toast(t) {
 // The mode is one property: it picks the field, the hue strip, and the value cells, and the CSS the picker writes.
 const clamp01 = x => Math.min(1, Math.max(0, x));
 const CPK_MODES = [["hex", "Hex", "srgb"], ["rgb", "RGB", "srgb"], ["hsl", "HSL", "srgb"], ["hsb", "HSB", "srgb"], ["p3", "Display P3", "p3"], ["oklch", "OKLCH", "p3"]];
-const CPK_SHORT = { hex: "Hex", rgb: "RGB", hsl: "HSL", hsb: "HSB", p3: "P3", oklch: "OKLCH" };
 const mul = (m, v) => m.map(r => r[0] * v[0] + r[1] * v[1] + r[2] * v[2]);
 const SRGB_XYZ = [[0.41239079926595934, 0.357584339383878, 0.1804807884018343], [0.21263900587151027, 0.715168678767756, 0.07219231536073371], [0.01933081871559182, 0.11919477979462598, 0.9505321522496607]];
 const XYZ_SRGB = [[3.2409699419045226, -1.537383177570094, -0.4986107602930034], [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559], [0.05563007969699366, -0.20397695888897652, 1.0569715142428786]];
@@ -2099,7 +2090,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
           <div class="cpk-track cpk-hue" role="slider" aria-label="Hue" title="Hue"><span class="cpk-knob"></span></div>
           <div class="cpk-cmp"><span class="cpk-new" title="New"><span class="cpk-gamut" hidden title="Outside sRGB. Screens without Display P3 show the nearest sRGB color.">P3</span></span><button class="cpk-prev" title="Previous · click to restore" aria-label="Restore previous color"></button></div>
           <div class="cpk-track cpk-alpha" role="slider" aria-label="Opacity" title="Opacity"><span class="cpk-knob"></span></div></div>
-        <div class="cpk-val"><button class="cpk-mode" aria-haspopup="menu" title="Color mode"></button><div class="cpk-vcol"><div class="cpk-fields"></div><div class="cpk-caps"></div></div></div>
+        <div class="cpk-val"><div class="cpk-row"><button class="inp sel cpk-mode" aria-haspopup="menu" title="Color mode"></button><label class="inp cpk-op" title="Opacity"><span class="pre">${ic("grid-dots", "s12")}</span><input class="cpk-a" aria-label="Opacity" inputmode="numeric"></label></div><div class="cpk-fields"></div></div>
         <div class="cpk-doc"><div class="cpk-doc-h">Document colors</div><div class="cpk-grid">${docs.map(c => `<button data-cpk-doc="${c}" aria-label="${c}" title="${c}" style="background:${c}"></button>`).join("")}</div></div>
       </div>
       ${libraries ? `<div class="cpk-pane" data-cpk-pane="libraries" aria-hidden="true"><label class="cpk-lsearch">${ic("search", "s14")}<input placeholder="Search" aria-label="Search tokens"></label><div class="cpk-llabel">Design tokens</div><div class="cpk-list">${libs.map(t => `<button class="cpk-lrow" data-cpk-token="${t.cssVar}" title="${t.cssVar}"><span class="sw" style="background:${t.value}"></span><span class="grow">${t.name}</span></button>`).join("")}</div></div>` : ""}
@@ -2141,11 +2132,12 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     else { C.okHue = wrap(n[2]); C.lin = fitGamut(oklchToLin([clamp01(n[0] / 100), C.wantC ?? Math.max(0, n[1]), C.okHue]), inP3); }
   };
   const css = (a = C.a) => formatColor(C.lin, a, C.mode, C.mode === "oklch" ? C.okHue : C.hue);
+  const SQ = 256;
   let laidOut = null, drawnFor = null;
   const drawSquare = () => {
     const space = wide() ? "p3" : "srgb";
     // A canvas keeps the color space of its first context, so switching space gets a fresh canvas.
-    if (laidOut !== space) { laidOut = space; drawnFor = null; q(".cpk-sv").innerHTML = `<canvas width="456" height="456"></canvas><span class="cpk-knob"></span>`; }
+    if (laidOut !== space) { laidOut = space; drawnFor = null; q(".cpk-sv").innerHTML = `<canvas width="${SQ * 2}" height="${SQ * 2}"></canvas><span class="cpk-knob"></span>`; }
     const key = `${space}|${C.hue.toFixed(2)}`; if (drawnFor === key) return; drawnFor = key;
     const cv = q(".cpk-sv canvas"), ctx = cv.getContext("2d", space === "p3" ? { colorSpace: "display-p3" } : undefined), W = cv.width;
     const img = space === "p3" ? ctx.createImageData(W, W, { colorSpace: "display-p3" }) : ctx.createImageData(W, W);
@@ -2154,7 +2146,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     if (space !== "p3") return;
     // One quiet line where sRGB ends; everything right of it shows only on P3 screens.
     ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = 1.5; ctx.beginPath();
-    for (let y = 0; y <= 228; y += 2) { let lo = 0, hi = 1; for (let k = 0; k < 14; k++) { const m = (lo + hi) / 2; if (inSrgb(fromHsv(m, 1 - y / 228, C.hue))) lo = m; else hi = m; } (y ? ctx.lineTo : ctx.moveTo).call(ctx, lo * 228, y); }
+    for (let y = 0; y <= SQ; y += 2) { let lo = 0, hi = 1; for (let k = 0; k < 14; k++) { const m = (lo + hi) / 2; if (inSrgb(fromHsv(m, 1 - y / SQ, C.hue))) lo = m; else hi = m; } (y ? ctx.lineTo : ctx.moveTo).call(ctx, lo * SQ, y); }
     ctx.stroke();
   };
   // In OKLCH the strip runs in OKLCH hue order, so the knob sits at the color's OKLCH hue.
@@ -2162,7 +2154,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const paint = (fields = true) => {
     const c = hsv();
     drawSquare();
-    Object.assign(q(".cpk-sv .cpk-knob").style, { left: 12 + c.s * 228 + "px", top: 12 + (1 - c.v) * 228 + "px" });
+    Object.assign(q(".cpk-sv .cpk-knob").style, { left: 12 + c.s * SQ + "px", top: 12 + (1 - c.v) * SQ + "px" });
     q(".cpk-hue").style.background = hueBg();
     q(".cpk-hue .cpk-knob").style.left = (C.mode === "oklch" ? oklch()[2] : c.h) / 360 * 100 + "%";
     q(".cpk-alpha .cpk-knob").style.left = C.a * 100 + "%";
@@ -2170,14 +2162,13 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     q(".cpk-new").style.setProperty("--cpk-fill", `linear-gradient(${css()}, ${css()})`);
     q(".cpk-prev").style.setProperty("--cpk-fill", `linear-gradient(${before}, ${before})`);
     q(".cpk-gamut").hidden = inSrgb(C.lin);
-    q(".cpk-mode").innerHTML = `${CPK_SHORT[C.mode]}${ic("chevron-down", "s12")}`;
+    q(".cpk-mode").innerHTML = `<span class="v">${CPK_MODES.find(m => m[0] === C.mode)[1]}</span>${ic("chevron-down", "s12")}`;
+    if (document.activeElement !== q(".cpk-a")) q(".cpk-a").value = Math.round(C.a * 100) + "%";
     if (fields) {
       const vals = read();
-      const hex = C.mode === "hex", chans = CPK_CHANNELS[C.mode];
-      q(".cpk-fields").innerHTML = chans.map(([, name], i) => `<label class="cell${hex ? " hex" : ""}" title="${name}"><input value="${vals[i]}" aria-label="${name}" spellcheck="false"></label>`).join("")
-        + `<label class="cell pct" title="Opacity"><input class="cpk-a" value="${Math.round(C.a * 100)}" aria-label="Opacity" inputmode="numeric"><span>%</span></label>`;
-      // Captions name each channel; dragging one scrubs it, like the inspector's X and W labels.
-      q(".cpk-caps").innerHTML = chans.map(([pre, name], i) => `<span class="${hex ? "hex" : ""}" ${hex ? "" : `data-scrub="${i}" title="Drag to adjust ${name.toLowerCase()}"`}>${hex ? "Hex" : pre}</span>`).join("") + `<span class="pct">A</span>`;
+      const hex = C.mode === "hex";
+      // One inspector field per channel; the prefix names it and, like the inspector's X and W, drags to scrub it.
+      q(".cpk-fields").innerHTML = CPK_CHANNELS[C.mode].map(([pre, name], i) => `<label class="inp" title="${name}"><span class="pre" ${hex ? "" : `data-scrub="${i}" title="Drag to adjust ${name.toLowerCase()}"`}>${pre}</span><input value="${vals[i]}" aria-label="${name}" spellcheck="false"></label>`).join("");
     }
     const now = css().toLowerCase();
     pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
@@ -2190,7 +2181,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     move(e); el.onpointermove = move; el.onpointerup = () => { el.onpointermove = null; };
     el.setPointerCapture(e.pointerId);
   });
-  drag(q(".cpk-sv"), (ev, r) => { const h = hsv().h; C.lin = fromHsv(clamp01((ev.clientX - r.left - 12) / 228), 1 - clamp01((ev.clientY - r.top - 12) / 228), h); C.hue = h; C.wantC = null; });
+  drag(q(".cpk-sv"), (ev, r) => { const h = hsv().h; C.lin = fromHsv(clamp01((ev.clientX - r.left - 12) / SQ), 1 - clamp01((ev.clientY - r.top - 12) / SQ), h); C.hue = h; C.wantC = null; });
   // Hue holds what the mode holds: HSB keeps saturation and brightness; OKLCH keeps lightness and the chroma you set,
   // so every hue reads equally light and the square's knob moves to wherever that color sits.
   drag(q(".cpk-hue"), (ev, r) => {
@@ -2211,7 +2202,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
       v[i] = +(max === 360 && i !== 1 ? ((raw % 360) + 360) % 360 : Math.min(max, Math.max(min, raw))).toFixed(dec);
       C.wantC = C.mode === "oklch" ? (i === 1 ? v[1] : keepC) : null;
       write(v); paint(false);
-      const ins = pop.querySelectorAll(".cpk-fields .cell:not(.pct) input"); read().forEach((x, k) => { if (ins[k]) ins[k].value = k === i ? v[i] : x; });
+      const ins = pop.querySelectorAll(".cpk-fields input"); read().forEach((x, k) => { if (ins[k]) ins[k].value = k === i ? v[i] : x; });
       onInput(css());
     };
     pre.setPointerCapture(e.pointerId); pre.onpointermove = move; pre.onpointerup = () => { pre.onpointermove = null; };
@@ -2220,7 +2211,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     if (e.target.matches(".cpk-a")) { const n = parseFloat(e.target.value); if (!isNaN(n)) C.a = clamp01(n / 100); return update(); }
     if (!e.target.closest(".cpk-fields")) return;
     C.wantC = null;
-    write([...pop.querySelectorAll(".cpk-fields .cell:not(.pct) input")].map(i => i.value.trim()));
+    write([...pop.querySelectorAll(".cpk-fields input")].map(i => i.value.trim()));
     update();
   });
   const setTab = tab => { pop.querySelectorAll("[data-cpk-tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.cpkTab === tab)); pop.querySelectorAll("[data-cpk-pane]").forEach(p => p.setAttribute("aria-hidden", p.dataset.cpkPane !== tab)); if (tab === "libraries") q(".cpk-lsearch input").focus(); };
