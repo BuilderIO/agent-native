@@ -698,6 +698,58 @@ describe("browser analytics pageviews", () => {
     expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
   });
 
+  it("sends web_vitals with its route and never the page's path", async () => {
+    const { gtag } = installBrowser(
+      "https://slides.agent-native.com/decks/jane@example.com?tab=1",
+    );
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      pageviewTracking: false,
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        path: "/decks/jane@example.com",
+      }),
+    });
+    await tick();
+    amplitudeMock.track.mockClear();
+    analyticsCalls.length = 0;
+
+    trackEvent("web_vitals", { route: "/decks/:id", lcp_ms: 1200 });
+    trackEvent("deck_opened", { deck_count: 1 });
+    await tick();
+
+    const bodies = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    const vitals = bodies.find((body) => body.event === "web_vitals");
+    expect(vitals?.properties).toMatchObject({
+      route: "/decks/:id",
+      lcp_ms: 1200,
+    });
+    expect(JSON.stringify(vitals?.properties)).not.toContain("jane");
+    const amplitudeVitals = amplitudeMock.track.mock.calls.find(
+      ([name]) => name === "web_vitals",
+    );
+    expect(amplitudeVitals?.[1]).toMatchObject({ route: "/decks/:id" });
+    expect(JSON.stringify(amplitudeVitals?.[1])).not.toContain("jane");
+    const gtagVitals = gtag.mock.calls.find(
+      ([, name]) => name === "web_vitals",
+    );
+    expect(gtagVitals?.[2]).toMatchObject({ route: "/decks/:id" });
+    expect(JSON.stringify(gtagVitals?.[2])).not.toContain("jane");
+    // Every other event keeps the page it happened on.
+    expect(
+      bodies.find((body) => body.event === "deck_opened")?.properties,
+    ).toMatchObject({
+      url: "https://slides.agent-native.com/decks/jane@example.com",
+    });
+  });
+
   it("links the open chat thread on a first-party exception, and leaves one outside a thread alone", async () => {
     installBrowser("https://mail.agent-native.com/inbox?thread=thr_9&token=s");
     const { analyticsCalls } = installFetch();

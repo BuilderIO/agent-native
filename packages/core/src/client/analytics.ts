@@ -1758,6 +1758,12 @@ function inferTemplateName(properties: Record<string, unknown>): string | null {
   return app;
 }
 
+/**
+ * Events that name their page only by route template. A path can hold a slug
+ * or an email, so it never rides along, not even from an app's default props.
+ */
+const ROUTE_ONLY_EVENT_NAMES = new Set(["web_vitals"]);
+
 function resolveProps(
   name: string,
   params?: Record<string, unknown>,
@@ -1817,7 +1823,7 @@ function resolveProps(
   });
   const withIdentity = applyTrackingIdentity(standard);
   const identity = _trackingIdentity;
-  return {
+  const resolved: Record<string, unknown> = {
     ...withIdentity,
     ...(getTrackingUserId() ? { user_id: getTrackingUserId() } : {}),
     ...(identity?.userEmail ? { user_email: identity.userEmail } : {}),
@@ -1826,6 +1832,11 @@ function resolveProps(
       _configuredAnalyticsClientPlatform ?? undefined,
     ),
   };
+  if (ROUTE_ONLY_EVENT_NAMES.has(name)) {
+    delete resolved.url;
+    delete resolved.path;
+  }
+  return resolved;
 }
 
 function sessionReplayTrackingProperties(): Record<string, unknown> {
