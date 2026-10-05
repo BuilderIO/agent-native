@@ -1071,13 +1071,14 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, core, Toolkit, and creative context
+      - name: Build recap CLI, AgentKit, core, Toolkit, creative context, and OTel
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
+          pnpm --filter @agent-native/otel build
 
       - name: Build Content template (Cloudflare Workers preset)
         if: contains(fromJSON(env.SSR_BOOT_APPS), 'content')
