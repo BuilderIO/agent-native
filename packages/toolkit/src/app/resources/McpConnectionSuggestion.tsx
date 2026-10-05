@@ -56,7 +56,24 @@ function readDismissedMcpSuggestionTimestamps(
     );
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    if (Array.isArray(parsed)) {
+      const timestamps = Object.fromEntries(
+        parsed
+          .filter((id): id is string => typeof id === "string")
+          .map((id) => [id, now]),
+      ) as Record<string, number>;
+      try {
+        // Legacy IDs have no timestamp, so start their cooldown at migration.
+        window.localStorage.setItem(
+          DISMISSED_MCP_SUGGESTIONS_STORAGE_KEY,
+          JSON.stringify(timestamps),
+        );
+      } catch {
+        // coercion-ok: unavailable storage cannot persist the migration.
+      }
+      return timestamps;
+    }
+    if (!parsed || typeof parsed !== "object") {
       return {};
     }
     const timestamps: Record<string, number> = {};

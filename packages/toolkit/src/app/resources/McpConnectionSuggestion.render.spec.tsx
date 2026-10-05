@@ -183,6 +183,36 @@ describe("McpConnectionSuggestion render", () => {
     ).not.toBeNull();
   });
 
+  it("migrates existing dismissal IDs and preserves them across mounts", () => {
+    vi.useFakeTimers();
+    const dismissedAt = new Date("2026-10-01T00:00:00.000Z").getTime();
+    vi.setSystemTime(dismissedAt);
+    window.localStorage.setItem(
+      "agent-native:mcp-connection-suggestions-dismissed",
+      JSON.stringify(["test-integration"]),
+    );
+
+    renderSuggestion();
+
+    expect(container.querySelector("[data-mcp-connection-suggestion]")).toBe(
+      null,
+    );
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(
+          "agent-native:mcp-connection-suggestions-dismissed",
+        ) ?? "{}",
+      ),
+    ).toEqual({ "test-integration": dismissedAt });
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    renderSuggestion();
+    expect(container.querySelector("[data-mcp-connection-suggestion]")).toBe(
+      null,
+    );
+  });
+
   it("does not suggest an integration that is already connected", () => {
     mcpMocks.useMcpServers.mockReturnValue({
       data: {
