@@ -724,7 +724,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); }
 .cpk-head .tabs { display: flex; gap: 4px; margin-left: -8px; }
 .cpk-head .acts { display: flex; gap: 0; }
-.cpk-contrast[data-fail="true"] { color: hsl(0 72% 51%); }
+.cpk-contrast { width: 24px; height: 24px; margin-right: 4px; border-radius: 6px; display: grid; place-items: center; font-size: 12px; font-weight: 600; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-contrast:hover { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 24%); }
 .cpk .icon-btn { width: 24px; height: 24px; border-radius: 6px; }
 .cpk .icon-btn:hover { background: var(--hover); }
 .cpk-head button { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted-fg); }
@@ -2103,7 +2104,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const docs = [...new Set(TOKENS.filter(t => t.type === "color" && parseColor(t.value)).map(t => t.value.toLowerCase()))].slice(0, 16);
   const libs = libraries || [];
   const pop = document.createElement("div"); pop.className = "cpk"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Color");
-  pop.innerHTML = `${libraries ? `<div class="cpk-head"><span class="tabs" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></span><span class="acts">${contrast ? `<button class="icon-btn cpk-contrast" aria-haspopup="menu" aria-label="Contrast">${ic("contrast")}</button>` : ""}${canCreate ? `<button class="icon-btn cpk-create" title="Create a color token from this color">${ic("plus")}</button>` : ""}</span></div>` : ""}
+  pop.innerHTML = `${libraries ? `<div class="cpk-head"><span class="tabs" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></span><span class="acts">${contrast ? `<button class="cpk-contrast" aria-haspopup="menu" aria-label="Contrast" style="background:${contrast.bg}">Aa</button>` : ""}${canCreate ? `<button class="icon-btn cpk-create" title="Create a color token from this color">${ic("plus")}</button>` : ""}</span></div>` : ""}
     <div class="cpk-panes">
       <div class="cpk-pane" data-cpk-pane="custom">
         <div class="cpk-sv" role="slider" aria-label="Saturation and brightness"></div>
@@ -2242,7 +2243,8 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
         + `<button class="icon-btn cpk-copy" aria-label="Copy color"></button>`;
     }
     const cp = q(".cpk-copy"); if (cp) { cp.title = `Copy ${css()}`; cp.innerHTML = ic("copy"); }
-    q(".cpk-contrast")?.setAttribute("data-fail", ratioFor(C.lin) < need()[0]);
+    // The Aa sample is the new color on the text's own background, so low contrast reads faint at a glance.
+    const sample = q(".cpk-contrast"); if (sample) sample.style.color = css();
     if (tip) tip.innerHTML = tipHTML();
     const now = css().toLowerCase();
     pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
