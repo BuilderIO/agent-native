@@ -2461,9 +2461,8 @@ function PageEditorSessionBody({
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<
     string | null
   >(null);
-  const [unplaceableSuggestionIds, setUnplaceableSuggestionIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
+  const [unplaceableSuggestionRevisions, setUnplaceableSuggestionRevisions] =
+    useState<ReadonlyMap<string, number>>(() => new Map());
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(
     null,
   );
@@ -7001,7 +7000,7 @@ function PageEditorSessionBody({
         activateCommentThread(threadId, presentation === "history")
       }
       activeSuggestionId={editingSuggestionId ?? selectedSuggestionId}
-      unplaceableSuggestionIds={unplaceableSuggestionIds}
+      unplaceableSuggestionRevisions={unplaceableSuggestionRevisions}
       focusSuggestionId={focusSuggestionId}
       onSuggestionFocused={() => setFocusSuggestionId(null)}
       hoveredSuggestionId={hoveredSuggestionId ?? editingSuggestionId}
@@ -7241,8 +7240,11 @@ function PageEditorSessionBody({
           suggestionDecisionInFlightRef.current = false;
           const unplaceable = isSuggestionStaleActionError(error);
           if (unplaceable) {
-            setUnplaceableSuggestionIds((current) =>
-              new Set(current).add(observedSuggestion.id),
+            setUnplaceableSuggestionRevisions((current) =>
+              new Map(current).set(
+                observedSuggestion.id,
+                observedSuggestion.revision,
+              ),
             );
             setSelectedSuggestionId(observedSuggestion.id);
             setUtilityPanel("comments");

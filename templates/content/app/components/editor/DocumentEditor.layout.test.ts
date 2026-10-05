@@ -1021,7 +1021,7 @@ describe("document editor layout", () => {
     );
     expect(source).not.toContain('result.suggestion.status === "stale"');
     expect(source).toMatch(
-      /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionIds[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
+      /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {

@@ -658,7 +658,7 @@ interface CommentsSidebarOptions {
   selectedThreadId?: string | null;
   onActivateThread?: (id: string) => void;
   activeSuggestionId?: string | null;
-  unplaceableSuggestionIds?: ReadonlySet<string>;
+  unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
   focusSuggestionId?: string | null;
   onSuggestionFocused?: () => void;
   hoveredSuggestionId?: string | null;
@@ -739,7 +739,7 @@ export function CommentsSidebar({
   selectedThreadId,
   onActivateThread,
   activeSuggestionId,
-  unplaceableSuggestionIds,
+  unplaceableSuggestionRevisions,
   focusSuggestionId,
   onSuggestionFocused,
   hoveredSuggestionId,
@@ -840,11 +840,11 @@ export function CommentsSidebar({
     historyStatus !== "all" || historyKind !== "all" || historyAuthor !== null;
   const [historyPortalContainer, setHistoryPortalContainer] =
     useState<HTMLDivElement | null>(null);
-  // A failed accept leaves the suggestion pending, so only a pending one can
-  // still be marked as unplaceable.
+  // A failed accept leaves the suggestion pending at the revision that failed.
+  // Amending it keeps the id but bumps the revision, and the new edit may place.
   const isUnplaceable = (suggestion: ResourceSuggestion) =>
     suggestion.status === "pending" &&
-    unplaceableSuggestionIds?.has(suggestion.id) === true;
+    unplaceableSuggestionRevisions?.get(suggestion.id) === suggestion.revision;
   const activeConflictId = suggestions.find(
     (suggestion) =>
       suggestion.id === activeSuggestionId &&
