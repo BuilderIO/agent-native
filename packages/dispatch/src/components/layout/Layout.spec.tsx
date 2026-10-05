@@ -1,3 +1,4 @@
+import { emitChatFirstOpenApp } from "@agent-native/core/client/agent-chat";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 // @vitest-environment happy-dom
 import React, { act } from "react";
@@ -26,6 +27,7 @@ const clientState = vi.hoisted(() => ({
   switchThread: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
   workspaceApps: [] as Array<Record<string, unknown>>,
+  connectedAppsError: null as Error | null,
   basePath: "",
   createEmbedSessionMutateAsync: vi
     .fn()
@@ -99,11 +101,21 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
-  useActionQuery: (action: string) => ({
-    data:
-      action === "list-workspace-apps" ? clientState.workspaceApps : undefined,
-    isLoading: false,
-  }),
+  useActionQuery: (action: string) => {
+    const connectedAppsError =
+      action === "list-connected-agents"
+        ? clientState.connectedAppsError
+        : null;
+    return {
+      data:
+        action === "list-workspace-apps"
+          ? clientState.workspaceApps
+          : undefined,
+      error: connectedAppsError,
+      isError: Boolean(connectedAppsError),
+      isLoading: false,
+    };
+  },
   useActionMutation: () => ({
     mutateAsync: clientState.createEmbedSessionMutateAsync,
   }),
@@ -304,6 +316,7 @@ describe("Dispatch NavContent", () => {
       },
     ];
     clientState.workspaceApps = [];
+    clientState.connectedAppsError = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -357,6 +370,37 @@ describe("Dispatch NavContent", () => {
     } finally {
       window.history.replaceState({}, "", "/");
     }
+  });
+
+  it("opens mounted apps when optional connected-app discovery fails", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsError = new Error("Connected apps unavailable");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "mail" });
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
   });
 
   it("puts Overview before Chat in the primary navigation", async () => {

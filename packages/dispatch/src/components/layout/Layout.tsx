@@ -1482,8 +1482,7 @@ function DispatchLayout({
   );
   const chatFirstAppsLoading =
     chatFirstAppsQuery.isLoading || chatFirstConnectedAppsQuery.isLoading;
-  const chatFirstAppsFailed =
-    chatFirstAppsQuery.isError || chatFirstConnectedAppsQuery.isError;
+  const chatFirstAppsFailed = chatFirstAppsQuery.isError;
   const chatFirstAppsError =
     chatFirstAppsQuery.error ?? chatFirstConnectedAppsQuery.error;
   const chatFirstWorkspaceApps = useMemo(
@@ -2598,7 +2597,7 @@ function DispatchLayout({
                   chatFirstApps={chatFirstAppItems}
                   chatFirstAppsLoading={chatFirstAppsLoading}
                   chatFirstAppsError={
-                    chatFirstAppsFailed ? chatFirstCopy("appsLoadError") : null
+                    chatFirstAppsError ? chatFirstCopy("appsLoadError") : null
                   }
                   chatFirstActiveAppId={chatFirstActiveAppId}
                   chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
@@ -2646,9 +2645,7 @@ function DispatchLayout({
                     chatFirstApps={chatFirstAppItems}
                     chatFirstAppsLoading={chatFirstAppsLoading}
                     chatFirstAppsError={
-                      chatFirstAppsFailed
-                        ? chatFirstCopy("appsLoadError")
-                        : null
+                      chatFirstAppsError ? chatFirstCopy("appsLoadError") : null
                     }
                     chatFirstActiveAppId={chatFirstActiveAppId}
                     chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}

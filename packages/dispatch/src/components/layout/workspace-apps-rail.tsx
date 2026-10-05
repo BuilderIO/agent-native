@@ -1,6 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconApps } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 import { Link, useLocation } from "react-router";
 
 import {
@@ -10,6 +11,8 @@ import {
 import { cn } from "../../lib/utils";
 import {
   isWorkspaceAppVisibleInDefaultLaunchers,
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
   workspaceAppRoute,
   workspaceAppHref,
@@ -83,7 +86,21 @@ export function WorkspaceAppsRail({
     const linkProps = {
       "aria-current": active ? ("page" as const) : undefined,
       "aria-label": collapsed ? label : undefined,
-      onClick: onNavigate,
+      onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+        onNavigate?.();
+        if (
+          !app.external ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey ||
+          !shouldOpenWorkspaceAppInTopWindow()
+        ) {
+          return;
+        }
+        if (navigateToWorkspaceApp(href)) event.preventDefault();
+      },
       className: cn(
         "flex h-9 items-center rounded-md text-sm transition-colors",
         collapsed ? "w-9 justify-center" : "w-full gap-2 px-2 text-start",
