@@ -272,6 +272,13 @@
   list-style: none;
 }
 
+.agentkit-composer-stack [data-agent-message-queue-variant="recessed"] ul {
+  max-block-size: none;
+  gap: 0;
+  padding: 0;
+  overflow-y: hidden;
+}
+
 .agentkit-composer-stack [data-agent-message-queue="true"] li {
   display: flex;
   min-block-size: 2.25rem;
@@ -282,6 +289,10 @@
   color: var(--agentkit-text);
   font-size: 0.8125rem;
   line-height: 1rem;
+}
+
+.agentkit-composer-stack [data-agent-message-queue-variant="recessed"] li {
+  padding-block: 0.125rem;
 }
 
 .agentkit-composer-stack [data-agent-message-queue="true"] li > svg {

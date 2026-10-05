@@ -55,7 +55,6 @@ export interface MessageQueueDrawerProps {
   className?: string;
 }
 
-const RECESSED_QUEUE_MAX_HEIGHT_PX = 160;
 const RECESSED_QUEUE_VERTICAL_CHROME_PX = 10;
 
 function recessedQueueHeight(items: readonly MessageQueueItem[]): number {
@@ -66,7 +65,7 @@ function recessedQueueHeight(items: readonly MessageQueueItem[]): number {
       height + (item.images && item.images.length > 0 ? 56 : 36),
     RECESSED_QUEUE_VERTICAL_CHROME_PX,
   );
-  return Math.min(contentHeight, RECESSED_QUEUE_MAX_HEIGHT_PX);
+  return contentHeight;
 }
 
 export function MessageQueueDrawer({
@@ -121,8 +120,10 @@ export function MessageQueueDrawer({
       >
         <ul
           className={cn(
-            "flex max-h-40 flex-col gap-0.5 overflow-y-auto py-1",
-            recessed && "h-full",
+            "flex flex-col",
+            recessed
+              ? "h-full gap-0 overflow-y-hidden py-0"
+              : "max-h-40 gap-0.5 overflow-y-auto py-1",
           )}
         >
           {items.map((item) => {
@@ -131,7 +132,10 @@ export function MessageQueueDrawer({
             return (
               <li
                 key={item.id}
-                className="group flex min-h-9 min-w-0 items-center gap-2 px-4 py-1.5 text-[13px] leading-4 animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-[var(--ease-collapse)] motion-reduce:animate-none"
+                className={cn(
+                  "group flex min-h-9 min-w-0 items-center gap-2 px-4 text-[13px] leading-4 animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-[var(--ease-collapse)] motion-reduce:animate-none",
+                  recessed ? "py-0.5" : "py-1.5",
+                )}
               >
                 <IconCornerDownRight
                   aria-hidden="true"
