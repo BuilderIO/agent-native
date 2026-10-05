@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { Editor } from "@tiptap/core";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,74 +110,126 @@ describe("controlled composer context", () => {
       container.querySelector('button[aria-label="Add context"]'),
     ).toBeNull();
   });
-  it("opens the same shared Add menu from @ and + without inserting a mention", async () => {
+  // Types like a browser: the editor's keydown handlers run first, and only a
+  // key they leave unhandled reaches the document.
+  async function typeInto(editor: HTMLElement, text: string) {
+    const { view } = (editor as HTMLElement & { editor: Editor }).editor;
+    for (const key of text) {
+      await act(async () => {
+        const event = new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+        });
+        editor.dispatchEvent(event);
+        if (!event.defaultPrevented)
+          view.dispatch(view.state.tr.insertText(key));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+  }
+  async function pressEnter(editor: HTMLElement) {
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+  const slidesAgent = {
+    id: "agent:slides",
+    label: "Slides",
+    description: "Presentations in this workspace",
+    section: "Connected Agents",
+    source: "agent",
+    refType: "agent",
+    refId: "slides",
+    refPath: "https://slides.example.test",
+  };
+
+  it("keeps a typed @ address as text and submits it", async () => {
+    const { onSubmit } = await mount({
+      initialText: "",
+      contextMenuItems: [
+        { id: "source", label: "Choose source", onSelect() {} },
+      ],
+      includeDefaultMentionSearch: false,
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ping a @builder.io email");
+
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).toBeNull();
+    expect(editor.textContent).toBe("Ping a @builder.io email");
+    await pressEnter(editor);
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ping a @builder.io email");
+  });
+  it("submits a typed @ that nothing matches on Enter", async () => {
+    const { onSubmit } = await mount({
+      initialText: "",
+      includeDefaultMentionSearch: false,
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Reply @");
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).not.toBeNull();
+    await typeInto(editor, "x");
+    await pressEnter(editor);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]![0]).toBe("Reply @x");
+  });
+  it("turns a typed @ query into a mention when one is picked", async () => {
+    const onReferencesChange = vi.fn();
+    const { onSubmit } = await mount({
+      initialText: "",
+      contextMenuItems: [],
+      includeDefaultMentionSearch: false,
+      onReferencesChange,
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ask @Sli");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(
+      document.querySelector('[data-mention-index="0"]')?.textContent,
+    ).toContain("Slides");
+    await pressEnter(editor);
+
+    expect(editor.textContent).toContain("Ask ");
+    expect(editor.textContent).toContain("Slides");
+    expect(editor.textContent).not.toContain("@Sli");
+    expect(onReferencesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ refType: "agent", refId: "slides" }),
+    ]);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+  it("opens the shared Add menu from + without inserting a mention", async () => {
     const onSelect = vi.fn();
     await mount({
       initialText: "",
       contextMenuItems: [{ id: "source", label: "Choose source", onSelect }],
     });
     const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
-
-    await act(async () => {
-      editor.focus();
-      editor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "@",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-
-    const mentionMenu = document.querySelector<HTMLElement>('[role="menu"]');
-    expect(mentionMenu?.textContent).toContain("Upload File");
-    expect(mentionMenu?.textContent).toContain("Add context");
-    expect(mentionMenu?.textContent).not.toContain("Choose source");
-    expect(editor.textContent).toBe("");
-    const openContext = async () => {
-      const trigger = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Add context")!;
-      await act(async () => {
-        trigger.focus();
-        trigger.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "ArrowRight",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-    };
-    const nestedItems = () =>
-      Array.from(
-        Array.from(document.querySelectorAll<HTMLElement>('[role="menu"]'))
-          .at(-1)!
-          .querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).map((item) => item.textContent);
-    await openContext();
-    const mentionOptions = nestedItems();
-
     const plusButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Add context"]',
     )!;
-    await act(async () =>
-      Array.from(document.querySelectorAll<HTMLElement>('[role^="menuitem"]'))
-        .find((item) => item.textContent === "Choose source")!
-        .dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Escape",
-            bubbles: true,
-            cancelable: true,
-          }),
-        ),
-    );
-    await act(async () =>
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      ),
-    );
-    expect(document.querySelector('[role="menu"]')).toBeNull();
     await act(async () =>
       plusButton.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -188,51 +241,133 @@ describe("controlled composer context", () => {
     );
 
     const plusMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(plusMenu?.textContent).toContain("Upload File");
     expect(plusMenu?.textContent).toContain("Add context");
-    await openContext();
-    expect(nestedItems()).toEqual(mentionOptions);
+    expect(plusMenu?.textContent).not.toContain("Choose source");
+    const addContext = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Add context")!;
+    await act(async () => {
+      addContext.focus();
+      addContext.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
     const sourceAction = Array.from(
       document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
     ).find((item) => item.textContent === "Choose source")!;
     await act(async () => sourceAction.click());
     expect(onSelect).toHaveBeenCalledOnce();
+    expect(editor.textContent).toBe("");
   });
-  it.each(["@", "+"])(
-    "opens the integration submenu from %s without changing the draft",
-    async (trigger) => {
-      const onSelect = vi.fn();
-      await mount({
-        initialText: "Keep my draft ",
-        contextMenuItems: [
-          {
-            id: "integrations",
-            label: "Integrations",
-            picker: {
-              searchPlaceholder: "Search integrations",
-              items: [{ id: "github", title: "GitHub" }],
-              onSelect,
-            },
+  it("opens the integration submenu from + without changing the draft", async () => {
+    const onSelect = vi.fn();
+    await mount({
+      initialText: "Keep my draft ",
+      contextMenuItems: [
+        {
+          id: "integrations",
+          label: "Integrations",
+          picker: {
+            searchPlaceholder: "Search integrations",
+            items: [{ id: "github", title: "GitHub" }],
+            onSelect,
           },
-        ],
-      });
-      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
-      const button = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Add context"]',
-      )!;
-      await act(async () => {
-        const target = trigger === "@" ? editor : button;
-        target.focus();
-        target.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: trigger === "@" ? "@" : "ArrowDown",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-      const addContext = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Add context")!;
+        },
+      ],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    const button = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    await act(async () => {
+      button.focus();
+      button.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const addContext = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Add context")!;
+    await act(async () => {
+      addContext.focus();
+      addContext.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const integrations = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Integrations")!;
+    expect(integrations.textContent).toBe("Integrations");
+    await act(async () => {
+      integrations.focus();
+      integrations.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowRight",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const github = document.querySelector<HTMLElement>(
+      '[role="menuitemcheckbox"]',
+    )!;
+    expect(github.textContent).toBe("GitHub");
+    await act(async () => github.click());
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(editor.textContent).toBe("Keep my draft ");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+  it("adds discovered references from + and restores draft focus without submitting", async () => {
+    const onReferencesChange = vi.fn();
+    const { onSubmit } = await mount({
+      initialText: "My draft ",
+      contextMenuItems: [],
+      includeDefaultMentionSearch: false,
+      onReferencesChange,
+      mentionItems: [
+        {
+          id: "agent:slides",
+          label: "Slides",
+          description: "Presentations in this workspace",
+          section: "Connected Agents",
+          source: "agent",
+          refType: "agent",
+          refId: "slides",
+          refPath: "https://slides.example.test",
+        },
+      ],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    const target = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    await act(async () => {
+      target.focus();
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const addContext = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Add context");
+    if (addContext) {
       await act(async () => {
         addContext.focus();
         addContext.dispatchEvent(
@@ -243,13 +378,14 @@ describe("controlled composer context", () => {
           }),
         );
       });
-      const integrations = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Integrations")!;
-      expect(integrations.textContent).toBe("Integrations");
+    }
+    const section = Array.from(
+      document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    ).find((item) => item.textContent === "Connected Agents");
+    if (section) {
       await act(async () => {
-        integrations.focus();
-        integrations.dispatchEvent(
+        section.focus();
+        section.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "ArrowRight",
             bubbles: true,
@@ -257,109 +393,30 @@ describe("controlled composer context", () => {
           }),
         );
       });
-      const github = document.querySelector<HTMLElement>(
-        '[role="menuitemcheckbox"]',
-      )!;
-      expect(github.textContent).toBe("GitHub");
-      await act(async () => github.click());
-      expect(onSelect).toHaveBeenCalledOnce();
-      expect(editor.textContent).toBe("Keep my draft ");
-      expect(document.querySelector('[role="menu"]')).toBeNull();
-    },
-  );
-  it.each(["@", "+"])(
-    "adds discovered references from %s and restores draft focus without submitting",
-    async (trigger) => {
-      const onReferencesChange = vi.fn();
-      const { onSubmit } = await mount({
-        initialText: "My draft ",
-        contextMenuItems: [],
-        includeDefaultMentionSearch: false,
-        onReferencesChange,
-        mentionItems: [
-          {
-            id: "agent:slides",
-            label: "Slides",
-            description: "Presentations in this workspace",
-            section: "Connected Agents",
-            source: "agent",
-            refType: "agent",
-            refId: "slides",
-            refPath: "https://slides.example.test",
-          },
-        ],
-      });
-      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
-      const target =
-        trigger === "@"
-          ? editor
-          : container.querySelector<HTMLButtonElement>(
-              'button[aria-label="Add context"]',
-            )!;
-      await act(async () => {
-        target.focus();
-        target.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: trigger === "@" ? "@" : "ArrowDown",
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-      });
-      const addContext = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Add context");
-      if (addContext) {
-        await act(async () => {
-          addContext.focus();
-          addContext.dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: "ArrowRight",
-              bubbles: true,
-              cancelable: true,
-            }),
-          );
-        });
-      }
-      const section = Array.from(
-        document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
-      ).find((item) => item.textContent === "Connected Agents");
-      if (section) {
-        await act(async () => {
-          section.focus();
-          section.dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: "ArrowRight",
-              bubbles: true,
-              cancelable: true,
-            }),
-          );
-        });
-      }
-      const row = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).find(
-        (item) => item.textContent === "SlidesPresentations in this workspace",
-      )!;
-      expect(row).toBeDefined();
-      await act(async () => row.click());
-      await act(async () => {
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-      });
-      expect(editor.textContent).toContain("My draft");
-      expect(editor.textContent).toContain("Slides");
-      expect(editor.textContent).not.toContain("@");
-      expect(onReferencesChange).toHaveBeenLastCalledWith([
-        expect.objectContaining({
-          refType: "agent",
-          refId: "slides",
-          path: "https://slides.example.test",
-        }),
-      ]);
-      expect(document.activeElement).toBe(editor);
-      expect(onSubmit).not.toHaveBeenCalled();
-    },
-  );
+    }
+    const row = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find(
+      (item) => item.textContent === "SlidesPresentations in this workspace",
+    )!;
+    expect(row).toBeDefined();
+    await act(async () => row.click());
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(editor.textContent).toContain("My draft");
+    expect(editor.textContent).toContain("Slides");
+    expect(editor.textContent).not.toContain("@");
+    expect(onReferencesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        refType: "agent",
+        refId: "slides",
+        path: "https://slides.example.test",
+      }),
+    ]);
+    expect(document.activeElement).toBe(editor);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
   it("keeps regular @ references when the shared Add menu is explicitly hidden", async () => {
     await mount({
       plusMenuMode: "hidden",

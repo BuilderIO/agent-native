@@ -2138,51 +2138,29 @@ function AgentMentionIcon({ icon }: { icon: string }) {
   }
 }
 
+// Only the composer's serialized `@[label|icon]` form is a mention. A bare
+// "@word" is whatever the user typed — an address, a handle, "@3pm" — and
+// rendering it as a chip claims a reference the message never carried.
 function renderUserMessageText(text: string): ReactNode[] {
   const richMatches = Array.from(text.matchAll(/@\[([^\]|]+)\|([^\]]+)\]/g));
-  if (richMatches.length) {
-    const parts: ReactNode[] = [];
-    let lastIndex = 0;
-    richMatches.forEach((match, index) => {
-      const start = match.index ?? 0;
-      if (start > lastIndex) parts.push(text.slice(lastIndex, start));
-      const label = match[1] ?? "";
-      parts.push(
-        <span
-          key={`rich-mention:${start}:${index}`}
-          className="agentkit-mention"
-          data-mention-label={label}
-        >
-          <AgentMentionIcon icon={match[2] ?? ""} />
-          <span className="agentkit-mention-label">{label}</span>
-        </span>,
-      );
-      lastIndex = start + match[0].length;
-    });
-    if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-    return parts;
-  }
-
-  const plainMatches = Array.from(text.matchAll(/(^|\s)@(\w+)/g));
-  if (!plainMatches.length) return [text];
+  if (!richMatches.length) return [text];
   const parts: ReactNode[] = [];
   let lastIndex = 0;
-  plainMatches.forEach((match, index) => {
-    const matchIndex = match.index ?? 0;
-    const start = matchIndex + (match[1]?.length ?? 0);
-    const end = matchIndex + match[0].length;
+  richMatches.forEach((match, index) => {
+    const start = match.index ?? 0;
     if (start > lastIndex) parts.push(text.slice(lastIndex, start));
-    const label = match[2] ?? "";
+    const label = match[1] ?? "";
     parts.push(
       <span
-        key={`plain-mention:${start}:${index}`}
-        className="agentkit-mention agentkit-mention--plain"
+        key={`rich-mention:${start}:${index}`}
+        className="agentkit-mention"
         data-mention-label={label}
       >
-        @{label}
+        <AgentMentionIcon icon={match[2] ?? ""} />
+        <span className="agentkit-mention-label">{label}</span>
       </span>,
     );
-    lastIndex = end;
+    lastIndex = start + match[0].length;
   });
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
   return parts;

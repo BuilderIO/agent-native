@@ -97,7 +97,7 @@ export interface PromptComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
-  /** When provided, both + and @ open this shared Add menu. */
+  /** When provided, + opens this shared Add menu; a typed @ suggests mentions. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /** Called when the user submits the composer. */
   onSubmit: (

@@ -1120,7 +1120,7 @@ export interface TiptapComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
-  /** Shared +/@ entries; matching IDs replace built-in full-mode actions. */
+  /** Shared + menu entries; matching IDs replace built-in full-mode actions. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
@@ -2845,6 +2845,7 @@ export function TiptapComposer({
     isLoading: mentionsLoading,
     error: mentionsError,
     retry: retryMentions,
+    settledQuery: settledMentionQuery,
   } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
     includeDefaultMentionSearch && (contextMenuOpen || popover?.type === "@"),
@@ -2917,6 +2918,8 @@ export function TiptapComposer({
   // Keep refs in sync with state
   const mentionItemsRef = useRef(filteredMentionItems);
   mentionItemsRef.current = filteredMentionItems;
+  const mentionsLoadingRef = useRef(mentionsLoading);
+  mentionsLoadingRef.current = mentionsLoading;
   const filteredCommandsRef = useRef(filteredCommands);
   filteredCommandsRef.current = filteredCommands;
   const filteredSkillsRef = useRef(filteredSkills);
@@ -2972,6 +2975,22 @@ export function TiptapComposer({
     setPopover(null);
     popoverStateRef.current = null;
   }, []);
+
+  // A query nothing matches is plain text ("@builder.io", "@3pm"), so end the
+  // mention there instead of holding later keys. Results for an earlier
+  // query are stale until the search for this one settles.
+  const mentionSearchSettled =
+    !includeDefaultMentionSearch ||
+    (!mentionsLoading && settledMentionQuery === mentionQuery);
+  useEffect(() => {
+    if (
+      mentionQuery &&
+      mentionSearchSettled &&
+      filteredMentionItems.length === 0
+    ) {
+      closePopover();
+    }
+  }, [mentionQuery, mentionSearchSettled, filteredMentionItems, closePopover]);
 
   // Persist draft to localStorage so refreshes don't lose the prompt.
   const hasDraftScope = Boolean(draftScope?.trim());
@@ -3248,7 +3267,15 @@ export function TiptapComposer({
             popoverRef.current?.moveDown();
             return true;
           }
-          if (event.key === "Enter") {
+          if (
+            event.key === "Enter" &&
+            pop.type === "@" &&
+            !mentionsLoadingRef.current &&
+            !popoverRef.current?.getSelectedMention()
+          ) {
+            // Nothing to pick, so the "@" is plain text and Enter submits.
+            closePopover();
+          } else if (event.key === "Enter") {
             event.preventDefault();
             const idx = popoverRef.current?.getSelectedIndex() ?? 0;
             const currentCommands = filteredCommandsRef.current;
@@ -3364,22 +3391,17 @@ export function TiptapComposer({
         }
 
         // Detect @ trigger — only when preceded by start-of-text, space, or newline
-        // (not after alphanumeric chars, which would indicate an email address)
+        // (not after alphanumeric chars, which would indicate an email address).
+        // Keep the typed "@" in the draft and focus in the editor: a focus-taking
+        // menu here would swallow the rest of a literal like "@builder.io".
         if (event.key === "@") {
+          if (launchersDisabledRef.current) return false;
           const { from } = view.state.selection;
           const textBefore = view.state.doc.textBetween(
             Math.max(0, from - 1),
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            if (hasContextMenuRef.current) {
-              if (launchersDisabledRef.current) return false;
-              event.preventDefault();
-              popoverStateRef.current = null;
-              setPopover(null);
-              setContextMenuOpen(true);
-              return true;
-            }
             const position = getComposerPopoverAnchorPosition(view, from);
             if (!position) return false;
             setTimeout(() => {
@@ -3591,15 +3613,7 @@ export function TiptapComposer({
     insertTextAtCursor(text: string) {
       if (!isComposerEditorUsable(editor)) return;
       editor.commands.focus();
-      // An inserted "@" opens the shared Add menu when the host provides one.
-      const mention = text === "@";
-      if (mention && hasContextMenuRef.current) {
-        if (launchersDisabledRef.current) return;
-        popoverStateRef.current = null;
-        setPopover(null);
-        setContextMenuOpen(true);
-        return;
-      }
+      const mention = text === "@" && !launchersDisabledRef.current;
       let inserted = text;
       if (mention) {
         const { from } = editor.state.selection;
