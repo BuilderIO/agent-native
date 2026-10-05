@@ -1450,6 +1450,65 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("reconciles a reloaded assistant message through its run snapshot", async () => {
+    const threadId = "thread-run-snapshot-reconcile";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "completed", runId: "run-1" })
+          : json({
+              id: threadId,
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "server-assistant-1",
+                      role: "assistant",
+                      status: "complete",
+                      content: [
+                        { type: "text", text: "Full answer with final lines" },
+                      ],
+                      metadata: { runId: "run-1" },
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "assistant-1",
+                      role: "assistant",
+                      status: "streaming",
+                      parts: [{ type: "text", text: "Full answer" }],
+                    },
+                  ],
+                  events: [],
+                  runs: [
+                    {
+                      id: "run-1",
+                      threadId,
+                      status: "running",
+                      activeMessageId: "assistant-1",
+                      lastSequence: 4,
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages).toMatchObject([
+      {
+        id: "assistant-1",
+        status: "complete",
+        parts: [{ type: "text", text: "Full answer with final lines" }],
+      },
+    ]);
+    await transport.dispose();
+  });
+
   // The shape of a thread whose page was reloaded mid-run: the page saved
   // its snapshot with only the prompt, and the server then finished the run.
   function reloadedMidRunThread(agentKitMessages: unknown[]) {
