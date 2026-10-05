@@ -203,7 +203,9 @@ providers build it.
   at its start (no model connected, a 5xx) is a `failed` run too, with
   `terminal_source: local` and the refused turn's id. A failed or
   interrupted run adds its `cause` from `AGENT_TROUBLE_CAUSES` when one fits
-  its `code`, and Analytics groups the rest by `code`. It never carries the
+  its `code`, and Analytics groups the rest by `code`. A code that is not
+  an identifier is sent as `unrecognized_code` (`agentErrorCodeForTelemetry`),
+  because a thrower's `data.code` can be a sentence. It never carries the
   run's message, not even redacted: no pattern can tell an unquoted document
   or person's name from the words around it, so a message stays out of every
   event. A provider error is `provider_error` only when its code
@@ -212,13 +214,14 @@ providers build it.
   `run_id`, `thread_id`) is the browser's copy of a thumbs rating, because
   `$ai_feedback` has no browser session. Every `pageview` carries
   `agent_signals: 1` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY`): clients before it
-  sampled stops at 10% and sent no ratings, so Analytics reads a session's
-  cancelled runs and thumbs-down as measured only after seeing the marker
-  and while no unmarked pageview or sampled stop shares the session (tabs
-  share one session id), and counts only stops sent unsampled. Keep both
-  guarantees while the marker ships. Every `pageview` also carries
-  `page_load_id` (`PAGE_LOAD_PAGEVIEW_PROPERTY`), the same until the page
-  reloads, because quick backs compare pages only within one page load.
+  sampled stops at 10% and sent no ratings or `page_load_id`, so Analytics
+  reads a session's cancelled runs, thumbs-down, and quick backs as measured
+  only after seeing the marker and while no unmarked pageview or sampled stop
+  shares the session (tabs share one session id), and counts only stops sent
+  unsampled. Keep all three guarantees while the marker ships. Every
+  `pageview` also carries `page_load_id` (`PAGE_LOAD_PAGEVIEW_PROPERTY`),
+  the same until the page reloads, because quick backs compare pages only
+  within one page load.
   `session_navigation` is one event per document that left because of the
   session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
   `http_401`), never the destination. Both are emitted from the single place

@@ -1,4 +1,7 @@
-import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
+import {
+  agentErrorCodeForTelemetry,
+  agentTroubleCauseForCode,
+} from "../../shared/analytics-events.js";
 import { trackEvent } from "../analytics.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
 
@@ -14,7 +17,8 @@ import type { RunOutcomeReport } from "./run-outcome.js";
  *
  * A failure carries its named `cause` when it has one and its error `code`,
  * so Analytics can group agent trouble. Never its message: no redaction can
- * tell an unquoted document or person's name from the words around it.
+ * tell an unquoted document or person's name from the words around it. A code
+ * that is not an identifier is sent as `unrecognized_code` for the same reason.
  */
 export const RUN_OUTCOME_EVENT = "agent_run_outcome";
 
@@ -73,9 +77,10 @@ export function trackRunOutcome(
     const troubled =
       report.outcome === "failed" || report.outcome === "interrupted";
     const cause = troubled ? agentTroubleCauseForCode(report.code) : null;
+    const code = agentErrorCodeForTelemetry(report.code);
     send(RUN_OUTCOME_EVENT, {
       outcome: report.outcome,
-      ...(report.code ? { code: report.code } : {}),
+      ...(code ? { code } : {}),
       ...(cause ? { cause } : {}),
       ...(report.retryable !== undefined
         ? { retryable: report.retryable }

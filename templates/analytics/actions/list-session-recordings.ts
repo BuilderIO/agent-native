@@ -139,7 +139,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Add each recording's friction: score, signal counts, top signals, failed actions and agent failures grouped by cause, and linked Monitoring error issues. A null part means it was not measured, not zero: `thumbs_down` and `cancelled_runs` can be null alone, and `errorIssues` null means the links are unknown while [] means no issues. Requires the Sessions triage Lab.",
+        "Add each recording's friction: score, signal counts, top signals, failed actions and agent failures grouped by cause, and linked Monitoring error issues. A null part means it was not measured, not zero: `thumbs_down`, `cancelled_runs`, and `quick_backs` can be null alone, and `errorIssues` null means the links are unknown while [] means no issues. Requires the Sessions triage Lab.",
       ),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),

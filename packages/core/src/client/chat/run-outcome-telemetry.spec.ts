@@ -120,6 +120,22 @@ describe("run outcome telemetry", () => {
     );
   });
 
+  it("sends a code that is not an identifier as unrecognized_code", () => {
+    trackRunOutcome(
+      report({
+        outcome: "failed",
+        code: "Deck Quarterly Planning for Jane Doe",
+      }),
+      send,
+    );
+    expect(send.mock.calls[0]![1]).toMatchObject({
+      code: "unrecognized_code",
+    });
+    expect(JSON.stringify(send.mock.calls[0]![1])).not.toMatch(
+      /Quarterly|Jane/,
+    );
+  });
+
   it("caps the unexpected outcomes one page reports and counts what it dropped", () => {
     for (let i = 0; i < 45; i += 1) {
       trackRunOutcome(report({ runId: `run-${i}` }), send, () => 0.99);

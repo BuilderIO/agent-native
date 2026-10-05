@@ -4,6 +4,8 @@ import { createRequire } from "node:module";
 import {
   AGENT_SIGNALS_PAGEVIEW_PROPERTY,
   AGENT_SIGNALS_VERSION,
+  PAGE_LOAD_PAGEVIEW_PROPERTY,
+  UNRECOGNIZED_AGENT_ERROR_CODE,
 } from "@agent-native/core/shared/analytics-events";
 import { and, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -176,6 +178,9 @@ function pageview(
   });
 }
 
+/** One page load's id, which quick backs follow. */
+const LOAD = { [PAGE_LOAD_PAGEVIEW_PROPERTY]: "load-1" };
+
 /** A pageview from a client that reports every stop and rating. */
 function markedPageview(sessionId: string, seconds: number, path: string) {
   return pageview(sessionId, seconds, path, {
@@ -222,12 +227,12 @@ describe("aggregateSessionFrictionEvents", () => {
   it("counts a fast return to the previous page as a quick back", () => {
     const { sessions } = aggregateSessionFrictionEvents(
       [
-        pageview("s1", 0, "/a"),
-        pageview("s1", 10, "/b"),
-        pageview("s1", 12, "/a"),
+        pageview("s1", 0, "/a", LOAD),
+        pageview("s1", 10, "/b", LOAD),
+        pageview("s1", 12, "/a", LOAD),
         // Back again each time, but only after reading the page for a while.
-        pageview("s1", 12 + QUICK_BACK_WINDOW_MS / 1000 + 1, "/b"),
-        pageview("s1", 2 * (QUICK_BACK_WINDOW_MS / 1000 + 1) + 12, "/a"),
+        pageview("s1", 12 + QUICK_BACK_WINDOW_MS / 1000 + 1, "/b", LOAD),
+        pageview("s1", 2 * (QUICK_BACK_WINDOW_MS / 1000 + 1) + 12, "/a", LOAD),
       ],
       new Map(),
     );
@@ -263,14 +268,28 @@ describe("aggregateSessionFrictionEvents", () => {
     expect(JSON.parse(bySession.get("s3")!.navState!).loads).toHaveLength(20);
   });
 
+  it("counts no quick backs from pageviews without a page load id", () => {
+    // Two tabs of an older client: neither went back, but together they look
+    // like one tab returning to /a.
+    const { sessions } = aggregateSessionFrictionEvents(
+      [
+        pageview("s1", 0, "/a"),
+        pageview("s1", 1, "/b"),
+        pageview("s1", 2, "/a"),
+      ],
+      new Map(),
+    );
+    expect(sessions[0]).toMatchObject({ quickBacks: 0 });
+  });
+
   it("continues navigation from the state an earlier batch stored", () => {
     const first = aggregateSessionFrictionEvents(
-      [pageview("s1", 0, "/a"), pageview("s1", 10, "/b")],
+      [pageview("s1", 0, "/a", LOAD), pageview("s1", 10, "/b", LOAD)],
       new Map(),
     );
     const id = first.sessions[0]!.id;
     const second = aggregateSessionFrictionEvents(
-      [pageview("s1", 12, "/a")],
+      [pageview("s1", 12, "/a", LOAD)],
       new Map([[id, first.sessions[0]!.navState ?? null]]),
     );
     expect(second.sessions[0]).toMatchObject({ quickBacks: 1 });
@@ -394,6 +413,33 @@ describe("aggregateSessionFrictionEvents", () => {
     expect(JSON.stringify(troubles)).not.toMatch(/Quarterly|fetch|Jane/);
   });
 
+  it("groups a code that is not an identifier as unrecognized", () => {
+    // Older clients sent a route error's `data.code` as is.
+    const { troubles } = aggregateSessionFrictionEvents(
+      [
+        runOutcome("s1", 1, {
+          outcome: "failed",
+          code: "Jane Doe cannot open Quarterly Planning",
+        }),
+      ],
+      new Map(),
+    );
+    expect(
+      troubles.map(({ label, status, eventCount }) => ({
+        label,
+        status,
+        eventCount,
+      })),
+    ).toEqual([
+      {
+        label: UNRECOGNIZED_AGENT_ERROR_CODE,
+        status: UNRECOGNIZED_AGENT_ERROR_CODE,
+        eventCount: 1,
+      },
+    ]);
+    expect(JSON.stringify(troubles)).not.toMatch(/Quarterly|Jane/);
+  });
+
   it("counts stopped runs, stuck chats, and only negative feedback", () => {
     const { sessions, troubles } = aggregateSessionFrictionEvents(
       [
@@ -441,7 +487,7 @@ describe("aggregateSessionFrictionEvents", () => {
     expect(sessions[0]).toMatchObject({ cancelledRuns: 2 });
   });
 
-  it("measures agent-reported signals only after a marked pageview", () => {
+  it("measures marked-client signals only after a marked pageview", () => {
     const { sessions } = aggregateSessionFrictionEvents(
       [
         pageview("s-old", 1, "/a"),
@@ -477,7 +523,7 @@ describe("aggregateSessionFrictionEvents", () => {
     });
   });
 
-  it("leaves agent-reported signals unmeasured when an old tab shares the session", () => {
+  it("leaves marked-client signals unmeasured when an old tab shares the session", () => {
     const { sessions } = aggregateSessionFrictionEvents(
       [
         markedPageview("s-tabs", 1, "/a"),
@@ -876,7 +922,12 @@ describe("session friction on Postgres", () => {
         { failed_actions: 1 },
         EVENT_FRICTION_SCORE_INPUTS,
       ),
-      events: { failed_actions: 1, thumbs_down: null, cancelled_runs: null },
+      events: {
+        failed_actions: 1,
+        thumbs_down: null,
+        cancelled_runs: null,
+        quick_backs: null,
+      },
       topSignals: [{ signal: "failed_actions", count: 1 }],
     });
     expect(details.get("r-new")).toMatchObject({
@@ -909,7 +960,12 @@ describe("session friction on Postgres", () => {
           { failed_actions: 1 },
           EVENT_FRICTION_SCORE_INPUTS,
         ),
-        events: { failed_actions: 1, thumbs_down: null, cancelled_runs: null },
+        events: {
+          failed_actions: 1,
+          thumbs_down: null,
+          cancelled_runs: null,
+          quick_backs: null,
+        },
       });
     }
     expect(await matching(["thumbs_down"])).toEqual([]);

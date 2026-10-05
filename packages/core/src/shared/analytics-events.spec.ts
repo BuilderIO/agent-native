@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AGENT_TROUBLE_CAUSES,
+  agentErrorCodeForTelemetry,
   agentTroubleCauseForCode,
 } from "./analytics-events.js";
 
@@ -57,5 +58,30 @@ describe("agent trouble causes", () => {
     ]) {
       expect(agentTroubleCauseForCode(code)).toBeNull();
     }
+  });
+});
+
+describe("agentErrorCodeForTelemetry", () => {
+  it("sends identifiers as themselves and any other text as unrecognized", () => {
+    for (const code of [
+      "runtime_error",
+      "http_500",
+      "AGENT_CHAT_AI_SETUP_REQUIRED",
+      "credits-limit-daily",
+      "28P01",
+    ]) {
+      expect(agentErrorCodeForTelemetry(code)).toBe(code);
+    }
+    for (const code of [
+      "Deck Quarterly Planning for Jane Doe",
+      "jane@example.com",
+      "/decks/quarterly-planning",
+      "notes.pdf",
+      "x".repeat(65),
+    ]) {
+      expect(agentErrorCodeForTelemetry(code)).toBe("unrecognized_code");
+    }
+    expect(agentErrorCodeForTelemetry(undefined)).toBeNull();
+    expect(agentErrorCodeForTelemetry("")).toBeNull();
   });
 });

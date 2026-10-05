@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   AGENT_SIGNALS_PAGEVIEW_PROPERTY,
   AGENT_SIGNALS_VERSION,
+  agentErrorCodeForTelemetry,
   agentTroubleCauseForCode,
   isAgentTroubleCause,
   PAGE_LOAD_PAGEVIEW_PROPERTY,
@@ -27,7 +28,7 @@ import {
   EVENT_FRICTION_SIGNALS,
   type EventFrictionSignal,
   type FrictionCounts,
-  isAgentReportedFrictionSignal,
+  isMarkedClientFrictionSignal,
   REPLAY_FRICTION_SCORE_INPUTS,
   REPLAY_FRICTION_SIGNALS,
   type ReplayFrictionSignal,
@@ -363,7 +364,7 @@ function replayCountsBySignal(
   ) as Record<ReplayFrictionSignal, number>;
 }
 
-/** Counts by signal; agent-reported signals are null until measured. */
+/** Counts by signal; marked-client signals are null until measured. */
 function eventCountsBySignal(
   row: Record<(typeof EVENT_COLUMNS)[EventFrictionSignal], number | null> & {
     agentSignalsMeasured?: boolean | null;
@@ -375,7 +376,7 @@ function eventCountsBySignal(
   return Object.fromEntries(
     EVENT_FRICTION_SIGNALS.map((signal) => [
       signal,
-      isAgentReportedFrictionSignal(signal) && !agentSignalsMeasured
+      isMarkedClientFrictionSignal(signal) && !agentSignalsMeasured
         ? null
         : Number(row[EVENT_COLUMNS[signal]] ?? 0),
     ]),
@@ -579,15 +580,13 @@ export function aggregateSessionFrictionEvents(
         continue;
       }
       session.agentFailures = (session.agentFailures ?? 0) + 1;
-      const code =
-        boundedText(
-          stringProperty(properties.code),
-          MAX_TROUBLE_STATUS_LENGTH,
-        ) || null;
+      const rawCode = stringProperty(properties.code);
+      // Older clients sent any code they were given, even a sentence.
+      const code = agentErrorCodeForTelemetry(rawCode);
       // Older recorders send no cause, so the same list names it here.
       const cause = isAgentTroubleCause(properties.cause)
         ? properties.cause
-        : agentTroubleCauseForCode(code);
+        : agentTroubleCauseForCode(rawCode);
       if (cause) {
         addTrouble("agent", cause, code, cause, ["cause", cause]);
         continue;
@@ -612,11 +611,13 @@ export function aggregateSessionFrictionEvents(
     if (!path || !Number.isFinite(at)) continue;
     const page = shortHash(path);
     // One session id spans every tab, so only a page load's own navigation
-    // can come back to its previous page. Older clients send no id.
+    // can come back to its previous page. Older clients send no id, so their
+    // quick backs are unmeasured rather than counted across tabs.
     const loadId = boundedText(
       stringProperty(properties[PAGE_LOAD_PAGEVIEW_PROPERTY]),
       MAX_PAGE_LOAD_ID_LENGTH,
     );
+    if (!loadId) continue;
     const load = session.nav.get(loadId);
     if (load && (page === load.current || at < load.at)) continue;
     if (
@@ -653,8 +654,8 @@ export function aggregateSessionFrictionEvents(
 }
 
 /**
- * The event score of a row after the upsert adds this batch's counts. An
- * agent-reported signal scores only while the merged row is measured for it.
+ * The event score of a row after the upsert adds this batch's counts. A
+ * marked-client signal scores only while the merged row is measured for it.
  */
 function mergedEventScoreSql(): SQL {
   const f = schema.analyticsSessionFriction;
@@ -662,7 +663,7 @@ function mergedEventScoreSql(): SQL {
     EVENT_FRICTION_SIGNALS.map((signal) => {
       const column = f[EVENT_COLUMNS[signal]];
       const part = sql`${sql.raw(String(SESSION_FRICTION_WEIGHTS[signal]))} * least(${column} + ${sql.raw(`excluded.${column.name}`)}, ${sql.raw(String(SESSION_FRICTION_SIGNAL_CAP))})`;
-      return isAgentReportedFrictionSignal(signal)
+      return isMarkedClientFrictionSignal(signal)
         ? sql`(case when (${f.agentSignalsMeasured} or excluded.agent_signals_measured) and not (${f.agentSignalsMissing} or excluded.agent_signals_missing) then ${part} else 0 end)`
         : part;
     }),
@@ -841,11 +842,11 @@ function replayValueSql(column: AnyColumn): SQL {
 function eventValueSql(
   scope: SessionEventScope,
   column: AnyColumn,
-  agentReported = false,
+  markedClient = false,
 ): SQL {
   const r = schema.sessionRecordings;
   const f = schema.analyticsSessionFriction;
-  return sql`(case when ${eventFrictionCoveredSql(scope)} then (select ${column} from ${f} where ${f.tenantKey} = ${recordingTenantSql(r)} and ${f.sessionId} = ${r.sessionId}${agentReported ? sql` and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}) end)`;
+  return sql`(case when ${eventFrictionCoveredSql(scope)} then (select ${column} from ${f} where ${f.tenantKey} = ${recordingTenantSql(r)} and ${f.sessionId} = ${r.sessionId}${markedClient ? sql` and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}) end)`;
 }
 
 /** A signal's count for the outer recording, or null when unmeasured. */
@@ -861,7 +862,7 @@ function signalValueSql(
   return eventValueSql(
     scope,
     schema.analyticsSessionFriction[key],
-    isAgentReportedFrictionSignal(signal),
+    isMarkedClientFrictionSignal(signal),
   );
 }
 

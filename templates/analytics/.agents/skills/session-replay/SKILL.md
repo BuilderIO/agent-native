@@ -136,7 +136,8 @@ agent answers about browser recordings in the Analytics template.
   ids, and hashed request keys; quick backs compare hashed paths.
 - One session id spans every tab, so a quick back compares pages only within
   one page load (`page_load_id` on each pageview). Pageviews from older
-  clients, which send no id, are followed as one page load.
+  clients send no id and are skipped: followed together, two tabs would look
+  like one tab going back.
 - A replay row counts only while `processed_chunks` equals the recording's
   `chunk_count`. Each batch must continue from the stored detector state and
   its chunk seqs must start exactly at `processed_chunks`, so a batch that
@@ -147,13 +148,14 @@ agent answers about browser recordings in the Analytics template.
   nor a friction gap (`analytics_session_friction_gaps`). A friction write
   failure rolls back only friction and records a friction gap; the index
   write stays. Only a failed friction gap insert fails the index savepoint.
-- Thumbs-down and cancelled runs are measured only for sessions whose
-  pageviews carried `agent_signals` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY` in
-  core): older clients sampled stops and sent no ratings. One session id
+- Thumbs-down, cancelled runs, and quick backs are measured only for
+  sessions whose pageviews carried `agent_signals`
+  (`AGENT_SIGNALS_PAGEVIEW_PROPERTY` in core): older clients sampled stops,
+  sent no ratings, and sent no `page_load_id`. One session id
   spans every tab, so an old tab can share a session with a new one: any
   unmarked pageview or sampled stop sets `agent_signals_missing`, and both
   flags are OR-merged. Unless `agent_signals_measured` is set and
-  `agent_signals_missing` is not, both counts read as null, stay out of the
+  `agent_signals_missing` is not, these counts read as null, stay out of the
   score, never match a filter, and sort last. A stop counts only when sent
   unsampled (`sample_rate` absent or 1).
 - Reads must keep "unmeasured" (null) apart from "measured, no friction" (0).

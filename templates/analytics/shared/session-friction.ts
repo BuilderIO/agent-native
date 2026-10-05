@@ -39,23 +39,23 @@ export type EventFrictionSignal = (typeof EVENT_FRICTION_SIGNALS)[number];
 export type SessionFrictionSignal = (typeof SESSION_FRICTION_SIGNALS)[number];
 
 /**
- * Event signals a session's client must report completely, which it declares
- * with the `agent_signals` pageview marker. Without it they are unmeasured.
+ * Event signals only a client that marks its pageviews with `agent_signals`
+ * reports completely: it sends every stop and rating, and a `page_load_id`
+ * that quick backs follow. Without the marker they are unmeasured.
  */
-export const AGENT_REPORTED_FRICTION_SIGNALS = [
+export const MARKED_CLIENT_FRICTION_SIGNALS = [
   "thumbs_down",
   "cancelled_runs",
+  "quick_backs",
 ] as const satisfies readonly EventFrictionSignal[];
 
-export type AgentReportedFrictionSignal =
-  (typeof AGENT_REPORTED_FRICTION_SIGNALS)[number];
+export type MarkedClientFrictionSignal =
+  (typeof MARKED_CLIENT_FRICTION_SIGNALS)[number];
 
-export function isAgentReportedFrictionSignal(
+export function isMarkedClientFrictionSignal(
   signal: string,
-): signal is AgentReportedFrictionSignal {
-  return (AGENT_REPORTED_FRICTION_SIGNALS as readonly string[]).includes(
-    signal,
-  );
+): signal is MarkedClientFrictionSignal {
+  return (MARKED_CLIENT_FRICTION_SIGNALS as readonly string[]).includes(signal);
 }
 
 /** The score also weighs the error and rage-click counts every row shows. */
@@ -211,9 +211,9 @@ export interface SessionFriction {
   /** Null when the recording's replay was not measured from its start. */
   replay: Record<ReplayFrictionSignal, number> | null;
   /**
-   * Null when the session's events were not measured completely. Thumbs-down
-   * and cancelled runs are null on their own when the session's client does
-   * not report them.
+   * Null when the session's events were not measured completely. Thumbs-down,
+   * cancelled runs, and quick backs are null on their own when the session's
+   * client does not report them.
    */
   events: Record<EventFrictionSignal, number | null> | null;
   topSignals: SessionFrictionSignalCount[];
