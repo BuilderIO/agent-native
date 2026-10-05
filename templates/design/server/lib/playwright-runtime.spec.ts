@@ -14,10 +14,7 @@ import {
   type PlaywrightModule,
 } from "./playwright-runtime.js";
 
-afterEach(() => {
-  vi.resetAllMocks();
-  vi.unstubAllEnvs();
-});
+afterEach(() => vi.resetAllMocks());
 
 describe("importPlaywright", () => {
   it("uses playwright-core when the serverless bundle omits playwright", async () => {
@@ -83,26 +80,8 @@ describe("launchChromium", () => {
     serverMocks.requestBuilderBrowserConnection.mockRejectedValue(
       new Error("Builder Browser unavailable"),
     );
-    vi.stubEnv("CI", "false");
-
     await expect(launchChromium(chromium)).resolves.toBe(browser);
     expect(launch).toHaveBeenCalledWith({ chromiumSandbox: true });
-  });
-
-  it("disables the Chromium sandbox in CI runners", async () => {
-    const browser = {};
-    const launch = vi.fn().mockResolvedValue(browser);
-    const chromium = {
-      connectOverCDP: vi.fn(),
-      launch,
-    } as unknown as PlaywrightModule["chromium"];
-    serverMocks.requestBuilderBrowserConnection.mockRejectedValue(
-      new Error("Builder Browser unavailable"),
-    );
-    vi.stubEnv("CI", "true");
-
-    await expect(launchChromium(chromium)).resolves.toBe(browser);
-    expect(launch).toHaveBeenCalledWith({ chromiumSandbox: false });
   });
 
   it("fails closed with a typed error when no safe renderer is available", async () => {
@@ -115,8 +94,6 @@ describe("launchChromium", () => {
     serverMocks.requestBuilderBrowserConnection.mockRejectedValue(
       new Error("Builder Browser unavailable"),
     );
-    vi.stubEnv("CI", "false");
-
     const launchPromise = launchChromium(chromium);
     await expect(launchPromise).rejects.toBeInstanceOf(
       ChromiumUnavailableError,
