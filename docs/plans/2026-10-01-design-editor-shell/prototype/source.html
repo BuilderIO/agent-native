@@ -714,17 +714,14 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .row.tk .tk-warn { margin-left: 6px; display: grid; color: var(--warning); flex: none; }
 .row.tk .tk-glyph { color: var(--muted-fg); }
 .row.tk .tk-warn[role="button"] { cursor: pointer; border-radius: 4px; }
-.fill-main .tk-warn { display: grid; color: var(--warning); margin: 0 4px 0 -2px; }
 /* Token editor window: non-modal like a tool window, so the canvas stays usable. Same chrome as Keyboard shortcuts. */
-.tke { position: fixed; z-index: 30; min-width: 640px; min-height: 400px; max-width: calc(100vw - 16px); background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; resize: both; }
+.tke { position: fixed; z-index: 30; min-width: 640px; min-height: 400px; max-width: calc(100vw - 16px); background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; resize: both; }
 .tke:focus, .tke:focus-visible { outline: none; box-shadow: var(--shadow); }
 .tke-h { cursor: grab; user-select: none; }
 .tke-h:active { cursor: grabbing; }
 .tke-hacts { display: flex; gap: 0; }
 .tke-b { display: grid; grid-template-columns: 176px minmax(0, 1fr); min-height: 0; }
 .tke-nav .ks-cats { flex: 1; }
-.tke-policy { display: flex; flex-direction: column; gap: 4px; padding: 8px 0 0; }
-.tke-policy .inp { height: 24px; }
 .tke-addcol { margin-top: 4px; height: 28px; padding: 0 8px; border-radius: 6px; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted-fg); }
 .tke-addcol:hover { background: var(--hover); color: var(--fg); }
 .tke-main { display: grid; min-width: 0; min-height: 0; }
@@ -750,16 +747,6 @@ button.tke-mh:hover, button.tke-mh[aria-expanded="true"] { background: var(--hov
 .tke-name .tke-in, .tke-mh .tke-in { font-family: var(--font); font-size: 12px; }
 .tke-more { opacity: 0; }
 .tke-tr:hover .tke-more, .tke-more[aria-expanded="true"] { opacity: 1; }
-/* Preview: one sample card per Theme × Mode; the pressed card is what the current screen shows. */
-.tke-prev { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); overflow-x: auto; }
-.tke-card { flex: none; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; border-radius: 8px; }
-.tke-sample { width: 104px; height: 64px; padding: 8px; display: grid; grid-template: "t l" 1fr "b b" auto / 1fr auto; gap: 4px; text-align: left; overflow: hidden; }
-.tke-card[aria-pressed="true"] .tke-sample { outline: 2px solid var(--accent); outline-offset: 2px; }
-.tke-sample b { grid-area: t; font-size: 20px; line-height: 24px; }
-.tke-slink { grid-area: l; font-size: 10px; text-decoration: underline; align-self: start; }
-.tke-sbtn { grid-area: b; justify-self: start; height: 20px; padding: 0 8px; font-size: 10px; line-height: 20px; }
-.tke-cap { font-size: 11px; color: var(--muted-fg); }
-.tke-card[aria-pressed="true"] .tke-cap { color: var(--fg); }
 .row.tk .tk-alias { margin-left: 8px; height: 16px; max-width: 104px; padding: 0 4px; border-radius: 4px; background: var(--hover); font: 11px/16px var(--font); color: var(--muted-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
 .row.tk:hover .tk-alias { color: var(--fg); background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
 .row.tk .tk-val { margin-left: 8px; font: 11px/16px var(--mono); color: var(--muted-fg); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; text-align: right; }
@@ -1188,7 +1175,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const app = $("#app");
 const S = {
   mode: "design", tool: "select", route: "/home", device: "MacBook Pro 13″", zoom: 67, screenSel: false,
-  selected: "hero-title", tab: "inspector", screens: true, layers: true, panel: "file", labs: false, intInsp: "comments", chat: null, scenario: "none", labsTokens: true, labsCode: true, scheme: "light", layoutGrids: false, frameModes: {}, tokenPolicy: "warn",
+  selected: "hero-title", tab: "inspector", screens: true, layers: true, panel: "file", labs: false, intInsp: "comments", chat: null, scenario: "none", labsTokens: true, labsCode: true, scheme: "light", layoutGrids: false, frameModes: {},
   collapsed: new Set(), sections: new Set(), history: ["/home"], hIndex: 0, spec: false, grid: false,
 };
 try { const t = localStorage.getItem("des-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
@@ -1796,7 +1783,7 @@ function renderInspector() {
       <div class="g5">${field("Line height", inp(ic("line-height", "s12"), p.lh))}${field("Letter spacing", inp(ic("letter-spacing", "s12"), p.ls), "c3")}</div>
       <div class="g5">${field("Align", segc(["align-left", "align-center", "align-right"], 1))}${field("&nbsp;", segc(["layout-align-top", "layout-align-middle", "layout-align-bottom"], 0), "c3")}<div class="c5" style="align-self:end">${act("adjustments-horizontal", "More type options")}</div></div>`) : ""}
     ${sec("fill", "Fill", act("layout-grid", "Styles") + act("plus", "Add fill"), `
-      <div class="fillrow"><div class="inp fillfield"><button class="fill-main" data-fill aria-haspopup="dialog" title="Edit fill"><span class="swatch" style="background:${fillSwatch(p)}"></span>${p.fillToken ? `<span class="tok-chip">${fillLabel(p)}</span>${fillIssue(TOKENS.find(t => t.cssVar === p.fillToken)) ? warnMark(fillIssue(TOKENS.find(t => t.cssVar === p.fillToken))) : ""}` : `<span class="hex">${fillLabel(p)}</span>`}<span class="pct">100%</span></button><button class="post" data-fill-menu aria-haspopup="menu" title="Color tokens">${ic("chevron-down", "s12")}</button></div>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
+      <div class="fillrow"><div class="inp fillfield"><button class="fill-main" data-fill aria-haspopup="dialog" title="Edit fill"><span class="swatch" style="background:${fillSwatch(p)}"></span>${p.fillToken ? `<span class="tok-chip">${fillLabel(p)}</span>` : `<span class="hex">${fillLabel(p)}</span>`}<span class="pct">100%</span></button><button class="post" data-fill-menu aria-haspopup="menu" title="Color tokens">${ic("chevron-down", "s12")}</button></div>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
     ${sec("stroke", "Stroke", act("layout-grid", "Styles") + act("plus", "Add stroke"), "", { empty: true })}
     ${sec("effects", "Effects", act("layout-grid", "Styles") + act("plus", "Add effect"), "", { empty: true })}
     ${responsiveSection(id)}
@@ -3336,11 +3323,7 @@ function textContrastContext(id) {
 }
 // What you apply first comes first: Semantic, then Components, then the Primitives they're built from.
 const APPLY_ORDER = ["semantic", "components", "theme", "primitives"];
-// Allow and Warn list every tier, Semantic first; Block lists only what designs apply.
-const fillColors = () => applyOrder(TOKENS.filter(t => t.type === "color" && (S.tokenPolicy !== "block" || applied(t))));
-// Warn and Block mark a fill bound below Semantic, and the Fill ▾ offers the Semantic tokens with the same color.
-const fillIssue = t => t && !applied(t) && S.tokenPolicy !== "allow" ? `${t.name} is a ${t.collection === "theme" ? "Theme token" : "primitive"}. Designs use Semantic tokens.` : "";
-const sameColorSemantic = t => TOKENS.filter(x => applied(x) && x.type === "color" && x.value.toLowerCase() === t.value.toLowerCase());
+const fillColors = () => applyOrder(TOKENS.filter(t => t.type === "color"));
 const applyRank = id => { const i = APPLY_ORDER.indexOf(id); return i < 0 ? APPLY_ORDER.length : i; };
 const applyOrder = (list, key = x => x.collection) => list.slice().sort((a, b) => applyRank(key(a)) - applyRank(key(b)));
 function pickFill(btn) {
@@ -3359,12 +3342,12 @@ function pickFill(btn) {
 function fillTokenMenu(anchor) {
   const p = PROPS[S.selected], bound = TOKENS.find(t => t.cssVar === p.fillToken);
   // Semantic colors are the list; deeper tiers sit in submenus, since a fill should rarely skip past Semantic.
-  const colors = fillColors(), swaps = fillIssue(bound) ? sameColorSemantic(bound) : [];
+  const colors = fillColors();
   const [first, ...rest] = applyOrder(COLLECTIONS.filter(c => colors.some(t => t.collection === c.id)), c => c.id);
   const item = t => ({ t: t.name, k: t.value, radio: true, on: t === bound, run: () => { set({ fillToken: t.cssVar }); toast(bound ? `Swapped ${bound.name} for ${t.name}` : `Fill uses ${t.name}`); } });
   const set = patch => { Object.assign(p, patch, { fillEdited: true }); applyFills(); renderInspector(); };
   openMenu(anchor.closest(".inp") || anchor, [
-    ...(bound ? [{ t: "Detach token", k: "⌫", keys: ["Backspace", "Delete"], run: () => { set({ fill: parseHex(bound.value) ? bound.value.replace(/^#/, "") : bound.value, fillToken: null }); toast(`Detached ${bound.name}`); } }, ...swaps.map(x => ({ t: `Use ${x.name}`, run: () => { set({ fillToken: x.cssVar }); toast(`Fill uses ${x.name}`); } })), "-"] : []),
+    ...(bound ? [{ t: "Detach token", k: "⌫", keys: ["Backspace", "Delete"], run: () => { set({ fill: parseHex(bound.value) ? bound.value.replace(/^#/, "") : bound.value, fillToken: null }); toast(`Detached ${bound.name}`); } }, "-"] : []),
     ...(first ? colors.filter(t => t.collection === first.id).map(item) : []),
     ...(rest.length ? ["-", ...rest.map(c => ({ t: c.name, sub: colors.filter(t => t.collection === c.id).map(item) }))] : []),
   ], { align: "right" });
@@ -3447,10 +3430,8 @@ function renderTokens() {
 
 /* ───────── token editor window ───────── */
 // A non-modal window like Keyboard shortcuts, so the canvas stays live and editable behind it: collections on the
-// left, the selected one as a table with a column per mode, and a preview of every theme and mode at the bottom.
+// left, the selected one as a table with a column per mode.
 const TE = { col: "semantic", q: "", x: null, y: null, w: 760, h: 520, editing: null, renaming: null, renamingTok: null };
-const POLICY = { allow: "Allow", warn: "Warn", block: "Block" };
-const policyTip = "Whether designs can use Primitives and Theme tokens directly. Allow lists them in pickers; Warn lists them after Semantic and marks fills that use them; Block leaves them out.";
 function openTokenEditor() {
   closeMenu?.(); const open = $(".tke"); if (open) return open.focus();
   const el = document.createElement("div"); el.className = "tke"; el.tabIndex = -1; el.setAttribute("role", "dialog"); el.setAttribute("aria-labelledby", "tke-title");
@@ -3481,21 +3462,6 @@ function editorCell(t, c, m) {
   const tip = target ? aliasChain(t, ctx) : own ? raw : `Same as ${c.modes[0]}`;
   return `<div class="tke-td ${own ? "" : "inh"}" role="button" tabindex="0" data-tke-cell="${key}" title="${attr(tip)}"${color ? ` aria-haspopup="dialog" aria-expanded="${TK.picking === key}"` : ""}>${body}</div>`;
 }
-// Every theme and mode at once, on a sample card built from the Semantic tokens; clicking one shows it on the screen.
-function editorPreview() {
-  const axes = COLLECTIONS.filter(c => c.modes.length > 1), now = screenModes();
-  const combos = axes.reduce((acc, c) => acc.flatMap(x => c.modes.map(m => [...x, [c.id, m]])), [[]]);
-  return combos.map(combo => {
-    const ctx = { ...Object.fromEntries(COLLECTIONS.map(c => [c.id, c.modes[0]])), ...Object.fromEntries(combo) };
-    const r = v => { const t = TOKENS.find(x => x.cssVar === v); return t ? resolveToken(t, ctx) : ""; };
-    const label = combo.map(x => x[1]).join(" · "), on = combo.every(([id, m]) => now[id] === m);
-    return `<button class="tke-card" data-tke-combo="${attr(JSON.stringify(combo))}" aria-pressed="${on}" title="Show ${label} on ${screenName()}">
-      <span class="tke-sample" style="background:${r("--color-background")};color:${r("--color-foreground")};box-shadow:inset 0 0 0 1px ${r("--color-border")};border-radius:calc(${r("--radius-card") || "0px"} / 3)">
-        <b style="font-family:${r("--font-display")};font-weight:${r("--font-weight-display")}">Aa</b><span class="tke-slink" style="color:${r("--color-link")}">Link</span>
-        <span class="tke-sbtn" style="background:${r("--color-primary")};color:${r("--color-on-primary")};border-radius:${r("--radius-button")}">Button</span>
-      </span><span class="tke-cap">${label}</span></button>`;
-  }).join("");
-}
 function renderTokenEditor() {
   const el = $(".tke"); if (!el) return;
   const q = TE.q.toLowerCase(), hit = t => !q || [t.name, t.cssVar, ...Object.values(t.values), ...Object.values(t.values).map(v => aliasOf(v)?.name || "")].some(x => x.toLowerCase().includes(q));
@@ -3511,10 +3477,8 @@ function renderTokenEditor() {
   el.innerHTML = `<div class="ks-h tke-h"><h2 id="tke-title">Tokens</h2><span class="tke-hacts"><button class="icon-btn" data-tke-import title="Import tokens" aria-haspopup="menu" aria-expanded="false">${ic("download")}</button><button class="icon-btn" data-tke-close aria-label="Close tokens">${ic("x")}</button></span></div>
     <div class="tke-b"><nav class="ks-nav tke-nav"><label class="ks-search">${ic("search", "s14")}<input id="tke-q" type="search" placeholder="Search" aria-label="Search tokens" autocomplete="off" spellcheck="false" value="${attr(TE.q)}"></label>
       <div class="ks-cats">${cols.map(x => `<button data-tke-col="${x.id}" aria-current="${x.id === c.id}">${x.name}</button>`).join("")}</div>
-      <button class="tke-addcol" data-tke-addcol aria-haspopup="menu" aria-expanded="false">${ic("plus", "s14")}Add collection</button>
-      <label class="tke-policy" title="${attr(policyTip)}"><span class="tke-lbl">Primitives in designs</span><button class="inp sel" data-tke-policy aria-haspopup="menu" aria-expanded="false"><span class="v">${POLICY[S.tokenPolicy]}</span>${ic("chevron-down", "s12")}</button></label></nav>
-      <div class="tke-main"><div class="tke-table"><div class="tke-tr tke-th" style="${grid}"><span>Name</span>${c.modes.map(modeHead).join("")}<span>${c.id !== "primitives" ? `<button class="icon-btn sm" data-tke-addmode title="Add ${(c.axis || "mode").toLowerCase()}">${ic("plus", "s14")}</button>` : ""}</span></div>${table || (q ? `<div class="tk-empty">No tokens match “${TE.q}”.</div>` : "")}${q ? "" : `<button class="tke-addrow" data-tke-add aria-haspopup="menu" aria-expanded="false">${ic("plus", "s14")}Add token</button>`}</div></div></div>
-    <div class="tke-prev">${editorPreview()}</div>`;
+      <button class="tke-addcol" data-tke-addcol aria-haspopup="menu" aria-expanded="false">${ic("plus", "s14")}Add collection</button></nav>
+      <div class="tke-main"><div class="tke-table"><div class="tke-tr tke-th" style="${grid}"><span>Name</span>${c.modes.map(modeHead).join("")}<span>${c.id !== "primitives" ? `<button class="icon-btn sm" data-tke-addmode title="Add ${(c.axis || "mode").toLowerCase()}">${ic("plus", "s14")}</button>` : ""}</span></div>${table || (q ? `<div class="tk-empty">No tokens match “${TE.q}”.</div>` : "")}${q ? "" : `<button class="tke-addrow" data-tke-add aria-haspopup="menu" aria-expanded="false">${ic("plus", "s14")}Add token</button>`}</div></div></div>`;
   el.querySelector(".tke-table").scrollTop = scroll;
   if (focusQ) { const i = $("#tke-q"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
   const i = $("#tke-in") || $("#tke-rn"); if (i) { i.focus(); i.select(); }
@@ -3579,7 +3543,6 @@ function editorClick(e) {
   if (b("[data-tke-import]")) return openMenu(b("[data-tke-import]"), TOKEN_IMPORT_MENU(), { align: "right" });
   const col = b("[data-tke-col]"); if (col) { TE.col = col.dataset.tkeCol; TE.editing = null; return renderTokenEditor(); }
   if (b("[data-tke-addcol]")) return openMenu(b("[data-tke-addcol]"), [...(COLLECTIONS.some(c => c.id === "components") ? [] : [{ t: "Components", run: addComponents }]), { t: "New collection", run: addCollection }]);
-  if (b("[data-tke-policy]")) return openMenu(b("[data-tke-policy]"), Object.entries(POLICY).map(([k, v]) => ({ t: v, radio: true, on: S.tokenPolicy === k, run: () => { S.tokenPolicy = k; renderTokens(); renderInspector(); } })));
   if (b("[data-tke-add]")) return openMenu(b("[data-tke-add]"), TOKEN_KINDS.map(k => k === "-" ? k : { t: k[1], run: () => addEditorToken(k[0]) }), { align: "right" });
   if (b("[data-tke-addmode]")) return addMode(TE.col);
   const mh = b("[data-tke-mode]"); if (mh) { const c = colOf(TE.col), m = mh.dataset.tkeMode;
@@ -3587,7 +3550,6 @@ function editorClick(e) {
   const more = b("[data-tke-more]"); if (more) { const tok = TOKENS.find(x => x.cssVar === more.dataset.tkeMore), users = TOKENS.filter(x => Object.values(x.values).some(v => aliasOf(v) === tok));
     return openMenu(more, [{ t: "Rename", run: () => { TE.renamingTok = tok.cssVar; renderTokenEditor(); } }, "-", { t: "Delete", danger: true, disabled: users.length > 0, k: users.length ? `Used by ${users.length}` : "", run: () => { TOKENS.splice(TOKENS.indexOf(tok), 1); applyTokens(); renderTokens(); toast(`Deleted ${tok.name}`); } }], { align: "right" }); }
   const fx = b("[data-tk-fix]"); if (fx) { const [tok, m] = tokenAt(fx.dataset.tkFix); return fixMenu(fx, tok, m); }
-  const combo = b("[data-tke-combo]"); if (combo) { const own = S.frameModes[S.route] ||= {}; JSON.parse(combo.dataset.tkeCombo).forEach(([id, m]) => { own[id] = m; }); applyTokens(); renderTokens(); if (S.screenSel) renderInspector(); return; }
   const cell = b("[data-tke-cell]"); if (cell && !b(".tke-in")) { const [tok, m] = tokenAt(cell.dataset.tkeCell);
     if (tok.type === "color") return pickTokenColor(tok, cell, m);
     TE.editing = cell.dataset.tkeCell; return renderTokenEditor(); }

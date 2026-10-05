@@ -261,15 +261,14 @@ inspector's fills and strokes and the Tokens panel (TOK-20) use it.
 
 ### 22. Token tiers, themes, and modes
 
-Not started · TOK-21 to TOK-31 · PR —
+Not started · TOK-21 to TOK-29 · PR —
 
 Fix the scanner first, as its own PR (TOK-25): `extractCssVars` flattens
 selectors, so `.dark` values overwrite `:root` ones today. Then, on the DTCG
 storage from step 16: strict tiers (Primitives hold values; Theme and
 Semantic hold aliases; Components optional), Theme and Mode as two layered
-axes, a Modes section on screens, the primitives policy on the Fill field, a
-Semantic-only Tokens panel, and the non-modal token editor window with its
-Theme × Mode preview. Export and import use the DTCG Resolver module, and the
+axes, a Modes section on screens, a Semantic-only Tokens panel, and the
+non-modal token editor window. Export and import use the DTCG Resolver module, and the
 agent gets the same actions. Builds on steps 15, 16, and 21.
 
 ### Every step
@@ -305,7 +304,7 @@ where it names Annotate or the old toolbar.
 - 2026-10-05: Menus are text, following the macOS HIG: no leading icons, and an ellipsis only on rows that open a dialog or a file panel. Menus keep the shadcn structure at the editor's density from `CanvasContextMenu.tsx` (28px rows of 12px text); the Share popover uses the toolkit's Popover. A bound token's Detach token is the first row of its menu, on ⌫. MENU-09, RESP-05.
 - 2026-10-05: Token rows drop the source badge: the tooltip names the file, and a mark appears only when files disagree on a value. TOK-19.
 - 2026-10-05: The color picker's eyedropper is an app-owned icon on Tabler's grid, since Tabler's only pipette reads as a pen. COLOR-06.
-- 2026-10-05: Tokens use strict tiers (Primitives hold the only values; Theme and Semantic hold aliases; Components are optional) with Theme and Mode as two layered axes, so each token varies on one. The Tokens panel is for using (Semantic only); a non-modal token editor window, like Keyboard shortcuts, is for building, so the canvas stays live behind it, with a preview of every Theme × Mode. Primitives in designs is Allow, Warn (default), or Block. TOK-21, TOK-23, TOK-28, TOK-29, TOK-30.
+- 2026-10-05: Tokens use strict tiers (Primitives hold the only values; Theme and Semantic hold aliases; Components are optional) with Theme and Mode as two layered axes, so each token varies on one. The Tokens panel is for using (Semantic only); a non-modal token editor window, like Keyboard shortcuts, is for building, so the canvas stays live behind it. Whether designs may use primitives is the team's call, so the editor has no policy for it. TOK-21, TOK-23, TOK-28, TOK-29.
 - 2026-10-05: The color picker sits on the 8pt grid (272px, columns 64 · 64 · 64 · 32), and slider knobs stay inside their tracks, filled with their value. COLOR-09.
 
 ## Open questions
@@ -320,5 +319,4 @@ where it names Annotate or the old toolbar.
 - **RESP-13** Desktop-first `max-*` output, or flip the base so it's mobile-first?
 - **RESP-14** Keep side-by-side frames at other widths, or rely on drag plus Interact viewports?
 - **RESP-15** Responsive rules on any layer, or only on components?
-- **TOK-31** Preview each Theme × Mode with a sample card, or with thumbnails of the current screen?
 - **SAVE-05** When a file changed on disk, is Reapply my changes enough, or also offer Overwrite the file and Discard my changes?

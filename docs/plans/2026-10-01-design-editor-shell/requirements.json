@@ -614,7 +614,7 @@
           "refs": [
             "templates/design/app/components/design/MultiScreenCanvas.tsx:12205#colorScheme"
           ],
-          "prototype": "Select Screen 1 in Layers and set Theme to Initech and Mode to Dark; or click a card in the editor's preview."
+          "prototype": "Select Screen 1 in Layers and set Theme to Initech and Mode to Dark."
         },
         {
           "id": "TOK-25",
@@ -635,30 +635,19 @@
         {
           "id": "TOK-27",
           "status": "proposed",
-          "change": "The agent gets the same surface as actions: list collections and their columns, add a collection, add, rename, or delete a mode, set a token's value or alias per mode, make a value a primitive, set a screen's Theme and Mode, and set the primitives policy. A find-primitive-usage skill lists fills bound below Semantic and proposes the Semantic token with the same value. Generate tokens from design writes Primitives plus Semantic aliases."
+          "change": "The agent gets the same surface as actions: list collections and their columns, add a collection, add, rename, or delete a mode, set a token's value or alias per mode, make a value a primitive, and set a screen's Theme and Mode. A find-primitive-usage skill lists fills bound below Semantic and proposes the Semantic token with the same value. Generate tokens from design writes Primitives plus Semantic aliases."
         },
         {
           "id": "TOK-28",
           "status": "decided",
-          "change": "Building the system happens in a token editor window, opened from the panel header's table icon. It's non-modal, like a tool window, with the Keyboard shortcuts window's chrome: designers keep working on the canvas behind it, and every edit restyles the canvas live. It opens 760 × 520 against the canvas's right edge, moves by its title bar, and resizes. Left: search, the collections in tier order, Add collection, and the primitives policy (TOK-30). Right: the selected collection as a table with a column per mode; a mode header's menu has Rename and Delete, + adds a mode (Primitives have none), Add token ends the table, a token row's … has Rename and Delete (off while other tokens point at it), and double-clicking a name renames it. Bottom: a preview card for every Theme × Mode, drawn from the Semantic tokens (background, text, display font, link, primary button, button and card radius); the pressed card is the current screen's, and clicking one applies it there. Esc closes it unless a menu or picker opened from it is up. Import moves here from the panel.",
-          "prototype": "Tokens › table icon. Click Globex · Dark in the preview while watching the canvas."
+          "change": "Building the system happens in a token editor window, opened from the panel header's table icon. It's non-modal, like a tool window, with the Keyboard shortcuts window's chrome: designers keep working on the canvas behind it, and every edit restyles the canvas live. It opens 760 × 520 against the canvas's right edge, moves by its title bar, and resizes. Left: search, the collections in tier order, and Add collection. Right: the selected collection as a table with a column per mode; a mode header's menu has Rename and Delete, + adds a mode (Primitives have none), Add token ends the table, a token row's … has Rename and Delete (off while other tokens point at it), and double-clicking a name renames it. Esc closes it unless a menu or picker opened from it is up. Import moves here from the panel.",
+          "prototype": "Tokens › table icon. Edit Theme › Accent's Globex cell with Globex picked for Screen 1."
         },
         {
           "id": "TOK-29",
           "status": "decided",
           "change": "The Tokens panel is for using tokens: it lists only what designs apply (Semantic, and Components once added), grouped by type, with values as the current screen shows them. The header is the count, Search, and the table icon that opens the editor (TOK-28); + and Import move to the editor. Rows keep the alias chip, the chain in the tooltip, and the picker on click, editing the current screen's mode.",
           "prototype": "Open Tokens: Semantic only, by type."
-        },
-        {
-          "id": "TOK-30",
-          "status": "decided",
-          "change": "One policy, Primitives in designs: Allow, Warn (the default), or Block. It covers Primitives and Theme, the tiers designs shouldn't apply. Allow lists every tier in the Fill picker and ▾; Warn lists them after Semantic and Components and marks a fill bound to one with the amber triangle in the Fill field, its ▾ offering Use <Semantic token> for any Semantic token with the same color; Block lists only Semantic and Components and still marks old bindings. It's the same idea as Figma's variable scoping, set once for the system.",
-          "prototype": "Editor › Primitives in designs › Block, then open the headline's Fill › Libraries."
-        },
-        {
-          "id": "TOK-31",
-          "status": "question",
-          "change": "The editor preview draws a sample card from the Semantic tokens. Is that enough, or should it show thumbnails of the current screen in each Theme × Mode?"
         }
       ]
     },
