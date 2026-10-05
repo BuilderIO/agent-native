@@ -997,9 +997,13 @@ const messages = {
     all: "सभी",
     showMineDecks: "मेरे बनाए डेक दिखाएं",
     mine: "मेरे",
+    ownedByAnyone: "किसी के भी स्वामित्व वाले",
+    ownedByMe: "मेरे स्वामित्व वाले",
+    sharedWithMe: "मेरे साथ साझा",
     createDeckOrVisual: "प्रेज़ेंटेशन बनाएं",
     noMineDecks: "आपने अभी तक कोई डेक नहीं बनाया है।",
     noDecksMatchSearch: "आपकी खोज से कोई डेक मेल नहीं खाता।",
+    noDecksMatchFilter: "वर्तमान फ़िल्टर से कोई डेक मेल नहीं खाता।",
     deleteDeckTitle: "डेक हटाएं?",
     deleteDeckDescription:
       "यह इस डेक और इसकी सभी स्लाइड्स को स्थायी रूप से हटा देगा। यह कार्रवाई वापस नहीं की जा सकती।",

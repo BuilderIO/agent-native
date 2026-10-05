@@ -2,7 +2,10 @@ import type {
   ResourceSuggestion,
   SuggestionOperation,
 } from "@agent-native/core/review";
-import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
+import {
+  SuggestionFormattingMappingError,
+  suggestionSourceAlignment,
+} from "@shared/suggestion-formatting";
 
 import {
   draftSuggestionAnchors,
@@ -233,23 +236,28 @@ export function recordSuggestionReplacementIntent(
     return false;
   }
   const operations = suggestionDraftOperations(session, currentContent);
+  // Intents are stored-base offsets; the draft is the base's canonical form.
+  const alignment = suggestionSourceAlignment(session.baseContent);
+  if (!alignment) return false;
   const baseOffset = (position: number, side: "start" | "end") => {
     let delta = 0;
     for (const operation of operations) {
-      const start = operation.anchor.from + delta;
+      const from = alignment.map(operation.anchor.from, "stored");
+      const to = alignment.map(operation.anchor.to, "stored");
+      if (from === null || to === null) return null;
+      const start = from + delta;
       const end = start + operation.after.changedText.length;
-      if (position < start) return position - delta;
+      if (position < start) return alignment.map(position - delta, "canonical");
       if (position === start) return operation.anchor.from;
       if (position < end)
         return side === "start" ? operation.anchor.from : operation.anchor.to;
-      delta +=
-        operation.after.changedText.length -
-        (operation.anchor.to - operation.anchor.from);
+      delta += operation.after.changedText.length - (to - from);
     }
-    return position - delta;
+    return alignment.map(position - delta, "canonical");
   };
   const start = baseOffset(candidates[0]!, "start");
   const end = baseOffset(candidates[0]! + input.beforeText.length, "end");
+  if (start === null || end === null) return false;
   if (start === end) return true;
   const intents = session.replacementIntents ?? [];
   if (!intents.some((intent) => intent.from <= start && intent.to >= end)) {

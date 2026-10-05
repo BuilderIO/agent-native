@@ -41,6 +41,36 @@ describe("isOrgMember", () => {
     expect(validateFederatedMembershipMock).not.toHaveBeenCalled();
   });
 
+  it("requires readable organization metadata at credential boundaries while preserving legacy lookup behavior", async () => {
+    executeMock.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("FROM organizations")) {
+        throw new Error('relation "organizations" does not exist');
+      }
+      return { rows: [{ role: "member" }] };
+    });
+
+    await expect(isOrgMember("org-1", "member@example.test")).resolves.toBe(
+      true,
+    );
+    await expect(
+      isOrgMember("org-1", "member@example.test", {
+        requireOrganizationMetadata: true,
+      }),
+    ).rejects.toThrow('relation "organizations" does not exist');
+  });
+
+  it("refuses an orphaned membership when organization metadata is required", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      isOrgMember("org-1", "member@example.test", {
+        requireOrganizationMetadata: true,
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("rejects a copied membership after the authority revokes it", async () => {
     executeMock.mockResolvedValue({
       rows: [

@@ -32,6 +32,7 @@ export function isMissingOrganizationTableError(error: unknown): boolean {
 export async function isOrgMember(
   orgId: string,
   email: string,
+  options: { requireOrganizationMetadata?: boolean } = {},
 ): Promise<boolean> {
   const normalized = email.trim().toLowerCase();
   if (!orgId || !normalized) return false;
@@ -56,11 +57,16 @@ export async function isOrgMember(
       })
     ).rows;
   } catch (error) {
-    if (!isMissingOrganizationTableError(error)) throw error;
+    if (
+      options.requireOrganizationMetadata ||
+      !isMissingOrganizationTableError(error)
+    )
+      throw error;
     return true;
   }
 
   const organization = organizationRows[0] as any;
+  if (!organization && options.requireOrganizationMetadata) return false;
   const linked =
     String(organization?.identity_authority ?? "").trim() ||
     String(organization?.identity_id ?? "").trim();

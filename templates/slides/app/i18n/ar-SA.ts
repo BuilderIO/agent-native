@@ -1022,9 +1022,13 @@ const messages = {
     all: "الكل",
     showMineDecks: "إظهار العروض التي أنشأتها",
     mine: "عروضي",
+    ownedByAnyone: "مملوك لأي شخص",
+    ownedByMe: "مملوك لي",
+    sharedWithMe: "تمت مشاركته معي",
     createDeckOrVisual: "إنشاء عرض تقديمي",
     noMineDecks: "لم تنشئ أي عروض بعد.",
     noDecksMatchSearch: "لا تتطابق أي عروض مع بحثك.",
+    noDecksMatchFilter: "لا تتطابق أي عروض مع عامل التصفية الحالي.",
     deleteDeckTitle: "حذف العرض؟",
     deleteDeckDescription:
       "سيؤدي هذا إلى حذف هذا العرض وكل شرائحه نهائيًا. لا يمكن التراجع عن هذا الإجراء.",

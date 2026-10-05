@@ -51,6 +51,88 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.201.0
+
+### Minor Changes
+
+- af93f72: `useCollaborativeDoc` returns `flushUpdates()`, which resolves once every local edit has reached the server (or `false` when delivery failed), so a caller that also saves the same edit to SQL can send it through the document first and peers never apply the text twice. `SharedRichEditor` accepts `requestInitialSeed` and `onInitialSeedError`, so an editor that is not Content's can have the server seed an empty live document once instead of every client seeding its own copy; while that seed is pending the editor is read-only, and it does not emit an `update` for the editability change.
+- af93f72: Actions can declare `changeResource(input, result)` so their `action` change event also reaches every collaborator who can read that resource, not only the actor. A collaborative editor that never adopts a newer snapshot because its lead peer was not notified now adopts it itself after a grace period, and a server-merged save is no longer mistaken for the editor's own echo.
+
+### Patch Changes
+
+- e7b80a1: Fix agent chat failing with "column auto_continue_of of relation agent_runs does not exist" on deployments that apply schema changes at release.
+- 50ede47: Read agent SQL the way Postgres does before db-query, db-exec, and db-patch run it, and check in the transaction that every name resolves to the current user's scoped views. db-query now runs read-only. Adds `@agent-native/core/agent-sql` for apps that run agent-written SQL.
+
+  Adds `readAgentSqlQuery()` and `rewriteAgentSqlQuerySources()` for supported SELECT/WITH source names and exact text spans, and strengthens refusal of functions and operators outside `pg_catalog`, unsafe built-ins, and PostgreSQL escape-string continuation.
+
+  Adds `verifyAgentPostgresExpressions()` for routine, operator, and type-conversion resolution checks independently of source-view verification, so Analytics can reuse them in the same verified read-only transaction.
+
+  Protects MCP client, authorization-code, refresh-token, connect-token, and device-code metadata from raw SQL reads, writes, and patches.
+
+- 2e9fa5f: Continue an AgentKit chat turn automatically, in the same turn, when the server stopped it at its run time limit: at most three times per message, counted durably on the server, never after an error, stop, or credential or rate limit. Finished steps and cross-app delegations are reused instead of sent again, the chat shows a Resuming status with Stop still available, and past the cap the turn ends with Continue.
+- 2e9fa5f: Fail an automatic chat continuation with a retryable error when the server cannot read the stopped turn's history or run journal, or finds the thread missing, empty, or without the stopped turn's prompt, instead of continuing from the browser's copy, which lacks finished tool results and could repeat them. Resumed continuations now send a bounded window of earlier turns while keeping the stopped turn's tool calls and results whole.
+- 435a0c3: Background agent sessions (`startBackgroundAgentSession`) start again. Since the queued-message claim check, the agent-chat route rejected every background session with 409 "Queued message promotion claim expired", because a session sends its operation id as `queuedMessageId` without a queue claim. The route now recognizes a background session by its derived turn id and accepts it once, as before; a repeat of the same operation is still deduplicated, and queued chat messages still need a live claim.
+- 1bbb9fa: Send first-party analytics events, sign-in and sign-up events, replay uploads, and server events from hosted beta apps to beta Analytics instead of production Analytics.
+- 43694e6: Use Builder.io wording and one-click account activation across setup, recovery, voice, files, design, and Code Agents.
+- d63fd6c: Report a finished chat run as no longer active while keeping it available for replay, keep a queued follow-up's promotion claim when a thread save lands at the same time so the follow-up is answered, and stop a stale mid-stream save from adding a duplicate reply to the stored thread.
+- 7c73c56: Stop a reply saved mid-stream from coming back as a second, partial answer after a page reload replays the run.
+- 6deab14: Restore a completed assistant reply into the existing message when its run snapshot still identifies it after a reload.
+- 7c73c56: Generate chat titles on the engine and model the first prompt was sent with, and report a failed title call instead of returning an empty title.
+- 263c8a9: Keep corrupt Lab choices isolated to their own state reads.
+- af93f72: Collaborators editing different docs of one shared resource (two screens of a design, two slides of a deck) now keep each other's changes flowing: a resource-scoped action event from another tab or an agent boosts polling to 2.5 s for a minute when no realtime stream is connected, instead of falling back to the 1-5 minute idle cadence once presence on the same doc lapses. The history replayed by a tab's first poll does not count.
+- af93f72: Poll every 2.5 s while another person is present on the same collaborative document and no realtime stream is connected (serverless), so their edits land in seconds instead of up to a minute. Lone tabs and tabs on a live stream or hosted gateway keep their existing cadence.
+- 2e9fa5f: Add `deleteResolvedCredential` so a disconnect removes the credential the reader actually answers with, including a legacy `workspace` row, and refuses a member's removal of the organization's credential. `deleteCredential(key, { scope })` now clears every row that owner holds (secret, legacy setting, and legacy workspace/solo row), so a save that clears a value at its chosen scope never touches the other owner's.
+- 0eb2bf4: Preserve embedded SVG fragment references when rewriting CSS resources for Design exports and route binary Design exports through the shared action client.
+- 3a4824b: Exclude embed authentication metadata from generated worker GET action arguments.
+- a1b03c0: Record `error.type="suspended"` on `agent_native.telemetry.flush_failures` when the flush timer fires well past its deadline, which means the runtime froze the process mid-flush rather than the export being slow.
+- 60fb060: Allow Google Slides imports to include skipped slides so image placement stays aligned with the source deck.
+- 5504605: Return the typed AI setup error when chat title generation is requested without a connected model.
+- Release all public npm packages with a patch version bump.
+- 5b81f5d: Keep MCP HTTP servers connected when automatic protocol-version negotiation falls back after a rejected probe.
+- d63fd6c: Send action tools to the OpenAI Responses API as non-strict, so models can omit optional parameters instead of filling every one with a placeholder that validation rejects.
+- 2e9fa5f: Owners and admins now run on their organization's credentials (Builder.io connection, model provider keys, and other keys) ahead of their own, which stay as the fallback; members keep their own first. Key saves default to the organization for owners and admins and ask who can use the key. When the role can't be read, every key form, Email included, says so with a retry instead of saving.
+- 1fe679f: Keep external MCP action links as external URLs in desktop clients.
+- c325b49: Return a typed conflict when a queued message disappears during claim.
+- 3a4824b: Keep embed authorization query fields out of GET action arguments.
+- f0cc093: Tag the scaffold Docs card and onboarding links to agent-native.com with `utm_source=app`, and publish the npm README with `utm_source=npm` links. `docsUrl()` takes a `source` option, and `campaign: null` leaves `utm_campaign` off; otherwise it still defaults to `docs`.
+- a941a2e: Fix email/password sign-up hanging for about 45 seconds and returning 500 on serverless hosts. Better Auth's database handle now routes `getDbExec()` calls made inside its transaction onto that transaction, a database call that can never get the pool's only connection now fails immediately with `DbPoolSelfDeadlockError`, and on serverless a retry loop gives up before it can outlast the gateway.
+- af93f72: Scope collaborator activity boosts to the resource open in the tab, and require resource ACL checks before org membership exposes resource change events.
+- 3d6055f: Removed organization members lose org access through MCP OAuth and connect tokens on their next request. The MCP endpoint, the MCP OAuth token endpoint (code exchange and refresh), and bearer-authenticated framework action routes and recap uploads re-check that the token's user still belongs to its organization. If that check, the stored-org lookup for a connect token, or a connect token's revocation lookup cannot run, they answer a retryable 503 with `Retry-After` instead of a 401. A connect token whose revocation state can't be read was previously admitted. `@agent-native/core/server` exports `isCredentialMembershipUnavailable` so app routes that resolve bearer sessions themselves can give the same answer. The A2A endpoint no longer accepts MCP connect or OAuth tokens. A connect token with no stored row now runs Personal instead of taking its `org_domain` organization. `registerIdentityColumns` accepts a new `offboard: "revoke"` policy, and offboarding uses it to revoke a member's MCP refresh and connect tokens, and deletes their MCP authorization and device codes, instead of transferring them to the successor.
+
+  Membership checks require readable organization metadata. The service-identity exemption requires an authenticated connect credential with a matching stored service kind, owner, and organization; human OAuth subjects with service-shaped email addresses still require live membership.
+
+  New MCP authorization codes and refresh tokens retain their issuance owner binding in additive nullable columns. Unbound legacy grants and owner-binding mismatches fail with `invalid_grant`, without backfilling legacy owners. Intentional email rekeys update the issuance identity, while offboarding revokes or deletes grants and preserves the issuance binding. OAuth access tokens must carry `credential_version: 2`, so old OAuth access tokens are refused on rollout. Every existing OAuth connection must reconnect once, and pending old authorization codes must restart consent. Newly issued access tokens use their configured lifetime and live membership checks. Legacy A2A-format `mcp-connect` credentials and cross-app A2A tokens are unchanged by this cutover. Connections using old OAuth-format Connect tokens must reconnect too.
+
+  Failed refresh-renewal writes return retryable HTTP 503 with `Retry-After: 5`. Renewals of revoked or deleted grants return `invalid_grant` when no row is updated. Neither failure mints an access token. The cutover uses additive schema preparation without a bulk grant revoke or delete.
+
+  Human organization-bound OAuth and Connect issuance now shares a transactional membership lock with local offboarding. Authorization-code consumption and refresh-token creation commit together, and failed writes roll back consumption. Connect and device approval use the same boundary, so completed local offboarding cannot leave a newly issued grant behind. Remote membership-authority contracts are unchanged.
+
+  Account-email rekeying acquires organization membership locks before scanning credentials, matching issuance and offboarding lock order. This prevents missed organization-bound grants and opposing grant/member lock acquisition during concurrent rekeying and issuance.
+
+  Offboarding reads its credential-table catalog after acquiring membership locks, so the sweep includes first-time lazy table preparation completed by earlier issuance.
+
+  Refresh renewal and access-token signing use the same issuance transaction. Signing errors roll back renewal, and a failed transaction returns no access token. Membership-denial cleanup pins the validated owner/binding pair, preserving valid grants renamed concurrently; unavailable revocation counts return a retryable failure.
+
+  An account-email rekey records the old address as retired in its own transaction. MCP OAuth access and Connect tokens signed for that address before the rekey are refused, Personal ones included, and issuance refuses the address until an account registers it again. Rekey and every human credential issuance, Personal included, take a per-address transaction lock before any row lock, so issuance cannot write a grant for an address mid-rekey. Offboarding takes the same lock for the removed member, so a Personal grant issued during an account-wide offboarding is swept with the rest.
+
+  Org service-token creation rechecks, under the membership lock offboarding takes, that its creator is still an owner or admin, and records the token in the same transaction. A creator removed or demoted after the action's role check gets 403; an unreadable check gets a retryable 503. The create, list, and revoke service-token actions also answer a retryable 503, instead of a 400 or 403, when their caller's role or organization lookup fails. A template without organization tables still gets 400 or 403.
+
+- 1452a82: Scheduled integration recovery now dispatches recovered work to the deployment's own URL. Previously every recovery dispatch went to `localhost:3000` and failed, because the scheduled request carries no Host header. Integration tasks created more than 24 hours ago are no longer run, whether by recovery, as the next task in their thread, or as a multi-step campaign continuation, and they no longer hold up newer messages in that thread. Their rows are left as they are rather than answering long-stale messages.
+- d63fd6c: Restore a chat sent inside a resource after reloading that resource, instead of opening an empty new chat.
+- dff1e93: Raise a search index's target version before its migration installs change capture, so a build still running the previous version stops using the index instead of finishing a rebuild at that version. The migration also leaves capture alone when a newer version holds the index, and rebuilds the index when it finds capture was missing.
+- dff1e93: Install search change capture again when a release changes its trigger SQL, so a database that recorded an earlier build's capture doesn't stay on the fallback search.
+- dff1e93: Restart a search index rebuild that was still queueing rows or finishing when its index was discarded, instead of completing it without the writes made while change capture was missing.
+- 8b599e7: Capture `site_referrer` and `site_landing_path` from an app's landing URL into first-touch attribution and record them on the signup event. The marketing site forwards them on app links, so a visitor who reached www.agent-native.com from GitHub, YouTube, or search keeps that source when they sign up in an app. A forwarded referrer derives `referral_source: "external"`, the same as a referrer the app saw itself.
+
+  Add `captureAttribution()`, which stores the visitor's first touch right away instead of waiting for `configureTracking()`, for a page that reads it before tracking starts. Synthetic traffic is still skipped.
+
+- 2e9fa5f: Exclude test identities from metrics and non-auth email on every deployment through one rule, `isTestIdentity` (reserved `.test`/`.invalid`/`.localhost`/`.example` domains, the `+autoz` QA marker, and `AGENT_NATIVE_TEST_IDENTITY_EMAILS`). `sendEmail()` now returns `{ status: "sent" | "suppressed" }`; auth mail passes `authCritical: true` and still reaches test identities. Test identities are dropped from `to`, `cc`, and `bcc` alike (each logged), a real `cc` recipient stands in for a test-identity `to` (a `bcc` recipient never does), and a send left with no `to` or `cc` recipient is suppressed; `sendEmail()` now also delivers `bcc`. The `/_agent-native/auth/session` response now carries a server-resolved `testIdentity` boolean, so browser analytics, session replay, and exception capture skip configured identities too without the configured list reaching the browser.
+- 2e9fa5f: Flagged test-identity exceptions now carry the matched address as `test_identity_email`, so Agent-Native Analytics ingest can verify the identity instead of trusting a sender-set `test_identity` flag.
+- Updated dependencies
+- Updated dependencies [dd47e1b]
+  - @agent-native/agentkit@0.201.0
+  - @agent-native/recap-cli@0.5.61
+
 ## 0.200.0
 
 ### Minor Changes
@@ -3728,11 +3810,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 
 - Updated dependencies [60b7e74]
   - @agent-native/toolkit@0.16.8
-
-## 0.164.26
-
-### Patch Changes
-
-- d5ceae9: Preserve the beta environment opt-out when custom authentication pages are served.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
