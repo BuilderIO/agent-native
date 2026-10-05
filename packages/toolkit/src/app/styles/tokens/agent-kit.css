@@ -100,7 +100,7 @@
   }
 }
 
-:is(.dark, :root[data-theme="dark"]) {
+:is(.dark, :root[data-theme="dark"]:not(.light)) {
   --agent-kit-composer-border-mix: 40%;
   --agent-kit-composer-focus-border-mix: 65%;
   --agent-kit-composer-border-color: color-mix(
