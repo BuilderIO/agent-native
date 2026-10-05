@@ -9,6 +9,8 @@ files:
   - out/**
   - "!node_modules/**"
   - node_modules/node-pty/**
+  - node_modules/@agent-native/core/package.json
+  - node_modules/@agent-native/core/dist/**
   - "!src/**"
   - "!shared/**"
   - "!electron.vite.config.*"

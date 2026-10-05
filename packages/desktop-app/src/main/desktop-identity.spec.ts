@@ -1756,6 +1756,18 @@ describe("DesktopIdentityBroker", () => {
   it("uses an isolated identity window and one-time embed sessions for modern fan-out", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
+    const calendar = {
+      ...appFixture(),
+      id: "calendar",
+      origin: "https://calendar.agent-native.com",
+      cookieNames: ["an_session_calendar", "an_session"],
+      cookieNamesToClear: [
+        "an_session_calendar",
+        "an_session",
+        "an_calendar.session_token",
+        "__Secure-an_calendar.session_token",
+      ],
+    };
     mail.alternateOrigins = ["https://beta.mail.agent-native.com"];
     mail.alternateCookieNameMap = {
       "https://beta.mail.agent-native.com": {
@@ -1765,6 +1777,9 @@ describe("DesktopIdentityBroker", () => {
     const identityCookies = cookieStore();
     const authorityCookies = cookieStore();
     const mailCookies = cookieStore();
+    const calendarCookies = cookieStore();
+    const calendarStartReached = deferred<void>();
+    const releaseCalendarStart = deferred<void>();
     const openedUrls: string[] = [];
     const identityFetch = vi.fn(
       async (input: string, init?: RequestInit): Promise<Response> => {
@@ -1807,15 +1822,15 @@ describe("DesktopIdentityBroker", () => {
               "X-Agent-Native-CSRF": "1",
             }),
           );
-          expect(JSON.parse(String(init?.body))).toEqual({
-            app: "mail",
+          const body = JSON.parse(String(init?.body));
+          expect(body).toEqual({
+            app: expect.stringMatching(/^(mail|calendar)$/),
             path: "/",
             chrome: "minimal",
           });
           return new Response(
             JSON.stringify({
-              startUrl:
-                "https://mail.agent-native.com/_agent-native/embed/start?ticket=mail-ticket",
+              startUrl: `https://${body.app}.agent-native.com/_agent-native/embed/start?ticket=${body.app}-ticket`,
             }),
             { status: 200 },
           );
@@ -1848,6 +1863,25 @@ describe("DesktopIdentityBroker", () => {
           : new Response(null, { status: 404 });
       }),
     } as unknown as Electron.Session;
+    calendar.session = {
+      cookies: calendarCookies,
+      fetch: vi.fn(async (input: string) => {
+        const url = new URL(input);
+        if (url.pathname === "/_agent-native/embed/start") {
+          calendarStartReached.resolve();
+          await releaseCalendarStart.promise;
+          await calendarCookies.set({
+            url: calendar.origin,
+            name: "an_session_calendar",
+            value: "calendar-session",
+          });
+          return new Response("<html></html>", { status: 200 });
+        }
+        return url.pathname === "/_agent-native/auth/session"
+          ? sessionResponse("owner@example.com")
+          : new Response(null, { status: 404 });
+      }),
+    } as unknown as Electron.Session;
     const identityWindow = {
       webContents: {
         on: vi.fn(),
@@ -1868,8 +1902,14 @@ describe("DesktopIdentityBroker", () => {
       } as unknown as Electron.Session,
       isAvailable: vi.fn(async () => true),
       resolveApp: (id) =>
-        id === authority.id ? authority : id === mail.id ? mail : null,
-      listApps: () => [authority, mail],
+        id === authority.id
+          ? authority
+          : id === mail.id
+            ? mail
+            : id === calendar.id
+              ? calendar
+              : null,
+      listApps: () => [authority, mail, calendar],
       createWindow,
       userAgent: "Mozilla/5.0 Electron/43.4.0 AgentNativeDesktop/0.1.150",
       openExternal: vi.fn(async (url: string) => {
@@ -1879,7 +1919,15 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    await expect(broker.signIn(mail.id)).resolves.toBe(true);
+    let signInSettled = false;
+    const signIn = broker.signIn(authority.id).finally(() => {
+      signInSettled = true;
+    });
+    await calendarStartReached.promise;
+    expect(signInSettled).toBe(false);
+    expect(broker.getStatus()).not.toBe("signed-in");
+    releaseCalendarStart.resolve();
+    await expect(signIn).resolves.toBe(true);
 
     expect(createWindow).toHaveBeenCalledOnce();
     expect(createWindow).toHaveBeenCalledWith(
@@ -1905,6 +1953,12 @@ describe("DesktopIdentityBroker", () => {
         value: "mail-session",
       }),
     );
+    expect(calendarCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_calendar",
+        value: "calendar-session",
+      }),
+    );
     expect(mailCookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "https://beta.mail.agent-native.com",
@@ -1914,6 +1968,7 @@ describe("DesktopIdentityBroker", () => {
     );
     expect(reloadApp).toHaveBeenCalledWith(authority);
     expect(reloadApp).toHaveBeenCalledWith(mail);
+    expect(reloadApp).toHaveBeenCalledWith(calendar);
     expect(broker.getStatus()).toBe("signed-in");
 
     const embedSessionRequests = identityFetch.mock.calls.filter(
