@@ -8,9 +8,10 @@ from approved company knowledge, with links back to the source.
 
 Brain ingests approved Slack channels, meetings, transcripts, GitHub issues/PRs,
 and webhook captures, distills them into reviewable knowledge, and answers with
-exact evidence quotes and source links instead of guesses. It can search both
-organization-wide material and explicitly invited private channels or
-attendee-scoped meetings without widening their audience.
+exact evidence quotes and source links instead of guesses. Messages from public
+channels and explicitly invited private channels are searchable org-wide once
+they pass sensitivity screening; attendee-scoped meetings keep their audience,
+and personal sources stay limited to their owner and shares.
 
 ## Features
 
@@ -21,8 +22,8 @@ attendee-scoped meetings without widening their audience.
   privacy classifier for richer review decisions.
 - Hybrid full-text and semantic search over allowed captures and knowledge,
   filtered by the requesting user's evidence audience before ranking.
-- Private-channel and meeting evidence stays audience-scoped; multi-source
-  answers use only the intersection of their evidence audiences.
+- Attendee-scoped meeting evidence and personal sources stay restricted;
+  multi-source answers use only the intersection of their evidence audiences.
 - Sensitive sources are suppressed or quarantined before search, citations,
   distillation, and source editors can see their content.
 - Read-only, citation-backed retrieval exposed to other apps over A2A.
@@ -33,7 +34,10 @@ attendee-scoped meetings without widening their audience.
 
 Brain never treats a connected provider as permission to index everything.
 Slack public-channel discovery is configurable, while private channels require a
-manual app invite and membership sync. Meetings use their attendee audience.
+manual app invite. Content from an invited private channel that passes
+sensitivity screening is searchable by everyone in the org. Meetings from
+attendee-scoped connectors use their attendee audience, and personal sources
+stay limited to their owner and shares.
 
 Hard privacy categories such as performance discussions, layoffs, compensation,
 recruiting, health accommodations, investigations, privileged legal material,
