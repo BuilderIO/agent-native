@@ -14,6 +14,7 @@ import {
   PRE_CAPPED_SIGNUPS_OVER_TIME_SQL,
   PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
   SIGNUPS_OVER_TIME_SQL,
+  buildFirstPartyDashboardFilters,
   type ExactFirstPartyPanelReplacement,
   repairFirstPartyObservedRetentionPanels,
 } from "./first-party-metric-catalog";
@@ -800,12 +801,47 @@ export function repairKnownFirstPartyDashboardQueries(
     const repaired = repairFirstPartyBigQueryDashboardQueries(
       historical.config,
     );
-    return historical.changed && !repaired.changed
-      ? { ...repaired, changed: true }
-      : repaired;
+    const defaultsRepaired = repairFirstPartyBigQueryDashboardFilterDefaults(
+      repaired.config,
+    );
+    return {
+      ...defaultsRepaired,
+      changed:
+        historical.changed || repaired.changed || defaultsRepaired.changed,
+    };
   }
   if (dashboardId === FIRST_PARTY_DASHBOARD_ID) {
     return repairCanonicalFirstPartyDashboardQueries(config);
   }
   return { config, changed: false };
+}
+
+function repairFirstPartyBigQueryDashboardFilterDefaults(
+  config: Record<string, unknown>,
+): { config: Record<string, unknown>; changed: boolean } {
+  if (!Array.isArray(config.filters)) return { config, changed: false };
+
+  const canonicalDefaults = new Map(
+    buildFirstPartyDashboardFilters()
+      .filter(
+        (filter) => filter.id === "timeRange" || filter.id === "emailFilter",
+      )
+      .map((filter) => [filter.id, filter.default]),
+  );
+  let changed = false;
+  const filters = config.filters.map((filter) => {
+    if (!filter || typeof filter !== "object" || Array.isArray(filter)) {
+      return filter;
+    }
+    const record = filter as Record<string, unknown>;
+    const expected =
+      typeof record.id === "string" ? canonicalDefaults.get(record.id) : null;
+    if (!expected || record.default === expected) return filter;
+    changed = true;
+    return { ...record, default: expected };
+  });
+
+  return changed
+    ? { config: { ...config, filters }, changed: true }
+    : { config, changed: false };
 }

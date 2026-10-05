@@ -1546,6 +1546,13 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       sql: `ALTER TABLE error_issues ADD COLUMN IF NOT EXISTS test_identity_only BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE error_events ADD COLUMN IF NOT EXISTS test_identity BOOLEAN NOT NULL DEFAULT false`,
     },
+    {
+      version: 155,
+      name: "dashboard-views-default",
+      sql: `ALTER TABLE dashboard_views ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
+  ON dashboard_views (dashboard_id) WHERE is_default = true`,
+    },
   ],
   { table: "analytics_migrations" },
 );

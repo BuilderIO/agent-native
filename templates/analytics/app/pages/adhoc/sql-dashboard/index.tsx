@@ -139,6 +139,7 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
+import { resolveDashboardFilterRestore } from "./dashboard-filter-restore";
 import {
   availableDropSlotIdsForPanel,
   buildDashboardPanelGroups,
@@ -910,7 +911,12 @@ function SqlDashboardPageContent({
     save: saveFilterPref,
   } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
 
-  const { saveView } = useDashboardViews(dashboardId ?? undefined);
+  const {
+    views,
+    isSuccess: dashboardViewsLoaded,
+    saveView,
+  } = useDashboardViews(dashboardId ?? undefined);
+  const defaultView = views.find((view) => view.isDefault);
 
   const appliedSaved = useRef(false);
 
@@ -1019,21 +1025,30 @@ function SqlDashboardPageContent({
     if (
       reportScreenshot ||
       appliedSaved.current ||
-      filtersLoading ||
-      !filtersLoaded ||
+      !dashboardViewsLoaded ||
       !loaded ||
       !dashboard
     )
       return;
+
+    const hasUrlState =
+      searchParams.has("view") ||
+      Array.from(searchParams.keys()).some((key) =>
+        key.startsWith(FILTER_PARAM_PREFIX),
+      );
+    if (hasUrlState) {
+      appliedSaved.current = true;
+      return;
+    }
+    if (!defaultView && (filtersLoading || !filtersLoaded)) return;
     appliedSaved.current = true;
 
-    const viewId = searchParams.get("view");
-    if (viewId) return;
-
-    const hasUrlFilters = Array.from(searchParams.keys()).some((k) =>
-      k.startsWith(FILTER_PARAM_PREFIX),
+    const filterRestore = resolveDashboardFilterRestore(
+      searchParams,
+      defaultView,
+      filtersLoaded ? savedFilters?.filters : undefined,
     );
-    if (hasUrlFilters) return;
+    if (!filterRestore) return;
 
     try {
       const appliedAt = Number(
@@ -1044,23 +1059,34 @@ function SqlDashboardPageContent({
       // sessionStorage unavailable — fall through.
     }
 
-    if (savedFilters?.filters && Object.keys(savedFilters.filters).length > 0) {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          for (const [key, value] of Object.entries(savedFilters.filters)) {
-            if (value) next.set(key, value);
-          }
-          return next;
-        },
-        { replace: true },
-      );
-    }
+    setSearchParams(
+      (prev) => {
+        if (
+          prev.has("view") ||
+          Array.from(prev.keys()).some((key) =>
+            key.startsWith(FILTER_PARAM_PREFIX),
+          )
+        ) {
+          return prev;
+        }
+        const next = new URLSearchParams(prev);
+        for (const [key, value] of Object.entries(filterRestore.filters)) {
+          if (value) next.set(key, value);
+        }
+        if (filterRestore.viewId) {
+          next.set("view", filterRestore.viewId);
+        }
+        return next;
+      },
+      { replace: true },
+    );
   }, [
     filtersLoading,
     filtersLoaded,
+    dashboardViewsLoaded,
     loaded,
     dashboard,
+    defaultView,
     savedFilters,
     reportScreenshot,
     searchParams,
@@ -1839,13 +1865,17 @@ function SqlDashboardPageContent({
   ]);
 
   const handleSaveView = useCallback(
-    async (name: string, filters: Record<string, string>) => {
+    async (
+      name: string,
+      filters: Record<string, string>,
+      isDefault: boolean,
+    ) => {
       const id = name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 60);
-      await saveView({ id, name, filters });
+      await saveView({ id, name, filters, isDefault });
     },
     [saveView],
   );
