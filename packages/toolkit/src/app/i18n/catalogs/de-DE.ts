@@ -139,13 +139,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "Kostenlos mit einem Builder.io-Konto enthalten",
   "onboarding.builderMonthlyCredits": "60 Agent Credits pro Monat",
+  "onboarding.builderIncludedFree": "Kostenlos enthalten",
+  "onboarding.builderMoreServices": "+ {{count}} weitere Dienste",
+  "onboarding.builderIncludedServices": "Enthaltene Dienste",
   "onboarding.builderActivateTitle": "Gratiscredits aktivieren",
   "onboarding.builderAccountExistsTitle":
     "Du hast bereits ein Builder.io-Konto",
   "onboarding.builderAccountExistsDescription":
     "Melde dich an, um dein Konto zu nutzen.",
   "onboarding.builderActivationDescription":
-    "Wir erstellen dein Builder.io-Konto automatisch für dich mit einem Klick.",
+    "Erstelle oder verbinde ein Builder.io-Konto mit einem Klick und erhalte kostenlose Credits.",
   "onboarding.builderOrgActivationDescription":
     "Wir erstellen dein Builder.io-Konto mit einem Klick, damit deine Organisation es nutzen kann.",
   "onboarding.builderCreateAndActivate": "Erstellen und aktivieren",
@@ -169,6 +172,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Einstellungen für Hintergrundagenten öffnen",
   "onboarding.capability.llm.keySummary": "Verbinde dein eigenes KI-Modell",
   "onboarding.capability.fileStorage.keySummary": "Datei-Uploads und Speicher",
+  "onboarding.capability.llm.why":
+    "Der Agent nutzt ein Sprachmodell, um Anfragen zu verstehen und Antworten zu erstellen.",
+  "onboarding.capability.fileStorage.why":
+    "Speichert hochgeladene Bilder und Dateien, damit der Agent sie im Verlauf wiederverwenden kann.",
   "onboarding.fileStorage.title": "Speicher verbinden, um Dateien hochzuladen",
   "onboarding.fileStorage.statusUnavailable":
     "Speicherstatus konnte nicht geprüft werden",
@@ -186,6 +193,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Semantische Vektoren",
   "onboarding.capability.embeddings.why":
     "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
+  "onboarding.capability.systemOne.why":
+    "Jev ist ein optionales Entscheidungsmodell, das vor der ersten Modellanfrage des Agenten passende Tools und Skills auswählt.",
   "onboarding.capability.assetsImageGeneration.label": "Bilderzeugung",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder-Credits oder Schlüssel eines Bildanbieters",

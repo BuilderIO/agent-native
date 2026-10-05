@@ -501,6 +501,7 @@
         "@agent-native/core/client/sign-out",
         "@agent-native/core/client/uploads/use-upload-resource",
         "@agent-native/core/client/use-action",
+        "@agent-native/core/client/onboarding/use-onboarding",
         "@agent-native/core/demo/browser-state",
         "@agent-native/core/feature-flags/registry",
         "@agent-native/core/file-upload/storage-settings",
