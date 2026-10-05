@@ -1285,25 +1285,20 @@
         {
           "id": "COLOR-03",
           "status": "proposed",
-          "change": "Mode is one property, not tabs: Hex, RGB, HSL, HSB (sRGB) and Display P3, OKLCH (wide gamut), and it sets the geometry. The field box is 252 × 240 in every mode, so switching never resizes the popover. sRGB modes and Display P3 use a 228px saturation × brightness square over that space's primaries, with the hue strip below; Display P3 draws a dashed line where sRGB ends. OKLCH uses a 228px hue ring, since hue is OKLCH's stable axis: inside it sits the hue's real lightness × chroma slice, lightness top to bottom and chroma scaled so the slice's tip (the most chroma the hue reaches in P3) meets the right edge. The slice shows its gaps: rows end where P3 does, with a dashed line where sRGB does. The ring runs at the current lightness and chroma and fades the hues that can't hold them, and the strip below becomes absolute chroma (0 to 0.37) at the current lightness and hue, faded past P3. Turning the ring keeps the chroma you chose: a hue that can't hold it clamps it, and the next hue that can gets it back.",
-          "prototype": "Open a Fill and switch Mode to Display P3, then OKLCH, and drag the ring."
+          "change": "One picker in every mode. The 228px saturation × brightness square, hue, opacity, eyedropper, and Previous/New look and work the same whatever the mode, so nothing has to be relearned. Mode is one property: Hex, RGB, HSL, HSB (sRGB) and Display P3, OKLCH (wide gamut). It changes only how the numbers read and which CSS the picker writes. The wide modes let the square reach Display P3, with one quiet dashed line where sRGB ends, and a P3 badge on New appears only when the color is outside sRGB, saying screens without P3 show the nearest sRGB color.",
+          "prototype": "Open a Fill, switch Mode to OKLCH, and pick a vivid green: the P3 badge appears on New."
         },
         {
           "id": "COLOR-04",
           "status": "proposed",
-          "change": "The picker opens in the mode the value is written in and writes that notation: #hex, rgb(), hsl(), color(display-p3 …), or oklch(); HSB writes hex. Switching to an sRGB mode maps a wider color into sRGB by keeping its lightness and hue and lowering chroma, and New shows the result before you keep it. Values sit in one joined field with an opacity cell. With DTCG storage (TOK-15) the mode becomes the color's `colorSpace`.",
-          "prototype": "Open the Link token after setting it to oklch(62% 0.19 255): the picker opens in OKLCH."
+          "change": "The picker opens in the mode the value is written in and writes that notation: #hex, rgb(), hsl(), color(display-p3 …), or oklch(); HSB writes hex. Switching to an sRGB mode maps a wider color into sRGB by keeping its lightness and hue and lowering chroma, and New shows the result before you keep it. Values sit in one joined field with an opacity cell, captioned under each cell (R G B, H S L, L C H, A). Dragging a caption scrubs that one channel, like the inspector's X and W labels: in OKLCH, dragging L lightens a color without its hue drifting. OKLCH keeps the chroma you asked for: a hue or lightness that can't hold it clamps it, and the next one that can gets it back. With DTCG storage (TOK-15) the mode becomes the color's `colorSpace`.",
+          "prototype": "In OKLCH, drag the L caption: lightness changes and C and H hold."
         },
         {
           "id": "COLOR-05",
           "status": "proposed",
           "change": "The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. The Tokens panel's picker has no tabs.",
           "prototype": "Open a Fill and choose Libraries › Link: the fill reads Link."
-        },
-        {
-          "id": "COLOR-06",
-          "status": "question",
-          "change": "Add OKLCH's two palette aids from Hugo Daniel's picker? Lock chroma keeps chroma fixed while you change lightness and hue, and drops the hues that can't hold it from the ring. A mark on lightness shows where this hue reaches its most chroma, and clicking it jumps there."
         }
       ]
     }

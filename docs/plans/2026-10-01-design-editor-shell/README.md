@@ -255,7 +255,7 @@ Not started · COLOR · PR —
 
 Redesign `DesignColorPicker` in place, at today's 252px: Previous and New
 swatches, one Mode property whose field, hue strip, and value cells follow the
-mode (Hex, RGB, HSL, HSB, Display P3, OKLCH), a hue ring around each hue's real lightness × chroma slice in OKLCH, and a Libraries tab of tokens.
+mode (Hex, RGB, HSL, HSB, Display P3, OKLCH) that changes only the numbers and the CSS written, the same square in every mode, a P3 badge when a color leaves sRGB, and a Libraries tab of tokens.
 The inspector's fills and strokes and the Tokens panel (TOK-20) use it.
 
 ### Every step
@@ -304,4 +304,3 @@ where it names Annotate or the old toolbar.
 - **RESP-14** Keep side-by-side frames at other widths, or rely on drag plus Interact viewports?
 - **RESP-15** Responsive rules on any layer, or only on components?
 - **SAVE-05** When a file changed on disk, is Reapply my changes enough, or also offer Overwrite the file and Discard my changes?
-- **COLOR-06** Add OKLCH's lock-chroma mode and the most-chroma lightness mark from Hugo Daniel's picker?
