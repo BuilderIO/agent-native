@@ -125,7 +125,7 @@ printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .out
 printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
 ```
 
-각 명령은 2단계에서 export한 값을 읽어 Cloudflare에 저장하므로 시크릿을 직접 붙여 넣을 필요가 없습니다. `--config`는 Wrangler가 4단계의 구성 파일을 사용하도록 지정하므로, 시크릿은 빌드가 선택한 이름의 Worker에 저장됩니다. 처음에는 Worker가 아직 없으므로 Wrangler가 새로 만들지 묻습니다. 예라고 답하세요.
+각 명령은 2단계에서 export한 값을 읽어 Cloudflare에 저장하므로 시크릿을 직접 붙여 넣을 필요가 없습니다. `--config`는 Wrangler가 4단계의 구성 파일을 사용하도록 지정하므로, 시크릿은 빌드가 선택한 이름의 Worker에 저장됩니다. 처음에는 Worker가 아직 없습니다. 값을 파이프로 전달하므로 Wrangler가 묻지 않고 Worker를 자동으로 만듭니다.
 
 `BETTER_AUTH_URL`을 설정했다면 같은 방법으로 저장하세요. 이 값들은 나중에 Cloudflare 대시보드의 Worker 설정에서 확인하고 변경할 수도 있습니다.
 

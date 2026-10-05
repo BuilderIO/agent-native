@@ -125,7 +125,7 @@ printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .out
 printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
 ```
 
-各コマンドはステップ 2 で export した値を読み取って Cloudflare に保存するため、シークレットを手で貼り付ける必要はありません。`--config` は Wrangler にステップ 4 の設定ファイルを指定するため、シークレットはビルドが選んだ名前の Worker に保存されます。初回は Worker がまだ存在しないため、Wrangler が作成するかどうかを尋ねます。「はい」と答えてください。
+各コマンドはステップ 2 で export した値を読み取って Cloudflare に保存するため、シークレットを手で貼り付ける必要はありません。`--config` は Wrangler にステップ 4 の設定ファイルを指定するため、シークレットはビルドが選んだ名前の Worker に保存されます。初回は Worker がまだ存在しません。値をパイプで渡しているため、Wrangler は確認せずに Worker を自動で作成します。
 
 `BETTER_AUTH_URL` を設定した場合は、同じ方法で保存してください。これらの値は、後から Cloudflare ダッシュボードの Worker の設定で確認したり変更したりすることもできます。
 

@@ -146,7 +146,7 @@ printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET -
 
 每条命令都会读取你在第 2 步中导出的值并保存到 Cloudflare，因此你无需手动粘贴密钥。
 `--config` 让 Wrangler 使用第 4 步生成的配置文件，这样密钥会保存到使用构建所选名称的
-Worker 上。第一次运行时，Worker 还不存在，Wrangler 会询问是否创建它。请回答 yes。
+Worker 上。第一次运行时，Worker 还不存在。由于值是通过管道传入的，Wrangler 会自动创建 Worker，不会询问。
 
 如果你设置了 `BETTER_AUTH_URL`，请用同样的方式保存它。之后你也可以在 Cloudflare
 控制台的 Worker 设置中查看和更改这些值。

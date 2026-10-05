@@ -162,8 +162,7 @@ printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET -
 Cada comando lê o valor que você exportou no Passo 2 e o salva na Cloudflare, então
 você não precisa colar os segredos manualmente. `--config` aponta o Wrangler para o arquivo de
 configuração do Passo 4, para que os segredos vão para o Worker com o nome que o
-build escolheu. Na primeira vez, o Worker ainda não existe, e o Wrangler pergunta
-se deve criá-lo. Responda que sim.
+build escolheu. Na primeira vez, o Worker ainda não existe. Como o valor é passado por pipe, o Wrangler cria o Worker automaticamente, sem perguntar.
 
 Se você definir `BETTER_AUTH_URL`, salve-a da mesma forma. Você também pode ver e alterar
 esses valores depois nas configurações do Worker no painel da Cloudflare.
