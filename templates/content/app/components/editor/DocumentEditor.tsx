@@ -240,6 +240,7 @@ import {
   suggestionOperationKey,
   suggestionSessionVisuals,
   planSuggestionDraftPersistence,
+  retryOnSuggestionConflict,
   type DraftSuggestion,
   type SuggestionDraftSession,
   type SuggestionPersistenceEntry,
@@ -247,6 +248,10 @@ import {
   withdrawnSessionSuggestionIds,
 } from "./suggestions/draft-session";
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
+import {
+  readRememberedEditorMode,
+  rememberEditorMode,
+} from "./suggestions/editor-mode-memory";
 import {
   createObservedSuggestionPresentationTransition,
   hydrateSuggestionPresentationTransitions,
@@ -1416,6 +1421,7 @@ export function PageEditorSurface({
         foreground={
           foreground && host === "page" && !isError && fetchedForThisOpen
         }
+        documentFresh={!isError && fetchedForThisOpen}
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
         viewId={viewId}
@@ -1738,6 +1744,7 @@ interface DocumentEditorBodyProps {
   focusTitle: boolean;
   onTitleFocused?: () => void;
   foreground?: boolean;
+  documentFresh?: boolean;
 }
 
 type PendingDocumentSave = {
@@ -2259,6 +2266,7 @@ function PageEditorSessionBody({
   focusTitle,
   onTitleFocused,
   foreground = false,
+  documentFresh = false,
 }: DocumentEditorBodyProps) {
   const acknowledgedDocumentRef = useRef<Document | null>(null);
   const resolvedDocument = resolveAcknowledgedDocumentSnapshot({
@@ -2447,6 +2455,12 @@ function PageEditorSessionBody({
   const [suggestionAmendmentConflict, setSuggestionAmendmentConflict] =
     useState(false);
   const [suggestionDraft, setSuggestionDraft] = useState(document.content);
+  // The suggesting editor re-adopts the draft whenever its timestamp moves, so
+  // it tracks the Page the session started from, not the live Page: a change
+  // elsewhere would replace text the editor has not handed to the draft yet.
+  const [suggestionDraftUpdatedAt, setSuggestionDraftUpdatedAt] = useState(
+    document.updatedAt,
+  );
   const [anchoredSuggestionIds, setAnchoredSuggestionIds] = useState<
     string[] | null
   >(null);
@@ -5079,20 +5093,35 @@ function PageEditorSessionBody({
         const plan = planSuggestionDraftPersistence(operations, entries);
         const persisted = new Map(plan.unchanged);
         const settled: ResourceSuggestion[] = [];
+        const conflictRetry = {
+          isConflict: isSuggestionConflictActionError,
+          latest: async (id: string) => {
+            const refreshed = await suggestionsQuery.refetch();
+            if (refreshed.isError || !refreshed.data)
+              throw (
+                refreshed.error ?? new Error("Could not refresh suggestions")
+              );
+            return refreshed.data.suggestions.find(
+              (suggestion) => suggestion.id === id,
+            );
+          },
+        };
         for (const { key, suggestion } of plan.withdraw) {
-          try {
-            const result = await decideSuggestion.mutateAsync({
-              id: suggestion.id,
-              decision: "withdrawn",
-              idempotencyKey: `withdraw:${suggestion.id}:${suggestion.revision}`,
-              observedBase: suggestion.baseRevision,
-              observedRevision: suggestion.revision,
-            });
-            settled.push(result.suggestion);
-          } catch (error) {
-            // Someone else already decided it, so there is nothing to withdraw.
-            if (!isSuggestionConflictActionError(error)) throw error;
-          }
+          const withdrawn = await retryOnSuggestionConflict(
+            suggestion,
+            async (target) =>
+              (
+                await decideSuggestion.mutateAsync({
+                  id: target.id,
+                  decision: "withdrawn",
+                  idempotencyKey: `withdraw:${target.id}:${target.revision}`,
+                  observedBase: target.baseRevision,
+                  observedRevision: target.revision,
+                })
+              ).suggestion,
+            conflictRetry,
+          );
+          if (withdrawn) settled.push(withdrawn);
           entries.delete(key);
         }
         if (settled.length > 0) {
@@ -5107,38 +5136,43 @@ function PageEditorSessionBody({
         }
         const create = [...plan.create];
         for (const amendment of plan.amend) {
-          const amendmentKey = JSON.stringify([
-            amendment.suggestion.id,
-            amendment.suggestion.revision,
-            amendment.key,
-          ]);
-          const idempotencyKey =
-            suggestionAmendmentKeysRef.current.get(amendmentKey) ??
-            globalThis.crypto.randomUUID();
-          suggestionAmendmentKeysRef.current.set(amendmentKey, idempotencyKey);
-          let amended: ResourceSuggestion;
-          try {
-            amended = await updateSuggestion.mutateAsync({
-              id: amendment.suggestion.id,
-              observedRevision: amendment.suggestion.revision,
-              idempotencyKey,
-              operations: [amendment.operation],
-            });
-          } catch (error) {
+          const amended = await retryOnSuggestionConflict(
+            amendment.suggestion,
+            async (target) => {
+              const amendmentKey = JSON.stringify([
+                target.id,
+                target.revision,
+                amendment.key,
+              ]);
+              const idempotencyKey =
+                suggestionAmendmentKeysRef.current.get(amendmentKey) ??
+                globalThis.crypto.randomUUID();
+              suggestionAmendmentKeysRef.current.set(
+                amendmentKey,
+                idempotencyKey,
+              );
+              const suggestion = await updateSuggestion.mutateAsync({
+                id: target.id,
+                observedRevision: target.revision,
+                idempotencyKey,
+                operations: [amendment.operation],
+              });
+              return { idempotencyKey, suggestion };
+            },
+            conflictRetry,
+          );
+          entries.delete(amendment.previousKey);
+          if (!amended) {
             // A reviewer decided it while the author kept typing; propose the
             // current text as a new suggestion instead of losing it.
-            if (!isSuggestionConflictActionError(error)) throw error;
-            entries.delete(amendment.previousKey);
             create.push({ key: amendment.key, operation: amendment.operation });
             continue;
           }
-          entries.delete(amendment.previousKey);
           entries.set(amendment.key, {
-            idempotencyKey,
+            ...amended,
             operation: amendment.operation,
-            suggestion: amended,
           });
-          persisted.set(amendment.key, amended);
+          persisted.set(amendment.key, amended.suggestion);
         }
         if (create.length > 0) {
           const pending = create.map(({ operation }) => operation);
@@ -5217,7 +5251,7 @@ function PageEditorSessionBody({
             ),
             SUGGESTION_AUTOSAVE_MAX_RETRY_MS,
           );
-          scheduleSuggestionAutosaveRef.current(autosaveState.retryDelay);
+          scheduleSuggestionAutosaveRef.current();
         }
         if (autosave && alreadyFailed) return null;
         toast.error(
@@ -5260,7 +5294,7 @@ function PageEditorSessionBody({
       const inFlight = suggestionFlushRef.current;
       if (inFlight) {
         if (autosave) {
-          scheduleSuggestionAutosaveRef.current();
+          scheduleSuggestionAutosaveRef.current(SUGGESTION_AUTOSAVE_IDLE_MS);
           return null;
         }
         await inFlight;
@@ -5278,32 +5312,33 @@ function PageEditorSessionBody({
   );
   flushSuggestionDraftRef.current = flushSuggestionDraft;
 
-  const scheduleSuggestionAutosave = useCallback(
-    (delay = SUGGESTION_AUTOSAVE_IDLE_MS) => {
-      const autosave = suggestionAutosaveRef.current;
-      if (autosave.disposed) return;
-      const now = Date.now();
-      autosave.dirtySince ??= now;
-      if (autosave.timer) clearTimeout(autosave.timer);
-      autosave.timer = setTimeout(
-        () => {
-          autosave.timer = null;
-          void flushSuggestionDraftRef.current({
-            keepMode: true,
-            autosave: true,
-          });
-        },
-        Math.min(
-          delay,
-          Math.max(
-            0,
-            autosave.dirtySince + SUGGESTION_AUTOSAVE_MAX_WAIT_MS - now,
-          ),
-        ),
-      );
-    },
-    [],
-  );
+  const scheduleSuggestionAutosave = useCallback((minimumDelay = 0) => {
+    const autosave = suggestionAutosaveRef.current;
+    if (autosave.disposed) return;
+    // A failed save's backoff retry is already queued; typing must not pull
+    // it earlier, or an outage becomes a request per keystroke.
+    if (autosave.retryDelay > 0 && autosave.timer) return;
+    const now = Date.now();
+    autosave.dirtySince ??= now;
+    if (autosave.timer) clearTimeout(autosave.timer);
+    // The max-wait deadline bounds only the typing debounce, which reaches
+    // zero once it passes; retries and waits behind an in-flight save keep
+    // their own delay or they would spin.
+    const debounce = Math.min(
+      SUGGESTION_AUTOSAVE_IDLE_MS,
+      Math.max(0, autosave.dirtySince + SUGGESTION_AUTOSAVE_MAX_WAIT_MS - now),
+    );
+    autosave.timer = setTimeout(
+      () => {
+        autosave.timer = null;
+        void flushSuggestionDraftRef.current({
+          keepMode: true,
+          autosave: true,
+        });
+      },
+      Math.max(debounce, autosave.retryDelay, minimumDelay),
+    );
+  }, []);
   scheduleSuggestionAutosaveRef.current = scheduleSuggestionAutosave;
 
   const handleSuggestionDraftChange = useCallback(
@@ -5404,6 +5439,7 @@ function PageEditorSessionBody({
         });
       suggestionBaseRef.current = initial.session;
       setSuggestionDraft(initial.content);
+      setSuggestionDraftUpdatedAt(nextDocument.updatedAt);
       setSuggestionInitialSelection(
         existing?.caret ?? initialSelection ?? null,
       );
@@ -5493,6 +5529,7 @@ function PageEditorSessionBody({
       });
       suggestionBaseRef.current = initial.session;
       setSuggestionDraft(initial.content);
+      setSuggestionDraftUpdatedAt(nextDocument.updatedAt);
       setEditingSuggestionId(null);
       setSuggestionInitialSelection(null);
       setSuggestionAmendmentConflict(false);
@@ -5865,6 +5902,38 @@ function PageEditorSessionBody({
     ],
   );
 
+  // "pending" until a reload that left this tab Suggesting has resumed it;
+  // until then, the stored mode must not be overwritten with Edit mode.
+  const suggestingRestoreRef = useRef<"pending" | "done" | null>(null);
+  useEffect(() => {
+    suggestingRestoreRef.current ??=
+      readRememberedEditorMode(documentId) === "suggesting"
+        ? "pending"
+        : "done";
+    if (suggestingRestoreRef.current !== "pending") return;
+    if (isSuggesting) {
+      suggestingRestoreRef.current = "done";
+      return;
+    }
+    // Wait for the state a user's own switch would start from: a fresh Page,
+    // and for editors a live body, so the session never bases on a stale copy.
+    if (!documentFresh || !canSuggest || (canEdit && !editorCanEdit)) return;
+    suggestingRestoreRef.current = "done";
+    void handleSuggestionModeChange(true);
+  }, [
+    canEdit,
+    canSuggest,
+    documentFresh,
+    documentId,
+    editorCanEdit,
+    handleSuggestionModeChange,
+    isSuggesting,
+  ]);
+  useEffect(() => {
+    if (suggestingRestoreRef.current !== "done") return;
+    rememberEditorMode(documentId, isSuggesting ? "suggesting" : "editing");
+  }, [documentId, isSuggesting]);
+
   const capturePageActionsSelection = useCallback(
     (includeRemembered = false) => {
       pageActionsSelectionRef.current =
@@ -5951,6 +6020,10 @@ function PageEditorSessionBody({
   }, [isSuggesting]);
 
   const discardConflictedSuggestionDraft = useCallback(() => {
+    if (canStartSuggestionRef.current) {
+      continueSuggestionModeFrom(document);
+      return;
+    }
     clearSuggestionAutosave();
     setIsSuggesting(false);
     setSuggestionDraft(document.content);
@@ -5960,7 +6033,7 @@ function PageEditorSessionBody({
     createdSuggestionOperationsRef.current.clear();
     suggestionAmendmentKeysRef.current.clear();
     setSuggestionAmendmentConflict(false);
-  }, [clearSuggestionAutosave, document.content]);
+  }, [clearSuggestionAutosave, continueSuggestionModeFrom, document]);
 
   const suggestionDraftPreview = useMemo(() => {
     const draftSession = suggestionBaseRef.current;
@@ -6966,7 +7039,10 @@ function PageEditorSessionBody({
     if (documentReconcileConflict || localSourceConflict) {
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
-    if (isSuggesting && (await flushSuggestionDraft()) === null) {
+    if (
+      isSuggesting &&
+      (await flushSuggestionDraft({ keepMode: true })) === null
+    ) {
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
 
@@ -8334,18 +8410,29 @@ function PageEditorSessionBody({
                             contentUpdatedAt={
                               isLocalFileDocument
                                 ? (localContentUpdatedAt ?? document.updatedAt)
-                                : document.updatedAt
+                                : suggestionEditorIsolation.reconcileCanonical
+                                  ? document.updatedAt
+                                  : suggestionDraftUpdatedAt
                             }
                             contentRevision={
-                              isLocalFileDocument
+                              isLocalFileDocument ||
+                              !suggestionEditorIsolation.reconcileCanonical
                                 ? null
                                 : (document.revision ?? null)
                             }
                             acknowledgedLocalSnapshot={
                               acknowledgedLocalSnapshot
                             }
-                            onBaseAwareReconcile={handleBaseAwareReconcile}
-                            onRemoteSnapshotChange={handleRemoteSnapshotChange}
+                            onBaseAwareReconcile={
+                              suggestionEditorIsolation.reconcileCanonical
+                                ? handleBaseAwareReconcile
+                                : undefined
+                            }
+                            onRemoteSnapshotChange={
+                              suggestionEditorIsolation.reconcileCanonical
+                                ? handleRemoteSnapshotChange
+                                : undefined
+                            }
                             collabContentRevision={
                               isLocalFileDocument || isSuggesting
                                 ? null

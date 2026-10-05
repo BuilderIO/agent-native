@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { suggestedEditorIsolation } from "./editor-isolation";
 
 describe("suggestedEditorIsolation", () => {
-  it("never binds or saves canonical state while suggesting", () => {
+  it("never binds, reconciles, or saves canonical state while suggesting", () => {
     expect(
       suggestedEditorIsolation({
         suggesting: true,
@@ -15,6 +15,7 @@ describe("suggestedEditorIsolation", () => {
       editable: true,
       bindCanonicalYDoc: false,
       persistCanonical: false,
+      reconcileCanonical: false,
     });
   });
 

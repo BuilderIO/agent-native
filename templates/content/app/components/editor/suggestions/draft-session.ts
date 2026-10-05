@@ -113,6 +113,27 @@ export function freshestSavedSuggestions(
   return [...byId.values()];
 }
 
+// A conflict means the suggestion moved on without this save: a reviewer
+// decided it, or its author amended it in another tab. Only a decision ends it;
+// a newer pending revision gets the same attempt once more.
+export async function retryOnSuggestionConflict<Result>(
+  suggestion: ResourceSuggestion,
+  attempt: (target: ResourceSuggestion) => Promise<Result>,
+  options: {
+    isConflict: (error: unknown) => boolean;
+    latest: (id: string) => Promise<ResourceSuggestion | undefined>;
+  },
+): Promise<Result | null> {
+  try {
+    return await attempt(suggestion);
+  } catch (error) {
+    if (!options.isConflict(error)) throw error;
+  }
+  const latest = await options.latest(suggestion.id);
+  if (latest?.status !== "pending") return null;
+  return attempt(latest);
+}
+
 export function createSuggestionDraftSession(input: {
   id: string;
   baseContent: string;

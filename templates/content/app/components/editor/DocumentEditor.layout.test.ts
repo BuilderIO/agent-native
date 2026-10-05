@@ -585,6 +585,26 @@ describe("document editor layout", () => {
     );
   });
 
+  // editor-isolation.mounted.test.tsx mounts the editor with this wiring.
+  it("keeps the canonical reconcile path away from the Suggesting draft", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /contentRevision=\{\s*isLocalFileDocument \|\|\s*!suggestionEditorIsolation\.reconcileCanonical\s*\?\s*null\s*:/,
+    );
+    expect(source).toMatch(
+      /onBaseAwareReconcile=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleBaseAwareReconcile\s*:\s*undefined\s*\}/,
+    );
+    expect(source).toMatch(
+      /onRemoteSnapshotChange=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleRemoteSnapshotChange\s*:\s*undefined\s*\}/,
+    );
+    expect(source).toMatch(
+      /contentUpdatedAt=\{[^}]*:\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*document\.updatedAt\s*:\s*suggestionDraftUpdatedAt\s*\}/,
+    );
+  });
+
   it("recognizes resolved amendment targets and action conflicts", () => {
     expect(
       suggestionAmendmentTargetIsResolved("suggestion-1", [

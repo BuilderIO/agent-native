@@ -550,7 +550,11 @@ export const decideResourceSuggestion = defineAction({
           currentAdapter.version !== current.adapterVersion
         )
           throw new Error("Suggestion adapter version is unavailable");
-        if (current.baseRevision !== args.observedBase) {
+        // Withdrawing never applies the suggestion, so its base cannot be stale.
+        if (
+          args.decision !== "withdrawn" &&
+          current.baseRevision !== args.observedBase
+        ) {
           if (
             !(await updateSuggestionStatus(
               tx,

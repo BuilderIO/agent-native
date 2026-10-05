@@ -359,7 +359,7 @@ describe("suggestion action access", () => {
     expectNoReviewWrites();
   });
 
-  it("lets the author withdraw their own pending suggestion with comment access", async () => {
+  it("lets the author withdraw their own pending suggestion with comment access, whatever base they observed", async () => {
     const withdrawn = { ...suggestion, status: "withdrawn" as const };
     const decision = {
       id: "decision-withdraw",
@@ -367,7 +367,7 @@ describe("suggestion action access", () => {
       idempotencyKey: "withdraw-1",
       reviewer: suggestion.authorEmail,
       decision: "withdrawn" as const,
-      observedBase: suggestion.baseRevision,
+      observedBase: "base-after-another-edit",
       outcome: "withdrawn",
       detail: null,
       createdAt: "now",
@@ -396,7 +396,7 @@ describe("suggestion action access", () => {
           id: suggestion.id,
           decision: "withdrawn",
           idempotencyKey: decision.idempotencyKey,
-          observedBase: suggestion.baseRevision,
+          observedBase: decision.observedBase,
           observedRevision: suggestion.revision,
         },
         { userEmail: suggestion.authorEmail },

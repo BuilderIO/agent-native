@@ -10,6 +10,7 @@ import {
   planSuggestionDraftPersistence,
   previewSuggestionDraft,
   recordSuggestionReplacementIntent,
+  retryOnSuggestionConflict,
   suggestionDraftOperations,
   suggestionOperationKey,
   suggestionSessionVisuals,
@@ -1039,6 +1040,110 @@ describe("suggestion draft session", () => {
     expect(plan.withdraw.map(({ suggestion }) => suggestion.id)).toEqual([
       "saved-1",
     ]);
+  });
+
+  describe("a save that conflicts with the saved suggestion", () => {
+    const conflict = Object.assign(new Error("changed"), {
+      errorCode: "suggestion_conflict",
+    });
+    const isConflict = (error: unknown) => error === conflict;
+    const saved = (revision: number, status = "pending") =>
+      ({ id: "saved", revision, status }) as ResourceSuggestion;
+
+    it("retries against the newer revision another tab saved", async () => {
+      const attempts: number[] = [];
+      const result = await retryOnSuggestionConflict(
+        saved(1),
+        async (target) => {
+          attempts.push(target.revision);
+          if (target.revision === 1) throw conflict;
+          return `saved at ${target.revision}`;
+        },
+        { isConflict, latest: async () => saved(2) },
+      );
+      expect(result).toBe("saved at 2");
+      expect(attempts).toEqual([1, 2]);
+    });
+
+    it.each(["accepted", "rejected", "withdrawn"])(
+      "stops once a decision %s it",
+      async (status) => {
+        const attempts: number[] = [];
+        const result = await retryOnSuggestionConflict(
+          saved(1),
+          async (target) => {
+            attempts.push(target.revision);
+            throw conflict;
+          },
+          { isConflict, latest: async () => saved(2, status) },
+        );
+        expect(result).toBeNull();
+        expect(attempts).toEqual([1]);
+      },
+    );
+
+    it("stops when the suggestion no longer exists", async () => {
+      await expect(
+        retryOnSuggestionConflict(
+          saved(1),
+          async () => {
+            throw conflict;
+          },
+          { isConflict, latest: async () => undefined },
+        ),
+      ).resolves.toBeNull();
+    });
+
+    it("fails instead of retrying again when the newer revision conflicts too", async () => {
+      await expect(
+        retryOnSuggestionConflict(
+          saved(1),
+          async () => {
+            throw conflict;
+          },
+          { isConflict, latest: async () => saved(2) },
+        ),
+      ).rejects.toBe(conflict);
+    });
+
+    it("fails without refreshing on any other error", async () => {
+      const outage = new Error("offline");
+      let refreshed = false;
+      await expect(
+        retryOnSuggestionConflict(
+          saved(1),
+          async () => {
+            throw outage;
+          },
+          {
+            isConflict,
+            latest: async () => {
+              refreshed = true;
+              return saved(2);
+            },
+          },
+        ),
+      ).rejects.toBe(outage);
+      expect(refreshed).toBe(false);
+    });
+
+    it("fails when the refresh fails", async () => {
+      const unreadable = new Error("refresh failed");
+      await expect(
+        retryOnSuggestionConflict(
+          saved(1),
+          async () => {
+            throw conflict;
+          },
+          {
+            isConflict,
+            latest: async () => {
+              throw unreadable;
+            },
+          },
+        ),
+      ).rejects.toBe(unreadable);
+    });
   });
 });
 
