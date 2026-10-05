@@ -485,5 +485,14 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: The picker opens in the mode the value is written in and writes that notation: #hex, rgb(), hsl(), color(display-p3 …), or oklch(); HSB writes hex. Switching to an sRGB mode maps a wider color into sRGB by keeping its lightness and hue and lowering chroma, and New shows the result before you keep it. The value rows use the inspector's own controls: the Mode select beside an 88px opacity field, then one 24px field per channel with its letter as the prefix (R G B, H S L, L C H, # for hex). Dragging a prefix scrubs that one channel, like the inspector's X and W: in OKLCH, dragging L lightens a color without its hue drifting. OKLCH keeps the chroma you asked for: a hue or lightness that can't hold it clamps it, and the next one that can gets it back. With DTCG storage (TOK-15) the mode becomes the color's `colorSpace`.
   - Prototype: In OKLCH, drag the L prefix: lightness changes and C and H hold.
 - **COLOR-05** · proposed
-  - Change: The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. The Tokens panel's picker has no tabs.
+  - Change: The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. The Tokens panel's picker has no tabs. When the fill is already bound to a token, the picker opens on Libraries with that token checked.
   - Prototype: Open a Fill and choose Libraries › Link: the fill reads Link.
+- **COLOR-06** · decided
+  - Today: The eyedropper button uses Tabler `color-picker`, which has no bulb and reads as a pen. Tabler has no other pipette.
+  - Change: Use an app-owned eyedropper drawn on Tabler's grid (24px, 2px round strokes): a round squeeze bulb, a collar, and a slender tube with a fine tip. It's the one exception to Tabler-only icons, and it lives with the app's other icons so the next change finds it.
+- **COLOR-07** · proposed
+  - Change: A copy button ends the channel row and copies the color as CSS in the current mode (oklch(54.1% 0.183 256.5), color(display-p3 …), #hex); its tooltip shows exactly what it copies. Any CSS color pasted or typed into any channel field is read as the color and shown in the current mode.
+  - Prototype: In OKLCH, paste #0a6bd6 into L, then click copy.
+- **COLOR-08** · proposed
+  - Change: With the Tokens lab on, the inspector picker's header has + (Create a color token from this color). It opens Libraries with a named draft row at the top holding the current color; Enter or leaving the row creates the token (--color-<name>) and binds the fill to it, and Esc drops the draft without closing the picker.
+  - Prototype: Open a Fill, click +, type Brand blue, and press Enter: the fill reads Brand blue and the Tokens panel lists it.

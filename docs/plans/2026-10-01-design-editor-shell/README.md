@@ -290,6 +290,7 @@ where it names Annotate or the old toolbar.
 - 2026-10-02: Responsive design drops the breakpoint mode. A frame is a frame with width presets from tokens; responsive rules live on layers and compile to container queries with token thresholds; the agent writes them; fixed widths are only viewports to check. RESP-04, RESP-05, RESP-06, RESP-07, RESP-08, RESP-09.
 - 2026-10-05: Menus are text, following the macOS HIG: no leading icons, and an ellipsis only on rows that open a dialog or a file panel. Menus keep the shadcn structure at the editor's density from `CanvasContextMenu.tsx` (28px rows of 12px text); the Share popover uses the toolkit's Popover. A bound token's Detach token is the first row of its menu, on ⌫. MENU-09, RESP-05.
 - 2026-10-05: Token rows drop the source badge: the tooltip names the file, and a mark appears only when files disagree on a value. TOK-19.
+- 2026-10-05: The color picker's eyedropper is an app-owned icon on Tabler's grid, since Tabler's only pipette reads as a pen. COLOR-06.
 
 ## Open questions
 

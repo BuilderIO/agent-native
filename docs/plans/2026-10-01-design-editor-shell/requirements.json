@@ -1300,8 +1300,29 @@
         {
           "id": "COLOR-05",
           "status": "proposed",
-          "change": "The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. The Tokens panel's picker has no tabs.",
+          "change": "The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. The Tokens panel's picker has no tabs. When the fill is already bound to a token, the picker opens on Libraries with that token checked.",
           "prototype": "Open a Fill and choose Libraries › Link: the fill reads Link."
+        },
+        {
+          "id": "COLOR-06",
+          "status": "decided",
+          "today": "The eyedropper button uses Tabler `color-picker`, which has no bulb and reads as a pen. Tabler has no other pipette.",
+          "change": "Use an app-owned eyedropper drawn on Tabler's grid (24px, 2px round strokes): a round squeeze bulb, a collar, and a slender tube with a fine tip. It's the one exception to Tabler-only icons, and it lives with the app's other icons so the next change finds it.",
+          "refs": [
+            "templates/design/app/components/design/inspector/DesignColorPicker.tsx#IconColorPicker"
+          ]
+        },
+        {
+          "id": "COLOR-07",
+          "status": "proposed",
+          "change": "A copy button ends the channel row and copies the color as CSS in the current mode (oklch(54.1% 0.183 256.5), color(display-p3 …), #hex); its tooltip shows exactly what it copies. Any CSS color pasted or typed into any channel field is read as the color and shown in the current mode.",
+          "prototype": "In OKLCH, paste #0a6bd6 into L, then click copy."
+        },
+        {
+          "id": "COLOR-08",
+          "status": "proposed",
+          "change": "With the Tokens lab on, the inspector picker's header has + (Create a color token from this color). It opens Libraries with a named draft row at the top holding the current color; Enter or leaving the row creates the token (--color-<name>) and binds the fill to it, and Esc drops the draft without closing the picker.",
+          "prototype": "Open a Fill, click +, type Brand blue, and press Enter: the fill reads Brand blue and the Tokens panel lists it."
         }
       ]
     }
