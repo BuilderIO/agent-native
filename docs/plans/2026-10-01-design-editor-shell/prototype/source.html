@@ -714,9 +714,12 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .row.tk input.tk-edit { margin-left: 8px; width: 104px; height: 20px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 4px; color: var(--fg); flex: none; }
 /* Color picker (COLOR-01…05): 252px popover. Custom: the mode's field, eyedropper beside hue and opacity, Previous/New beside them,
    [Mode ▾] and one joined value field, Document colors. Libraries (inspector only): tokens. Both panes share one grid cell. */
-.cpk { position: fixed; z-index: 49; width: 280px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
-.cpk-head { display: flex; align-items: center; justify-content: space-between; padding: 8px; border-bottom: 1px solid var(--border); }
-.cpk-head .tabs { display: flex; gap: 4px; }
+/* Every edge sits on the 8pt grid: 272px wide, 12px inset, one 248px column. The square is 248; the slider row is
+   eyedropper 24 · 8 · two 16px tracks of 168 · 8 · a 40px Previous/New swatch; the value rows share columns 64 · 64 · 64 · 32
+   with 8px gaps (the inspector's trailing 32); document colors are 8 × 24 with 8px gaps. */
+.cpk { position: fixed; z-index: 49; width: 272px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
+.cpk-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); }
+.cpk-head .tabs { display: flex; gap: 4px; margin-left: -8px; }
 .cpk .icon-btn { width: 24px; height: 24px; border-radius: 6px; }
 .cpk .icon-btn:hover { background: var(--hover); }
 .cpk-head button { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted-fg); }
@@ -724,35 +727,35 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-panes { display: grid; grid-template-columns: minmax(0, 1fr); }
 .cpk-pane { grid-area: 1 / 1; min-width: 0; }
 .cpk-pane[aria-hidden="true"] { visibility: hidden; }
-.cpk-sv { position: relative; height: 268px; cursor: crosshair; touch-action: none; }
-.cpk-sv canvas { position: absolute; left: 12px; top: 12px; width: 256px; height: 256px; border-radius: 4px; }
-.cpk-knob { position: absolute; z-index: 1; width: 16px; height: 16px; translate: -50% -50%; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 60%); pointer-events: none; }
-.cpk-ctl { margin-top: 10px; padding: 0 12px; display: grid; grid-template-columns: 24px 1fr 36px; column-gap: 8px; row-gap: 8px; align-items: center; }
-.cpk-eye { grid-row: span 2; width: 24px; height: 24px; border-radius: 4px; display: grid; place-items: center; }
+.cpk-sv { position: relative; height: 260px; cursor: crosshair; touch-action: none; }
+.cpk-sv canvas { position: absolute; left: 12px; top: 12px; width: 248px; height: 248px; border-radius: 4px; }
+.cpk-knob { position: absolute; z-index: 1; width: 16px; height: 16px; translate: -50% -50%; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 22%), 0 1px 3px rgb(0 0 0 / 25%); pointer-events: none; background: var(--knob, transparent); }
+.cpk-ctl { margin-top: 12px; padding: 0 12px; display: grid; grid-template-columns: 24px 168px 40px; column-gap: 8px; row-gap: 8px; align-items: center; }
+.cpk-eye { grid-row: span 2; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; }
 .cpk-eye:hover:not([disabled]) { background: var(--hover); }
 .cpk-eye[disabled] { opacity: .5; cursor: default; }
-.cpk-track { position: relative; height: 14px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%); cursor: pointer; touch-action: none; }
-.cpk-alpha, .cpk-new, .cpk-prev { background-image: var(--cpk-fill), repeating-conic-gradient(#ddd 0 25%, #fff 0 50%); background-size: auto, 8px 8px; }
+/* Knobs travel from 8px to width − 8px, so they never leave the track, and each is filled with the value under it. */
+.cpk-track { position: relative; height: 16px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%); cursor: pointer; touch-action: none; }
 .cpk-track .cpk-knob { top: 50%; }
-.cpk-cmp { grid-row: span 2; width: 36px; height: 36px; border-radius: 6px; overflow: hidden; display: grid; grid-template-rows: 1fr 1fr; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-alpha, .cpk-new, .cpk-prev, .cpk-alpha .cpk-knob { background-image: var(--cpk-fill), repeating-conic-gradient(#ddd 0 25%, #fff 0 50%); background-size: auto, 8px 8px; }
+.cpk-cmp { grid-row: span 2; width: 40px; height: 40px; border-radius: 6px; overflow: hidden; display: grid; grid-template-rows: 1fr 1fr; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
 .cpk-cmp > * { display: block; width: 100%; height: 100%; }
 .cpk-prev { cursor: pointer; }
-.cpk-val { margin-top: 12px; padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
-.cpk-row { display: flex; gap: 8px; }
-.cpk-row .cpk-mode { flex: 1; }
-.cpk-row .cpk-op { width: 88px; flex: none; }
-.cpk-fields { display: flex; gap: 8px; }
-.cpk-fields .inp { flex: 1; }
-.cpk-fields .cpk-copy { flex: none; }
+.cpk-val { margin-top: 12px; padding: 0 12px 12px; display: grid; grid-template-columns: 64px 64px 64px 32px; gap: 8px; }
+.cpk-row, .cpk-fields { display: contents; }
+.cpk-row .cpk-mode { grid-column: 1 / 3; }
+.cpk-row .cpk-op { grid-column: 3 / 5; }
+.cpk-fields .inp.span3 { grid-column: 1 / 4; }
+.cpk-fields .cpk-copy { grid-column: 4; width: 32px; }
 .cpk-fields .inp .pre[data-scrub]:hover { color: var(--fg); }
 .cpk-fields .inp .pre:not([data-scrub]) { cursor: default; }
 .cpk-new { position: relative; }
 .cpk-gamut { position: absolute; right: 2px; top: 2px; height: 12px; padding: 0 3px; border-radius: 3px; background: rgb(0 0 0 / 55%); color: #fff; font-size: 8px; font-weight: 600; line-height: 12px; cursor: help; }
-.cpk-doc { border-top: 1px solid var(--border); padding: 10px 12px; }
-.cpk-doc-h { height: 24px; display: flex; align-items: center; padding: 0 2px; margin-bottom: 8px; color: var(--muted-fg); }
-.cpk-grid { display: grid; grid-template-columns: repeat(8, 20px); justify-content: space-between; row-gap: 4px; }
-.cpk-grid button { width: 20px; height: 20px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
-.cpk-grid button:hover { scale: 1.1; }
+.cpk-doc { border-top: 1px solid var(--border); padding: 12px; }
+.cpk-doc-h { height: 16px; display: flex; align-items: center; margin-bottom: 8px; color: var(--muted-fg); }
+.cpk-grid { display: grid; grid-template-columns: repeat(8, 24px); gap: 8px; }
+.cpk-grid button { width: 24px; height: 24px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-grid button:hover { scale: 1.08; }
 .cpk-grid button[aria-pressed="true"] { box-shadow: 0 0 0 1px var(--fg), inset 0 0 0 1px rgb(255 255 255 / 60%); }
 .cpk-lsearch { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--muted-fg); border-bottom: 1px solid var(--border); }
 .cpk-lsearch input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 12px; color: var(--fg); }
@@ -2139,7 +2142,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     else { C.okHue = wrap(n[2]); C.lin = fitGamut(oklchToLin([clamp01(n[0] / 100), C.wantC ?? Math.max(0, n[1]), C.okHue]), inP3); }
   };
   const css = (a = C.a) => formatColor(C.lin, a, C.mode, C.mode === "oklch" ? C.okHue : C.hue);
-  const SQ = 256;
+  const SQ = 248;
   let laidOut = null, drawnFor = null;
   const drawSquare = () => {
     const space = wide() ? "p3" : "srgb";
@@ -2157,15 +2160,19 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     ctx.stroke();
   };
   // In OKLCH the strip runs in OKLCH hue order, so the knob sits at the color's OKLCH hue.
-  const hueBg = () => C.mode === "oklch" ? `linear-gradient(to right, ${Array.from({ length: 13 }, (_, n) => `oklch(75% 0.18 ${n * 30})`).join(", ")})` : wide() ? `linear-gradient(to right, ${["1 0 0", "1 1 0", "0 1 0", "0 1 1", "0 0 1", "1 0 1", "1 0 0"].map(x => `color(display-p3 ${x})`).join(", ")})` : "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)";
+  // Track gradients map onto the knob's travel (8px in from each end), so the color under the knob's center is its value.
+  const inset = stops => `linear-gradient(to right, ${stops.map((c, i) => `${c} calc(8px + (100% - 16px) * ${i / (stops.length - 1)})`).join(", ")})`;
+  const at = t => `calc(8px + (100% - 16px) * ${t})`;
+  const hueAt = h => C.mode === "oklch" ? `oklch(75% 0.18 ${h})` : wide() ? `color(display-p3 ${(c => [c.r, c.g, c.b].map(v => r3(v / 255)).join(" "))(hsvToRgb({ h, s: 1, v: 1 }))})` : `hsl(${h} 100% 50%)`;
+  const hueBg = () => inset(Array.from({ length: 13 }, (_, n) => hueAt(n * 30)));
   const paint = (fields = true) => {
     const c = hsv();
     drawSquare();
-    Object.assign(q(".cpk-sv .cpk-knob").style, { left: 12 + c.s * SQ + "px", top: 12 + (1 - c.v) * SQ + "px" });
-    q(".cpk-hue").style.background = hueBg();
-    q(".cpk-hue .cpk-knob").style.left = (C.mode === "oklch" ? oklch()[2] : c.h) / 360 * 100 + "%";
-    q(".cpk-alpha .cpk-knob").style.left = C.a * 100 + "%";
-    q(".cpk-alpha").style.setProperty("--cpk-fill", `linear-gradient(to right, transparent, ${css(1)})`);
+    const sq = q(".cpk-sv .cpk-knob"); Object.assign(sq.style, { left: 12 + c.s * SQ + "px", top: 12 + (1 - c.v) * SQ + "px" }); sq.style.setProperty("--knob", css(1));
+    const hue = C.mode === "oklch" ? oklch()[2] : c.h, hk = q(".cpk-hue .cpk-knob");
+    q(".cpk-hue").style.background = hueBg(); hk.style.left = at(hue / 360); hk.style.setProperty("--knob", hueAt(hue));
+    const ak = q(".cpk-alpha .cpk-knob"); ak.style.left = at(C.a); ak.style.setProperty("--cpk-fill", `linear-gradient(${css()}, ${css()})`);
+    q(".cpk-alpha").style.setProperty("--cpk-fill", inset(["transparent", css(1)]));
     q(".cpk-new").style.setProperty("--cpk-fill", `linear-gradient(${css()}, ${css()})`);
     q(".cpk-prev").style.setProperty("--cpk-fill", `linear-gradient(${before}, ${before})`);
     q(".cpk-gamut").hidden = inSrgb(C.lin);
@@ -2175,7 +2182,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
       const vals = read();
       const hex = C.mode === "hex";
       // One inspector field per channel; the prefix names it and, like the inspector's X and W, drags to scrub it.
-      q(".cpk-fields").innerHTML = CPK_CHANNELS[C.mode].map(([pre, name], i) => `<label class="inp" title="${name}"><span class="pre" ${hex ? "" : `data-scrub="${i}" title="Drag to adjust ${name.toLowerCase()}"`}>${pre}</span><input value="${vals[i]}" aria-label="${name}" spellcheck="false"></label>`).join("")
+      q(".cpk-fields").innerHTML = CPK_CHANNELS[C.mode].map(([pre, name], i) => `<label class="inp${hex ? " span3" : ""}" title="${name}"><span class="pre" ${hex ? "" : `data-scrub="${i}" title="Drag to adjust ${name.toLowerCase()}"`}>${pre}</span><input value="${vals[i]}" aria-label="${name}" spellcheck="false"></label>`).join("")
         + `<button class="icon-btn cpk-copy" aria-label="Copy color"></button>`;
     }
     const cp = q(".cpk-copy"); if (cp) { cp.title = `Copy ${css()}`; cp.innerHTML = ic("copy"); }
@@ -2193,12 +2200,13 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   drag(q(".cpk-sv"), (ev, r) => { const h = hsv().h; C.lin = fromHsv(clamp01((ev.clientX - r.left - 12) / SQ), 1 - clamp01((ev.clientY - r.top - 12) / SQ), h); C.hue = h; C.wantC = null; });
   // Hue holds what the mode holds: HSB keeps saturation and brightness; OKLCH keeps lightness and the chroma you set,
   // so every hue reads equally light and the square's knob moves to wherever that color sits.
+  const along = (ev, r) => clamp01((ev.clientX - r.left - 8) / (r.width - 16));
   drag(q(".cpk-hue"), (ev, r) => {
-    const h = Math.min(359.9, clamp01((ev.clientX - r.left) / r.width) * 360);
+    const h = Math.min(359.9, along(ev, r) * 360);
     if (C.mode === "oklch") { const [L, Ch] = linToOklch(C.lin); C.wantC ??= Ch; C.okHue = h; C.lin = fitGamut(oklchToLin([L, C.wantC, h]), inP3); return; }
     const c = hsv(); C.hue = h; C.lin = fromHsv(c.s, c.v, h); C.wantC = null;
   });
-  drag(q(".cpk-alpha"), (ev, r) => { C.a = Math.round(clamp01((ev.clientX - r.left) / r.width) * 100) / 100; });
+  drag(q(".cpk-alpha"), (ev, r) => { C.a = Math.round(along(ev, r) * 100) / 100; });
   // Dragging a channel letter scrubs that one channel, like the inspector's X and W fields.
   pop.addEventListener("pointerdown", e => {
     const pre = e.target.closest("[data-scrub]"); if (!pre) return;
