@@ -2074,15 +2074,24 @@ function parseColor(v) {
 const r3 = x => +x.toFixed(3);
 // The CSS each mode writes: Hex and HSB write hex, the others their own notation. Out-of-gamut colors are mapped in first.
 function formatColor(lin, a, mode, hue = 0) {
-  if (mode === "p3") { const p = linToP3(fitGamut(lin, inP3)).map(clamp01); return `color(display-p3 ${p.map(r3).join(" ")}${a < 1 ? ` / ${r3(a)}` : ""})`; }
-  if (mode === "oklch") { const [L, C, h] = linToOklch(fitGamut(lin, inP3)); return `oklch(${+(L * 100).toFixed(1)}% ${r3(C)} ${C < 2e-4 ? +hue.toFixed(1) : +h.toFixed(1)}${a < 1 ? ` / ${Math.round(a * 100)}%` : ""})`; }
+  const A = a < 1 ? ` / ${Math.round(a * 100)}%` : "";
   const [r, g, b] = fitGamut(lin, inSrgb).map(toGam).map(c => clamp01(c) * 255);
-  if (mode === "rgb") return `rgb(${[r, g, b].map(Math.round).join(" ")}${a < 1 ? ` / ${Math.round(a * 100)}%` : ""})`;
-  if (mode === "hsl") { const l = rgbToHsl({ r, g, b }); return `hsl(${Math.round(l.s ? l.h : hue)} ${Math.round(l.s * 100)}% ${Math.round(l.l * 100)}%${a < 1 ? ` / ${Math.round(a * 100)}%` : ""})`; }
-  return toHex({ r, g, b, a });
+  if (mode === "rgb") return `rgb(${[r, g, b].map(Math.round).join(" ")}${A})`;
+  if (mode === "hex" || mode === "hsb") return toHex({ r, g, b, a });
+  // Display P3, OKLCH, and HSL write the fewest decimals that still read back as the same color at 8 bits per
+  // channel (in sRGB, or in P3 for colors outside it), so simple colors stay short and none drifts on a round trip.
+  const write = d => {
+    if (mode === "p3") return `color(display-p3 ${linToP3(fitGamut(lin, inP3)).map(clamp01).map(v => +v.toFixed(3 + d)).join(" ")}${a < 1 ? ` / ${r3(a)}` : ""})`;
+    if (mode === "oklch") { const [L, C, h] = linToOklch(fitGamut(lin, inP3)); return `oklch(${+(L * 100).toFixed(1 + d)}% ${+C.toFixed(3 + d)} ${+(C < 2e-4 ? hue : h).toFixed(1 + d)}${A})`; }
+    const l = rgbToHsl({ r, g, b }); return `hsl(${+(l.s ? l.h : hue).toFixed(d)} ${+(l.s * 100).toFixed(d)}% ${+(l.l * 100).toFixed(d)}%${A})`;
+  };
+  const key = l => inSrgb(lin) ? formatColor(l, 1, "hex") : linToP3(fitGamut(l, inP3)).map(c => Math.round(clamp01(c) * 255)).join();
+  const want = key(lin);
+  for (let d = 0; d < 3; d++) { const out = write(d); if (key(parseColor(out).lin) === want) return out; }
+  return write(3);
 }
 // One picker in every mode: the square, hue, and opacity pick by eye, and the mode only changes how the numbers read and
-// what CSS gets written. OKLCH and Display P3 let the square reach P3; a badge on New says when a color leaves sRGB.
+// what CSS gets written. OKLCH and Display P3 let the square reach P3; New's tooltip says when a color leaves sRGB.
 const CPK_CHANNELS = {
   hex: [["#", "Hex"]],
   rgb: [["R", "Red", 1, 0, 255], ["G", "Green", 1, 0, 255], ["B", "Blue", 1, 0, 255]],
@@ -2161,7 +2170,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const need = () => contrast?.large ? [3, 4.5] : [4.5, 7];
   // New's tooltip names the swatch and, when it applies, says the color leaves sRGB.
   let tip = null, tipTimer = 0;
-  const newTipHTML = () => `<div>New</div>${inSrgb(C.lin) ? "" : `<div class="sub">Outside sRGB. Screens without Display P3 show the nearest sRGB color.</div>`}`;
+  const newTipHTML = () => `<div>New</div>${inSrgb(C.lin) ? "" : `<div class="sub">Outside sRGB. Screens without Display P3 can't show it exactly.</div>`}`;
   const hideTip = () => { clearTimeout(tipTimer); tip?.remove(); tip = null; };
   const showTip = () => {
     hideTip(); tip = document.createElement("div"); tip.className = "cpk-tip"; tip.setAttribute("role", "tooltip"); tip.innerHTML = newTipHTML(); document.body.append(tip);
