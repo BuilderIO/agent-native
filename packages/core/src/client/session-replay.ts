@@ -1643,11 +1643,13 @@ async function awaitReplayUpload(
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
-  callbacks: { beforeUpload?: (keepalive: boolean) => void } = {},
-): Promise<void> {
+  callbacks: { beforeUpload?: (keepalive: boolean) => "send" | "defer" } = {},
+): Promise<"sent" | "deferred"> {
   if (isCrossOriginReplayEndpoint(options.endpoint)) {
     const canUseKeepalive = canUseReplayKeepalive(body);
-    callbacks.beforeUpload?.(canUseKeepalive);
+    if (callbacks.beforeUpload?.(canUseKeepalive) === "defer") {
+      return "deferred";
+    }
     const timeout = startReplayUploadTimeout();
     await awaitReplayUploadRequest(timeout, () =>
       fetch(options.endpoint, {
@@ -1658,12 +1660,12 @@ async function sendReplayUpload(
         signal: timeout.signal,
       }),
     );
-    return;
+    return "sent";
   }
 
   const upload = await buildReplayUploadBody(body);
   const canUseKeepalive = canUseReplayKeepalive(upload.body);
-  callbacks.beforeUpload?.(canUseKeepalive);
+  if (callbacks.beforeUpload?.(canUseKeepalive) === "defer") return "deferred";
   const timeout = startReplayUploadTimeout();
   await awaitReplayUploadRequest(timeout, () =>
     fetch(options.endpoint, {
@@ -1677,6 +1679,7 @@ async function sendReplayUpload(
       signal: timeout.signal,
     }),
   );
+  return "sent";
 }
 
 function isFinalFlushReason(reason: string): boolean {
@@ -2053,20 +2056,25 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     // sending it, and a larger one when the server already has its body.
     // Persist the next index first, or the next page resends this chunk number
     // with different content and the server rejects it (HTTP 409). The
-    // exception is a larger upload the page-leave flush starts: the browser
-    // nearly always cancels it first, and a reserved number that never arrives
-    // leaves a gap in the recording.
-    await sendReplayUpload(state.options, payload.body, {
+    // page-leave flush never starts an upload too large for keepalive: the
+    // browser usually cancels it, so a reserved number would leave a gap, and
+    // an unreserved one that still arrives would be reused. Its events stay
+    // queued in case the page survives.
+    const outcome = await sendReplayUpload(state.options, payload.body, {
       beforeUpload: (keepalive) => {
-        if (!keepalive && isTerminalReplayFlushReason(reason)) return;
+        if (!keepalive && isTerminalReplayFlushReason(reason)) return "defer";
         advanceReplaySequence(state, payload);
         reservedSequence = true;
+        return "send";
       },
     });
-    if (!reservedSequence) advanceReplaySequence(state, payload);
-    state.automaticConflictRestartAttempted = false;
-    state.transientClientErrorFailures = 0;
-    uploaded = true;
+    if (outcome === "deferred") {
+      restoreReplayEvents(state, events);
+    } else {
+      state.automaticConflictRestartAttempted = false;
+      state.transientClientErrorFailures = 0;
+      uploaded = true;
+    }
   } catch (error) {
     if (error instanceof ReplayUploadInFlightTimeoutError) {
       const pending: PendingReplayUpload = {

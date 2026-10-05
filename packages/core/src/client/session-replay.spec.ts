@@ -3146,14 +3146,13 @@ describe("session replay", () => {
     }
   });
 
-  it("leaves a page-leave upload too large for keepalive unreserved", async () => {
+  it("does not start a page-leave upload too large for keepalive", async () => {
     const { fetchMock, storage } = installBrowser(
       "https://app.agent-native.com/inbox",
     );
     const storedSequence = () =>
       JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
         .sequence;
-    fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
     let recordOptions: any;
     recordMock.mockImplementation((options) => {
       recordOptions = options;
@@ -3173,12 +3172,20 @@ describe("session replay", () => {
       type: 3,
       data: { href: "/leaving", text: "x".repeat(70 * 1024) },
     });
-    void flushSessionReplay("pagehide");
-    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await flushSessionReplay("pagehide");
 
-    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).keepalive).toBe(false);
-    // The browser nearly always cancels it, so the next page reuses the index.
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(storedSequence()).toBe(0);
+
+    // A page that survives sends the events under the same index.
+    await flushSessionReplay("interval");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const upload = await parseReplayUpload(
+      fetchMock.mock.calls[0]?.[1] as RequestInit,
+    );
+    expect(upload.sequence).toBe(0);
+    expect(JSON.stringify(upload.events)).toContain("/leaving");
+    expect(storedSequence()).toBe(1);
   });
 
   it.each([
