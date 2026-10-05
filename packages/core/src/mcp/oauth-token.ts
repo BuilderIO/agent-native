@@ -156,6 +156,8 @@ export async function verifyMcpOAuthAccessToken(
   clientId: string;
   jti?: string;
   catalogScope?: "full";
+  /** `iat`, in seconds. */
+  issuedAt?: number;
 } | null> {
   const audiences = buildAudienceList(resource);
   if (!audiences) return null;
@@ -211,6 +213,7 @@ export async function verifyMcpOAuthAccessToken(
       clientId: payload.client_id,
       jti: typeof payload.jti === "string" ? payload.jti : undefined,
       ...(payload.catalog_scope === "full" ? { catalogScope: "full" } : {}),
+      ...(typeof payload.iat === "number" ? { issuedAt: payload.iat } : {}),
     };
   } catch {
     return null;

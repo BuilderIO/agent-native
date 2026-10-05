@@ -309,9 +309,10 @@ async function signConnectToken(params: {
  * random `jti` is stored, so the standard revocation path
  * (`isJtiRevoked` in `verifyAuth`) applies to service tokens identically.
  *
- * Authorization is the CALLER'S responsibility: this function does not check
- * org membership/role. The `create-org-service-token` action gates on org
- * owner/admin before calling it.
+ * The `create-org-service-token` action gates on org owner/admin before
+ * calling this. Offboarding can remove that admin before the mint, so the
+ * creator's role is rechecked under the membership lock offboarding takes,
+ * and the token is recorded in the same transaction.
  */
 export async function mintOrgServiceToken(params: {
   serviceName: string;
@@ -332,26 +333,40 @@ export async function mintOrgServiceToken(params: {
   const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
   const orgDomain = await resolveOrgDomain(params.orgId);
   const ttlDays = clampTtlDays(params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS);
-  const jti = randomUUID();
-  const token = await signConnectToken({
-    ownerEmail: serviceEmail,
-    orgId: params.orgId,
-    orgDomain,
-    appUrl: params.appUrl,
-    expiresIn: `${ttlDays}d`,
-    jti,
-    includeOrgIdClaim: true,
-  });
-  const id = await recordMintedToken({
-    jti,
-    ownerEmail: serviceEmail,
-    orgId: params.orgId,
-    label: `Service token: ${serviceName}`,
-    kind: "service",
-    serviceName,
-    createdBy: params.createdBy,
-  });
-  return { token, jti, id, serviceName, serviceEmail, ttlDays };
+  await prepareConnectIssuance();
+  return withMcpCredentialIssuance(
+    {
+      email: params.createdBy,
+      orgId: params.orgId,
+      requestOrigin: params.appUrl,
+      roles: ["owner", "admin"],
+    },
+    async (tx) => {
+      const jti = randomUUID();
+      const token = await signConnectToken({
+        ownerEmail: serviceEmail,
+        orgId: params.orgId,
+        orgDomain,
+        appUrl: params.appUrl,
+        expiresIn: `${ttlDays}d`,
+        jti,
+        includeOrgIdClaim: true,
+      });
+      const id = await recordMintedToken(
+        {
+          jti,
+          ownerEmail: serviceEmail,
+          orgId: params.orgId,
+          label: `Service token: ${serviceName}`,
+          kind: "service",
+          serviceName,
+          createdBy: params.createdBy,
+        },
+        tx,
+      );
+      return { token, jti, id, serviceName, serviceEmail, ttlDays };
+    },
+  );
 }
 
 function mcpResultPayload(

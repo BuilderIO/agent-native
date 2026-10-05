@@ -53,11 +53,17 @@ const tokenRows: any[] = [];
 const deviceRows: any[] = [];
 let issuanceFailure: "not-member" | "unavailable" | null = null;
 const issuanceTransaction = {
-  execute: vi.fn(async () => {
+  execute: vi.fn(async ({ sql }: { sql: string }) => {
     if (issuanceFailure === "unavailable")
       throw new Error("test membership query unavailable");
+    // No email change has retired an address in these tests.
+    if (sql.includes("to_regclass"))
+      return { rows: [{ present: false }], rowsAffected: 0 };
     return {
-      rows: issuanceFailure === "not-member" ? [] : [{ id: "member-1" }],
+      rows:
+        issuanceFailure === "not-member" && sql.includes("org_members")
+          ? []
+          : [{ id: "member-1", role: "member" }],
       rowsAffected: 0,
     };
   }),

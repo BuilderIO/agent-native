@@ -10,10 +10,14 @@ New MCP authorization codes and refresh tokens retain their issuance owner bindi
 
 Failed refresh-renewal writes return retryable HTTP 503 with `Retry-After: 5`. Renewals of revoked or deleted grants return `invalid_grant` when no row is updated. Neither failure mints an access token. The cutover uses additive schema preparation without a bulk grant revoke or delete.
 
-Human organization-bound OAuth and Connect issuance now shares a transactional membership lock with local offboarding. Authorization-code consumption and refresh-token creation commit together, and failed writes roll back consumption. Connect and device approval use the same boundary, so completed local offboarding cannot leave a newly issued grant behind. Personal credentials, service-credential creation rules, and remote membership-authority contracts are unchanged.
+Human organization-bound OAuth and Connect issuance now shares a transactional membership lock with local offboarding. Authorization-code consumption and refresh-token creation commit together, and failed writes roll back consumption. Connect and device approval use the same boundary, so completed local offboarding cannot leave a newly issued grant behind. Remote membership-authority contracts are unchanged.
 
 Account-email rekeying acquires organization membership locks before scanning credentials, matching issuance and offboarding lock order. This prevents missed organization-bound grants and opposing grant/member lock acquisition during concurrent rekeying and issuance.
 
 Offboarding reads its credential-table catalog after acquiring membership locks, so the sweep includes first-time lazy table preparation completed by earlier issuance.
 
 Refresh renewal and access-token signing use the same issuance transaction. Signing errors roll back renewal, and a failed transaction returns no access token. Membership-denial cleanup pins the validated owner/binding pair, preserving valid grants renamed concurrently; unavailable revocation counts return a retryable failure.
+
+An account-email rekey records the old address as retired in its own transaction. MCP OAuth access and Connect tokens signed for that address before the rekey are refused, Personal ones included, and issuance refuses the address until an account registers it again. Rekey and every human credential issuance, Personal included, take a per-address transaction lock before any row lock, so issuance cannot write a grant for an address mid-rekey.
+
+Org service-token creation rechecks, under the membership lock offboarding takes, that its creator is still an owner or admin, and records the token in the same transaction. A creator removed or demoted after the action's role check gets 403; an unreadable check gets a retryable 503.

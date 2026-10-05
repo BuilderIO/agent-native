@@ -9,6 +9,10 @@ import {
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
+import {
+  IDENTITY_RETIRED_EMAILS_CREATE_SQL,
+  identityCredentialLockKey,
+} from "./retired-emails.js";
 
 export interface IdentityRekeyDb {
   unsafe(
@@ -269,6 +273,7 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "identity_rekeys.old_email",
   "identity_rekeys.new_email",
   "identity_rekeys.actor_email",
+  "identity_retired_emails.email",
   // Actor kind enum ('user' | 'agent' | 'system'), not an address.
   "context_directives.created_by",
   "resources.created_by",
@@ -996,6 +1001,14 @@ export async function rekeyIdentity(
     throw new Error("Provide two different valid email addresses.");
   }
 
+  // Credential issuance takes this lock for its owner before any row lock,
+  // including Personal issuance, which has no membership row to wait on.
+  for (const email of [oldEmail, newEmail].sort())
+    await db.unsafe(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 0::bigint))`,
+      [identityCredentialLockKey(email)],
+    );
+
   const identityColumns = await assertIdentityColumnsRegistered(db);
 
   const userColumns = await columns(db, "user");
@@ -1051,6 +1064,15 @@ export async function rekeyIdentity(
   const counts: Record<string, number> = {};
   let oauthRevokedCount = 0;
   counts["user.email"] = 1;
+  if (!options.dryRun) {
+    await db.unsafe(IDENTITY_RETIRED_EMAILS_CREATE_SQL);
+    await db.unsafe(
+      `INSERT INTO identity_retired_emails (email, retired_at) VALUES ($1, $2)
+       ON CONFLICT (email) DO UPDATE
+         SET retired_at = GREATEST(identity_retired_emails.retired_at, EXCLUDED.retired_at)`,
+      [oldEmail, Date.now()],
+    );
+  }
   const handledGrantOwners = await rekeyOAuthGrantOwners(
     db,
     oldEmail,

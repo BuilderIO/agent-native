@@ -14,6 +14,9 @@
 import { getDbExec } from "../../db/client.js";
 import type { OrgRole } from "../../org/types.js";
 
+export const SERVICE_TOKEN_MANAGE_FORBIDDEN_MESSAGE =
+  "Only org owners or admins can create or revoke service tokens.";
+
 export class ServiceTokenError extends Error {
   statusCode: number;
   constructor(message: string, statusCode: number) {
@@ -102,10 +105,7 @@ export async function requireServiceTokenCaller(params: {
     );
   }
   if (params.level === "manage" && role === "member") {
-    throw new ServiceTokenError(
-      "Only org owners or admins can create or revoke service tokens.",
-      403,
-    );
+    throw new ServiceTokenError(SERVICE_TOKEN_MANAGE_FORBIDDEN_MESSAGE, 403);
   }
   return { email, orgId, role };
 }

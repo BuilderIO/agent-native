@@ -158,6 +158,23 @@ describe("create-org-service-token", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
     expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["not-member", 403],
+    ["unavailable", 503],
+  ] as const)(
+    "answers %s from the mint's membership lock with %i",
+    async (reason, statusCode) => {
+      const { McpCredentialIssuanceError } =
+        await import("../credential-issuance.js");
+      mintOrgServiceTokenMock.mockRejectedValue(
+        new McpCredentialIssuanceError(reason),
+      );
+      await expect(
+        createAction.run({ name: "ci" }, CTX()),
+      ).rejects.toMatchObject({ name: "ServiceTokenError", statusCode });
+    },
+  );
 });
 
 describe("list-org-service-tokens", () => {

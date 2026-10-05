@@ -10,6 +10,8 @@
  * is linked. Nothing is cached, so a removal on any instance takes effect on
  * the next request everywhere.
  */
+import { getDbExec } from "../db/client.js";
+import { readEmailRetiredAt } from "../identity/retired-emails.js";
 import {
   isMissingOrganizationTableError,
   isOrgMember,
@@ -74,6 +76,35 @@ export async function checkCredentialOrgMembership(input: {
     }
     console.error(
       "[mcp] Organization membership check failed; refusing the credential:",
+      error,
+    );
+    return "unavailable";
+  }
+}
+
+/**
+ * `retired`: an email change moved this account off the credential's subject
+ * address after the credential was signed. `unavailable` means the same as for
+ * membership: refuse with a retryable error.
+ */
+export type CredentialEmailRetirement = "current" | "retired" | "unavailable";
+
+export async function checkCredentialEmailRetirement(input: {
+  email: string;
+  /** The credential's `iat`, in seconds; absent counts as signed before. */
+  issuedAt: number | undefined;
+}): Promise<CredentialEmailRetirement> {
+  try {
+    const retiredAt = await readEmailRetiredAt(getDbExec(), input.email);
+    if (retiredAt === null) return "current";
+    // `iat` truncates to whole seconds, so a credential signed in the same
+    // second as the rekey is refused.
+    return input.issuedAt !== undefined && input.issuedAt * 1000 > retiredAt
+      ? "current"
+      : "retired";
+  } catch (error) {
+    console.error(
+      "[mcp] Email retirement check failed; refusing the credential:",
       error,
     );
     return "unavailable";

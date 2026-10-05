@@ -2792,6 +2792,9 @@ export type VerifyAuthResult = {
  * here. The action-route bearer path reuses verifyAuth and gets the same
  * check.
  *
+ * They also carry the subject's address, which an email change retires; a
+ * credential signed for it before the change is refused, Personal or not.
+ *
  * Cross-app A2A JWTs, first-party MCP tokens included, are not checked: their
  * `org_id`, like `org_domain`, is the signing app's assertion, and the caller
  * may have no membership row in this app's database.
@@ -2800,11 +2803,22 @@ async function admitIssuedCredential(
   result: VerifyAuthResult & { identity: MCPCallerIdentity },
   requestOrigin: string | undefined,
   orgResolution: ConnectTokenOrgResolution,
+  issuedAt: number | undefined,
 ): Promise<VerifyAuthResult> {
+  const { checkCredentialEmailRetirement, checkCredentialOrgMembership } =
+    await import("./credential-membership.js");
+  if (result.identity.userEmail) {
+    const retirement = await checkCredentialEmailRetirement({
+      email: result.identity.userEmail,
+      issuedAt,
+    });
+    if (retirement !== "current")
+      return retirement === "unavailable"
+        ? { authed: false, unavailable: true }
+        : { authed: false };
+  }
   const orgId = result.identity.orgId;
   if (typeof orgId !== "string" || !orgId) return result;
-  const { checkCredentialOrgMembership } =
-    await import("./credential-membership.js");
   const membership = await checkCredentialOrgMembership({
     orgId,
     email: result.identity.userEmail,
@@ -2844,7 +2858,8 @@ async function admitIssuedCredential(
  * owner instead of an unscoped anonymous caller.
  *
  * A credential this app issued that names an organization is admitted only
- * while its subject is still a member (see `admitIssuedCredential`).
+ * while its subject is still a member, and none is admitted for an address an
+ * email change retired after signing (see `admitIssuedCredential`).
  */
 export async function verifyAuth(
   authHeader: string | undefined,
@@ -2896,6 +2911,7 @@ export async function verifyAuth(
         },
         options.requestOrigin,
         orgResolution,
+        oauthIdentity.issuedAt,
       );
       if (
         admitted.authed &&
@@ -2975,6 +2991,7 @@ export async function verifyAuth(
             verified,
             options.requestOrigin,
             orgResolution,
+            typeof payload.iat === "number" ? payload.iat : undefined,
           )
         : verified;
     if (admitted.authed && tokenScope === MCP_CONNECT_SCOPE) {

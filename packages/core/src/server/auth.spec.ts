@@ -8870,6 +8870,9 @@ describe("server/auth", () => {
 
       // The token names org-123, so its owner must still be a member there.
       const mockExecute = vi.fn(async ({ sql }: { sql: string }) => {
+        if (/to_regclass\('identity_retired_emails'\)/.test(sql)) {
+          return { rows: [{ present: false }] };
+        }
         if (/FROM org_members/.test(sql)) {
           return {
             rows: [{ role: "member", federation_removal_pending_at: null }],

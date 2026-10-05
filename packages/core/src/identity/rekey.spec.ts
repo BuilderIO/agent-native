@@ -482,6 +482,84 @@ describe("rekeyIdentity", () => {
     }
   });
 
+  it("takes the issuance lock of both addresses in a fixed order before the membership fence", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      const calls: Array<{ sql: string; args: unknown[] }> = [];
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(
+          dbAdapter(tx, calls),
+          "old@example.test",
+          "new@example.test",
+        ),
+      );
+      const identityLocks = calls.flatMap(({ sql, args }, index) =>
+        sql.includes("pg_advisory_xact_lock")
+          ? [{ index, key: String(args[0]) }]
+          : [],
+      );
+      const membershipLock = calls.findIndex(
+        ({ sql }) =>
+          /FROM "?org_members"?/.test(sql) && sql.includes("FOR UPDATE"),
+      );
+      expect(identityLocks.map(({ key }) => key)).toEqual([
+        expect.stringContaining("new@example.test"),
+        expect.stringContaining("old@example.test"),
+      ]);
+      expect(membershipLock).toBeGreaterThan(identityLocks[1].index);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("refuses Personal issuance for a renamed-away address until an account holds it again", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seedIssuance(pg);
+      issuanceDb.exec = issuanceExecutor(pg);
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+      );
+      const issue = (id: string) =>
+        vi.fn(async (tx: DbExec) =>
+          tx.execute({
+            sql: "INSERT INTO mcp_oauth_refresh_tokens VALUES (?, ?, ?, ?)",
+            args: [id, "old@example.test", "old@example.test", null],
+          }),
+        );
+      // A session or consent for the old address validated before the rekey
+      // committed reaches issuance afterwards.
+      const stale = issue("stale-grant");
+      await expect(
+        withMcpCredentialIssuance(
+          { orgId: null, email: "old@example.test" },
+          stale,
+        ),
+      ).rejects.toMatchObject({ reason: "not-member" });
+      expect(stale).not.toHaveBeenCalled();
+      expect(
+        await pg.prepare("SELECT id FROM mcp_oauth_refresh_tokens").all(),
+      ).toEqual([]);
+
+      await pg.exec(`INSERT INTO "user" VALUES ('u2', 'old@example.test')`);
+      await withMcpCredentialIssuance(
+        { orgId: null, email: "old@example.test" },
+        issue("reregistered-grant"),
+      );
+      expect(
+        await pg
+          .prepare("SELECT id, owner_email FROM mcp_oauth_refresh_tokens")
+          .all(),
+      ).toEqual([
+        { id: "reregistered-grant", owner_email: "old@example.test" },
+      ]);
+    } finally {
+      issuanceDb.exec = undefined;
+      await pg.close();
+    }
+  });
+
   it.each([false, true])(
     "rekeys valid OAuth owner bindings without admitting legacy or mismatched grants (account already updated: %s)",
     async (accountAlreadyUpdated) => {

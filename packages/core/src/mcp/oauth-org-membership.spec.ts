@@ -53,9 +53,18 @@ vi.mock("../org/membership.js", async (importOriginal) => {
 });
 
 import { signA2AToken } from "../a2a/client.js";
-import { closeDbExec, getDbExec, getPgliteClient } from "../db/client.js";
+import {
+  closeDbExec,
+  getDbExec,
+  getPgliteClient,
+  type DbExec,
+} from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { table, text, ownableColumns } from "../db/schema.js";
+import {
+  executeIdentityRekey,
+  type IdentityRekeyDb,
+} from "../identity/rekey.js";
 import { createOrganization, listOrgMemberships } from "../org/context.js";
 import {
   acceptInvitationHandler,
@@ -66,6 +75,7 @@ import { runFrameworkReleaseMigrations } from "../server/release-migrations.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { accessFilter } from "../sharing/access.js";
 import { createSharesTable } from "../sharing/schema.js";
+import { requireServiceTokenCaller } from "./actions/service-token-access.js";
 import { resolveMcpIdentityOrgId, verifyAuth } from "./build-server.js";
 import { handleMcpConnect, mintOrgServiceToken } from "./connect-route.js";
 import {
@@ -317,6 +327,37 @@ async function invite(email: string) {
   );
 }
 
+/** The adapter the email-change hook hands to `executeIdentityRekey`. */
+function identityRekeyDb(exec: DbExec): IdentityRekeyDb {
+  const db: IdentityRekeyDb = {
+    async unsafe(sql: string, args: unknown[] = []) {
+      const result = await exec.execute({ sql, args });
+      return Object.assign(result.rows as Array<Record<string, unknown>>, {
+        count: result.rowsAffected,
+      });
+    },
+  };
+  if (exec.transaction) {
+    db.transaction = (fn) => exec.transaction!((tx) => fn(identityRekeyDb(tx)));
+  }
+  return db;
+}
+
+async function setOrgRole(email: string, role: "admin" | "member") {
+  await getDbExec().execute({
+    sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
+    args: [role, ORG, email],
+  });
+}
+
+async function serviceTokenRows(serviceName: string) {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT created_by FROM mcp_connect_tokens WHERE service_name = ?`,
+    args: [serviceName],
+  });
+  return rows;
+}
+
 async function removeBob() {
   await as(ALICE, () =>
     removeMemberHandler(
@@ -446,8 +487,8 @@ beforeAll(async () => {
   };
 
   // Bob also holds a legacy connect token (its org lives on the stored row),
-  // a CLI device code he approved but the CLI has not collected yet, and he
-  // minted an org service token for CI.
+  // a CLI device code he approved but the CLI has not collected yet, and, as
+  // an org admin, he minted an org service token for CI.
   const jti = randomUUID();
   await recordMintedToken({ jti, ownerEmail: BOB, orgId: ORG, label: "CLI" });
   bobConnectToken = {
@@ -461,6 +502,7 @@ beforeAll(async () => {
   const device = await createDeviceCode();
   bobDeviceCode = device.deviceCode;
   await approveDeviceCode(device.userCode, BOB, ORG);
+  await setOrgRole(BOB, "admin");
   serviceToken = (
     await mintOrgServiceToken({
       serviceName: "ci",
@@ -1256,5 +1298,214 @@ describe("MCP OAuth issuance-owner cutover", () => {
     expect(response.body.error).toBe("invalid_grant");
     expect(response.body.access_token).toBeUndefined();
     expect(await refreshRowsFor(client)).toEqual([]);
+  });
+});
+
+describe("Org service-token creation while its creator is offboarded", () => {
+  async function bobAsAdmin() {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+      args: [ORG, BOB],
+    });
+    if (!rows.length) await invite(BOB);
+    await setOrgRole(BOB, "admin");
+  }
+
+  function mintAsBob(serviceName: string) {
+    return mintOrgServiceToken({
+      serviceName,
+      orgId: ORG,
+      createdBy: BOB,
+      appUrl: ORIGIN,
+    });
+  }
+
+  it("mints nothing when offboarding removes the admin after the action's role check", async () => {
+    await bobAsAdmin();
+    await requireServiceTokenCaller({
+      userEmail: BOB,
+      orgId: ORG,
+      level: "manage",
+    });
+    await removeBob();
+    await expect(mintAsBob("ci-after-removal")).rejects.toMatchObject({
+      reason: "not-member",
+    });
+    expect(await serviceTokenRows("ci-after-removal")).toEqual([]);
+  });
+
+  it("mints nothing when offboarding commits after the mint's own membership check", async () => {
+    await bobAsAdmin();
+    let removed = false;
+    membershipLookup.afterCheck = async () => {
+      await removeBob();
+      removed = true;
+    };
+    try {
+      await expect(mintAsBob("ci-during-removal")).rejects.toMatchObject({
+        reason: "not-member",
+      });
+    } finally {
+      membershipLookup.afterCheck = undefined;
+    }
+    expect(removed).toBe(true);
+    expect(await serviceTokenRows("ci-during-removal")).toEqual([]);
+  });
+
+  it("mints nothing for an admin demoted after the action's role check", async () => {
+    await bobAsAdmin();
+    await requireServiceTokenCaller({
+      userEmail: BOB,
+      orgId: ORG,
+      level: "manage",
+    });
+    await setOrgRole(BOB, "member");
+    await expect(mintAsBob("ci-after-demotion")).rejects.toMatchObject({
+      reason: "not-member",
+    });
+    expect(await serviceTokenRows("ci-after-demotion")).toEqual([]);
+
+    await setOrgRole(BOB, "admin");
+    await mintAsBob("ci-current-admin");
+    expect(await serviceTokenRows("ci-current-admin")).toEqual([
+      { created_by: BOB },
+    ]);
+  });
+});
+
+describe("MCP credentials after an email change", () => {
+  const ERIN = "erin@example.test";
+  const ERIN_RENAMED = "erin.renamed@example.test";
+
+  function personalAccessToken(ownerEmail: string, clientId: string) {
+    return signMcpOAuthAccessToken({
+      ownerEmail,
+      orgId: null,
+      orgDomain: null,
+      clientId,
+      scope: "mcp:read",
+      resource: getMcpOAuthResource(appEvent("/mcp"))!,
+      issuer: ORIGIN,
+    });
+  }
+
+  async function mintPersonalConnectToken(email: string) {
+    const res = await as(email, () =>
+      handleMcpConnect(
+        appEvent("/mcp/connect/token", {
+          method: "POST",
+          body: { label: "Erin CLI" },
+        }),
+        "/token",
+      ),
+    );
+    return {
+      status: res.status,
+      token: (await res.json()).token as string | undefined,
+    };
+  }
+
+  let client: McpClient;
+  let accessToken: string;
+  let connectToken: string;
+  const beforeChange: Array<
+    Awaited<ReturnType<typeof authenticateMcpRequest>>["auth"]
+  > = [];
+
+  beforeAll(async () => {
+    await getDbExec().execute({
+      sql: `INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at)
+            VALUES ('synthetic-erin', 'Erin', ?, true, now(), now())`,
+      args: [ERIN],
+    });
+    client = await registerMcpClient();
+    accessToken = await personalAccessToken(ERIN, client.clientId);
+    const minted = await mintPersonalConnectToken(ERIN);
+    if (!minted.token) throw new Error(`connect mint failed: ${minted.status}`);
+    connectToken = minted.token;
+    beforeChange.push(
+      (await authenticateMcpRequest(accessToken)).auth,
+      (await authenticateMcpRequest(connectToken)).auth,
+    );
+    await executeIdentityRekey(
+      identityRekeyDb(getDbExec()),
+      ERIN,
+      ERIN_RENAMED,
+    );
+  });
+
+  it("control: both Personal credentials authenticated as the old address before the change", () => {
+    expect(beforeChange).toEqual([
+      expect.objectContaining({
+        authed: true,
+        identity: expect.objectContaining({ userEmail: ERIN, orgId: null }),
+      }),
+      expect.objectContaining({
+        authed: true,
+        identity: expect.objectContaining({ userEmail: ERIN }),
+      }),
+    ]);
+  });
+
+  it("refuses the old address's Personal OAuth access token", async () => {
+    expect((await authenticateMcpRequest(accessToken)).auth).toEqual({
+      authed: false,
+    });
+  });
+
+  it("refuses the old address's Personal connect token", async () => {
+    expect((await authenticateMcpRequest(connectToken)).auth).toEqual({
+      authed: false,
+    });
+  });
+
+  it("admits a credential issued to the new address", async () => {
+    const renamed = await personalAccessToken(ERIN_RENAMED, client.clientId);
+    expect((await authenticateMcpRequest(renamed)).auth).toMatchObject({
+      authed: true,
+      identity: { userEmail: ERIN_RENAMED, orgId: null },
+    });
+  });
+
+  it("mints nothing for the old address from a session validated before the change", async () => {
+    const minted = await mintPersonalConnectToken(ERIN);
+    expect(minted.status).toBe(403);
+    expect(minted.token).toBeUndefined();
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT jti FROM mcp_connect_tokens WHERE LOWER(owner_email) = ?`,
+      args: [ERIN],
+    });
+    expect(rows).toEqual([]);
+  });
+
+  it("admits credentials issued after someone registers the old address again, but not earlier ones", async () => {
+    await getDbExec().execute({
+      sql: `INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at)
+            VALUES ('synthetic-erin-again', 'Erin Again', ?, true, now(), now())`,
+      args: [ERIN],
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 2_000);
+    try {
+      const reissued = await personalAccessToken(ERIN, client.clientId);
+      expect((await authenticateMcpRequest(reissued)).auth).toMatchObject({
+        authed: true,
+        identity: { userEmail: ERIN },
+      });
+      const minted = await mintPersonalConnectToken(ERIN);
+      expect(minted.status).toBe(200);
+      expect((await authenticateMcpRequest(minted.token!)).auth).toMatchObject({
+        authed: true,
+        identity: { userEmail: ERIN },
+      });
+      expect((await authenticateMcpRequest(accessToken)).auth).toEqual({
+        authed: false,
+      });
+      expect((await authenticateMcpRequest(connectToken)).auth).toEqual({
+        authed: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
