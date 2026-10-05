@@ -7,7 +7,9 @@
 
 import path from "node:path";
 
-import { maskNonCode, readFileSafe, relPosix, walk } from "./scan-utils.js";
+import { buildSync, type Loader } from "esbuild";
+
+import { readFileSafe, relPosix, walk } from "./scan-utils.js";
 import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
 // Mirrors Nitro's plugin scan (`plugins/**/*.{js,mjs,cjs,ts,mts,cts,tsx,jsx}`)
@@ -17,89 +19,35 @@ const PLUGIN_FILE_RE = /\.(?:js|mjs|cjs|ts|mts|cts|tsx|jsx)$/;
 const IGNORED_FILE_RE = /\.(?:spec|test)\.(?:js|mjs|cjs|ts|mts|cts|tsx|jsx)$/;
 // Declaration files compile to empty modules, so they never export a default.
 const DECLARATION_FILE_RE = /\.d\.(?:ts|mts|cts)$/;
-const JSX_FILE_RE = /\.(?:tsx|jsx)$/;
 
-const EXPORT_DEFAULT_RE =
-  /\bexport\s+default\b(?!\s*interface\b)(?:\s*([A-Za-z_$][\w$]*)\s*(?:;|$))?/gm;
-// Raw-source JSX fallback: only a statement-position `export default`, so
-// strings, inline comments and inline JSX text cannot satisfy it.
-const JSX_STATEMENT_EXPORT_DEFAULT_RE =
-  /(?:^|[;}])[ \t]*export\s+default\b(?!\s*interface\b)/m;
-const EXPORT_STAR_AS_DEFAULT_RE = /\bexport\s*\*\s*as\s+default\b/;
-const COMMONJS_EXPORT_RE = /\bmodule\.exports\s*=|\bexports\.default\s*=/;
-const EXPORT_LIST_RE = /\bexport\s*(type\s+)?\{([^}]*)\}(\s*from\b)?/g;
-const TYPE_DECLARATION_RE =
-  /\binterface\s+([A-Za-z_$][\w$]*)|\btype\s+([A-Za-z_$][\w$]*)\s*(?:<[^;]*?>)?\s*=/g;
+function loaderFor(file: string): Loader {
+  if (file.endsWith(".tsx")) return "tsx";
+  if (file.endsWith(".jsx")) return "jsx";
+  if (/\.[mc]?ts$/.test(file)) return "ts";
+  return "js";
+}
 
-/** Names declared only as `interface`/`type`, which TypeScript erases, so
- * exporting one as default leaves no runtime default. */
-function typeOnlyNames(code: string): Set<string> {
-  const names = new Set<string>();
-  for (const match of code.matchAll(TYPE_DECLARATION_RE)) {
-    const name = match[1] ?? match[2];
-    if (!name) continue;
-    const valueDeclaration = new RegExp(
-      `\\b(?:const|let|var|function\\*?|class|enum|namespace|import)\\b[^;]*?(?<![\\w$])${name.replace(/\$/g, "\\$")}(?![\\w$])`,
+/** The module's runtime export names after TypeScript erasure, or `null` when
+ * esbuild cannot parse it (the real build reports that error itself). */
+export function runtimeExports(source: string, file: string): string[] | null {
+  try {
+    const result = buildSync({
+      stdin: { contents: source, loader: loaderFor(file), sourcefile: file },
+      bundle: false,
+      write: false,
+      metafile: true,
+      format: "esm",
+      jsx: "preserve",
+      tsconfigRaw: "{}",
+      logLevel: "silent",
+    });
+    const output = Object.values(result.metafile.outputs).find(
+      (entry) => entry.entryPoint,
     );
-    if (!valueDeclaration.test(code)) names.add(name);
+    return output?.exports ?? [];
+  } catch {
+    return null;
   }
-  return names;
-}
-
-function isRuntimeDefaultSpecifier(
-  specifier: string,
-  typeOnly: Set<string>,
-): boolean {
-  const tokens = specifier.trim().split(/\s+/);
-  if (tokens.at(-1) !== "default") return false;
-  if (tokens.length !== 1 && tokens.at(-2) !== "as") return false;
-  // `type default` / `type Foo as default` are erased at runtime.
-  if (tokens[0] === "type" && (tokens.length === 2 || tokens.length === 4)) {
-    return false;
-  }
-  return !(tokens.length === 3 && typeOnly.has(tokens[0] ?? ""));
-}
-
-function isStatementPosition(code: string, index: number): boolean {
-  const lineStart = code.lastIndexOf("\n", index - 1) + 1;
-  const before = code.slice(lineStart, index).trimEnd();
-  return before === "" || before.endsWith(";") || before.endsWith("}");
-}
-
-/** `statementOnly` ignores `export default` mid-expression, e.g. JSX text. */
-function findsDefaultExport(code: string, statementOnly = false): boolean {
-  if (EXPORT_STAR_AS_DEFAULT_RE.test(code) || COMMONJS_EXPORT_RE.test(code)) {
-    return true;
-  }
-  const typeOnly = typeOnlyNames(code);
-  for (const match of code.matchAll(EXPORT_DEFAULT_RE)) {
-    if (statementOnly && !isStatementPosition(code, match.index ?? 0)) continue;
-    if (!match[1] || !typeOnly.has(match[1])) return true;
-  }
-  for (const match of code.matchAll(EXPORT_LIST_RE)) {
-    if (match[1]) continue;
-    // Re-exported names resolve in the source module, not local types.
-    const localTypes = match[3] ? new Set<string>() : typeOnly;
-    const specifiers = (match[2] ?? "").split(",");
-    if (
-      specifiers.some((spec) => isRuntimeDefaultSpecifier(spec, localTypes))
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/** `jsx` also checks the unmasked source, because JSX text (apostrophes,
- * `https://`) can look like strings or comments to `maskNonCode` and hide a
- * real export; a missed finding is cheaper than blocking a valid build. */
-export function hasDefaultExport(
-  source: string,
-  options: { jsx?: boolean } = {},
-): boolean {
-  const jsx = options.jsx === true;
-  if (findsDefaultExport(maskNonCode(source), jsx)) return true;
-  return jsx && JSX_STATEMENT_EXPORT_DEFAULT_RE.test(source);
 }
 
 export function scanServerPluginDefaultExport(
@@ -116,11 +64,9 @@ export function scanServerPluginDefaultExport(
   for (const file of files) {
     const source = readFileSafe(file);
     if (source === null) continue;
-    if (
-      !DECLARATION_FILE_RE.test(file) &&
-      hasDefaultExport(source, { jsx: JSX_FILE_RE.test(file) })
-    ) {
-      continue;
+    if (!DECLARATION_FILE_RE.test(file)) {
+      const exports = runtimeExports(source, file);
+      if (exports === null || exports.includes("default")) continue;
     }
     const rel = relPosix(root, file);
     findings.push({

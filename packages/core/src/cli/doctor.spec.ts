@@ -230,6 +230,10 @@ describe("runDoctorScan", () => {
         "interface plugin$ {}\nconst plugin$ = defineNitroPlugin(() => {});\nexport default plugin$;\n",
       "server/plugins/brace-division.ts":
         "const half = { valueOf: () => 4 } / 2; export default defineNitroPlugin(() => half);\n",
+      "server/plugins/brace-newline-division.ts":
+        "const ratio = {}\n/ 2; export default defineNitroPlugin(() => ratio);\n",
+      "server/plugins/return-property.ts":
+        "const ratio = object.return / 2; export default defineNitroPlugin(() => ratio);\n",
       "server/plugins/postfix.ts":
         "let i = 0; const r = i++ / 2 + i-- / 2; export { r as default };\n",
       "server/plugins/commonjs.cjs": "module.exports = () => {};\n",
@@ -319,7 +323,7 @@ describe("runDoctorScan", () => {
     ]);
   });
 
-  it("does not let JSX text, strings or comments stand in for a default export", () => {
+  it("does not let strings, comments, JSX text or regexes stand in for a default export", () => {
     const root = makeTempAppRoot({
       ...CLEAN_FILES,
       "server/plugins/jsx-text-only.tsx":
@@ -328,6 +332,14 @@ describe("runDoctorScan", () => {
         'const note = "export default x";\nregisterThing(<p>{note}</p>);\n',
       "server/plugins/jsx-comment-only.jsx":
         "registerThing(<p />); // export default later\n",
+      "server/plugins/semicolon-string.ts":
+        'const note = "; export default fake";\nregisterThing(note);\n',
+      "server/plugins/semicolon-jsx.tsx":
+        "const el = <div>;export default fake</div>;\nregisterThing(el);\n",
+      "server/plugins/regex-after-block.ts":
+        "if (ready) {} /export default/.test(value);\n",
+      "server/plugins/type-import.ts":
+        'import type { Plugin } from "../plugin";\nexport { Plugin as default };\n',
     });
     const report = runDoctorScan({
       root,
@@ -338,7 +350,24 @@ describe("runDoctorScan", () => {
       "server/plugins/jsx-comment-only.jsx",
       "server/plugins/jsx-string-only.tsx",
       "server/plugins/jsx-text-only.tsx",
+      "server/plugins/regex-after-block.ts",
+      "server/plugins/semicolon-jsx.tsx",
+      "server/plugins/semicolon-string.ts",
+      "server/plugins/type-import.ts",
     ]);
+  });
+
+  it("leaves files esbuild cannot parse to the real build", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/broken.ts": "this is not valid {{{\n",
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["server-plugin-default-export"],
+    });
+
+    expect(report.findings).toEqual([]);
   });
 
   it("finds empty migrations after division by an object literal", () => {
