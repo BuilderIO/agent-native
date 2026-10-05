@@ -17,6 +17,7 @@ import {
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { invalidateClientStatusRequest } from "@agent-native/core/client/status-requests";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -540,6 +541,8 @@ export default function Index({ active = true }: { active?: boolean }) {
   const agentEngine = useAgentEngineConfigured();
   const [preflightAgentEngineState, setPreflightAgentEngineState] =
     useState<AgentEngineConfiguredState | null>(null);
+  const [agentEnginePreflightPending, setAgentEnginePreflightPending] =
+    useState(false);
   const preflightRequestIdRef = useRef(0);
   const effectiveAgentEngineState =
     preflightAgentEngineState ?? agentEngine.state;
@@ -553,6 +556,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     if (agentEngine.state === "configured" || agentEngine.state === "missing") {
       preflightRequestIdRef.current += 1;
       setPreflightAgentEngineState(null);
+      setAgentEnginePreflightPending(false);
     }
   }, [agentEngine.state]);
   // The draft a send held back for missing AI setup is sent once, as soon as
@@ -561,13 +565,19 @@ export default function Index({ active = true }: { active?: boolean }) {
   const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
   const ensureAgentEngineConfigured = useCallback(
     async (draft?: ComposerDraftSnapshot) => {
-      if (agentEngineConfigured) return true;
       const requestId = ++preflightRequestIdRef.current;
+      setAgentEnginePreflightPending(true);
       let nextState: AgentEngineConfiguredState;
       try {
+        invalidateClientStatusRequest("/_agent-native/agent-engine/status");
+        window.dispatchEvent(new Event("agent-engine:configured-changed"));
         nextState = await fetchAgentEngineConfiguredState();
       } catch {
         nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
+      } finally {
+        if (requestId === preflightRequestIdRef.current) {
+          setAgentEnginePreflightPending(false);
+        }
       }
       if (requestId !== preflightRequestIdRef.current) {
         return canChatRef.current;
@@ -596,6 +606,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const retryAgentEngineStatus = useCallback(() => {
     preflightRequestIdRef.current += 1;
     setPreflightAgentEngineState(null);
+    setAgentEnginePreflightPending(false);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
@@ -2473,6 +2484,12 @@ export default function Index({ active = true }: { active?: boolean }) {
               context={composerContext}
               controllerRef={homeComposerRef}
               disabled={!isHome}
+              preflightPending={agentEnginePreflightPending}
+              submissionDisabled={
+                agentEngineMissing || agentEnginePreflightPending
+                  ? true
+                  : undefined
+              }
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
               open={showNewDeckPrompt}

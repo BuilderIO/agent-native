@@ -1,6 +1,6 @@
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
-  sendToAgentChat,
+  sendToAgentChatAndConfirm,
   type AgentChatSubmitResult,
 } from "@agent-native/core/client/agent-chat";
 import {
@@ -513,6 +513,9 @@ export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const generationSubmitId = searchParams.get("generationSubmitId");
+  const isNewDeckGenerationRoute =
+    searchParams.get("generating") === "1" || Boolean(generationSubmitId);
   const { session, isLoading: sessionLoading } = useSession();
   const {
     getDeck,
@@ -536,6 +539,7 @@ export default function DeckEditor() {
     loading,
     loadError,
   } = useDecks();
+  const deck = getDeck(id || "");
   const canUndo = undoAvailability[id ?? ""]?.canUndo ?? false;
   const canRedo = undoAvailability[id ?? ""]?.canRedo ?? false;
   const deckAccessStatusQuery = useDeckAccessStatus(id);
@@ -580,9 +584,11 @@ export default function DeckEditor() {
           hasPendingEdits: hasPendingDeckEdits,
           currentPathname: currentLocation.pathname,
           nextPathname: nextLocation.pathname,
-          allowPendingEdits: presentNavigationRef.current,
+          allowPendingEdits:
+            presentNavigationRef.current ||
+            (isNewDeckGenerationRoute && (deck?.slides.length ?? 0) === 0),
         }),
-      [hasPendingDeckEdits],
+      [deck?.slides.length, hasPendingDeckEdits, isNewDeckGenerationRoute],
     ),
   );
   const pendingDeckNavigationWarningOpen =
@@ -598,9 +604,6 @@ export default function DeckEditor() {
   const { generating } = useAgentGenerating();
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
-  const generationSubmitId = searchParams.get("generationSubmitId");
-  const isNewDeckGenerationRoute =
-    searchParams.get("generating") === "1" || Boolean(generationSubmitId);
   const retryEmptyGenerationInFlightRef = useRef(false);
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
@@ -615,11 +618,20 @@ export default function DeckEditor() {
     isNewDeckGenerationRoute,
     generationSubmitId,
   );
+  const questionFlowThreadIdRef = useRef<string | null>(null);
   const submitQuestionContinuation = useCallback(
     ({ message, context }: { message: string; context: string }) => {
       if (!generationSubmitId) {
-        sendToAgentChat({ message, context, submit: true });
-        return;
+        return sendToAgentChatAndConfirm({
+          message,
+          context,
+          submit: true,
+          chatTarget: "local",
+          openSidebar: true,
+          ...(questionFlowThreadIdRef.current
+            ? { targetTabId: questionFlowThreadIdRef.current }
+            : {}),
+        });
       }
       return submitTrackedQuestionContinuation({ message, context });
     },
@@ -894,7 +906,6 @@ export default function DeckEditor() {
     storageQuery.data?.configured === true && !storageQuery.isError;
   const [showUploadStorageSetup, setShowUploadStorageSetup] = useState(false);
 
-  const deck = getDeck(id || "");
   const retryRecoveryStorageKey = id
     ? `slides:empty-generation-retry-recovery:${id}`
     : null;
@@ -1795,6 +1806,7 @@ export default function DeckEditor() {
   const commentsOpen = sidePanel === "comments";
 
   const {
+    payload: questionFlowPayload,
     questions: questionFlowQuestions,
     title: questionFlowTitle,
     description: questionFlowDescription,
@@ -1810,6 +1822,7 @@ export default function DeckEditor() {
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     browserTabId: TAB_ID,
+    threadId: newDeckGenerationTabId ?? undefined,
     queryKey: ["guided-questions"],
     submitMessage: "Here are my answers — go ahead and create the slides.",
     skipMessage:
@@ -1832,10 +1845,16 @@ export default function DeckEditor() {
     onSubmitMessage: submitQuestionContinuation,
     onSkipMessage: submitQuestionContinuation,
   });
+  questionFlowThreadIdRef.current =
+    questionFlowPayload?.threadId ?? newDeckGenerationTabId;
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
   const waitingOnNewDeckQuestions =
     showQuestionFlow || questionContinuationPending;
+  useEffect(() => {
+    if (!showQuestionFlow) return;
+    window.dispatchEvent(new CustomEvent("agent-panel:open"));
+  }, [showQuestionFlow]);
   const { isNewDeckCreation, phase: newDeckGenerationPhase } =
     useNewDeckGeneration({
       deckId: id ?? "",
@@ -1870,7 +1889,6 @@ export default function DeckEditor() {
   });
   const generatingSlideVisible =
     canEdit &&
-    !showQuestionFlow &&
     (isNewDeckGenerating ||
       (addSlideGenerating && !fillingPlaceholderSlideId) ||
       showNewDeckGeneratingOverlay);
@@ -3989,6 +4007,18 @@ export default function DeckEditor() {
           </>
         )}
 
+        {generatingSlideSelected && generatingSlideVisible && (
+          <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
+            <div className="m-auto w-full max-w-6xl">
+              <GeneratingSlidePreview
+                aspectRatio={deck.aspectRatio}
+                designSystem={designSystem}
+                thumbnail={false}
+              />
+            </div>
+          </div>
+        )}
+
         {showQuestionFlow && (
           <QuestionFlow
             questions={questionFlowQuestions ?? []}
@@ -4006,21 +4036,8 @@ export default function DeckEditor() {
           />
         )}
 
-        {generatingSlideSelected && generatingSlideVisible && (
-          <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
-            <div className="m-auto w-full max-w-6xl">
-              <GeneratingSlidePreview
-                aspectRatio={deck.aspectRatio}
-                designSystem={designSystem}
-                thumbnail={false}
-              />
-            </div>
-          </div>
-        )}
-
         {!generatingSlideSelected &&
           deck.slides.length === 0 &&
-          !showQuestionFlow &&
           (generationFailed ? (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div
@@ -4054,8 +4071,7 @@ export default function DeckEditor() {
 
         {deck.slides.length === 0 &&
           !generationFailed &&
-          !generatingSlideVisible &&
-          !showQuestionFlow && (
+          !generatingSlideVisible && (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">
                 <GeneratingSlidePreview
