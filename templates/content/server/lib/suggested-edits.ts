@@ -587,7 +587,6 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
-    if (context.decision === "rejected") return run();
     const sync = await prepareTransactionalChange({
       source: "action",
       type: "change",

@@ -404,7 +404,16 @@ export const listResourceSuggestions = defineAction({
   schema: z.object({
     ...base,
     statuses: z
-      .array(z.enum(["pending", "accepted", "rejected", "stale", "superseded"]))
+      .array(
+        z.enum([
+          "pending",
+          "accepted",
+          "rejected",
+          "stale",
+          "superseded",
+          "withdrawn",
+        ]),
+      )
       .optional(),
   }),
   http: { method: "GET" },
@@ -452,11 +461,28 @@ export const getResourceSuggestion = defineAction({
   },
 });
 
+function decisionAccessRole(
+  suggestion: Pick<ResourceSuggestion, "authorEmail">,
+  decision: "accepted" | "rejected" | "withdrawn",
+  ctx: unknown,
+) {
+  if (decision !== "withdrawn") return "editor";
+  const author = (ctx as any)?.userEmail;
+  if (!author || author !== suggestion.authorEmail) {
+    fail("Only the author can withdraw this suggestion", {
+      statusCode: 403,
+      errorCode: "forbidden",
+    });
+  }
+  return "commenter";
+}
+
 export const decideResourceSuggestion = defineAction({
-  description: "Accept or reject a pending suggestion atomically.",
+  description:
+    "Accept or reject a pending suggestion atomically, which needs edit access. Its author may instead withdraw it with comment access; a withdrawn suggestion was never reviewed and leaves the resource unchanged.",
   schema: z.object({
     id: z.string().min(1),
-    decision: z.enum(["accepted", "rejected"]),
+    decision: z.enum(["accepted", "rejected", "withdrawn"]),
     idempotencyKey: z.string().min(1),
     observedBase: z.string().min(1),
     observedRevision: z.number().int().positive().optional(),
@@ -468,7 +494,7 @@ export const decideResourceSuggestion = defineAction({
       suggestion.resourceType,
       suggestion.resourceId,
       ctx as any,
-      "editor",
+      decisionAccessRole(suggestion, args.decision, ctx),
     );
     const db = getDbExec();
     if (!db.transaction)
@@ -507,7 +533,7 @@ export const decideResourceSuggestion = defineAction({
           current.resourceType,
           current.resourceId,
           { ...(ctx as any), transaction: tx },
-          "editor",
+          decisionAccessRole(current, args.decision, ctx),
         );
         if (current.status !== "pending") {
           return replayDecision(tx);
@@ -620,18 +646,21 @@ export const decideResourceSuggestion = defineAction({
           decision: prior.record,
         };
       });
-    const decisionContext = {
-      resourceType: suggestion.resourceType,
-      resourceId: suggestion.resourceId,
-      suggestion,
-      operations: suggestion.operations,
-      decision: args.decision,
-      access,
-      ctx: { ...(ctx as any), suggestionAccess: access },
-    };
-    return adapter.coordinateDecision
-      ? adapter.coordinateDecision(decisionContext, decide)
-      : decide();
+    if (args.decision === "accepted" && adapter.coordinateDecision) {
+      return adapter.coordinateDecision(
+        {
+          resourceType: suggestion.resourceType,
+          resourceId: suggestion.resourceId,
+          suggestion,
+          operations: suggestion.operations,
+          decision: args.decision,
+          access,
+          ctx: { ...(ctx as any), suggestionAccess: access },
+        },
+        decide,
+      );
+    }
+    return decide();
   },
   audit: {
     target: (_args, result) => {

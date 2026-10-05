@@ -107,11 +107,38 @@ describe("formatting source ranges", () => {
     },
   );
 
-  it("does not admit heading syntax as a nonempty slice or map other markup gaps", () => {
+  it("does not admit heading syntax as a nonempty slice or map inline markup gaps", () => {
     expect(suggestionFormattingSourceSlice("# Heading", 0, 2)).toBeNull();
     expect(suggestionFormattingSourceRange("**Bold**", 1, 1)).toBeNull();
-    expect(suggestionFormattingSourceRange("> Quote", 0, 0)).toBeNull();
-    expect(suggestionFormattingSourceRange("- Item", 0, 0)).toBeNull();
+  });
+
+  it.each([
+    ["Before\n> Quote", "Before".length],
+    ["Before\n- Item", "Before".length],
+    ["Before\n1. Item", "Before".length],
+    ["Before\n- [ ] Task", "Before".length],
+    ["Before\n```ts\nconst x = 1;\n```", "Before".length],
+    ["> Quote", 0],
+    ["- Item", 0],
+  ])(
+    "maps a zero-width boundary inside the block syntax of %j",
+    (source, textOffset) => {
+      const lineStart = source.indexOf("\n") + 1;
+      expect(
+        suggestionFormattingSourceRange(source, lineStart, lineStart),
+      ).toMatchObject({ from: textOffset, to: textOffset });
+    },
+  );
+
+  it.each([
+    "A\n---\nB",
+    "A\n<empty-block/>\nB",
+    "A\n![Alt](https://example.test/a.png)\nB",
+  ])("leaves a gap holding a non-text block unmapped in %j", (source) => {
+    expect(suggestionFormattingSourceRange(source, 1, 1)).toMatchObject({
+      from: 1,
+    });
+    expect(suggestionFormattingSourceRange(source, 2, 2)).toBeNull();
   });
 
   it("keeps malformed and inline heading-like text in ordinary text runs", () => {

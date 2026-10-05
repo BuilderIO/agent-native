@@ -453,9 +453,15 @@ describe("document editor layout", () => {
       source.indexOf("const handleSuggestionAnchorsChange"),
       source.indexOf("const [selectedSuggestionId"),
     );
+    const visualEditor = readFileSync(
+      new URL("./VisualEditor.tsx", import.meta.url),
+      "utf8",
+    );
 
-    expect(handler).toContain("if (isSuggesting) return");
     expect(handler).toContain("sameSuggestionAnchorIds(current, next)");
+    expect(visualEditor).toContain(
+      "applySuggestionsRef.current?.(!suggestingRef.current)",
+    );
   });
 
   it("keeps suggestion history notifications out of the parent render loop", () => {
@@ -2841,9 +2847,7 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "const readyDocument = await prepareSuggestionDraftDocument()",
     );
-    expect(source).toContain(
-      "suggestionDraftOperations(base, suggestionDraft)",
-    );
+    expect(source).toContain("suggestionDraftOperations(base, draft)");
     expect(source).toContain("createSuggestionProposal.mutateAsync(request)");
     expect(source).toContain("suggestions: pending.map((operation) => ({");
     expect(source).toContain("operations: [operation]");
@@ -2891,12 +2895,16 @@ describe("document editor layout", () => {
       "utf8",
     );
 
-    expect(source).toContain("if (isSubmittingSuggestions) return");
-    expect(source).toContain("setIsSubmittingSuggestions(true)");
+    expect(source).toContain(
+      "if (!autosave && isSubmittingSuggestions) return",
+    );
+    expect(source).toContain("if (!autosave) setIsSubmittingSuggestions(true)");
     expect(source).toMatch(
       /suggestionEditorIsolation\.editable &&\s+!isStartingSuggestion &&\s+!isSubmittingSuggestions/,
     );
-    expect(source).toContain("setIsSubmittingSuggestions(false)");
+    expect(source).toContain(
+      "if (!autosave) setIsSubmittingSuggestions(false)",
+    );
   });
 
   it("keeps Suggesting enabled while accept and reject reconcile", () => {

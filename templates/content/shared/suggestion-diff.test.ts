@@ -60,6 +60,37 @@ function expectIntactOperations(
 }
 
 describe("suggestion decomposition", () => {
+  it("keeps a typed sentence whole when the author also edits elsewhere", () => {
+    const before = [
+      "It means I'd just learned three things about drawing.",
+      "I've already promised Apoorva my next one for another critique.",
+      "## Hand edits are gold",
+      "I don't make much by hand anymore.",
+    ].join("\n");
+    const split = before.indexOf("things");
+    const heading = before.indexOf("## Hand");
+    const sentence = "\nEncoding our newfound knowledge is the whole point.";
+    const paragraph = "Then I wrote the lesson into the skill.\n";
+    const after =
+      before.slice(0, split) +
+      sentence +
+      before.slice(split, heading) +
+      paragraph +
+      before.slice(heading);
+
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before,
+      after,
+      replacements: [],
+    });
+
+    expect(operations.map((operation) => operation.after.changedText)).toEqual([
+      sentence,
+      paragraph,
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
   it("keeps a middle edit reviewable after accepting both outer edits", () => {
     const before = "Alpha quick bravo, middle ready, omega slow.";
     const after = "Apex quick bravo, middle set, omega fast.";

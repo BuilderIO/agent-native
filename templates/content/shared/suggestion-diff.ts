@@ -259,8 +259,8 @@ function diffParts(
 
   // A hard-break token is one structural edit. Matching its letters against
   // nearby prose can otherwise create independently invalid `<b` / `r>` hunks.
-  const before = beforeSource.match(/<br\/?>|[\s\S]/gu) ?? [];
-  const after = afterSource.match(/<br\/?>|[\s\S]/gu) ?? [];
+  const before = diffTokens(beforeSource);
+  const after = diffTokens(afterSource);
 
   const maxDistance = Math.min(before.length + after.length, MAX_EDIT_DISTANCE);
   const offset = maxDistance + 1;
@@ -286,7 +286,9 @@ function diffParts(
       }
       frontier[offset + diagonal] = x;
       if (x >= before.length && y >= after.length) {
-        return backtrack(trace, before, after, distance, offset);
+        return foldShortEqualities(
+          backtrack(trace, before, after, distance, offset),
+        );
       }
     }
   }
@@ -348,6 +350,112 @@ function backtrack(
   }
 
   return coalesce(reverseParts.reverse());
+}
+
+function diffTokens(text: string): string[] {
+  return text.match(/<br\/?>|[\s\S]/gu) ?? [];
+}
+
+// A minimal Myers alignment is not a stable one: typed text that shares a few
+// letters with what follows ("th" in "the" and "things") splits into separate
+// insertions, and the split moves whenever an edit elsewhere shifts the
+// alignment. Fold an equality between two insertions (or two deletions) that
+// is no longer than either, as diff-match-patch's semantic cleanup does.
+// Equalities between replacements stay, so separate word swaps remain
+// separately reviewable, and a line never folds, so blocks stay separate.
+type ChangeRun = {
+  deleted: string;
+  inserted: string;
+  // Folded equality text sits on both sides without making a run a replacement.
+  ownDeleted: number;
+  ownInserted: number;
+};
+
+function foldShortEqualities(parts: DiffPart[]): DiffPart[] {
+  const segments: Array<string | ChangeRun> = [];
+  for (const part of parts) {
+    const last = segments[segments.length - 1];
+    if (part.type === "equal") segments.push(part.text);
+    else {
+      const run =
+        typeof last === "object"
+          ? last
+          : { deleted: "", inserted: "", ownDeleted: 0, ownInserted: 0 };
+      if (run !== last) segments.push(run);
+      if (part.type === "delete") {
+        run.deleted += part.text;
+        run.ownDeleted += part.text.length;
+      } else {
+        run.inserted += part.text;
+        run.ownInserted += part.text.length;
+      }
+    }
+  }
+  let folded = false;
+  for (let index = 1; index < segments.length - 1; index += 1) {
+    const equality = segments[index];
+    const left = segments[index - 1];
+    const right = segments[index + 1];
+    if (typeof equality !== "string" || typeof left !== "object") continue;
+    if (typeof right !== "object") continue;
+    const oneSided =
+      (left.ownDeleted === 0 && right.ownDeleted === 0) ||
+      (left.ownInserted === 0 && right.ownInserted === 0);
+    if (
+      !oneSided ||
+      equality.includes("\n") ||
+      equality.length > Math.max(left.ownDeleted, left.ownInserted) ||
+      equality.length > Math.max(right.ownDeleted, right.ownInserted)
+    )
+      continue;
+    segments.splice(index - 1, 3, {
+      deleted: left.deleted + equality + right.deleted,
+      inserted: left.inserted + equality + right.inserted,
+      ownDeleted: left.ownDeleted + right.ownDeleted,
+      ownInserted: left.ownInserted + right.ownInserted,
+    });
+    // The merged run may make the equality before it foldable too.
+    index = Math.max(0, index - 3);
+    folded = true;
+  }
+  if (!folded) return parts;
+  const result: DiffPart[] = [];
+  for (const segment of segments) {
+    if (typeof segment === "string") {
+      result.push({ type: "equal", text: segment });
+      continue;
+    }
+    const deleted = diffTokens(segment.deleted);
+    const inserted = diffTokens(segment.inserted);
+    let prefix = 0;
+    while (
+      prefix < deleted.length &&
+      prefix < inserted.length &&
+      deleted[prefix] === inserted[prefix]
+    )
+      prefix += 1;
+    let suffix = 0;
+    while (
+      suffix < deleted.length - prefix &&
+      suffix < inserted.length - prefix &&
+      deleted[deleted.length - 1 - suffix] ===
+        inserted[inserted.length - 1 - suffix]
+    )
+      suffix += 1;
+    result.push(
+      { type: "equal", text: deleted.slice(0, prefix).join("") },
+      {
+        type: "delete",
+        text: deleted.slice(prefix, deleted.length - suffix).join(""),
+      },
+      {
+        type: "insert",
+        text: inserted.slice(prefix, inserted.length - suffix).join(""),
+      },
+      { type: "equal", text: deleted.slice(deleted.length - suffix).join("") },
+    );
+  }
+  return coalesce(result);
 }
 
 type MarkedSourceRanges = Array<{ from: number; to: number }>;

@@ -358,6 +358,87 @@ describe("Content suggested edits Blocks transaction", () => {
     await run();
   });
 
+  it("lets a commenter withdraw their own suggestion without touching the Page", async () => {
+    sequence += 1;
+    const documentId = `suggestion-withdraw-page-${sequence}`;
+    const commenterEmail = "commenter@example.com";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Withdraw page",
+      content: "The quick fox.",
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: `share-${documentId}`,
+        resourceId: documentId,
+        principalType: "user",
+        principalId: commenterEmail,
+        role: "commenter",
+        createdBy: ownerEmail,
+        createdAt: now,
+      });
+    const ctx = { caller: "cli" as const, userEmail: commenterEmail };
+    const proposals =
+      await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal");
+    const decisions =
+      await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion");
+    const lists =
+      await import("@agent-native/core/review/suggestions/actions/list-resource-suggestions");
+
+    await runWithRequestContext({ userEmail: commenterEmail }, async () => {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      const operations = markdownSuggestionOperations(
+        "The quick fox.",
+        "The slow fox.",
+      );
+      expect(operations).toHaveLength(1);
+      const created = await proposals.default.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: adapter.kind,
+          baseRevision: document.revision,
+          summary: "Suggest edits",
+          idempotencyKey: `content-withdraw-${documentId}`,
+          suggestions: [
+            {
+              summary: "Edit",
+              operations,
+            },
+          ],
+        },
+        ctx,
+      );
+      const suggestion = created.suggestions[0]!;
+      const withdrawn = await decisions.default.run(
+        {
+          id: suggestion.id,
+          decision: "withdrawn",
+          idempotencyKey: `withdraw:${suggestion.id}:${suggestion.revision}`,
+          observedBase: suggestion.baseRevision,
+          observedRevision: suggestion.revision,
+        },
+        ctx,
+      );
+      expect(withdrawn.suggestion?.status).toBe("withdrawn");
+      const listed = await lists.default.run(
+        { resourceType: "document", resourceId: documentId },
+        ctx,
+      );
+      expect(listed.suggestions.map((entry) => entry.status)).toEqual([
+        "withdrawn",
+      ]);
+      const after = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(after.content).toBe("The quick fox.");
+      expect(after.revision).toBe(document.revision);
+    });
+  });
+
   it("rolls back the first Content edit when the second proposal edit conflicts", async () => {
     sequence += 1;
     const documentId = `suggestion-conflict-page-${sequence}`;
