@@ -1190,6 +1190,45 @@ describe("change capture", () => {
     expect(await indexedIds("unseen")).toEqual(["kept", "missed"]);
   });
 
+  it("rebuilds again when a release reinstalls capture while a rebuild is queueing", async () => {
+    search.resetSearchIndexRuntime();
+    const { registered, tableName } = await isolatedRegistration("mid-queue");
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('kept', 'Kept')`);
+    let held = false;
+    const restore = interceptStatements(async (sql, _query, execute) => {
+      if (!held && sql.includes("SET rebuild_high_seq = ?::bigint")) {
+        held = true;
+        // After the rebuild queued every row, before it records how far it
+        // got: capture goes missing, a write goes unrecorded, and a release
+        // puts capture back.
+        await dropCapture({
+          app: "isolated",
+          resourceType: "mid-queue",
+          table: tableName,
+          idColumn: "id",
+        });
+        await run(
+          `INSERT INTO ${tableName} (id, title) VALUES ('missed', 'Missed')`,
+        );
+        await search.searchIndexMigration(registered, {
+          version: 1,
+          name: "capture-mid-queue-again",
+        }).run!(exec());
+      }
+      return execute();
+    });
+    try {
+      expect(
+        await indexer.drainSearchIndex(registered, Date.now() + 10_000),
+      ).toEqual({ ready: false, reason: "rebuilding" });
+    } finally {
+      restore();
+    }
+    search.resetSearchIndexRuntime();
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    expect(await indexedIds("mid-queue")).toEqual(["kept", "missed"]);
+  });
+
   it("is left to the newer version when an older release migrates later", async () => {
     const { registered, tableName } = await isolatedRegistration("superseded");
     await search.searchIndexMigration(

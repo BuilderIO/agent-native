@@ -87,8 +87,10 @@ export async function raiseSearchIndexTarget(
 }
 
 /**
- * Marks the index as needing a rebuild at its current version. Nothing to do
- * before the search tables exist: there is no index yet.
+ * Marks the index as needing a rebuild at its current version, including a
+ * rebuild still queueing rows: its queue may predate the writes this
+ * invalidation is for. Nothing to do before the search tables exist: there
+ * is no index yet.
  */
 export async function invalidateSearchIndex(
   exec: DbExec,
@@ -102,7 +104,7 @@ export async function invalidateSearchIndex(
   await exec.execute({
     sql: `UPDATE ${SEARCH_INDEX_STATE_TABLE}
           SET rebuild_high_seq = NULL, rebuild_started_at = NULL, rebuild_completed_at = NULL
-          WHERE app = ? AND resource_type = ? AND rebuild_high_seq IS NOT NULL`,
+          WHERE app = ? AND resource_type = ?`,
     args: [target.app, target.type],
   });
 }

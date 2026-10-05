@@ -348,6 +348,10 @@ Instead:
      Rows whose source is gone are then removed.
    - A rebuild at the same version, after capture was missing, is claimed by
      one process in one statement, so only that process enqueues.
+   - A rebuild records its highest `seq` only if its claim still stands once
+     it has enqueued. Discarding the index clears the claim, so a rebuild
+     that was enqueueing when capture went missing starts over, rather than
+     completing without the writes made while capture was gone.
 
    Every claim, index write, and completion carries a fence: it takes effect
    only while the target version is still the drain's own. A process on the
@@ -529,7 +533,8 @@ Built:
   - distinct trigger names for every source, including two whose readable
     names collide;
   - disabled triggers keep search on the fallback, and re-enabling them
-    rebuilds the index;
+    rebuilds the index; so does a release that reinstalls capture, even while
+    a rebuild is enqueueing;
   - a change recorded while its batch is processing is kept;
   - a claim never takes more than its limit;
   - backlog and rebuild readiness;
