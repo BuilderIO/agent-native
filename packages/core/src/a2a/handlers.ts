@@ -1108,30 +1108,32 @@ function authorizeTaskAccess(
       return jsonRpcError(0, -32001, "Task not found");
     }
     const storedScope = taskOwnerScope?.trim().toLowerCase() ?? "";
-    if (storedScope) {
-      const verifiedOrgId =
-        (event?.context?.__a2aVerifiedOrgId as string | undefined)
-          ?.trim()
-          .toLowerCase() ?? "";
-      const verifiedOrgDomain =
-        (event?.context?.__a2aOrgDomain as string | undefined)?.trim() ?? "";
-      if (storedScope.startsWith(A2A_ORG_ID_OWNER_SCOPE_PREFIX)) {
-        if (
-          !verifiedOrgId ||
-          storedScope !== `${A2A_ORG_ID_OWNER_SCOPE_PREFIX}${verifiedOrgId}`
-        ) {
-          return jsonRpcError(0, -32001, "Task not found");
-        }
-      } else if (
-        storedScope === A2A_PERSONAL_OWNER_SCOPE &&
-        !verifiedOrgId &&
-        !verifiedOrgDomain
+    if (!storedScope) {
+      // Legacy empty scopes cannot distinguish personal tasks from org tasks.
+      return jsonRpcError(0, -32001, "Task not found");
+    }
+    const verifiedOrgId =
+      (event?.context?.__a2aVerifiedOrgId as string | undefined)
+        ?.trim()
+        .toLowerCase() ?? "";
+    const verifiedOrgDomain =
+      (event?.context?.__a2aOrgDomain as string | undefined)?.trim() ?? "";
+    if (storedScope.startsWith(A2A_ORG_ID_OWNER_SCOPE_PREFIX)) {
+      if (
+        !verifiedOrgId ||
+        storedScope !== `${A2A_ORG_ID_OWNER_SCOPE_PREFIX}${verifiedOrgId}`
       ) {
-        // A verified identity with no organization is in its personal scope.
-      } else {
-        // Legacy domain scopes cannot be safely rebound after a domain change.
         return jsonRpcError(0, -32001, "Task not found");
       }
+    } else if (
+      storedScope === A2A_PERSONAL_OWNER_SCOPE &&
+      !verifiedOrgId &&
+      !verifiedOrgDomain
+    ) {
+      // A verified identity with no organization is in its personal scope.
+    } else {
+      // Legacy domain scopes cannot be safely rebound after a domain change.
+      return jsonRpcError(0, -32001, "Task not found");
     }
   }
   return null;

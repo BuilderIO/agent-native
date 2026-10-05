@@ -863,45 +863,147 @@ describe("handleJsonRpc", () => {
     expect(cancel.error).toMatchObject({ code: -32001 });
   });
 
-  it("preserves same-owner access to legacy tasks without an org scope", async () => {
-    const ownerEvent = mockEvent();
-    ownerEvent.context = {
+  it.each([null, ""])(
+    "denies access to owner-backed legacy tasks without a stored scope (%s)",
+    async (legacyScope) => {
+      const ownerEvent = mockEvent();
+      ownerEvent.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+        __a2aOrgDomain: "shared.test",
+        __a2aVerifiedOrgId: "org-acme",
+      };
+      const created = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 32,
+          method: "message/send",
+          params: {
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "legacy unscoped task" }],
+            },
+          },
+        },
+        ownerEvent,
+        customHandler,
+      );
+      const { getTask, setTaskOwnerScope } =
+        (await import("./task-store.js")) as any;
+      await setTaskOwnerScope(created.result.id, legacyScope);
+
+      const otherOrg = mockEvent();
+      otherOrg.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+        __a2aOrgDomain: "other.test",
+        __a2aVerifiedOrgId: "org-other",
+      };
+      const get = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 33,
+          method: "tasks/get",
+          params: { id: created.result.id },
+        },
+        otherOrg,
+        customHandler,
+      );
+      const cancel = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 34,
+          method: "tasks/cancel",
+          params: { id: created.result.id },
+        },
+        otherOrg,
+        customHandler,
+      );
+
+      expect(get.error).toMatchObject({ code: -32001 });
+      expect(cancel.error).toMatchObject({ code: -32001 });
+      const ownerRead = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 35,
+          method: "tasks/get",
+          params: { id: created.result.id },
+        },
+        ownerEvent,
+        customHandler,
+      );
+      expect(ownerRead.error).toMatchObject({ code: -32001 });
+      const personalCaller = mockEvent();
+      personalCaller.context = {
+        __a2aVerifiedEmail: "alice@example.org",
+      };
+      const personalRead = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 36,
+          method: "tasks/get",
+          params: { id: created.result.id },
+        },
+        personalCaller,
+        customHandler,
+      );
+      expect(personalRead.error).toMatchObject({ code: -32001 });
+      expect(await getTask(created.result.id)).toMatchObject({
+        status: { state: "completed" },
+      });
+    },
+  );
+
+  it("scopes new personal tasks to personal callers", async () => {
+    const personalEvent = mockEvent();
+    personalEvent.context = {
       __a2aVerifiedEmail: "alice@example.org",
-      __a2aOrgDomain: "shared.test",
-      __a2aVerifiedOrgId: "org-acme",
     };
     const created = await handleJsonRpc(
       {
         jsonrpc: "2.0",
-        id: 32,
+        id: 36,
         method: "message/send",
         params: {
           message: {
             role: "user",
-            parts: [{ type: "text", text: "legacy unscoped task" }],
+            parts: [{ type: "text", text: "legacy personal task" }],
           },
         },
       },
-      ownerEvent,
+      personalEvent,
       customHandler,
     );
-    const { setTaskOwnerScope } = (await import("./task-store.js")) as any;
-    await setTaskOwnerScope(created.result.id, null);
+    const { getTaskOwnership } = (await import("./task-store.js")) as any;
+    await expect(getTaskOwnership(created.result.id)).resolves.toEqual({
+      ownerEmail: "alice@example.org",
+      ownerScope: "__personal__",
+    });
 
-    const sameOwner = mockEvent();
-    sameOwner.context = {
+    const organizationCaller = mockEvent();
+    organizationCaller.context = {
       __a2aVerifiedEmail: "alice@example.org",
-      __a2aOrgDomain: "other.test",
-      __a2aVerifiedOrgId: "org-other",
+      __a2aOrgDomain: "acme.test",
+      __a2aVerifiedOrgId: "org-acme",
     };
-    const result = await handleJsonRpc(
+    const denied = await handleJsonRpc(
       {
         jsonrpc: "2.0",
-        id: 33,
+        id: 37,
         method: "tasks/get",
         params: { id: created.result.id },
       },
-      sameOwner,
+      organizationCaller,
+      customHandler,
+    );
+    expect(denied.error).toMatchObject({ code: -32001 });
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 38,
+        method: "tasks/get",
+        params: { id: created.result.id },
+      },
+      personalEvent,
       customHandler,
     );
 
