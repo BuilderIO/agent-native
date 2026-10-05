@@ -126,6 +126,24 @@ function hardNavigate(win: Window, href: string): void {
   }
 }
 
+function isModuleAssetLoadFailure(event: Event): boolean {
+  const target = event.target as
+    | (EventTarget & {
+        getAttribute?: (name: string) => string | null;
+        rel?: string;
+        tagName?: string;
+        type?: string;
+      })
+    | null;
+  const tagName = target?.tagName?.toUpperCase();
+  if (tagName === "LINK" && target) {
+    return /(?:^|\s)modulepreload(?:\s|$)/i.test(
+      target.getAttribute?.("rel") ?? target.rel ?? "",
+    );
+  }
+  return tagName === "SCRIPT" && target?.type?.toLowerCase() === "module";
+}
+
 function isAgentNativeDesktop(win: Window): boolean {
   return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
 }
@@ -363,6 +381,14 @@ export function installRouteChunkRecovery(
     (event) => {
       const href = intendedHrefFromClick(win, event);
       if (href) rememberIntendedNavigation(state, href);
+    },
+    true,
+  );
+
+  win.document.addEventListener(
+    "error",
+    (event) => {
+      if (isModuleAssetLoadFailure(event)) reloadForStaleChunk(win);
     },
     true,
   );

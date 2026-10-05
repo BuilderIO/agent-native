@@ -537,8 +537,35 @@ describe("route chunk recovery", () => {
     installRouteChunkRecovery(fakeWindow);
     installRouteChunkRecovery(fakeWindow);
 
-    expect(fakeWindow.document.addEventListener).toHaveBeenCalledTimes(1);
+    expect(fakeWindow.document.addEventListener).toHaveBeenCalledTimes(2);
     expect(fakeWindow.addEventListener).toHaveBeenCalledTimes(2);
+  });
+
+  it("reloads for a failed module preload while ignoring other resource errors", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/dispatch/apps?tab=activity#latest",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    dispatchDocument("error", {
+      target: { tagName: "IMG", src: "https://example.com/avatar.png" },
+    } as unknown as Event);
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+
+    dispatchDocument("error", {
+      target: {
+        tagName: "LINK",
+        rel: "modulepreload",
+        getAttribute: (name: string) =>
+          name === "rel" ? "modulepreload" : null,
+      },
+    } as unknown as Event);
+
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/apps?tab=activity#latest",
+    );
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
   });
 
   it("bounds same-route React Router reloads when there is no fresh target", () => {
