@@ -227,7 +227,11 @@ type Navigate = (
 
 type CreateDeck = (
   title?: string,
-  options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
+  options?: {
+    noDefaultSlides?: boolean;
+    designSystemId?: string | null;
+    undoableCreation?: boolean;
+  },
 ) => Deck;
 
 type SubmitAgent = (
@@ -379,6 +383,7 @@ export async function startDeckGeneration({
   flushSync(() => {
     deck = createDeck(undefined, {
       noDefaultSlides: true,
+      undoableCreation: false,
       designSystemId: selectedDesignSystem?.id ?? null,
     });
   });
