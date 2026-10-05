@@ -2157,13 +2157,14 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     for (let y = 0; y <= 228; y += 2) { let lo = 0, hi = 1; for (let k = 0; k < 14; k++) { const m = (lo + hi) / 2; if (inSrgb(fromHsv(m, 1 - y / 228, C.hue))) lo = m; else hi = m; } (y ? ctx.lineTo : ctx.moveTo).call(ctx, lo * 228, y); }
     ctx.stroke();
   };
-  const hueBg = () => wide() ? `linear-gradient(to right, ${["1 0 0", "1 1 0", "0 1 0", "0 1 1", "0 0 1", "1 0 1", "1 0 0"].map(x => `color(display-p3 ${x})`).join(", ")})` : "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)";
+  // In OKLCH the strip runs in OKLCH hue order, so the knob sits at the color's OKLCH hue.
+  const hueBg = () => C.mode === "oklch" ? `linear-gradient(to right, ${Array.from({ length: 13 }, (_, n) => `oklch(75% 0.18 ${n * 30})`).join(", ")})` : wide() ? `linear-gradient(to right, ${["1 0 0", "1 1 0", "0 1 0", "0 1 1", "0 0 1", "1 0 1", "1 0 0"].map(x => `color(display-p3 ${x})`).join(", ")})` : "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)";
   const paint = (fields = true) => {
     const c = hsv();
     drawSquare();
     Object.assign(q(".cpk-sv .cpk-knob").style, { left: 12 + c.s * 228 + "px", top: 12 + (1 - c.v) * 228 + "px" });
     q(".cpk-hue").style.background = hueBg();
-    q(".cpk-hue .cpk-knob").style.left = c.h / 360 * 100 + "%";
+    q(".cpk-hue .cpk-knob").style.left = (C.mode === "oklch" ? oklch()[2] : c.h) / 360 * 100 + "%";
     q(".cpk-alpha .cpk-knob").style.left = C.a * 100 + "%";
     q(".cpk-alpha").style.setProperty("--cpk-fill", `linear-gradient(to right, transparent, ${css(1)})`);
     q(".cpk-new").style.setProperty("--cpk-fill", `linear-gradient(${css()}, ${css()})`);
@@ -2190,7 +2191,13 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     el.setPointerCapture(e.pointerId);
   });
   drag(q(".cpk-sv"), (ev, r) => { const h = hsv().h; C.lin = fromHsv(clamp01((ev.clientX - r.left - 12) / 228), 1 - clamp01((ev.clientY - r.top - 12) / 228), h); C.hue = h; C.wantC = null; });
-  drag(q(".cpk-hue"), (ev, r) => { const c = hsv(); C.hue = Math.min(359.9, clamp01((ev.clientX - r.left) / r.width) * 360); C.lin = fromHsv(c.s, c.v, C.hue); C.wantC = null; });
+  // Hue holds what the mode holds: HSB keeps saturation and brightness; OKLCH keeps lightness and the chroma you set,
+  // so every hue reads equally light and the square's knob moves to wherever that color sits.
+  drag(q(".cpk-hue"), (ev, r) => {
+    const h = Math.min(359.9, clamp01((ev.clientX - r.left) / r.width) * 360);
+    if (C.mode === "oklch") { const [L, Ch] = linToOklch(C.lin); C.wantC ??= Ch; C.okHue = h; C.lin = fitGamut(oklchToLin([L, C.wantC, h]), inP3); return; }
+    const c = hsv(); C.hue = h; C.lin = fromHsv(c.s, c.v, h); C.wantC = null;
+  });
   drag(q(".cpk-alpha"), (ev, r) => { C.a = Math.round(clamp01((ev.clientX - r.left) / r.width) * 100) / 100; });
   // Dragging a channel letter scrubs that one channel, like the inspector's X and W fields.
   pop.addEventListener("pointerdown", e => {

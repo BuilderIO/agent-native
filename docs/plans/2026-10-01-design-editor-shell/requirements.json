@@ -1285,7 +1285,7 @@
         {
           "id": "COLOR-03",
           "status": "proposed",
-          "change": "One picker in every mode. The 228px saturation × brightness square, hue, opacity, eyedropper, and Previous/New look and work the same whatever the mode, so nothing has to be relearned. Mode is one property: Hex, RGB, HSL, HSB (sRGB) and Display P3, OKLCH (wide gamut). It changes only how the numbers read and which CSS the picker writes. The wide modes let the square reach Display P3, with one quiet dashed line where sRGB ends, and a P3 badge on New appears only when the color is outside sRGB, saying screens without P3 show the nearest sRGB color.",
+          "change": "One picker in every mode. The 228px saturation × brightness square, hue, opacity, eyedropper, and Previous/New look and work the same whatever the mode, so nothing has to be relearned. Mode is one property: Hex, RGB, HSL, HSB (sRGB) and Display P3, OKLCH (wide gamut). It changes only how the numbers read and which CSS the picker writes. The wide modes let the square reach Display P3, with one quiet dashed line where sRGB ends, and a P3 badge on New appears only when the color is outside sRGB, saying screens without P3 show the nearest sRGB color. Hue holds what the mode holds: in HSB-based modes it keeps saturation and brightness; in OKLCH the strip runs in OKLCH hue order and keeps lightness and chroma, so every hue reads equally light and the square's knob moves to wherever that color sits, as in Paper's picker.",
           "prototype": "Open a Fill, switch Mode to OKLCH, and pick a vivid green: the P3 badge appears on New."
         },
         {
