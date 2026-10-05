@@ -14,7 +14,7 @@ import {
   IconTool,
   IconUser,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -587,9 +587,13 @@ function runFailed(run: ThreadRun): boolean {
 // Runs that fail before the model starts (run_preparation_failed,
 // background_worker_never_started) retain no events, so the run row's own
 // terminal fields are the only record of how they ended.
-function RunOutcome({ run }: { run: ThreadRun }) {
+function RunOutcome({ run, needle = "" }: { run: ThreadRun; needle?: string }) {
   const reason = run.terminalReason || run.abortReason;
-  const codes = [...new Set([reason, run.errorCode].filter(Boolean))];
+  const codes = [
+    ...new Set(
+      [reason, run.errorCode].filter((code): code is string => Boolean(code)),
+    ),
+  ];
   const stage =
     diagnosticStage(run.workerStage) || diagnosticStage(run.diagStage);
   const failed = runFailed(run);
@@ -602,17 +606,17 @@ function RunOutcome({ run }: { run: ThreadRun }) {
             failed ? "text-destructive" : "text-foreground",
           )}
         >
-          {run.status}
+          <Highlighted text={run.status} needle={needle} />
         </span>
         {codes.map((code) => (
           <span key={code} className="font-mono text-muted-foreground">
-            {code}
+            <Highlighted text={code} needle={needle} />
           </span>
         ))}
       </div>
       {run.errorDetail ? (
         <div className="whitespace-pre-wrap break-words text-foreground">
-          {run.errorDetail}
+          <Highlighted text={run.errorDetail} needle={needle} />
         </div>
       ) : null}
       {stage ? (
@@ -624,13 +628,49 @@ function RunOutcome({ run }: { run: ThreadRun }) {
 
 type ThreadRow = ConversationRow<ThreadMessage, ThreadRun>;
 
+const SNIPPET_LEAD_CHARS = 60;
+
+// Rows clamp to three lines, so a match deep in a long message would be
+// highlighted out of view; start the preview shortly before the first match.
+function matchPreview(text: string, needle: string): string {
+  const index = needle ? text.toLowerCase().indexOf(needle) : -1;
+  if (index <= SNIPPET_LEAD_CHARS) return text;
+  const start = text.lastIndexOf(" ", index - SNIPPET_LEAD_CHARS) + 1;
+  return `…${text.slice(start)}`;
+}
+
+function Highlighted({ text, needle }: { text: string; needle: string }) {
+  if (!needle) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let index = lower.indexOf(needle);
+  while (index !== -1) {
+    if (index > cursor) parts.push(text.slice(cursor, index));
+    parts.push(
+      <mark
+        key={index}
+        className="rounded-sm bg-primary/15 px-0.5 text-foreground"
+      >
+        {text.slice(index, index + needle.length)}
+      </mark>,
+    );
+    cursor = index + needle.length;
+    index = lower.indexOf(needle, cursor);
+  }
+  parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
+
 function ConversationRowButton({
   row,
   selected,
+  needle,
   onSelect,
 }: {
   row: ThreadRow;
   selected: boolean;
+  needle: string;
   onSelect: () => void;
 }) {
   const run = row.run;
@@ -674,7 +714,10 @@ function ConversationRowButton({
         {row.kind === "message" ? (
           row.message.text ? (
             <div className="line-clamp-3 whitespace-pre-wrap break-words text-sm text-foreground">
-              {row.message.text}
+              <Highlighted
+                text={matchPreview(row.message.text, needle)}
+                needle={needle}
+              />
             </div>
           ) : tools.length === 0 ? (
             <div className="text-sm text-muted-foreground">No text content</div>
@@ -688,7 +731,7 @@ function ConversationRowButton({
                 className="inline-flex items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5 text-foreground"
               >
                 <IconTool className="size-3 text-muted-foreground" />
-                {name}
+                <Highlighted text={name} needle={needle} />
                 {count > 1 ? (
                   <span className="text-muted-foreground">×{count}</span>
                 ) : null}
@@ -701,7 +744,7 @@ function ConversationRowButton({
             ) : null}
           </div>
         ) : null}
-        {showOutcome && run ? <RunOutcome run={run} /> : null}
+        {showOutcome && run ? <RunOutcome run={run} needle={needle} /> : null}
       </div>
     </button>
   );
@@ -1065,6 +1108,7 @@ function ThreadDetail({
               key={row.key}
               row={row}
               selected={row.key === activeKey}
+              needle={needle}
               onSelect={() => onSelectRow(row.key)}
             />
           ))}
