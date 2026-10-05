@@ -51,7 +51,8 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Plan",
-    learnMoreUrl: "https://agent-native.com/apps/plan",
+    learnMoreUrl:
+      "https://agent-native.com/apps/plan?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Turn coding-agent plans into visual, annotatable HTML before code changes happen.",
     features: [

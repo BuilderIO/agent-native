@@ -14,6 +14,7 @@ import {
   ANALYTICS_CLIENT_PLATFORM_PROPERTY,
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
+import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import {
   classifyErrorNoise,
   type ErrorNoiseFrame,
@@ -244,6 +245,8 @@ const FIRST_TOUCH_QUERY_FIELDS = [
   "gclid",
   "msclkid",
   "vector_source",
+  "site_referrer",
+  "site_landing_path",
 ] as const;
 const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "gclid",
@@ -258,6 +261,8 @@ const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "utm_term",
   "landing_path",
   "landing_referrer",
+  "site_referrer",
+  "site_landing_path",
   "landed_at",
 ] as const satisfies readonly (keyof FirstTouchAttribution)[];
 
@@ -276,6 +281,8 @@ export interface FirstTouchAttribution {
   vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
+  site_referrer?: string;
+  site_landing_path?: string;
   landed_at?: string;
   capture_truncated?: string;
 }
@@ -719,6 +726,16 @@ export function getFirstTouchAttribution(): FirstTouchAttribution | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Store the visitor's first touch now instead of in `configureTracking()`,
+ * for a page that reads it before tracking starts. It runs once per page
+ * load, so tracking's own capture is then a no-op.
+ */
+export function captureAttribution(): void {
+  if (isSyntheticBrowserTraffic()) return;
+  captureFirstTouchAttribution();
 }
 
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
@@ -2045,12 +2062,14 @@ function sendAgentNativeAnalytics(
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return;
 
-  const endpoint =
+  const endpoint = resolveLaneEndpoint(
     _agentNativeAnalyticsEndpoint ||
-    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
-    (import.meta.env as Record<string, string | undefined>)
-      ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
-    AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT;
+      window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
+      (import.meta.env as Record<string, string | undefined>)
+        ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+      AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT,
+    window.location.hostname,
+  );
   const userId =
     typeof properties.userId === "string" ? properties.userId : undefined;
   const body = JSON.stringify({

@@ -49,6 +49,8 @@ import {
   resolveAnalyticsEventDimensions,
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
+import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
+import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
@@ -997,8 +999,7 @@ function deriveReplaySignals({
 export function parseSessionReplayIngestPayload(
   raw: unknown,
 ): ParsedSessionReplayIngest {
-  const body =
-    typeof raw === "string" && raw.trim() ? JSON.parse(raw) : replayRecord(raw);
+  const body = replayRecord(parseIngestBody(raw));
   const publicKey =
     replayString(body.publicKey) ||
     replayString(body.writeKey) ||
@@ -1026,6 +1027,15 @@ export function parseSessionReplayIngestPayload(
     replayString(body.recording_id) ||
     replayString(body.replayId) ||
     sessionId;
+  if (
+    sessionId.length > MAX_SESSION_ID_LENGTH ||
+    clientRecordingId.length > MAX_SESSION_ID_LENGTH
+  ) {
+    throw replayError(
+      `Replay session and recording ids must be at most ${MAX_SESSION_ID_LENGTH} characters`,
+      400,
+    );
+  }
   const metadata = replayRecord(body.metadata);
   assertReplayMetadataCap(metadata);
 
