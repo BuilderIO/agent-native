@@ -9,6 +9,7 @@
 //   node scripts/seed-perf-database.mjs --base-url http://127.0.0.1:8080 \
 //     --email perf-owner@example.local --password '...' \
 //     [--rows 230] [--title "Perf Task Priorities"] [--concurrency 6]
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -48,10 +49,39 @@ const rowCount = positiveInteger("rows", 230);
 const title = args.get("title") ?? "Perf Task Priorities";
 const concurrency = positiveInteger("concurrency", 6);
 const allowRegister = args.get("register") !== "false";
+const hostPart = new URL(baseUrl).host.replace(/[^a-z0-9.-]/gi, "_");
+const emailPart = email.replace(/[^a-z0-9]/gi, "_");
+const titlePart = title.replace(/[^a-z0-9]/gi, "_");
+const defaultManifestStem = `perf-database-${hostPart}-${emailPart}-${titlePart}`;
+const legacyDefaultManifestPath = resolve(`.tmp/${defaultManifestStem}.json`);
+const manifestIdentity = JSON.stringify([
+  new URL(baseUrl).origin,
+  email,
+  title,
+]);
+const manifestSuffix = createHash("sha256")
+  .update(manifestIdentity)
+  .digest("hex")
+  .slice(0, 16);
+const usesDefaultManifestPath = !args.has("manifest");
 const manifestPath = resolve(
-  args.get("manifest") ??
-    `.tmp/perf-database-${new URL(baseUrl).host.replace(/[^a-z0-9.-]/gi, "_")}-${email.replace(/[^a-z0-9]/gi, "_")}-${title.replace(/[^a-z0-9]/gi, "_")}.json`,
+  args.get("manifest") ?? `.tmp/${defaultManifestStem}-${manifestSuffix}.json`,
 );
+
+if (args.has("manifest-path-only")) {
+  console.log(manifestPath);
+  process.exit(0);
+}
+
+if (
+  usesDefaultManifestPath &&
+  !existsSync(manifestPath) &&
+  existsSync(legacyDefaultManifestPath)
+) {
+  throw new Error(
+    `The legacy default manifest at "${legacyDefaultManifestPath}" has no fixture identity. Pass --manifest after confirming it belongs to this host, email, and title, or move it aside to start a separate fixture.`,
+  );
+}
 
 // Deterministic generator so reruns produce the same fixture shape.
 let seed = 0x7a5c;
