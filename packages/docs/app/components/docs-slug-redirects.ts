@@ -8,6 +8,7 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   koyeb: "deployment",
   render: "deployment",
   "other-platforms": "deployment",
+  "aws-amplify": "deployment",
   database: "server-database",
   "human-approval": "actions-access-control",
   "local-file-mode": "template-content-local-files",

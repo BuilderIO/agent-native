@@ -14,7 +14,6 @@ const deploymentLogos = [
   "vercel.svg",
   "netlify.svg",
   "cloudflare.svg",
-  "aws-lambda.svg",
 ];
 
 describe("deployment target logos", () => {
@@ -22,7 +21,7 @@ describe("deployment target logos", () => {
     const content = readFileSync(deploymentDoc, "utf8");
 
     expect(content).toContain(
-      'title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Workers, and AWS Amplify." frame="hide" renderMode="design"',
+      'title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, and Cloudflare Workers." frame="hide" renderMode="design"',
     );
 
     for (const logo of deploymentLogos) {
