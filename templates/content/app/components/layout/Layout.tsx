@@ -352,6 +352,7 @@ export function Layout({ children }: LayoutProps) {
         )}
         <AgentSidebar
           position="right"
+          forceOverlay={shellLayout.agentPanel === "overlay"}
           defaultOpen={false}
           agentPageHref="/settings/agent"
           emptyStateText={t("chat.emptyState")}
