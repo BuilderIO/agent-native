@@ -3,6 +3,7 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
   ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT,
@@ -91,9 +92,35 @@ describe("route chunk recovery bootstrap", () => {
     expect(retryUrl.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM)).toBe(
       CHUNK_RECOVERY_QUERY_VALUE,
     );
+    expect(
+      retryUrl.searchParams.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM),
+    ).toBeTruthy();
     expect(retryUrl.hash).toBe("#latest");
     expect(sessionValues.get(STALE_CHUNK_RELOAD_AT_KEY)).toBe("2000000");
     expect(stopImmediatePropagation).toHaveBeenCalledOnce();
+  });
+
+  it("replaces arbitrary recovery markers with the fixed marker", () => {
+    const { assign, onError } = installBootstrap(
+      `https://example.test/apps?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary`,
+    );
+
+    onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(assign).toHaveBeenCalledOnce();
+    expect(
+      new URL(assign.mock.calls[0]?.[0]).searchParams.get(
+        CHUNK_RECOVERY_QUERY_PARAM,
+      ),
+    ).toBe(CHUNK_RECOVERY_QUERY_VALUE);
   });
 
   it("keeps the reload cooldown when session storage is unavailable", () => {

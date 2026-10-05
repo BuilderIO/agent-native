@@ -11,6 +11,11 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
+  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
@@ -342,7 +347,55 @@ describe("createH3SSRHandler", () => {
     const response = await handler(createEvent("/"));
 
     expect(response.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+  });
+
+  it("uses the fixed recovery cache dimension on recovery responses", async () => {
+    process.env.SITE_ID = "site-test";
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const recoveryUrl = new URL("http://example.test/");
+    recoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      CHUNK_RECOVERY_QUERY_VALUE,
+    );
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+
+    const recovery = await handler(
+      createEvent(`${recoveryUrl.pathname}${recoveryUrl.search}`),
+    );
+
+    expect(recovery.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+    expect(recovery.headers.get("cdn-cache-control")).toBe(
+      DEFAULT_SSR_CDN_CACHE_CONTROL,
+    );
+    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe(
+      DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+    );
+    expect(recovery.headers.get("netlify-vary")).toBe(
       "query=_routes|index|__agentNativeChunkRecovery",
+    );
+
+    const arbitraryUrl = `/?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary&${CHUNK_RECOVERY_CACHE_BUSTER_PARAM}=unique`;
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const arbitrary = await handler(createEvent(arbitraryUrl));
+
+    expect(arbitrary.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_CONTROL,
+    );
+    expect(arbitrary.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
     );
   });
 

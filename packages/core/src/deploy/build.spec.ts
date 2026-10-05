@@ -27,6 +27,11 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
+  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
@@ -1850,7 +1855,7 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
 
     const source = generateWorkerEntry([], []);
     expect(source).toContain(
-      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index|__agentNativeChunkRecovery"};',
+      `const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}"};`,
     );
 
     const worker = await importGeneratedWorker(source);
@@ -1861,7 +1866,46 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     );
 
     expect(response.headers.get("netlify-vary")).toBe(
-      "query=_routes|index|__agentNativeChunkRecovery",
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    const recoveryUrl = new URL("https://app.test/docs/inbox");
+    recoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      CHUNK_RECOVERY_QUERY_VALUE,
+    );
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+    const recovery = await worker.fetch(
+      new Request(recoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(recovery.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(recovery.headers.get("cdn-cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
+    );
+    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+    );
+    expect(recovery.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, "arbitrary");
+    const arbitrary = await worker.fetch(
+      new Request(recoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(arbitrary.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(arbitrary.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
     );
   });
 
@@ -1879,6 +1923,28 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
       {},
     );
+
+    expect(response.headers.get("netlify-vary")).toBe("query");
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
+
+  it("preserves full-query variation for query-sensitive recovery responses", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const source = generateWorkerEntry([], []);
+    const worker = await importGeneratedWorker(source, {
+      responseHeaders: {
+        [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+      },
+    });
+    const recoveryUrl = new URL("https://app.test/redirect");
+    recoveryUrl.searchParams.set("from", "home");
+    recoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      CHUNK_RECOVERY_QUERY_VALUE,
+    );
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+
+    const response = await worker.fetch(new Request(recoveryUrl), {}, {});
 
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();

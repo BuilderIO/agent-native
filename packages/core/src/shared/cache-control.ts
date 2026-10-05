@@ -134,10 +134,16 @@ export function resolveSsrCacheHeaders(
   return memoizedHeaders;
 }
 
+export function resolveSsrNetlifyQueryVary(varyByQuery = false): string {
+  if (varyByQuery) return "query";
+  return `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`;
+}
+
 export function resolveSsrCacheKeyHeaders(
   env: Record<string, string | undefined> = typeof process === "undefined"
     ? {}
     : process.env,
+  options: { varyByQuery?: boolean } = {},
 ): Readonly<Record<string, string>> {
   const explicitlyNotNetlify =
     env.NETLIFY_LOCAL === "true" || env.NETLIFY === "false";
@@ -145,10 +151,9 @@ export function resolveSsrCacheKeyHeaders(
     !explicitlyNotNetlify && (Boolean(env.NETLIFY) || Boolean(env.SITE_ID)); // guard:allow-env-credential -- Netlify's public runtime host marker, not a credential.
   const none: Readonly<Record<string, string>> = Object.freeze({});
   if (!onNetlify) return none;
-  // A fixed recovery flag creates one anonymous shell variant for cache misses.
   return Object.freeze({
     // guard:allow-ssr-shell-exception — one fixed, public recovery cache-key variant
-    "netlify-vary": `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    "netlify-vary": resolveSsrNetlifyQueryVary(options.varyByQuery),
   });
 }
 
