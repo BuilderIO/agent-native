@@ -24,6 +24,7 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
+import { resolveWorkspaceAccessAppId } from "../org/workspace-app-identity.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
@@ -3715,21 +3716,6 @@ function loginHtmlResponse(
       "X-Robots-Tag": "noindex, nofollow",
     },
   });
-}
-
-function resolveWorkspaceAccessAppId(): string {
-  const app = getAppConfig().app;
-  const workspaceId = app.workspaceId?.trim();
-  if (workspaceId) return workspaceId;
-
-  const isDispatch = [
-    app.id,
-    app.legacyId,
-    app.template,
-    app.slug,
-    app.packageName,
-  ].some((value) => value?.trim().toLowerCase() === "dispatch");
-  return isDispatch ? "dispatch" : "";
 }
 
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
