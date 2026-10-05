@@ -192,20 +192,24 @@ export function BuilderConnectPopover({
               disabled={flow.connecting}
             >
               {flow.connecting ? <Spinner aria-hidden /> : null}
-              {flow.connecting
-                ? t("agentChat.onboarding.builderActivating")
-                : t("agentChat.onboarding.builderCreateAndActivate")}
+              {flow.accountExists
+                ? t("agentChat.onboarding.builderSignInWithAccount")
+                : flow.connecting
+                  ? t("agentChat.onboarding.builderActivating")
+                  : t("agentChat.onboarding.builderCreateAndActivate")}
             </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              data-testid={secondaryTestId}
-              className="w-full"
-              onClick={() => start(false)}
-              disabled={flow.connecting}
-            >
-              {t("agentChat.onboarding.builderExistingAccount")}
-            </Button>
+            {!flow.accountExists ? (
+              <Button
+                type="button"
+                variant="secondary"
+                data-testid={secondaryTestId}
+                className="w-full"
+                onClick={() => start(false)}
+                disabled={flow.connecting}
+              >
+                {t("agentChat.onboarding.builderExistingAccount")}
+              </Button>
+            ) : null}
           </div>
           <p className="text-[11px] leading-4 text-muted-foreground">
             {t("agentChat.onboarding.builderConsentPrefix")}{" "}

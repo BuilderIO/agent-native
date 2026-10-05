@@ -239,7 +239,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(onConnect).toHaveBeenCalledWith(true);
   });
 
-  it("shows the same account choices when Builder reports an existing account", () => {
+  it("shows one sign-in action when Builder reports an existing account", () => {
     const onConnect = vi.fn();
     const flow = {
       connecting: false,
@@ -295,11 +295,10 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(
       consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
         ?.textContent,
-    ).toBe("agentChat.onboarding.builderCreateAndActivate");
+    ).toBe("agentChat.onboarding.builderSignInWithAccount");
     expect(
-      consent?.querySelector<HTMLButtonElement>("[data-testid='sign-in']")
-        ?.textContent,
-    ).toBe("agentChat.onboarding.builderExistingAccount");
+      consent?.querySelector<HTMLButtonElement>("[data-testid='sign-in']"),
+    ).toBeNull();
     expect(
       consent?.querySelector<HTMLButtonElement>("[data-testid='create'] svg"),
     ).toBeNull();
@@ -348,7 +347,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
       "You already have a Builder.io account",
     );
     expect(consent?.querySelector("[data-testid='create']")).not.toBeNull();
-    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
+    expect(consent?.querySelector("[data-testid='sign-in']")).toBeNull();
 
     click(consent?.querySelector("[data-testid='create']") as HTMLElement);
     expect(flow.start).toHaveBeenLastCalledWith({ provisionAccount: false });
