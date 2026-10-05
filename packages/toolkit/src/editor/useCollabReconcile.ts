@@ -853,15 +853,14 @@ export function useCollabReconcile({
       }
 
       // A snapshot another writer saved can reach this tab before the Yjs
-      // updates that carry the same text (a collab poll lags the action poll),
-      // and applying it first inserts that text a second time when they land.
-      // Snapshots with revisions are told apart from their collab copy by the
-      // revision protocol above instead.
-      const snapshotKey = contentUpdatedAt ?? "";
+      // updates that carry the same text (a collab poll lags the action poll,
+      // and a save's merged answer lags neither), and applying it first
+      // inserts that text a second time when they land. Only a collab-backed
+      // revision, returned above, is known to be in the Yjs doc already.
+      const snapshotKey = `${contentRevision ?? ""}@${contentUpdatedAt ?? ""}`;
       if (
         collab &&
         externalNewer &&
-        !contentRevision &&
         requestCollabSync &&
         syncedBeforeAdoptRef.current !== snapshotKey
       ) {

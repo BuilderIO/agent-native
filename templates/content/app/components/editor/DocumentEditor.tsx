@@ -2748,6 +2748,21 @@ function PageEditorSessionBody({
   const contentObservationEpochRef = useRef(0);
   const editorEditGenerationRef = useRef(0);
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
+  // A save the server merged with another writer's text confirms a body this
+  // editor does not hold until that text reaches it through collaboration or
+  // the reconcile. An edit authored on that body reads the missing text as
+  // deleted, so edits stay on the base the merged save was authored on.
+  const unheldSavedBodyRef = useRef<{
+    revision: string;
+    base: { revision?: string; content: string };
+  } | null>(null);
+  const authoredContentBase = useCallback(() => {
+    const saved = lastSavedContentRef.current;
+    const unheld = unheldSavedBodyRef.current;
+    return unheld && unheld.revision === saved.revision
+      ? unheld.base
+      : { revision: saved.revision, content: saved.content };
+  }, []);
   const ownContentSaveLineageRef = useRef<OwnContentSaveLineage>(new Map());
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
@@ -3117,6 +3132,7 @@ function PageEditorSessionBody({
     if (prevDocIdRef.current !== documentId) {
       historySessionRef.current.reset();
       ownContentSaveLineageRef.current.clear();
+      unheldSavedBodyRef.current = null;
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
       if (saveTimeoutRef.current) {
@@ -3917,6 +3933,19 @@ function PageEditorSessionBody({
           baseRevision: contentBase.revision,
           editGeneration: editorEditGeneration,
         });
+      }
+      if (updates.content !== undefined && saved.revision) {
+        const sentIntent = options.authoredContentIntent;
+        unheldSavedBodyRef.current =
+          saved.content !== options.editorSnapshotContent && sentIntent
+            ? {
+                revision: saved.revision,
+                base: {
+                  revision: sentIntent.baseRevision,
+                  content: sentIntent.baseContent,
+                },
+              }
+            : null;
       }
       if (
         contentEditVersionRef.current === contentEditVersion &&
@@ -5911,10 +5940,11 @@ function PageEditorSessionBody({
       if (!editorCanEdit) return false;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
+      const authoredBase = authoredContentBase();
       authoredContentIntentRef.current = {
         editGeneration: editorEditGenerationRef.current,
-        baseRevision: lastSavedContentRef.current.revision,
-        baseContent: lastSavedContentRef.current.content,
+        baseRevision: authoredBase.revision,
+        baseContent: authoredBase.content,
         candidateContent: recovery.localDraft,
       };
       if (saveTimeoutRef.current) {
@@ -5955,7 +5985,12 @@ function PageEditorSessionBody({
       );
       return result.contentPersisted;
     },
-    [editorCanEdit, journalCurrentDraft, queueDocumentSave],
+    [
+      authoredContentBase,
+      editorCanEdit,
+      journalCurrentDraft,
+      queueDocumentSave,
+    ],
   );
   reconcileSaveRef.current = handleContentSaveNow;
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
@@ -5976,10 +6011,11 @@ function PageEditorSessionBody({
       if (newContent === localContentRef.current) return;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
+      const authoredBase = authoredContentBase();
       authoredContentIntentRef.current = {
         editGeneration: editorEditGenerationRef.current,
-        baseRevision: lastSavedContentRef.current.revision,
-        baseContent: lastSavedContentRef.current.content,
+        baseRevision: authoredBase.revision,
+        baseContent: authoredBase.content,
         candidateContent: newContent,
       };
       localContentRef.current = newContent;
@@ -5999,6 +6035,7 @@ function PageEditorSessionBody({
       debouncedSave(localTitleRef.current, newContent);
     },
     [
+      authoredContentBase,
       debouncedSave,
       editorCanEdit,
       journalCurrentDraft,
@@ -6061,6 +6098,9 @@ function PageEditorSessionBody({
       localContentRef.current = result.content;
       setLocalContent(result.content);
       if (result.status === "merged") {
+        if (unheldSavedBodyRef.current?.revision === result.serverRevision) {
+          unheldSavedBodyRef.current = null;
+        }
         if (documentContentRef.current === result.serverContent) {
           void resolveReconcileAutomatically(
             {

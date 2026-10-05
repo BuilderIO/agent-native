@@ -507,6 +507,54 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
   });
 
+  it("catches up before merging a saved revision whose text is still in flight through Yjs", async () => {
+    vi.useFakeTimers();
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+    const serverEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: serverDoc,
+      }),
+    });
+    try {
+      act(() =>
+        root.render(React.createElement(harness.Harness, { baseAware: true })),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const stateVector = Y.encodeStateVector(harness.ydoc);
+      serverEditor.commands.insertContentAt(1, "Accepted ");
+      const peerUpdate = Y.encodeStateAsUpdate(serverDoc, stateVector);
+      const requestSync = vi.fn(async () => {
+        Y.applyUpdate(harness.ydoc, peerUpdate, "remote");
+        return { status: "synced" as const };
+      });
+      // A save's merged answer carries the peer's text under a revision that
+      // is not collab-backed, before the peer's Yjs update reaches this tab.
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Accepted ${baseline}`,
+            revision: "revision-2",
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: requestSync,
+            baseAware: true,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      act(() => Y.applyUpdate(harness.ydoc, peerUpdate, "remote"));
+      expect(harness.markdown()).toBe(`Accepted ${baseline}`);
+      expect(requestSync).toHaveBeenCalledTimes(1);
+    } finally {
+      serverEditor.destroy();
+      serverDoc.destroy();
+      harness.dispose();
+    }
+  });
+
   it("adopts a new value that arrives after its timestamp did", async () => {
     // A parent can render the new timestamp next to the old value first; that
     // render must not mark the new revision applied.
@@ -657,6 +705,14 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         await act(async () => vi.advanceTimersByTimeAsync(3000));
         expect(harness.writes).toEqual([]);
         expect(harness.reconciled).toEqual([]);
+        expect(harness.markdown()).toBe(
+          `Accepted ${baseline}${localTail ? " local tail" : ""}`,
+        );
+        const syncsBeforeRevision = requestSync.mock.calls.length;
+        await act(async () => finishSync({ status: "synced" }));
+        // Revision 3 is not collab-backed, so its text may still be on its
+        // way through Yjs; the editor syncs once more before merging it.
+        expect(requestSync).toHaveBeenCalledTimes(syncsBeforeRevision + 1);
         expect(harness.markdown()).toBe(
           `Accepted ${baseline}${localTail ? " local tail" : ""}`,
         );
