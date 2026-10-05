@@ -7155,9 +7155,15 @@ function PageEditorSessionBody({
           )
             return;
           void suggestionsQuery.refetch();
-          toast.error(t("empty.genericError"), {
-            description: actionErrorMessage(error) ?? t("empty.genericError"),
-          });
+          const unplaceable = isSuggestionStaleActionError(error);
+          toast.error(
+            t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
+            {
+              description: unplaceable
+                ? t("editor.proposalUnplaceable")
+                : (actionErrorMessage(error) ?? t("empty.genericError")),
+            },
+          );
         } finally {
           if (
             decisionGeneration === suggestionDecisionGenerationRef.current &&

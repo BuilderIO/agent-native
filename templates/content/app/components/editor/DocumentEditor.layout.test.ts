@@ -1023,6 +1023,9 @@ describe("document editor layout", () => {
     expect(source).toMatch(
       /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
     );
+    expect(source).toMatch(
+      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?decideSuggestion\.mutateAsync/,
+    );
   });
   it("dismisses mobile comment focus without closing Info", () => {
     expect(utilityPanelAfterCommentFocusDismissal("comments")).toBeNull();
