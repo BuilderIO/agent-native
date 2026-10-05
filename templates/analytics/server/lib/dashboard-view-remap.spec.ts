@@ -32,15 +32,37 @@ function matches(predicate: unknown, row: Record<string, unknown>): boolean {
 
 function createTransaction(rows: ViewRow[]) {
   const updateFields: string[] = [];
+  const lockedDashboardIds: string[] = [];
+  const operationOrder: string[] = [];
   const tx = {
-    select: () => ({
-      from: () => ({
-        where: (predicate: unknown) => ({
-          limit: async () =>
-            rows.filter((row) => matches(predicate, row)).slice(0, 1),
-        }),
-      }),
-    }),
+    select: () => {
+      let selectedTable: unknown;
+      let predicate: unknown;
+      const query = {
+        from: (table: unknown) => {
+          selectedTable = table;
+          return query;
+        },
+        where: (nextPredicate: unknown) => {
+          predicate = nextPredicate;
+          return query;
+        },
+        limit: async () => {
+          operationOrder.push("read-default");
+          return rows.filter((row) => matches(predicate, row)).slice(0, 1);
+        },
+        for: async (mode: string) => {
+          if (selectedTable === dashboardsTable && mode === "update") {
+            const dashboardId = (predicate as { value?: string }).value;
+            lockedDashboardIds.push(dashboardId ?? "");
+            operationOrder.push(`lock:${dashboardId}`);
+            return dashboardId ? [{ id: dashboardId }] : [];
+          }
+          return [];
+        },
+      };
+      return query;
+    },
     update: () => ({
       set: (values: Partial<ViewRow>) => ({
         where: async (predicate: unknown) => {
@@ -52,7 +74,7 @@ function createTransaction(rows: ViewRow[]) {
       }),
     }),
   };
-  return { tx, rows, updateFields };
+  return { tx, rows, updateFields, lockedDashboardIds, operationOrder };
 }
 
 const table = {
@@ -61,6 +83,8 @@ const table = {
   isDefault: { name: "isDefault" },
 };
 
+const dashboardsTable = { id: { name: "id" } };
+
 describe("remapDashboardViews", () => {
   it("demotes duplicate defaults when the canonical dashboard already has one", async () => {
     const store = createTransaction([
@@ -68,13 +92,25 @@ describe("remapDashboardViews", () => {
       { id: "duplicate-default", dashboardId: "duplicate", isDefault: true },
     ]);
 
-    await remapDashboardViews(store.tx, table, "duplicate", "canonical");
+    await remapDashboardViews(
+      store.tx,
+      dashboardsTable,
+      table,
+      "duplicate",
+      "canonical",
+    );
 
     expect(store.rows).toEqual([
       { id: "canonical-default", dashboardId: "canonical", isDefault: true },
       { id: "duplicate-default", dashboardId: "canonical", isDefault: false },
     ]);
     expect(store.updateFields).toEqual(["isDefault", "dashboardId"]);
+    expect(store.lockedDashboardIds).toEqual(["canonical", "duplicate"]);
+    expect(store.operationOrder).toEqual([
+      "lock:canonical",
+      "lock:duplicate",
+      "read-default",
+    ]);
   });
 
   it("keeps the first remapped default when multiple duplicates are consolidated", async () => {
@@ -83,8 +119,20 @@ describe("remapDashboardViews", () => {
       { id: "newer-default", dashboardId: "newer-duplicate", isDefault: true },
     ]);
 
-    await remapDashboardViews(store.tx, table, "older-duplicate", "canonical");
-    await remapDashboardViews(store.tx, table, "newer-duplicate", "canonical");
+    await remapDashboardViews(
+      store.tx,
+      dashboardsTable,
+      table,
+      "older-duplicate",
+      "canonical",
+    );
+    await remapDashboardViews(
+      store.tx,
+      dashboardsTable,
+      table,
+      "newer-duplicate",
+      "canonical",
+    );
 
     expect(store.rows).toEqual([
       { id: "older-default", dashboardId: "canonical", isDefault: true },
@@ -94,6 +142,12 @@ describe("remapDashboardViews", () => {
       "dashboardId",
       "isDefault",
       "dashboardId",
+    ]);
+    expect(store.lockedDashboardIds).toEqual([
+      "canonical",
+      "older-duplicate",
+      "canonical",
+      "newer-duplicate",
     ]);
   });
 });

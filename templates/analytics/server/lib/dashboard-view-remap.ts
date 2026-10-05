@@ -2,10 +2,23 @@ import { and, eq } from "drizzle-orm";
 
 export async function remapDashboardViews(
   tx: any,
+  dashboards: { id: any },
   dashboardViews: { id: any; dashboardId: any; isDefault: any },
   duplicateId: string,
   canonicalId: string,
 ): Promise<void> {
+  for (const dashboardId of [duplicateId, canonicalId].sort()) {
+    const [dashboard] = await tx
+      .select({ id: dashboards.id })
+      .from(dashboards)
+      .where(eq(dashboards.id, dashboardId))
+      .for("update");
+
+    if (!dashboard) {
+      throw new Error(`Dashboard ${dashboardId} was not available to lock`);
+    }
+  }
+
   const [canonicalDefault] = await tx
     .select({ id: dashboardViews.id })
     .from(dashboardViews)

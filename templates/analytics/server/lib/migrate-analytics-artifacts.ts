@@ -828,6 +828,7 @@ export async function migrateAnalyticsArtifacts(
       );
       await remapDashboardViews(
         tx,
+        schema.dashboards,
         schema.dashboardViews,
         duplicateId,
         canonicalId,
