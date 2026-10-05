@@ -3937,7 +3937,8 @@ function PageEditorSessionBody({
         const sentIntent = options.authoredContentIntent;
         authoredContentBaseRef.current.saved({
           saved,
-          editorContent: options.editorSnapshotContent,
+          sentContent: options.editorSnapshotContent,
+          editorContent: localContentRef.current,
           authoredOn: sentIntent
             ? {
                 revision: sentIntent.baseRevision,

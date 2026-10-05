@@ -1,3 +1,5 @@
+import { bodyHoldsChanges } from "@shared/document-intent-merge";
+
 export interface AuthoredContentBase {
   revision?: string;
   content: string;
@@ -13,16 +15,29 @@ export interface AuthoredContentBase {
  */
 export function createAuthoredContentBase() {
   let unheld: { revision: string; base: AuthoredContentBase } | null = null;
+  // The other writer's text can reach the editor before the save's answer,
+  // or alongside typing here, so an exact match with the saved body misses
+  // an editor that already holds it.
+  const holds = (
+    editorContent: string,
+    saved: AuthoredContentBase,
+    base: AuthoredContentBase,
+  ) =>
+    editorContent === saved.content ||
+    bodyHoldsChanges(base.content, editorContent, saved.content);
   return {
     saved(args: {
       saved: AuthoredContentBase;
-      editorContent: string | undefined;
+      sentContent: string | undefined;
+      editorContent: string;
       authoredOn: AuthoredContentBase | null;
     }) {
-      const { saved, editorContent, authoredOn } = args;
+      const { saved, sentContent, editorContent, authoredOn } = args;
       if (!saved.revision) return;
       unheld =
-        saved.content !== editorContent && authoredOn
+        authoredOn &&
+        saved.content !== sentContent &&
+        !holds(editorContent, saved, authoredOn)
           ? { revision: saved.revision, base: authoredOn }
           : null;
     },
@@ -32,9 +47,8 @@ export function createAuthoredContentBase() {
     },
     /** The editor's text changed without an edit here, as a peer's arrives. */
     observed(content: string, saved: AuthoredContentBase) {
-      if (unheld?.revision === saved.revision && content === saved.content) {
-        unheld = null;
-      }
+      if (!unheld || unheld.revision !== saved.revision) return;
+      if (holds(content, saved, unheld.base)) unheld = null;
     },
     base(saved: AuthoredContentBase): AuthoredContentBase {
       return unheld && unheld.revision === saved.revision

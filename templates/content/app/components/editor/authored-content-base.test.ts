@@ -9,6 +9,7 @@ function afterMergedSave() {
   const tracker = createAuthoredContentBase();
   tracker.saved({
     saved: merged,
+    sentContent: "Alpha.\nBravo. mine",
     editorContent: "Alpha.\nBravo. mine",
     authoredOn,
   });
@@ -18,8 +19,36 @@ function afterMergedSave() {
 describe("authored content base", () => {
   it("authors on the saved body when the editor already holds it", () => {
     const tracker = createAuthoredContentBase();
-    tracker.saved({ saved: merged, editorContent: merged.content, authoredOn });
+    tracker.saved({
+      saved: merged,
+      sentContent: "Alpha.\nBravo. mine",
+      editorContent: merged.content,
+      authoredOn,
+    });
     expect(tracker.base(merged)).toEqual(merged);
+  });
+
+  it("authors on the saved body when the peer's text and more typing arrived before the answer", () => {
+    const tracker = createAuthoredContentBase();
+    tracker.saved({
+      saved: merged,
+      sentContent: "Alpha.\nBravo. mine",
+      editorContent: "Alpha. peer\nBravo. mine and more",
+      authoredOn,
+    });
+    expect(tracker.base(merged)).toEqual(merged);
+  });
+
+  it("authors on the winner a displaced save adopted", () => {
+    const tracker = createAuthoredContentBase();
+    const winner = { revision: "r2", content: "Alpha. peer\nBravo." };
+    tracker.saved({
+      saved: winner,
+      sentContent: "Alpha.\nBravo. mine",
+      editorContent: winner.content,
+      authoredOn,
+    });
+    expect(tracker.base(winner)).toEqual(winner);
   });
 
   it("keeps the merged save's own base while the editor lacks the peer's text", () => {
@@ -27,6 +56,12 @@ describe("authored content base", () => {
     expect(tracker.base(merged)).toEqual(authoredOn);
     tracker.observed("Alpha.\nBravo. mine more", merged);
     expect(tracker.base(merged)).toEqual(authoredOn);
+  });
+
+  it("releases the held base when the peer's text arrives alongside typing here", () => {
+    const tracker = afterMergedSave();
+    tracker.observed("Alpha. peer\nBravo. mine more", merged);
+    expect(tracker.base(merged)).toEqual(merged);
   });
 
   it("authors a later deletion of the peer's text on the body that held it", () => {

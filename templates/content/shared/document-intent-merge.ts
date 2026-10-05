@@ -175,6 +175,29 @@ function holdsChanges(base: string, holder: string, other: string): boolean {
   });
 }
 
+/**
+ * Whether `holder` holds every change `other` made to `base`, with any edits
+ * of its own clear of them. False when a body cannot be compared as text.
+ */
+export function bodyHoldsChanges(
+  base: string,
+  holder: string,
+  other: string,
+): boolean {
+  const [baseText, holderText, otherText] = [base, holder, other].map(
+    (content) => {
+      const blocks = parseStableBlocks(content);
+      return blocks ? comparableText(content, blocks) : null;
+    },
+  );
+  return (
+    baseText !== null &&
+    holderText !== null &&
+    otherText !== null &&
+    holdsChanges(baseText, holderText, otherText)
+  );
+}
+
 function textHunksOverlap(left: TextHunk, right: TextHunk): boolean {
   if (left.from === left.to && right.from === right.to)
     return left.from === right.from;
