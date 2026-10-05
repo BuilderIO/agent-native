@@ -116,6 +116,7 @@ import {
 } from "@agent-native/agentkit/protocol";
 
 import {
+  defaultAgentKitLabels,
   useAgentCapability,
   useAgentConnection,
   useAgentKit,
@@ -123,6 +124,7 @@ import {
   useAgentKitMutation,
   useAgentThread,
   type AgentConnectionErrorRenderProps,
+  type AgentKitLabels,
   type AgentKitQueueRenderProps,
   type AgentKitRegistry,
   type AgentKitRenderProps,
@@ -586,9 +588,33 @@ type ActivityToolValueBudget = {
   truncated: boolean;
 };
 
+type ActivityValueLabels = Pick<
+  AgentKitLabels,
+  | "activityValueIdentifierHidden"
+  | "activityValueOmitted"
+  | "activityValueCircular"
+>;
+
+function resolveActivityValueLabels(
+  labels: Partial<AgentKitLabels> = {},
+): Required<ActivityValueLabels> {
+  return {
+    activityValueIdentifierHidden:
+      labels.activityValueIdentifierHidden ??
+      defaultAgentKitLabels.activityValueIdentifierHidden!,
+    activityValueOmitted:
+      labels.activityValueOmitted ??
+      defaultAgentKitLabels.activityValueOmitted!,
+    activityValueCircular:
+      labels.activityValueCircular ??
+      defaultAgentKitLabels.activityValueCircular!,
+  };
+}
+
 function activityToolValue(
   value: unknown,
   budget: ActivityToolValueBudget,
+  labels: Required<ActivityValueLabels>,
   depth = 0,
 ): unknown {
   if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) {
@@ -598,10 +624,10 @@ function activityToolValue(
   budget.nodes++;
   if (depth > ACTIVITY_TOOL_DEPTH_LIMIT) {
     budget.truncated = true;
-    return "[Truncated]";
+    return labels.activityValueOmitted;
   }
   if (typeof value === "string") {
-    if (isUuid(value)) return "[ID]";
+    if (isUuid(value)) return labels.activityValueIdentifierHidden;
     const sourceLimit = budget.remainingCharacters + 36;
     let text = hideUuids(value.slice(0, sourceLimit));
     if (value.length > sourceLimit) {
@@ -611,14 +637,14 @@ function activityToolValue(
     const safeText = text.slice(0, budget.remainingCharacters);
     budget.remainingCharacters -= safeText.length;
     if (text.length > safeText.length) budget.truncated = true;
-    if (!text.trim()) return "[ID]";
-    if (!safeText.trim()) return "[Truncated]";
+    if (!text.trim()) return labels.activityValueIdentifierHidden;
+    if (!safeText.trim()) return labels.activityValueOmitted;
     return safeText;
   }
   if (value && typeof value === "object") {
     if (budget.ancestors.has(value)) {
       budget.truncated = true;
-      return "[Circular]";
+      return labels.activityValueCircular;
     }
     budget.ancestors.add(value);
     if (Array.isArray(value)) {
@@ -636,13 +662,14 @@ function activityToolValue(
         const safeValue = activityToolValue(
           descriptor.value,
           budget,
+          labels,
           depth + 1,
         );
         if (safeValue !== undefined) items.push(safeValue);
       }
       if (visited < value.length) {
         budget.truncated = true;
-        items.push("[Truncated]");
+        items.push(labels.activityValueOmitted);
       }
       budget.ancestors.delete(value);
       return items.length ? items : undefined;
@@ -670,7 +697,12 @@ function activityToolValue(
       safeKey = boundedKey;
       if (!safeKey.trim()) continue;
       budget.remainingCharacters -= safeKey.length;
-      const safeValue = activityToolValue(descriptor.value, budget, depth + 1);
+      const safeValue = activityToolValue(
+        descriptor.value,
+        budget,
+        labels,
+        depth + 1,
+      );
       if (safeValue === undefined) continue;
       result[safeKey] = safeValue;
       included++;
@@ -690,19 +722,32 @@ function createActivityToolValueBudget(): ActivityToolValueBudget {
   };
 }
 
-function formatActivityText(value: string): string {
+function formatActivityText(
+  value: string,
+  labels: Partial<AgentKitLabels> = {},
+): string {
   const budget = createActivityToolValueBudget();
-  const safeValue = activityToolValue(value, budget);
+  const safeValue = activityToolValue(
+    value,
+    budget,
+    resolveActivityValueLabels(labels),
+  );
   if (typeof safeValue !== "string") return "";
   return budget.truncated ? `${safeValue}…` : safeValue;
 }
 
-function formatActivityToolValue(value: unknown): string | undefined {
+function formatActivityToolValue(
+  value: unknown,
+  labels: Partial<AgentKitLabels> = {},
+): string | undefined {
   const budget = createActivityToolValueBudget();
-  const safeValue = activityToolValue(value, budget);
+  const valueLabels = resolveActivityValueLabels(labels);
+  const safeValue = activityToolValue(value, budget, valueLabels);
   if (safeValue === undefined) return undefined;
   const formatted = formatToolDiagnostic(safeValue);
-  const text = budget.truncated ? `${formatted ?? ""}\n[Truncated]` : formatted;
+  const text = budget.truncated
+    ? `${formatted ?? ""}\n${valueLabels.activityValueOmitted}`
+    : formatted;
   if (!text?.trim()) return undefined;
   return text.length > ACTIVITY_TOOL_VALUE_LIMIT
     ? `${text.slice(0, ACTIVITY_TOOL_VALUE_LIMIT).trimEnd()}…`
@@ -862,8 +907,15 @@ export function AgentActivityItem({
     labels.assistant,
   );
   const tool = thread.tools[activity.id];
-  const toolInput = tool ? formatActivityToolValue(tool.input) : undefined;
-  const toolResult = tool ? formatActivityToolValue(tool.output) : undefined;
+  const toolInput = tool
+    ? formatActivityToolValue(tool.input, labels)
+    : undefined;
+  const toolResult = tool
+    ? formatActivityToolValue(tool.output, labels)
+    : undefined;
+  const toolInputLabel = labels.toolInput ?? defaultAgentKitLabels.toolInput!;
+  const toolResultLabel =
+    labels.toolResult ?? defaultAgentKitLabels.toolResult!;
   const expandable = Boolean(
     activity.summary?.length || toolInput || toolResult,
   );
@@ -928,7 +980,9 @@ export function AgentActivityItem({
               part.type === "text"
                 ? {
                     ...part,
-                    text: part.text.trim() ? formatActivityText(part.text) : "",
+                    text: part.text.trim()
+                      ? formatActivityText(part.text, labels)
+                      : "",
                   }
                 : part;
             return safePart.type === "text" && !safePart.text ? null : (
@@ -942,11 +996,11 @@ export function AgentActivityItem({
           {toolInput ? (
             <div className="agentkit-activity-summary-section">
               <div className="agentkit-activity-summary-label">
-                {labels.toolInput}
+                {toolInputLabel}
               </div>
               <pre
                 role="region"
-                aria-label={labels.toolInput}
+                aria-label={toolInputLabel}
                 tabIndex={0}
                 className="agentkit-activity-summary-value"
               >
@@ -957,11 +1011,11 @@ export function AgentActivityItem({
           {toolResult ? (
             <div className="agentkit-activity-summary-section">
               <div className="agentkit-activity-summary-label">
-                {labels.toolResult}
+                {toolResultLabel}
               </div>
               <pre
                 role="region"
-                aria-label={labels.toolResult}
+                aria-label={toolResultLabel}
                 tabIndex={0}
                 className="agentkit-activity-summary-value"
               >
@@ -1099,14 +1153,17 @@ function formatToolDiagnostic(value: unknown): string | undefined {
   }
 }
 
-function toolToActivity(tool: AgentToolCall): AgentActivity {
+function toolToActivity(
+  tool: AgentToolCall,
+  labels: Partial<AgentKitLabels> = {},
+): AgentActivity {
   const failed = tool.status === "failed";
   const errorMessage = failed
     ? ((tool.error?.message?.trim()
-        ? formatActivityToolValue(tool.error.message)
+        ? formatActivityToolValue(tool.error.message, labels)
         : undefined) ??
-      formatActivityToolValue(tool.output) ??
-      formatActivityToolValue(tool.error?.details))
+      formatActivityToolValue(tool.output, labels) ??
+      formatActivityToolValue(tool.error?.details, labels))
     : undefined;
   return {
     id: tool.id,
@@ -1477,7 +1534,11 @@ export function AgentActivityGroup({
       toolMap.set(event.toolCall.id, tool);
       remember(event.toolCall.id, event.sequence);
       latestEventOrder.set(event.toolCall.id, eventOrder);
-      rememberUsefulActivity(toolToActivity(tool), event.sequence, eventOrder);
+      rememberUsefulActivity(
+        toolToActivity(tool, labels),
+        event.sequence,
+        eventOrder,
+      );
     }
     if (event.type === "tool.delta") {
       if (excludeAgentActivities && delegatedToolIds.has(event.toolCallId)) {
@@ -1487,7 +1548,7 @@ export function AgentActivityGroup({
       if (tool) {
         toolMap.set(tool.id, tool);
         rememberUsefulActivity(
-          toolToActivity(tool),
+          toolToActivity(tool, labels),
           event.sequence,
           eventOrder,
         );
@@ -1508,7 +1569,7 @@ export function AgentActivityGroup({
     const activity = activityMap.get(id);
     if (activity) return [activity];
     const tool = toolMap.get(id);
-    return tool ? [toolToActivity(tool)] : [];
+    return tool ? [toolToActivity(tool, labels)] : [];
   });
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);

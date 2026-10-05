@@ -213,8 +213,11 @@ export interface AgentKitLabels {
   durationSecondShort: string;
   agents: string;
   tasks: string;
-  toolInput: string;
-  toolResult: string;
+  toolInput?: string;
+  toolResult?: string;
+  activityValueIdentifierHidden?: string;
+  activityValueOmitted?: string;
+  activityValueCircular?: string;
   composerLabel: string;
   composerPlaceholder: string;
   queue: string;
@@ -306,6 +309,9 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   tasks: "Agent tasks",
   toolInput: "Input",
   toolResult: "Result",
+  activityValueIdentifierHidden: "[Identifier hidden]",
+  activityValueOmitted: "[Content omitted]",
+  activityValueCircular: "[Circular reference]",
   composerLabel: "Message agent",
   composerPlaceholder: "Ask the agent to explore, build, or explain…",
   queue: "Queued messages",

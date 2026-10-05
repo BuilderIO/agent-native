@@ -1210,6 +1210,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "没有可用的错误详情。",
   "tool.input": "输入",
   "tool.inputWithLabel": "输入 - {{label}}",
+  "tool.identifierHidden": "[标识符已隐藏]",
+  "tool.contentOmitted": "[内容已省略]",
+  "tool.circularReference": "[循环引用]",
   "tool.interrupted":
     "在完成报告前被中断——操作可能已经完成，也可能尚未完成。重试前请先检查。",
   "tool.longRunning": "仍在处理。大型更新可能需要一两分钟。",

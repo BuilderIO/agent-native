@@ -1282,6 +1282,9 @@ const messages = {
   "tool.failedWithoutDetails": "No error details are available.",
   "tool.input": "Input",
   "tool.inputWithLabel": "Input - {{label}}",
+  "tool.identifierHidden": "[Identifier hidden]",
+  "tool.contentOmitted": "[Content omitted]",
+  "tool.circularReference": "[Circular reference]",
   "tool.interrupted":
     "Interrupted before this finished reporting — it may or may not have completed. Check before retrying.",
   "tool.longRunning": "Still working. Large updates can take a minute or two.",

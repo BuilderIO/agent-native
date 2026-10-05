@@ -2918,9 +2918,9 @@ describe("AgentChat lifecycle", () => {
       details.every((detail) => detail.getAttribute("role") === "region"),
     ).toBe(true);
     expect(details.every((detail) => detail.tabIndex === 0)).toBe(true);
-    expect(details[0]?.textContent).toContain("[ID]");
-    expect(details[1]?.textContent).toContain("[ID]");
-    expect(details[1]?.textContent).toContain("[Truncated]");
+    expect(details[0]?.textContent).toContain("[Identifier hidden]");
+    expect(details[1]?.textContent).toContain("[Identifier hidden]");
+    expect(details[1]?.textContent).toContain("[Content omitted]");
     expect(details[1]?.textContent).not.toContain(internalId);
     expect(details[1]?.textContent).not.toContain("beyond preview");
     await tree.unmount();
