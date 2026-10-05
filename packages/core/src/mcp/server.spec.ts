@@ -1,3 +1,6 @@
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -6,8 +9,12 @@ import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { CHATGPT_DIRECTORY_PROFILE as contentDirectoryProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
+import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
+import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
 import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { createMCPServerForRequest } from "./build-server.js";
 import * as mcpBuildServer from "./build-server.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
@@ -747,6 +754,339 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(directoryInitialize.result.instructions).not.toMatch(
       /view-screen|ask_app|tool-search|WebMCP/i,
     );
+  });
+
+  it("replays the ChatGPT dashboard scan sequence on each directory profile", async () => {
+    const requestLogs: Array<Record<string, any>> = [];
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: any[]) => {
+        if (args[0] === "[mcp:directory] request") requestLogs.push(args[1]);
+      });
+    try {
+      const repoRoot = path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../../../../",
+      );
+      const profiles = [
+        { appId: "slides", profile: slidesDirectoryProfile },
+        { appId: "design", profile: designDirectoryProfile },
+        { appId: "content", profile: contentDirectoryProfile },
+      ] as const;
+
+      for (const { appId, profile } of profiles) {
+        const logStart = requestLogs.length;
+        const projectRoot = path.join(repoRoot, "templates", appId);
+        const modules = Object.fromEntries(
+          await Promise.all(
+            profile.connectorCatalog.map(async (name) => {
+              const actionUrl =
+                pathToFileURL(path.join(projectRoot, "actions", `${name}.ts`))
+                  .href + `?scannerReplay=${Date.now()}`;
+              return [name, await import(actionUrl)];
+            }),
+          ),
+        );
+        const loadedActions = loadActionsFromStaticRegistry(modules);
+        const safeReadTool = profile.connectorCatalog.find(
+          (name) => loadedActions[name]?.mcpAnnotations?.readOnlyHint === true,
+        );
+        expect(safeReadTool, `${appId} has a safe read tool`).toBeTruthy();
+        const actions = {
+          ...loadedActions,
+          [safeReadTool!]: {
+            ...loadedActions[safeReadTool!],
+            run: async () => ({ scannerReplay: true }),
+          },
+        };
+        const serverConfig = {
+          ...config,
+          name: `agent-native-${appId}`,
+          appId,
+          description: `Agent-Native ${appId} scanner replay`,
+          instructions: profile.instructions,
+          actions,
+          productionActions: actions,
+          builtinCrossAppTools: false,
+          directoryProfile: profile,
+        };
+        const host = `${appId}.agent-native.com`;
+        const authHeaders = {
+          authorization: "Bearer test-access-token",
+          "x-agent-native-owner-email": "scanner+autoz@example.test",
+          host,
+          "x-forwarded-proto": "https",
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        };
+        const responses: Array<{
+          status: number;
+          contentType: string;
+          hasSessionId: boolean;
+          body: any;
+          raw: string;
+        }> = [];
+        const send = async (
+          message: Record<string, unknown>,
+          requestHeaders: Record<string, string> = {},
+        ) => {
+          const event = makeWebEvent({
+            method: "POST",
+            headers: { ...authHeaders, ...requestHeaders },
+            body: message,
+          });
+          const result = await handleMcpRequest(
+            event,
+            serverConfig as any,
+            MCP_DIRECTORY_ROUTE_PREFIX,
+          );
+          expect(result).toBeInstanceOf(Response);
+          const response = result as Response;
+          const contentType = response.headers.get("content-type") ?? "";
+          const raw = await response.text();
+          let body: any;
+          if (raw.trim()) {
+            body = contentType.includes("text/event-stream")
+              ? JSON.parse(
+                  raw
+                    .split("\n")
+                    .find((line) => line.startsWith("data:"))
+                    ?.slice(5)
+                    .trim() ?? "{}",
+                )
+              : JSON.parse(raw);
+          }
+          const summary = {
+            status: response.status,
+            contentType,
+            hasSessionId: Boolean(response.headers.get("mcp-session-id")),
+            body,
+            raw,
+          };
+          responses.push(summary);
+          return summary;
+        };
+        const protocolVersion = "2025-11-25";
+        const init = await send({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion,
+            capabilities: {},
+            clientInfo: { name: "openai-review-scan", version: "1.0.0" },
+          },
+        });
+        const initialized = await send(
+          {
+            jsonrpc: "2.0",
+            method: "notifications/initialized",
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const tools = await send(
+          {
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/list",
+            params: {},
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const resources = await send(
+          {
+            jsonrpc: "2.0",
+            id: 3,
+            method: "resources/list",
+            params: {},
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const resourceTemplates = await send(
+          {
+            jsonrpc: "2.0",
+            id: 4,
+            method: "resources/templates/list",
+            params: {},
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const listedTools = tools.body?.result?.tools ?? [];
+        const linkedUris = [
+          ...new Set(
+            listedTools.flatMap((tool: any) =>
+              [
+                tool._meta?.ui?.resourceUri,
+                tool._meta?.["openai/outputTemplate"],
+              ].filter((uri): uri is string => typeof uri === "string"),
+            ),
+          ),
+        ];
+        const reads = [];
+        for (const [index, uri] of linkedUris.entries()) {
+          reads.push(
+            await send(
+              {
+                jsonrpc: "2.0",
+                id: 10 + index,
+                method: "resources/read",
+                params: { uri },
+              },
+              { "mcp-protocol-version": protocolVersion },
+            ),
+          );
+        }
+        const prompts = await send(
+          {
+            jsonrpc: "2.0",
+            id: 5,
+            method: "prompts/list",
+            params: {},
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const ping = await send(
+          {
+            jsonrpc: "2.0",
+            id: 6,
+            method: "ping",
+            params: {},
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const safeRead = await send(
+          {
+            jsonrpc: "2.0",
+            id: 7,
+            method: "tools/call",
+            params: { name: safeReadTool, arguments: {} },
+          },
+          { "mcp-protocol-version": protocolVersion },
+        );
+        const currentProtocolPromptProbe = await send(
+          {
+            jsonrpc: "2.0",
+            id: 8,
+            method: "prompts/list",
+            params: {
+              _meta: {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {
+                  name: "openai-review-scan",
+                  version: "1.0.0",
+                },
+                "io.modelcontextprotocol/clientCapabilities": {},
+              },
+            },
+          },
+          {
+            "mcp-protocol-version": "2026-07-28",
+            "mcp-method": "prompts/list",
+          },
+        );
+        const resourceContents = reads.flatMap(
+          (response) => response.body?.result?.contents ?? [],
+        );
+        const expectedOrigin = `https://${host}`;
+        expect(init.body?.result?.protocolVersion).toBe(protocolVersion);
+        expect(init.body?.result?.capabilities?.prompts).toBeUndefined();
+        expect(listedTools.map((tool: any) => tool.name).sort()).toEqual(
+          [...profile.connectorCatalog].sort(),
+        );
+        expect(linkedUris.length).toBeGreaterThan(0);
+        expect(resources.body?.result?.resources).toHaveLength(
+          linkedUris.length,
+        );
+        expect(resourceTemplates.body?.result?.resourceTemplates).toHaveLength(
+          linkedUris.length,
+        );
+        expect(resourceContents).toHaveLength(linkedUris.length);
+        for (const resource of resourceContents) {
+          expect(resource.mimeType).toBe("text/html;profile=mcp-app");
+          expect(resource._meta?.ui?.domain).toBe(expectedOrigin);
+          expect(resource._meta?.["openai/widgetDomain"]).toBe(expectedOrigin);
+          expect(resource._meta?.["openai/widgetDescription"]).toEqual(
+            expect.any(String),
+          );
+          expect(
+            resource._meta?.["openai/widgetDescription"].length,
+          ).toBeGreaterThan(0);
+          expect(resource._meta?.ui?.csp?.connectDomains).toContain(
+            expectedOrigin,
+          );
+          expect(resource._meta?.ui?.csp?.resourceDomains).toContain(
+            expectedOrigin,
+          );
+          expect(resource._meta?.ui?.csp?.frameDomains).toContain(
+            expectedOrigin,
+          );
+          expect(resource._meta?.ui?.csp).not.toHaveProperty("baseUriDomains");
+          expect(resource.text).toMatch(/<\/body>\n<\/html>$/);
+          expect(resource.text).not.toContain("https://esm.sh");
+        }
+        expect(responses.every((response) => !response.hasSessionId)).toBe(
+          true,
+        );
+        expect(initialized).toMatchObject({
+          status: 202,
+          contentType: "",
+          raw: "",
+        });
+        for (const response of [
+          init,
+          tools,
+          resources,
+          resourceTemplates,
+          ...reads,
+          prompts,
+          ping,
+          safeRead,
+        ]) {
+          expect(response.status).toBe(200);
+          expect(response.contentType).toContain("text/event-stream");
+        }
+        expect(prompts.body?.error).toMatchObject({ code: -32601 });
+        expect(ping.body?.result).toEqual({});
+        expect(safeRead.body?.result?.structuredContent).toMatchObject({
+          scannerReplay: true,
+        });
+        expect(currentProtocolPromptProbe.status).toBe(404);
+        expect(currentProtocolPromptProbe.body?.error?.code).toBe(-32601);
+        const appLogs = requestLogs.slice(logStart);
+        expect(appLogs).toHaveLength(responses.length);
+        expect(appLogs.map((entry) => entry.method)).toEqual([
+          "initialize",
+          "notifications/initialized",
+          "tools/list",
+          "resources/list",
+          "resources/templates/list",
+          ...linkedUris.map(() => "resources/read"),
+          "prompts/list",
+          "ping",
+          "tools/call",
+          "prompts/list",
+        ]);
+        expect(appLogs.map((entry) => entry.status)).toEqual(
+          responses.map((response) => response.status),
+        );
+        for (const log of appLogs) {
+          expect(Object.keys(log).sort()).toEqual([
+            "durationMs",
+            "method",
+            "status",
+          ]);
+          expect(log.durationMs).toEqual(expect.any(Number));
+          expect(log.durationMs).toBeGreaterThanOrEqual(0);
+        }
+      }
+      expect(profiles.map(({ appId }) => appId)).toEqual([
+        "slides",
+        "design",
+        "content",
+      ]);
+    } finally {
+      consoleInfo.mockRestore();
+    }
   });
 
   it("returns a typed 503 for broken directory annotations while regular MCP works", async () => {
