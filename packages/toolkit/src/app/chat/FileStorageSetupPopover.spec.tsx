@@ -112,5 +112,18 @@ describe("FileStorageSetupPopover", () => {
       "Connect Builder.io",
     );
     expect(container.textContent).toContain("Use custom keys");
+    expect(
+      container.querySelector('[aria-label="Connect storage to upload files"]')
+        ?.className,
+    ).toContain("p-3");
+    expect(container.querySelector("div.grid.gap-2")?.className).toBe(
+      "grid gap-2",
+    );
+    expect(container.querySelector("h2")?.parentElement?.className).toBe(
+      "grid gap-1",
+    );
+    expect(container.querySelector("button")?.parentElement?.className).toBe(
+      "flex gap-2",
+    );
   });
 });
