@@ -734,27 +734,26 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .tk-empty b { display: block; color: var(--fg); font-size: 12px; font-weight: 500; margin-bottom: 4px; }
 
 /* menus: Nova dropdown. Full-bleed 28px rows, no inner padding, dividers edge to edge. */
-.menu { position: fixed; z-index: 50; background: var(--popover); border: 1px solid var(--border); border-radius: 10px; min-width: 151px; box-shadow: var(--shadow); font-size: 13px; overflow: hidden; animation: swap .12s ease-out; }
-.menu button { width: 100%; height: 28px; padding-inline: 8px; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap; }
+/* Matches the toolkit's shadcn DropdownMenu: p-1 content, rounded-sm rows (px-2 py-1.5 text-sm), inset separators, xs semibold labels. */
+.menu { position: fixed; z-index: 50; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px; min-width: 128px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%); font-size: 14px; line-height: 20px; overflow: hidden; animation: swap .12s ease-out; }
+.menu button { width: 100%; height: 32px; padding: 6px 8px; border-radius: 4px; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap; }
 .menu button:hover, .menu button:focus-visible, .menu button.open { background: var(--hover); outline: none; }
-.menu button.open { background: var(--accent-row); }
-.menu button[disabled] { color: var(--muted-fg); cursor: default; background: none; }
-.menu button.two { height: auto; min-height: 44px; padding-block: 6px; align-items: flex-start; }
-.menu button.two svg { margin-top: 2px; }
+.menu button[disabled] { opacity: .5; cursor: default; background: none; }
+.menu button.two { height: auto; min-height: 44px; align-items: flex-start; }
 .menu .tt { display: flex; flex-direction: column; min-width: 0; }
 .menu .tt small { color: var(--muted-fg); font-size: 12px; line-height: 16px; }
-.menu .kbd { margin-left: auto; color: var(--muted-fg); font-size: 12px; padding-left: 20px; }
+.menu .kbd { margin-left: auto; padding-left: 16px; font-size: 12px; letter-spacing: .1em; opacity: .6; }
 .menu button svg { flex: none; }
 .menu button.danger { color: hsl(0 72% 51%); }
-.menu hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
-.menu .lbl { height: 24px; padding: 0 8px; display: flex; align-items: center; font-size: 11px; color: var(--muted-fg); }
+.menu hr { border: 0; height: 1px; background: var(--muted); margin: 4px -4px; }
+.menu .lbl { padding: 6px 8px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--muted-fg); }
 .menu .ck { width: 16px; display: grid; place-items: center; flex: none; }
-.menu .sub { margin-left: auto; padding-left: 20px; color: var(--fg); display: grid; }
+.menu .sub { margin-left: auto; padding-left: 16px; display: grid; }
 .menu img.mi-img { width: 16px; height: 16px; border-radius: 4px; flex: none; }
-.menu .search { height: 32px; display: flex; align-items: center; gap: 8px; padding-inline: 8px; color: var(--muted-fg); border-bottom: 1px solid var(--border); }
-.menu .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 13px; color: var(--fg); }
-.menu .field-row { padding: 8px 8px; border-bottom: 1px solid var(--border); }
-.menu .field-row input { width: 100%; height: 28px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding-inline: 8px; font-size: 13px; }
+.menu .search { height: 36px; display: flex; align-items: center; gap: 8px; padding-inline: 12px; margin: -4px -4px 4px; color: var(--muted-fg); border-bottom: 1px solid var(--border); }
+.menu .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 14px; color: var(--fg); }
+.menu .field-row { padding: 8px; margin: -4px -4px 4px; border-bottom: 1px solid var(--border); }
+.menu .field-row input { width: 100%; height: 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); padding-inline: 8px; font-size: 14px; }
 
 /* Top bar test (2026-10-01): every control at the 24px design-system default, ui/control text 12/16.
    Edge padding follows the edge content: 8px beside text, 4px beside a 16px glyph ((24 - 16) / 2). */
@@ -925,31 +924,33 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .route-list .none { padding: 8px; color: var(--muted-fg); font-size: 12px; }
 /* Share popover (toolkit ShareButton with Content's People / Agents tabs) at the app's density: 24px controls, 32px rows, 12/16 text.
    Both panes share one grid cell, so switching tabs never changes the popover's size. */
-.share-pop { position: fixed; z-index: 48; width: 360px; background: var(--popover); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); font-size: 12px; line-height: 16px; animation: swap .12s ease-out; }
-.share-pop .sp-tabs { display: flex; gap: 16px; padding: 0 12px; border-bottom: 1px solid var(--border); }
-.share-pop .sp-tabs button { height: 36px; font-weight: 500; color: var(--muted-fg); box-shadow: inset 0 -2px 0 transparent; }
-.share-pop .sp-tabs button[aria-selected="true"] { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
+/* Toolkit Popover (rounded-md border shadow-md, text-sm) holding shadcn Tabs, Input, and Button; person rows follow the toolkit ShareDialog (h-7 avatars, xs muted role). */
+.share-pop { position: fixed; z-index: 48; width: 360px; padding: 12px 16px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%); font-size: 14px; line-height: 20px; animation: swap .12s ease-out; }
+.share-pop .sp-tabs { display: flex; height: 36px; padding: 4px; border-radius: 6px; background: var(--muted); color: var(--muted-fg); }
+.share-pop .sp-tabs button { flex: 1; border-radius: 4px; padding: 4px 12px; font-weight: 500; }
+.share-pop .sp-tabs button[aria-selected="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 5%), 0 1px 3px rgb(0 0 0 / 10%); }
 .share-pop .sp-panes { display: grid; grid-template-columns: minmax(0, 1fr); }
-.share-pop .sp-pane { grid-area: 1 / 1; padding: 12px 0 4px; display: flex; flex-direction: column; }
+.share-pop .sp-pane { grid-area: 1 / 1; padding-top: 12px; display: flex; flex-direction: column; }
 .share-pop .sp-pane[aria-hidden="true"] { visibility: hidden; }
-.share-pop .sp-invite { display: flex; gap: 8px; padding: 0 12px 8px; }
-.share-pop .sp-field { flex: 1; min-width: 0; height: 24px; display: flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; padding-left: 8px; background: var(--bg); }
+.share-pop .sp-invite { display: flex; gap: 8px; padding-bottom: 8px; }
+.share-pop .sp-field { flex: 1; min-width: 0; height: 36px; display: flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 6px; padding: 0 4px 0 12px; background: var(--bg); box-shadow: 0 1px 2px rgb(0 0 0 / 5%); }
 .share-pop .sp-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .share-pop .sp-field input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font: inherit; color: var(--fg); }
-.share-pop .sp-role { height: 22px; display: inline-flex; align-items: center; gap: 2px; padding: 0 4px 0 6px; border-radius: 4px; color: var(--muted-fg); flex: none; }
+.share-pop .sp-role { height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px 0 8px; border-radius: 4px; color: var(--muted-fg); font-size: 12px; flex: none; }
 .share-pop .sp-role:hover { color: var(--fg); background: var(--hover); }
-.share-pop .sp-send { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; background: var(--primary); color: var(--primary-fg); flex: none; }
-.share-pop .sp-send[disabled] { background: var(--muted); color: var(--muted-fg); cursor: default; }
-.share-pop .sp-label { padding: 8px 12px 4px; color: var(--muted-fg); font-weight: 500; }
-.share-pop .sp-row { min-height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; text-align: left; width: 100%; }
+.share-pop .sp-send { width: 36px; height: 36px; border-radius: 6px; display: grid; place-items: center; background: var(--primary); color: var(--primary-fg); flex: none; }
+.share-pop .sp-send[disabled] { opacity: .5; cursor: default; }
+.share-pop .sp-label { padding: 8px 0 4px; font-size: 12px; line-height: 16px; color: var(--muted-fg); font-weight: 500; }
+.share-pop .sp-row { min-height: 36px; display: flex; align-items: center; gap: 12px; margin: 0 -8px; padding: 4px 8px; border-radius: 6px; text-align: left; width: calc(100% + 16px); }
 .share-pop button.sp-row:hover { background: var(--hover); }
 .share-pop .sp-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.share-pop .sp-row .muted { color: var(--muted-fg); }
-.share-pop .sp-av { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 600; flex: none; }
-.share-pop .sp-av.ico { background: var(--muted); color: var(--fg); }
+.share-pop .sp-row .muted { color: var(--muted-fg); font-size: 12px; }
+.share-pop .sp-av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 600; flex: none; }
+.share-pop .sp-av.ico { background: var(--muted); color: var(--muted-fg); }
 .share-pop .sp-av img { width: 16px; height: 16px; border-radius: 4px; }
-.share-pop .sp-row svg.i { width: 16px; height: 16px; flex: none; color: var(--muted-fg); }
-.share-pop hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.share-pop .sp-row svg { flex: none; color: var(--muted-fg); }
+.share-pop .sp-row > svg:first-child { width: 28px; }
+.share-pop hr { border: 0; height: 1px; background: var(--border); margin: 8px -16px; }
 .share-pop hr.sp-foot { margin-top: auto; }
 .dlg-h .ic-tip { display: inline-grid; margin-left: 6px; color: var(--muted-fg); cursor: help; }
 .nudge-b { gap: 8px; }

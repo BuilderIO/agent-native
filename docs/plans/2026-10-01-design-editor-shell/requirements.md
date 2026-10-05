@@ -140,7 +140,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **MENU-08** · proposed
   - Change: The Agents composer + is Figma's “MVP Add context menu (prompt bar)” (2261:2104): Search…, Upload file, Attach Figma, Reference a design.
 - **MENU-09** · decided
-  - Change: Menus are text: no leading icons on rows, following the macOS HIG. A row shows a check or radio for state, a shortcut, or a submenu chevron, and nothing else. An ellipsis (…) ends a label only when the row opens a dialog or a system file panel (Save as template…, Nudge amount…, From your app…, Import's sources, DTCG file…); rows that open a menu, a popover, or the composer don't get one (Export ›, Publish app, Edit with Agent ›). The toolbar's tool pickers keep their glyphs, since the picked tool's glyph becomes the button, and the shared account menu is the toolkit's.
+  - Change: Menus are text: no leading icons on rows, following the macOS HIG. They use the toolkit's shadcn DropdownMenu styling as is (p-1 content, rounded rows of text-sm, inset separators, xs semibold labels), and popovers like Share use its Popover, Tabs, Input, and Button. A row shows a check or radio for state, a shortcut, or a submenu chevron, and nothing else. An ellipsis (…) ends a label only when the row opens a dialog or a system file panel (Save as template…, Nudge amount…, From your app…, Import's sources, DTCG file…); rows that open a menu, a popover, or the composer don't get one (Export ›, Publish app, Edit with Agent ›). The toolbar's tool pickers keep their glyphs, since the picked tool's glyph becomes the button, and the shared account menu is the toolkit's.
 
 ## Version history (HIST, step 14)
 

@@ -279,7 +279,7 @@ where it names Annotate or the old toolbar.
 - 2026-10-02: One Copy link everywhere: after Send to › on canvas menus and after Copy on layer rows, linking what you right-clicked, with the toast naming it. AGT-02.
 - 2026-10-02: Code mode ships behind its own Labs flag, `design.code`, like Tokens. CODE-05.
 - 2026-10-02: Responsive design drops the breakpoint mode. A frame is a frame with width presets from tokens; responsive rules live on layers and compile to container queries with token thresholds; the agent writes them; fixed widths are only viewports to check. RESP-04, RESP-05, RESP-06, RESP-07, RESP-08, RESP-09.
-- 2026-10-05: Menus are text, following the macOS HIG: no leading icons, and an ellipsis only on rows that open a dialog or a file panel. A bound token's Detach token is the first row of its menu, on ⌫. MENU-09, RESP-05.
+- 2026-10-05: Menus are text, following the macOS HIG: no leading icons, and an ellipsis only on rows that open a dialog or a file panel. Menus and the Share popover use the toolkit's shadcn DropdownMenu and Popover styling as is. A bound token's Detach token is the first row of its menu, on ⌫. MENU-09, RESP-05.
 
 ## Open questions
 
