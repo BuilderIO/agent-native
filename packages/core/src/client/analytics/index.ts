@@ -10,6 +10,7 @@ export {
   getAnalyticsAnonymousId,
   getAnalyticsSessionId,
   getFirstTouchAttribution,
+  getFirstTouchAttributionOrCurrentPage,
   getSessionReplayContext,
   getSessionReplayUrl,
   isErrorCaptureInstalled,

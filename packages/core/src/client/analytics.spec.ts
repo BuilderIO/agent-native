@@ -354,6 +354,24 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("stands in the current page for a first touch tracking hasn't stored yet", async () => {
+    const { localStorage } = installBrowser(
+      "https://agent-native.com/templates/slides?utm_source=youtube&gclid=g-1",
+    );
+    const { getFirstTouchAttributionOrCurrentPage } = await freshAnalytics();
+
+    expect(getFirstTouchAttributionOrCurrentPage()).toMatchObject({
+      utm_source: "youtube",
+      gclid: "g-1",
+      landing_path: "/templates/slides",
+    });
+    // Storing stays with configureTracking, which skips synthetic traffic.
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+
+    localStorage.setItem("an_attribution", JSON.stringify({ ref: "alice" }));
+    expect(getFirstTouchAttributionOrCurrentPage()).toEqual({ ref: "alice" });
+  });
+
   it("keeps high-value signup attribution when the cookie payload exceeds its budget", async () => {
     const params = new URLSearchParams({
       gclid: "click-id",

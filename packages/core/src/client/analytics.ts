@@ -727,6 +727,21 @@ export function getFirstTouchAttribution(): FirstTouchAttribution | null {
   }
 }
 
+/**
+ * The first touch for code that can run before `configureTracking()` stores
+ * it, such as a link followed while the page is still loading: the stored
+ * first touch, or else the one this page will store. Stores nothing.
+ */
+export function getFirstTouchAttributionOrCurrentPage(): FirstTouchAttribution | null {
+  const stored = getFirstTouchAttribution();
+  if (stored || typeof window === "undefined") return stored;
+  try {
+    return buildFirstTouchAttribution();
+  } catch {
+    return null;
+  }
+}
+
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
   const h = (hostname || "").toLowerCase();
   return (

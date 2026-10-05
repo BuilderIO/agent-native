@@ -130,6 +130,8 @@ describe("installAppLinkAttribution", () => {
     uninstall = undefined;
     document.body.innerHTML = "";
     localStorage.clear();
+    history.replaceState(null, "", "/");
+    delete (document as { referrer?: string }).referrer;
   });
 
   /** Returns the href the browser would follow, read after every listener. */
@@ -241,5 +243,49 @@ describe("installAppLinkAttribution", () => {
     expect(link.href).toBe(
       "https://slides.agent-native.com/?initialPrompt=deck",
     );
+  });
+
+  it("keeps the source when a React click handler rebuilds the link", () => {
+    localStorage.setItem(
+      "an_attribution",
+      JSON.stringify({ utm_source: "youtube", landing_path: "/" }),
+    );
+    uninstall = installAppLinkAttribution();
+    // hydrateRoot(document) delegates React's onClick to the document, after
+    // this listener installed. SlidesTryNow rebuilds its href there.
+    const reactRoot = (event: Event) => {
+      const link = (event.target as Element).closest("a")!;
+      link.href = "https://slides.agent-native.com/?initialPrompt=deck";
+    };
+    document.addEventListener("click", reactRoot);
+    const link = linkTo("https://slides.agent-native.com/?initialPrompt=");
+
+    try {
+      const params = new URL(click(link)).searchParams;
+      expect(params.get("initialPrompt")).toBe("deck");
+      expect(params.get("utm_source")).toBe("youtube");
+      expect(params.get("site_landing_path")).toBe("/");
+    } finally {
+      document.removeEventListener("click", reactRoot);
+    }
+  });
+
+  it("forwards the current page's source before tracking stores it", () => {
+    history.replaceState(null, "", "/templates/slides?utm_source=x&gclid=g-1");
+    Object.defineProperty(document, "referrer", {
+      value: "https://www.youtube.com/watch?v=abc",
+      configurable: true,
+    });
+    uninstall = installAppLinkAttribution();
+    const link = linkTo("https://slides.agent-native.com/");
+
+    const followed = click(link);
+
+    expect(Object.fromEntries(new URL(followed).searchParams)).toEqual({
+      utm_source: "x",
+      gclid: "g-1",
+      site_referrer: "www.youtube.com",
+      site_landing_path: "/templates/slides",
+    });
   });
 });

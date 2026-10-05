@@ -1,5 +1,6 @@
 import {
   getFirstTouchAttribution,
+  getFirstTouchAttributionOrCurrentPage,
   type FirstTouchAttribution,
 } from "@agent-native/core/client/analytics";
 
@@ -91,8 +92,11 @@ export function appendSiteHandoff(
  * The browser reads `href` when the click's default action runs, right after
  * every listener. The clean `href` comes back on the next task, so copying
  * the link later never hands this visitor's source to someone else.
+ *
+ * This installs before hydration, so a link can be followed before tracking
+ * has stored the first touch; the current page stands in for it until then.
  */
-export function installAppLinkAttribution(target: Document = document) {
+export function installAppLinkAttribution(target: EventTarget = window) {
   const decorate = (event: Event) => {
     // Primary click (also Enter on a focused link) or middle click. Other
     // buttons open menus, not the link.
@@ -105,7 +109,7 @@ export function installAppLinkAttribution(target: Document = document) {
     const cleanUrl = link.href;
     const nextUrl = appendSiteHandoff(
       cleanUrl,
-      getFirstTouchAttribution(),
+      getFirstTouchAttributionOrCurrentPage(),
       window.location.pathname,
     );
     if (nextUrl === cleanUrl) return;
@@ -116,9 +120,11 @@ export function installAppLinkAttribution(target: Document = document) {
     });
   };
 
-  // Both phases: capture still runs when a handler stops propagation, and
-  // bubble runs after handlers that rebuild `href` on click (SlidesTryNow).
-  // Decorating is idempotent. `auxclick` covers middle-click.
+  // Both phases on the window: capture still runs when a handler stops
+  // propagation, and bubble runs after React's click handlers, which React
+  // delegates to the document, so a handler that rebuilds `href` on click
+  // (SlidesTryNow) keeps the source. Decorating is idempotent. `auxclick`
+  // covers middle-click.
   const listeners = ["click", "auxclick"].flatMap((type) =>
     [true, false].map((capture) => ({ type, capture })),
   );
