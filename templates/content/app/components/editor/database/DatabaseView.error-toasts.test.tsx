@@ -20,7 +20,10 @@ const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
 const databaseItemsState = vi.hoisted(() => ({ settled: true, failed: false }));
-const databaseQueryState = vi.hoisted(() => ({ isError: false }));
+const databaseQueryState = vi.hoisted(() => ({
+  isError: false,
+  unanswered: false,
+}));
 const databaseRetryItemsMock = vi.hoisted(() => vi.fn());
 const databaseRefetchMock = vi.hoisted(() =>
   vi.fn(
@@ -193,7 +196,7 @@ vi.mock("@/hooks/use-content-database", () => ({
     contentDatabaseQueryMock(documentId, limit, tableQuery);
     const response = databaseResponseForDocument(documentId);
     return {
-      data: response,
+      data: databaseQueryState.unanswered ? undefined : response,
       isLoading: false,
       isError: databaseQueryState.isError,
       isFetching: limit !== response.pagination?.limit || Boolean(tableQuery),
@@ -447,6 +450,7 @@ describe("DatabaseView UI regressions", () => {
     databaseItemsState.settled = true;
     databaseItemsState.failed = false;
     databaseQueryState.isError = false;
+    databaseQueryState.unanswered = false;
     databaseRetryItemsMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
     createDocumentMutation.mutateAsync.mockReset();
@@ -735,6 +739,19 @@ describe("DatabaseView UI regressions", () => {
     const exactViewId = databaseResponse.database.viewConfig.views[0]!.id;
 
     await renderDatabaseView(exactViewId);
+
+    const retry = findButtonByText(container, "database.retry");
+    expect(retry).toBeTruthy();
+    await act(async () => retry!.click());
+    expect(databaseRetryItemsMock).toHaveBeenCalledOnce();
+  });
+
+  it("offers retry when an exact view the page read does not list cannot be read", async () => {
+    databaseItemsState.failed = true;
+    databaseQueryState.isError = true;
+    databaseQueryState.unanswered = true;
+
+    await renderDatabaseView("view-added-after-page-read");
 
     const retry = findButtonByText(container, "database.retry");
     expect(retry).toBeTruthy();

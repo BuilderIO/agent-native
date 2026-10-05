@@ -3076,6 +3076,18 @@ function DatabaseTable({
   }
 
   if (firstViewPending) {
+    // An exact view the page read does not list resolves only from the
+    // collection read, so a failed first read would otherwise hold the
+    // placeholder forever.
+    if (database.itemsFailed) {
+      return (
+        <QueryErrorState
+          compact
+          onRetry={() => void database.retryItems()}
+          retrying={database.itemsRetrying}
+        />
+      );
+    }
     return (
       <DatabaseViewSkeleton
         anchored={renderMode === "page"}
