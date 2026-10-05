@@ -2613,6 +2613,35 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
+  it("localizes unsupported upload errors instead of exposing the HTTP status", async () => {
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json(
+          { error: "Unsupported file type: application/pdf" },
+          { status: 415 },
+        ),
+      );
+    await mount(baseProps());
+
+    try {
+      await expect(
+        chatMocks.rootProps.clientOptions.upload(
+          { uploadId: "upload-1", method: "POST", url: "/uploads" },
+          {
+            name: "reference.pdf",
+            mediaType: "application/pdf",
+            size: 4,
+            body: new Blob(["data"], { type: "application/pdf" }),
+          },
+        ),
+      ).rejects.toThrow("agentChat.composer.unsupportedFileType");
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
   it("sends without waiting for pending-selection cleanup", async () => {
     chatMocks.appState.set("pending-selection-context", {
       text: "Selected text",
