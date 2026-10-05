@@ -1643,11 +1643,11 @@ async function awaitReplayUpload(
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
-  callbacks: { beforeKeepaliveUpload?: () => void } = {},
+  callbacks: { beforeUpload?: (keepalive: boolean) => void } = {},
 ): Promise<void> {
   if (isCrossOriginReplayEndpoint(options.endpoint)) {
     const canUseKeepalive = canUseReplayKeepalive(body);
-    if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+    callbacks.beforeUpload?.(canUseKeepalive);
     const timeout = startReplayUploadTimeout();
     await awaitReplayUploadRequest(timeout, () =>
       fetch(options.endpoint, {
@@ -1663,7 +1663,7 @@ async function sendReplayUpload(
 
   const upload = await buildReplayUploadBody(body);
   const canUseKeepalive = canUseReplayKeepalive(upload.body);
-  if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+  callbacks.beforeUpload?.(canUseKeepalive);
   const timeout = startReplayUploadTimeout();
   await awaitReplayUploadRequest(timeout, () =>
     fetch(options.endpoint, {
@@ -2048,12 +2048,17 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   let pausedForQuota = false;
   let quotaRetryAfterSeconds: number | null = null;
   try {
-    // A keepalive upload of any reason can be stored after a navigation has
-    // destroyed this page and its response handler. Persist the next index
-    // first, or the next page resends this chunk number with different
-    // content and the server rejects it (HTTP 409).
+    // An upload can be stored after a navigation has destroyed this page and
+    // its response handler: a keepalive one because the browser finishes
+    // sending it, and a larger one when the server already has its body.
+    // Persist the next index first, or the next page resends this chunk number
+    // with different content and the server rejects it (HTTP 409). The
+    // exception is a larger upload the page-leave flush starts: the browser
+    // nearly always cancels it first, and a reserved number that never arrives
+    // leaves a gap in the recording.
     await sendReplayUpload(state.options, payload.body, {
-      beforeKeepaliveUpload: () => {
+      beforeUpload: (keepalive) => {
+        if (!keepalive && isTerminalReplayFlushReason(reason)) return;
         advanceReplaySequence(state, payload);
         reservedSequence = true;
       },
