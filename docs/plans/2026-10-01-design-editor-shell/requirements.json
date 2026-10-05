@@ -572,7 +572,7 @@
           "id": "TOK-20",
           "status": "proposed",
           "today": "Clicking a color token opens a text field for its hex value, the same as every other token.",
-          "change": "Clicking a color token opens the inspector's `DesignColorPicker` with `supportedPaintTypes` set to solid, beside the panel and level with the row: saturation and brightness field, eyedropper, hue and opacity sliders, Hex ▾ (RGB, HSL, HSB) with an opacity %, and Document colors. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.",
+          "change": "Clicking a color token opens the inspector's color picker (step 21, COLOR-02 to COLOR-04) with `supportedPaintTypes` set to solid and no Libraries tab, beside the panel and level with the row. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.",
           "refs": [
             "templates/design/app/components/design/inspector/DesignColorPicker.tsx#DesignColorPicker",
             "templates/design/app/components/design/TokensPanel.tsx#editing"
@@ -1257,6 +1257,48 @@
           "status": "decided",
           "change": "Code ships behind a `design.code` lab in `shared/labs.ts`, like Tokens (TOK-02): read with `useLab`, listed in Settings › Labs as Code, and leaving the build switch. With it off, Code isn't in the mode switch, and turning it off while in Code returns to Design.",
           "prototype": "Review strip › Labs: Code, or Settings › Labs › Code."
+        }
+      ]
+    },
+    {
+      "area": "Color picker",
+      "prefix": "COLOR",
+      "steps": [
+        21
+      ],
+      "items": [
+        {
+          "id": "COLOR-01",
+          "status": "context",
+          "today": "`DesignColorPicker` is a 252px popover: paint-type tabs, a 192px saturation and brightness field, the eyedropper beside hue and alpha with a current-color swatch, a Hex ▾ model pill (Hex, RGB, HSL, HSB) with an opacity %, then Document colors. It works in sRGB only and doesn't show the color you started from.",
+          "refs": [
+            "templates/design/app/components/design/inspector/DesignColorPicker.tsx#DesignColorMode",
+            "templates/design/app/components/design/edit-panel/fill-properties.tsx#DesignColorPicker"
+          ]
+        },
+        {
+          "id": "COLOR-02",
+          "status": "proposed",
+          "change": "Previous and New sit beside the hue and opacity sliders as one 36px swatch: New on top, Previous below. Clicking Previous restores the color and the mode it was written in; Esc does the same and closes.",
+          "prototype": "Select the headline, click its Fill, drag the field, then click the lower half of the swatch."
+        },
+        {
+          "id": "COLOR-03",
+          "status": "proposed",
+          "change": "Mode is one property, not tabs: Hex, RGB, HSL, HSB (sRGB) and Display P3, OKLCH (wide gamut). The controls follow it. sRGB modes and Display P3 show saturation × brightness over that space's primaries; OKLCH shows chroma × lightness at the hue, and only the colors Display P3 can show. Wide modes draw a dashed line where sRGB ends. The hue strip is the mode's own hue.",
+          "prototype": "Open a Fill and switch Mode to Display P3, then OKLCH."
+        },
+        {
+          "id": "COLOR-04",
+          "status": "proposed",
+          "change": "The picker opens in the mode the value is written in and writes that notation: #hex, rgb(), hsl(), color(display-p3 …), or oklch(); HSB writes hex. Switching to an sRGB mode maps a wider color into sRGB by keeping its lightness and hue and lowering chroma, and New shows the result before you keep it. Values sit in one joined field with an opacity cell. With DTCG storage (TOK-15) the mode becomes the color's `colorSpace`.",
+          "prototype": "Open the Link token after setting it to oklch(62% 0.19 255): the picker opens in OKLCH."
+        },
+        {
+          "id": "COLOR-05",
+          "status": "proposed",
+          "change": "The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. The Tokens panel's picker has no tabs.",
+          "prototype": "Open a Fill and choose Libraries › Link: the fill reads Link."
         }
       ]
     }

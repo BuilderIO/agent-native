@@ -4,7 +4,7 @@ The Design template's editor chrome, rebuilt from the Figma baseline: a
 mode-aware top bar, the floating toolbar, a 56px rail with File, Agents,
 Threads, and Tokens (Labs), canvas comments, version history mode,
 outside-agent access, a width-agnostic responsive model, screens that come
-from your running app, and a Code mode. Canvas rendering, actions, and data are
+from your running app, a Code mode, and a color picker that reaches Display P3 and OKLCH. Canvas rendering, actions, and data are
 unchanged, and only step 19 changes how edits save to code; no step changes
 sharing, auth, or billing writes.
 
@@ -65,7 +65,7 @@ Spacing (G), Theme, and Spec (the requirements, by ID).
 
 ## Roadmap
 
-Twenty steps, each one PR that's shippable alone and leaves the editor
+Twenty-one steps, each one PR that's shippable alone and leaves the editor
 working. Steps 2–4 can run in parallel after step 1. None has started.
 
 ### 1. Top bar shell
@@ -248,6 +248,15 @@ Move the existing code workbench out from behind `SHOW_DESIGN_CODE_LEFT_PANEL`
 and behind a `design.code` Labs flag, as a third top-bar mode, restyled to the app's density, with the file tree
 in the File panel and Go to file in the top bar. The unsaved-edit marks
 (CODE-04) land with or after step 19.
+
+### 21. Color picker
+
+Not started · COLOR · PR —
+
+Redesign `DesignColorPicker` in place, at today's 252px: Previous and New
+swatches, one Mode property whose field, hue strip, and value cells follow the
+mode (Hex, RGB, HSL, HSB, Display P3, OKLCH), and a Libraries tab of tokens.
+The inspector's fills and strokes and the Tokens panel (TOK-20) use it.
 
 ### Every step
 

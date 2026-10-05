@@ -712,38 +712,53 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .row.tk .tk-val { margin-left: 8px; font: 11px/16px var(--mono); color: var(--muted-fg); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; text-align: right; }
 .row.tk:hover .tk-val { color: var(--fg); }
 .row.tk input.tk-edit { margin-left: 8px; width: 104px; height: 20px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 4px; color: var(--fg); flex: none; }
-/* Solid color picker: the inspector's DesignColorPicker limited to solid paint. 252px popover, 192px saturation/brightness field,
-   eyedropper beside hue and swatch beside alpha, then [Hex ▾] [value] [opacity %], then Document colors. */
+/* Color picker (COLOR-01…05): 252px popover. Custom: the mode's field, eyedropper beside hue and opacity, Previous/New beside them,
+   [Mode ▾] and one joined value field, Document colors. Libraries (inspector only): tokens. Both panes share one grid cell. */
 .cpk { position: fixed; z-index: 49; width: 252px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
+.cpk-head { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid var(--border); }
+.cpk-head button { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted-fg); }
+.cpk-head button[aria-selected="true"] { background: var(--muted); color: var(--fg); }
+.cpk-panes { display: grid; grid-template-columns: minmax(0, 1fr); }
+.cpk-pane { grid-area: 1 / 1; min-width: 0; }
+.cpk-pane[aria-hidden="true"] { visibility: hidden; }
 .cpk-sv { position: relative; height: 192px; cursor: crosshair; touch-action: none; }
-.cpk-sv::before, .cpk-sv::after { content: ""; position: absolute; inset: 0; }
-.cpk-sv::before { background: linear-gradient(to right, #fff, rgb(255 255 255 / 0)); }
-.cpk-sv::after { background: linear-gradient(to top, #000, rgb(0 0 0 / 0)); }
+.cpk-sv canvas { display: block; width: 100%; height: 100%; }
 .cpk-knob { position: absolute; z-index: 1; width: 16px; height: 16px; translate: -50% -50%; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 60%); pointer-events: none; }
-.cpk-ctl { margin-top: 10px; padding: 0 12px; display: grid; grid-template-columns: 24px 1fr; column-gap: 8px; row-gap: 8px; align-items: center; }
+.cpk-ctl { margin-top: 10px; padding: 0 12px; display: grid; grid-template-columns: 24px 1fr 36px; column-gap: 8px; row-gap: 8px; align-items: center; }
 .cpk-eye { grid-row: span 2; width: 24px; height: 24px; border-radius: 4px; display: grid; place-items: center; }
 .cpk-eye:hover:not([disabled]) { background: var(--hover); }
 .cpk-eye[disabled] { opacity: .5; cursor: default; }
-.cpk-ctl .pair { display: flex; align-items: center; gap: 8px; }
-.cpk-cur { width: 18px; height: 18px; border-radius: 3px; flex: none; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
-.cpk-track { position: relative; flex: 1; height: 14px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%); cursor: pointer; touch-action: none; }
-.cpk-hue { background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
-.cpk-alpha, .cpk-cur { background-image: var(--cpk-fill), repeating-conic-gradient(#ddd 0 25%, #fff 0 50%); background-size: auto, 8px 8px; }
+.cpk-track { position: relative; height: 14px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%); cursor: pointer; touch-action: none; }
+.cpk-alpha, .cpk-new, .cpk-prev { background-image: var(--cpk-fill), repeating-conic-gradient(#ddd 0 25%, #fff 0 50%); background-size: auto, 8px 8px; }
 .cpk-track .cpk-knob { top: 50%; }
-.cpk-val { margin-top: 10px; padding: 0 12px 12px; display: grid; grid-template-columns: 72px 1fr 48px; gap: 4px; align-items: center; }
-.cpk-mode { height: 24px; display: inline-flex; align-items: center; gap: 2px; padding: 0 2px; color: var(--fg); justify-self: start; }
+.cpk-cmp { grid-row: span 2; width: 36px; height: 36px; border-radius: 6px; overflow: hidden; display: grid; grid-template-rows: 1fr 1fr; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-cmp > * { display: block; width: 100%; height: 100%; }
+.cpk-prev { cursor: pointer; }
+.cpk-val { margin-top: 10px; padding: 0 12px 12px; display: flex; gap: 4px; align-items: center; }
+.cpk-mode { height: 24px; min-width: 48px; display: inline-flex; align-items: center; justify-content: space-between; gap: 2px; padding: 0 4px 0 6px; border: 1px solid var(--border); border-radius: 6px; color: var(--fg); flex: none; }
 .cpk-mode svg { color: var(--muted-fg); }
-.cpk-fields { display: flex; gap: 4px; min-width: 0; }
-.cpk-in { height: 24px; display: flex; flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); overflow: hidden; }
-.cpk-in:focus-within { border-color: var(--accent); }
-.cpk-in input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0 4px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--fg); }
-.cpk-in .u { width: 16px; display: grid; place-items: center; border-left: 1px solid var(--border); color: var(--muted-fg); font-size: 10px; flex: none; }
+.cpk-fields { flex: 1; min-width: 0; height: 24px; display: flex; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); overflow: hidden; }
+.cpk-fields:focus-within { border-color: var(--accent); }
+.cpk-fields > input, .cpk-fields .pct { flex: 1; min-width: 0; border: 0; border-left: 1px solid var(--border); }
+.cpk-fields > :first-child { border-left: 0; }
+.cpk-fields input { background: none; outline: none; padding: 0 3px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--fg); min-width: 0; }
+.cpk-fields .pct { display: flex; align-items: center; flex: none; width: 40px; }
+.cpk-fields .pct input { width: 100%; height: 100%; border: 0; padding-right: 0; }
+.cpk-fields .pct span { padding-right: 4px; color: var(--muted-fg); font-size: 10px; }
 .cpk-doc { border-top: 1px solid var(--border); padding: 10px 12px; }
 .cpk-doc-h { height: 24px; display: flex; align-items: center; padding: 0 2px; margin-bottom: 8px; color: var(--muted-fg); }
 .cpk-grid { display: grid; grid-template-columns: repeat(8, 20px); justify-content: space-between; row-gap: 4px; }
 .cpk-grid button { width: 20px; height: 20px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
 .cpk-grid button:hover { scale: 1.1; }
 .cpk-grid button[aria-pressed="true"] { box-shadow: 0 0 0 1px var(--fg), inset 0 0 0 1px rgb(255 255 255 / 60%); }
+.cpk-lsearch { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--muted-fg); border-bottom: 1px solid var(--border); }
+.cpk-lsearch input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 12px; color: var(--fg); }
+.cpk-llabel { padding: 10px 12px 4px; font-weight: 600; color: var(--muted-fg); }
+.cpk-list { padding: 0 4px 8px; }
+.cpk-lrow { width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 4px; font-size: 12px; text-align: left; }
+.cpk-lrow:hover { background: var(--hover); }
+.cpk-lrow .sw { width: 16px; height: 16px; border-radius: 4px; flex: none; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-lrow .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-form { margin: 8px 16px; display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
 .tk-form label { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: var(--muted-fg); }
 .tk-form input, .tk-form textarea { height: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 6px; color: var(--fg); }
@@ -1618,7 +1633,7 @@ function renderPage() {
   p.classList.toggle("stale", off);
   p.parentElement.querySelector(".src-offline")?.remove();
   if (off) p.insertAdjacentHTML("afterend", `<div class="src-offline">${sdot()}<span>Can't reach ${SRC.name}${unsaved() ? ` · ${unsaved()} unsaved` : ""}</span><button data-app-retry>Retry connection</button></div>`);
-  applyTokens();
+  applyTokens(); applyFills();
   const scale = S.zoom / 100;
   p.style.transform = scale === 1 ? "" : `scale(${scale})`;
   renderResponsiveFrame();
@@ -1698,7 +1713,7 @@ function renderInspector() {
       <div class="g5">${field("Line height", inp(ic("line-height", "s12"), p.lh))}${field("Letter spacing", inp(ic("letter-spacing", "s12"), p.ls), "c3")}</div>
       <div class="g5">${field("Align", segc(["align-left", "align-center", "align-right"], 1))}${field("&nbsp;", segc(["layout-align-top", "layout-align-middle", "layout-align-bottom"], 0), "c3")}<div class="c5" style="align-self:end">${act("adjustments-horizontal", "More type options")}</div></div>`) : ""}
     ${sec("fill", "Fill", act("layout-grid", "Styles") + act("plus", "Add fill"), `
-      <div class="fillrow"><button class="inp"><span class="swatch" style="background:#${p.fill}"></span><span class="hex">${p.fill}</span><span class="pct">100%</span></button>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
+      <div class="fillrow"><button class="inp" data-fill aria-haspopup="dialog"><span class="swatch" style="background:${fillCss(p)}"></span><span class="hex">${fillLabel(p)}</span><span class="pct">100%</span></button>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
     ${sec("stroke", "Stroke", act("layout-grid", "Styles") + act("plus", "Add stroke"), "", { empty: true })}
     ${sec("effects", "Effects", act("layout-grid", "Styles") + act("plus", "Add effect"), "", { empty: true })}
     ${responsiveSection(id)}
@@ -1972,8 +1987,41 @@ function toast(t) {
   const d = document.createElement("div"); d.className = "toast"; d.textContent = t; d.setAttribute("role", "status");
   document.body.append(d); setTimeout(() => d.remove(), 2200);
 }
-/* ───────── color picker: DesignColorPicker.tsx with supportedPaintTypes ["solid"] ───────── */
+/* ───────── color picker: DesignColorPicker.tsx, redesigned (COLOR-01…05) ───────── */
+// The color lives as linear sRGB, unclamped, so Display P3 and OKLCH colors outside sRGB survive a round trip.
+// The mode is one property: it picks the field, the hue strip, and the value cells, and the CSS the picker writes.
 const clamp01 = x => Math.min(1, Math.max(0, x));
+const CPK_MODES = [["hex", "Hex", "srgb"], ["rgb", "RGB", "srgb"], ["hsl", "HSL", "srgb"], ["hsb", "HSB", "srgb"], ["p3", "Display P3", "p3"], ["oklch", "OKLCH", "p3"]];
+const CPK_SHORT = { hex: "Hex", rgb: "RGB", hsl: "HSL", hsb: "HSB", p3: "P3", oklch: "OKLCH" };
+const OKLCH_CMAX = 0.37;
+const mul = (m, v) => m.map(r => r[0] * v[0] + r[1] * v[1] + r[2] * v[2]);
+const SRGB_XYZ = [[0.41239079926595934, 0.357584339383878, 0.1804807884018343], [0.21263900587151027, 0.715168678767756, 0.07219231536073371], [0.01933081871559182, 0.11919477979462598, 0.9505321522496607]];
+const XYZ_SRGB = [[3.2409699419045226, -1.537383177570094, -0.4986107602930034], [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559], [0.05563007969699366, -0.20397695888897652, 1.0569715142428786]];
+const P3_XYZ = [[0.4865709486482162, 0.26566769316909306, 0.1982172852343625], [0.2289745640697488, 0.6917385218365064, 0.079286914093745], [0, 0.04511338185890264, 1.043944368900976]];
+const XYZ_P3 = [[2.493496911941425, -0.9313836179191239, -0.40271078445071684], [-0.8294889695615747, 1.7626640603183463, 0.023624685841943577], [0.03584583024378447, -0.07617238926804182, 0.9568845240076872]];
+const toLin = c => Math.sign(c) * (Math.abs(c) <= 0.04045 ? Math.abs(c) / 12.92 : ((Math.abs(c) + 0.055) / 1.055) ** 2.4);
+const toGam = c => Math.sign(c) * (Math.abs(c) <= 0.0031308 ? 12.92 * Math.abs(c) : 1.055 * Math.abs(c) ** (1 / 2.4) - 0.055);
+function linToOklab([r, g, b]) {
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+function oklabToLin([L, a, b]) {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+}
+const linToOklch = lin => { const [L, a, b] = linToOklab(lin); return [L, Math.hypot(a, b), (Math.atan2(b, a) * 180 / Math.PI + 360) % 360]; };
+const oklchToLin = ([L, C, h]) => oklabToLin([L, C * Math.cos(h * Math.PI / 180), C * Math.sin(h * Math.PI / 180)]);
+const linToP3 = lin => mul(XYZ_P3, mul(SRGB_XYZ, lin)).map(toGam);
+const p3ToLin = p => mul(XYZ_SRGB, mul(P3_XYZ, p.map(toLin)));
+const inUnit = v => v.every(c => c >= -1e-4 && c <= 1 + 1e-4);
+const inSrgb = lin => inUnit(lin.map(toGam)), inP3 = lin => inUnit(linToP3(lin));
+// CSS Color 4 gamut mapping, simplified: keep lightness and hue, reduce chroma until the color fits.
+function fitGamut(lin, fits) {
+  if (fits(lin)) return lin;
+  const [L, C, h] = linToOklch(lin); let lo = 0, hi = C;
+  for (let i = 0; i < 24; i++) { const m = (lo + hi) / 2; if (fits(oklchToLin([L, m, h]))) lo = m; else hi = m; }
+  return oklchToLin([L, lo, h]);
+}
 function parseHex(v) {
   let h = String(v).trim().replace(/^#/, "");
   if (h.length === 3 || h.length === 4) h = [...h].map(c => c + c).join("");
@@ -1992,79 +2040,174 @@ function rgbToHsv({ r, g, b }) {
 function hsvToRgb({ h, s, v }) { const f = n => { const k = (n + h / 60) % 6; return 255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))); }; return { r: f(5), g: f(3), b: f(1) }; }
 function rgbToHsl(c) { const { h } = rgbToHsv(c), r = c.r / 255, g = c.g / 255, b = c.b / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn; return { h, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l }; }
 function hslToRgb({ h, s, l }) { const a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return 255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))); }; return { r: f(0), g: f(8), b: f(4) }; }
-const CPK_MODES = { hex: "Hex", rgb: "RGB", hsl: "HSL", hsb: "HSB" };
-let cpkMode = "hex";
-// Opens beside the panel that holds the anchor. Esc puts the color back; clicking outside keeps it.
-function colorPicker(anchor, value, { onInput, onClose = () => {} }) {
+const num = (s, scale = 1) => (s = String(s).trim()).endsWith("%") ? parseFloat(s) / 100 * scale : parseFloat(s);
+// Reads the CSS a token or fill already holds and reports which mode wrote it, so the picker opens in that mode.
+function parseColor(v) {
+  v = String(v || "").trim();
+  const hx = parseHex(v); if (hx) return { lin: [hx.r, hx.g, hx.b].map(c => toLin(c / 255)), a: hx.a, mode: "hex" };
+  const fn = v.match(/^(rgba?|hsla?|color|oklch)\((.*)\)$/i); if (!fn) return null;
+  const [body, alpha] = fn[2].split("/"), p = body.trim().split(/[\s,]+/);
+  const a = alpha !== undefined ? num(alpha) : p[3] !== undefined ? num(p[3]) : 1, kind = fn[1].toLowerCase();
+  if (kind.startsWith("rgb")) return { lin: p.slice(0, 3).map(s => toLin(num(s, 255) / 255)), a, mode: "rgb" };
+  if (kind.startsWith("hsl")) { const c = hslToRgb({ h: parseFloat(p[0]), s: num(p[1]), l: num(p[2]) }); return { lin: [c.r, c.g, c.b].map(x => toLin(x / 255)), a, mode: "hsl", hue: parseFloat(p[0]) }; }
+  if (kind === "color" && p[0] === "display-p3") return { lin: p3ToLin(p.slice(1, 4).map(s => num(s))), a, mode: "p3" };
+  if (kind === "color" && p[0] === "srgb") return { lin: p.slice(1, 4).map(s => toLin(num(s))), a, mode: "rgb" };
+  if (kind === "oklch") return { lin: oklchToLin([num(p[0]), num(p[1], 0.4), parseFloat(p[2]) || 0]), a, mode: "oklch", hue: parseFloat(p[2]) || 0 };
+  return null;
+}
+const r3 = x => +x.toFixed(3);
+// The CSS each mode writes: Hex and HSB write hex, the others their own notation. Out-of-gamut colors are mapped in first.
+function formatColor(lin, a, mode, hue = 0) {
+  if (mode === "p3") { const p = linToP3(fitGamut(lin, inP3)).map(clamp01); return `color(display-p3 ${p.map(r3).join(" ")}${a < 1 ? ` / ${r3(a)}` : ""})`; }
+  if (mode === "oklch") { const [L, C, h] = linToOklch(fitGamut(lin, inP3)); return `oklch(${+(L * 100).toFixed(1)}% ${r3(C)} ${C < 2e-4 ? +hue.toFixed(1) : +h.toFixed(1)}${a < 1 ? ` / ${Math.round(a * 100)}%` : ""})`; }
+  const [r, g, b] = fitGamut(lin, inSrgb).map(toGam).map(c => clamp01(c) * 255);
+  if (mode === "rgb") return `rgb(${[r, g, b].map(Math.round).join(" ")}${a < 1 ? ` / ${Math.round(a * 100)}%` : ""})`;
+  if (mode === "hsl") { const l = rgbToHsl({ r, g, b }); return `hsl(${Math.round(l.s ? l.h : hue)} ${Math.round(l.s * 100)}% ${Math.round(l.l * 100)}%${a < 1 ? ` / ${Math.round(a * 100)}%` : ""})`; }
+  return toHex({ r, g, b, a });
+}
+function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = null, onPickToken = null }) {
   document.querySelector(".cpk")?._close();
-  const start = parseHex(value) || { r: 0, g: 0, b: 0, a: 1 };
-  const C = { ...rgbToHsv(start), a: start.a };
+  const start = parseColor(value) || { lin: [0, 0, 0], a: 1, mode: "hex" };
+  const C = { lin: start.lin, a: start.a, mode: start.mode, hue: start.hue ?? 0, tab: "custom" };
+  const before = value;
   const canEye = "EyeDropper" in window;
-  const docs = [...new Set(TOKENS.filter(t => t.type === "color" && parseHex(t.value)).map(t => t.value.toLowerCase()))].slice(0, 16);
+  const docs = [...new Set(TOKENS.filter(t => t.type === "color" && parseColor(t.value)).map(t => t.value.toLowerCase()))].slice(0, 16);
+  const libs = libraries || [];
   const pop = document.createElement("div"); pop.className = "cpk"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Color");
-  pop.innerHTML = `<div class="cpk-sv" role="slider" aria-label="Saturation and brightness"><span class="cpk-knob"></span></div>
-    <div class="cpk-ctl"><button class="cpk-eye" ${canEye ? "" : "disabled"} title="${canEye ? "Pick a color from the screen" : "This browser can't pick colors from the screen"}" aria-label="Pick a color from the screen">${ic("color-picker")}</button>
-      <div class="cpk-track cpk-hue" role="slider" aria-label="Hue"><span class="cpk-knob"></span></div>
-      <div class="pair"><span class="cpk-cur"></span><div class="cpk-track cpk-alpha" role="slider" aria-label="Opacity"><span class="cpk-knob"></span></div></div></div>
-    <div class="cpk-val"><button class="cpk-mode" aria-haspopup="menu"></button><div class="cpk-fields"></div><label class="cpk-in"><input class="cpk-a" inputmode="numeric" aria-label="Opacity"><span class="u">%</span></label></div>
-    <div class="cpk-doc"><div class="cpk-doc-h">Document colors</div><div class="cpk-grid">${docs.map(c => `<button data-cpk-doc="${c}" aria-label="${c}" title="${c}" style="background:${c}"></button>`).join("")}</div></div>`;
+  pop.innerHTML = `${libraries ? `<div class="cpk-head" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></div>` : ""}
+    <div class="cpk-panes">
+      <div class="cpk-pane" data-cpk-pane="custom">
+        <div class="cpk-sv" role="slider" aria-label="Color field"><canvas width="252" height="192"></canvas><span class="cpk-knob"></span></div>
+        <div class="cpk-ctl"><button class="cpk-eye" ${canEye ? "" : "disabled"} title="${canEye ? "Pick a color from the screen" : "This browser can't pick colors from the screen"}" aria-label="Pick a color from the screen">${ic("color-picker")}</button>
+          <div class="cpk-track cpk-hue" role="slider" aria-label="Hue"><span class="cpk-knob"></span></div>
+          <div class="cpk-cmp" title="Previous and new color"><span class="cpk-new" title="New"></span><button class="cpk-prev" title="Previous · click to restore" aria-label="Restore previous color"></button></div>
+          <div class="cpk-track cpk-alpha" role="slider" aria-label="Opacity"><span class="cpk-knob"></span></div></div>
+        <div class="cpk-val"><button class="cpk-mode" aria-haspopup="menu" title="Color mode"></button><div class="cpk-fields"></div></div>
+        <div class="cpk-doc"><div class="cpk-doc-h">Document colors</div><div class="cpk-grid">${docs.map(c => `<button data-cpk-doc="${c}" aria-label="${c}" title="${c}" style="background:${c}"></button>`).join("")}</div></div>
+      </div>
+      ${libraries ? `<div class="cpk-pane" data-cpk-pane="libraries" aria-hidden="true"><label class="cpk-lsearch">${ic("search", "s14")}<input placeholder="Search" aria-label="Search tokens"></label><div class="cpk-llabel">Design tokens</div><div class="cpk-list">${libs.map(t => `<button class="cpk-lrow" data-cpk-token="${t.cssVar}" title="${t.cssVar}"><span class="sw" style="background:${t.value}"></span><span class="grow">${t.name}</span></button>`).join("")}</div></div>` : ""}
+    </div>`;
   document.body.append(pop);
-  const host = (anchor.closest("#tokens") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
-  pop.style.left = Math.min(innerWidth - pop.offsetWidth - 8, host.right + 8) + "px";
+  const host = (anchor.closest("#tokens, #insp") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+  const leftSide = !!anchor.closest("#insp");
+  pop.style.left = (leftSide ? Math.max(8, host.left - 8 - pop.offsetWidth) : Math.min(innerWidth - pop.offsetWidth - 8, host.right + 8)) + "px";
   pop.style.top = Math.max(8, Math.min(ar.top, innerHeight - pop.offsetHeight - 8)) + "px";
   const q = sel => pop.querySelector(sel);
-  const rgb = () => ({ ...hsvToRgb(C), a: C.a });
-  const fields = () => {
-    const c = rgb();
-    if (cpkMode === "hex") return [["Hex", toHex({ ...c, a: 1 }).slice(1).toUpperCase()]];
-    if (cpkMode === "rgb") return [["Red", c.r], ["Green", c.g], ["Blue", c.b]].map(([k, v]) => [k, Math.round(v)]);
-    if (cpkMode === "hsl") { const l = rgbToHsl(c); return [["Hue", Math.round(l.h)], ["Saturation", Math.round(l.s * 100)], ["Lightness", Math.round(l.l * 100)]]; }
-    return [["Hue", Math.round(C.h)], ["Saturation", Math.round(C.s * 100)], ["Brightness", Math.round(C.v * 100)]];
+  const space = () => CPK_MODES.find(m => m[0] === C.mode)[2];
+  // The field's coordinates in the current mode: HSB over sRGB or P3 primaries, or OKLCH chroma × lightness.
+  const coords = () => {
+    if (C.mode === "oklch") { const [L, Ch, h] = linToOklch(C.lin); if (Ch > 2e-4) C.hue = h; return { x: Ch / OKLCH_CMAX, y: 1 - L, L, Ch, h: C.hue }; }
+    const g = (C.mode === "p3" ? linToP3(fitGamut(C.lin, inP3)) : fitGamut(C.lin, inSrgb).map(toGam)).map(clamp01);
+    const hsv = rgbToHsv({ r: g[0] * 255, g: g[1] * 255, b: g[2] * 255 }); if (hsv.s > 1e-3 && hsv.v > 1e-3) C.hue = hsv.h;
+    return { x: hsv.s, y: 1 - hsv.v, s: hsv.s, v: hsv.v, h: C.hue };
   };
-  const paint = () => {
-    const c = rgb(), solid = `rgb(${c.r} ${c.g} ${c.b})`;
-    q(".cpk-sv").style.background = `hsl(${C.h} 100% 50%)`;
-    Object.assign(q(".cpk-sv .cpk-knob").style, { left: C.s * 100 + "%", top: (1 - C.v) * 100 + "%" });
-    q(".cpk-hue .cpk-knob").style.left = C.h / 360 * 100 + "%";
+  const fromField = (x, y, h) => {
+    if (C.mode === "oklch") return fitGamut(oklchToLin([1 - y, x * OKLCH_CMAX, h]), inP3);
+    const c = hsvToRgb({ h, s: x, v: 1 - y }), g = [c.r, c.g, c.b].map(v => v / 255);
+    return C.mode === "p3" ? p3ToLin(g) : g.map(toLin);
+  };
+  const css = (a = C.a) => formatColor(C.lin, a, C.mode, C.hue);
+  let drawnFor = null;
+  const drawField = () => {
+    const key = `${C.mode}|${C.hue.toFixed(2)}`; if (drawnFor === key) return; drawnFor = key;
+    const wide = space() === "p3";
+    // A canvas keeps the color space of its first context, so a mode in the other space gets a fresh canvas.
+    let cv = q(".cpk-sv canvas");
+    if (cv.dataset.space && cv.dataset.space !== space()) { const fresh = document.createElement("canvas"); fresh.width = cv.width; fresh.height = cv.height; cv.replaceWith(fresh); cv = fresh; }
+    cv.dataset.space = space();
+    const W = cv.width, H = cv.height, ctx = cv.getContext("2d", wide ? { colorSpace: "display-p3" } : undefined);
+    const img = wide ? ctx.createImageData(W, H, { colorSpace: "display-p3" }) : ctx.createImageData(W, H);
+    const bg = (getComputedStyle(pop).backgroundColor.match(/\d+/g) || [255, 255, 255]).slice(0, 3).map(Number);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4, fx = x / (W - 1), fy = y / (H - 1);
+      let out;
+      if (C.mode === "oklch") { const lin = oklchToLin([1 - fy, fx * OKLCH_CMAX, C.hue]); out = inP3(lin) ? linToP3(lin).map(c => clamp01(c) * 255) : bg; }
+      else { const c = hsvToRgb({ h: C.hue, s: fx, v: 1 - fy }); out = [c.r, c.g, c.b]; }
+      img.data[i] = out[0]; img.data[i + 1] = out[1]; img.data[i + 2] = out[2]; img.data[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    if (!wide) return;
+    // Wide modes draw where sRGB ends, so a color that only P3 screens can show is a choice you can see.
+    ctx.save(); ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 1.5; ctx.beginPath();
+    let top = null, tip = null;
+    for (let y = 0; y < H; y += 2) {
+      const fy = y / (H - 1); let lo = 0, hi = 1;
+      for (let k = 0; k < 14; k++) { const m = (lo + hi) / 2; if (inSrgb(fromField(m, fy, C.hue))) lo = m; else hi = m; }
+      if (C.mode === "oklch" && !inP3(oklchToLin([1 - fy, lo * OKLCH_CMAX, C.hue]))) continue;
+      const px = lo * (W - 1); if (!top) { ctx.moveTo(px, y); top = [px, y]; } else ctx.lineTo(px, y);
+      if (!tip || px > tip[0]) tip = [px, y];
+    }
+    ctx.stroke(); ctx.restore();
+    if (tip) { ctx.font = "500 9px Inter, sans-serif"; ctx.textAlign = "right"; ctx.fillStyle = "rgba(255,255,255,.95)"; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 2; ctx.fillText("sRGB", Math.max(28, tip[0] - 4), Math.min(H - 4, Math.max(12, tip[1] - 4))); }
+  };
+  const hueStrip = () => C.mode === "oklch" ? "linear-gradient(to right in oklch longer hue, oklch(70% 0.15 0), oklch(70% 0.15 0))"
+    : C.mode === "p3" ? `linear-gradient(to right, ${["1 0 0", "1 1 0", "0 1 0", "0 1 1", "0 0 1", "1 0 1", "1 0 0"].map(c => `color(display-p3 ${c})`).join(", ")})`
+    : "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)";
+  const FIELDS = {
+    hex: () => [["Hex", css(1).slice(1).toUpperCase(), 2]],
+    rgb: () => { const g = fitGamut(C.lin, inSrgb).map(toGam).map(c => Math.round(clamp01(c) * 255)); return [["Red", g[0]], ["Green", g[1]], ["Blue", g[2]]]; },
+    hsl: () => { const g = fitGamut(C.lin, inSrgb).map(toGam).map(c => clamp01(c) * 255), l = rgbToHsl({ r: g[0], g: g[1], b: g[2] }); return [["Hue", Math.round(l.s ? l.h : C.hue)], ["Saturation", Math.round(l.s * 100)], ["Lightness", Math.round(l.l * 100)]]; },
+    hsb: () => { const c = coords(); return [["Hue", Math.round(c.h)], ["Saturation", Math.round(c.s * 100)], ["Brightness", Math.round(c.v * 100)]]; },
+    p3: () => linToP3(fitGamut(C.lin, inP3)).map(clamp01).map((v, i) => [["Red", "Green", "Blue"][i], r3(v)]),
+    oklch: () => { const c = coords(); return [["Lightness", +(c.L * 100).toFixed(1)], ["Chroma", r3(c.Ch)], ["Hue", +c.h.toFixed(1)]]; },
+  };
+  const paint = (fields = true) => {
+    drawField();
+    const c = coords(), solid = css(1);
+    Object.assign(q(".cpk-sv .cpk-knob").style, { left: clamp01(c.x) * 100 + "%", top: clamp01(c.y) * 100 + "%" });
+    q(".cpk-hue").style.background = hueStrip();
+    q(".cpk-hue .cpk-knob").style.left = c.h / 360 * 100 + "%";
     q(".cpk-alpha .cpk-knob").style.left = C.a * 100 + "%";
-    q(".cpk-alpha").style.setProperty("--cpk-fill", `linear-gradient(to right, rgb(${c.r} ${c.g} ${c.b} / 0), ${solid})`);
-    q(".cpk-cur").style.setProperty("--cpk-fill", `linear-gradient(rgb(${c.r} ${c.g} ${c.b} / ${C.a}), rgb(${c.r} ${c.g} ${c.b} / ${C.a}))`);
-    q(".cpk-mode").innerHTML = `${CPK_MODES[cpkMode]}${ic("chevron-down", "s12")}`;
-    q(".cpk-fields").innerHTML = fields().map(([k, v]) => `<label class="cpk-in"><input value="${v}" aria-label="${k}" spellcheck="false"></label>`).join("");
-    q(".cpk-a").value = Math.round(C.a * 100);
-    const now = toHex(c).toLowerCase();
+    q(".cpk-alpha").style.setProperty("--cpk-fill", `linear-gradient(to right, transparent, ${solid})`);
+    q(".cpk-new").style.setProperty("--cpk-fill", `linear-gradient(${css()}, ${css()})`);
+    q(".cpk-prev").style.setProperty("--cpk-fill", `linear-gradient(${before}, ${before})`);
+    q(".cpk-mode").innerHTML = `${CPK_SHORT[C.mode]}${ic("chevron-down", "s12")}`;
+    if (fields) q(".cpk-fields").innerHTML = FIELDS[C.mode]().map(([k, v, span]) => `<input value="${v}" aria-label="${k}" title="${k}" spellcheck="false" ${span ? `style="flex:${span}"` : ""}>`).join("") + `<label class="pct" title="Opacity"><input class="cpk-a" value="${Math.round(C.a * 100)}" aria-label="Opacity" inputmode="numeric"><span>%</span></label>`;
+    const now = css().toLowerCase();
     pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
   };
-  const update = () => { paint(); onInput(toHex(rgb())); };
+  const update = () => { paint(); onInput(css()); };
   const drag = (el, fn) => el.addEventListener("pointerdown", e => {
-    e.preventDefault(); el.setPointerCapture(e.pointerId);
+    e.preventDefault(); el.setPointerCapture?.(e.pointerId);
     const move = ev => { const r = el.getBoundingClientRect(); fn(clamp01((ev.clientX - r.left) / r.width), clamp01((ev.clientY - r.top) / r.height)); update(); };
     move(e); el.onpointermove = move; el.onpointerup = () => { el.onpointermove = null; };
   });
-  drag(q(".cpk-sv"), (x, y) => { C.s = x; C.v = 1 - y; });
-  drag(q(".cpk-hue"), x => { C.h = Math.min(359.9, x * 360); });
+  drag(q(".cpk-sv"), (x, y) => { const h = coords().h; C.lin = fromField(x, y, h); C.hue = h; });
+  drag(q(".cpk-hue"), x => { const c = coords(), h = Math.min(359.9, x * 360); C.hue = h; C.lin = fromField(c.x, c.y, h); });
   drag(q(".cpk-alpha"), x => { C.a = Math.round(x * 100) / 100; });
   pop.addEventListener("change", e => {
     if (e.target.matches(".cpk-a")) { const n = parseFloat(e.target.value); if (!isNaN(n)) C.a = clamp01(n / 100); return update(); }
-    const v = [...pop.querySelectorAll(".cpk-fields input")].map(i => i.value.trim()), n = v.map(Number), ok = n.every(x => !isNaN(x));
-    if (cpkMode === "hex") { const c = parseHex(v[0]); if (c) Object.assign(C, rgbToHsv(c), c.a < 1 ? { a: c.a } : {}); }
-    else if (ok && cpkMode === "rgb") Object.assign(C, rgbToHsv({ r: Math.min(255, Math.max(0, n[0])), g: Math.min(255, Math.max(0, n[1])), b: Math.min(255, Math.max(0, n[2])) }));
-    else if (ok && cpkMode === "hsl") Object.assign(C, rgbToHsv(hslToRgb({ h: ((n[0] % 360) + 360) % 360, s: clamp01(n[1] / 100), l: clamp01(n[2] / 100) })));
-    else if (ok) Object.assign(C, { h: ((n[0] % 360) + 360) % 360, s: clamp01(n[1] / 100), v: clamp01(n[2] / 100) });
+    const v = [...pop.querySelectorAll(".cpk-fields input:not(.cpk-a)")].map(i => i.value.trim()), n = v.map(Number);
+    if (C.mode !== "hex" && n.some(isNaN)) return paint();
+    const lin = C.mode === "hex" ? parseColor("#" + v[0].replace(/^#/, ""))?.lin
+      : C.mode === "rgb" ? n.map(x => toLin(Math.min(255, Math.max(0, x)) / 255))
+      : C.mode === "hsl" ? (c => [c.r, c.g, c.b].map(x => toLin(x / 255)))(hslToRgb({ h: ((n[0] % 360) + 360) % 360, s: clamp01(n[1] / 100), l: clamp01(n[2] / 100) }))
+      : C.mode === "hsb" ? (C.hue = ((n[0] % 360) + 360) % 360, fromField(clamp01(n[1] / 100), 1 - clamp01(n[2] / 100), C.hue))
+      : C.mode === "p3" ? p3ToLin(n.map(clamp01))
+      : (C.hue = ((n[2] % 360) + 360) % 360, fitGamut(oklchToLin([clamp01(n[0] / 100), Math.max(0, n[1]), C.hue]), inP3));
+    if (lin) C.lin = lin;
     update();
   });
+  const setTab = tab => { C.tab = tab; pop.querySelectorAll("[data-cpk-tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.cpkTab === tab)); pop.querySelectorAll("[data-cpk-pane]").forEach(p => p.setAttribute("aria-hidden", p.dataset.cpkPane !== tab)); if (tab === "libraries") q(".cpk-lsearch input").focus(); };
+  pop.addEventListener("input", e => { if (e.target.closest(".cpk-lsearch")) { const s = e.target.value.toLowerCase(); pop.querySelectorAll("[data-cpk-token]").forEach(b => { b.hidden = !b.textContent.toLowerCase().includes(s) && !b.dataset.cpkToken.includes(s); }); } });
   pop.addEventListener("click", e => {
-    const d = e.target.closest("[data-cpk-doc]"); if (d) { Object.assign(C, rgbToHsv(parseHex(d.dataset.cpkDoc)), { a: parseHex(d.dataset.cpkDoc).a }); return update(); }
-    const m = e.target.closest(".cpk-mode"); if (m) return openMenu(m, Object.entries(CPK_MODES).map(([k, t]) => ({ t, radio: true, on: cpkMode === k, run: () => { cpkMode = k; paint(); } })));
-    if (e.target.closest(".cpk-eye") && canEye) new window.EyeDropper().open().then(r => { const c = parseHex(r.sRGBHex); if (c) { Object.assign(C, rgbToHsv(c)); update(); } }, err => { if (err.name !== "AbortError") toast("Couldn't pick a color from the screen"); });
+    const tab = e.target.closest("[data-cpk-tab]"); if (tab) return setTab(tab.dataset.cpkTab);
+    const tok = e.target.closest("[data-cpk-token]"); if (tok) { onPickToken?.(libs.find(t => t.cssVar === tok.dataset.cpkToken)); return close(false, true); }
+    if (e.target.closest(".cpk-prev")) { const p = parseColor(before); if (p) Object.assign(C, { lin: p.lin, a: p.a, mode: p.mode, hue: p.hue ?? C.hue }); drawnFor = null; return update(); }
+    const d = e.target.closest("[data-cpk-doc]"); if (d) { const p = parseColor(d.dataset.cpkDoc); C.lin = p.lin; C.a = p.a; return update(); }
+    const m = e.target.closest(".cpk-mode");
+    if (m) return openMenu(m, [{ label: "sRGB" }, ...CPK_MODES.filter(x => x[2] === "srgb").map(([k, t]) => ({ t, radio: true, on: C.mode === k, run: () => setMode(k) })), "-", { label: "Wide gamut" }, ...CPK_MODES.filter(x => x[2] === "p3").map(([k, t]) => ({ t, radio: true, on: C.mode === k, run: () => setMode(k) }))]);
+    if (e.target.closest(".cpk-eye") && canEye) new window.EyeDropper().open().then(r => { const p = parseColor(r.sRGBHex); if (p) { C.lin = p.lin; update(); } }, err => { if (err.name !== "AbortError") toast("Couldn't pick a color from the screen"); });
   });
+  // Switching into an sRGB mode maps a wider color into sRGB; the new swatch shows the result before you keep it.
+  const setMode = k => { C.mode = k; if (CPK_MODES.find(m => m[0] === k)[2] === "srgb") C.lin = fitGamut(C.lin, inSrgb); else if (!inP3(C.lin)) C.lin = fitGamut(C.lin, inP3); drawnFor = null; coords(); update(); };
   let done = false;
-  const close = cancelled => { if (done) return; done = true; pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); onClose(cancelled); };
+  const close = (cancelled, picked = false) => { if (done) return; done = true; pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); onClose(cancelled, picked); };
   const outside = e => { if (!pop.contains(e.target) && !e.target.closest?.(".menu, .scrim")) close(false); };
   const key = e => { if (e.key === "Escape" && !document.querySelector(".menu")) { e.preventDefault(); e.stopPropagation(); close(true); } };
   document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key, true);
   pop._close = () => close(false);
-  paint();
+  coords(); paint();
 }
 
 /* ───────── behavior ───────── */
@@ -2235,6 +2378,7 @@ document.addEventListener("click", e => {
   if (t.closest("[data-tk-open-import]")) { openMenu(t.closest("button"), TOKEN_IMPORT_MENU()); return; }
   if (t.closest("[data-tk-gen]")) { startSkill("Generate tokens"); return; }
   const tks = t.closest("[data-tk-sec]"); if (tks) { const k = tks.dataset.tkSec; TK.collapsed.has(k) ? TK.collapsed.delete(k) : TK.collapsed.add(k); renderTokens(); return; }
+  if (t.closest("[data-fill]")) return pickFill(t.closest("[data-fill]"));
   if (t.closest("[data-tk-dcolor]")) { const sw = t.closest("[data-tk-dcolor]"), v = $("#tk-dval"); return colorPicker(sw.closest(".row"), v.value, { onInput: x => { v.value = x; sw.style.background = x; }, onClose: () => $("#tk-dval")?.focus() }); }
   const tkr = t.closest(".row.tk"); if (tkr && !tkr.matches("[data-tk-draft]") && !t.closest(".tk-edit")) {
     const tok = TOKENS.find(x => x.cssVar === tkr.dataset.tk);
@@ -2882,6 +3026,20 @@ function commitTokenDraft(save) {
 const isColor = v => /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim()) || /^(rgba?|hsla?|oklch|color)\(/.test(v.trim());
 // A token whose files define it with different values gets a mark naming them (index-design-tokens returns sourceValues).
 const tokenConflict = t => { const e = Object.entries(t.sourceValues || {}); return new Set(e.map(([, v]) => v.toLowerCase())).size > 1 ? `Defined differently in ${e.map(([f, v]) => `${f} (${v})`).join(" and ")}` : ""; };
+// A fill is a hex (stored without #, as the inspector shows it), any CSS color the picker wrote, or a token.
+const fillCss = p => p.fillToken ? `var(${p.fillToken})` : parseHex(p.fill) && !String(p.fill).startsWith("#") ? "#" + p.fill : p.fill;
+const fillLabel = p => p.fillToken ? (TOKENS.find(t => t.cssVar === p.fillToken)?.name || p.fillToken) : /^[0-9a-f]{6}$/i.test(p.fill) ? p.fill.toUpperCase() : p.fill;
+function applyFills() { Object.entries(PROPS).forEach(([id, p]) => { if (!p.fillEdited) return; const el = document.querySelector(`.page [data-node="${id}"]`); if (el) el.style.color = fillCss(p); }); }
+function pickFill(btn) {
+  const p = PROPS[S.selected], before = { fill: p.fill, fillToken: p.fillToken, fillEdited: p.fillEdited };
+  const sync = () => { btn.querySelector(".swatch").style.background = fillCss(p); btn.querySelector(".hex").textContent = fillLabel(p); applyFills(); };
+  colorPicker(btn, p.fillToken ? TOKENS.find(t => t.cssVar === p.fillToken)?.value : fillCss(p), {
+    libraries: TOKENS.filter(t => t.type === "color"),
+    onInput: v => { p.fill = /^#[0-9a-f]{6}$/i.test(v) ? v.slice(1) : v; p.fillToken = null; p.fillEdited = true; sync(); },
+    onPickToken: t => { p.fillToken = t.cssVar; p.fillEdited = true; sync(); toast(`Fill uses ${t.name}`); },
+    onClose: cancelled => { if (cancelled) { Object.assign(p, before); sync(); if (!p.fillEdited) { const el = document.querySelector(`.page [data-node="${S.selected}"]`); if (el) el.style.color = ""; } } },
+  });
+}
 function pickTokenColor(t, row) {
   const before = t.value; TK.picking = t.cssVar; row.setAttribute("aria-expanded", "true");
   colorPicker(row, t.value, {

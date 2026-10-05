@@ -218,7 +218,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: The source badge goes. The row's tooltip reads the CSS variable and its file (--radius-pill · index.html). A warning mark appears only when files define the token with different values, and its tooltip names each file and value; `index-design-tokens` already returns `sources` and `sourceValues`.
 - **TOK-20** · proposed
   - Today: Clicking a color token opens a text field for its hex value, the same as every other token.
-  - Change: Clicking a color token opens the inspector's `DesignColorPicker` with `supportedPaintTypes` set to solid, beside the panel and level with the row: saturation and brightness field, eyedropper, hue and opacity sliders, Hex ▾ (RGB, HSL, HSB) with an opacity %, and Document colors. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.
+  - Change: Clicking a color token opens the inspector's color picker (step 21, COLOR-02 to COLOR-04) with `supportedPaintTypes` set to solid and no Libraries tab, beside the panel and level with the row. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.
 
 ## Floating toolbar (TOOL, step 4)
 
@@ -470,3 +470,20 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **CODE-05** · decided
   - Change: Code ships behind a `design.code` lab in `shared/labs.ts`, like Tokens (TOK-02): read with `useLab`, listed in Settings › Labs as Code, and leaving the build switch. With it off, Code isn't in the mode switch, and turning it off while in Code returns to Design.
   - Prototype: Review strip › Labs: Code, or Settings › Labs › Code.
+
+## Color picker (COLOR, step 21)
+
+- **COLOR-01** · context
+  - Today: `DesignColorPicker` is a 252px popover: paint-type tabs, a 192px saturation and brightness field, the eyedropper beside hue and alpha with a current-color swatch, a Hex ▾ model pill (Hex, RGB, HSL, HSB) with an opacity %, then Document colors. It works in sRGB only and doesn't show the color you started from.
+- **COLOR-02** · proposed
+  - Change: Previous and New sit beside the hue and opacity sliders as one 36px swatch: New on top, Previous below. Clicking Previous restores the color and the mode it was written in; Esc does the same and closes.
+  - Prototype: Select the headline, click its Fill, drag the field, then click the lower half of the swatch.
+- **COLOR-03** · proposed
+  - Change: Mode is one property, not tabs: Hex, RGB, HSL, HSB (sRGB) and Display P3, OKLCH (wide gamut). The controls follow it. sRGB modes and Display P3 show saturation × brightness over that space's primaries; OKLCH shows chroma × lightness at the hue, and only the colors Display P3 can show. Wide modes draw a dashed line where sRGB ends. The hue strip is the mode's own hue.
+  - Prototype: Open a Fill and switch Mode to Display P3, then OKLCH.
+- **COLOR-04** · proposed
+  - Change: The picker opens in the mode the value is written in and writes that notation: #hex, rgb(), hsl(), color(display-p3 …), or oklch(); HSB writes hex. Switching to an sRGB mode maps a wider color into sRGB by keeping its lightness and hue and lowering chroma, and New shows the result before you keep it. Values sit in one joined field with an opacity cell. With DTCG storage (TOK-15) the mode becomes the color's `colorSpace`.
+  - Prototype: Open the Link token after setting it to oklch(62% 0.19 255): the picker opens in OKLCH.
+- **COLOR-05** · proposed
+  - Change: The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. The Tokens panel's picker has no tabs.
+  - Prototype: Open a Fill and choose Libraries › Link: the fill reads Link.
