@@ -31,11 +31,6 @@ test.describe.configure({ retries: 0, timeout: 300_000 });
 
 const BUILD = process.env.CONTENT_CONVERGENCE_BUILD ?? "local";
 
-// Main loses or duplicates text in these, so CI runs them in a step that
-// reports every run without failing the PR. The PR that fixes one drops its
-// tag, which moves the scenario into the required gate.
-const KNOWN_LOSS = { tag: "@known-loss" };
-
 // SESSION_RESULT_LIFETIME_MS in core's client-status-requests.ts.
 const SESSION_LIFETIME_MS = 30_000;
 
@@ -317,19 +312,17 @@ test.describe("two tabs editing one page at beta cadence", () => {
     await runScenario("alternating", testInfo, context, alternate);
   });
 
-  test(
-    "alternating edits on a page an agent wrote keep both tabs' text",
-    KNOWN_LOSS,
-    async ({ context }, testInfo) => {
-      await runScenario(
-        "alternating-agent-page",
-        testInfo,
-        context,
-        alternate,
-        AGENT_MARKDOWN_BODY,
-      );
-    },
-  );
+  test("alternating edits on a page an agent wrote keep both tabs' text", async ({
+    context,
+  }, testInfo) => {
+    await runScenario(
+      "alternating-agent-page",
+      testInfo,
+      context,
+      alternate,
+      AGENT_MARKDOWN_BODY,
+    );
+  });
 
   test("simultaneous edits in different paragraphs keep both tabs' text", async ({
     context,
