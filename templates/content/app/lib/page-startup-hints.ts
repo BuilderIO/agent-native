@@ -97,9 +97,9 @@ export function rememberPageShape(
 // holds the boxes a page last drew. The app may sit under a base path; on
 // `/home`, use the last-location id unless the URL selects a specific space.
 // coercion-ok: an unreadable hint only means the page may move once.
-export const CONTENT_STARTUP_PAGE_HINTS_SCRIPT = `(function(){try{var p=location.pathname.split("/").filter(Boolean),i=p.indexOf("page"),id=i>=0&&p[i+1]?decodeURIComponent(p[i+1]):null;if(!id&&p[p.length-1]==="home"&&!/[?&]spaceId=/.test(location.search))id=(JSON.parse(localStorage.getItem(${JSON.stringify(
+export const CONTENT_STARTUP_PAGE_HINTS_SCRIPT = `(function(){try{function h(k){try{return JSON.parse(localStorage.getItem(k)||"{}")[id]}catch(e){}}var p=location.pathname.split("/").filter(Boolean),i=p.indexOf("page"),id=i>=0&&p[i+1]?decodeURIComponent(p[i+1]):null;if(!id&&p[p.length-1]==="home"&&!/[?&]spaceId=/.test(location.search))id=(JSON.parse(localStorage.getItem(${JSON.stringify(
   LAST_LOCATION_HINT_STORAGE_KEY,
-)})||"null")||{}).documentId;if(typeof id!=="string"||!id)return;var d=document.documentElement;function h(k){try{return JSON.parse(localStorage.getItem(k)||"{}")[id]}catch(e){}}var r=h(${JSON.stringify(
+)})||"null")||{}).documentId;if(typeof id!=="string"||!id)return;var d=document.documentElement,r=h(${JSON.stringify(
   PAGE_ICON_ROWS_STORAGE_KEY,
 )}),s=h(${JSON.stringify(PAGE_SHAPES_STORAGE_KEY)});if(r==="icon"||r==="none")d.setAttribute(${JSON.stringify(
   STARTUP_PAGE_ICON_ROW_ATTRIBUTE,
