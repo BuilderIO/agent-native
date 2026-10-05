@@ -400,6 +400,12 @@ export function isSuggestionConflictActionError(error: unknown) {
   );
 }
 
+export function isSuggestionStaleActionError(error: unknown) {
+  return (
+    (error as { errorCode?: unknown } | null)?.errorCode === "suggestion_stale"
+  );
+}
+
 export function suggestionAmendmentTargetIsResolved(
   editingSuggestionId: string | null,
   suggestions: Array<Pick<ResourceSuggestion, "id" | "status">>,
@@ -2455,6 +2461,9 @@ function PageEditorSessionBody({
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<
     string | null
   >(null);
+  const [unplaceableSuggestionIds, setUnplaceableSuggestionIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(
     null,
   );
@@ -6992,6 +7001,7 @@ function PageEditorSessionBody({
         activateCommentThread(threadId, presentation === "history")
       }
       activeSuggestionId={editingSuggestionId ?? selectedSuggestionId}
+      unplaceableSuggestionIds={unplaceableSuggestionIds}
       focusSuggestionId={focusSuggestionId}
       onSuggestionFocused={() => setFocusSuggestionId(null)}
       hoveredSuggestionId={hoveredSuggestionId ?? editingSuggestionId}
@@ -7229,10 +7239,24 @@ function PageEditorSessionBody({
           setPendingSuggestionDecision(null);
           setDecisionRefreshFailed(false);
           suggestionDecisionInFlightRef.current = false;
-          toast.error(t("empty.genericError"), {
-            description:
-              error instanceof Error ? error.message : t("empty.genericError"),
-          });
+          const unplaceable = isSuggestionStaleActionError(error);
+          if (unplaceable) {
+            setUnplaceableSuggestionIds((current) =>
+              new Set(current).add(observedSuggestion.id),
+            );
+            setSelectedSuggestionId(observedSuggestion.id);
+            setUtilityPanel("comments");
+            setCommentsBrowseOpen(true);
+          }
+          toast.error(
+            t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
+            {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            },
+          );
           return;
         }
         if (
@@ -7277,17 +7301,6 @@ function PageEditorSessionBody({
             ? "single-accepted"
             : "single-other",
         );
-        if (
-          decisionGeneration !== suggestionDecisionGenerationRef.current ||
-          documentId !== suggestionDecisionDocumentIdRef.current
-        )
-          return;
-        if (result.suggestion.status === "stale") {
-          toast.error(t("editor.toolbar.conflict"));
-          setSelectedSuggestionId(result.suggestion.id);
-          setUtilityPanel("comments");
-          setCommentsBrowseOpen(true);
-        }
       }}
       canSuggest={canSuggest}
       commentAi={commentAi}

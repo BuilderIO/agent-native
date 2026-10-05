@@ -33,6 +33,7 @@ import {
   enqueueDocumentSave,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
+  isSuggestionStaleActionError,
   lifecycleKeepaliveDisposition,
   loadedUpdatedAtForSave,
   metadataUpdatesWithPendingTitle,
@@ -1000,14 +1001,27 @@ describe("document editor layout", () => {
     expect(source).toContain("activeThreadId={selectedThreadId}");
     expect(source).toContain("hoveredThreadId={hoveredThreadId}");
   });
-  it("surfaces unsuccessful suggestion decisions instead of treating HTTP success as acceptance", () => {
+  it("opens an accept that can't be placed instead of treating it as accepted", () => {
+    expect(
+      isSuggestionStaleActionError(
+        Object.assign(new Error("moved"), { errorCode: "suggestion_stale" }),
+      ),
+    ).toBe(true);
+    expect(
+      isSuggestionStaleActionError(
+        Object.assign(new Error("changed"), {
+          errorCode: "suggestion_conflict",
+        }),
+      ),
+    ).toBe(false);
+    expect(isSuggestionStaleActionError(new Error("network"))).toBe(false);
     const source = readFileSync(
       "app/components/editor/DocumentEditor.tsx",
       "utf8",
     );
-    expect(source).toContain('result.suggestion.status === "stale"');
+    expect(source).not.toContain('result.suggestion.status === "stale"');
     expect(source).toMatch(
-      /result\.suggestion\.status === "stale"[\s\S]*?toast\.error[\s\S]*?setCommentsBrowseOpen\(true\)/,
+      /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionIds[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
