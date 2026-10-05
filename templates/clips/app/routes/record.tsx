@@ -2758,13 +2758,14 @@ export default function RecordRoute() {
   // A copy left by another visit is taken only once this tab holds its lock;
   // one that another tab owns is never uploaded or deleted from here.
   const openRecoveredCopy = useCallback(
-    async (recordingId: string) => {
+    async (recordingId: string): Promise<boolean> => {
       const status = await holdLocalCopy(recordingId);
       if (status === "busy") {
         toast.info(t("recordRoute.localRecordingOpenElsewhere"));
-        return;
+        return false;
       }
       enterPendingUploadRef.current(recordingId);
+      return true;
     },
     [holdLocalCopy, t],
   );
@@ -2808,8 +2809,9 @@ export default function RecordRoute() {
         void navigate("/record", { replace: true });
         return;
       }
-      resumedLocalRecordingIdRef.current = resumeLocalRecordingId;
-      await openRecoveredCopyRef.current(resumeLocalRecordingId);
+      if (await openRecoveredCopyRef.current(resumeLocalRecordingId)) {
+        resumedLocalRecordingIdRef.current = resumeLocalRecordingId;
+      }
     })();
     return () => {
       cancelled = true;
