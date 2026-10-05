@@ -1329,6 +1329,18 @@
           "status": "decided",
           "change": "Every edge sits on the 8pt grid. The popover is 272px with a 12px inset and one 248px column: the 248px square; the slider row is eyedropper 24 · 8 · two 16px tracks of 168 · 8 · a 40px Previous/New swatch (two tracks and their gap); the value rows share columns 64 · 64 · 64 · 32 with 8px gaps, where Mode spans the first two and opacity the last two, L · C · H (or hex across three) sit above copy in the trailing 32; document colors are 8 × 24px with 8px gaps. Slider knobs are 16px, the track's height, and travel from 8px to width − 8px so they never leave the track; each is filled with its value (the hue, or the color at its opacity over the checker), and the track's gradient maps onto that travel so the color under the knob's center is the value.",
           "prototype": "Drag opacity to 100%: the knob stays inside the track, filled with the full color."
+        },
+        {
+          "id": "COLOR-10",
+          "status": "proposed",
+          "change": "On a text layer's fill, the picker adds a contrast row between the values and Document colors: an Aa sample on what's behind the text, the WCAG 2.2 ratio (rounded down, so it never overstates), and AA and AAA marks against 4.5:1 and 7:1, or 3:1 and 4.5:1 for large text (24px, or 18.66px bold). When AA fails, Fix moves OKLCH lightness to the passing value nearest the current one, keeping hue and chroma. Each action sits next to what it acts on: eyedropper by the sliders, copy by the value, + by Libraries, contrast in its own row, and swapping on the Fill field (COLOR-11).",
+          "prototype": "Select the headline, open its Fill, and type AAAAAA: 2.3:1 fails; Fix lands on 959595 at 3.0:1."
+        },
+        {
+          "id": "COLOR-11",
+          "status": "proposed",
+          "change": "The inspector's Fill field gets a ▾ like W's width tokens (RESP-05): the design's color tokens with their values, to apply or to swap to, with Detach token first on ⌫ while one is bound. Swapping keeps the fill bound; detaching keeps its color as a plain value. A bound fill shows the token as a chip in the field, beside its swatch.",
+          "prototype": "Open the Fill's ▾ and pick Link, then pick Primary, then press ⌫ with the menu open."
         }
       ]
     }

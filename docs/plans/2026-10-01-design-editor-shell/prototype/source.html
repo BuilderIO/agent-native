@@ -561,6 +561,9 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border); flex: none; margin-left: 6px; }
 .fillrow { display: grid; grid-template-columns: 160px 32px 32px; align-items: center; justify-items: center; }
 .fillrow .inp { width: 160px; gap: 6px; justify-self: start; }
+.fillrow .fillfield { gap: 0; padding-right: 0; }
+.fillrow .fill-main { flex: 1; min-width: 0; height: 22px; display: flex; align-items: center; gap: 6px; text-align: left; }
+.fillrow .fill-main .tok-chip { margin-right: auto; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fillrow .inp .hex { flex: 1; text-align: left; text-transform: uppercase; font-size: 11px; }
 .fillrow .inp .pct { color: var(--muted-fg); font-size: 11px; padding-right: 8px; }
 .wide-btn { height: 24px; border-radius: 6px; background: var(--muted); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11px; font-weight: 500; width: 100%; }
@@ -751,6 +754,15 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-fields .inp .pre:not([data-scrub]) { cursor: default; }
 .cpk-new { position: relative; }
 .cpk-gamut { position: absolute; right: 2px; top: 2px; height: 12px; padding: 0 3px; border-radius: 3px; background: rgb(0 0 0 / 55%); color: #fff; font-size: 8px; font-weight: 600; line-height: 12px; cursor: help; }
+.cpk-con { border-top: 1px solid var(--border); padding: 12px; display: flex; align-items: center; gap: 8px; height: 49px; }
+.cpk-aa { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 12px; font-weight: 600; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); flex: none; }
+.cpk-ratio { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; min-width: 40px; }
+.cpk-badges { display: flex; gap: 4px; margin-right: auto; }
+.cpk-badge { height: 20px; display: inline-flex; align-items: center; gap: 2px; padding: 0 6px 0 4px; border-radius: 4px; font-size: 11px; font-weight: 500; background: var(--muted); color: var(--muted-fg); }
+.cpk-badge[data-pass="true"] { color: var(--fg); }
+.cpk-badge[data-pass="false"] { color: hsl(0 72% 51%); }
+.cpk-fix { height: 24px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; font-weight: 500; }
+.cpk-fix:hover { background: var(--hover); }
 .cpk-doc { border-top: 1px solid var(--border); padding: 12px; }
 .cpk-doc-h { height: 16px; display: flex; align-items: center; margin-bottom: 8px; color: var(--muted-fg); }
 .cpk-grid { display: grid; grid-template-columns: repeat(8, 24px); gap: 8px; }
@@ -1723,7 +1735,7 @@ function renderInspector() {
       <div class="g5">${field("Line height", inp(ic("line-height", "s12"), p.lh))}${field("Letter spacing", inp(ic("letter-spacing", "s12"), p.ls), "c3")}</div>
       <div class="g5">${field("Align", segc(["align-left", "align-center", "align-right"], 1))}${field("&nbsp;", segc(["layout-align-top", "layout-align-middle", "layout-align-bottom"], 0), "c3")}<div class="c5" style="align-self:end">${act("adjustments-horizontal", "More type options")}</div></div>`) : ""}
     ${sec("fill", "Fill", act("layout-grid", "Styles") + act("plus", "Add fill"), `
-      <div class="fillrow"><button class="inp" data-fill aria-haspopup="dialog"><span class="swatch" style="background:${fillCss(p)}"></span><span class="hex">${fillLabel(p)}</span><span class="pct">100%</span></button>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
+      <div class="fillrow"><div class="inp fillfield"><button class="fill-main" data-fill aria-haspopup="dialog" title="Edit fill"><span class="swatch" style="background:${fillSwatch(p)}"></span>${p.fillToken ? `<span class="tok-chip">${fillLabel(p)}</span>` : `<span class="hex">${fillLabel(p)}</span>`}<span class="pct">100%</span></button><button class="post" data-fill-menu aria-haspopup="menu" title="Color tokens">${ic("chevron-down", "s12")}</button></div>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
     ${sec("stroke", "Stroke", act("layout-grid", "Styles") + act("plus", "Add stroke"), "", { empty: true })}
     ${sec("effects", "Effects", act("layout-grid", "Styles") + act("plus", "Add effect"), "", { empty: true })}
     ${responsiveSection(id)}
@@ -2083,7 +2095,7 @@ const CPK_CHANNELS = {
   p3: [["R", "Red", 0.004, 0, 1], ["G", "Green", 0.004, 0, 1], ["B", "Blue", 0.004, 0, 1]],
   oklch: [["L", "Lightness", 0.5, 0, 100], ["C", "Chroma", 0.002, 0, 0.4], ["H", "Hue", 1, 0, 360]],
 };
-function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = null, onPickToken = null, current = null, canCreate = false }) {
+function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = null, onPickToken = null, current = null, canCreate = false, contrast = null }) {
   document.querySelector(".cpk")?._close();
   const start = parseColor(value) || { lin: [0, 0, 0], a: 1, mode: "hex" };
   const C = { lin: start.lin, a: start.a, mode: start.mode, hue: 0, okHue: start.hue ?? 0, wantC: null };
@@ -2101,6 +2113,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
           <div class="cpk-cmp"><span class="cpk-new" title="New"><span class="cpk-gamut" hidden title="Outside sRGB. Screens without Display P3 show the nearest sRGB color.">P3</span></span><button class="cpk-prev" title="Previous · click to restore" aria-label="Restore previous color"></button></div>
           <div class="cpk-track cpk-alpha" role="slider" aria-label="Opacity" title="Opacity"><span class="cpk-knob"></span></div></div>
         <div class="cpk-val"><div class="cpk-row"><button class="inp sel cpk-mode" aria-haspopup="menu" title="Color mode"></button><label class="inp cpk-op" title="Opacity"><span class="pre">${ic("grid-dots", "s12")}</span><input class="cpk-a" aria-label="Opacity" inputmode="numeric"></label></div><div class="cpk-fields"></div></div>
+        ${contrast ? `<div class="cpk-con"><span class="cpk-aa" style="background:${contrast.bg}" aria-hidden="true">Aa</span><span class="cpk-ratio"></span><span class="cpk-badges"></span><button class="cpk-fix" hidden title="Change lightness to the nearest value that passes AA, keeping hue and chroma">Fix</button></div>` : ""}
         <div class="cpk-doc"><div class="cpk-doc-h">Document colors</div><div class="cpk-grid">${docs.map(c => `<button data-cpk-doc="${c}" aria-label="${c}" title="${c}" style="background:${c}"></button>`).join("")}</div></div>
       </div>
       ${libraries ? `<div class="cpk-pane" data-cpk-pane="libraries" aria-hidden="true"><label class="cpk-lsearch">${ic("search", "s14")}<input placeholder="Search" aria-label="Search tokens"></label><div class="cpk-llabel">Design tokens</div><div class="cpk-list">${libs.map(t => `<button class="cpk-lrow" data-cpk-token="${t.cssVar}" title="${t.cssVar}" aria-selected="${t.cssVar === current}"><span class="sw" style="background:${t.value}"></span><span class="grow">${t.name}</span>${t.cssVar === current ? ic("check", "s14") : ""}</button>`).join("")}</div></div>` : ""}
@@ -2142,6 +2155,19 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     else { C.okHue = wrap(n[2]); C.lin = fitGamut(oklchToLin([clamp01(n[0] / 100), C.wantC ?? Math.max(0, n[1]), C.okHue]), inP3); }
   };
   const css = (a = C.a) => formatColor(C.lin, a, C.mode, C.mode === "oklch" ? C.okHue : C.hue);
+  // WCAG 2.2 contrast: the text color in sRGB, blended over what's behind it at its opacity.
+  const lum = rgb => { const [r, g, b] = rgb.map(c => toLin(c / 255)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const ratioFor = lin => { if (!contrast) return 0; const b = parseHex(contrast.bg), bg = [b.r, b.g, b.b], fg = fitGamut(lin, inSrgb).map(toGam).map(c => clamp01(c) * 255).map((c, i) => c * C.a + bg[i] * (1 - C.a)); const [l1, l2] = [lum(fg), lum(bg)].sort((x, y) => y - x); return (l1 + 0.05) / (l2 + 0.05); };
+  const need = () => contrast?.large ? [3, 4.5] : [4.5, 7];
+  // Fix moves OKLCH lightness, keeping hue and chroma, to the passing value nearest the current one.
+  const fixContrast = () => {
+    const [L0, Ch, h] = linToOklch(C.lin), aa = need()[0], at = L => fitGamut(oklchToLin([L, Ch, h]), fitsSpace);
+    const search = (lo, hi, passAtLo) => { for (let k = 0; k < 24; k++) { const m = (lo + hi) / 2; if ((ratioFor(at(m)) >= aa) === passAtLo) lo = m; else hi = m; } return passAtLo ? lo : hi; };
+    const darker = ratioFor(at(0)) >= aa ? search(0, L0, true) : null, lighter = ratioFor(at(1)) >= aa ? search(L0, 1, false) : null;
+    const L = [darker, lighter].filter(x => x !== null).sort((x, y) => Math.abs(x - L0) - Math.abs(y - L0))[0];
+    if (L === undefined) return toast("No lightness passes AA at this hue and chroma");
+    C.lin = at(L); C.wantC = null; update();
+  };
   const SQ = 248;
   let laidOut = null, drawnFor = null;
   const drawSquare = () => {
@@ -2186,6 +2212,14 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
         + `<button class="icon-btn cpk-copy" aria-label="Copy color"></button>`;
     }
     const cp = q(".cpk-copy"); if (cp) { cp.title = `Copy ${css()}`; cp.innerHTML = ic("copy"); }
+    if (contrast) {
+      const r = ratioFor(C.lin), [aa, aaa] = need(), kind = contrast.large ? "large text" : "body text";
+      q(".cpk-aa").style.color = css();
+      q(".cpk-ratio").textContent = `${(Math.floor(r * 10) / 10).toFixed(1)}:1`;
+      q(".cpk-ratio").title = `Contrast against ${contrast.bg.toUpperCase()} behind this text`;
+      q(".cpk-badges").innerHTML = [["AA", aa], ["AAA", aaa]].map(([n, t]) => `<span class="cpk-badge" data-pass="${r >= t}" title="${n} needs ${t}:1 for ${kind} (WCAG 2.2)">${r >= t ? ic("check", "s12") : ic("x", "s12")}${n}</span>`).join("");
+      q(".cpk-fix").hidden = r >= aa;
+    }
     const now = css().toLowerCase();
     pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
   };
@@ -2239,6 +2273,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   pop.addEventListener("click", e => {
     const tab = e.target.closest("[data-cpk-tab]"); if (tab) return setTab(tab.dataset.cpkTab);
     if (e.target.closest(".cpk-copy")) return copyText(css(), `Copied ${css()}`);
+    if (e.target.closest(".cpk-fix")) return fixContrast();
     if (e.target.closest(".cpk-create")) return startCreate();
     const tok = e.target.closest("[data-cpk-token]"); if (tok) { onPickToken?.(libs.find(t => t.cssVar === tok.dataset.cpkToken)); return close(false); }
     if (e.target.closest(".cpk-prev")) { const p = parseColor(before); if (p) Object.assign(C, { lin: p.lin, a: p.a, mode: p.mode, okHue: p.hue ?? C.okHue, wantC: null }); return update(); }
@@ -2448,6 +2483,7 @@ document.addEventListener("click", e => {
   if (t.closest("[data-tk-open-import]")) { openMenu(t.closest("button"), TOKEN_IMPORT_MENU()); return; }
   if (t.closest("[data-tk-gen]")) { startSkill("Generate tokens"); return; }
   const tks = t.closest("[data-tk-sec]"); if (tks) { const k = tks.dataset.tkSec; TK.collapsed.has(k) ? TK.collapsed.delete(k) : TK.collapsed.add(k); renderTokens(); return; }
+  if (t.closest("[data-fill-menu]")) return fillTokenMenu(t.closest("[data-fill-menu]"));
   if (t.closest("[data-fill]")) return pickFill(t.closest("[data-fill]"));
   if (t.closest("[data-tk-dcolor]")) { const sw = t.closest("[data-tk-dcolor]"), v = $("#tk-dval"); return colorPicker(sw.closest(".row"), v.value, { onInput: x => { v.value = x; sw.style.background = x; }, onClose: () => $("#tk-dval")?.focus() }); }
   const tkr = t.closest(".row.tk"); if (tkr && !tkr.matches("[data-tk-draft]") && !t.closest(".tk-edit")) {
@@ -3098,17 +3134,40 @@ const isColor = v => /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim()
 const tokenConflict = t => { const e = Object.entries(t.sourceValues || {}); return new Set(e.map(([, v]) => v.toLowerCase())).size > 1 ? `Defined differently in ${e.map(([f, v]) => `${f} (${v})`).join(" and ")}` : ""; };
 // A fill is a hex (stored without #, as the inspector shows it), any CSS color the picker wrote, or a token.
 const fillCss = p => p.fillToken ? `var(${p.fillToken})` : parseHex(p.fill) && !String(p.fill).startsWith("#") ? "#" + p.fill : p.fill;
+// Token variables live on the page, not in the inspector, so the inspector's swatch shows the token's own value.
+const fillSwatch = p => p.fillToken ? (TOKENS.find(t => t.cssVar === p.fillToken)?.value || "transparent") : fillCss(p);
 const fillLabel = p => p.fillToken ? (TOKENS.find(t => t.cssVar === p.fillToken)?.name || p.fillToken) : /^[0-9a-f]{6}$/i.test(p.fill) ? p.fill.toUpperCase() : p.fill;
 function applyFills() { Object.entries(PROPS).forEach(([id, p]) => { if (!p.fillEdited) return; const el = document.querySelector(`.page [data-node="${id}"]`); if (el) el.style.color = fillCss(p); }); }
+// What a text fill is read against: the nearest painted background behind the node, and whether WCAG counts it as large text.
+function textContrastContext(id) {
+  const el = document.querySelector(`.page [data-node="${id}"]`); if (!el) return null;
+  let n = el.parentElement, bg = null;
+  while (n && !bg) { const c = getComputedStyle(n).backgroundColor, m = c.match(/[\d.]+/g); if (m && (m[3] === undefined || +m[3] > 0)) bg = toHex({ r: +m[0], g: +m[1], b: +m[2] }); n = n.parentElement; }
+  const cs = getComputedStyle(el), px = parseFloat(cs.fontSize) / (S.zoom / 100 || 1), bold = +cs.fontWeight >= 700;
+  return { bg: bg || "#ffffff", large: px >= 24 || (bold && px >= 18.66) };
+}
 function pickFill(btn) {
   const p = PROPS[S.selected], before = { fill: p.fill, fillToken: p.fillToken, fillEdited: p.fillEdited };
-  const sync = () => { btn.querySelector(".swatch").style.background = fillCss(p); btn.querySelector(".hex").textContent = fillLabel(p); applyFills(); };
+  // The label switches between hex and token chip, so re-render the inspector rather than patch one span.
+  const sync = () => { applyFills(); renderInspector(); };
   colorPicker(btn, p.fillToken ? TOKENS.find(t => t.cssVar === p.fillToken)?.value : fillCss(p), {
-    libraries: TOKENS.filter(t => t.type === "color"), current: p.fillToken, canCreate: S.labsTokens,
+    libraries: TOKENS.filter(t => t.type === "color"), current: p.fillToken, canCreate: S.labsTokens, contrast: p.text ? textContrastContext(S.selected) : null,
     onInput: v => { p.fill = /^#[0-9a-f]{6}$/i.test(v) ? v.slice(1) : v; p.fillToken = null; p.fillEdited = true; sync(); },
     onPickToken: (t, created) => { p.fillToken = t.cssVar; p.fillEdited = true; sync(); toast(created ? `Created ${t.name} and applied it` : `Fill uses ${t.name}`); },
     onClose: cancelled => { if (cancelled) { Object.assign(p, before); sync(); if (!p.fillEdited) { const el = document.querySelector(`.page [data-node="${S.selected}"]`); if (el) el.style.color = ""; } } },
   });
+}
+// The Fill field's ▾: the design's color tokens to apply or swap to, and Detach token first while one is bound,
+// on ⌫, the same pattern as W's width tokens (RESP-05). Swapping keeps the fill bound; detaching keeps its color.
+function fillTokenMenu(anchor) {
+  const p = PROPS[S.selected], bound = TOKENS.find(t => t.cssVar === p.fillToken);
+  const colors = TOKENS.filter(t => t.type === "color");
+  const set = patch => { Object.assign(p, patch, { fillEdited: true }); applyFills(); renderInspector(); };
+  openMenu(anchor.closest(".inp") || anchor, [
+    ...(bound ? [{ t: "Detach token", k: "⌫", keys: ["Backspace", "Delete"], run: () => { set({ fill: parseHex(bound.value) ? bound.value.replace(/^#/, "") : bound.value, fillToken: null }); toast(`Detached ${bound.name}`); } }, "-"] : []),
+    { label: "Color tokens" },
+    ...colors.map(t => ({ t: t.name, k: t.value, radio: true, on: t === bound, run: () => { set({ fillToken: t.cssVar }); toast(bound ? `Swapped ${bound.name} for ${t.name}` : `Fill uses ${t.name}`); } })),
+  ], { align: "right" });
 }
 function pickTokenColor(t, row) {
   const before = t.value; TK.picking = t.cssVar; row.setAttribute("aria-expanded", "true");
