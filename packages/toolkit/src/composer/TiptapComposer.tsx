@@ -3012,11 +3012,18 @@ export function TiptapComposer({
   const draftScopeGenerationRef = useRef(0);
   const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
   const attachmentAddQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingAttachmentAddsRef = useRef(
+    new Map<number, Set<Promise<void>>>(),
+  );
   const pendingAttachmentFilesRef = useRef(new Map<File, number>());
   const addAttachmentForCurrentScope = useCallback(
     async (file: File) => {
       const scopeGeneration = draftScopeGenerationRef.current;
       const reservation = attachmentAddQueueRef.current.then(async () => {
+        const priorScopeAdds = [...pendingAttachmentAddsRef.current]
+          .filter(([generation]) => generation !== scopeGeneration)
+          .flatMap(([, additions]) => [...additions]);
+        await Promise.all(priorScopeAdds);
         await attachmentCleanupRef.current;
         if (draftScopeGenerationRef.current !== scopeGeneration) return false;
 
@@ -3049,11 +3056,37 @@ export function TiptapComposer({
         }
         return;
       }
+      const addition = composerRuntime.addAttachment(file);
+      const removeIfStale = async () => {
+        if (draftScopeGenerationRef.current === scopeGeneration) return;
+        const cleanup = attachmentCleanupRef.current.then(async () => {
+          const index = composerRuntime
+            .getState()
+            .attachments.findIndex((attachment) => attachment.file === file);
+          if (index === -1) return;
+          await composerRuntime.getAttachmentByIndex(index).remove();
+        });
+        attachmentCleanupRef.current = cleanup;
+        await cleanup;
+      };
+      const settledAddition = addition.then(removeIfStale, removeIfStale);
+      const scopeAdds =
+        pendingAttachmentAddsRef.current.get(scopeGeneration) ?? new Set();
+      scopeAdds.add(settledAddition);
+      pendingAttachmentAddsRef.current.set(scopeGeneration, scopeAdds);
       try {
-        return await composerRuntime.addAttachment(file);
+        return await addition;
       } finally {
-        if (pendingAttachmentFilesRef.current.get(file) === scopeGeneration) {
-          pendingAttachmentFilesRef.current.delete(file);
+        try {
+          await settledAddition;
+        } finally {
+          scopeAdds.delete(settledAddition);
+          if (scopeAdds.size === 0) {
+            pendingAttachmentAddsRef.current.delete(scopeGeneration);
+          }
+          if (pendingAttachmentFilesRef.current.get(file) === scopeGeneration) {
+            pendingAttachmentFilesRef.current.delete(file);
+          }
         }
       }
     },

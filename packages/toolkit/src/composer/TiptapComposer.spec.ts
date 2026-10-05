@@ -969,6 +969,111 @@ describe("createTiptapComposerExtensions", () => {
     );
   });
 
+  it("removes an attachment whose upload settles after its draft scope changes", async () => {
+    let releaseOldAdd!: () => void;
+    let notifyOldAddStarted!: () => void;
+    const oldAddStarted = new Promise<void>((resolve) => {
+      notifyOldAddStarted = resolve;
+    });
+    const oldAddGate = new Promise<void>((resolve) => {
+      releaseOldAdd = resolve;
+    });
+    let nextAttachmentId = 0;
+    const addedFiles: string[] = [];
+    const removedAttachments = vi.fn();
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => {
+        addedFiles.push(file.name);
+        if (file.name === "old.txt") {
+          notifyOldAddStarted();
+          await oldAddGate;
+        }
+        return {
+          id: String(++nextAttachmentId),
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: { type: "requires-action", reason: "composer-send" },
+        };
+      },
+      remove: async () => {
+        removedAttachments();
+      },
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({ draftScope }: { draftScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    let oldAdd: Promise<void> | undefined;
+    await act(async () => {
+      oldAdd = focusRef.current!.addAttachment(
+        new File(["old contents"], "old.txt", { type: "text/plain" }),
+      );
+      await oldAddStarted;
+    });
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    let newAdd: Promise<void> | undefined;
+    await act(async () => {
+      newAdd = focusRef.current!.addAttachment(
+        new File(["new contents"], "new.txt", { type: "text/plain" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(addedFiles).toEqual(["old.txt"]);
+
+    await act(async () => {
+      releaseOldAdd();
+      await oldAdd;
+      await newAdd;
+    });
+
+    expect(removedAttachments).toHaveBeenCalledTimes(1);
+    expect(addedFiles).toEqual(["old.txt", "new.txt"]);
+    expect(
+      harnessRuntime?.thread.composer
+        .getState()
+        .attachments.map(({ name }) => name),
+    ).toEqual(["new.txt"]);
+  });
+
   it("deduplicates concurrent identical files while allowing same-name files with different contents", async () => {
     let nextAttachmentId = 0;
     const attachmentAdapter: AttachmentAdapter = {
