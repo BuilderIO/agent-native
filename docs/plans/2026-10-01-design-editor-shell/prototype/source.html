@@ -723,6 +723,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk { position: fixed; z-index: 49; width: 272px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
 .cpk-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); }
 .cpk-head .tabs { display: flex; gap: 4px; margin-left: -8px; }
+.cpk-head .acts { display: flex; gap: 0; }
+.cpk-contrast[data-fail="true"] { color: hsl(0 72% 51%); }
 .cpk .icon-btn { width: 24px; height: 24px; border-radius: 6px; }
 .cpk .icon-btn:hover { background: var(--hover); }
 .cpk-head button { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted-fg); }
@@ -752,10 +754,14 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-fields .cpk-copy { grid-column: 4; width: 32px; }
 .cpk-fields .inp .pre[data-scrub]:hover { color: var(--fg); }
 .cpk-fields .inp .pre:not([data-scrub]) { cursor: default; }
-.cpk-new[data-fixable="true"] { cursor: pointer; }
 /* The New swatch's tooltip carries contrast and gamut, in the app's tooltip style, so the swatch stays just the color. */
 .cpk-tip { position: fixed; z-index: 90; pointer-events: none; max-width: 232px; padding: 4px 8px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 12px; line-height: 16px; }
 .cpk-tip .sub { opacity: .7; }
+.cpk-tip .ct-h { display: flex; justify-content: space-between; gap: 16px; font-weight: 500; }
+.cpk-tip .ct-h b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.cpk-tip .ct-grid { display: grid; grid-template-columns: auto auto 1fr; column-gap: 12px; row-gap: 2px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgb(255 255 255 / 15%); }
+.cpk-tip .ct-grid .res { display: inline-flex; align-items: center; gap: 4px; justify-self: end; }
+.cpk-tip .ct-grid .res[data-pass="false"] { color: hsl(0 90% 72%); }
 .cpk-doc { border-top: 1px solid var(--border); padding: 12px; }
 .cpk-doc-h { height: 16px; display: flex; align-items: center; margin-bottom: 8px; color: var(--muted-fg); }
 .cpk-grid { display: grid; grid-template-columns: repeat(8, 24px); gap: 8px; }
@@ -2097,7 +2103,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const docs = [...new Set(TOKENS.filter(t => t.type === "color" && parseColor(t.value)).map(t => t.value.toLowerCase()))].slice(0, 16);
   const libs = libraries || [];
   const pop = document.createElement("div"); pop.className = "cpk"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Color");
-  pop.innerHTML = `${libraries ? `<div class="cpk-head"><span class="tabs" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></span>${canCreate ? `<button class="icon-btn cpk-create" title="Create a color token from this color">${ic("plus")}</button>` : ""}</div>` : ""}
+  pop.innerHTML = `${libraries ? `<div class="cpk-head"><span class="tabs" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></span><span class="acts">${contrast ? `<button class="icon-btn cpk-contrast" aria-haspopup="menu" aria-label="Contrast">${ic("contrast")}</button>` : ""}${canCreate ? `<button class="icon-btn cpk-create" title="Create a color token from this color">${ic("plus")}</button>` : ""}</span></div>` : ""}
     <div class="cpk-panes">
       <div class="cpk-pane" data-cpk-pane="custom">
         <div class="cpk-sv" role="slider" aria-label="Saturation and brightness"></div>
@@ -2156,33 +2162,41 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const lum = rgb => { const [r, g, b] = rgb.map(c => toLin(c / 255)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
   const ratioFor = lin => { if (!contrast) return 0; const b = parseHex(contrast.bg), bg = [b.r, b.g, b.b], fg = fitGamut(lin, inSrgb).map(toGam).map(c => clamp01(c) * 255).map((c, i) => c * C.a + bg[i] * (1 - C.a)); const [l1, l2] = [lum(fg), lum(bg)].sort((x, y) => y - x); return (l1 + 0.05) / (l2 + 0.05); };
   const need = () => contrast?.large ? [3, 4.5] : [4.5, 7];
-  // The New swatch's tooltip: contrast against what's behind a text fill (WCAG 2.2, rounded down so it never
-  // overstates), whether it passes AA and AAA, and whether the color leaves sRGB.
-  let tip = null, tipTimer = 0;
-  const tipHTML = () => {
-    const lines = [];
-    if (contrast) {
-      const r = ratioFor(C.lin), [aa, aaa] = need(), kind = contrast.large ? "large text" : "body text";
-      lines.push(`Contrast ${(Math.floor(r * 10) / 10).toFixed(1)}:1 on ${contrast.bg.toUpperCase()}`);
-      lines.push(r >= aaa ? `Passes AA and AAA for ${kind}` : r >= aa ? `Passes AA, fails AAA for ${kind}` : `Fails AA for ${kind}, which needs ${aa}:1. Click to fix.`);
-    } else lines.push("New");
-    if (!inSrgb(C.lin)) lines.push("Outside sRGB. Screens without Display P3 show the nearest sRGB color.");
-    return lines.map((l, i) => `<div class="${i ? "sub" : ""}">${l}</div>`).join("");
+  // New's tooltip names the swatch and, when it applies, says the color leaves sRGB.
+  let tip = null, tipTimer = 0, tipFor = null;
+  const newTipHTML = () => `<div>New</div>${inSrgb(C.lin) ? "" : `<div class="sub">Outside sRGB. Screens without Display P3 show the nearest sRGB color.</div>`}`;
+  // Contrast's tooltip is a small table: the ratio on what's behind the text, then AA and AAA with their thresholds.
+  const contrastTipHTML = () => {
+    const r = ratioFor(C.lin), [aa, aaa] = need(), row = (n, t) => `<span>${n}</span><span class="sub">${t}:1</span><span class="res" data-pass="${r >= t}">${ic(r >= t ? "check" : "x", "s12")}${r >= t ? "Passes" : "Fails"}</span>`;
+    return `<div class="ct-h"><span>Contrast</span><b>${(Math.floor(r * 10) / 10).toFixed(1)}:1</b></div><div class="sub">On ${contrast.bg.toUpperCase()} · ${contrast.large ? "large text" : "body text"}</div><div class="ct-grid">${row("AA", aa)}${row("AAA", aaa)}</div>`;
   };
-  const hideTip = () => { clearTimeout(tipTimer); tip?.remove(); tip = null; };
-  const showTip = () => {
-    hideTip(); tip = document.createElement("div"); tip.className = "cpk-tip"; tip.setAttribute("role", "tooltip"); tip.innerHTML = tipHTML(); document.body.append(tip);
-    const r = q(".cpk-new").getBoundingClientRect();
+  const tipHTML = () => tipFor === "contrast" ? contrastTipHTML() : newTipHTML();
+  const hideTip = () => { clearTimeout(tipTimer); tip?.remove(); tip = null; tipFor = null; };
+  const showTip = which => {
+    hideTip(); tipFor = which; tip = document.createElement("div"); tip.className = "cpk-tip"; tip.setAttribute("role", "tooltip"); tip.innerHTML = tipHTML(); document.body.append(tip);
+    const r = q(which === "contrast" ? ".cpk-contrast" : ".cpk-new").getBoundingClientRect();
     tip.style.left = Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, r.right - tip.offsetWidth)) + "px";
     tip.style.top = (r.top - tip.offsetHeight - 6 >= 8 ? r.top - tip.offsetHeight - 6 : r.bottom + 6) + "px";
   };
+  // Contrast's menu: fix for AA or AAA by moving lightness, or hand it to the agent, which can fix it everywhere.
+  const contrastMenu = () => {
+    hideTip();
+    const r = ratioFor(C.lin), [aa, aaa] = need();
+    openMenu(q(".cpk-contrast"), [
+      { label: `Contrast ${(Math.floor(r * 10) / 10).toFixed(1)}:1` },
+      { t: "Fix for AA", k: `${aa}:1`, disabled: r >= aa, run: () => fixContrast(aa) },
+      { t: "Fix for AAA", k: `${aaa}:1`, disabled: r >= aaa, run: () => fixContrast(aaa) },
+      "-",
+      { t: "Ask Agent to fix contrast", run: () => { close(false); askAgentContrast({ ratio: r, aa, bg: contrast.bg, large: contrast.large }); } },
+    ], { align: "right" });
+  };
   // Fix moves OKLCH lightness, keeping hue and chroma, to the passing value nearest the current one.
-  const fixContrast = () => {
-    const [L0, Ch, h] = linToOklch(C.lin), aa = need()[0], at = L => fitGamut(oklchToLin([L, Ch, h]), fitsSpace);
+  const fixContrast = aa => {
+    const [L0, Ch, h] = linToOklch(C.lin), at = L => fitGamut(oklchToLin([L, Ch, h]), fitsSpace);
     const search = (lo, hi, passAtLo) => { for (let k = 0; k < 24; k++) { const m = (lo + hi) / 2; if ((ratioFor(at(m)) >= aa) === passAtLo) lo = m; else hi = m; } return passAtLo ? lo : hi; };
     const darker = ratioFor(at(0)) >= aa ? search(0, L0, true) : null, lighter = ratioFor(at(1)) >= aa ? search(L0, 1, false) : null;
     const L = [darker, lighter].filter(x => x !== null).sort((x, y) => Math.abs(x - L0) - Math.abs(y - L0))[0];
-    if (L === undefined) return toast("No lightness passes AA at this hue and chroma");
+    if (L === undefined) return toast(`No lightness reaches ${aa}:1 at this hue and chroma`);
     C.lin = at(L); C.wantC = null; update();
   };
   const SQ = 248;
@@ -2228,7 +2242,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
         + `<button class="icon-btn cpk-copy" aria-label="Copy color"></button>`;
     }
     const cp = q(".cpk-copy"); if (cp) { cp.title = `Copy ${css()}`; cp.innerHTML = ic("copy"); }
-    q(".cpk-new").dataset.fixable = !!contrast && ratioFor(C.lin) < need()[0];
+    q(".cpk-contrast")?.setAttribute("data-fail", ratioFor(C.lin) < need()[0]);
     if (tip) tip.innerHTML = tipHTML();
     const now = css().toLowerCase();
     pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
@@ -2283,7 +2297,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   pop.addEventListener("click", e => {
     const tab = e.target.closest("[data-cpk-tab]"); if (tab) return setTab(tab.dataset.cpkTab);
     if (e.target.closest(".cpk-copy")) return copyText(css(), `Copied ${css()}`);
-    if (e.target.closest(".cpk-new") && q(".cpk-new").dataset.fixable === "true") return fixContrast();
+    if (e.target.closest(".cpk-contrast")) return contrastMenu();
     if (e.target.closest(".cpk-create")) return startCreate();
     const tok = e.target.closest("[data-cpk-token]"); if (tok) { onPickToken?.(libs.find(t => t.cssVar === tok.dataset.cpkToken)); return close(false); }
     if (e.target.closest(".cpk-prev")) { const p = parseColor(before); if (p) Object.assign(C, { lin: p.lin, a: p.a, mode: p.mode, okHue: p.hue ?? C.okHue, wantC: null }); return update(); }
@@ -2321,8 +2335,10 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const key = e => { if (e.key === "Escape" && !document.querySelector(".menu") && !e.target.closest?.(".cpk-tdraft")) { e.preventDefault(); e.stopPropagation(); close(true); } };
   document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key, true);
   pop._close = () => close(false);
-  q(".cpk-new").addEventListener("pointerenter", () => { tipTimer = setTimeout(showTip, 300); });
+  q(".cpk-new").addEventListener("pointerenter", () => { tipTimer = setTimeout(() => showTip("new"), 300); });
   q(".cpk-new").addEventListener("pointerleave", hideTip);
+  q(".cpk-contrast")?.addEventListener("pointerenter", () => { if (!document.querySelector(".menu")) tipTimer = setTimeout(() => showTip("contrast"), 300); });
+  q(".cpk-contrast")?.addEventListener("pointerleave", hideTip);
   hsv(); oklch(); paint(); place();
   if (current && libraries) setTab("libraries");
 }
@@ -3150,6 +3166,14 @@ const fillCss = p => p.fillToken ? `var(${p.fillToken})` : parseHex(p.fill) && !
 const fillSwatch = p => p.fillToken ? (TOKENS.find(t => t.cssVar === p.fillToken)?.value || "transparent") : fillCss(p);
 const fillLabel = p => p.fillToken ? (TOKENS.find(t => t.cssVar === p.fillToken)?.name || p.fillToken) : /^[0-9a-f]{6}$/i.test(p.fill) ? p.fill.toUpperCase() : p.fill;
 function applyFills() { Object.entries(PROPS).forEach(([id, p]) => { if (!p.fillEdited) return; const el = document.querySelector(`.page [data-node="${id}"]`); if (el) el.style.color = fillCss(p); }); }
+// Hands contrast to the agent with the context it needs; it can fix this text and the same pairing elsewhere.
+function askAgentContrast({ ratio, aa, bg, large }) {
+  const node = FLAT[S.selected]?.name || "this text", title = `Fix contrast · ${selectionLabel()}`;
+  setPanel("agents");
+  S.chat = { title, msgs: [{ user: true, text: `Raise the contrast of “${node}” to WCAG AA (${aa}:1 for ${large ? "large" : "body"} text) against ${bg.toUpperCase()}. It's ${ratio.toFixed(1)}:1 now. Keep the hue, and fix other text using the same color on this background too.` }, { step: "Checking text contrast on every screen" }] };
+  renderAgents();
+  setTimeout(() => { if (!S.chat || S.chat.title !== title) return; S.chat.msgs[1].done = true; S.chat.msgs.push({ text: "Found 3 text layers below AA on this background. Darkening them to 3.1:1 keeps the hue; review the changes on the canvas." }); renderAgents(); }, 900);
+}
 // What a text fill is read against: the nearest painted background behind the node, and whether WCAG counts it as large text.
 function textContrastContext(id) {
   const el = document.querySelector(`.page [data-node="${id}"]`); if (!el) return null;
