@@ -1199,6 +1199,53 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.keyProvider": "API 키 제공업체",
   "setup.keySaveFailed": "키를 저장할 수 없습니다.",
   "setup.storedSecurely": "이 앱에서만 사용하도록 안전하게 저장됩니다.",
+  "accessGate.deniedTitle": "접근 권한이 없습니다",
+  "accessGate.deniedDescription": "소유자에게 공유를 요청하세요.",
+  "accessGate.missingTitle": "존재하지 않는 항목입니다",
+  "accessGate.missingDescription":
+    "링크가 잘못되었거나 삭제되었을 수 있습니다.",
+  "accessGate.trashedTitle": "휴지통에 있는 항목입니다",
+  "accessGate.trashedDescription": "복원하면 다시 열 수 있습니다.",
+  "accessGate.signedOutTitle": "계속하려면 로그인하세요",
+  "accessGate.signedOutDescription": "접근 권한이 있는 계정으로 로그인하세요.",
+  "accessGate.signIn": "로그인",
+  "accessGate.signedInAs": "로그인한 계정: {{email}}",
+  "accessGate.switchAccount": "계정 전환",
+  "accessGate.requestDescription":
+    "접근 권한을 요청하면 소유자에게 알림이 전송됩니다.",
+  "accessGate.requestSent":
+    "요청을 보냈습니다. 소유자에게 알림이 전송되었습니다.",
+  "accessGate.requestAccess": "접근 권한 요청",
+  "accessGate.requestNoteLabel": "메모(선택 사항)",
+  "accessGate.requestNotePlaceholder": "소유자에게 전달할 메모를 추가하세요",
+  "accessGate.sendRequest": "요청 보내기",
+  "accessGate.cancel": "취소",
+  "accessGate.requestRateLimited":
+    "현재 요청이 너무 많습니다. 나중에 다시 시도하세요.",
+  "accessGate.requestFailed": "요청을 보내지 못했습니다. 다시 시도하세요.",
+  "accessGate.signedOutRequestDescription":
+    "접근 권한을 요청하려면 로그인하세요.",
+  "accessRequest.title": "{{name}}님이 접근 권한을 요청했습니다",
+  "accessRequest.approvedTitle": "접근이 허용되었습니다",
+  "accessRequest.declinedTitle": "요청이 거부되었습니다",
+  "accessRequest.allow": "허용",
+  "accessRequest.decline": "거부",
+  "accessRequest.unavailableTitle": "이 요청을 검토할 수 없습니다",
+  "accessRequest.unavailableDescription":
+    "요청이 철회되었거나 이 계정에 접근 관리 권한이 없을 수 있습니다.",
+  "accessRequest.loadFailed": "이 요청을 불러올 수 없습니다.",
+  "accessRequest.retry": "다시 시도",
+  "accessRequest.decisionFailed":
+    "결정을 저장하지 못했습니다. 다시 시도하세요.",
+  "accessRequest.stale":
+    "다른 사람이 이미 이 요청을 처리했거나 요청이 변경되었습니다.",
+  "share.accessRequests": "접근 권한 요청",
+  "share.accessRequestsLoadFailed": "접근 권한 요청을 불러올 수 없습니다.",
+  "share.accessRequestsNewest": "최근 요청 {{count}}개를 표시합니다.",
+  "accessRequest.emailFailed":
+    "{{name}}님에게 접근 권한을 부여했지만 이메일을 보내지 못했습니다.",
+  "share.allowRequestFrom": "{{name}} 허용",
+  "share.declineRequestFrom": "{{name}} 거부",
   "share.add": "추가",
   "share.addPeopleEmail": "이메일로 사용자 추가",
   "share.addPeopleOrganization": "조직에서 사용자 추가",
@@ -1285,6 +1332,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "오류 세부 정보가 없습니다.",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",
+  "tool.identifierHidden": "[식별자 숨김]",
+  "tool.contentOmitted": "[내용 생략]",
+  "tool.circularReference": "[순환 참조]",
   "tool.interrupted":
     "완료 보고 전에 중단되었습니다. 작업이 완료되었을 수도 있고 아닐 수도 있습니다. 다시 시도하기 전에 확인하세요.",
   "tool.longRunning":

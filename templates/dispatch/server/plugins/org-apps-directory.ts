@@ -48,6 +48,10 @@
  */
 
 import {
+  canonicalA2AAudience,
+  getGlobalA2ASecret,
+} from "@agent-native/core/a2a";
+import {
   getA2ASecretByDomain,
   getOrgDomain,
   isSoleOrgDomain,
@@ -55,7 +59,12 @@ import {
 } from "@agent-native/core/org";
 import { getH3App, runWithRequestContext } from "@agent-native/core/server";
 import { discoverOrgDirectoryAgents } from "@agent-native/core/server/agent-discovery";
-import { defineEventHandler, getMethod, getRequestHeader } from "h3";
+import {
+  defineEventHandler,
+  getMethod,
+  getRequestHeader,
+  getRequestURL,
+} from "h3";
 import type { H3Event } from "h3";
 
 import {
@@ -110,10 +119,11 @@ export const orgAppsHandler = defineEventHandler(
 
     const verified = await verifyA2ABearerToken({
       token,
+      expectedAudience: canonicalA2AAudience(getRequestURL(event).toString()),
       resolveOrgSecretByDomain: (domain) => getA2ASecretByDomain(domain),
       resolveSoleOrgGlobalSecretByDomain: async (domain) => {
         if (!(await isSoleOrgDomain(domain))) return null;
-        return process.env.A2A_SECRET?.trim() || null;
+        return getGlobalA2ASecret() || null;
       },
     });
     if (!verified) {
@@ -159,34 +169,31 @@ export const orgAppsHandler = defineEventHandler(
     let apps: DiscoveredAppLike[];
     try {
       apps = await directoryCache.get(cacheKey, async () =>
-        runWithRequestContext(
-          { userEmail: verified.email, orgId: localOrg.orgId },
-          async () => {
-            const startedAt = Date.now();
-            const discovered = await discoverOrgDirectoryAgents(
-              includeDirectoryApp ? undefined : SELF_APP_ID,
-              { preferLocalUrls },
-            );
-            const durationMs = Date.now() - startedAt;
-            if (discovered.status === "unavailable") {
-              console.error("[org-apps-directory] discovery unavailable", {
-                stage: discovered.reason,
-                durationMs,
-              });
-              throw new DirectoryDiscoveryUnavailable(discovered.reason);
-            }
-            console.info("[org-apps-directory] discovery complete", {
+        runWithRequestContext({ orgId: localOrg.orgId }, async () => {
+          const startedAt = Date.now();
+          const discovered = await discoverOrgDirectoryAgents(
+            includeDirectoryApp ? undefined : SELF_APP_ID,
+            { preferLocalUrls },
+          );
+          const durationMs = Date.now() - startedAt;
+          if (discovered.status === "unavailable") {
+            console.error("[org-apps-directory] discovery unavailable", {
+              stage: discovered.reason,
               durationMs,
-              appCount: discovered.agents.length,
             });
-            return discovered.agents.map((agent) => ({
-              id: agent.id,
-              name: agent.name,
-              description: agent.description,
-              url: agent.url,
-            }));
-          },
-        ),
+            throw new DirectoryDiscoveryUnavailable(discovered.reason);
+          }
+          console.info("[org-apps-directory] discovery complete", {
+            durationMs,
+            appCount: discovered.agents.length,
+          });
+          return discovered.agents.map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            description: agent.description,
+            url: agent.url,
+          }));
+        }),
       );
     } catch (error) {
       const reason =

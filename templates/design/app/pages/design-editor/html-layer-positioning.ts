@@ -340,27 +340,23 @@ export function setCodeLayerAttributeInHtml(
   return `${content.slice(0, insertAt)}${replacement}${content.slice(insertAt)}`;
 }
 
+// Reads whole tags with their quoted attributes and skips every element whose
+// content HTML parses as text (to its end tag, or to EOF when it has none), so
+// only the document's own `<body` matches.
+const BODY_OPEN_TAG_SCAN =
+  /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title|xmp|iframe|noembed|noframes|noscript)\b[\s\S]*?(?:<\/\1\s*>|$)|<plaintext\b[\s\S]*|<\/?[A-Za-z][^\s/>]*(?:"[^"]*"|'[^']*'|[^'">])*>/gi;
+
 function findBodyOpenTag(
   content: string,
 ): { start: number; end: number; tag: string } | null {
-  const match = /<body\b/i.exec(content);
-  if (!match) return null;
-  let quote: '"' | "'" | null = null;
-  for (let i = match.index; i < content.length; i += 1) {
-    const char = content[i]!;
-    if (quote) {
-      if (char === quote) quote = null;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === ">") {
+  BODY_OPEN_TAG_SCAN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = BODY_OPEN_TAG_SCAN.exec(content))) {
+    if (/^<body\b/i.test(match[0])) {
       return {
         start: match.index,
-        end: i + 1,
-        tag: content.slice(match.index, i + 1),
+        end: match.index + match[0].length,
+        tag: match[0],
       };
     }
   }
@@ -544,8 +540,10 @@ export function setScreenRootFrameRenderingStyles(
 export function getBodyInlineStyles(content: string): Record<string, string> {
   if (typeof window === "undefined") return {};
   try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const body = doc.body;
+    const body = new DOMParser().parseFromString(
+      findBodyOpenTag(content)?.tag ?? "",
+      "text/html",
+    ).body;
     if (!body) return {};
     return {
       backgroundColor: body.style.backgroundColor,

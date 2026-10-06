@@ -209,6 +209,56 @@ async function withBridgedPage(
 
 describe("replace-document-content morphs instead of rebuilding the body", () => {
   it(
+    "leaves a style attribute alone when its source did not change",
+    { timeout: 30_000 },
+    async () => {
+      const styledCard = (id: string, style: string) =>
+        `<article data-agent-native-node-id="${id}" style="${style}">${id}</article>`;
+      await withBridgedPage(
+        styledCard("a", "padding:4px;color:red") +
+          styledCard("b", "color: blue"),
+        async (page) => {
+          await page.evaluate(() => {
+            const store = window as Window & { __styleWrites?: string[] };
+            store.__styleWrites = [];
+            new MutationObserver((records) => {
+              for (const record of records) {
+                store.__styleWrites!.push(
+                  (record.target as Element).getAttribute(
+                    "data-agent-native-node-id",
+                  ) ?? "",
+                );
+              }
+            }).observe(document.body, {
+              attributes: true,
+              attributeFilter: ["style"],
+              subtree: true,
+            });
+          });
+          await replaceDocument(
+            page,
+            documentHtml(
+              styledCard("a", "padding:4px;color:red") +
+                styledCard("b", "color: green"),
+            ),
+          );
+          expect(
+            await page.evaluate(
+              () =>
+                (window as Window & { __styleWrites?: string[] }).__styleWrites,
+            ),
+          ).toEqual(["b"]);
+          expect(
+            await page
+              .locator('[data-agent-native-node-id="b"]')
+              .evaluate((element) => getComputedStyle(element).color),
+          ).toBe("rgb(0, 128, 0)");
+        },
+      );
+    },
+  );
+
+  it(
     "keeps every untouched node when one element is deleted",
     { timeout: 30_000 },
     async () => {

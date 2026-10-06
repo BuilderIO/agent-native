@@ -213,7 +213,7 @@ export default {
       tokenLabel: "Figma 액세스 토큰",
       tokenPlaceholder: "Figma 액세스 토큰 붙여넣기",
       connecting: "연결 중…",
-      connect: "Builder.io 사용",
+      connect: "Figma 연결",
       getToken: "토큰 받기",
       importFrame: "프레임 가져오기",
       chooseFrame: "프레임 선택",

@@ -216,7 +216,7 @@ export default {
       tokenLabel: "Jeton d’accès Figma",
       tokenPlaceholder: "Collez le jeton d’accès Figma",
       connecting: "Connexion…",
-      connect: "Utiliser Builder.io",
+      connect: "Connecter Figma",
       getToken: "Obtenir un jeton",
       importFrame: "Importer la frame",
       chooseFrame: "Choisir une frame",

@@ -109,9 +109,7 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
 // the files that import them. A scaffold cannot install these (a standalone app
 // resolves them from npm, a new workspace has no such package), so it drops the
 // dependency and those files. Publishing a package removes its entry here.
-const WORKSPACE_ONLY_TEMPLATE_WIRING: Record<string, readonly string[]> = {
-  "@agent-native/otel": ["server/plugins/otel.ts"],
-};
+const WORKSPACE_ONLY_TEMPLATE_WIRING: Record<string, readonly string[]> = {};
 const TAR_LISTING_MAX_BUFFER = 100 * 1024 * 1024;
 const localPackageTarballs = new Map<string, string>();
 const IN_PLACE_ALLOWLIST = new Set([
@@ -718,6 +716,7 @@ async function createWorkspaceInteractive(
         dispatchDependencyVersion: getDispatchDependencyVersion(),
         toolkitDependencyVersion: getToolkitDependencyVersion(),
         agentKitDependencyVersion: getAgentKitDependencyVersion(),
+        otelDependencyVersion: getOtelDependencyVersion(),
       });
       fixPackageJsonName(appDir, appName, templateName, {
         ...resolution,
@@ -1073,6 +1072,7 @@ async function scaffoldOneAppIntoWorkspace(
       dispatchDependencyVersion: getDispatchDependencyVersion(),
       toolkitDependencyVersion: getToolkitDependencyVersion(),
       agentKitDependencyVersion: getAgentKitDependencyVersion(),
+      otelDependencyVersion: getOtelDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName, templateName, {
       ...resolution,
@@ -2209,6 +2209,8 @@ function postProcessStandalone(
             deps[key] = getToolkitDependencyVersion();
           } else if (key === "@agent-native/agentkit") {
             deps[key] = getAgentKitDependencyVersion();
+          } else if (key === "@agent-native/otel") {
+            deps[key] = getOtelDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -2507,6 +2509,7 @@ export {
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
+  getOtelDependencyVersion as _getOtelDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
   getAgentKitDependencyVersion as _getAgentKitDependencyVersion,
   prepareLocalWorkspaceOverrides as _prepareLocalWorkspaceOverrides,
@@ -4022,6 +4025,17 @@ function getDispatchDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localDispatch = findLocalPackage("dispatch");
     if (localDispatch) return pathToFileURL(localDispatch).href;
+  }
+
+  return "latest";
+}
+
+// OTel is versioned independently of Core (it peer-depends on Core's public
+// observability provider API), so a scaffold takes its current npm release.
+function getOtelDependencyVersion(): string {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localOtel = findLocalPackage("otel");
+    if (localOtel) return localPackageTarball(localOtel);
   }
 
   return "latest";

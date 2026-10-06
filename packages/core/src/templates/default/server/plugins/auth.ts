@@ -1,5 +1,5 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppPublicPaths: ["/"],
 });

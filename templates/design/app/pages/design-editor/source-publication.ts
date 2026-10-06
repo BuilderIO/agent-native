@@ -11,6 +11,8 @@ import {
 import { isStandaloneHttpUrl } from "@shared/html-content";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 
+import { isKnownCanonical, rememberCanonical } from "./canonical-verdicts";
+
 export interface CanonicalSourceContentResult {
   content: string;
   changed: boolean;
@@ -24,7 +26,6 @@ const CANONICAL_SOURCE_CACHE_MAX_REFERENCED_BYTES = 64 * 1024 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES = 256 * 1024;
 const CANONICAL_SOURCE_CACHE_MAX_NODES = 32_768;
 const CANONICAL_SOURCE_CACHE_MAX_ENTRIES = 4096;
-const canonicalSourceTextEncoder = new TextEncoder();
 const canonicalSourceCache = new Map<
   string,
   {
@@ -142,7 +143,15 @@ export function prepareCanonicalSourceContent(
   if (source.fileId !== options.fileId) {
     throw new Error("Canonical source projection must name the same file.");
   }
-  if (hasCanonicalCodeLayerNodeIds(content)) {
+  // Only a screen's first preparation this session reads the stored verdict:
+  // later ones are edits, where hashing the whole screen would cost each keystroke.
+  const firstPreparation = !cached;
+  const knownCanonical =
+    firstPreparation && isKnownCanonical(options.fileId, content);
+  if (knownCanonical || hasCanonicalCodeLayerNodeIds(content, { source })) {
+    if (firstPreparation && !knownCanonical) {
+      rememberCanonical(options.fileId, content);
+    }
     let nodeIdMap: Map<string, string> | undefined;
     const result: CanonicalSourceContentResult = {
       content,
@@ -197,10 +206,10 @@ function cacheCanonicalSource(
   result: CanonicalSourceContentResult,
   projection?: CodeLayerProjection,
 ): void {
-  const contentBytes = canonicalSourceTextEncoder.encode(content).byteLength;
+  // Length, not UTF-8 size: encoding every screen just to measure it copies it.
+  const contentBytes = content.length;
   const changedBytes = result.changed
-    ? contentBytes +
-      canonicalSourceTextEncoder.encode(result.content).byteLength
+    ? contentBytes + result.content.length
     : 0;
   const referencedBytes = result.changed ? 0 : contentBytes;
   const retainedNodes = result.changed ? result.nodeIdMap.size : 0;
@@ -221,9 +230,6 @@ function cacheCanonicalSource(
     canonicalSourceCacheReferencedBytes += referencedBytes;
     canonicalSourceCacheNodes += retainedNodes;
   }
-  // ponytail: a closed design's unchanged entries keep their strings until
-  // newer entries evict them by count or referenced bytes; prune by live file
-  // ids if heap profiles show it.
   while (
     canonicalSourceCacheBytes > CANONICAL_SOURCE_CACHE_MAX_BYTES ||
     canonicalSourceCacheReferencedBytes >
@@ -234,6 +240,14 @@ function cacheCanonicalSource(
     const oldest = canonicalSourceCache.keys().next();
     if (oldest.done) break;
     removeCanonicalSourceCacheEntry(oldest.value);
+  }
+}
+
+export function forgetPreparedSourcesExcept(
+  liveFileIds: ReadonlySet<string>,
+): void {
+  for (const fileId of [...canonicalSourceCache.keys()]) {
+    if (!liveFileIds.has(fileId)) removeCanonicalSourceCacheEntry(fileId);
   }
 }
 

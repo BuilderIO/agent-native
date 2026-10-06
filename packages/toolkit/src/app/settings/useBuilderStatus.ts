@@ -199,12 +199,34 @@ export function useBuilderStatus({
   return { status, loading, error, stale, refetch: fetchStatus };
 }
 
+export interface BuilderConnectTransport {
+  readStatus: (input: {
+    connectAttemptId?: string;
+    signal?: AbortSignal;
+  }) => Promise<BuilderStatus | null>;
+  activateAccount: (input: {
+    provisioningToken: string;
+    scope?: BuilderConnectionScope | null;
+    connectToken?: string | null;
+    source?: string;
+    flow?: string;
+    signal?: AbortSignal;
+  }) => Promise<BuilderAccountActivationResult>;
+  openConnectUrl?: (input: {
+    connectAttemptId: string;
+    scope?: BuilderConnectionScope;
+    source?: string;
+    flow?: string;
+  }) => Promise<{ ok: true } | { ok: false; error: string }>;
+}
+
 export interface BuilderConnectFlowOptions {
   enabled?: boolean;
   popupUrl?: string;
   provisionAccount?: boolean;
   trackingSource?: string;
   trackingFlow?: string;
+  transport?: BuilderConnectTransport;
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
 }
 
@@ -787,6 +809,7 @@ export function useBuilderConnectFlow(
     provisionAccount = false,
     trackingSource = "builder_connect_flow",
     trackingFlow,
+    transport,
     onConnected,
   } = opts;
   const [configured, setConfigured] = useState(false);
@@ -920,6 +943,12 @@ export function useBuilderConnectFlow(
         ? setTimeout(() => ownController.abort(), STATUS_FETCH_ABORT_MS)
         : null;
       try {
+        if (transport) {
+          return await transport.readStatus({
+            connectAttemptId,
+            signal: signal ?? ownController?.signal,
+          });
+        }
         const statusUrl = new URL(
           agentNativePath("/_agent-native/connection-status/builder"),
           origin,
@@ -964,7 +993,7 @@ export function useBuilderConnectFlow(
         if (timeoutId) clearTimeout(timeoutId);
       }
     },
-    [enabled],
+    [enabled, transport],
   );
 
   useEffect(() => {
@@ -1195,13 +1224,21 @@ export function useBuilderConnectFlow(
           connectToken: string | null;
         }): Promise<BuilderAccountActivationResult> =>
           credentials.provisioningToken
-            ? requestBuilderAccountActivation({
-                provisioningToken: credentials.provisioningToken,
-                scope: scopeForStart,
-                connectToken: credentials.connectToken,
-                source: clickTrackingSource,
-                flow: clickTrackingFlow,
-              })
+            ? transport
+              ? transport.activateAccount({
+                  provisioningToken: credentials.provisioningToken,
+                  scope: scopeForStart,
+                  connectToken: credentials.connectToken,
+                  source: clickTrackingSource,
+                  flow: clickTrackingFlow,
+                })
+              : requestBuilderAccountActivation({
+                  provisioningToken: credentials.provisioningToken,
+                  scope: scopeForStart,
+                  connectToken: credentials.connectToken,
+                  source: clickTrackingSource,
+                  flow: clickTrackingFlow,
+                })
             : { ok: false, code: "provision_token_invalid", message: null };
         // Provisioning and connect tokens expire; refresh both from one status read.
         const freshProvisioningCredentials = async () => {
@@ -1331,16 +1368,76 @@ export function useBuilderConnectFlow(
       );
 
       if (isAgentNativeDesktop()) {
-        const opened = openBuilderConnectPopup({
-          url: directUrl,
-          source: clickTrackingSource,
-          flow: clickTrackingFlow,
-        });
-        if (opened) activePopupRef.current = opened;
-        if (!opened) {
-          // Agent-Native Desktop handles the popup in Electron and reports
-          // null to the embedded webview, so null is not a blocker here.
+        const openDesktopConnectUrl = transport?.openConnectUrl;
+        if (!openDesktopConnectUrl) {
+          connectStartedAtRef.current = null;
+          setConnecting(false);
+          setError(t("agentChat.settingsShell.builder.setupStartFailed"));
+          return;
         }
+        void (async () => {
+          const status = await fetchStatus(undefined, connectAttemptId);
+          const isCurrentAttempt = () =>
+            mountedRef.current &&
+            connectAttemptIdRef.current === connectAttemptId &&
+            cancelledConnectAttemptIdRef.current !== connectAttemptId;
+          if (!isCurrentAttempt()) return;
+          if (!status) {
+            connectStartedAtRef.current = null;
+            setConnecting(false);
+            setError(BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+            return;
+          }
+          setHasFetchedStatus(true);
+          setStatusResolved(true);
+          setConfigured(!!status.configured);
+          setCodeChangeConfigured(isCodeChangeConfigured(status));
+          setEnvManaged(!!status.envManaged);
+          setCredentialSource(status.credentialSource ?? null);
+          setConnections(builderConnectionsFromStatus(status));
+          setCanDisconnect(!!status.canDisconnect);
+          setAgentNativeProvisioningEnabled(
+            !!status.agentNativeProvisioningEnabled,
+          );
+          setAgentNativeProvisioningToken(
+            status.agentNativeProvisioningToken ?? null,
+          );
+          setAccountExists(status.connectError?.code === "account_exists");
+          setBuilderEnabled(!!status.builderEnabled);
+          setOrgName(status.orgName ?? null);
+          const nextConnectUrl = status.connectUrl ?? null;
+          setStatusConnectUrl(nextConnectUrl);
+          statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
+          let signedHttpsUrl = false;
+          try {
+            signedHttpsUrl =
+              !!nextConnectUrl && new URL(nextConnectUrl).protocol === "https:";
+          } catch {
+            signedHttpsUrl = false;
+          }
+          if (
+            !nextConnectUrl ||
+            !hasSignedConnectToken(nextConnectUrl) ||
+            !signedHttpsUrl
+          ) {
+            connectStartedAtRef.current = null;
+            setConnecting(false);
+            setError(BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+            return;
+          }
+          const result = await openDesktopConnectUrl({
+            connectAttemptId,
+            scope: scopeForStart ?? undefined,
+            source: clickTrackingSource,
+            flow: clickTrackingFlow,
+          });
+          if (!isCurrentAttempt()) return;
+          if (!result?.ok) {
+            connectStartedAtRef.current = null;
+            setConnecting(false);
+            setError(result?.error ?? BUILDER_STATUS_UNAVAILABLE_MESSAGE);
+          }
+        })();
       } else {
         const embeddedWindow = isEmbeddedWindow();
         const opened = openBuilderConnectPopup({
@@ -1512,6 +1609,7 @@ export function useBuilderConnectFlow(
       enabled,
       t,
       fetchStatus,
+      transport,
       agentNativeProvisioningEnabled,
       agentNativeProvisioningToken,
       provisionAccount,

@@ -147,6 +147,42 @@ export function extractRetryAfterMs(err: unknown): number | undefined {
   return undefined;
 }
 
+/**
+ * Some provider clients keep the HTTP status only on a wrapped cause: the
+ * Ollama provider wraps ollama-js's `ResponseError`, which names it
+ * `status_code`. Without it a provider 500 reads as an unnamed failure.
+ */
+function wrappedHttpStatus(err: unknown): number | undefined {
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  for (
+    let link = 0;
+    link <= DEFAULT_MAX_CAUSE_LINKS &&
+    current !== null &&
+    typeof current === "object" &&
+    !seen.has(current);
+    link += 1
+  ) {
+    seen.add(current);
+    const { statusCode, status_code: snakeStatus } = current as {
+      statusCode?: unknown;
+      status_code?: unknown;
+    };
+    for (const status of [statusCode, snakeStatus]) {
+      if (
+        typeof status === "number" &&
+        Number.isInteger(status) &&
+        status >= 100 &&
+        status <= 599
+      ) {
+        return status;
+      }
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 export function classifyProviderError(
   err: unknown,
   timedOut = false,
@@ -163,7 +199,7 @@ export function classifyProviderError(
   const statusCode =
     typeof providerError?.statusCode === "number"
       ? providerError.statusCode
-      : undefined;
+      : wrappedHttpStatus(providerError);
 
   const described = describeErrorWithCauses(err);
   const isConnectionError =
