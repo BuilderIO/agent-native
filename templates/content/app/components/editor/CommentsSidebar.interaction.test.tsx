@@ -177,6 +177,7 @@ function SidebarOwner({
     onActivateThread?: (threadId: string) => void;
     suggestions?: ResourceSuggestion[];
     activeSuggestionId?: string;
+    unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
     alignToAnchors?: boolean;
     onDecideSuggestionProposal?: (
       proposalId: string,
@@ -206,6 +207,7 @@ function SidebarOwner({
       threads={threads}
       suggestions={options.suggestions}
       activeSuggestionId={options.activeSuggestionId}
+      unplaceableSuggestionRevisions={options.unplaceableSuggestionRevisions}
       selectedThreadId={selected}
       currentUserEmail="reviewer@example.test"
       canComment
@@ -261,6 +263,7 @@ describe("comment review interactions", () => {
       onActivateThread?: (threadId: string) => void;
       suggestions?: ResourceSuggestion[];
       activeSuggestionId?: string;
+      unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
       alignToAnchors?: boolean;
       onDecideSuggestionProposal?: (
         proposalId: string,
@@ -354,6 +357,27 @@ describe("comment review interactions", () => {
       ]),
     );
     expect(onDecideSuggestionProposal.mock.calls[0]?.[2]).toHaveLength(2);
+  });
+  it("drops the conflict alert once an unplaceable suggestion is amended", () => {
+    const conflictAlert = () =>
+      [
+        ...container.querySelectorAll(
+          "[data-suggestion-id='one'] [role='alert']",
+        ),
+      ].find((alert) => alert.textContent === "editor.toolbar.conflict");
+    const failed = proposalSuggestion("one");
+    const options = {
+      activeSuggestionId: "one",
+      alignToAnchors: false,
+      unplaceableSuggestionRevisions: new Map([["one", failed.revision]]),
+    };
+    render(null, [], "inline", { ...options, suggestions: [failed] });
+    expect(conflictAlert()).toBeDefined();
+    render(null, [], "inline", {
+      ...options,
+      suggestions: [{ ...failed, revision: failed.revision + 1 }],
+    });
+    expect(conflictAlert()).toBeUndefined();
   });
   it.each([
     ["inline", "one", false],

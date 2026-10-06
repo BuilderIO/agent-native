@@ -627,12 +627,12 @@ export function verifySessionReplayAgentAccess(
 export function resolveSessionReplayAgentAccess(
   recordingId: string,
   token: string,
-): { viewerEmail: string } | null {
+): { viewerEmail?: string } | null {
   const result = verifyScopedAgentAccessToken(token, {
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recordingId,
   });
-  if (!result.ok || !result.viewerEmail) return null;
+  if (!result.ok) return null;
   return { viewerEmail: result.viewerEmail };
 }
 
@@ -649,7 +649,6 @@ export async function createSessionReplayAgentLink({
   const grant = createScopedAgentAccessGrant({
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recording.id,
-    viewerEmail: scope.userEmail,
     ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
   });
   const resolvedOrigin = appOrigin(origin);

@@ -34,6 +34,7 @@ import {
   enqueueDocumentSave,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
+  isSuggestionStaleActionError,
   lifecycleKeepaliveDisposition,
   loadedUpdatedAtForSave,
   metadataUpdatesWithPendingTitle,
@@ -1071,14 +1072,30 @@ describe("document editor layout", () => {
     expect(source).toContain("activeThreadId={selectedThreadId}");
     expect(source).toContain("hoveredThreadId={hoveredThreadId}");
   });
-  it("surfaces unsuccessful suggestion decisions instead of treating HTTP success as acceptance", () => {
+  it("opens an accept that can't be placed instead of treating it as accepted", () => {
+    expect(
+      isSuggestionStaleActionError(
+        Object.assign(new Error("moved"), { errorCode: "suggestion_stale" }),
+      ),
+    ).toBe(true);
+    expect(
+      isSuggestionStaleActionError(
+        Object.assign(new Error("changed"), {
+          errorCode: "suggestion_conflict",
+        }),
+      ),
+    ).toBe(false);
+    expect(isSuggestionStaleActionError(new Error("network"))).toBe(false);
     const source = readFileSync(
       "app/components/editor/DocumentEditor.tsx",
       "utf8",
     );
-    expect(source).toContain('result.suggestion.status === "stale"');
+    expect(source).not.toContain('result.suggestion.status === "stale"');
     expect(source).toMatch(
-      /result\.suggestion\.status === "stale"[\s\S]*?toast\.error[\s\S]*?setCommentsBrowseOpen\(true\)/,
+      /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
+    );
+    expect(source).toMatch(
+      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?decideSuggestion\.mutateAsync/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
@@ -1731,6 +1748,51 @@ describe("document editor layout", () => {
     ).toEqual({ view: "error", admittedDocumentId: null });
   });
 
+  it("keeps the access screen mounted through a retry it started", () => {
+    const retry = {
+      documentId: "document-a",
+      admittedDocumentId: null,
+      isDocumentCreationPending: false,
+      isManualRetrying: true,
+      isAccessRetrying: true,
+      hasLoadFailure: false,
+    };
+    // In flight: React Query clears the error while a query without data
+    // refetches.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: false,
+        isFetchedAfterMount: false,
+        isFetching: true,
+        isError: false,
+        error: null,
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    // Succeeded, but the retry hasn't finished yet.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: true,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: false,
+        error: null,
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    // Failed for a reason other than access.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        error: { status: 500 },
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
   it("shows a retryable error when a seeded document's first fetch times out", () => {
     expect(
       documentEditorLoadState({
@@ -1881,7 +1943,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("queryKey: documentQueryKey(documentId, {");
     expect(source).toContain("await documentQuery.refetch()");
-    expect(source).toContain("retrying={manualRetryDocumentId === documentId}");
+    expect(source).toContain("retrying={isManualRetrying}");
   });
 
   it("resizes the title to its content and reacts only to width changes", () => {

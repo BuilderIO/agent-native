@@ -782,7 +782,10 @@ describe("Content document suggestion adapter", () => {
         coordination,
       }),
     ).rejects.toMatchObject({ name: "SuggestionStaleError" });
-    expect(tx.execute).toHaveBeenCalledTimes(2);
+    const statements = tx.execute.mock.calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    expect(statements.filter((sql) => !/^\s*SELECT\b/i.test(sql))).toEqual([]);
   });
 });
 
