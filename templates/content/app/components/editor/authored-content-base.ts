@@ -18,6 +18,10 @@ const MAX_SEEN_WHILE_SAVING = 16;
  */
 export function createAuthoredContentBase() {
   let unheld: { revision: string; base: AuthoredContentBase } | null = null;
+  // Only the editor's own reports say what it holds. The page's local copy
+  // takes a save's answer, other writer's text included, before the editor
+  // receives that text.
+  let editorContent: string | null = null;
   // The other writer's text can arrive and be deleted here before the save's
   // answer names the body that holds it.
   let seenWhileSaving: string[] = [];
@@ -25,30 +29,33 @@ export function createAuthoredContentBase() {
   // or alongside typing here, so an exact match with the saved body misses
   // an editor that already holds it.
   const holds = (
-    editorContent: string,
+    content: string,
     saved: AuthoredContentBase,
     base: AuthoredContentBase,
   ) =>
-    editorContent === saved.content ||
-    bodyHoldsChanges(base.content, editorContent, saved.content);
+    content === saved.content ||
+    bodyHoldsChanges(base.content, content, saved.content);
   return {
     saved(args: {
       saved: AuthoredContentBase;
       sentContent: string | undefined;
-      editorContent: string;
       authoredOn: AuthoredContentBase | null;
     }) {
-      const { saved, sentContent, editorContent, authoredOn } = args;
+      const { saved, sentContent, authoredOn } = args;
       const seen = seenWhileSaving;
       seenWhileSaving = [];
+      if (editorContent !== null) seen.push(editorContent);
       if (!saved.revision) return;
       unheld =
         authoredOn &&
         saved.content !== sentContent &&
-        !holds(editorContent, saved, authoredOn) &&
         !seen.some((content) => holds(content, saved, authoredOn))
           ? { revision: saved.revision, base: authoredOn }
           : null;
+    },
+    /** The editor reported its text after an edit here. */
+    edited(content: string) {
+      editorContent = content;
     },
     /** The editor merged the saved body at `revision` into its own text. */
     merged(revision: string) {
@@ -56,6 +63,7 @@ export function createAuthoredContentBase() {
     },
     /** The editor's text changed without an edit here, as a peer's arrives. */
     observed(content: string, saved: AuthoredContentBase) {
+      editorContent = content;
       seenWhileSaving.push(content);
       if (seenWhileSaving.length > MAX_SEEN_WHILE_SAVING)
         seenWhileSaving.shift();
@@ -69,6 +77,7 @@ export function createAuthoredContentBase() {
     },
     reset() {
       unheld = null;
+      editorContent = null;
       seenWhileSaving = [];
     },
   };
