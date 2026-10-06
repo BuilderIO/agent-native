@@ -382,11 +382,16 @@ describe("runQuery cancellation", () => {
     const submissionStarted = new Promise<void>((resolve) => {
       signalSubmissionStarted = resolve;
     });
+    let jobId = "";
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
       .mockImplementation(async (input, init) => {
         const url = String(input);
         if (url.endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string };
+          };
+          jobId = request.jobReference.jobId;
           signalSubmissionStarted();
           return new Promise<Response>((_resolve, reject) => {
             init?.signal?.addEventListener("abort", () => {
@@ -394,6 +399,11 @@ describe("runQuery cancellation", () => {
               error.name = "AbortError";
               reject(error);
             });
+          });
+        }
+        if (url.includes("/jobs?")) {
+          return jsonResponse({
+            jobs: [{ jobReference: { jobId, location: "us-central1" } }],
           });
         }
         return jsonResponse({});
@@ -422,7 +432,7 @@ describe("runQuery cancellation", () => {
       method: "POST",
     });
     expect(String(cancellationRequest?.[0])).toMatch(
-      /\/projects\/test-project\/jobs\/agent_native_[a-f0-9]+\/cancel$/,
+      /\/projects\/test-project\/jobs\/agent_native_[a-f0-9]+\/cancel\?location=us-central1$/,
     );
     expect([...cache.values()][0]?.refreshInProgress).toBe(false);
     expect(timeout).toHaveBeenCalledWith(10_000);
@@ -959,7 +969,10 @@ describe("runQuery cancellation", () => {
       rows: [{ signups: 3918 }],
       cached: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes("/jobs?")),
+    ).toBe(true);
   });
 
   it("serves the last cached result to ordinary reads during a forced refresh", async () => {

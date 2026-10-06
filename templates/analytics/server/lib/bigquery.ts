@@ -510,15 +510,41 @@ async function cancelQueryJob(
   jobId: string,
   token: string,
   location?: string,
-): Promise<void> {
-  try {
-    const locationQuery = location
-      ? `?location=${encodeURIComponent(location)}`
-      : "";
-    await fetch(
-      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}/cancel${locationQuery}`,
+): Promise<boolean> {
+  const locationQuery = location
+    ? `?location=${encodeURIComponent(location)}`
+    : "";
+  const response = await fetch(
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}/cancel${locationQuery}`,
+    {
+      method: "POST",
+      signal: AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    },
+  );
+  return response.ok;
+}
+
+async function findQueryJobLocation(
+  projectId: string,
+  jobId: string,
+  token: string,
+  createdAfter: number,
+): Promise<string | undefined> {
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      minCreationTime: String(createdAfter),
+      maxResults: "1000",
+      projection: "MINIMAL",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+    const response = await fetch(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs?${params}`,
       {
-        method: "POST",
         signal: AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS),
         headers: {
           Authorization: `Bearer ${token}`,
@@ -526,10 +552,23 @@ async function cancelQueryJob(
         },
       },
     );
-  } catch {
-    // Cancellation is best-effort and must not hide the original abort or
-    // timeout reason if BigQuery or the network is unavailable.
-  }
+    if (!response.ok) {
+      throw new Error(
+        `BigQuery job location lookup failed (${response.status})`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      jobs?: { jobReference?: { jobId?: string; location?: string } }[];
+      nextPageToken?: string;
+    };
+    const job = data.jobs?.find(
+      (candidate) => candidate.jobReference?.jobId === jobId,
+    );
+    if (job?.jobReference?.location) return job.jobReference.location;
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return undefined;
 }
 
 const NUMERIC_BQ_TYPES = new Set([
@@ -707,12 +746,15 @@ export async function runQuery(
 
   let jobId: string | null = null;
   let jobLocation: string | undefined;
+  let jobCreatedAfter = 0;
+  let jobSubmissionResponseReceived = false;
   let token: string | null = null;
   let cancelJob = false;
   try {
     token = await getAccessToken();
     throwIfAborted(signal);
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
+    jobCreatedAfter = Date.now();
     const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
 
     // Keep submission alive long enough to read the job location for cancellation.
@@ -751,6 +793,7 @@ export async function runQuery(
       throw new Error("BigQuery did not accept the requested job ID");
     }
     jobLocation = insertedJob.jobReference?.location;
+    jobSubmissionResponseReceived = true;
 
     const locationQuery = jobLocation
       ? `?location=${encodeURIComponent(jobLocation)}`
@@ -820,7 +863,35 @@ export async function runQuery(
   } catch (error) {
     if (jobId) cancelJob = true;
     if (cancelJob && jobId && token) {
-      await cancelQueryJob(projectId, jobId, token, jobLocation);
+      if (!jobSubmissionResponseReceived) {
+        try {
+          jobLocation = await findQueryJobLocation(
+            projectId,
+            jobId,
+            token,
+            jobCreatedAfter,
+          );
+        } catch {
+          console.warn(
+            "[bigquery] Could not resolve job location before cancellation.",
+          );
+        }
+      }
+      try {
+        const cancelled = await cancelQueryJob(
+          projectId,
+          jobId,
+          token,
+          jobLocation,
+        );
+        if (!cancelled) {
+          console.warn(
+            "[bigquery] BigQuery job cancellation was not confirmed.",
+          );
+        }
+      } catch {
+        console.warn("[bigquery] BigQuery job cancellation request failed.");
+      }
     }
     if (cacheFence) {
       await releaseCacheQuery(cacheKey, cacheFence);
