@@ -29,6 +29,7 @@ import {
   MAX_SESSION_ID_LENGTH,
   boundedText,
 } from "./indexed-text.js";
+import { recordSessionEventFriction } from "./session-friction.js";
 
 /**
  * Session event index.
@@ -85,12 +86,32 @@ function viewerTenantKeys(scope: SessionEventScope): string[] {
     : [sessionEventTenantKey(scope.userEmail, null)];
 }
 
+/** The tenant whose analytics events a recording's session belongs to. */
+export function recordingTenantSql(recording: {
+  orgId: AnyColumn;
+  ownerEmail: AnyColumn;
+}) {
+  return sql`(case when ${recording.orgId} is not null then 'org:' || ${recording.orgId} else 'user:' || ${recording.ownerEmail} end)`;
+}
+
+/**
+ * Whether the viewer may read the recording's session events. A share grants
+ * the recording, not its tenant's events, so a recording shared from another
+ * tenant reads as if its session were never indexed.
+ */
+export function viewerReadsRecordingEventsSql(
+  recording: { orgId: AnyColumn; ownerEmail: AnyColumn },
+  scope: SessionEventScope,
+) {
+  return inArray(recordingTenantSql(recording), viewerTenantKeys(scope));
+}
+
 /**
  * An id too long for a unique index entry would fail the gap marker too, and
  * with it the batch. Such a session never gets an index row, so "didn't"
  * excludes it.
  */
-function sessionIdOf(value: string | null | undefined): string | null {
+export function sessionIdOf(value: string | null | undefined): string | null {
   const sessionId = value?.trim();
   return sessionId && sessionId.length <= MAX_SESSION_ID_LENGTH
     ? sessionId
@@ -236,7 +257,9 @@ export function aggregateSessionEventIndexRows(
   };
 }
 
-function sessionEventGapRows(
+/** One gap marker per session in the batch; friction gaps share the shape. */
+export function sessionGapRows(
+  idPrefix: "aseg" | "asfg",
   rows: readonly SessionEventIndexInputRow[],
   receivedAt: string,
 ): SessionGapRow[] {
@@ -246,7 +269,7 @@ function sessionEventGapRows(
     if (!sessionId || !row.ownerEmail) continue;
     const orgId = row.orgId || null;
     const tenantKey = sessionEventTenantKey(row.ownerEmail, orgId);
-    const id = stableId("aseg", [tenantKey, sessionId]);
+    const id = stableId(idPrefix, [tenantKey, sessionId]);
     if (gaps.has(id)) continue;
     gaps.set(id, {
       id,
@@ -341,6 +364,7 @@ export async function recordSessionEventIndex(
           })),
         )
         .onConflictDoNothing();
+      await recordSessionEventFriction(savepoint, rows, receivedAt);
     });
   } catch (error) {
     // Deploys ship code before the scheduled migration creates these tables.
@@ -357,7 +381,7 @@ export async function recordSessionEventIndex(
     // recorded or "didn't" would read their missing events as absence.
     await tx
       .insert(schema.analyticsSessionEventGaps)
-      .values(sessionEventGapRows(rows, receivedAt))
+      .values(sessionGapRows("aseg", rows, receivedAt))
       .onConflictDoNothing();
     warnIndexFailure(
       "Session event index write failed; its sessions are marked incomplete:",
@@ -439,6 +463,7 @@ export function hasSessionEventFilters(filters: SessionEventFilters): boolean {
  * widen the recording access filter it is combined with.
  */
 export async function sessionEventFilterConditions(
+  scope: SessionEventScope,
   filters: SessionEventFilters,
 ) {
   const didEvents = normalizeSessionEventNames(filters.didEvents);
@@ -451,19 +476,18 @@ export async function sessionEventFilterConditions(
   const se = schema.analyticsSessionEvents;
   const coverage = schema.analyticsSessionEventCoverage;
   const gaps = schema.analyticsSessionEventGaps;
-  const tenantOf = (recording: { orgId: AnyColumn; ownerEmail: AnyColumn }) =>
-    sql`(case when ${recording.orgId} is not null then 'org:' || ${recording.orgId} else 'user:' || ${recording.ownerEmail} end)`;
-  const recordingTenant = tenantOf(r);
+  const recordingTenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${recordingTenant})`;
   const sessionIndexed = (eventName?: string) =>
     sql`exists (select 1 from ${se} where ${se.tenantKey} = ${recordingTenant} and ${se.sessionId} = ${r.sessionId}${eventName === undefined ? sql`` : sql` and ${se.eventName} = ${eventName}`})`;
 
   return [
+    viewerReadsRecordingEventsSql(r, scope),
     sql`${r.startedAt} >= ${coverageStart}`,
     // One analytics session can span tabs, each with its own recording. A
     // session that had a recording before coverage began may have events the
     // index never saw.
-    sql`not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${tenantOf(sibling)} = ${recordingTenant} and ${sibling.startedAt} < ${coverageStart})`,
+    sql`not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${recordingTenant} and ${sibling.startedAt} < ${coverageStart})`,
     ...didEvents.map((eventName) => sessionIndexed(eventName)),
     // "Didn't" needs a session the index saw completely, so a failed or
     // pruned index write never reads as the event's absence.

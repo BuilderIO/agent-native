@@ -2710,6 +2710,11 @@ function installConsoleCapture(
         level,
         source,
         message,
+        // Captured exceptions also arrive as console errors, and only they
+        // can become Monitoring issues, so a reader must tell the two apart.
+        ...(source === "console" && level === "error"
+          ? { exception: false }
+          : {}),
         ...(extraArgs.length ? { args: extraArgs } : {}),
         ...(stack ? { stack } : {}),
         ...(url ? { url } : {}),
@@ -2909,6 +2914,36 @@ function installNetworkCapture(
       ? (captureOptions.maxErrorBodyLength ?? DEFAULT_MAX_ERROR_BODY_LENGTH)
       : null;
 
+  const restores: Array<() => void> = [];
+
+  // A request the browser cancels because the page is leaving fails exactly
+  // like a network error. WebKit cancels right after beforeunload, Chromium
+  // after pagehide; neither listener costs the page its bfcache eligibility.
+  // Input or a bfcache restore means the page stayed (a cancelled prompt or a
+  // download keeps it alive after beforeunload).
+  let pageLeaving = false;
+  const markLeaving = () => {
+    pageLeaving = true;
+  };
+  const markStaying = () => {
+    pageLeaving = false;
+  };
+  const leaveListeners: Array<[EventTarget, string, () => void]> = [
+    [window, "beforeunload", markLeaving],
+    [window, "pagehide", markLeaving],
+    [window, "pageshow", markStaying],
+    [window, "pointerdown", markStaying],
+    [window, "keydown", markStaying],
+  ];
+  for (const [target, type, listener] of leaveListeners) {
+    target.addEventListener(type, listener, { capture: true });
+  }
+  restores.push(() => {
+    for (const [target, type, listener] of leaveListeners) {
+      target.removeEventListener(type, listener, { capture: true });
+    }
+  });
+
   const recordRequest = (
     api: "fetch" | "xhr",
     method: string,
@@ -2931,6 +2966,7 @@ function installNetworkCapture(
         status,
         ok,
         durationMs: Math.max(0, Math.round(durationMs)),
+        ...(status === 0 && pageLeaving ? { pageLeaving: true } : {}),
         ...(error
           ? {
               error: truncateCaptureText(
@@ -2980,8 +3016,6 @@ function installNetworkCapture(
       return undefined;
     }
   };
-
-  const restores: Array<() => void> = [];
 
   if (typeof window.fetch === "function") {
     const originalFetch = window.fetch;
@@ -3660,6 +3694,7 @@ export function emitSessionReplayException(input: {
   emitReplayCustomEvent(state, SESSION_REPLAY_CONSOLE_EVENT_TAG, {
     level,
     source: "console",
+    exception: true,
     message: `${input.type}: ${input.message}`.slice(
       0,
       MAX_CONSOLE_MESSAGE_LENGTH,

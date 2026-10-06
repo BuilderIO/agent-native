@@ -6,21 +6,52 @@ import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  labEnabled: false,
+  labLoading: false,
+  labError: false,
+  labRefetch: vi.fn(),
   configured: true,
   total: 0,
   pending: false,
+  placeholder: false,
+  coverage: undefined as string | null | undefined,
+  recordings: [] as Record<string, unknown>[],
+  rowFriction: {} as Record<string, unknown>,
+  rowFrictionError: null as Error | null,
+  rowFrictionRefetch: vi.fn(),
   error: null as Error | null,
   refetch: vi.fn(),
-  useActionQuery: vi.fn(() => ({
-    data: mocks.pending
-      ? undefined
-      : { recordings: [], total: mocks.total, appCounts: [] },
-    error: mocks.error,
-    isPending: mocks.pending,
-    isLoading: false,
-    isFetching: false,
-    refetch: mocks.refetch,
-  })),
+  useActionQuery: vi.fn((name: string) =>
+    name === "list-session-friction"
+      ? {
+          data: mocks.rowFrictionError
+            ? undefined
+            : { friction: mocks.rowFriction },
+          error: mocks.rowFrictionError,
+          isPending: false,
+          isLoading: false,
+          isFetching: false,
+          refetch: mocks.rowFrictionRefetch,
+        }
+      : {
+          data: mocks.pending
+            ? undefined
+            : {
+                recordings: mocks.recordings,
+                total: mocks.total,
+                appCounts: [],
+                ...(mocks.coverage !== undefined
+                  ? { frictionCoverageStartedAt: mocks.coverage }
+                  : {}),
+              },
+          error: mocks.error,
+          isPending: mocks.pending,
+          isLoading: false,
+          isFetching: false,
+          isPlaceholderData: mocks.placeholder,
+          refetch: mocks.refetch,
+        },
+  ),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -30,7 +61,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("@agent-native/core/client/labs", () => ({
-  useLabState: () => ({ enabled: false, isLoading: false }),
+  useLabState: () => ({
+    enabled: mocks.labEnabled,
+    isLoading: mocks.labLoading,
+    isError: mocks.labError,
+    refetch: mocks.labRefetch,
+  }),
 }));
 vi.mock("@agent-native/toolkit/app/blocks", () => ({
   CodeSurface: () => <div data-testid="installation-snippet" />,
@@ -58,7 +94,10 @@ vi.mock("@/hooks/use-replay-storage-status", () => ({
   }),
 }));
 
-import { SessionsTriagePage } from "./SessionsTriagePage";
+import {
+  rangePredatesFrictionCoverage,
+  SessionsTriagePage,
+} from "./SessionsTriagePage";
 
 function clearAllButton(container: HTMLElement) {
   return Array.from(container.querySelectorAll("button")).find(
@@ -72,9 +111,17 @@ describe("Sessions empty states", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mocks.labEnabled = false;
+    mocks.labLoading = false;
+    mocks.labError = false;
     mocks.error = null;
     mocks.total = 0;
     mocks.pending = false;
+    mocks.placeholder = false;
+    mocks.coverage = undefined;
+    mocks.recordings = [];
+    mocks.rowFriction = {};
+    mocks.rowFrictionError = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -290,6 +337,314 @@ describe("Sessions empty states", () => {
       container.querySelector('[data-testid="location"]')?.textContent,
     ).toBe("");
     expect(search?.value).toBe("");
+  });
+
+  it("ignores friction links and shows no friction controls with the Lab off", async () => {
+    mocks.total = 3;
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={["/sessions?signal=dead_clicks&sort=friction"]}
+        >
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    const calls = mocks.useActionQuery.mock.calls as unknown as Array<
+      [string, Record<string, unknown>, Record<string, unknown>]
+    >;
+    const [, args, options] = calls.find(
+      ([name]) => name === "list-session-recordings",
+    )!;
+    expect(args).toMatchObject({ sort: "newest" });
+    expect(args.frictionSignals).toBeUndefined();
+    expect(args.includeFriction).toBeUndefined();
+    expect(options.placeholderData).toBeUndefined();
+    expect(container.textContent).toContain("sessions.frictionFiltersNeedLab");
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "sessions.friction",
+      ),
+    ).toBe(false);
+  });
+
+  it("queries friction filters, sorts, and row friction with the Lab on", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 3;
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={["/sessions?signal=dead_clicks&sort=friction"]}
+        >
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "list-session-recordings",
+      expect.objectContaining({
+        frictionSignals: ["dead_clicks"],
+        includeFriction: true,
+        sort: "friction",
+      }),
+      expect.anything(),
+    );
+    expect(container.textContent).not.toContain(
+      "sessions.frictionFiltersNeedLab",
+    );
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "sessions.frictionFiltersActive",
+      ),
+    ).toBe(true);
+  });
+
+  const recording = (id: string, friction?: unknown) => ({
+    id,
+    sessionId: `session-${id}`,
+    userId: `${id}@example.com`,
+    startedAt: "2026-09-29T10:00:00.000Z",
+    durationMs: 60_000,
+    eventCount: 4,
+    pageCount: 1,
+    errorCount: 0,
+    networkErrorCount: 0,
+    rageClickCount: 0,
+    ...(friction ? { friction } : {}),
+  });
+  const deadClicks = (count: number) => ({
+    score: count,
+    replay: null,
+    events: null,
+    topSignals: [{ signal: "dead_clicks", count }],
+    troubles: [],
+    errorIssues: [],
+  });
+
+  it("lists sessions without friction and loads row friction beside them", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 2;
+    mocks.recordings = [recording("r1"), recording("r2")];
+    mocks.rowFriction = { r1: { ...deadClicks(3), replay: {} } };
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    const [, listArgs, listOptions] = listCalls()[0];
+    expect(listArgs.includeFriction).toBeUndefined();
+    expect(listOptions.placeholderData).toBeUndefined();
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "list-session-friction",
+      { recordingIds: ["r1", "r2"] },
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(container.textContent).toContain("sessions.frictionSignalCount");
+  });
+
+  it("keeps the list and offers a retry when row friction fails to load", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1")];
+    mocks.rowFrictionError = new Error("friction read failed");
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain("r1@example.com");
+    expect(container.textContent).toContain("sessions.frictionUnavailable");
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "sidebar.retry")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.rowFrictionRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("takes row friction from the list itself under a friction sort", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1", { ...deadClicks(2), replay: {} })];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?sort=dead_clicks"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(listCalls()[0][1]).toMatchObject({
+      includeFriction: true,
+      sort: "dead_clicks",
+    });
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "list-session-friction",
+      expect.anything(),
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(container.textContent).toContain("sessions.frictionSignalCount");
+  });
+
+  function listCalls() {
+    return (
+      mocks.useActionQuery.mock.calls as unknown as Array<
+        [string, Record<string, unknown>, Record<string, unknown>]
+      >
+    ).filter(
+      ([name, args]) =>
+        name === "list-session-recordings" && args.limit === 100,
+    );
+  }
+
+  it("says a Lab state that failed to load is why a link's filters are off", async () => {
+    mocks.labError = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={["/sessions?signal=dead_clicks&event=clip_viewed"]}
+        >
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
+    expect(container.textContent).not.toContain(
+      "sessions.frictionFiltersNeedLab",
+    );
+    expect(container.textContent).not.toContain("sessions.eventFiltersNeedLab");
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "sidebar.retry")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("says a failed Lab state hid Lab features on a plain link", async () => {
+    mocks.labError = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("sessions.labFeaturesUnavailable");
+    expect(container.textContent).not.toContain("sessions.labStateUnavailable");
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "sidebar.retry")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("stops holding a friction link when the Lab state hangs", async () => {
+    vi.useFakeTimers();
+    mocks.labLoading = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?sort=friction"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+    let calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+
+    calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(true);
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
+
+    // A retry waits again rather than listing unfiltered sessions at once.
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "sidebar.retry")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+    calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(false);
+    expect(container.textContent).not.toContain("sessions.labStateUnavailable");
+
+    // And stops holding again if the retry hangs too.
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+    calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(true);
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
+  });
+
+  it("says when friction coverage began in an empty friction match", async () => {
+    mocks.labEnabled = true;
+    mocks.coverage = null;
+    const view = () => (
+      <MemoryRouter initialEntries={["/sessions?signal=dead_clicks"]}>
+        <SessionsTriagePage />
+      </MemoryRouter>
+    );
+    await act(async () => {
+      root.render(view());
+    });
+    expect(container.textContent).toContain("sessions.noSessions");
+    expect(container.textContent).toContain(
+      "sessions.frictionCoverageIncomplete",
+    );
+
+    mocks.coverage = "2026-09-20T00:00:00.000Z";
+    await act(async () => {
+      root.render(view());
+    });
+    expect(container.textContent).toContain("sessions.frictionCoverageSince");
+    expect(container.textContent).not.toContain(
+      "sessions.frictionCoverageIncomplete",
+    );
+  });
+
+  it("dims rows kept from the previous filters until the new ones load", async () => {
+    mocks.labEnabled = true;
+    mocks.placeholder = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?signal=dead_clicks"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+    const busy = container.querySelector('[aria-busy="true"]');
+    expect(busy?.className).toContain("opacity-60");
+    expect(busy?.textContent).toContain("sessions.noSessions");
+  });
+
+  it("flags a range that starts before friction coverage", () => {
+    const coverage = "2026-09-20T00:00:00.000Z";
+    expect(rangePredatesFrictionCoverage(undefined, coverage)).toBe(true);
+    expect(
+      rangePredatesFrictionCoverage("2026-09-01T00:00:00.000Z", coverage),
+    ).toBe(true);
+    expect(
+      rangePredatesFrictionCoverage("2026-09-21T00:00:00.000Z", coverage),
+    ).toBe(false);
+    expect(
+      rangePredatesFrictionCoverage("2026-09-21T00:00:00.000Z", null),
+    ).toBe(true);
   });
 
   it("normalizes an unsafe page before querying any large offset", async () => {

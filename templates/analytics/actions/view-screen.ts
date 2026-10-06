@@ -10,6 +10,7 @@ import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
+import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
 import {
   getSessionReplaySummary,
   listSessionRecordingsPage,
@@ -17,14 +18,26 @@ import {
   type ReplayRange,
   type SessionReplayListFilters,
 } from "../server/lib/session-replay.js";
-import { isSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
+import {
+  isSessionsTriageLabEnabled,
+  sessionsTriageReadFailure,
+} from "../server/lib/sessions-triage-lab.js";
 import {
   getStatusPagePreview,
   listStatusPages,
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 import { sessionDateBound } from "../shared/session-date-bounds";
-import { readSessionEventFilters } from "../shared/session-events";
+import {
+  readSessionEventFilters,
+  SESSION_DID_EVENT_PARAM,
+  SESSION_DID_NOT_EVENT_PARAM,
+} from "../shared/session-events";
+import {
+  isSessionFrictionSort,
+  readSessionFrictionSignals,
+  SESSION_FRICTION_SIGNAL_PARAM,
+} from "../shared/session-friction";
 import { readSessionPage, SESSION_PAGE_SIZE } from "../shared/session-page";
 
 const SESSION_FILTER_KEYS = new Set([
@@ -58,6 +71,12 @@ const SESSION_SORTS = new Set([
 ]);
 const SESSION_DURATIONS = new Set([0, 60_000, 300_000, 900_000, 1_800_000]);
 const SESSION_EXCERPT_SIZE = 25;
+/**
+ * The agent sees only the first 50,000 characters of a tool result, and the
+ * session page metadata (errors, coverage, `fullPageAction`) follows the
+ * rows, so a cut there would drop what says the list is incomplete.
+ */
+const SCREEN_CHAR_BUDGET = 45_000;
 const DASHBOARD_PATH_RE = /^\/(?:adhoc|dashboards)\/([^/]+)\/?$/;
 
 function dashboardIdFromPathname(pathname: string): string | null {
@@ -275,29 +294,87 @@ export default defineAction({
                 : ("newest" as const),
               offset,
             };
-            const urlEventConditions = readSessionEventFilters(
-              new URLSearchParams(url?.search ?? ""),
-            );
+            const urlSearch = new URLSearchParams(url?.search ?? "");
+            const urlEventConditions = readSessionEventFilters(urlSearch);
             const urlHasEventConditions =
               urlEventConditions.didEvents.length > 0 ||
               urlEventConditions.didNotEvents.length > 0;
-            // Match the page: event conditions apply only with the Lab on.
-            const eventsLabEnabled =
-              urlHasEventConditions &&
-              (await isSessionsTriageLabEnabled(email, scope.orgId));
-            if (eventsLabEnabled) {
+            const urlFrictionSignals = readSessionFrictionSignals(urlSearch);
+            const urlFrictionSort = isSessionFrictionSort(params.sort)
+              ? params.sort
+              : null;
+            // Match the page: event conditions, friction filters and sorts,
+            // and row friction apply only with the Lab on. A failed Lab read
+            // is reported, and the base list is still read without them.
+            let triageLabEnabled = false;
+            let labStateError: string | undefined;
+            try {
+              triageLabEnabled = await isSessionsTriageLabEnabled(
+                email,
+                scope.orgId,
+              );
+            } catch (error) {
+              labStateError = sessionsTriageReadFailure(
+                "labState",
+                "[view-screen]",
+                error,
+              );
+            }
+            if (triageLabEnabled) {
               if (urlEventConditions.didEvents.length) {
                 filters.didEvents = urlEventConditions.didEvents;
               }
               if (urlEventConditions.didNotEvents.length) {
                 filters.didNotEvents = urlEventConditions.didNotEvents;
               }
+              if (urlFrictionSignals.length) {
+                filters.frictionSignals = urlFrictionSignals;
+              }
+              if (urlFrictionSort) filters.sort = urlFrictionSort;
             }
             const result = await listSessionRecordingsPage(scope, {
               ...filters,
               limit: SESSION_EXCERPT_SIZE,
             });
             screen.sessionReplays = result.recordings;
+            let frictionError: string | undefined;
+            if (triageLabEnabled) {
+              try {
+                const friction = await getSessionFrictionDetails(
+                  scope,
+                  result.recordings,
+                );
+                screen.sessionReplays = result.recordings.map((recording) => ({
+                  ...recording,
+                  friction: friction.get(recording.id),
+                }));
+              } catch (error) {
+                frictionError = sessionsTriageReadFailure(
+                  "friction",
+                  "[view-screen]",
+                  error,
+                );
+              }
+            }
+            // The URL's sort and Lab conditions are not what was applied
+            // while the Lab is off, so echo the list's own filters.
+            const activeFilters: Record<string, string | string[]> = {
+              ...(screen.activeFilters as Record<string, string> | undefined),
+            };
+            if (params.sort) activeFilters.sort = filters.sort ?? "newest";
+            if (filters.didEvents?.length) {
+              activeFilters[SESSION_DID_EVENT_PARAM] = filters.didEvents;
+            }
+            if (filters.didNotEvents?.length) {
+              activeFilters[SESSION_DID_NOT_EVENT_PARAM] = filters.didNotEvents;
+            }
+            if (filters.frictionSignals?.length) {
+              activeFilters[SESSION_FRICTION_SIGNAL_PARAM] =
+                filters.frictionSignals;
+            }
+            if (Object.keys(activeFilters).length > 0) {
+              screen.activeFilters = activeFilters;
+            }
             screen.sessionReplayPage = {
               filters: {
                 range: customRange ? "custom" : readReplayRange(params.range),
@@ -309,8 +386,24 @@ export default defineAction({
               total: result.total,
               returnedCount: result.recordings.length,
               excerptLimit: SESSION_EXCERPT_SIZE,
-              ...(urlHasEventConditions && !eventsLabEnabled
+              ...(labStateError ? { labStateError } : {}),
+              ...(frictionError ? { frictionError } : {}),
+              ...(result.frictionCoverageStartedAt !== undefined
+                ? {
+                    frictionCoverageStartedAt: result.frictionCoverageStartedAt,
+                  }
+                : {}),
+              ...(urlHasEventConditions && !triageLabEnabled
                 ? { eventConditionsNotApplied: urlEventConditions }
+                : {}),
+              ...((urlFrictionSignals.length || urlFrictionSort) &&
+              !triageLabEnabled
+                ? {
+                    frictionNotApplied: {
+                      signals: urlFrictionSignals,
+                      sort: urlFrictionSort,
+                    },
+                  }
                 : {}),
               truncated:
                 result.recordings.length <
@@ -320,6 +413,7 @@ export default defineAction({
                 args: {
                   paginated: true,
                   ...filters,
+                  ...(triageLabEnabled ? { includeFriction: true } : {}),
                   limit: SESSION_PAGE_SIZE,
                 },
               },
@@ -695,9 +789,35 @@ export default defineAction({
     if (Object.keys(screen).length === 0) {
       return "No application state found. Is the app running?";
     }
-    return JSON.stringify(screen, null, 2);
+    return screenText(screen);
   },
 });
+
+/** The screen as JSON, with session rows dropped from the end to fit. */
+function screenText(screen: Record<string, unknown>): string {
+  const text = JSON.stringify(screen, null, 2);
+  const rows = screen.sessionReplays;
+  const page = screen.sessionReplayPage;
+  if (
+    text.length <= SCREEN_CHAR_BUDGET ||
+    !Array.isArray(rows) ||
+    !page ||
+    typeof page !== "object"
+  ) {
+    return text;
+  }
+  let excess = text.length - SCREEN_CHAR_BUDGET;
+  let kept = rows.length;
+  while (kept > 1 && excess > 0) {
+    const row = JSON.stringify(rows[kept - 1], null, 2);
+    // Nested two levels into the screen, each line gains four spaces.
+    excess -= row.length + 4 * row.split("\n").length + 2;
+    kept -= 1;
+  }
+  screen.sessionReplays = rows.slice(0, kept);
+  screen.sessionReplayPage = { ...page, returnedCount: kept, truncated: true };
+  return JSON.stringify(screen, null, 2);
+}
 
 function readReplayRange(value: unknown): ReplayRange {
   return typeof value === "string" && REPLAY_RANGES.has(value)
