@@ -2629,6 +2629,7 @@ const deDE = {
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
+    deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentOtherPlatforms: "Weitere Plattformen",
     ssrCaching: "SSR-Caching",
     deploymentEnvironmentVariables: "Deployment: Umgebungsvariablen",

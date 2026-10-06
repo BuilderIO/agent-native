@@ -1,0 +1,264 @@
+---
+title: "Azure Static Web Apps"
+description: "Déployez une application Agent-Native autonome sur Azure Static Web Apps avec la Static Web Apps CLI."
+---
+
+# Azure Static Web Apps
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+Azure Static Web Apps héberge votre application à votre place. Vous n'avez donc
+aucun serveur à configurer ni à maintenir en marche. Le service sert directement
+les fichiers statiques de l'application, exécute le serveur de l'application
+sous forme d'Azure Functions managées et fournit à l'application une adresse
+publique en HTTPS.
+
+Ce guide présente le déploiement d'une application autonome depuis le début.
+Vous allez créer l'application, lui fournir une base de données de production et
+un secret d'authentification, préparer la base de données, la construire pour
+Azure, créer une Static Web App, puis envoyer le build final avec la Static Web
+Apps CLI.
+
+<Callout tone="info">
+
+Node.js `22.22+` est requis.
+
+</Callout>
+
+Vous avez aussi besoin d'un compte Azure. Exécutez les commandes de ce guide sur
+votre propre ordinateur. Vous construisez l'application avec Node.js, et la
+Static Web Apps CLI envoie le build final vers Azure.
+
+## Étape 1 : Créer l'application {#step-1-create-the-app}
+
+Créez votre nouvelle application autonome. L'exemple ci-dessous crée une
+application à partir du template Chat, mais vous pouvez partir de n'importe quel
+template. Placez-vous dans le dossier de l'application et installez ses
+dépendances. `corepack enable` active la version de `pnpm` attendue par
+l'application. Vous n'avez donc pas besoin d'installer `pnpm` vous-même.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Remplacez `my-app` par le nom de votre application si vous le souhaitez. La
+suite de ce guide suppose que vous vous trouvez dans le dossier de
+l'application.
+
+## Étape 2 : Configurer les secrets d'environnement {#step-2-configure-environment-secrets}
+
+L'application lit ses paramètres de production depuis des variables
+d'environnement :
+
+| Variable             | Requise | Rôle                                                                 |
+| -------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
+
+Les exports ci-dessous permettent aux commandes suivantes de fonctionner dans ce
+shell. Avant de déployer, enregistrez ces mêmes variables dans les paramètres
+d'environnement du projet ou du service chez votre hébergeur. L'étape 5 montre
+comment les enregistrer dans Azure.
+
+### URL de la base de données {#database-url}
+
+En développement local, l'application stocke ses données dans une base de
+données locale lorsque `DATABASE_URL` n'est pas défini. Une application déployée
+a besoin d'une vraie base de données PostgreSQL qui conserve ses données d'un
+déploiement à l'autre. Azure Functions ne conserve pas de fichiers entre les
+requêtes. La base de données doit donc se trouver en dehors de la Static Web
+App. Copiez la chaîne de connexion fournie par votre fournisseur et
+exportez-la :
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Les [guides des fournisseurs de bases de données](/docs/neon) indiquent où
+trouver la chaîne de connexion pour chaque fournisseur, y compris
+[Azure Database for PostgreSQL](/docs/azure-postgresql).
+
+<Callout tone="warning">
+
+Choisissez un fournisseur PostgreSQL persistant, par exemple Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Secret d'authentification {#auth-secret}
+
+Générez-le une seule fois et gardez-le identique d'un déploiement à l'autre.
+
+L'application utilise `BETTER_AUTH_SECRET` pour signer les sessions utilisateur.
+S'il change, tous les utilisateurs connectés sont déconnectés. La commande
+ci-dessous génère une valeur aléatoire :
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Conservez la valeur générée en lieu sûr, par exemple dans un gestionnaire de
+mots de passe. Utilisez la même valeur à chaque déploiement.
+
+### URL publique {#public-url}
+
+Facultatif. Définissez-la si vous utilisez un domaine personnalisé, un reverse
+proxy ou un flux d'authentification ou OAuth qui exige une origine publique
+fixe.
+
+`BETTER_AUTH_URL` est l'adresse publique utilisée pour accéder à votre
+application. Sans elle, l'application déduit son adresse de chaque requête
+entrante. Cela convient généralement avec l'adresse qu'Azure vous fournit, mais
+définissez-la lorsque vous connectez un domaine personnalisé, afin que les liens
+de connexion et les redirections OAuth utilisent ce domaine.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Étape 3 : Migrer {#step-3-migrate}
+
+Les migrations créent et mettent à jour les tables dont l'application a besoin
+dans votre base de données. Exécutez cette commande avant le premier
+déploiement :
+
+```bash
+pnpm migrate:production
+```
+
+La commande s'exécute sur votre ordinateur et se connecte à la base de données
+de production avec la `DATABASE_URL` que vous avez exportée à l'étape 2.
+Exécutez-la de nouveau après une mise à niveau de l'application, avant de
+déployer la nouvelle version.
+
+## Étape 4 : Construire {#step-4-build}
+
+### Définir le runtime de l'API {#set-the-api-runtime}
+
+Azure exécute le serveur de l'application avec la version de Node.js indiquée
+dans le fichier `staticwebapp.config.json` du build. Le build reprend cette
+version depuis le champ `engines` de `package.json`, mais seulement si ce champ
+vaut exactement `20` ou `22`. Une nouvelle application exige `>=22.22.0`. Le
+build se rabat donc sur Node.js 18, une version trop ancienne pour
+l'application et qu'Azure ne prend plus en charge.
+
+Définissez vous-même la version dans `vite.config.ts`. Ajoutez une option
+`nitro` à l'appel existant du plugin `agentNative` et laissez le reste du
+fichier inchangé :
+
+```ts filename="vite.config.ts"
+...agentNativePlugins({
+  ssrStubs: ["shiki"],
+  nitro: {
+    azure: { config: { platform: { apiRuntime: "node:22" } } },
+  },
+}),
+```
+
+Cet exemple utilise le `vite.config.ts` du template Chat. Dans les autres
+templates, ajoutez la même option `nitro` à leur appel `agentNative`.
+
+### Construire l'application {#build-the-app}
+
+Construisez l'application pour Azure Static Web Apps :
+
+```bash
+NITRO_PRESET=azure-swa pnpm build
+```
+
+`NITRO_PRESET=azure-swa` construit l'application au format attendu par Azure
+Static Web Apps. Le build écrit les fichiers statiques dans `.output/public` et
+les fonctions serveur dans `.output/server`. Il écrit aussi
+`staticwebapp.config.json`, avec le runtime de l'API de la section précédente,
+dans le dossier de l'application.
+
+## Étape 5 : Créer la Static Web App et enregistrer les secrets {#step-5-create-the-static-web-app-and-save-the-secrets}
+
+Dans le portail Azure, créez une nouvelle **Static Web App**. Choisissez un
+abonnement, un groupe de ressources, un nom et un plan. Sous
+**Deployment details**, choisissez **Other**, puisque vous envoyez le build
+vous-même au lieu de connecter un dépôt GitHub.
+
+Copiez le jeton de déploiement depuis la page **Overview** de l'application,
+sous **Manage deployment token**, et exportez-le :
+
+```bash
+export SWA_CLI_DEPLOYMENT_TOKEN='your-deployment-token'
+```
+
+La Static Web Apps CLI lit cette variable à l'étape 6. Gardez ce jeton privé,
+car toute personne qui le possède peut déployer sur votre application.
+
+Enregistrez ensuite les deux variables requises. Dans le portail Azure, ouvrez
+la Static Web App, allez dans **Settings** > **Environment variables**,
+choisissez l'environnement **Production** et ajoutez `DATABASE_URL` et
+`BETTER_AUTH_SECRET` avec les valeurs que vous avez exportées à l'étape 2. Si
+vous avez défini `BETTER_AUTH_URL`, ajoutez-la de la même façon. Azure transmet
+ces valeurs aux fonctions serveur de l'application sous forme de variables
+d'environnement.
+
+## Étape 6 : Déployer {#step-6-deploy}
+
+<Steps>
+
+### Envoyer le build
+
+Depuis le dossier de l'application, envoyez les fichiers statiques et les
+fonctions serveur en production :
+
+```bash
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+`.output/public` contient les fichiers statiques, et
+`--api-location .output/server` désigne les fonctions serveur.
+`--swa-config-location .` désigne le dossier de l'application, dans lequel le
+build a écrit `staticwebapp.config.json`. Sans cette option, Azure ne voit pas
+le runtime de l'API de l'étape 4. `--env production` publie sur votre adresse
+de production au lieu d'un environnement de prévisualisation.
+
+### Ouvrir l'application
+
+Lorsque la commande se termine, elle affiche l'adresse de l'application, qui se
+termine par `azurestaticapps.net`. Ouvrez-la et créez le premier compte.
+
+</Steps>
+
+## Déployer les mises à jour {#deploy-updates}
+
+Pour publier une nouvelle version, exécutez les migrations, construisez de
+nouveau l'application et envoyez le build :
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=azure-swa pnpm build
+
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+Exportez de nouveau `SWA_CLI_DEPLOYMENT_TOKEN` dans un nouveau shell. Les
+variables d'environnement enregistrées restent dans la Static Web App. Vous
+n'avez donc pas besoin de répéter l'étape 5.
+
+## Limites des requêtes {#request-limits}
+
+Azure Static Web Apps interrompt toute requête vers le serveur de l'application
+au bout de 45 secondes et ne prend pas en charge les WebSockets. Agent-Native
+termine déjà un tour de chat au bout d'environ 40 secondes et le poursuit depuis
+le navigateur. Les longs tours de l'agent aboutissent donc quand même, mais en
+plusieurs étapes au lieu d'une seule. Si votre application a besoin de longues
+requêtes, utilisez un hébergeur sans cette limite, par exemple
+[Node.js](/docs/node-js) ou [Docker](/docs/docker).
+
+## Et ensuite {#whats-next}
+
+- [**Node.js**](/docs/node-js) - exécuter l'application sur une machine que vous gérez
+- [**Variables d'environnement de déploiement**](/docs/deployment-environment-variables) - la liste complète des paramètres de production
+- [**Déploiement**](/docs/deployment) - comparer les cibles d'hébergement et les prérequis

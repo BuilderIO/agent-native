@@ -112,6 +112,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "deploymentDenoDeploy",
             slug: "deno-deploy",
           },
+          {
+            id: "azure-static-web-apps",
+            labelKey: "deploymentAzureStaticWebApps",
+            slug: "azure-static-web-apps",
+          },
         ],
       },
       {

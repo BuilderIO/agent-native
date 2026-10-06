@@ -1,0 +1,183 @@
+---
+title: "Azure Static Web Apps"
+description: "Static Web Apps CLI を使って、スタンドアロンの Agent-Native アプリを Azure Static Web Apps にデプロイします。"
+---
+
+# Azure Static Web Apps
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+Azure Static Web Apps がアプリをホストするため、サーバーを用意したり動かし続けたりする必要はありません。アプリの静的ファイルを直接配信し、アプリのサーバーをマネージドの Azure Functions として実行します。また、アプリに HTTPS 対応の公開アドレスを割り当てます。
+
+このガイドでは、スタンドアロン アプリを 1 つ、ゼロからデプロイする手順を説明します。アプリを作成し、本番用のデータベースと認証シークレットを用意し、データベースを準備し、Azure 向けにビルドし、静的 Web アプリを作成してから、Static Web Apps CLI で完成したビルドをアップロードします。
+
+<Callout tone="info">
+
+Node.js `22.22+` が必要です。
+
+</Callout>
+
+Azure アカウントも必要です。このガイドのコマンドは自分のコンピューター上で実行してください。アプリは Node.js でビルドし、Static Web Apps CLI が完成したビルドを Azure にアップロードします。
+
+## ステップ 1: アプリを作成する {#step-1-create-the-app}
+
+新しいスタンドアロン アプリを作成します。以下の例では Chat テンプレートからアプリを作成していますが、どのテンプレートから始めてもかまいません。アプリのフォルダーに移動し、依存関係をインストールします。`corepack enable` はアプリが想定する `pnpm` のバージョンを有効にするため、`pnpm` を自分でインストールする必要はありません。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+必要に応じて、`my-app` を自分のアプリ名に置き換えてください。このガイドの以降の手順は、アプリのフォルダー内にいることを前提としています。
+
+## ステップ 2: 環境シークレットを設定する {#step-2-configure-environment-secrets}
+
+アプリは本番用の設定を環境変数から読み取ります。
+
+| 変数                 | 必須   | 用途                                                 |
+| -------------------- | ------ | ---------------------------------------------------- |
+| `DATABASE_URL`       | はい   | アプリを PostgreSQL データベースに接続する           |
+| `BETTER_AUTH_SECRET` | はい   | ユーザー セッションに署名する                        |
+| `BETTER_AUTH_URL`    | いいえ | ユーザーがアプリにアクセスする公開アドレスを設定する |
+
+以下の export により、このシェルで後続のコマンドが動作するようになります。デプロイする前に、同じ変数をホストのプロジェクトまたはサービスの環境設定にも保存してください。Azure に保存する方法はステップ 5 で説明します。
+
+### データベース URL {#database-url}
+
+ローカル開発中、`DATABASE_URL` が設定されていない場合、アプリはデータをローカル データベースに保存します。デプロイしたアプリには、デプロイ後もデータを保持する本物の PostgreSQL データベースが必要です。Azure Functions はリクエスト間でファイルを保持しないため、データベースは静的 Web アプリの外に置く必要があります。プロバイダーから接続文字列をコピーし、export します。
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[Azure Database for PostgreSQL](/docs/azure-postgresql) を含め、各プロバイダーで接続文字列を確認する場所は、[データベース プロバイダー ガイド](/docs/neon)で説明しています。
+
+<Callout tone="warning">
+
+Neon、Supabase、Amazon RDS などの永続的な PostgreSQL プロバイダーを選択してください。
+
+</Callout>
+
+### 認証シークレット {#auth-secret}
+
+この値は一度だけ生成し、デプロイ間で変更しないでください。
+
+アプリは `BETTER_AUTH_SECRET` を使ってユーザー セッションに署名します。この値が変わると、サインイン中のすべてのユーザーがサインアウトされます。以下のコマンドでランダムな値を生成します。
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+生成した値は、パスワード マネージャーなど、安全な場所に保存してください。デプロイのたびに同じ値を使用します。
+
+### 公開 URL {#public-url}
+
+省略可能です。カスタム ドメイン、リバース プロキシ、または固定の公開オリジンを必要とする認証や OAuth のフローを使う場合に設定します。
+
+`BETTER_AUTH_URL` は、ユーザーがアプリにアクセスする公開アドレスです。設定しない場合、アプリは受信したリクエストごとに自身のアドレスを判断します。Azure が割り当てるアドレスでは通常それで問題ありませんが、カスタム ドメインを接続する場合は、サインイン リンクや OAuth のリダイレクトがそのドメインを使うように設定してください。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## ステップ 3: マイグレーション {#step-3-migrate}
+
+マイグレーションは、アプリに必要なテーブルをデータベースに作成し、更新します。最初のデプロイの前にこれを実行してください。
+
+```bash
+pnpm migrate:production
+```
+
+このコマンドは自分のコンピューター上で実行され、ステップ 2 で export した `DATABASE_URL` を使って本番データベースに接続します。アプリをアップグレードした後は、新しいバージョンをデプロイする前にもう一度実行してください。
+
+## ステップ 4: ビルド {#step-4-build}
+
+### API ランタイムを設定する {#set-the-api-runtime}
+
+Azure は、ビルドの `staticwebapp.config.json` ファイルで指定された Node.js のバージョンでアプリのサーバーを実行します。ビルドはこのバージョンを `package.json` の `engines` フィールドから選びますが、それはフィールドがちょうど `20` または `22` の場合だけです。新しいアプリでは `>=22.22.0` が必要なため、ビルドは Node.js 18 にフォールバックします。これはアプリには古すぎ、Azure でもサポートが終了しています。
+
+`vite.config.ts` で自分でバージョンを設定してください。既存の `agentNative` プラグイン呼び出しに `nitro` オプションを追加し、ファイルの残りの部分は変更しないでください。
+
+```ts filename="vite.config.ts"
+...agentNativePlugins({
+  ssrStubs: ["shiki"],
+  nitro: {
+    azure: { config: { platform: { apiRuntime: "node:22" } } },
+  },
+}),
+```
+
+この例では Chat テンプレートの `vite.config.ts` を使っています。ほかのテンプレートでは、そのファイルの `agentNative` 呼び出しに同じ `nitro` オプションを追加してください。
+
+### アプリをビルドする {#build-the-app}
+
+アプリを Azure Static Web Apps 向けにビルドします。
+
+```bash
+NITRO_PRESET=azure-swa pnpm build
+```
+
+`NITRO_PRESET=azure-swa` は、Azure Static Web Apps が想定する形式でアプリをビルドします。ビルドは静的ファイルを `.output/public` に、サーバー関数を `.output/server` に書き出します。また、前のセクションの API ランタイムを含む `staticwebapp.config.json` をアプリのフォルダーに書き出します。
+
+## ステップ 5: 静的 Web アプリを作成してシークレットを保存する {#step-5-create-the-static-web-app-and-save-the-secrets}
+
+Azure portal で、新しい **Static Web App** を作成します。サブスクリプション、リソース グループ、名前、プランを選択します。GitHub リポジトリを接続する代わりにビルドを自分でアップロードするため、**Deployment details** では **Other** を選択します。
+
+アプリの **Overview** ページの **Manage deployment token** からデプロイ トークンをコピーし、export します。
+
+```bash
+export SWA_CLI_DEPLOYMENT_TOKEN='your-deployment-token'
+```
+
+Static Web Apps CLI はステップ 6 でこの変数を読み取ります。トークンを持っていれば誰でもアプリにデプロイできるため、トークンは非公開にしておいてください。
+
+次に、必須の 2 つの変数を保存します。Azure portal で静的 Web アプリを開き、**Settings** > **Environment variables** に移動して **Production** 環境を選択し、ステップ 2 で export した値で `DATABASE_URL` と `BETTER_AUTH_SECRET` を追加します。`BETTER_AUTH_URL` を設定した場合は、同じ方法で追加してください。Azure はこれらの値を環境変数としてアプリのサーバー関数に渡します。
+
+## ステップ 6: デプロイ {#step-6-deploy}
+
+<Steps>
+
+### ビルドをアップロードする
+
+アプリのフォルダーから、静的ファイルとサーバー関数を本番環境にアップロードします。
+
+```bash
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+`.output/public` には静的ファイルが含まれ、`--api-location .output/server` はサーバー関数の場所を指定します。`--swa-config-location .` は、ビルドが `staticwebapp.config.json` を書き出したアプリのフォルダーを指定します。これを指定しないと、Azure はステップ 4 の API ランタイムを認識しません。`--env production` は、プレビュー環境ではなく本番アドレスに公開します。
+
+### アプリを開く
+
+コマンドが完了すると、`azurestaticapps.net` で終わるアプリのアドレスが表示されます。そのアドレスを開き、最初のアカウントを作成します。
+
+</Steps>
+
+## 更新をデプロイする {#deploy-updates}
+
+新しいバージョンをリリースするには、マイグレーションを実行し、もう一度ビルドしてから、アップロードします。
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=azure-swa pnpm build
+
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+新しいシェルでは、`SWA_CLI_DEPLOYMENT_TOKEN` をもう一度 export してください。保存した環境変数は静的 Web アプリに残るため、ステップ 5 を繰り返す必要はありません。
+
+## リクエストの制限 {#request-limits}
+
+Azure Static Web Apps は、アプリのサーバーへのリクエストを 45 秒で終了し、WebSockets もサポートしていません。Agent-Native はもともとチャットのターンを約 40 秒で終了し、ブラウザーから続行するため、長いエージェントのターンも最後まで完了しますが、1 回ではなく複数のステップに分けて実行されます。アプリで長時間のリクエストが必要な場合は、[Node.js](/docs/node-js) や [Docker](/docs/docker) など、この制限のないホストを使用してください。
+
+## 次のステップ {#whats-next}
+
+- [**Node.js**](/docs/node-js) - 自分で管理するマシンでアプリを実行する
+- [**デプロイ環境変数**](/docs/deployment-environment-variables) - 本番設定の完全な一覧
+- [**デプロイ**](/docs/deployment) - ホスティング ターゲットと前提条件を比較する

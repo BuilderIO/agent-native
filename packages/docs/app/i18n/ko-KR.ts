@@ -2579,6 +2579,7 @@ const koKR = {
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
+    deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentOtherPlatforms: "기타 플랫폼",
     ssrCaching: "SSR 캐싱",
     deploymentEnvironmentVariables: "배포: 환경 변수",

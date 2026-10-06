@@ -2622,6 +2622,7 @@ const esES = {
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
+    deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentOtherPlatforms: "Otras Plataformas",
     ssrCaching: "Caché de SSR",
     deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",

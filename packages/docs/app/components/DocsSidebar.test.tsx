@@ -117,6 +117,7 @@ describe("DocsSidebar", () => {
       "render",
       "koyeb",
       "deno-deploy",
+      "azure-static-web-apps",
     ]);
     const databaseGroup = deployment?.items.find(
       (item) => item.id === "database-providers",

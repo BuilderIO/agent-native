@@ -2575,6 +2575,7 @@ const arSA = {
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
+    deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentOtherPlatforms: "منصات أخرى",
     ssrCaching: "تخزين SSR المؤقت",
     deploymentEnvironmentVariables: "النشر: متغيرات البيئة",

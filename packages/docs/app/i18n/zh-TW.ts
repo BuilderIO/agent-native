@@ -2532,6 +2532,7 @@ const messages = {
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
+    deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 快取",
     deploymentEnvironmentVariables: "部署：環境變數",

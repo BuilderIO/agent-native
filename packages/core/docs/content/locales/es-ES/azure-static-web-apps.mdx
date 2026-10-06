@@ -1,0 +1,243 @@
+---
+title: "Azure Static Web Apps"
+description: "Implementa una aplicación independiente de Agent-Native en Azure Static Web Apps con la Static Web Apps CLI."
+---
+
+# Azure Static Web Apps
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+Azure Static Web Apps aloja tu aplicación por ti, así que no hay ningún servidor que configurar
+ni mantener en ejecución. Sirve directamente los archivos estáticos de la aplicación y ejecuta el
+servidor de la aplicación como Azure Functions administradas, y le da a la aplicación una dirección pública con
+HTTPS.
+
+Esta guía explica cómo implementar una aplicación independiente desde cero. Vas a
+crear la aplicación, darle una base de datos de producción y un secreto de autenticación, preparar la
+base de datos, compilarla para Azure, crear una aplicación web estática y, después, subir la
+compilación terminada con la Static Web Apps CLI.
+
+<Callout tone="info">
+
+Se requiere Node.js `22.22+`.
+
+</Callout>
+
+También necesitas una cuenta de Azure. Ejecuta los comandos de esta guía en tu propio
+equipo. Compilas la aplicación con Node.js, y la Static Web Apps CLI sube
+la compilación terminada a Azure.
+
+## Paso 1: Crea la aplicación {#step-1-create-the-app}
+
+Crea tu nueva aplicación independiente. El siguiente ejemplo crea una aplicación a partir de la plantilla Chat,
+pero puedes empezar desde cualquier plantilla. Entra en la carpeta de la aplicación e
+instala sus dependencias. `corepack enable` activa la versión de `pnpm` que la aplicación
+espera, así que no necesitas instalar `pnpm` por tu cuenta.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Si quieres, reemplaza `my-app` por el nombre de tu aplicación. El resto de esta guía
+supone que estás dentro de la carpeta de la aplicación.
+
+## Paso 2: Configura los secretos del entorno {#step-2-configure-environment-secrets}
+
+La aplicación lee su configuración de producción desde variables de entorno:
+
+| Variable             | Obligatoria | Propósito                                                                      |
+| -------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`       | Sí          | Conecta la aplicación con su base de datos PostgreSQL                          |
+| `BETTER_AUTH_SECRET` | Sí          | Firma las sesiones de los usuarios                                             |
+| `BETTER_AUTH_URL`    | No          | Define la dirección pública que usan las personas para acceder a tu aplicación |
+
+Las exportaciones siguientes hacen que los comandos posteriores funcionen en esta terminal. Antes de
+implementar, guarda estas mismas variables en la configuración del entorno del proyecto o servicio de tu host.
+El paso 5 muestra cómo guardarlas en Azure.
+
+### URL de la base de datos {#database-url}
+
+Durante el desarrollo local, la aplicación guarda los datos en una base de datos local cuando
+`DATABASE_URL` no está definida. Una aplicación implementada necesita una base de datos PostgreSQL real que
+conserve sus datos entre implementaciones. Azure Functions no conserva archivos entre solicitudes,
+así que la base de datos debe estar fuera de la aplicación web estática. Copia la cadena de conexión
+de tu proveedor y expórtala:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Las [guías de proveedores de bases de datos](/docs/neon) muestran dónde encontrar la cadena de conexión
+de cada proveedor, incluido
+[Azure Database for PostgreSQL](/docs/azure-postgresql).
+
+<Callout tone="warning">
+
+Elige un proveedor de PostgreSQL persistente, como Neon, Supabase o Amazon RDS.
+
+</Callout>
+
+### Secreto de autenticación {#auth-secret}
+
+Genéralo una sola vez y mantenlo igual en todas las implementaciones.
+
+La aplicación usa `BETTER_AUTH_SECRET` para firmar las sesiones de los usuarios. Si cambia, se cierra la sesión de
+todos los usuarios que la tenían iniciada. El siguiente comando genera un valor aleatorio:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Guarda el valor generado en un lugar seguro, como un gestor de contraseñas. Usa el
+mismo valor cada vez que implementes.
+
+### URL pública {#public-url}
+
+Es opcional. Defínela cuando uses un dominio personalizado, un proxy inverso o un flujo de autenticación u OAuth
+que necesite un origen público fijo.
+
+`BETTER_AUTH_URL` es la dirección pública que usan las personas para acceder a tu aplicación. Sin
+ella, la aplicación deduce su dirección a partir de cada solicitud entrante. Eso suele
+funcionar bien con la dirección que te da Azure, pero defínela cuando conectes un dominio
+personalizado para que los enlaces de inicio de sesión y las redirecciones de OAuth usen ese dominio.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Paso 3: Ejecuta las migraciones {#step-3-migrate}
+
+Las migraciones crean y actualizan las tablas que la aplicación necesita en tu base de datos. Ejecuta
+esto antes de la primera implementación:
+
+```bash
+pnpm migrate:production
+```
+
+El comando se ejecuta en tu equipo y se conecta a la base de datos de producción con
+la `DATABASE_URL` que exportaste en el paso 2. Vuelve a ejecutarlo después de actualizar la
+aplicación y antes de implementar la nueva versión.
+
+## Paso 4: Compila {#step-4-build}
+
+### Define el runtime de la API {#set-the-api-runtime}
+
+Azure ejecuta el servidor de la aplicación con la versión de Node.js indicada en el archivo
+`staticwebapp.config.json` de la compilación. La compilación toma esa versión del campo
+`engines` de `package.json`, pero solo cuando el campo es exactamente `20` o
+`22`. Una aplicación nueva requiere `>=22.22.0`, así que la compilación recurre a Node.js 18,
+que es demasiado antiguo para la aplicación y que Azure ya no admite.
+
+Define la versión tú mismo en `vite.config.ts`. Añade una opción `nitro` a la
+llamada existente al plugin `agentNative` y deja el resto del archivo sin cambios:
+
+```ts filename="vite.config.ts"
+...agentNativePlugins({
+  ssrStubs: ["shiki"],
+  nitro: {
+    azure: { config: { platform: { apiRuntime: "node:22" } } },
+  },
+}),
+```
+
+Este ejemplo usa el `vite.config.ts` de la plantilla Chat. En otras plantillas, añade
+la misma opción `nitro` a la llamada a `agentNative` de ese archivo.
+
+### Compila la aplicación {#build-the-app}
+
+Compila la aplicación para Azure Static Web Apps:
+
+```bash
+NITRO_PRESET=azure-swa pnpm build
+```
+
+`NITRO_PRESET=azure-swa` compila la aplicación en el formato que Azure Static Web Apps
+espera. La compilación escribe los archivos estáticos en `.output/public` y las funciones
+del servidor en `.output/server`. También escribe `staticwebapp.config.json`, con
+el runtime de la API de la sección anterior, en la carpeta de la aplicación.
+
+## Paso 5: Crea la aplicación web estática y guarda los secretos {#step-5-create-the-static-web-app-and-save-the-secrets}
+
+En el portal de Azure, crea un nuevo **Static Web App**. Elige una suscripción,
+un grupo de recursos, un nombre y un plan. En **Deployment details**, elige **Other**,
+porque subes la compilación tú mismo en lugar de conectar un repositorio de
+GitHub.
+
+Copia el token de implementación desde la página **Overview** de la aplicación, en **Manage
+deployment token**, y expórtalo:
+
+```bash
+export SWA_CLI_DEPLOYMENT_TOKEN='your-deployment-token'
+```
+
+La Static Web Apps CLI lee esta variable en el paso 6. Mantén el token en privado,
+porque cualquiera que lo tenga puede implementar en tu aplicación.
+
+Después, guarda las dos variables obligatorias. En el portal de Azure, abre la aplicación web
+estática, ve a **Settings** > **Environment variables**, elige el entorno **Production**
+y añade `DATABASE_URL` y `BETTER_AUTH_SECRET` con los valores
+que exportaste en el paso 2. Si defines `BETTER_AUTH_URL`, añádela de la misma forma.
+Azure pasa estos valores a las funciones del servidor de la aplicación como variables
+de entorno.
+
+## Paso 6: Implementa {#step-6-deploy}
+
+<Steps>
+
+### Sube la compilación
+
+Desde la carpeta de la aplicación, sube los archivos estáticos y las funciones del servidor a
+producción:
+
+```bash
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+`.output/public` contiene los archivos estáticos, y `--api-location .output/server`
+apunta a las funciones del servidor. `--swa-config-location .` apunta a la carpeta de la aplicación,
+donde la compilación escribió `staticwebapp.config.json`. Sin esta opción, Azure
+no ve el runtime de la API del paso 4. `--env production` publica en tu
+dirección de producción en lugar de en un entorno de vista previa.
+
+### Abre la aplicación
+
+Cuando el comando termina, muestra la dirección de la aplicación, que termina en
+`azurestaticapps.net`. Ábrela y crea la primera cuenta.
+
+</Steps>
+
+## Implementa actualizaciones {#deploy-updates}
+
+Para publicar una nueva versión, ejecuta las migraciones, vuelve a compilar y sube la compilación:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=azure-swa pnpm build
+
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+Vuelve a exportar `SWA_CLI_DEPLOYMENT_TOKEN` en una terminal nueva. Las variables de entorno
+guardadas se mantienen en la aplicación web estática, así que no necesitas repetir el paso 5.
+
+## Límites de las solicitudes {#request-limits}
+
+Azure Static Web Apps finaliza cualquier solicitud al servidor de la aplicación después de 45 segundos,
+y no admite WebSockets. Agent-Native ya finaliza un turno de chat después de
+unos 40 segundos y lo continúa desde el navegador, así que los turnos largos del agente igualmente
+terminan, pero se ejecutan en varios pasos en lugar de en uno. Si tu aplicación necesita solicitudes
+largas, usa un host sin este límite, como [Node.js](/docs/node-js) o
+[Docker](/docs/docker).
+
+## Qué sigue {#whats-next}
+
+- [**Node.js**](/docs/node-js) - ejecuta la aplicación en una máquina que administras tú
+- [**Implementación: variables de entorno**](/docs/deployment-environment-variables) - la lista completa de la configuración de producción
+- [**Implementación**](/docs/deployment) - compara los destinos de alojamiento y sus requisitos previos
