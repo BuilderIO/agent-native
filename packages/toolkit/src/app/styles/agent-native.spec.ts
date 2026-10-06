@@ -261,34 +261,31 @@ describe("agent-native shell surface tokens", () => {
       /\.agent-sidebar-panel\[data-agent-sidebar-animation="drawer"\][\s\S]*?box-shadow: var\(--agent-kit-drawer-elevation\);/s,
     );
     expect(tokens).toMatch(
-      /\.dark\s*\{[\s\S]*?--agent-kit-shadow-color: var\(--background\);[\s\S]*?--agent-kit-drawer-elevation:/s,
+      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-shadow-color: var\(--background\);[\s\S]*?--agent-kit-drawer-elevation:/s,
     );
     expect(css).not.toContain("hsl(var(--foreground) / 0.07)");
     expect(css).not.toContain("hsl(var(--foreground) / 0.12)");
     expect(css).not.toContain("hsl(var(--agent-shadow)");
     expect(tokens).toContain("--agent-kit-shadow-color: var(--foreground);");
     expect(tokens).toMatch(
-      /\.dark\s*\{[\s\S]*?--agent-kit-shadow-color: var\(--background\);[\s\S]*?--agent-kit-composer-elevation:[\s\S]*?hsl\(var\(--agent-kit-shadow-color\) \/ 0\.22\)/s,
+      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-shadow-color: var\(--background\);[\s\S]*?--agent-kit-composer-elevation:[\s\S]*?hsl\(var\(--agent-kit-shadow-color\) \/ 0\.22\)/s,
     );
     expect(css).toMatch(
       /::view-transition-old\(agent-native-sidebar-drawer\),\s*::view-transition-new\(agent-native-sidebar-drawer\)[\s\S]*?height: 100%;/s,
     );
   });
 
-  it("gives the light composer a quiet boundary without a dark-mode highlight", () => {
+  it("gives the composer a quiet boundary in both themes", () => {
     const tokens = readFileSync(
       new URL("./tokens/agent-kit.css", import.meta.url),
       { encoding: "utf8" },
     );
 
     expect(tokens).toMatch(
-      /:root\s*\{[\s\S]*?--agent-kit-composer-border-opacity: 0\.82;[\s\S]*?--agent-kit-composer-focus-border-opacity: 1;/s,
+      /:root\s*\{[\s\S]*?--agent-kit-composer-border-mix: 82%;[\s\S]*?--agent-kit-composer-focus-border-mix: 100%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
     );
     expect(tokens).toMatch(
-      /\.dark\s*\{[\s\S]*?--agent-kit-composer-border-opacity: 0;[\s\S]*?--agent-kit-composer-focus-border-opacity: 0;/s,
-    );
-    expect(tokens).toMatch(
-      /\.dark\s*\{[\s\S]*?--agent-kit-composer-border-color: transparent;[\s\S]*?--agent-kit-composer-focus-border-color: transparent;/s,
+      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-composer-border-mix: 40%;[\s\S]*?--agent-kit-composer-focus-border-mix: 65%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
     );
   });
 

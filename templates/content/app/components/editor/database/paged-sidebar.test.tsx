@@ -14,10 +14,14 @@ import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 
-const useActionQuery = vi.hoisted(() => vi.fn());
+const useFilesNavigationPage = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client/hooks", () => ({ useActionQuery }));
+vi.mock("@/lib/files-navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/files-navigation")>()),
+  useFilesNavigationPage,
+}));
 
 import {
   navigationItemAsDatabaseItem,
@@ -67,13 +71,21 @@ function Harness({
   activePathDocuments,
   onDeleteItem,
   onToggleFavorite,
+  initiallyExpanded = [],
+  branchPlaceholders,
+  onBranchShown,
 }: {
   activeDocumentId?: string;
   activePathDocuments?: Document[];
   onDeleteItem?: (item: ContentDatabaseItem) => void;
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  initiallyExpanded?: string[];
+  branchPlaceholders?: Record<string, SidebarRowsHint>;
+  onBranchShown?: (documentId: string, shown: SidebarRowsHint) => void;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set(initiallyExpanded),
+  );
   const [queryClient] = useState(() => new QueryClient());
   return (
     <AgentNativeI18nProvider
@@ -94,8 +106,6 @@ function Harness({
           <TooltipProvider>
             <PagedContentFilesSidebarView
               databaseId="files"
-              sort="custom"
-              viewId="default"
               activeDocumentId={activeDocumentId}
               expandedDocumentIds={expanded}
               onDocumentExpandedChange={(id, open) =>
@@ -113,6 +123,8 @@ function Harness({
               onToggleFavorite={onToggleFavorite}
               navigationLabel="Files"
               untitledLabel="Untitled"
+              branchPlaceholders={branchPlaceholders}
+              onBranchShown={onBranchShown}
             />
           </TooltipProvider>
         </MemoryRouter>
@@ -130,11 +142,11 @@ async function renderHarness(props: Parameters<typeof Harness>[0] = {}) {
 
 describe("PagedContentFilesSidebarView", () => {
   beforeEach(() => {
-    useActionQuery.mockReset();
+    useFilesNavigationPage.mockReset();
   });
 
   it("shows 20 roots and appends the 21st through the opaque cursor", async () => {
-    useActionQuery.mockImplementation((_name, args) => ({
+    useFilesNavigationPage.mockImplementation((args) => ({
       data: args.navigation.cursor
         ? page([navigationItem("root-21")])
         : page(
@@ -169,12 +181,12 @@ describe("PagedContentFilesSidebarView", () => {
     );
     expect(container.querySelectorAll("a")).toHaveLength(21);
     expect(container.textContent).toContain("Page root-21");
-    expect(useActionQuery).toHaveBeenCalledWith(
-      "query-content-database-items",
+    expect(useFilesNavigationPage).toHaveBeenCalledWith(
       expect.objectContaining({
         limit: 20,
         navigation: expect.objectContaining({ cursor: "root-cursor" }),
       }),
+      expect.any(Set),
     );
     expect(
       container.querySelector("[data-radix-scroll-area-viewport]"),
@@ -187,7 +199,7 @@ describe("PagedContentFilesSidebarView", () => {
     const roots = Array.from({ length: 25 }, (_, index) =>
       navigationItem(`root-${String(index + 1).padStart(2, "0")}`),
     );
-    useActionQuery.mockImplementation((_name, args) => ({
+    useFilesNavigationPage.mockImplementation((args) => ({
       data: args.navigation.cursor
         ? page([...roots.slice(10, 20), ...roots.slice(20)])
         : page(roots.slice(0, 20), "root-cursor"),
@@ -215,7 +227,7 @@ describe("PagedContentFilesSidebarView", () => {
   });
 
   it("lazy-loads 20 immediate children and uses server hasChildren", async () => {
-    useActionQuery.mockImplementation((_name, args) => {
+    useFilesNavigationPage.mockImplementation((args) => {
       if (args.navigation.parentId === "root") {
         return {
           data: args.navigation.cursor
@@ -243,8 +255,8 @@ describe("PagedContentFilesSidebarView", () => {
     const { container, root } = await renderHarness();
 
     expect(
-      useActionQuery.mock.calls.every(
-        ([, args]) => args.navigation.parentId === null,
+      useFilesNavigationPage.mock.calls.every(
+        ([args]) => args.navigation.parentId === null,
       ),
     ).toBe(true);
     const expand = container.querySelector<HTMLButtonElement>(
@@ -252,11 +264,11 @@ describe("PagedContentFilesSidebarView", () => {
     );
     expect(expand).not.toBeNull();
     await act(async () => expand?.click());
-    expect(useActionQuery).toHaveBeenCalledWith(
-      "query-content-database-items",
+    expect(useFilesNavigationPage).toHaveBeenCalledWith(
       expect.objectContaining({
         navigation: expect.objectContaining({ parentId: "root" }),
       }),
+      new Set(["root"]),
     );
     expect(container.querySelectorAll('a[href^="/page/child-"]')).toHaveLength(
       20,
@@ -292,7 +304,7 @@ describe("PagedContentFilesSidebarView", () => {
     const expired = Object.assign(new Error("stale cursor"), {
       errorCode: "invalid_navigation_cursor",
     });
-    useActionQuery.mockImplementation((_name, args) =>
+    useFilesNavigationPage.mockImplementation((args) =>
       args.navigation.cursor === "expired-cursor"
         ? {
             data: undefined,
@@ -343,7 +355,7 @@ describe("PagedContentFilesSidebarView", () => {
     const expired = Object.assign(new Error("stale cursor"), {
       errorCode: "invalid_navigation_cursor",
     });
-    useActionQuery.mockImplementation((_name, args) =>
+    useFilesNavigationPage.mockImplementation((args) =>
       args.navigation.cursor
         ? {
             data: undefined,
@@ -372,11 +384,11 @@ describe("PagedContentFilesSidebarView", () => {
 
     // The reload issued a new cursor, and that one expires as well.
     await act(async () => root.render(<Harness />));
-    expect(useActionQuery).toHaveBeenCalledWith(
-      "query-content-database-items",
+    expect(useFilesNavigationPage).toHaveBeenCalledWith(
       expect.objectContaining({
         navigation: expect.objectContaining({ cursor: "cursor-1" }),
       }),
+      expect.any(Set),
     );
     expect(refetchFirstPage).toHaveBeenCalledOnce();
     const retry = Array.from(container.querySelectorAll("button")).find(
@@ -393,7 +405,7 @@ describe("PagedContentFilesSidebarView", () => {
 
   it("keeps failed pages recoverable with Retry", async () => {
     const refetch = vi.fn();
-    useActionQuery.mockReturnValue({
+    useFilesNavigationPage.mockReturnValue({
       data: undefined,
       isLoading: false,
       isError: true,
@@ -415,7 +427,7 @@ describe("PagedContentFilesSidebarView", () => {
   it("enables authorized paged-row actions without active-path metadata", async () => {
     const onDeleteItem = vi.fn();
     const onToggleFavorite = vi.fn();
-    useActionQuery.mockReturnValue({
+    useFilesNavigationPage.mockReturnValue({
       data: page([navigationItem("ordinary-row")]),
       isLoading: false,
       isError: false,
@@ -441,7 +453,7 @@ describe("PagedContentFilesSidebarView", () => {
   });
 
   it("reveals an off-page active path without requesting preceding pages", async () => {
-    useActionQuery.mockImplementation((_name, args) => ({
+    useFilesNavigationPage.mockImplementation((args) => ({
       data:
         args.navigation.parentId === "off-page-root"
           ? page([])
@@ -482,10 +494,88 @@ describe("PagedContentFilesSidebarView", () => {
     expect(container.textContent).toContain("Active child");
     expect(container.querySelector('[aria-current="page"]')).not.toBeNull();
     expect(
-      useActionQuery.mock.calls.some(
-        ([, args]) => args.navigation.cursor === "next-root-page",
+      useFilesNavigationPage.mock.calls.some(
+        ([args]) => args.navigation.cursor === "next-root-page",
       ),
     ).toBe(false);
+
+    await act(async () => root.unmount());
+  });
+  it("holds an open folder's last rows while its page loads, then reports what it drew", async () => {
+    let childPage: ContentDatabaseNavigationPageResponse | undefined;
+    useFilesNavigationPage.mockImplementation((args) =>
+      args.navigation.parentId === "root"
+        ? {
+            data: childPage,
+            isLoading: childPage === undefined,
+            isError: false,
+            isFetching: childPage === undefined,
+            refetch: vi.fn(),
+          }
+        : {
+            data: page([
+              navigationItem("root", null, true),
+              navigationItem("below"),
+            ]),
+            isLoading: false,
+            isError: false,
+            isFetching: false,
+            refetch: vi.fn(),
+          },
+    );
+    const onBranchShown = vi.fn();
+    const props = {
+      initiallyExpanded: ["root"],
+      branchPlaceholders: { root: { rows: 4, more: true } },
+      onBranchShown,
+    };
+    const { container, root } = await renderHarness(props);
+
+    // Four rows and the Show more row, in the rows' own 28px boxes.
+    expect(
+      container.querySelectorAll('div[aria-hidden="true"].h-7'),
+    ).toHaveLength(5);
+    expect(onBranchShown).not.toHaveBeenCalled();
+
+    childPage = page(
+      Array.from({ length: 4 }, (_, index) =>
+        navigationItem(`child-${index + 1}`, "root"),
+      ),
+      "child-cursor",
+    );
+    await act(async () => root.render(<Harness {...props} />));
+    expect(
+      container.querySelectorAll('div[aria-hidden="true"].h-7'),
+    ).toHaveLength(0);
+    expect(container.querySelectorAll('a[href^="/page/child-"]')).toHaveLength(
+      4,
+    );
+    expect(onBranchShown).toHaveBeenCalledWith("root", { rows: 4, more: true });
+
+    await act(async () => root.unmount());
+  });
+
+  it("reads open folders' pages with the root page", async () => {
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data:
+        args.navigation.parentId === null
+          ? page([navigationItem("root", null, true)])
+          : page([]),
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const { root } = await renderHarness({ initiallyExpanded: ["root"] });
+
+    expect(useFilesNavigationPage).toHaveBeenCalledWith(
+      {
+        databaseId: "files",
+        limit: 20,
+        navigation: { parentId: null, cursor: undefined },
+      },
+      new Set(["root"]),
+    );
 
     await act(async () => root.unmount());
   });

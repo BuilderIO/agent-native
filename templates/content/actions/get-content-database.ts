@@ -111,6 +111,7 @@ export default defineAction({
       offset,
       tableQuery,
       database: resolved.database,
+      accessRole: resolved.accessRole,
       filesMembershipDatabaseId,
       sidebarOrder,
     });

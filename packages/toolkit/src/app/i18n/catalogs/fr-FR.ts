@@ -139,12 +139,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "Inclus gratuitement avec un compte Builder.io",
   "onboarding.builderMonthlyCredits": "60 Agent Credits par mois",
+  "onboarding.builderIncludedFree": "Inclus gratuitement",
+  "onboarding.builderMoreServices": "+ {{count}} services supplémentaires",
+  "onboarding.builderIncludedServices": "Services inclus",
   "onboarding.builderActivateTitle": "Activer les crédits gratuits",
   "onboarding.builderAccountExistsTitle": "Vous avez déjà un compte Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Connectez-vous pour utiliser votre compte.",
   "onboarding.builderActivationDescription":
-    "Nous créerons automatiquement votre compte Builder.io en un clic.",
+    "Créez ou connectez un compte Builder.io en un clic pour obtenir des crédits gratuits.",
   "onboarding.builderOrgActivationDescription":
     "Nous créerons votre compte Builder.io en un clic afin que votre organisation puisse l’utiliser.",
   "onboarding.builderCreateAndActivate": "Créer et activer",
@@ -170,6 +173,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Connectez votre propre modèle d’IA",
   "onboarding.capability.fileStorage.keySummary":
     "Téléversement et stockage de fichiers",
+  "onboarding.capability.llm.why":
+    "L’agent utilise un modèle de langage pour comprendre les demandes et produire des réponses.",
+  "onboarding.capability.fileStorage.why":
+    "Stocke les images et fichiers envoyés pour que l’agent puisse les réutiliser dans la conversation.",
   "onboarding.fileStorage.title":
     "Connecter un stockage pour envoyer des fichiers",
   "onboarding.fileStorage.statusUnavailable":
@@ -188,6 +195,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Représentations vectorielles",
   "onboarding.capability.embeddings.why":
     "Les représentations vectorielles améliorent la recherche sémantique. La recherche par mots-clés fonctionne toujours sans elles.",
+  "onboarding.capability.systemOne.why":
+    "Jev est un modèle de décision facultatif qui aide à choisir les outils et compétences pertinents avant la première requête du modèle de l’agent.",
   "onboarding.capability.assetsImageGeneration.label": "Génération d’images",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Crédits Builder ou clé d’un fournisseur d’images",
@@ -788,11 +797,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{count}} en attente — envoyer un message de suivi...",
   "queue.remove": "Retirer de la file d’attente",
   "queue.sendNow": "Envoyer maintenant",
-  "queue.sendNowHint": "Envoyer maintenant (arrête la réponse actuelle)",
-  "queue.steer": "Orienter",
-  "queue.steerHint": "Envoyer ce message ensuite",
+  "queue.sendNowHint": "Arrête la réponse actuelle, puis envoie ce message",
+  "queue.sendNext": "Envoyer ensuite",
+  "queue.sendNextHint": "Envoyer après la fin de la réponse actuelle",
   "queue.moreActions": "Autres actions",
-  "queue.moveToTop": "Déplacer en haut",
   "recovery.connectingBuilder": "Configuration de Builder.io",
   "recovery.copyDebug": "Copier les informations de débogage",
   "recovery.copyFailed": "Échec de la copie",
@@ -914,6 +922,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "Aucun détail d’erreur disponible.",
   "tool.input": "Entrée",
   "tool.inputWithLabel": "Entrée - {{label}}",
+  "tool.identifierHidden": "[Identifiant masqué]",
+  "tool.contentOmitted": "[Contenu omis]",
+  "tool.circularReference": "[Référence circulaire]",
   "tool.interrupted":
     "Interrompu avant la confirmation de la fin de l’opération ; celle-ci a peut-être abouti ou non. Vérifiez avant de réessayer.",
   "tool.longRunning":
@@ -1116,6 +1127,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Télécharger le fichier de compétences",
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
+  "composer.unsupportedFileType":
+    "Ce type de fichier n'est pas pris en charge.",
   "composer.useAttachedContext": "Utilisez le contexte ci-joint.",
   "mentions.commands": "Commandes",
   "mentions.learnMore": "En savoir plus",

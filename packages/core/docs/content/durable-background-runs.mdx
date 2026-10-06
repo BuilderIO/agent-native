@@ -16,7 +16,7 @@ framework — there is no app code to write.
 </Callout>
 
 A normal hosted agent turn runs inside the synchronous request function, which
-is capped by the platform's request timeout (~10s on Netlify's free tier, and
+is capped by the platform's request timeout (60s on Netlify, and
 the framework's ~40s soft-timeout before it has to hand back to the client and
 "continue from where you left off"). That is fine for quick answers, but a long
 agentic turn — many tool calls, large analyses — ends up bouncing through
@@ -45,7 +45,7 @@ the first one. Only the dispatched agent turn runs on the second.
       <small class="diagram-muted">decides + dispatches</small>
     </div>
     <small class="diagram-muted"
-      >~10s timeout &middot; nearly every request</small
+      >60s timeout &middot; nearly every request</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">
@@ -205,12 +205,21 @@ The foreground returns a working turn either way: the background worker when it 
 
 ## Cost and tradeoffs {#cost}
 
-Netlify background functions are a **paid-plan** feature (Personal / Pro, not
-the free tier) and are billed by compute time (GB-hour). A multi-minute agent
-turn therefore costs more compute than a short synchronous call — but it largely
-**replaces** the old pattern, where the turn hit the ~40s wall and the client
-re-issued several continuation requests. It is the same work consolidated into
-one long invocation, not purely additive.
+Netlify background functions are available on every credit-based Netlify plan,
+including Free, and on Enterprise. They bill as functions compute, the same
+meter as the synchronous function: 10 credits per GB-hour of runtime at the
+function's memory size (1 GB by default). The Free plan's 300 monthly credits
+are a hard cap, and Netlify pauses the team's projects when they run out.
+Legacy plans (accounts created before September 4, 2025) bill functions per
+request, and Legacy Free and Starter don't include background functions; see
+Netlify's
+[functions usage and billing](https://docs.netlify.com/build/functions/usage-and-billing/)
+page.
+
+A multi-minute agent turn therefore costs more compute than a short synchronous
+call — but it largely **replaces** the old pattern, where the turn hit the ~40s
+wall and the client re-issued several continuation requests. It is the same
+work consolidated into one long invocation, not purely additive.
 
 <Callout id="doc-block-gjoj2d" tone="info">
 

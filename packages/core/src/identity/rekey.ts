@@ -9,6 +9,10 @@ import {
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
+import {
+  IDENTITY_RETIRED_EMAILS_CREATE_SQL,
+  identityCredentialLockKey,
+} from "./retired-emails.js";
 
 export interface IdentityRekeyDb {
   unsafe(
@@ -44,7 +48,12 @@ export type IdentityColumn = {
 };
 
 export type IdentityEmailChange = "rekey" | "delete" | "retain";
-export type IdentityOffboard = "transfer" | "delete" | "retain";
+/**
+ * `revoke` sets `revoked_at` (epoch milliseconds) on rows not yet revoked. Use
+ * it for credential registries whose readers treat a missing row as "not
+ * revoked", where deleting the row would re-enable the credential.
+ */
+export type IdentityOffboard = "transfer" | "delete" | "revoke" | "retain";
 
 export type IdentityOrgScope =
   | { column: string }
@@ -73,6 +82,12 @@ export type AppIdentityColumn = {
   reason: string;
 };
 
+/**
+ * Framework identity columns. `owner_email` rows transfer to the successor on
+ * offboarding unless the entry says otherwise. Credentials say `delete` or
+ * `revoke`, because a transferred credential lets the removed member act as
+ * the successor. rekey.spec.ts pins that list.
+ */
 export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "user", column: "email" },
   { table: "invitation", column: "email" },
@@ -171,11 +186,28 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "integration_remote_push_notifications", column: "owner_email" },
   { table: "integration_conversation_scopes", column: "owner_email" },
   { table: "integration_usage_budgets", column: "owner_email" },
-  { table: "mcp_device_codes", column: "owner_email" },
-  { table: "mcp_connect_tokens", column: "owner_email" },
+  { table: "mcp_device_codes", column: "owner_email", offboard: "delete" },
+  // A missing connect-token row reads as "not revoked", so revoke, never delete.
+  { table: "mcp_connect_tokens", column: "owner_email", offboard: "revoke" },
   { table: "mcp_connect_tokens", column: "created_by" },
-  { table: "mcp_oauth_codes", column: "owner_email" },
-  { table: "mcp_oauth_refresh_tokens", column: "owner_email" },
+  { table: "mcp_oauth_codes", column: "owner_email", offboard: "delete" },
+  {
+    table: "mcp_oauth_codes",
+    column: "issued_for_email",
+    emailChange: "retain",
+    offboard: "retain",
+  },
+  {
+    table: "mcp_oauth_refresh_tokens",
+    column: "owner_email",
+    offboard: "revoke",
+  },
+  {
+    table: "mcp_oauth_refresh_tokens",
+    column: "issued_for_email",
+    emailChange: "retain",
+    offboard: "retain",
+  },
   { table: "notifications", column: "owner", mode: "owner" },
   { table: "progress_runs", column: "owner", mode: "owner" },
   { table: "provider_corpus_jobs", column: "owner_email" },
@@ -250,6 +282,7 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "identity_rekeys.old_email",
   "identity_rekeys.new_email",
   "identity_rekeys.actor_email",
+  "identity_retired_emails.email",
   // Actor kind enum ('user' | 'agent' | 'system'), not an address.
   "context_directives.created_by",
   "resources.created_by",
@@ -316,7 +349,9 @@ export function registerIdentityColumns(
       throw new Error(`Identity column ${key} needs a reason.`);
     if (
       entry.mode === "secret-scope" &&
-      (entry.emailChange === "delete" || entry.offboard === "transfer")
+      (entry.emailChange === "delete" ||
+        entry.offboard === "transfer" ||
+        entry.offboard === "revoke")
     )
       throw new Error(
         `Identity column ${key} is secret-scoped; it can only be rekeyed or retained on email change and deleted or retained on offboard.`,
@@ -917,6 +952,41 @@ async function rekeyPromotedEvalDatasetKeys(
   }
 }
 
+async function rekeyOAuthGrantOwners(
+  db: IdentityRekeyDb,
+  oldEmail: string,
+  newEmail: string,
+  counts: Record<string, number>,
+  dryRun: boolean,
+): Promise<Set<string>> {
+  const handled = new Set<string>();
+  for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
+    const available = await columns(db, table);
+    if (!available.has("owner_email") || !available.has("issued_for_email"))
+      continue;
+    const rows = await db.unsafe(
+      `SELECT owner_email, issued_for_email FROM ${quote(table)} WHERE LOWER(owner_email) = LOWER($1) FOR UPDATE`,
+      [oldEmail],
+    );
+    counts[`${table}.owner_email`] = rows.length;
+    counts[`${table}.issued_for_email`] = rows.filter(
+      (row) => row.issued_for_email === row.owner_email,
+    ).length;
+    handled.add(`${table}.owner_email`);
+    handled.add(`${table}.issued_for_email`);
+    if (dryRun || !rows.length) continue;
+    // Invalid or legacy bindings must not become valid merely because the
+    // renamed owner happens to match the stored issuance address.
+    const updated = await db.unsafe(
+      `UPDATE ${quote(table)} SET issued_for_email = CASE WHEN issued_for_email = owner_email THEN $2 ELSE NULL END, owner_email = $2 WHERE LOWER(owner_email) = LOWER($1) RETURNING owner_email`,
+      [oldEmail, newEmail],
+    );
+    if (updated.length !== rows.length)
+      throw new Error("OAuth grant ownership changed during email rekey.");
+  }
+  return handled;
+}
+
 /** Run inside the caller's PostgreSQL transaction. It deliberately refuses credential and derived-key stores it cannot safely rewrite. */
 export async function rekeyIdentity(
   db: IdentityRekeyDb,
@@ -940,6 +1010,14 @@ export async function rekeyIdentity(
     throw new Error("Provide two different valid email addresses.");
   }
 
+  // Credential issuance takes this lock for its owner before any row lock,
+  // including Personal issuance, which has no membership row to wait on.
+  for (const email of [oldEmail, newEmail].sort())
+    await db.unsafe(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 0::bigint))`,
+      [identityCredentialLockKey(email)],
+    );
+
   const identityColumns = await assertIdentityColumnsRegistered(db);
 
   const userColumns = await columns(db, "user");
@@ -947,6 +1025,20 @@ export async function rekeyIdentity(
     throw new Error(
       "Better Auth user table is unavailable; no identity data was changed.",
     );
+  const membershipColumns = await columns(db, "org_members");
+  if (membershipColumns.has("email")) {
+    const order = ["org_id", "id"].filter((column) =>
+      membershipColumns.has(column),
+    );
+    if (!order.length) order.push("email");
+    // Issuance and offboarding lock membership before credentials. Hold the
+    // same fence through every scan, including an initially empty grant store.
+    await db.unsafe(
+      `SELECT ${quote(membershipColumns.has("id") ? "id" : "email")} FROM "org_members"
+       WHERE LOWER("email") = LOWER($1) ORDER BY ${order.map(quote).join(", ")} FOR UPDATE`,
+      [oldEmail],
+    );
+  }
   const users = await db.unsafe(
     `SELECT "id" FROM "user" WHERE LOWER("email") = LOWER($1) FOR UPDATE`,
     [oldEmail],
@@ -981,8 +1073,29 @@ export async function rekeyIdentity(
   const counts: Record<string, number> = {};
   let oauthRevokedCount = 0;
   counts["user.email"] = 1;
+  if (!options.dryRun) {
+    await db.unsafe(IDENTITY_RETIRED_EMAILS_CREATE_SQL);
+    await db.unsafe(
+      `INSERT INTO identity_retired_emails (email, retired_at) VALUES ($1, $2)
+       ON CONFLICT (email) DO UPDATE
+         SET retired_at = GREATEST(identity_retired_emails.retired_at, EXCLUDED.retired_at)`,
+      [oldEmail, Date.now()],
+    );
+  }
+  const handledGrantOwners = await rekeyOAuthGrantOwners(
+    db,
+    oldEmail,
+    newEmail,
+    counts,
+    options.dryRun === true,
+  );
   for (const entry of identityColumns) {
-    if (entry.table === "user" || entry.emailChange === "retain") continue;
+    if (
+      entry.table === "user" ||
+      entry.emailChange === "retain" ||
+      handledGrantOwners.has(`${entry.table}.${entry.column}`)
+    )
+      continue;
     if (entry.mode === "unsupported-oauth") {
       const oauthColumns = await columns(db, "oauth_tokens");
       if (!oauthColumns.size) continue;

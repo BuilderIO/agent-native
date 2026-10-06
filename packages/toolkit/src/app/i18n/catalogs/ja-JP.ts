@@ -136,13 +136,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "Builder.io アカウントに無料で含まれます",
   "onboarding.builderMonthlyCredits": "月間 60 Agent Credits",
+  "onboarding.builderIncludedFree": "無料で利用可能",
+  "onboarding.builderMoreServices": "+ 他 {{count}} 件のサービス",
+  "onboarding.builderIncludedServices": "含まれるサービス",
   "onboarding.builderActivateTitle": "無料クレジットを有効化",
   "onboarding.builderAccountExistsTitle":
     "Builder.io アカウントをすでにお持ちです",
   "onboarding.builderAccountExistsDescription":
     "ログインしてアカウントを使用してください。",
   "onboarding.builderActivationDescription":
-    "ワンクリックで Builder.io アカウントを自動的に作成します。",
+    "ワンクリックで Builder.io アカウントを作成または接続して、無料クレジットを獲得します。",
   "onboarding.builderOrgActivationDescription":
     "ワンクリックで Builder.io アカウントを作成し、組織で使えるようにします。",
   "onboarding.builderCreateAndActivate": "作成して有効化",
@@ -166,6 +169,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "独自のAIモデルを接続",
   "onboarding.capability.fileStorage.keySummary":
     "ファイルのアップロードと保存",
+  "onboarding.capability.llm.why":
+    "エージェントは言語モデルを使ってリクエストを理解し、回答を作成します。",
+  "onboarding.capability.fileStorage.why":
+    "アップロードした画像やファイルを保存し、エージェントが会話内で再利用できるようにします。",
   "onboarding.fileStorage.title": "ファイルをアップロードするストレージを接続",
   "onboarding.fileStorage.statusUnavailable":
     "ストレージを確認できませんでした",
@@ -183,6 +190,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "埋め込み",
   "onboarding.capability.embeddings.why":
     "埋め込みは意味検索を改善します。埋め込みがなくてもキーワード検索は使えます。",
+  "onboarding.capability.systemOne.why":
+    "Jev は、エージェントが最初にモデルへリクエストする前に、関連するツールやスキルを選ぶための任意の判断モデルです。",
   "onboarding.capability.assetsImageGeneration.label": "画像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builderクレジットまたは画像プロバイダーのキー",
@@ -501,6 +510,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "スキルファイルをアップロード",
   "composer.upload": "アップロード",
   "composer.uploadFailed": "選択したファイルをアップロードできませんでした。",
+  "composer.unsupportedFileType": "このファイル形式はサポートされていません。",
   "composer.useAttachedContext": "添付されたコンテキストを使用してください。",
   "mentions.commands": "コマンド",
   "mentions.learnMore": "詳細を見る",
@@ -1114,11 +1124,10 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}} 件が待機中 — フォローアップを送信...",
   "queue.remove": "キューから削除",
   "queue.sendNow": "今すぐ送信",
-  "queue.sendNowHint": "今すぐ送信（現在の応答を停止します）",
-  "queue.steer": "ステア",
-  "queue.steerHint": "このメッセージを次に送信",
+  "queue.sendNowHint": "現在の応答を停止してから、このメッセージを送信",
+  "queue.sendNext": "次に送信",
+  "queue.sendNextHint": "現在の応答が終了した後に送信",
   "queue.moreActions": "その他のアクション",
-  "queue.moveToTop": "先頭に移動",
   "recovery.connectingBuilder": "Builder.io を設定中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
@@ -1348,6 +1357,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
+  "tool.identifierHidden": "[識別子を非表示]",
+  "tool.contentOmitted": "[内容を省略]",
+  "tool.circularReference": "[循環参照]",
   "tool.interrupted":
     "完了報告の前に中断されました。処理は完了している場合も、していない場合もあります。再試行する前に確認してください。",
   "tool.longRunning":

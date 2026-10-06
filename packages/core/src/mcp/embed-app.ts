@@ -125,7 +125,6 @@ export function embedApp(
     const nativeBridgeInitializeTimeoutMs = 5000;
     const nativeBridgeRequestTimeoutMs = 30000;
     const wrapperRequestTimeoutMs = 5000;
-    const remoteBridgeFallbackEnabled = ${remoteBridgeFallbackEnabled};
     let app = null;
     let appConnectPromise = null;
     let openAiBridge = null;
@@ -2171,7 +2170,9 @@ export function embedApp(
       sendHostContext();
     }
 
-    async function startMcpAppsBridge() {
+    ${
+      remoteBridgeFallbackEnabled
+        ? `async function startMcpAppsBridge() {
       const { App } = await import("${MCP_APP_IMPORT}");
       app = new App(
         { name: "Agent-Native Embed", version: "1.0.0" },
@@ -2201,6 +2202,8 @@ export function embedApp(
       updateDisplayButton();
       notifyHostHeight();
       sendHostContext();
+    }`
+        : ""
     }
 
     try {
@@ -2210,8 +2213,7 @@ export function embedApp(
           await startNativeMcpAppsBridge();
         } catch (nativeErr) {
           console.warn("[agent-native] native MCP Apps bridge failed", nativeErr);
-          if (!remoteBridgeFallbackEnabled) throw nativeErr;
-          await startMcpAppsBridge();
+          ${remoteBridgeFallbackEnabled ? "await startMcpAppsBridge();" : "throw nativeErr;"}
         }
       }
     } catch (err) {

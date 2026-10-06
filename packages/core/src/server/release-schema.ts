@@ -169,6 +169,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       ),
   ],
   [
+    "IdentityRetiredEmails",
+    () => import("../identity/retired-emails.js").then((m) => m.ensureTable()),
+  ],
+  [
     "IdentitySso",
     () => import("./identity-sso-store.js").then((m) => m.ensureTable()),
   ],
