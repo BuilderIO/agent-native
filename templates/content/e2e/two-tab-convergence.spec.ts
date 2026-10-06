@@ -375,8 +375,12 @@ test.describe("two tabs editing one page at beta cadence", () => {
         "A's recovery draft should hold exactly the page B saved",
       ).toEqual({ title: page.title, content: page.content });
       const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
-      // A's save was cut off on purpose, so A has already reported it.
-      s.expectedNoise = noiseFailures([s.tabs.record(a)]);
+      // A's save was cut off on purpose, and that failed request reports once.
+      // Anything else A shows, before the refresh or after it, still fails.
+      s.expectedNoise = [
+        'A showed "Something went wrong"',
+        'A toasted "Something went wrongAction update-document failed: Failed to fetch"',
+      ];
       recoveries.hold();
       await a.reload({ waitUntil: "domcontentloaded" });
       let reopenedWith: "recovery" | "discarded" | null = null;
