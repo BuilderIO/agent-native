@@ -3994,7 +3994,6 @@ function PageEditorSessionBody({
         authoredContentBaseRef.current.saved({
           saved,
           sentContent: options.editorSnapshotContent,
-          editorContent: localContentRef.current,
           authoredOn: sentIntent
             ? {
                 revision: sentIntent.baseRevision,
@@ -6065,6 +6064,7 @@ function PageEditorSessionBody({
   const handleContentChange = useCallback(
     (newContent: string) => {
       if (!editorCanEdit) return;
+      authoredContentBaseRef.current.edited(newContent);
       if (newContent === localContentRef.current) return;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
@@ -6134,6 +6134,7 @@ function PageEditorSessionBody({
         handleContentChange(newContent);
         return "retained";
       }
+      authoredContentBaseRef.current.edited(newContent);
       return (await handleContentSaveNow({
         localTitle: localTitleRef.current,
         localDraft: newContent,

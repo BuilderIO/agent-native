@@ -7,10 +7,10 @@ const merged = { revision: "r2", content: "Alpha. peer\nBravo. mine" };
 
 function afterMergedSave() {
   const tracker = createAuthoredContentBase();
+  tracker.edited("Alpha.\nBravo. mine");
   tracker.saved({
     saved: merged,
     sentContent: "Alpha.\nBravo. mine",
-    editorContent: "Alpha.\nBravo. mine",
     authoredOn,
   });
   return tracker;
@@ -19,10 +19,16 @@ function afterMergedSave() {
 describe("authored content base", () => {
   it("authors on the saved body when the editor already holds it", () => {
     const tracker = createAuthoredContentBase();
+    tracker.observed(merged.content, authoredOn);
+    // An earlier answer starts a new save; the editor still holds the text.
+    tracker.saved({
+      saved: authoredOn,
+      sentContent: authoredOn.content,
+      authoredOn,
+    });
     tracker.saved({
       saved: merged,
       sentContent: "Alpha.\nBravo. mine",
-      editorContent: merged.content,
       authoredOn,
     });
     expect(tracker.base(merged)).toEqual(merged);
@@ -30,10 +36,11 @@ describe("authored content base", () => {
 
   it("authors on the saved body when the peer's text and more typing arrived before the answer", () => {
     const tracker = createAuthoredContentBase();
+    tracker.observed("Alpha. peer\nBravo. mine", authoredOn);
+    tracker.edited("Alpha. peer\nBravo. mine and more");
     tracker.saved({
       saved: merged,
       sentContent: "Alpha.\nBravo. mine",
-      editorContent: "Alpha. peer\nBravo. mine and more",
       authoredOn,
     });
     expect(tracker.base(merged)).toEqual(merged);
@@ -42,10 +49,10 @@ describe("authored content base", () => {
   it("authors on the saved body when the peer's text arrived and was deleted before the answer", () => {
     const tracker = createAuthoredContentBase();
     tracker.observed("Alpha. peer\nBravo. mine", authoredOn);
+    tracker.edited("Alpha.\nBravo. mine");
     tracker.saved({
       saved: merged,
       sentContent: "Alpha.\nBravo. mine",
-      editorContent: "Alpha.\nBravo. mine",
       authoredOn,
     });
     expect(tracker.base(merged)).toEqual(merged);
@@ -54,10 +61,10 @@ describe("authored content base", () => {
   it("authors on the winner a displaced save adopted", () => {
     const tracker = createAuthoredContentBase();
     const winner = { revision: "r2", content: "Alpha. peer\nBravo." };
+    tracker.observed(winner.content, authoredOn);
     tracker.saved({
       saved: winner,
       sentContent: "Alpha.\nBravo. mine",
-      editorContent: winner.content,
       authoredOn,
     });
     expect(tracker.base(winner)).toEqual(winner);
@@ -67,6 +74,15 @@ describe("authored content base", () => {
     const tracker = afterMergedSave();
     expect(tracker.base(merged)).toEqual(authoredOn);
     tracker.observed("Alpha.\nBravo. mine more", merged);
+    expect(tracker.base(merged)).toEqual(authoredOn);
+  });
+
+  it("keeps the merged save's own base when the editor reports its unchanged text again", () => {
+    const tracker = afterMergedSave();
+    // The page's local copy took the saved body with the answer, so the page
+    // saves this report as an edit. Authored on the saved body, that edit
+    // deletes the peer's text.
+    tracker.edited("Alpha.\nBravo. mine");
     expect(tracker.base(merged)).toEqual(authoredOn);
   });
 
@@ -99,5 +115,17 @@ describe("authored content base", () => {
     expect(tracker.base(later)).toEqual(later);
     tracker.reset();
     expect(tracker.base(merged)).toEqual(merged);
+  });
+
+  it("forgets the editor's text with the page it belonged to", () => {
+    const tracker = createAuthoredContentBase();
+    tracker.observed(merged.content, authoredOn);
+    tracker.reset();
+    tracker.saved({
+      saved: merged,
+      sentContent: "Alpha.\nBravo. mine",
+      authoredOn,
+    });
+    expect(tracker.base(merged)).toEqual(authoredOn);
   });
 });
