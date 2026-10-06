@@ -893,6 +893,112 @@ describe("sendToAgentChat", () => {
     expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
+  it("routes text-only branch prompts to the active ChatGPT chat", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "Try a different hero direction",
+      submit: true,
+      chatTarget: "local",
+      newTab: true,
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Try a different hero direction",
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps code-targeted requests out of the ChatGPT follow-up route", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+
+    sendToAgentChat({
+      message: "Update the repository implementation",
+      submit: true,
+      chatTarget: "local",
+      type: "code",
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy.mock.calls[0]?.[0]?.data).toMatchObject({
+      message: "Update the repository implementation",
+      type: "code",
+    });
+  });
+
+  it("keeps new-branch prompts in the app for other MCP hosts", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    sendToAgentChat({
+      message: "Try a different hero direction",
+      submit: true,
+      chatTarget: "local",
+      newTab: true,
+    });
+    vi.runOnlyPendingTimers();
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data).toMatchObject({
+      message: "Try a different hero direction",
+      newTab: true,
+    });
+  });
+
+  it("sends inline images with local ChatGPT handoffs", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "Review this screenshot",
+      submit: true,
+      chatTarget: "local",
+      images: ["data:image/png;base64,AQID"],
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Review this screenshot",
+      content: [
+        { type: "text", text: "Review this screenshot" },
+        { type: "image", data: "AQID", mimeType: "image/png" },
+      ],
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps image attachments without inline data in the app chat", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+
+    sendToAgentChat({
+      message: "Review the attached screenshot",
+      submit: true,
+      chatTarget: "local",
+      attachments: [
+        {
+          type: "image",
+          name: "screen.png",
+          url: "https://cdn.builder.io/screen.png",
+          contentType: "image/png",
+        },
+      ],
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    vi.runOnlyPendingTimers();
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+  });
+
   it("confirms an explicit local ChatGPT handoff through the MCP App bridge", async () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
@@ -910,6 +1016,59 @@ describe("sendToAgentChat", () => {
     expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
       message: "Review these comments",
       context: "Two unresolved comments",
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a confirmed wrapper relay when ChatGPT rejects the handoff", async () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(false));
+
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "Apply these review comments",
+      context: "Two unresolved comments",
+      submit: true,
+      chatTarget: "local",
+    });
+    await flushMicrotasks();
+    const [payload, targetOrigin] =
+      parentPostMessageSpy.mock.calls.at(-1) ?? [];
+    const submitMessageId = payload?.data?.submitMessageId as string;
+    reportAgentChatSubmitResult(submitMessageId, true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledOnce();
+    expect(targetOrigin).toBe("*");
+    expect(payload?.data).toMatchObject({
+      message: "Apply these review comments",
+      context: "Two unresolved comments",
+    });
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("confirms a new-branch prompt in ChatGPT without requiring local correlation", async () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    const result = await sendToAgentChatAndConfirm(
+      {
+        message: "Try the alternate layout",
+        submit: true,
+        chatTarget: "local",
+        newTab: true,
+      },
+      { submitMessageId: "local-correlation-id" },
+    );
+
+    expect(result).toMatchObject({ delivered: true });
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Try the alternate layout",
     });
     expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
@@ -956,13 +1115,13 @@ describe("sendToAgentChat", () => {
     });
   });
 
-  it("keeps ChatGPT confirmation submits with an explicit correlation id local", async () => {
-    vi.useFakeTimers();
+  it("routes ChatGPT confirmation submits with an explicit correlation id to the host", async () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
 
-    const result = sendToAgentChatAndConfirm(
+    const result = await sendToAgentChatAndConfirm(
       {
         message: "Generate the current deck",
         submit: true,
@@ -971,12 +1130,11 @@ describe("sendToAgentChat", () => {
       { submitMessageId: "slides-submit-1" },
     );
 
-    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(0);
-    const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data;
-    expect(payload?.submitMessageId).toBe("slides-submit-1");
-    reportAgentChatSubmitResult("slides-submit-1", true);
-    await expect(result).resolves.toMatchObject({ delivered: true });
+    expect(result).toMatchObject({ delivered: true });
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Generate the current deck",
+    });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("falls back to the wrapper relay if direct MCP App host messaging rejects the send", async () => {

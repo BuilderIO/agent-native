@@ -139,8 +139,11 @@ stays local as a prefill/review path.
 In the ChatGPT MCP App host, foreground text-and-context handoffs explicitly
 marked `chatTarget: "local"` also use the active `window.openai` / `ui/message`
 bridge, so review and edit actions continue in the ChatGPT conversation. Keep
-prefill-only, background, approval, attachment, and app-scoped requests local;
-other MCP hosts retain their explicit local-chat behavior.
+prefill-only, background, approval, URL-backed attachments, and app-scoped
+requests local. Inline images represented as data URLs and text attachments can
+use the host. A `newTab` prompt continues in ChatGPT's active conversation;
+thread-fork controls remain app-local because the host bridge has no fork
+method. Other MCP hosts retain their explicit local-chat behavior.
 
 When testing Claude through ngrok, use a production build (`pnpm exec agent-native build`
 then `pnpm exec agent-native start`) or a deployed preview/production URL. Claude's
