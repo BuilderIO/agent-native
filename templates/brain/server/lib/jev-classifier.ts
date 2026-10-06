@@ -65,7 +65,7 @@ export function jevFailureHttpStatus(reason: string): number | null {
 export function isTransientJevFailure(reason: string): boolean {
   if (TRANSIENT_JEV_REASONS.has(reason)) return true;
   const status = jevFailureHttpStatus(reason) ?? 0;
-  return status === 429 || status > 499;
+  return status === 408 || status === 429 || status > 499;
 }
 
 export type JevClassifierPreference = "jev" | "model" | "deterministic";
