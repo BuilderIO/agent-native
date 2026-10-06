@@ -44,7 +44,10 @@ import {
   parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
-import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import {
+  getOverviewScreenFileIds,
+  isOverviewScreenFile,
+} from "../shared/design-files.js";
 import {
   designGenerationSessionKey,
   type DesignGenerationSession,
@@ -87,6 +90,14 @@ function isRenderableDesignFile(file: {
   return (
     (fileType === "html" || fileType === "jsx") && Boolean(file.content?.trim())
   );
+}
+
+function isRenderableDesignScreenFile(file: {
+  filename: string;
+  fileType?: string | null;
+  content?: string | null;
+}): boolean {
+  return isOverviewScreenFile(file) && isRenderableDesignFile(file);
 }
 
 type GenerationViewport = "mobile" | "tablet" | "desktop";
@@ -980,6 +991,10 @@ const generateDesignAction = defineAction({
         });
         if (promptCanvasDimensions) {
           for (const file of savedFiles) {
+            const source = files.find(
+              (candidate) => candidate.filename === file.filename,
+            );
+            if (!source || !isRenderableDesignScreenFile(source)) continue;
             const frame = merged.canvasFrames[file.id];
             if (!frame) continue;
             merged.canvasFrames[file.id] = {
@@ -1008,6 +1023,10 @@ const generateDesignAction = defineAction({
         );
         if (explicitDeviceSelection) {
           for (const file of savedFiles) {
+            const source = files.find(
+              (candidate) => candidate.filename === file.filename,
+            );
+            if (!source || !isRenderableDesignScreenFile(source)) continue;
             const current = merged.canvasFrames[file.id];
             if (
               preExistingFrameIds.has(file.id) &&
@@ -1035,7 +1054,7 @@ const generateDesignAction = defineAction({
           const source = files.find(
             (candidate) => candidate.filename === file.filename,
           );
-          if (!source || !isRenderableDesignFile(source)) continue;
+          if (!source || !isRenderableDesignScreenFile(source)) continue;
           const rawMetadata = nextScreenMetadata[file.id];
           const metadata =
             rawMetadata &&
@@ -1200,7 +1219,9 @@ const generateDesignAction = defineAction({
                   const source = files.find(
                     (candidate) => candidate.filename === file.filename,
                   );
-                  return Boolean(source && isRenderableDesignFile(source));
+                  return Boolean(
+                    source && isRenderableDesignScreenFile(source),
+                  );
                 })
                 .map((file) => file.id),
             )
@@ -1217,6 +1238,15 @@ const generateDesignAction = defineAction({
         for (const placed of generationFrames) {
           occupiedRects.push(rectOf(placed.frame, placed.fileId));
         }
+        for (const file of savedFiles) {
+          if (preExistingFrameIds.has(file.id)) continue;
+          const source = files.find(
+            (candidate) => candidate.filename === file.filename,
+          );
+          if (source && isRenderableDesignScreenFile(source)) continue;
+          const frame = merged.canvasFrames[file.id];
+          if (frame) occupiedRects.push(rectOf(frame, file.id));
+        }
         let nextX = occupiedRects.reduce(
           (right, rect) =>
             Math.max(right, rect.x + rect.width + GENERATED_FRAME_GAP),
@@ -1226,7 +1256,7 @@ const generateDesignAction = defineAction({
           const source = files.find(
             (candidate) => candidate.filename === file.filename,
           );
-          if (!source || !isRenderableDesignFile(source)) continue;
+          if (!source || !isRenderableDesignScreenFile(source)) continue;
           const current = merged.canvasFrames[file.id] ?? {};
           if (
             preExistingFrameIds.has(file.id) &&

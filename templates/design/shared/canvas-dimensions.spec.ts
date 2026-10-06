@@ -13,9 +13,14 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     ["Create a screen at 1200x800", { width: 1200, height: 800 }],
     ["Use exact dimensions: 96 by 96", { width: 96, height: 96 }],
     ["Create a 1,200 x 675 pixel email banner", { width: 1200, height: 675 }],
+    ["Create an email header at 1200x400", { width: 1200, height: 400 }],
+    ["Create a screen at 1080px × 1080px", { width: 1080, height: 1080 }],
+    [
+      "Create a 300 pixels by 250 pixels email banner",
+      { width: 300, height: 250 },
+    ],
+    ["Create a screen at 1080 px by 1080 px", { width: 1080, height: 1080 }],
     ["Create a 1080px × 1080px image", { width: 1080, height: 1080 }],
-    ["Create a 300 pixels by 250 pixels image", { width: 300, height: 250 }],
-    ["Create a 1080 px by 1080 px image", { width: 1080, height: 1080 }],
     ["Create a 2x2 card grid at 1200x800 pixels", { width: 1200, height: 800 }],
     [
       "Create a 2x2 card grid with exact canvas size 1200x800",
@@ -45,6 +50,35 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     expect(
       explicitCanvasDimensionsFromPrompt("Use aspect ratio: 1920x1080"),
     ).toBeUndefined();
+  });
+
+  it("requires context that identifies dimensions as the output canvas size", () => {
+    expect(
+      explicitCanvasDimensionsFromPrompt("Make a desktop 1440x900 dashboard"),
+    ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a responsive page with desktop 1440x900 and mobile 390x844",
+      ),
+    ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 16px × 16px notification icon",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("prefers explicit screen dimensions over nested asset dimensions", () => {
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 1200x800 screen with a 300x250 ad",
+      ),
+    ).toEqual({ width: 1200, height: 800 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 1200x800 screen with a 300x250px image",
+      ),
+    ).toEqual({ width: 1200, height: 800 });
   });
 
   it("does not interpret physical units as pixel dimensions", () => {

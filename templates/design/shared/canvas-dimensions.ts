@@ -11,22 +11,20 @@ export interface CanvasDimensions {
 const DIMENSION_PAIR =
   /(?<![\d.,])(-?(?:\d{1,3}(?:,\d{3})+|\d+))\s*(px|pixels?)?\s*(?:x|×|by)\s*(-?(?:\d{1,3}(?:,\d{3})+|\d+))\s*(px|pixels?)?(?!\w)/gi;
 const DIMENSION_CONTEXT_BEFORE =
-  /\b(?:exact(?:ly)?|fixed[- ]size|dimensions?|size|canvas|artboard|frame|screen|pixels?)\s*(?:[:=]\s*)?$/i;
+  /\b(?:exact(?:ly)?|fixed[- ]size|dimensions?|size|canvas|artboard|frame|screen|pixels?)\s*(?:(?:to|at)\s*)?(?:[:=]\s*)?$/i;
 const DIMENSION_CONTEXT_AFTER =
   /^\s*(?:canvas|artboard|frame|screen|(?:exact(?:ly)?\s+)?(?:dimensions?|size))\b/i;
 const FORMAT_CONTEXT_BEFORE =
-  /\b(?:ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|social\s+post|post|story|email|newsletter|print|flyer|poster|screenshot)(?:\s+(?:at|for|of|in|with|size|dimensions?))?\s*$/i;
+  /\b(?:ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|social\s+post|post|story|email\s+header|email|newsletter|print|flyer|poster|screenshot)(?:\s+(?:at|for|of|in|with|size|dimensions?))?\s*$/i;
 const FORMAT_CONTEXT_AFTER =
-  /^\s*(?:(?:for|as|in)\s+(?:an?\s+)?)?(?:ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|social\s+post|post|story|email|newsletter|print|flyer|poster|screenshot)\b/i;
-const SMALL_FORMAT_CONTEXT_BEFORE =
-  /\b(?:icon|favicon|logo|avatar)(?:\s+(?:at|for|of|in|with|size|dimensions?))?\s*$/i;
-const SMALL_FORMAT_CONTEXT_AFTER =
-  /^\s*(?:(?:for|as|in)\s+(?:an?\s+)?)?(?:icon|favicon|logo|avatar)\b/i;
+  /^\s*(?:(?:for|as|in)\s+(?:an?\s+)?)?(?:ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|social\s+post|post|story|email\s+header|email|newsletter|print|flyer|poster|screenshot)\b/i;
 const LAYOUT_COUNT_CONTEXT_AFTER =
   /^\s*(?:(?:card\s+)?(?:grid|matrix|layout)|columns?|rows?)\b/i;
 const ASPECT_RATIO_CONTEXT_AFTER = /^\s*(?:aspect\s+ratio|ratio)\b/i;
 const ASPECT_RATIO_CONTEXT_BEFORE =
   /\b(?:aspect\s+)?ratio\b(?:\s+(?:of|is|to))?\s*[:=]?\s*$/i;
+const OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE =
+  /\b(?:card\s+)?(?:grid|matrix|layout)\s+at\s*$/i;
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
   /^\s*(?:(?:mm|millimeters?|cm|centimeters?|inch(?:es)?|ft|feet|pt|points?|pc|picas?|em|rem)\b|in\b(?=\s*(?:[.;,!?)]|$))|["″'′])/i;
 
@@ -36,7 +34,9 @@ export function explicitCanvasDimensionsFromPrompt(
   if (!prompt) return undefined;
 
   const matches = Array.from(prompt.matchAll(DIMENSION_PAIR));
-  const dimensionsByKey = new Map<string, CanvasDimensions>();
+  const explicitDimensionsByKey = new Map<string, CanvasDimensions>();
+  const pixelImageDimensionsByKey = new Map<string, CanvasDimensions>();
+  const formatDimensionsByKey = new Map<string, CanvasDimensions>();
 
   for (let index = 0; index < matches.length; index += 1) {
     const match = matches[index]!;
@@ -59,7 +59,6 @@ export function explicitCanvasDimensionsFromPrompt(
     const suffix = prompt
       .slice(end, Math.min(nextStart, end + 48))
       .split(/[,;.!?\n]/)[0];
-    const hasPixelUnit = Boolean(match[2] || match[4]);
     if (
       LAYOUT_COUNT_CONTEXT_AFTER.test(suffix ?? "") ||
       ASPECT_RATIO_CONTEXT_BEFORE.test(prefix ?? "") ||
@@ -70,20 +69,14 @@ export function explicitCanvasDimensionsFromPrompt(
     }
     const hasDimensionContext =
       DIMENSION_CONTEXT_BEFORE.test(prefix ?? "") ||
-      DIMENSION_CONTEXT_AFTER.test(suffix ?? "");
+      DIMENSION_CONTEXT_AFTER.test(suffix ?? "") ||
+      OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE.test(prefix ?? "");
+    const hasPixelImageContext =
+      Boolean(match[2] || match[4]) && /^\s*image\b/i.test(suffix ?? "");
     const hasFormatContext =
       FORMAT_CONTEXT_BEFORE.test(prefix ?? "") ||
       FORMAT_CONTEXT_AFTER.test(suffix ?? "");
-    const hasSmallFormatContext =
-      SMALL_FORMAT_CONTEXT_BEFORE.test(prefix ?? "") ||
-      SMALL_FORMAT_CONTEXT_AFTER.test(suffix ?? "");
-    if (
-      !hasPixelUnit &&
-      !hasDimensionContext &&
-      !hasFormatContext &&
-      (width < 100 || height < 100) &&
-      !hasSmallFormatContext
-    ) {
+    if (!hasDimensionContext && !hasPixelImageContext && !hasFormatContext) {
       continue;
     }
 
@@ -109,9 +102,20 @@ export function explicitCanvasDimensionsFromPrompt(
       );
     }
 
-    dimensionsByKey.set(`${width}x${height}`, { width, height });
+    const target = hasDimensionContext
+      ? explicitDimensionsByKey
+      : hasPixelImageContext
+        ? pixelImageDimensionsByKey
+        : formatDimensionsByKey;
+    target.set(`${width}x${height}`, { width, height });
   }
 
+  const dimensionsByKey =
+    explicitDimensionsByKey.size > 0
+      ? explicitDimensionsByKey
+      : pixelImageDimensionsByKey.size > 0
+        ? pixelImageDimensionsByKey
+        : formatDimensionsByKey;
   if (dimensionsByKey.size > 1) {
     const requested = [...dimensionsByKey.values()]
       .map(({ width, height }) => `${width}×${height}`)

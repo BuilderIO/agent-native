@@ -1185,7 +1185,105 @@ describe("generate-design: new-file creation path", () => {
     );
   });
 
-  it("keeps non-renderable existing frames in exact-size collision checks", async () => {
+  it("keeps JSX support geometry in exact-size collision checks", async () => {
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body>old</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "file-2",
+        designId: "design-1",
+        filename: "support.jsx",
+        fileType: "jsx",
+        content: "export default function Support() {}",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 390, height: 250, z: 0 },
+        "file-2": { x: 400, y: 0, width: 390, height: 250, z: 1 },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Set exact canvas dimensions to 600x500 pixels",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Updated</body></html>",
+        },
+        {
+          filename: "support.jsx",
+          fileType: "jsx",
+          content: "export default function Support() { return null; }",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    expect(frames["file-1"]!.width).toBe(600);
+    expect(frames["file-2"]).toMatchObject({ width: 390, height: 250 });
+    expect(frames["file-1"]!.x).toBeGreaterThanOrEqual(
+      frames["file-2"]!.x + frames["file-2"]!.width + 96,
+    );
+  });
+
+  it("reserves new non-renderable frames before placing exact-size screens", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create an exact canvas size of 600x500 pixels",
+      files: [
+        {
+          filename: "mark.png",
+          fileType: "asset",
+          content: "data:image/png;base64,mark",
+        },
+        {
+          filename: "screen.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Screen</body></html>",
+        },
+      ],
+      canvasFrames: [
+        { filename: "mark.png", x: 0, y: 0, width: 100, height: 100 },
+        { filename: "screen.html", x: 0, y: 0, width: 600, height: 500 },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    const assetId = result.savedFiles.find(
+      (file) => file.filename === "mark.png",
+    )!.id;
+    const screenId = result.savedFiles.find(
+      (file) => file.filename === "screen.html",
+    )!.id;
+    expect(frames[assetId]).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+    });
+    expect(frames[screenId]).toMatchObject({ width: 600, height: 500 });
+    expect(frames[screenId]!.x).toBeGreaterThanOrEqual(100 + 96);
+  });
+
+  it("does not apply selected device dimensions to support-file frames", async () => {
     mocks.setFileRows([
       {
         id: "file-1",
@@ -1209,13 +1307,14 @@ describe("generate-design: new-file creation path", () => {
     mocks.setDesignData({
       canvasFrames: {
         "file-1": { x: 0, y: 0, width: 390, height: 250, z: 0 },
-        "file-2": { x: 400, y: 0, width: 390, height: 250, z: 1 },
+        "file-2": { x: 1600, y: 0, width: 200, height: 100, z: 1 },
       },
     });
 
     await action.run({
       designId: "design-1",
-      prompt: "Set exact canvas dimensions to 600x500 pixels",
+      prompt: "Update the screen copy",
+      devices: ["desktop", "mobile"],
       files: [
         {
           filename: "index.html",
@@ -1228,13 +1327,10 @@ describe("generate-design: new-file creation path", () => {
 
     const frames = mocks.getDesignData().canvasFrames as Record<
       string,
-      { x: number; y: number; width: number; height: number }
+      { width: number; height: number }
     >;
-    expect(frames["file-1"]!.width).toBe(600);
-    expect(frames["file-2"]!.width).toBe(600);
-    expect(frames["file-1"]!.x).toBeGreaterThanOrEqual(
-      frames["file-2"]!.x + frames["file-2"]!.width + 96,
-    );
+    expect(frames["file-1"]).toMatchObject({ width: 1440, height: 900 });
+    expect(frames["file-2"]).toMatchObject({ width: 200, height: 100 });
   });
 
   it("keeps existing breakpoints while hiding them for an exact-size screen", async () => {
