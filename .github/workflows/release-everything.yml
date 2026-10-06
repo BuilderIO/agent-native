@@ -360,6 +360,8 @@ jobs:
                   lastStatus = current.status;
                   lastLoggedAt = now;
                 }
+                // Right after a re-run GitHub can still return the old completed
+                // attempt; only a newer attempt's completion is a result.
                 if (current.status === "completed" && current.run_attempt > rerunFromAttempt) {
                   if (current.conclusion !== "success") {
                     if (

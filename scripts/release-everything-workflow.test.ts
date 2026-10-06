@@ -407,6 +407,96 @@ describe("release everything workflow", () => {
     assert.match(source, /rerunFromAttempt = current\.run_attempt/);
   });
 
+  it("judges a re-run stage by its new attempt, not a stale read of the old one", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const start = source.indexOf("function neverStartedFailures");
+    const end = source.indexOf("const hostedRunnerFailure", start);
+    assert(start >= 0 && end > start);
+    type Run = {
+      run_attempt: number;
+      status: string;
+      conclusion: string | null;
+    };
+    const run = (
+      run_attempt: number,
+      status: string,
+      conclusion: string | null = null,
+    ): Run => ({ run_attempt, status, conclusion });
+
+    const waitFor = async (reads: Run[]) => {
+      let polls = 0;
+      let reruns = 0;
+      const waitForRun = new Function(
+        "getRun",
+        "listWorkflowRunJobs",
+        "github",
+        "core",
+        "sleep",
+        "phaseDeadline",
+        "pollIntervalMs",
+        "wasSupersededPendingRun",
+        "owner",
+        "repo",
+        `${source.slice(start, end)}; return waitForRun;`,
+      )(
+        async () => reads[Math.min(polls++, reads.length - 1)],
+        async () => [{ name: "design", conclusion: "cancelled", steps: [] }],
+        {
+          rest: {
+            actions: {
+              reRunWorkflowFailedJobs: async () => {
+                reruns += 1;
+              },
+            },
+          },
+        },
+        { info() {}, warning() {} },
+        async () => {},
+        () => Date.now() + 60_000,
+        15_000,
+        async () => false,
+        "BuilderIO",
+        "agent-native",
+      ) as (
+        run: { id: number; url: string },
+        label: string,
+        timeoutMs: number,
+      ) => Promise<Run>;
+      const result = waitForRun(
+        { id: 1, url: "run" },
+        "Production site fleet",
+        60_000,
+      );
+      return { result, counts: () => ({ polls, reruns }) };
+    };
+
+    // The first read triggers the re-run; the next three still return the
+    // re-run attempt before GitHub reports the new one.
+    const stale = Array.from({ length: 3 }, () =>
+      run(1, "completed", "cancelled"),
+    );
+    const succeeded = await waitFor([
+      run(1, "completed", "cancelled"),
+      ...stale,
+      run(2, "in_progress"),
+      run(2, "completed", "success"),
+    ]);
+    assert.deepEqual(await succeeded.result, run(2, "completed", "success"));
+    assert.deepEqual(succeeded.counts(), { polls: 6, reruns: 1 });
+
+    const failed = await waitFor([
+      run(1, "completed", "cancelled"),
+      ...stale,
+      run(2, "queued"),
+      run(2, "completed", "failure"),
+    ]);
+    await assert.rejects(
+      failed.result,
+      /Production site fleet ended failure after one re-run: run/,
+    );
+    assert.deepEqual(failed.counts(), { polls: 6, reruns: 1 });
+  });
+
   it("releases production sites even when npm publication fails", () => {
     const source = String((coordinator.with as Workflow).script);
     assert.match(
