@@ -1102,6 +1102,226 @@ describe("createAgentKitProtocolAdapter", () => {
     ).not.toHaveProperty("toolCall.messageId");
   });
 
+  it("associates a completed tool-first call with the next assistant message", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "search",
+          input: { query: "agentkit" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "search",
+        status: "completed",
+        result: { found: true },
+      };
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          content: [{ type: "text", text: "I found it." }],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const toolUpdates = result.filter((event) => event.type === "tool.updated");
+
+    expect(toolUpdates).toHaveLength(2);
+    expect(toolUpdates[0]).not.toHaveProperty("toolCall.messageId");
+    expect(toolUpdates[1]).toMatchObject({
+      type: "tool.updated",
+      toolCall: {
+        id: "tool-1",
+        name: "search",
+        input: { query: "agentkit" },
+        output: { found: true },
+        status: "completed",
+        messageId: "assistant-1",
+      },
+    });
+    const messageCreatedSequence = result.find(
+      (event) => event.type === "message.created",
+    )?.sequence;
+    expect(toolUpdates[1]!.sequence).toBeGreaterThan(messageCreatedSequence!);
+  });
+
+  it("keeps an explicit tool-first message association over later assistant messages", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "search",
+          input: { query: "agentkit" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "search",
+        status: "completed",
+        result: { found: true },
+        metadata: { messageId: "assistant-explicit" },
+      };
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-later",
+          role: "assistant",
+          content: [{ type: "text", text: "A later response." }],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const toolUpdates = result.filter((event) => event.type === "tool.updated");
+
+    expect(toolUpdates).toHaveLength(1);
+    expect(toolUpdates[0]).toMatchObject({
+      type: "tool.updated",
+      toolCall: { id: "tool-1", messageId: "assistant-explicit" },
+    });
+    expect(
+      result.find((event) => event.type === "message.created"),
+    ).toMatchObject({
+      message: { id: "assistant-later" },
+    });
+  });
+
+  it("does not associate tool-first calls with a nonassistant message", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "user-1", role: "user", content: [] },
+      };
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "search",
+          input: { query: "agentkit" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "search",
+        status: "completed",
+        result: { found: true },
+      };
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const started = result.find((event) => event.type === "tool.started");
+    const attached = result.filter((event) => event.type === "tool.updated");
+
+    expect(started).not.toHaveProperty("toolCall.messageId");
+    expect(attached).toHaveLength(2);
+    expect(attached[0]).not.toHaveProperty("toolCall.messageId");
+    expect(attached[1]).toMatchObject({
+      toolCall: { id: "tool-1", messageId: "assistant-1" },
+    });
+  });
+
+  it("bounds pending tool-first associations to the retained event limit", async () => {
+    const toolsReady = Promise.withResolvers<void>();
+    const continueToAssistant = Promise.withResolvers<void>();
+    const assistantReady = Promise.withResolvers<void>();
+    const continueAfterAssistant = Promise.withResolvers<void>();
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      for (let index = 1; index <= 3; index += 1) {
+        yield {
+          type: "tool-start",
+          toolCall: {
+            id: `tool-${index}`,
+            name: "search",
+            input: { query: `query-${index}` },
+          },
+        };
+        yield {
+          type: "tool-done",
+          toolCallId: `tool-${index}`,
+          toolName: "search",
+          status: "completed",
+          result: { found: true },
+        };
+      }
+      toolsReady.resolve();
+      await continueToAssistant.promise;
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      assistantReady.resolve();
+      await continueAfterAssistant.promise;
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events), {
+      maxRetainedEvents: 1,
+    });
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    await toolsReady.promise;
+    const beforeAssistant = await transport.getRun?.({
+      threadId: "thread-1",
+      runId,
+    });
+
+    continueToAssistant.resolve();
+    await assistantReady.promise;
+    const afterAssistant = await transport.getRun?.({
+      threadId: "thread-1",
+      runId,
+    });
+    expect(afterAssistant!.lastSequence - beforeAssistant!.lastSequence).toBe(
+      2,
+    );
+
+    continueAfterAssistant.resolve();
+    await vi.waitFor(async () => {
+      await expect(
+        transport.getRun?.({ threadId: "thread-1", runId }),
+      ).resolves.toMatchObject({ status: "completed" });
+    });
+  });
+
   it("attaches tool-first chatUI widgets to the next assistant message", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {

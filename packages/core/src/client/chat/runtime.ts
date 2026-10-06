@@ -1611,14 +1611,24 @@ function priorNativeHistoryMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
 ) {
-  const history = (messages ?? []).filter(
-    (message) => message.role === "user" || message.role === "assistant",
+  const source = messages ?? [];
+  let currentPromptMessageIndex: number | undefined;
+  if (currentPrompt.trim()) {
+    for (let index = source.length - 1; index >= 0; index--) {
+      const message = source[index]!;
+      if (message.role !== "user" && message.role !== "assistant") continue;
+      if (message.role === "user") {
+        const match = runtimeMessageTextMatches(message, currentPrompt);
+        if (match.matches || !match.complete) currentPromptMessageIndex = index;
+      }
+      break;
+    }
+  }
+  return source.filter(
+    (message, index) =>
+      index !== currentPromptMessageIndex &&
+      (message.role === "user" || message.role === "assistant"),
   );
-  if (!currentPrompt.trim()) return history;
-  const last = history[history.length - 1];
-  return last?.role === "user" && runtimeMessageText(last) === currentPrompt
-    ? history.slice(0, -1)
-    : history;
 }
 
 function nativeHistoryFromMessages(
@@ -1637,9 +1647,19 @@ function nativeHistoryFromMessages(
 }
 
 const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
+const MAX_TOOL_HISTORY_SERIALIZATION_STEPS = 64 * 1024;
+const MAX_TOOL_HISTORY_SERIALIZATION_DEPTH = 512;
 const MAX_TOOL_HISTORY_CALLS = 64;
 const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES = 4 * 1024;
+const MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
+  MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS +
+  MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS;
+const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
+const MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS =
+  MAX_STRUCTURED_HISTORY_SOURCE_PARTS * 4;
 const TOOL_INPUT_OMISSION_TEXT =
   "Tool input omitted from history because it could not be serialized.";
 const TOOL_INPUT_SIZE_OMISSION_TEXT =
@@ -1648,6 +1668,10 @@ const TOOL_RESULT_OMISSION_TEXT =
   "Tool result omitted from history because it could not be serialized.";
 const TOOL_RESULT_SIZE_OMISSION_TEXT =
   "Tool result omitted from history because it exceeds 64 KiB.";
+const TOOL_INPUT_WORK_LIMIT_OMISSION_TEXT =
+  "Tool input omitted from history because serialization exceeded its work limit.";
+const TOOL_RESULT_WORK_LIMIT_OMISSION_TEXT =
+  "Tool result omitted from history because serialization exceeded its work limit.";
 const TOOL_CALL_METADATA_OMISSION_TEXT =
   "Tool call omitted from history because its ID or name exceeds 64 KiB.";
 const TOOL_RESULT_METADATA_OMISSION_TEXT =
@@ -1698,9 +1722,10 @@ function structuredHistoryProjection(
   history: AgentChatStructuredMessage[],
   optionalParts: Set<StructuredToolHistoryPart>,
   retainedParts: Set<StructuredToolHistoryPart>,
+  sourceHistoryOmitted: boolean,
 ): AgentChatStructuredMessage[] {
   const projection: AgentChatStructuredMessage[] = [];
-  let omittedHistory = false;
+  let omittedHistory = sourceHistoryOmitted;
   for (const message of history) {
     const content: AgentChatStructuredMessage["content"] = [];
     for (const part of message.content) {
@@ -1721,19 +1746,25 @@ function structuredHistoryProjection(
   return projection;
 }
 
-function structuredHistoryByteLength(
-  history: AgentChatStructuredMessage[],
-): number {
-  return new TextEncoder().encode(JSON.stringify(history)).byteLength;
-}
-
 function structuredHistoryPartByteCost(
   role: "user" | "assistant",
   part: StructuredToolHistoryPart,
 ): number {
   // Treat each part as a standalone message so the sum bounds grouped output.
-  return new TextEncoder().encode(JSON.stringify([{ role, content: [part] }]))
-    .byteLength;
+  const serialization = boundedJsonStringify(
+    part,
+    MAX_ADDED_TOOL_HISTORY_BYTES,
+  );
+  if (serialization.status !== "serialized") {
+    return MAX_ADDED_TOOL_HISTORY_BYTES + 1;
+  }
+  const envelopeBytes = new TextEncoder().encode(
+    JSON.stringify([{ role, content: [] }]),
+  ).byteLength;
+  const partBytes = new TextEncoder().encode(
+    serialization.serialized,
+  ).byteLength;
+  return envelopeBytes + partBytes;
 }
 
 function structuredToolHistoryCandidateByteCost(
@@ -1761,26 +1792,293 @@ function structuredTextHistoryCandidateByteCost(
   );
 }
 
+const TOOL_HISTORY_VALUE_SIZE_LIMIT_EXCEEDED = Symbol(
+  "tool history value size limit exceeded",
+);
+const TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED = Symbol(
+  "tool history serialization step limit exceeded",
+);
+
+function jsonStringByteLengthWithinLimit(
+  value: string,
+  limit: number,
+): number | undefined {
+  let bytes = 2;
+  if (bytes > limit) return undefined;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code === 0x22 || code === 0x5c) {
+      bytes += 2;
+    } else if (
+      code === 0x08 ||
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0c ||
+      code === 0x0d
+    ) {
+      bytes += 2;
+    } else if (code < 0x20) {
+      bytes += 6;
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index++;
+      } else {
+        bytes += 6;
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      bytes += 6;
+    } else if (code <= 0x7f) {
+      bytes++;
+    } else if (code <= 0x7ff) {
+      bytes += 2;
+    } else {
+      bytes += 3;
+    }
+    if (bytes > limit) return undefined;
+  }
+  return bytes;
+}
+
 function exceedsToolHistoryValueLimit(value: string): boolean {
   return (
-    value.length > MAX_TOOL_HISTORY_VALUE_BYTES ||
-    new TextEncoder().encode(value).byteLength > MAX_TOOL_HISTORY_VALUE_BYTES
+    jsonStringByteLengthWithinLimit(value, MAX_TOOL_HISTORY_VALUE_BYTES) ===
+    undefined
   );
+}
+
+type BoundedJsonStringifyResult =
+  | { status: "serialized"; serialized: string }
+  | { status: "too-large" }
+  | { status: "too-complex" }
+  | { status: "unserializable" };
+
+function boxedJsonPrimitive(
+  value: object,
+):
+  | { boxed: true; value: string | number | boolean | bigint }
+  | { boxed: false } {
+  try {
+    return { boxed: true, value: String.prototype.valueOf.call(value) };
+  } catch {
+    // coercion-ok: A brand mismatch is expected while probing boxed primitives.
+    // Try the other boxed primitive types.
+  }
+  try {
+    return { boxed: true, value: Number.prototype.valueOf.call(value) };
+  } catch {
+    // coercion-ok: A brand mismatch is expected while probing boxed primitives.
+    // Try the other boxed primitive types.
+  }
+  try {
+    return { boxed: true, value: Boolean.prototype.valueOf.call(value) };
+  } catch {
+    // coercion-ok: A brand mismatch is expected while probing boxed primitives.
+    // Try BigInt wrappers when available.
+  }
+  if (typeof BigInt !== "undefined") {
+    try {
+      return { boxed: true, value: BigInt.prototype.valueOf.call(value) };
+    } catch {
+      // coercion-ok: A brand mismatch means this value is not a BigInt wrapper.
+      // This is an ordinary object or another wrapper type.
+    }
+  }
+  return { boxed: false };
+}
+
+function boundedJsonStringify(
+  value: unknown,
+  maxBytes: number,
+): BoundedJsonStringifyResult {
+  let bytes = 0;
+  let steps = 0;
+  const chunks: string[] = [];
+  const activeContainers = new Set<object>();
+  const addRaw = (text: string, count = text.length) => {
+    bytes += count;
+    if (bytes > maxBytes) throw TOOL_HISTORY_VALUE_SIZE_LIMIT_EXCEEDED;
+    chunks.push(text);
+  };
+  const addJsonString = (string: string) => {
+    const stringBytes = jsonStringByteLengthWithinLimit(
+      string,
+      maxBytes - bytes,
+    );
+    if (stringBytes === undefined) {
+      throw TOOL_HISTORY_VALUE_SIZE_LIMIT_EXCEEDED;
+    }
+    bytes += stringBytes;
+    chunks.push(JSON.stringify(string)!);
+  };
+  const isOmittedJsonValue = (current: unknown) =>
+    current === undefined ||
+    typeof current === "function" ||
+    typeof current === "symbol";
+  const countStep = () => {
+    steps++;
+    if (steps > MAX_TOOL_HISTORY_SERIALIZATION_STEPS) {
+      throw TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED;
+    }
+  };
+  // JSON hooks run synchronously; this budget can limit traversal, not hook work.
+  const prepareValue = (current: unknown, key: string): unknown => {
+    if (
+      (typeof current === "object" && current !== null) ||
+      typeof current === "function" ||
+      typeof current === "bigint"
+    ) {
+      const toJSON = (current as { toJSON?: unknown }).toJSON;
+      if (typeof toJSON === "function") {
+        current = Reflect.apply(toJSON, current, [key]);
+      }
+    }
+    if (typeof current !== "object" || current === null) return current;
+    const boxed = boxedJsonPrimitive(current);
+    return boxed.boxed ? boxed.value : current;
+  };
+
+  type Parent = { kind: "array" | "object"; emit: () => void };
+  const writeValue = (
+    input: unknown,
+    key: string,
+    parent?: Parent,
+    readInput?: () => unknown,
+    depth = 0,
+  ): boolean => {
+    countStep();
+    if (depth > MAX_TOOL_HISTORY_SERIALIZATION_DEPTH) {
+      throw TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED;
+    }
+    const current = prepareValue(readInput ? readInput() : input, key);
+    if (isOmittedJsonValue(current)) {
+      if (parent?.kind === "array") {
+        parent.emit();
+        addRaw("null");
+        return true;
+      }
+      return false;
+    }
+
+    parent?.emit();
+    if (current === null) {
+      addRaw("null");
+      return true;
+    }
+    if (typeof current === "string") {
+      addJsonString(current);
+      return true;
+    }
+    if (typeof current === "number") {
+      addRaw(JSON.stringify(current)!);
+      return true;
+    }
+    if (typeof current === "boolean") {
+      addRaw(current ? "true" : "false");
+      return true;
+    }
+    if (typeof current === "bigint") {
+      throw new TypeError("BigInt is not JSON serializable");
+    }
+    if (typeof current !== "object") return true;
+    if (activeContainers.has(current)) {
+      throw new TypeError("Converting circular structure to JSON");
+    }
+
+    activeContainers.add(current);
+    try {
+      if (Array.isArray(current)) {
+        addRaw("[");
+        let emitted = 0;
+        const array = current as unknown[];
+        const length = array.length;
+        for (let index = 0; index < length; index++) {
+          writeValue(
+            undefined,
+            String(index),
+            {
+              kind: "array",
+              emit: () => {
+                if (emitted > 0) addRaw(",");
+                emitted++;
+              },
+            },
+            () => array[index],
+            depth + 1,
+          );
+        }
+        addRaw("]");
+        return true;
+      }
+
+      addRaw("{");
+      let emitted = 0;
+      // JavaScript exposes own keys eagerly; the budget below limits the value walk, not Proxy traps.
+      const propertyKeys = Object.keys(current);
+      if (
+        propertyKeys.length >
+        (MAX_TOOL_HISTORY_SERIALIZATION_STEPS - steps) / 2
+      ) {
+        throw TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED;
+      }
+      for (const propertyKey of propertyKeys) {
+        countStep();
+        writeValue(
+          undefined,
+          propertyKey,
+          {
+            kind: "object",
+            emit: () => {
+              if (emitted > 0) addRaw(",");
+              addJsonString(propertyKey);
+              addRaw(":");
+              emitted++;
+            },
+          },
+          () => (current as Record<string, unknown>)[propertyKey],
+          depth + 1,
+        );
+      }
+      addRaw("}");
+      return true;
+    } finally {
+      activeContainers.delete(current);
+    }
+  };
+
+  try {
+    return writeValue(value, "")
+      ? { status: "serialized", serialized: chunks.join("") }
+      : { status: "unserializable" };
+  } catch (error) {
+    if (error === TOOL_HISTORY_VALUE_SIZE_LIMIT_EXCEEDED) {
+      return { status: "too-large" };
+    }
+    if (error === TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED) {
+      return { status: "too-complex" };
+    }
+    return { status: "unserializable" };
+  }
 }
 
 function toolInputForStructuredHistory(
   input: unknown,
 ): { input: unknown } | { omissionText: string } {
-  try {
-    const serialized = JSON.stringify(input);
-    if (serialized === undefined)
-      return { omissionText: TOOL_INPUT_OMISSION_TEXT };
-    if (exceedsToolHistoryValueLimit(serialized))
-      return { omissionText: TOOL_INPUT_SIZE_OMISSION_TEXT };
-    return { input: JSON.parse(serialized) as unknown };
-  } catch {
+  const serialization = boundedJsonStringify(
+    input,
+    MAX_TOOL_HISTORY_VALUE_BYTES,
+  );
+  if (serialization.status === "too-large") {
+    return { omissionText: TOOL_INPUT_SIZE_OMISSION_TEXT };
+  }
+  if (serialization.status === "too-complex") {
+    return { omissionText: TOOL_INPUT_WORK_LIMIT_OMISSION_TEXT };
+  }
+  if (serialization.status === "unserializable") {
     return { omissionText: TOOL_INPUT_OMISSION_TEXT };
   }
+  return { input: JSON.parse(serialization.serialized) as unknown };
 }
 
 function toolResultOmissionWithSummary(
@@ -1789,9 +2087,10 @@ function toolResultOmissionWithSummary(
 ): string {
   if (
     !resultText ||
-    resultText.length > MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES ||
-    new TextEncoder().encode(resultText).byteLength >
-      MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES ||
+    jsonStringByteLengthWithinLimit(
+      resultText,
+      MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES,
+    ) === undefined ||
     !resultText.trim()
   ) {
     return omissionText;
@@ -1808,22 +2107,60 @@ function toolResultForStructuredHistory(
   if (result === undefined) {
     content = resultText ?? "No tool result was recorded.";
   } else {
-    let serialized: string | undefined;
-    try {
-      serialized = typeof result === "string" ? result : JSON.stringify(result);
-    } catch {
+    if (typeof result === "string") {
+      content = result;
+    } else {
+      const serialization = boundedJsonStringify(
+        result,
+        MAX_TOOL_HISTORY_VALUE_BYTES,
+      );
+      if (serialization.status === "too-large") {
+        return toolResultOmissionWithSummary(
+          TOOL_RESULT_SIZE_OMISSION_TEXT,
+          resultText,
+        );
+      }
+      if (serialization.status === "too-complex") {
+        return toolResultOmissionWithSummary(
+          TOOL_RESULT_WORK_LIMIT_OMISSION_TEXT,
+          resultText,
+        );
+      }
+      if (serialization.status === "unserializable") {
+        return toolResultOmissionWithSummary(
+          TOOL_RESULT_OMISSION_TEXT,
+          resultText,
+        );
+      }
+      content = serialization.serialized;
+    }
+    if (result !== undefined && resultText) {
+      const contentBytes = jsonStringByteLengthWithinLimit(
+        content,
+        MAX_TOOL_HISTORY_VALUE_BYTES,
+      );
+      const resultTextBytes = jsonStringByteLengthWithinLimit(
+        resultText,
+        MAX_TOOL_HISTORY_VALUE_BYTES,
+      );
+      if (
+        contentBytes === undefined ||
+        resultTextBytes === undefined ||
+        contentBytes + resultTextBytes > MAX_TOOL_HISTORY_VALUE_BYTES
+      ) {
+        return toolResultOmissionWithSummary(
+          TOOL_RESULT_SIZE_OMISSION_TEXT,
+          resultText,
+        );
+      }
+      content = `${content}\n${resultText}`;
+    }
+    if (exceedsToolHistoryValueLimit(content)) {
       return toolResultOmissionWithSummary(
-        TOOL_RESULT_OMISSION_TEXT,
+        TOOL_RESULT_SIZE_OMISSION_TEXT,
         resultText,
       );
     }
-    if (serialized === undefined) {
-      return toolResultOmissionWithSummary(
-        TOOL_RESULT_OMISSION_TEXT,
-        resultText,
-      );
-    }
-    content = `${serialized}${resultText ? `\n${resultText}` : ""}`;
   }
   return exceedsToolHistoryValueLimit(content)
     ? toolResultOmissionWithSummary(TOOL_RESULT_SIZE_OMISSION_TEXT, resultText)
@@ -1837,6 +2174,7 @@ function boundStructuredToolHistory(
   textCandidates: StructuredTextHistoryCandidate[],
   toolHistoryParts: Set<StructuredToolHistoryPart>,
   textHistoryParts: Set<StructuredToolHistoryPart>,
+  sourceHistoryOmitted: boolean,
 ): AgentChatStructuredMessage[] {
   const candidatesByCallId = new Map<
     string,
@@ -1891,7 +2229,6 @@ function boundStructuredToolHistory(
   );
   candidates.sort((left, right) => left.position - right.position);
 
-  const selectedCandidates = new Set<StructuredHistoryCandidate>();
   const retainedParts = new Set<StructuredToolHistoryPart>();
   let selectedToolHistoryCount = 0;
   let selectedBytes = 0;
@@ -1918,18 +2255,13 @@ function boundStructuredToolHistory(
         : candidate.kind === "text"
           ? structuredTextHistoryCandidateByteCost(candidate.candidate)
           : 0;
-    const hasOmittedCandidates =
-      selectedCandidates.size + 1 < candidates.length;
     if (
-      selectedBytes +
-        candidateBytes +
-        (hasOmittedCandidates ? omissionMarkerBytes : 0) >
+      selectedBytes + candidateBytes + omissionMarkerBytes >
       MAX_ADDED_TOOL_HISTORY_BYTES
     ) {
       continue;
     }
 
-    selectedCandidates.add(candidate);
     selectedBytes += candidateBytes;
     if (toolCandidate) {
       for (const part of toolCandidate.assistantParts) retainedParts.add(part);
@@ -1940,41 +2272,361 @@ function boundStructuredToolHistory(
     }
   }
 
-  let projection = structuredHistoryProjection(
+  return structuredHistoryProjection(
     structuredHistory,
     optionalParts,
     retainedParts,
+    sourceHistoryOmitted,
   );
-  if (structuredHistoryByteLength(projection) > MAX_ADDED_TOOL_HISTORY_BYTES) {
-    for (const candidate of candidates) {
-      if (!selectedCandidates.delete(candidate)) continue;
-      if (candidate.kind === "tool") {
-        for (const part of candidate.candidate.assistantParts)
-          retainedParts.delete(part);
-        for (const part of candidate.candidate.resultParts)
-          retainedParts.delete(part);
-      } else {
-        for (const part of candidate.candidate.parts)
-          retainedParts.delete(part);
-      }
-      projection = structuredHistoryProjection(
-        structuredHistory,
-        optionalParts,
-        retainedParts,
-      );
-      if (
-        structuredHistoryByteLength(projection) <= MAX_ADDED_TOOL_HISTORY_BYTES
-      )
+}
+
+type StructuredHistorySourcePart = AgentChatRuntimeMessage["content"][number];
+
+interface StructuredHistorySourceMessage {
+  message: AgentChatRuntimeMessage;
+  parts: StructuredHistorySourcePart[];
+}
+
+interface StructuredHistorySourceBoundary {
+  list: "messages" | "supplemental";
+  messageIndex: number;
+  partIndex: number;
+}
+
+interface BoundedStructuredHistorySources {
+  messages: StructuredHistorySourceMessage[];
+  omitted: boolean;
+  toolHistoryOmitted: boolean;
+  toolBoundary?: StructuredHistorySourceBoundary;
+  currentPromptMessageIndex?: number;
+}
+
+function runtimeMessageTextMatches(
+  message: AgentChatRuntimeMessage,
+  expected: string,
+): { matches: boolean; complete: boolean } {
+  let offset = 0;
+  let hasText = false;
+  let scannedParts = 0;
+  for (const part of message.content) {
+    if (scannedParts >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+      return { matches: true, complete: false };
+    }
+    scannedParts++;
+    if (part.type !== "text" && part.type !== "reasoning") continue;
+    if (!part.text) continue;
+    if (hasText) {
+      if (expected[offset] !== "\n") return { matches: false, complete: true };
+      offset++;
+    }
+    if (!expected.startsWith(part.text, offset)) {
+      return { matches: false, complete: true };
+    }
+    offset += part.text.length;
+    hasText = true;
+  }
+  return { matches: hasText && offset === expected.length, complete: true };
+}
+
+function boundedStructuredHistorySources(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+  supplementalMessages: readonly AgentChatRuntimeMessage[],
+): BoundedStructuredHistorySources {
+  const historyMessages = messages ?? [];
+  let currentPromptMessageIndex: number | undefined;
+  let currentPromptScanLimited = false;
+  let omitted = false;
+  let toolHistoryOmitted = false;
+  if (currentPrompt.trim()) {
+    let visitedMessages = 0;
+    for (let index = historyMessages.length - 1; index >= 0; index--) {
+      if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+        currentPromptScanLimited = true;
+        omitted = true;
+        toolHistoryOmitted = true;
         break;
+      }
+      visitedMessages++;
+      const message = historyMessages[index]!;
+      if (message.role !== "user" && message.role !== "assistant") continue;
+      if (message.role === "user") {
+        const match = runtimeMessageTextMatches(message, currentPrompt);
+        if (match.matches) currentPromptMessageIndex = index;
+        if (!match.complete) {
+          omitted = true;
+          toolHistoryOmitted = true;
+          currentPromptMessageIndex = index;
+        }
+      }
+      break;
     }
   }
-  return projection;
+
+  const selectedReversed: StructuredHistorySourceMessage[] = [];
+  let selectedToolPartCount = 0;
+  let selectedTextPartCount = 0;
+  let scannedPartCount = 0;
+  let visitedMessageCount = 0;
+  let toolBoundary: StructuredHistorySourceBoundary | undefined;
+  let stop = false;
+  const visitMessage = (
+    message: AgentChatRuntimeMessage,
+    list: StructuredHistorySourceBoundary["list"],
+    messageIndex: number,
+  ): void => {
+    if (visitedMessageCount >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+      omitted = true;
+      toolHistoryOmitted = true;
+      toolBoundary ??= {
+        list,
+        messageIndex,
+        partIndex: message.content.length - 1,
+      };
+      stop = true;
+      return;
+    }
+    visitedMessageCount++;
+    if (message.role !== "user" && message.role !== "assistant") return;
+    const partsReversed: StructuredHistorySourcePart[] = [];
+    for (
+      let partIndex = message.content.length - 1;
+      partIndex >= 0;
+      partIndex--
+    ) {
+      if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        toolBoundary ??= { list, messageIndex, partIndex };
+        stop = true;
+        break;
+      }
+      scannedPartCount++;
+      const part = message.content[partIndex]!;
+      const isToolPart =
+        (part.type === "tool-call" && message.role === "assistant") ||
+        part.type === "tool-result";
+      const isTextPart = part.type === "text" || part.type === "reasoning";
+      if (!isToolPart && !isTextPart) continue;
+      if (
+        selectedToolPartCount >= MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS &&
+        selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
+      ) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        toolBoundary ??= { list, messageIndex, partIndex };
+        stop = true;
+        break;
+      }
+      if (isToolPart) {
+        if (selectedToolPartCount >= MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS) {
+          omitted = true;
+          toolHistoryOmitted = true;
+          toolBoundary ??= { list, messageIndex, partIndex };
+          continue;
+        }
+        selectedToolPartCount++;
+      } else {
+        if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+          omitted = true;
+          continue;
+        }
+        selectedTextPartCount++;
+      }
+      partsReversed.push(part);
+    }
+    if (partsReversed.length) {
+      selectedReversed.push({ message, parts: partsReversed.reverse() });
+    }
+  };
+
+  for (
+    let index = supplementalMessages.length - 1;
+    index >= 0 && !stop;
+    index--
+  ) {
+    visitMessage(supplementalMessages[index]!, "supplemental", index);
+  }
+  if (currentPromptScanLimited) stop = true;
+  for (let index = historyMessages.length - 1; index >= 0 && !stop; index--) {
+    if (index === currentPromptMessageIndex) continue;
+    visitMessage(historyMessages[index]!, "messages", index);
+  }
+
+  return {
+    messages: selectedReversed.reverse(),
+    omitted,
+    toolHistoryOmitted,
+    ...(toolBoundary ? { toolBoundary } : {}),
+    ...(currentPromptMessageIndex !== undefined
+      ? { currentPromptMessageIndex }
+      : {}),
+  };
+}
+
+interface BoundaryToolCallScan {
+  matchedIds: Set<string>;
+  complete: boolean;
+}
+
+function precedingToolCallIds(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  supplementalMessages: readonly AgentChatRuntimeMessage[],
+  sources: BoundedStructuredHistorySources,
+  wantedIds: Set<string>,
+  supplementalToolHistoryOmitted: boolean,
+): BoundaryToolCallScan {
+  const matchedIds = new Set<string>();
+  const remainingIds = new Set(wantedIds);
+  const boundary = sources.toolBoundary;
+  if (!sources.toolHistoryOmitted || !boundary || !remainingIds.size) {
+    return { matchedIds, complete: !sources.toolHistoryOmitted };
+  }
+
+  let visitedMessages = 0;
+  let scannedParts = 0;
+  let complete = true;
+  const scanMessage = (
+    message: AgentChatRuntimeMessage,
+    fromPartIndex: number,
+  ): boolean => {
+    if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+      complete = false;
+      return false;
+    }
+    visitedMessages++;
+    for (
+      let partIndex = Math.min(fromPartIndex, message.content.length - 1);
+      partIndex >= 0 && remainingIds.size > 0;
+      partIndex--
+    ) {
+      if (scannedParts >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+        complete = false;
+        return false;
+      }
+      scannedParts++;
+      if (message.role !== "assistant") continue;
+      const part = message.content[partIndex]!;
+      if (part.type === "tool-call" && remainingIds.delete(part.toolCallId)) {
+        matchedIds.add(part.toolCallId);
+      }
+    }
+    return true;
+  };
+  const scanList = (
+    source: readonly AgentChatRuntimeMessage[],
+    beforeIndex: number,
+    currentPromptMessageIndex?: number,
+  ): boolean => {
+    for (
+      let index = beforeIndex;
+      index >= 0 && remainingIds.size > 0;
+      index--
+    ) {
+      if (index === currentPromptMessageIndex) continue;
+      if (!scanMessage(source[index]!, source[index]!.content.length - 1)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  if (boundary.list === "supplemental") {
+    const boundedSupplemental = supplementalMessages[boundary.messageIndex];
+    if (
+      boundedSupplemental &&
+      !scanMessage(boundedSupplemental, boundary.partIndex)
+    ) {
+      return { matchedIds, complete: false };
+    }
+    if (
+      !scanList(supplementalMessages, boundary.messageIndex - 1) ||
+      !scanList(
+        messages ?? [],
+        (messages?.length ?? 0) - 1,
+        sources.currentPromptMessageIndex,
+      )
+    ) {
+      return { matchedIds, complete: false };
+    }
+    if (supplementalToolHistoryOmitted && remainingIds.size > 0) {
+      complete = false;
+    }
+  } else {
+    const historyMessages = messages ?? [];
+    const boundedHistory = historyMessages[boundary.messageIndex];
+    if (boundedHistory && !scanMessage(boundedHistory, boundary.partIndex)) {
+      return { matchedIds, complete: false };
+    }
+    if (
+      !scanList(
+        historyMessages,
+        boundary.messageIndex - 1,
+        sources.currentPromptMessageIndex,
+      )
+    ) {
+      return { matchedIds, complete: false };
+    }
+  }
+  return { matchedIds, complete };
+}
+
+function boundaryToolResultPartsToOmit(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  supplementalMessages: readonly AgentChatRuntimeMessage[],
+  sources: BoundedStructuredHistorySources,
+  supplementalToolHistoryOmitted: boolean,
+): Set<StructuredHistorySourcePart> {
+  const partsToOmit = new Set<StructuredHistorySourcePart>();
+  const truncatedToolHistory =
+    sources.toolHistoryOmitted ||
+    (supplementalToolHistoryOmitted &&
+      sources.toolBoundary?.list === "supplemental");
+  if (!truncatedToolHistory) return partsToOmit;
+
+  const priorCallIds = new Set<string>();
+  const unmatchedResults: Array<{
+    part: Extract<StructuredHistorySourcePart, { type: "tool-result" }>;
+    toolCallId: string;
+  }> = [];
+  for (const { message, parts } of sources.messages) {
+    for (const part of parts) {
+      if (part.type === "tool-call" && message.role === "assistant") {
+        priorCallIds.add(part.toolCallId);
+      } else if (
+        part.type === "tool-result" &&
+        !priorCallIds.has(part.toolCallId)
+      ) {
+        unmatchedResults.push({ part, toolCallId: part.toolCallId });
+      }
+    }
+  }
+  if (!unmatchedResults.length) return partsToOmit;
+
+  const boundaryScan = precedingToolCallIds(
+    messages,
+    supplementalMessages,
+    sources,
+    new Set(unmatchedResults.map((result) => result.toolCallId)),
+    supplementalToolHistoryOmitted,
+  );
+  for (const result of unmatchedResults) {
+    if (
+      boundaryScan.matchedIds.has(result.toolCallId) ||
+      !boundaryScan.complete
+    ) {
+      partsToOmit.add(result.part);
+    }
+  }
+  return partsToOmit;
 }
 
 function nativeStructuredHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
+  supplementalHistoryOmitted = false,
+  supplementalToolHistoryOmitted = false,
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
   const callCandidates: StructuredToolHistoryCandidate[] = [];
@@ -1984,11 +2636,19 @@ function nativeStructuredHistoryFromMessages(
   const textCandidates: StructuredTextHistoryCandidate[] = [];
   let toolHistoryPosition = 0;
   let hasToolHistory = false;
+  const sources = boundedStructuredHistorySources(
+    messages,
+    currentPrompt,
+    supplementalMessages,
+  );
+  const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
+    messages,
+    supplementalMessages,
+    sources,
+    supplementalToolHistoryOmitted,
+  );
 
-  for (const message of [
-    ...priorNativeHistoryMessages(messages, currentPrompt),
-    ...supplementalMessages,
-  ]) {
+  for (const { message, parts } of sources.messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
     const role = message.role;
     let content: AgentChatStructuredMessage["content"] = [];
@@ -2014,9 +2674,15 @@ function nativeStructuredHistoryFromMessages(
       results = [];
     };
 
-    for (const part of message.content) {
+    for (const part of parts) {
       if (part.type === "text" || part.type === "reasoning") {
-        if (part.text.trim()) {
+        if (
+          jsonStringByteLengthWithinLimit(
+            part.text,
+            MAX_ADDED_TOOL_HISTORY_BYTES,
+          ) === undefined ||
+          part.text.trim()
+        ) {
           flushResults();
           const textPart: StructuredTextPart = {
             type: "text",
@@ -2043,12 +2709,12 @@ function nativeStructuredHistoryFromMessages(
         if (metadataTooLarge) {
           addToolInputText(TOOL_CALL_METADATA_OMISSION_TEXT);
         } else {
-          if (part.inputText?.trim()) {
-            addToolInputText(
-              exceedsToolHistoryValueLimit(part.inputText)
-                ? TOOL_INPUT_SIZE_OMISSION_TEXT
-                : part.inputText,
-            );
+          if (part.inputText) {
+            if (exceedsToolHistoryValueLimit(part.inputText)) {
+              addToolInputText(TOOL_INPUT_SIZE_OMISSION_TEXT);
+            } else if (part.inputText.trim()) {
+              addToolInputText(part.inputText);
+            }
           }
           const input =
             part.input === undefined
@@ -2078,6 +2744,11 @@ function nativeStructuredHistoryFromMessages(
         hasToolHistory = true;
         flushTextCandidate();
         flushContent();
+        if (boundaryResultsToOmit.has(part)) {
+          flushResults();
+          toolHistoryPosition++;
+          continue;
+        }
         const metadataTooLarge =
           exceedsToolHistoryValueLimit(part.toolCallId) ||
           (part.toolName !== undefined &&
@@ -2108,7 +2779,15 @@ function nativeStructuredHistoryFromMessages(
     flushResults();
   }
 
-  if (!hasToolHistory && supplementalMessages.length === 0) return undefined;
+  if (
+    !hasToolHistory &&
+    supplementalMessages.length === 0 &&
+    !sources.omitted &&
+    !supplementalHistoryOmitted &&
+    !supplementalToolHistoryOmitted
+  ) {
+    return undefined;
+  }
   return boundStructuredToolHistory(
     structuredHistory,
     callCandidates,
@@ -2116,6 +2795,9 @@ function nativeStructuredHistoryFromMessages(
     textCandidates,
     toolHistoryParts,
     textHistoryParts,
+    sources.omitted ||
+      supplementalHistoryOmitted ||
+      supplementalToolHistoryOmitted,
   );
 }
 
@@ -2137,34 +2819,49 @@ interface AgentNativeMessageProjectionState {
   };
 }
 
+interface BoundedPendingApprovalRuntimeMessages {
+  messages: AgentChatRuntimeMessage[];
+  omitted: boolean;
+  toolHistoryOmitted: boolean;
+}
+
 function pendingApprovalRuntimeMessages(
   state: AgentNativeMessageProjectionState,
-): AgentChatRuntimeMessage[] {
-  const messages: AgentChatRuntimeMessage[] = [];
-  for (const part of state.message.content) {
+): BoundedPendingApprovalRuntimeMessages {
+  const messagesReversed: Omit<AgentChatRuntimeMessage, "id">[] = [];
+  let selectedToolPartCount = 0;
+  let selectedTextPartCount = 0;
+  let scannedPartCount = 0;
+  let omitted = false;
+  let toolHistoryOmitted = false;
+  for (let index = state.message.content.length - 1; index >= 0; index--) {
+    if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+      omitted = true;
+      toolHistoryOmitted = true;
+      break;
+    }
+    scannedPartCount++;
+    const part = state.message.content[index]!;
     if (part.type === "text") {
-      messages.push({
-        id: `${state.messageId}-pending-${messages.length}`,
+      if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+        omitted = true;
+        continue;
+      }
+      selectedTextPartCount++;
+      messagesReversed.push({
         role: "assistant",
         content: [{ type: "text", text: part.text }],
       });
       continue;
     }
     if (part.type !== "tool-call" || part.result === undefined) continue;
-    messages.push({
-      id: `${state.messageId}-pending-${messages.length}`,
-      role: "assistant",
-      content: [
-        {
-          type: "tool-call",
-          toolCallId: part.toolCallId,
-          toolName: part.toolName,
-          input: part.args,
-        },
-      ],
-    });
-    messages.push({
-      id: `${state.messageId}-pending-${messages.length}`,
+    if (selectedToolPartCount + 2 > MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS) {
+      omitted = true;
+      toolHistoryOmitted = true;
+      continue;
+    }
+    selectedToolPartCount += 2;
+    messagesReversed.push({
       role: "user",
       content: [
         {
@@ -2175,8 +2872,23 @@ function pendingApprovalRuntimeMessages(
         },
       ],
     });
+    messagesReversed.push({
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: part.args,
+        },
+      ],
+    });
   }
-  return messages;
+  const messages = messagesReversed.reverse().map((message, index) => ({
+    id: `${state.messageId}-pending-${index}`,
+    ...message,
+  }));
+  return { messages, omitted, toolHistoryOmitted };
 }
 
 function definedMetadata(
@@ -3195,14 +3907,16 @@ export function createAgentNativeChatRuntime(
         messageStates.set(turnId, continuationMessageState);
       }
       const history = nativeHistoryFromMessages(turn.messages, prompt);
-      const pendingApprovalMessages =
+      const pendingApprovalHistory =
         approvedToolCalls && continuationMessageState
           ? pendingApprovalRuntimeMessages(continuationMessageState)
-          : [];
+          : { messages: [], omitted: false, toolHistoryOmitted: false };
       const structuredHistory = nativeStructuredHistoryFromMessages(
         turn.messages,
         prompt,
-        pendingApprovalMessages,
+        pendingApprovalHistory.messages,
+        pendingApprovalHistory.omitted,
+        pendingApprovalHistory.toolHistoryOmitted,
       );
       return {
         message: prompt,

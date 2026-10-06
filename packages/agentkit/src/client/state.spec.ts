@@ -398,6 +398,7 @@ describe("AgentKit lifecycle projections", () => {
           name: "Search",
           status: "running",
           messageId: "assistant-1",
+          input: { query: "report" },
         },
       }),
       event(3, {
@@ -414,6 +415,7 @@ describe("AgentKit lifecycle projections", () => {
     expect(reduced.tools["tool-1"]).toMatchObject({
       status: "completed",
       messageId: "assistant-1",
+      input: { query: "report" },
       output: "Found it.",
     });
   });

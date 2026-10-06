@@ -54,6 +54,110 @@ function createTransport(events: AgentEvent[]): AgentTransport {
   };
 }
 
+type AgentEventBody = Omit<
+  AgentEvent,
+  "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+>;
+
+async function assistantPartsAfterToolHistory(input: {
+  beforeToolEvents?: AgentEventBody[];
+  afterToolEvents?: AgentEventBody[];
+  createdParts?: AgentMessage["parts"];
+  omitToolStarted?: boolean;
+  finalParts: AgentMessage["parts"];
+}): Promise<AgentMessage[]> {
+  let runNumber = 0;
+  const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+    runId: `run-${++runNumber}`,
+  }));
+  const transport: AgentTransport = {
+    ...createTransport([]),
+    startRun,
+    async *subscribeToRun({ runId }) {
+      const event = (sequence: number, body: AgentEventBody): AgentEvent =>
+        ({
+          ...body,
+          id: `${runId}-event-${sequence}`,
+          threadId: "thread-1",
+          runId,
+          sequence,
+          occurredAt: "2026-08-29T00:00:00.000Z",
+        }) as AgentEvent;
+      if (runId !== "run-1") {
+        yield event(1, { type: "run.started" });
+        yield event(2, { type: "run.completed" });
+        return;
+      }
+
+      let sequence = 1;
+      yield event(sequence++, { type: "run.started" });
+      yield event(sequence++, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: input.createdParts ?? [],
+        },
+      });
+      for (const body of input.beforeToolEvents ?? []) {
+        yield event(sequence++, body);
+      }
+      if (!input.omitToolStarted) {
+        yield event(sequence++, {
+          type: "tool.started",
+          toolCall: {
+            id: "call-search",
+            name: "search",
+            input: { query: "release" },
+            messageId: "assistant-1",
+            status: "running",
+          },
+        });
+      }
+      yield event(sequence++, {
+        type: "tool.updated",
+        toolCall: {
+          id: "call-search",
+          name: "search",
+          input: { query: "release" },
+          output: "The release is ready.",
+          messageId: "assistant-1",
+          status: "completed",
+        },
+      });
+      for (const body of input.afterToolEvents ?? []) {
+        yield event(sequence++, body);
+      }
+      yield event(sequence++, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "complete",
+          parts: input.finalParts,
+        },
+      });
+      yield event(sequence, { type: "run.completed" });
+    },
+  };
+  const client = new AgentKitClient({ transport });
+
+  await (
+    await client.sendMessage({ threadId: "thread-1", text: "Search" })
+  ).completed;
+  await (
+    await client.sendMessage({
+      threadId: "thread-1",
+      text: "What did you find?",
+    })
+  ).completed;
+
+  const messages = startRun.mock.calls[1]![0].messages;
+  await client.shutdown();
+  return messages;
+}
+
 describe("AgentKitClient", () => {
   it.each(["accepted", "rejected"])(
     "acknowledges the recoverable local message before a %s startRun settles",
@@ -548,6 +652,379 @@ describe("AgentKitClient", () => {
       }),
     );
     await client.shutdown();
+  });
+
+  it("keeps post-tool assistant text after the supporting result in history", async () => {
+    let runNumber = 0;
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: `run-${++runNumber}`,
+    }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      startRun,
+      async *subscribeToRun({ runId }) {
+        const event = (
+          sequence: number,
+          body: Omit<
+            AgentEvent,
+            "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+          >,
+        ) =>
+          ({
+            ...body,
+            id: `${runId}-event-${sequence}`,
+            threadId: "thread-1",
+            runId,
+            sequence,
+            occurredAt: "2026-08-29T00:00:00.000Z",
+          }) as AgentEvent;
+        if (runId !== "run-1") {
+          yield event(1, { type: "run.started" });
+          yield event(2, { type: "run.completed" });
+          return;
+        }
+
+        yield event(1, { type: "run.started" });
+        yield event(2, {
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [],
+          },
+        });
+        yield event(3, {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "I will search first. ",
+        });
+        yield event(4, {
+          type: "tool.started",
+          toolCall: {
+            id: "call-search",
+            name: "search",
+            input: { query: "release" },
+            messageId: "assistant-1",
+            status: "running",
+          },
+        });
+        yield event(5, {
+          type: "tool.updated",
+          toolCall: {
+            id: "call-search",
+            name: "search",
+            input: { query: "release" },
+            output: "The release is ready.",
+            messageId: "assistant-1",
+            status: "completed",
+          },
+        });
+        yield event(6, {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "The release is ready to publish.",
+        });
+        yield event(7, {
+          type: "tool.updated",
+          toolCall: {
+            id: "call-search",
+            name: "search",
+            input: { query: "release" },
+            output: "The release is ready.",
+            messageId: "assistant-1",
+            status: "completed",
+          },
+        });
+        yield event(8, {
+          type: "message.completed",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [
+              { type: "text", text: "I will search first. " },
+              { type: "text", text: "The release is ready to publish." },
+            ],
+          },
+        });
+        yield event(9, { type: "run.completed" });
+      },
+    };
+    const client = new AgentKitClient({ transport });
+
+    await (
+      await client.sendMessage({ threadId: "thread-1", text: "Search" })
+    ).completed;
+    await (
+      await client.sendMessage({
+        threadId: "thread-1",
+        text: "What did you find?",
+      })
+    ).completed;
+
+    const assistantMessage = startRun.mock.calls[1]![0].messages.find(
+      (message) => message.id === "assistant-1",
+    );
+    expect(assistantMessage?.parts).toEqual([
+      { type: "text", text: "I will search first. " },
+      {
+        type: "data",
+        mediaType: "application/x-agent-native-tool-call",
+        data: {
+          id: "call-search",
+          name: "search",
+          input: { query: "release" },
+        },
+      },
+      {
+        type: "data",
+        mediaType: "application/x-agent-native-tool-result",
+        data: {
+          id: "call-search",
+          name: "search",
+          result: "The release is ready.",
+        },
+      },
+      { type: "text", text: "The release is ready to publish." },
+    ]);
+    await client.shutdown();
+  });
+
+  it.each([
+    {
+      name: "reasoning visibility differs",
+      afterToolEvents: [
+        {
+          type: "reasoning.delta",
+          messageId: "assistant-1",
+          text: "Check the release notes.",
+        },
+      ],
+      finalParts: [
+        {
+          type: "reasoning",
+          text: "Check the release notes.",
+          visibility: "hidden",
+        },
+      ],
+    },
+    {
+      name: "text format differs",
+      afterToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "The release is ready.",
+          format: "markdown",
+        },
+      ],
+      finalParts: [
+        {
+          type: "text",
+          text: "The release is ready.",
+          format: "plain",
+        },
+      ],
+    },
+    {
+      name: "mixed content includes a citation",
+      beforeToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "Before the search. ",
+        },
+      ],
+      afterToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "After the search.",
+        },
+      ],
+      finalParts: [
+        { type: "text", text: "Before the search. " },
+        { type: "citation", title: "Release notes" },
+        { type: "text", text: "After the search." },
+      ],
+    },
+    {
+      name: "tool call event order is missing",
+      omitToolStarted: true,
+      afterToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "The release is ready.",
+        },
+      ],
+      finalParts: [{ type: "text", text: "The release is ready." }],
+    },
+  ])(
+    "preserves final content and omits tool history when reconstruction is unsafe: $name",
+    async ({
+      beforeToolEvents,
+      afterToolEvents,
+      omitToolStarted,
+      finalParts,
+    }) => {
+      const messages = await assistantPartsAfterToolHistory({
+        beforeToolEvents,
+        afterToolEvents,
+        omitToolStarted,
+        finalParts,
+      });
+
+      expect(
+        messages.find((message) => message.id === "assistant-1")?.parts,
+      ).toEqual(finalParts);
+      expect(messages.at(-1)).toMatchObject({
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: "Tool-call history was omitted because its position could not be reconstructed safely.",
+          },
+        ],
+      });
+      expect(messages.at(-1)?.id).not.toBe("assistant-1");
+    },
+  );
+
+  it("preserves format across adjacent streamed text parts", async () => {
+    const finalParts: AgentMessage["parts"] = [
+      { type: "text", text: "**Ready**", format: "markdown" },
+      { type: "text", text: " as plain text", format: "plain" },
+    ];
+    const messages = await assistantPartsAfterToolHistory({
+      afterToolEvents: [
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: "**Ready**",
+          format: "markdown",
+        },
+        {
+          type: "message.delta",
+          messageId: "assistant-1",
+          text: " as plain text",
+          format: "plain",
+        },
+      ],
+      finalParts,
+    });
+
+    expect(
+      messages.find((message) => message.id === "assistant-1")?.parts,
+    ).toEqual([
+      {
+        type: "data",
+        mediaType: "application/x-agent-native-tool-call",
+        data: {
+          id: "call-search",
+          name: "search",
+          input: { query: "release" },
+        },
+      },
+      {
+        type: "data",
+        mediaType: "application/x-agent-native-tool-result",
+        data: {
+          id: "call-search",
+          name: "search",
+          result: "The release is ready.",
+        },
+      },
+      ...finalParts,
+    ]);
+  });
+
+  it("preserves visibility and label across adjacent reasoning parts", async () => {
+    const finalParts: AgentMessage["parts"] = [
+      {
+        type: "reasoning",
+        text: "Visible analysis",
+        visibility: "summary",
+        label: "Summary",
+      },
+      {
+        type: "reasoning",
+        text: "Private analysis",
+        visibility: "hidden",
+        label: "Internal",
+      },
+    ];
+    const messages = await assistantPartsAfterToolHistory({
+      createdParts: finalParts,
+      finalParts,
+    });
+
+    expect(
+      messages.find((message) => message.id === "assistant-1")?.parts,
+    ).toEqual([
+      ...finalParts,
+      {
+        type: "data",
+        mediaType: "application/x-agent-native-tool-call",
+        data: {
+          id: "call-search",
+          name: "search",
+          input: { query: "release" },
+        },
+      },
+      {
+        type: "data",
+        mediaType: "application/x-agent-native-tool-result",
+        data: {
+          id: "call-search",
+          name: "search",
+          result: "The release is ready.",
+        },
+      },
+    ]);
+  });
+
+  it("fails closed when created and completed tool-history payloads differ", async () => {
+    const createdParts: AgentMessage["parts"] = [
+      {
+        type: "data",
+        mediaType: "application/x-agent-native-tool-call",
+        data: {
+          id: "call-search",
+          name: "search",
+          input: { query: "stale" },
+        },
+      },
+    ];
+    const finalParts: AgentMessage["parts"] = [
+      {
+        type: "data",
+        mediaType: "application/x-agent-native-tool-call",
+        data: {
+          id: "call-search",
+          name: "search",
+          input: { query: "authoritative" },
+        },
+      },
+    ];
+    const messages = await assistantPartsAfterToolHistory({
+      createdParts,
+      finalParts,
+    });
+
+    expect(
+      messages.find((message) => message.id === "assistant-1")?.parts,
+    ).toEqual(finalParts);
+    expect(messages.at(-1)).toMatchObject({
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: "Tool-call history was omitted because its position could not be reconstructed safely.",
+        },
+      ],
+    });
   });
 
   it("caps object-result history after structured-history serialization", async () => {

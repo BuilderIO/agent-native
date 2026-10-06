@@ -28,7 +28,9 @@ import type {
   ListThreadsInput,
   ListThreadsResult,
   RunId,
+  ReasoningPart,
   SubmitFeedbackInput,
+  TextPart,
   ThreadId,
   UpdateThreadInput,
   UploadId,
@@ -571,6 +573,8 @@ const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_CALLS = 64;
 const TOOL_HISTORY_OMISSION_TEXT =
   "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.";
+const TOOL_HISTORY_ORDER_OMISSION_TEXT =
+  "Tool-call history was omitted because its position could not be reconstructed safely.";
 
 type StructuredToolHistoryPart =
   | { type: "text"; text: string }
@@ -722,6 +726,27 @@ interface RepresentedToolHistoryParts {
   resultIds: Set<string>;
 }
 
+interface OrderedToolHistoryPart {
+  part: AgentMessage["parts"][number];
+  order?: number;
+  preserveBoundary?: boolean;
+}
+
+interface ToolHistoryEventOrder {
+  call?: number;
+  result?: number;
+}
+
+interface OrderedMessageBody {
+  hasMessageEvent: boolean;
+  parts: OrderedToolHistoryPart[];
+}
+
+interface ToolHistoryEventIndex {
+  eventOrdersByToolCallId: Map<string, ToolHistoryEventOrder>;
+  messageBodiesByMessageId: Map<string, OrderedMessageBody>;
+}
+
 function representedToolHistoryParts(
   message: AgentMessage,
 ): RepresentedToolHistoryParts {
@@ -750,9 +775,282 @@ function representedToolHistoryParts(
   return represented;
 }
 
+function safeJsonSignature(
+  value: unknown,
+  ancestors = new Set<object>(),
+): string | undefined {
+  if (value === null) return "null";
+  if (typeof value === "string" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? JSON.stringify(value) : undefined;
+  }
+  if (typeof value !== "object" || ancestors.has(value)) return undefined;
+
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(value);
+    ancestors.add(value);
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return undefined;
+      const items: string[] = [];
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
+          return undefined;
+        }
+        const item = safeJsonSignature(descriptor.value, ancestors);
+        if (item === undefined) return undefined;
+        items.push(item);
+      }
+      if (
+        keys.length !== value.length + 1 ||
+        !keys.includes("length") ||
+        keys.some((key) => key !== "length" && typeof key !== "string") ||
+        keys.some(
+          (key) =>
+            key !== "length" &&
+            (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)),
+        )
+      ) {
+        return undefined;
+      }
+      return `[${items.join(",")}]`;
+    }
+    if (prototype !== Object.prototype && prototype !== null) return undefined;
+    if (keys.some((key) => typeof key !== "string" || key === "toJSON")) {
+      return undefined;
+    }
+    const entries: string[] = [];
+    for (const key of (keys as string[]).sort()) {
+      const descriptor = descriptors[key];
+      if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
+        return undefined;
+      }
+      const item = safeJsonSignature(descriptor.value, ancestors);
+      if (item === undefined) return undefined;
+      entries.push(`${JSON.stringify(key)}:${item}`);
+    }
+    return `{${entries.join(",")}}`;
+  } catch {
+    // coercion-ok: Uninspectable history payloads fail closed.
+    return undefined;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function safeToolHistoryDataSignature(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  try {
+    if (Array.isArray(value)) return undefined;
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return undefined;
+    const id = Object.getOwnPropertyDescriptor(value, "id");
+    if (!id || !("value" in id) || typeof id.value !== "string") {
+      return undefined;
+    }
+    return safeJsonSignature(value);
+  } catch {
+    // coercion-ok: Invalid reserved history data fails closed.
+    return undefined;
+  }
+}
+
+function messagePartsOrderSignature(
+  parts: AgentMessage["parts"],
+): string | undefined {
+  const segments: Array<
+    | ["text", string, TextPart["format"]]
+    | ["reasoning", string, ReasoningPart["visibility"], ReasoningPart["label"]]
+    | ["data", string, string]
+  > = [];
+  for (const part of parts) {
+    if (part.type === "text") {
+      const previous = segments.at(-1);
+      if (previous?.[0] === "text" && previous[2] === part.format) {
+        previous[1] += part.text;
+      } else {
+        segments.push(["text", part.text, part.format]);
+      }
+    } else if (part.type === "reasoning") {
+      const previous = segments.at(-1);
+      if (
+        previous?.[0] === "reasoning" &&
+        previous[2] === part.visibility &&
+        previous[3] === part.label
+      ) {
+        previous[1] += part.text;
+      } else {
+        segments.push(["reasoning", part.text, part.visibility, part.label]);
+      }
+    } else if (
+      part.type === "data" &&
+      (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE ||
+        part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE)
+    ) {
+      const dataSignature = safeToolHistoryDataSignature(part.data);
+      if (dataSignature === undefined) return undefined;
+      segments.push(["data", part.mediaType, dataSignature]);
+    } else {
+      return undefined;
+    }
+  }
+  return JSON.stringify(segments);
+}
+
+function indexToolHistoryEvents(
+  events: AgentEvent[],
+  toolCallIds: Set<string>,
+  messageIds: Set<string>,
+): ToolHistoryEventIndex {
+  const eventOrdersByToolCallId = new Map<string, ToolHistoryEventOrder>();
+  const messageBodiesByMessageId = new Map<string, OrderedMessageBody>();
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]!;
+    if (event.type === "tool.started" && toolCallIds.has(event.toolCall.id)) {
+      const order = eventOrdersByToolCallId.get(event.toolCall.id) ?? {};
+      order.call ??= index;
+      eventOrdersByToolCallId.set(event.toolCall.id, order);
+    } else if (
+      event.type === "tool.updated" &&
+      toolCallIds.has(event.toolCall.id) &&
+      event.toolCall.status !== "running"
+    ) {
+      const order = eventOrdersByToolCallId.get(event.toolCall.id) ?? {};
+      order.result ??= index;
+      eventOrdersByToolCallId.set(event.toolCall.id, order);
+    }
+
+    const messageId =
+      event.type === "message.created" || event.type === "message.completed"
+        ? event.message.id
+        : event.type === "message.delta" || event.type === "reasoning.delta"
+          ? event.messageId
+          : undefined;
+    if (!messageId || !messageIds.has(messageId)) continue;
+
+    const body = messageBodiesByMessageId.get(messageId) ?? {
+      hasMessageEvent: false,
+      parts: [],
+    };
+    if (
+      event.type === "message.created" &&
+      event.message.role === "assistant" &&
+      !body.hasMessageEvent
+    ) {
+      for (const part of event.message.parts) {
+        body.parts.push({ part, order: index });
+      }
+      body.hasMessageEvent = true;
+    } else if (event.type === "message.delta") {
+      body.parts.push({
+        part: {
+          type: "text",
+          text: event.text,
+          ...(event.format ? { format: event.format } : {}),
+        },
+        order: index,
+      });
+      body.hasMessageEvent = true;
+    } else if (event.type === "reasoning.delta") {
+      body.parts.push({
+        part: { type: "reasoning", text: event.text, visibility: "summary" },
+        order: index,
+      });
+      body.hasMessageEvent = true;
+    }
+    messageBodiesByMessageId.set(messageId, body);
+  }
+
+  return { eventOrdersByToolCallId, messageBodiesByMessageId };
+}
+
+function messagePartsWithToolHistory(
+  message: AgentMessage,
+  body: OrderedMessageBody | undefined,
+  historyParts: OrderedToolHistoryPart[],
+): AgentMessage["parts"] | undefined {
+  const reconstructedText = messagePartsOrderSignature(
+    body?.parts.map(({ part }) => part) ?? [],
+  );
+  const finalText = messagePartsOrderSignature(message.parts);
+  const hasOrderedBody =
+    body?.hasMessageEvent &&
+    reconstructedText !== undefined &&
+    reconstructedText === finalText &&
+    historyParts.every(
+      ({ part, order }) =>
+        part.type !== "data" ||
+        (part.mediaType !== AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE &&
+          part.mediaType !== AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) ||
+        order !== undefined,
+    );
+  if (!hasOrderedBody) {
+    const hasToolHistoryParts = historyParts.some(
+      ({ part }) =>
+        part.type === "data" &&
+        (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE ||
+          part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE),
+    );
+    return hasToolHistoryParts
+      ? undefined
+      : [...message.parts, ...historyParts.map(({ part }) => part)];
+  }
+
+  const orderedParts: OrderedToolHistoryPart[] = [
+    ...(body?.parts ?? []),
+    ...historyParts.map((entry) => ({
+      part: entry.part,
+      order: entry.order ?? Number.POSITIVE_INFINITY,
+      preserveBoundary: entry.preserveBoundary,
+    })),
+  ].sort(
+    (first, second) =>
+      (first.order ?? Number.POSITIVE_INFINITY) -
+      (second.order ?? Number.POSITIVE_INFINITY),
+  );
+  const parts: AgentMessage["parts"] = [];
+  let preserveNextBoundary = false;
+  for (const entry of orderedParts) {
+    const previous = parts.at(-1);
+    if (!preserveNextBoundary && !entry.preserveBoundary) {
+      if (
+        previous?.type === "text" &&
+        entry.part.type === "text" &&
+        previous.format === entry.part.format
+      ) {
+        parts[parts.length - 1] = {
+          ...previous,
+          text: previous.text + entry.part.text,
+        };
+        continue;
+      }
+      if (
+        previous?.type === "reasoning" &&
+        entry.part.type === "reasoning" &&
+        previous.visibility === entry.part.visibility &&
+        previous.label === entry.part.label
+      ) {
+        parts[parts.length - 1] = {
+          ...previous,
+          text: previous.text + entry.part.text,
+        };
+        continue;
+      }
+    }
+    parts.push(entry.part);
+    preserveNextBoundary = Boolean(entry.preserveBoundary);
+  }
+  return parts;
+}
+
 function messagesWithToolCallHistory(
   messages: AgentMessage[],
   toolCalls: AgentToolCall[],
+  events: AgentEvent[],
 ): AgentMessage[] {
   const assistantMessageIds = new Set(
     messages
@@ -786,12 +1084,10 @@ function messagesWithToolCallHistory(
       )
     );
   });
-  const historyPartsByMessageId = new Map<
-    string,
-    AgentMessage["parts"][number][]
-  >();
+  const historyPartsByMessageId = new Map<string, OrderedToolHistoryPart[]>();
   const selectedCalls: Array<{
     messageId: string;
+    toolCallId: string;
     parts: DataPart[];
   }> = [];
   const recentCalls = eligibleCalls.slice(-MAX_TOOL_HISTORY_CALLS);
@@ -818,7 +1114,11 @@ function messagesWithToolCallHistory(
       call: !represented?.callIds.has(toolCall.id),
       result: !represented?.resultIds.has(toolCall.id),
     });
-    const candidate = { messageId: toolCall.messageId!, parts };
+    const candidate = {
+      messageId: toolCall.messageId!,
+      toolCallId: toolCall.id,
+      parts,
+    };
     if (
       projectedToolHistoryBytes(
         messages,
@@ -842,28 +1142,71 @@ function messagesWithToolCallHistory(
   }
 
   if (selectedCalls.length < recentCalls.length) omittedHistory = true;
-  for (const { messageId, parts } of selectedCalls.reverse()) {
+  const eventIndex = indexToolHistoryEvents(
+    events,
+    new Set(selectedCalls.map(({ toolCallId }) => toolCallId)),
+    new Set([
+      ...selectedCalls.map(({ messageId }) => messageId),
+      ...(omissionMessageId ? [omissionMessageId] : []),
+    ]),
+  );
+  for (const { messageId, toolCallId, parts } of selectedCalls.reverse()) {
     const historyParts = historyPartsByMessageId.get(messageId) ?? [];
-    historyParts.push(...parts);
+    const eventOrder = eventIndex.eventOrdersByToolCallId.get(toolCallId);
+    for (const part of parts) {
+      historyParts.push({
+        part,
+        order:
+          part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE
+            ? eventOrder?.call
+            : eventOrder?.result,
+      });
+    }
     historyPartsByMessageId.set(messageId, historyParts);
   }
 
   if (omittedHistory && omissionMessageId) {
     const historyParts = historyPartsByMessageId.get(omissionMessageId) ?? [];
     historyParts.push({
-      type: "text",
-      text: TOOL_HISTORY_OMISSION_TEXT,
+      part: {
+        type: "text",
+        text: TOOL_HISTORY_OMISSION_TEXT,
+      },
+      preserveBoundary: true,
     });
     historyPartsByMessageId.set(omissionMessageId, historyParts);
   }
 
   if (historyPartsByMessageId.size === 0) return messages;
-  return messages.map((message) => {
+  let omittedUnorderedHistory = false;
+  const projectedMessages = messages.map((message) => {
     const historyParts = historyPartsByMessageId.get(message.id);
-    return historyParts
-      ? { ...message, parts: [...message.parts, ...historyParts] }
-      : message;
+    if (!historyParts) return message;
+    const parts = messagePartsWithToolHistory(
+      message,
+      eventIndex.messageBodiesByMessageId.get(message.id),
+      historyParts,
+    );
+    if (!parts) {
+      omittedUnorderedHistory = true;
+      return message;
+    }
+    return { ...message, parts };
   });
+  if (omittedUnorderedHistory) {
+    const messageIds = new Set(projectedMessages.map(({ id }) => id));
+    let id = "agentkit-tool-history-omission";
+    for (let suffix = 1; messageIds.has(id); suffix += 1) {
+      id = `agentkit-tool-history-omission-${suffix}`;
+    }
+    projectedMessages.push({
+      id,
+      role: "assistant",
+      parts: [{ type: "text", text: TOOL_HISTORY_ORDER_OMISSION_TEXT }],
+      status: "complete",
+    });
+  }
+  return projectedMessages;
 }
 
 function toolCallHistoryParts(
@@ -1493,6 +1836,7 @@ export class AgentKitClient implements AgentKitController {
       const messages = messagesWithToolCallHistory(
         [...current.messages, message],
         orderedThreadToolCalls(current),
+        current.events,
       );
       const result = await this.invokeRequest(requestContext, (context) =>
         this.transport.startRun(

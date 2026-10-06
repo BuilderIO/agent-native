@@ -770,6 +770,629 @@ describe("createAgentNativeChatRuntime", () => {
     ]);
   });
 
+  it("stops serializing nested tool values when they exceed 64 KiB", async () => {
+    let inputTailRead = false;
+    let resultTailRead = false;
+    const nestedInput: Record<string, unknown> = {
+      nested: { values: Array.from({ length: 20_000 }, (_, index) => index) },
+    };
+    Object.defineProperty(nestedInput, "late", {
+      enumerable: true,
+      get() {
+        inputTailRead = true;
+        return "late input";
+      },
+    });
+    const nestedResult: Record<string, unknown> = {
+      nested: { values: Array.from({ length: 20_000 }, (_, index) => index) },
+    };
+    Object.defineProperty(nestedResult, "late", {
+      enumerable: true,
+      get() {
+        resultTailRead = true;
+        return "late result";
+      },
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-bounded-json-serialization",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-large-nested-input",
+              toolName: "search",
+              input: nestedInput,
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-large-nested-result",
+              result: nestedResult,
+              resultText: "Bounded result summary.",
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const parts = (
+      body.structuredHistory as Array<{
+        content: Array<{ type: string; text?: string; content?: string }>;
+      }>
+    ).flatMap((message) => message.content);
+
+    expect(inputTailRead).toBe(false);
+    expect(resultTailRead).toBe(false);
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Tool input omitted from history because it exceeds 64 KiB.",
+    });
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        content:
+          "Tool result omitted from history because it exceeds 64 KiB.\nBounded result summary.",
+      }),
+    );
+  });
+
+  it("measures escaped JSON bytes for tool input and result strings", async () => {
+    const escapeHeavy = "\u0001".repeat(11 * 1024);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-escaped-json-value-cap",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-escaped-input",
+              toolName: "search",
+              input: escapeHeavy,
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-escaped-result",
+              result: escapeHeavy,
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const parts = (
+      body.structuredHistory as Array<{
+        content: Array<{ type: string; text?: string; content?: string }>;
+      }>
+    ).flatMap((message) => message.content);
+
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Tool input omitted from history because it exceeds 64 KiB.",
+    });
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        content: "Tool result omitted from history because it exceeds 64 KiB.",
+      }),
+    );
+  });
+
+  it("bounds omitted-property and deeply nested tool serialization work", async () => {
+    let latePropertyRead = false;
+    const omittedProperties: Record<string, unknown> = {};
+    for (let index = 0; index < 40_000; index++) {
+      const value = index % 3;
+      omittedProperties[`omitted-${index}`] =
+        value === 0 ? undefined : value === 1 ? () => undefined : Symbol();
+    }
+    Object.defineProperty(omittedProperties, "late", {
+      enumerable: true,
+      get() {
+        latePropertyRead = true;
+        return "late value";
+      },
+    });
+
+    let deeplyNested: unknown = "leaf";
+    for (let index = 0; index < 600; index++) {
+      deeplyNested = { child: deeplyNested };
+    }
+    let toJSONReceiver: unknown;
+    const toJSON = Object.assign(
+      function (this: unknown) {
+        toJSONReceiver = this;
+        return { serialized: true };
+      },
+      {
+        call: () => {
+          throw new Error("toJSON.call must not be invoked");
+        },
+      },
+    );
+    const functionWithToJSON = Object.assign(() => undefined, { toJSON });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-bounded-serialization-work",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-many-omissions",
+              toolName: "search",
+              input: omittedProperties,
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-deep-value",
+              toolName: "search",
+              input: deeplyNested,
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-function-to-json",
+              toolName: "search",
+              input: functionWithToJSON,
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const parts = (
+      body.structuredHistory as Array<{
+        content: Array<{
+          type: string;
+          id?: string;
+          input?: unknown;
+          text?: string;
+        }>;
+      }>
+    ).flatMap((message) => message.content);
+
+    expect(latePropertyRead).toBe(false);
+    expect(toJSONReceiver).toBe(functionWithToJSON);
+    expect(
+      parts.filter(
+        (part) =>
+          part.text ===
+          "Tool input omitted from history because serialization exceeded its work limit.",
+      ),
+    ).toHaveLength(2);
+    expect(parts).toContainEqual({
+      type: "tool-call",
+      id: "call-function-to-json",
+      name: "search",
+      input: { serialized: true },
+    });
+  });
+
+  it("reads each enumerable proxy property once like JSON.stringify", async () => {
+    let descriptorReads = 0;
+    const proxyInput = new Proxy(
+      {},
+      {
+        ownKeys: () => ["value"],
+        getOwnPropertyDescriptor: (_target, key) => {
+          if (key !== "value") return undefined;
+          descriptorReads++;
+          return descriptorReads === 1
+            ? { configurable: true, enumerable: true, value: 1, writable: true }
+            : undefined;
+        },
+        get: (_target, key) => (key === "value" ? 1 : undefined),
+      },
+    );
+    const expected = JSON.stringify(proxyInput);
+    descriptorReads = 0;
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-proxy-tool-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-proxy-input",
+              toolName: "search",
+              input: proxyInput,
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const toolCall = (
+      body.structuredHistory as Array<{
+        content: Array<{ type: string; id?: string; input?: unknown }>;
+      }>
+    )
+      .flatMap((message) => message.content)
+      .find((part) => part.type === "tool-call");
+
+    expect(descriptorReads).toBe(1);
+    expect(toolCall).toMatchObject({
+      id: "call-proxy-input",
+      input: JSON.parse(expected!),
+    });
+  });
+
+  it("bounds whitespace history and result summaries before adding them", async () => {
+    const whitespaceText = " ".repeat(300 * 1024);
+    const whitespaceInputText = " ".repeat(70 * 1024);
+    const whitespaceResultText = " ".repeat(70 * 1024);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-bounded-whitespace-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: [
+            { type: "text", text: whitespaceText },
+            {
+              type: "tool-call",
+              toolCallId: "call-whitespace-input-text",
+              toolName: "search",
+              inputText: whitespaceInputText,
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-whitespace-result-text",
+              result: { found: true },
+              resultText: whitespaceResultText,
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const parts = (
+      body.structuredHistory as Array<{
+        content: Array<{ type: string; text?: string; content?: string }>;
+      }>
+    ).flatMap((message) => message.content);
+
+    expect(parts).not.toContainEqual({ type: "text", text: whitespaceText });
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    });
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Tool input omitted from history because it exceeds 64 KiB.",
+    });
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "call-whitespace-result-text",
+        content: "Tool result omitted from history because it exceeds 64 KiB.",
+      }),
+    );
+  });
+
+  it("projects only a bounded suffix of prior structured tool history", async () => {
+    let discardedInputRead = false;
+    const oldestCall = {
+      type: "tool-call" as const,
+      toolCallId: "call-0",
+      toolName: "search",
+      input: {},
+    };
+    Object.defineProperty(oldestCall, "input", {
+      enumerable: true,
+      get() {
+        discardedInputRead = true;
+        return { query: "discarded" };
+      },
+    });
+    const toolContent = [
+      oldestCall,
+      ...Array.from({ length: 70 }, (_, index) => {
+        const id = `call-${index + 1}`;
+        return [
+          {
+            type: "tool-call" as const,
+            toolCallId: id,
+            toolName: "search",
+            input: { query: id },
+          },
+          {
+            type: "tool-result" as const,
+            toolCallId: id,
+            result: { result: id },
+          },
+        ];
+      }).flat(),
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-bounded-source-window",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        { id: "assistant-tools", role: "assistant", content: toolContent },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = body.structuredHistory as Array<{
+      role: "user" | "assistant";
+      content: Array<{ type: string; id?: string; text?: string }>;
+    }>;
+    const parts = history.flatMap((message) => message.content);
+    const calls = parts.filter((part) => part.type === "tool-call");
+
+    expect(discardedInputRead).toBe(false);
+    expect(calls).toHaveLength(64);
+    expect(calls[0]?.id).toBe("call-7");
+    expect(calls.at(-1)?.id).toBe("call-70");
+    expect(history.at(-1)).toEqual({
+      role: "assistant",
+      content: [
+        {
+          type: "text",
+          text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+        },
+      ],
+    });
+  });
+
+  it("keeps the newest tool window when recent text is interleaved", async () => {
+    const toolAndTextContent = [
+      ...Array.from({ length: 65 }, (_, index) => {
+        const id = `call-${index + 1}`;
+        return [
+          {
+            type: "tool-call" as const,
+            toolCallId: id,
+            toolName: "search",
+            input: { query: id },
+          },
+          {
+            type: "tool-result" as const,
+            toolCallId: id,
+            result: { result: id },
+          },
+        ];
+      }).flat(),
+      ...Array.from({ length: 200 }, (_, index) => ({
+        type: index % 2 ? ("reasoning" as const) : ("text" as const),
+        text: `Recent note ${index}.`,
+      })),
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-tool-window-with-recent-text",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools-and-text",
+          role: "assistant",
+          content: toolAndTextContent,
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const parts = (
+      body.structuredHistory as Array<{
+        content: Array<{ type: string; id?: string }>;
+      }>
+    ).flatMap((message) => message.content);
+    const calls = parts.filter((part) => part.type === "tool-call");
+    const results = parts.filter((part) => part.type === "tool-result");
+
+    expect(calls).toHaveLength(64);
+    expect(calls[0]?.id).toBe("call-2");
+    expect(calls.at(-1)?.id).toBe("call-65");
+    expect(results).toHaveLength(64);
+  });
+
+  it("omits unmatched boundary results when their calls fall outside the source window", async () => {
+    let boundaryResultRead = false;
+    const boundaryCall = {
+      type: "tool-call" as const,
+      toolCallId: "call-boundary",
+      toolName: "search",
+      input: { query: "boundary" },
+    };
+    const boundaryResult = {
+      type: "tool-result" as const,
+      toolCallId: "call-boundary",
+      result: "boundary result",
+    };
+    Object.defineProperty(boundaryResult, "result", {
+      enumerable: true,
+      get() {
+        boundaryResultRead = true;
+        return "boundary result";
+      },
+    });
+    const toolContent = [
+      boundaryCall,
+      ...Array.from({ length: 64 }, (_, index) => {
+        const id = `call-${index}`;
+        return [
+          {
+            type: "tool-call" as const,
+            toolCallId: id,
+            toolName: "search",
+            input: { query: id },
+          },
+          {
+            type: "tool-result" as const,
+            toolCallId: id,
+            result: `result-${id}`,
+          },
+        ];
+      }).flat(),
+      boundaryResult,
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-truncated-boundary-result",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        { id: "assistant-tools", role: "assistant", content: toolContent },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = body.structuredHistory as Array<{
+      role: "user" | "assistant";
+      content: Array<{ type: string; toolCallId?: string; text?: string }>;
+    }>;
+    const parts = history.flatMap((message) => message.content);
+    const calls = parts.filter((part) => part.type === "tool-call");
+    const results = parts.filter((part) => part.type === "tool-result");
+
+    expect(boundaryResultRead).toBe(false);
+    expect(calls).toHaveLength(63);
+    expect(results).toHaveLength(63);
+    expect(results.some((part) => part.toolCallId === "call-boundary")).toBe(
+      false,
+    );
+    expect(history.at(-1)?.role).toBe("assistant");
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    });
+  });
+
   it("caps direct runtime tool history at 64 calls", async () => {
     const toolContent = Array.from({ length: 65 }, (_, index) => {
       const id = `call-${index}`;
@@ -841,7 +1464,7 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("caps direct runtime orphan tool results at 64 entries", async () => {
-    const results = Array.from({ length: 65 }, (_, index) => ({
+    const results = Array.from({ length: 129 }, (_, index) => ({
       type: "tool-result" as const,
       toolCallId: `orphan-${index}`,
       result: `result-${index}`,
@@ -886,8 +1509,8 @@ describe("createAgentNativeChatRuntime", () => {
     const toolResults = parts.filter((part) => part.type === "tool-result");
 
     expect(toolResults).toHaveLength(64);
-    expect(toolResults[0]?.toolCallId).toBe("orphan-1");
-    expect(toolResults.at(-1)?.toolCallId).toBe("orphan-64");
+    expect(toolResults[0]?.toolCallId).toBe("orphan-65");
+    expect(toolResults.at(-1)?.toolCallId).toBe("orphan-128");
     expect(parts).toContainEqual({
       type: "text",
       text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",

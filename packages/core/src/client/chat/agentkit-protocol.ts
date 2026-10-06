@@ -153,6 +153,7 @@ interface ProtocolRun {
   usage?: AgentUsage;
   metadata?: Record<string, unknown>;
   activeMessageId?: string;
+  activeMessageRole?: AgentChatRuntimeMessage["role"];
   activeMessageCompleted: boolean;
   runtimeSequence?: number;
   resumeAttempts?: number;
@@ -173,6 +174,7 @@ interface ProtocolRun {
   pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
   activeTools: Map<string, AgentToolCall>;
+  pendingToolMessageAssociations: Map<string, AgentToolCall>;
   activeActivities: Map<string, AgentActivity>;
   terminalAppendDepth: number;
   pumpPromise: Promise<void> | null;
@@ -480,6 +482,19 @@ function runtimeEventMessageId(
     if (messageId) return messageId;
   }
   return run.activeMessageCompleted ? undefined : run.activeMessageId;
+}
+
+function runtimeToolMessageId(
+  run: ProtocolRun,
+  ...metadata: Array<Record<string, unknown> | undefined>
+): string | undefined {
+  for (const value of metadata) {
+    const messageId = metadataString(value, "messageId");
+    if (messageId) return messageId;
+  }
+  return run.activeMessageRole === "assistant"
+    ? runtimeEventMessageId(run)
+    : undefined;
 }
 
 function runtimeAnnotationToProtocol(
@@ -1535,6 +1550,7 @@ export function createAgentKitProtocolAdapter(
       pendingWidgets: new Map(),
       actions: new Map(),
       activeTools: new Map(),
+      pendingToolMessageAssociations: new Map(),
       activeActivities: new Map(),
       terminalAppendDepth: 0,
       pumpPromise: null,
@@ -1849,6 +1865,7 @@ export function createAgentKitProtocolAdapter(
         });
       }
     }
+    run.pendingToolMessageAssociations.clear();
   }
 
   function runtimeEventToProtocolEvents(
@@ -1870,9 +1887,31 @@ export function createAgentKitProtocolAdapter(
         widget,
       }));
     };
+    const attachPendingToolMessageAssociations = (messageId: string) => {
+      const tools = [...run.pendingToolMessageAssociations.values()];
+      run.pendingToolMessageAssociations.clear();
+      return tools.map((toolCall) => ({
+        type: "tool.updated" as const,
+        ...base,
+        toolCall: { ...toolCall, messageId },
+      }));
+    };
+    const retainPendingToolMessageAssociation = (toolCall: AgentToolCall) => {
+      run.pendingToolMessageAssociations.delete(toolCall.id);
+      run.pendingToolMessageAssociations.set(toolCall.id, toolCall);
+      // Pending links use the same bound as the replay log they can be attached to.
+      while (run.pendingToolMessageAssociations.size > maxRetainedEvents) {
+        const oldestToolCallId = run.pendingToolMessageAssociations
+          .keys()
+          .next().value;
+        if (oldestToolCallId === undefined) break;
+        run.pendingToolMessageAssociations.delete(oldestToolCallId);
+      }
+    };
     switch (event.type) {
       case "message-start":
         run.activeMessageId = event.message.id;
+        run.activeMessageRole = event.message.role;
         run.activeMessageCompleted = false;
         return [
           {
@@ -1881,8 +1920,14 @@ export function createAgentKitProtocolAdapter(
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
           ...attachPendingWidgets(event.message.id),
+          ...(event.message.role === "assistant"
+            ? attachPendingToolMessageAssociations(event.message.id)
+            : []),
         ];
       case "message-delta":
+        if (run.activeMessageId !== event.messageId) {
+          run.activeMessageRole = undefined;
+        }
         run.activeMessageId = event.messageId;
         run.activeMessageCompleted = false;
         if (event.delta.type === "text") {
@@ -1923,6 +1968,7 @@ export function createAgentKitProtocolAdapter(
         ];
       case "message-done":
         run.activeMessageId = event.message.id;
+        run.activeMessageRole = event.message.role;
         run.activeMessageCompleted = true;
         return [
           {
@@ -1931,6 +1977,9 @@ export function createAgentKitProtocolAdapter(
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
           ...attachPendingWidgets(event.message.id),
+          ...(event.message.role === "assistant"
+            ? attachPendingToolMessageAssociations(event.message.id)
+            : []),
         ];
       case "tool-start": {
         const metadata = mergeProtocolMetadata(
@@ -1943,18 +1992,25 @@ export function createAgentKitProtocolAdapter(
           metadata,
         );
         if (invocation) run.actions.set(event.toolCall.id, invocation);
+        const messageId = runtimeToolMessageId(run, event.toolCall.metadata);
+        const toolCall = runtimeToolToProtocolTool(
+          event.toolCall,
+          "running",
+          undefined,
+          undefined,
+          messageId,
+        );
+        if (messageId) {
+          run.pendingToolMessageAssociations.delete(toolCall.id);
+        } else {
+          retainPendingToolMessageAssociation(toolCall);
+        }
         return [
           {
             type: "tool.started",
             ...base,
             metadata,
-            toolCall: runtimeToolToProtocolTool(
-              event.toolCall,
-              "running",
-              undefined,
-              undefined,
-              runtimeEventMessageId(run, event.toolCall.metadata),
-            ),
+            toolCall,
           },
           ...(invocation
             ? [
@@ -2023,24 +2079,34 @@ export function createAgentKitProtocolAdapter(
           : undefined;
         if (invocation) run.actions.delete(event.toolCallId);
         const activeTool = run.activeTools.get(event.toolCallId);
+        const explicitMessageId = metadataString(event.metadata, "messageId");
         const messageId =
-          activeTool?.messageId ?? runtimeEventMessageId(run, event.metadata);
+          activeTool?.messageId ??
+          explicitMessageId ??
+          (run.pendingToolMessageAssociations.has(event.toolCallId)
+            ? undefined
+            : runtimeToolMessageId(run, event.metadata));
+        const toolCall: AgentToolCall = {
+          ...activeTool,
+          id: event.toolCallId,
+          name: event.toolName,
+          status,
+          output: event.result !== undefined ? event.result : event.resultText,
+          error,
+          ...(messageId ? { messageId } : {}),
+          ...(metadata ? { metadata } : {}),
+        };
+        if (messageId) {
+          run.pendingToolMessageAssociations.delete(event.toolCallId);
+        } else if (run.pendingToolMessageAssociations.has(event.toolCallId)) {
+          retainPendingToolMessageAssociation(toolCall);
+        }
         return [
           {
             type: "tool.updated",
             ...base,
             metadata,
-            toolCall: {
-              ...activeTool,
-              id: event.toolCallId,
-              name: event.toolName,
-              status,
-              output:
-                event.result !== undefined ? event.result : event.resultText,
-              error,
-              ...(messageId ? { messageId } : {}),
-              ...(metadata ? { metadata } : {}),
-            },
+            toolCall,
           },
           ...(actionResult
             ? [
@@ -3151,6 +3217,7 @@ export function createAgentKitProtocolAdapter(
         pendingWidgets: new Map(),
         actions: new Map(),
         activeTools: new Map(),
+        pendingToolMessageAssociations: new Map(),
         activeActivities: new Map(),
         terminalAppendDepth: 0,
         pumpPromise: null,
@@ -3511,10 +3578,14 @@ export function createAgentKitProtocolAdapter(
           activeReaders: 0,
           metadata: replacementMetadata,
           activeMessageId: run.activeMessageId,
+          activeMessageRole: run.activeMessageRole,
           activeMessageCompleted: run.activeMessageCompleted,
           pendingWidgets: new Map(run.pendingWidgets),
           actions: new Map(run.actions),
           activeTools: new Map(run.activeTools),
+          pendingToolMessageAssociations: new Map(
+            run.pendingToolMessageAssociations,
+          ),
           activeActivities: new Map(run.activeActivities),
           terminalAppendDepth: 0,
           pumpPromise: null,

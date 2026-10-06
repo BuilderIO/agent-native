@@ -735,10 +735,18 @@ export function reduceAgentEvent(
       }
       const currentToolCall = next.tools[event.toolCall.id];
       const toolCall =
-        event.type === "tool.updated" &&
-        event.toolCall.messageId === undefined &&
-        currentToolCall?.messageId
-          ? { ...event.toolCall, messageId: currentToolCall.messageId }
+        event.type === "tool.updated"
+          ? {
+              ...event.toolCall,
+              ...(event.toolCall.messageId === undefined &&
+              currentToolCall?.messageId !== undefined
+                ? { messageId: currentToolCall.messageId }
+                : {}),
+              ...(event.toolCall.input === undefined &&
+              currentToolCall?.input !== undefined
+                ? { input: currentToolCall.input }
+                : {}),
+            }
           : event.toolCall;
       return {
         ...next,
