@@ -73,6 +73,11 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         "Create a screen with an image at 300x250",
       ),
     ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a responsive landing page with a hero image at 1200x600 pixels",
+      ),
+    ).toBeUndefined();
   });
 
   it("prefers explicit screen dimensions over nested asset dimensions", () => {
@@ -99,6 +104,11 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     expect(
       explicitCanvasDimensionsFromPrompt(
         "Create a 1200x800 screen with a 1,000,000x1000px image",
+      ),
+    ).toEqual({ width: 1200, height: 800 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 1200x800 canvas with a 300x250 ad",
       ),
     ).toEqual({ width: 1200, height: 800 });
   });
@@ -138,6 +148,11 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     expect(() =>
       explicitCanvasDimensionsFromPrompt(
         "Create a 300x250 ad and a 728x90 leaderboard",
+      ),
+    ).toThrow("Use one exact canvas size per Design action call");
+    expect(() =>
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 1200x800 canvas and a 300x250 ad",
       ),
     ).toThrow("Use one exact canvas size per Design action call");
   });

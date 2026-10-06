@@ -30,13 +30,15 @@ const IMAGE_OUTPUT_CONTEXT_BEFORE =
 const ASSET_CONTEXT_AFTER =
   /^\s*(?:image|asset|icon|logo|favicon|avatar|illustration)\b/i;
 const OUTPUT_CONTAINER_CONTEXT =
-  "(?:screen|canvas|artboard|frame|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|social\\s+post|post|story|email\\s+header|email|newsletter|print|flyer|poster|screenshot)";
-const NESTED_ASSET_RELATIONSHIP_BEFORE = new RegExp(
+  "(?:screen|canvas|artboard|frame|(?:responsive\\s+)?(?:landing\\s+)?page|web\\s+app|website|web\\s+site|dashboard|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|social\\s+post|post|story|email\\s+header|email|newsletter|print|flyer|poster|screenshot)";
+const NESTED_OUTPUT_ASSET_AFTER =
+  /^\s*(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\b/i;
+const NESTED_OUTPUT_RELATIONSHIP_BEFORE = new RegExp(
   `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring)\\s+(?:an?\\s+)?$`,
   "i",
 );
-const NESTED_ASSET_CONTEXT_BEFORE = new RegExp(
-  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring)\\s+(?:an?\\s+)?(?:embedded\\s+|nested\\s+)?(?:image|asset|icon|logo|favicon|avatar|illustration)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at)\\s*$`,
+const NESTED_OUTPUT_ASSET_CONTEXT_BEFORE = new RegExp(
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring)\\s+(?:an?\\s+)?(?:(?:embedded|nested|hero|background|header|main|featured|product|profile|thumbnail|preview)\\s+)*(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at)\\s*$`,
   "i",
 );
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
@@ -58,6 +60,7 @@ export function explicitCanvasDimensionsFromPrompt(
   const explicitDimensionsByKey = new Map<string, CanvasDimensionCandidate>();
   const formatDimensionsByKey = new Map<string, CanvasDimensionCandidate>();
   const imageDimensionsByKey = new Map<string, CanvasDimensionCandidate>();
+  const outputDimensionsByKey = new Map<string, CanvasDimensionCandidate>();
 
   for (let index = 0; index < matches.length; index += 1) {
     const match = matches[index]!;
@@ -99,9 +102,9 @@ export function explicitCanvasDimensionsFromPrompt(
       FORMAT_CONTEXT_BEFORE.test(prefix ?? "") ||
       FORMAT_CONTEXT_AFTER.test(suffix ?? "");
     const hasNestedAssetContext =
-      NESTED_ASSET_CONTEXT_BEFORE.test(nearbyPrefix) ||
-      (NESTED_ASSET_RELATIONSHIP_BEFORE.test(nearbyPrefix) &&
-        ASSET_CONTEXT_AFTER.test(suffix ?? ""));
+      NESTED_OUTPUT_ASSET_CONTEXT_BEFORE.test(nearbyPrefix) ||
+      (NESTED_OUTPUT_RELATIONSHIP_BEFORE.test(nearbyPrefix) &&
+        NESTED_OUTPUT_ASSET_AFTER.test(suffix ?? ""));
     const hasImageOutputContext =
       IMAGE_OUTPUT_CONTEXT_BEFORE.test(prefix ?? "") ||
       (ASSET_CONTEXT_AFTER.test(suffix ?? "") &&
@@ -123,7 +126,9 @@ export function explicitCanvasDimensionsFromPrompt(
       : hasFormatContext && !hasImageOutputContext
         ? formatDimensionsByKey
         : imageDimensionsByKey;
-    target.set(`${width}x${height}`, candidate);
+    const key = `${width}x${height}`;
+    target.set(key, candidate);
+    outputDimensionsByKey.set(key, candidate);
   }
 
   const dimensionsByKey =
@@ -132,7 +137,7 @@ export function explicitCanvasDimensionsFromPrompt(
       : formatDimensionsByKey.size > 0
         ? formatDimensionsByKey
         : imageDimensionsByKey;
-  for (const candidate of dimensionsByKey.values()) {
+  for (const candidate of outputDimensionsByKey.values()) {
     const { rawWidth, rawHeight, width, height } = candidate;
     if (
       !Number.isFinite(width) ||
@@ -156,8 +161,8 @@ export function explicitCanvasDimensionsFromPrompt(
       );
     }
   }
-  if (dimensionsByKey.size > 1) {
-    const requested = [...dimensionsByKey.values()]
+  if (outputDimensionsByKey.size > 1) {
+    const requested = [...outputDimensionsByKey.values()]
       .map(({ width, height }) => `${width}×${height}`)
       .join(", ");
     throw new Error(
