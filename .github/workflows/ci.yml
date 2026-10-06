@@ -704,7 +704,8 @@ jobs:
 
       - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+        timeout-minutes: 10
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform linux
 
   slides-macos-caret-qa:
     name: Slides caret navigation in macOS
@@ -731,7 +732,8 @@ jobs:
 
       - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+        timeout-minutes: 10
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin
 
   slides-authoring-e2e:
     name: Slides rich-text authoring
