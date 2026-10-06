@@ -292,7 +292,8 @@ describe("DocumentToolbar at narrow widths", () => {
 
     await act(async () => close!.click());
     await act(
-      async () => new Promise((resolve) => requestAnimationFrame(resolve)),
+      async () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
     );
     expect(document.activeElement).toBe(
       toolbarButton("editor.toolbar.morePageActions"),
