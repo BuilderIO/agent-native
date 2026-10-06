@@ -38,32 +38,20 @@ is a default input, not a special-case exclusion.
 
 ## Slack ownership gate
 
-Before reading or processing a Slack message's body, attachments, replies, or
-linked work, check its reaction metadata. If it already has `👀` or any
-checkmark reaction (including `✅` or `✔️`) from anyone, including us, skip it
-completely. Do not open its thread, investigate it, reply, react, or include
-its details in the ledger. The existing mark means another person or run owns
-or handled it. New replies, evidence, or `:upvote:` do not override this gate.
-Apply it in every phase, including channel reads, search results, and prior
-questions. For a search hit, resolve only enough metadata to identify the hit
-and parent reactions; do not use hit text or open the thread until both pass
-the gate. In an eligible thread, apply the same rule to each reply and do not
-read or engage with a marked reply. If a tool returns message text and reaction
-metadata together, inspect reactions first and discard a marked message without
-processing its text. Count reaction-gated skips in aggregate only.
-
-The gate applies to marks present when a message is first considered. An
-unmarked item may receive `👀` from this run in Phase 0; that new claim is the
-only exception, and this run may read it back and finish its disposition. A
-later run must skip that now-existing mark. If another person adds a mark
-during the run, stop work on that item.
+Before reading a Slack message or using a search hit, check the message and
+parent reactions. Any pre-existing `👀` or checkmark (`✅`, `✔️`) from anyone,
+including us, means skip it: don't read it or its replies, open its thread,
+inspect linked work, investigate, react, reply, or record its details. New
+replies, evidence, and upvotes do not override the gate. In every phase, inspect
+reactions before search text; apply the same rule to thread replies. Only this
+run may handle the `👀` it adds to an unmarked item; later runs skip it. Stop
+if anyone else adds a mark during the run.
 
 ## Phase 0: claim what you are taking
 
-For an unmarked item you intend to take, add `👀` before investigation and
-never remove it. Do not resume, coordinate, or check the status of an item that
-already had `👀` or a checkmark when encountered; the Slack ownership gate
-excludes it. Post **In progress** only when work continues beyond this run.
+For an eligible item you intend to take, add `👀` before investigation and
+never remove it. Do not resume items excluded by the Slack ownership gate. Post
+**In progress** only when work continues beyond this run.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
 Investigate first; ask what they saw or did in plain language. Gather request
@@ -77,15 +65,13 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 ### Reaction gate
 
-For items this run claimed, `👀` records the claim and `✅` requires **Fixed**
-after all Phase 2 bars. The Slack ownership gate takes precedence over every
-workflow below: any pre-existing `👀` or checkmark from anyone means skip
-without reading or engaging. `🎫` marks accepted work another owner must do;
-use it only with an existing ticket naming that owner and exact action, linked
-in the ledger and reply. No `🎫` for fixed scope, routine rollout, optional
-live checks, subjective/out-of-scope, or unapproved work. Pair `✅` + `🎫` only
-for distinct scopes; name the fixed behavior and ticket action.
-**Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
+`👀` is claim history; `✅` requires **Fixed** after all Phase 2 bars. `🎫`
+marks accepted work another owner must do; use it only with an existing ticket
+naming that owner and exact action, linked in the ledger and reply. No `🎫` for
+fixed scope, routine rollout, optional live checks, subjective/out-of-scope, or
+unapproved work. Pair `✅` + `🎫` only for distinct scopes; name the fixed
+behavior and ticket action. **Shipped**/**Live verified** alone don't earn
+`✅`. Never remove reactions.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -96,9 +82,8 @@ means you found neither a fix nor a useful question; state why in the thread.
 
 ### Authoritative disposition vocabulary
 
-For eligible items this run claims, use one disposition per row; record it in
-the recap and, if unstated, in the thread or linked work. A pre-existing eye or
-checkmark triggers the ownership gate; do not inspect it to determine status.
+For eligible items, use one disposition per row; record it in the recap and, if
+unstated, in the thread or linked work. Do not inspect gated items for status.
 For clusters, post one owner status with each source permalink and
 **Clustered**; reply in a non-owner only for a distinct question or update.
 
@@ -111,9 +96,8 @@ For clusters, post one owner status with each source permalink and
   **In progress**.
 - **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
-- **Owned elsewhere:** use only for an unmarked item when other accessible
-  evidence confirms an active owner. A pre-existing `👀` or checkmark is handled
-  by the ownership gate without inspecting that evidence.
+- **Owned elsewhere:** use only for an unmarked item when accessible evidence
+  confirms an active owner; pre-existing marks are skipped by the ownership gate.
 
 After merge, **Fixed** closes the source issue. Track release/runtime
 separately; normal rollout and optional live checks neither reopen it nor
@@ -121,30 +105,25 @@ warrant `🎫`. Follow up only on accepted work outside this run; record source,
 target, owner, exact action, and verification. Don't reopen closed fixes.
 **Clustered** closes one row but retains it.
 
-Enumerate `slack_read_channel` newest backward through `next_cursor` until a
-parent is older than 5 days. Record the oldest in-range parent as the scan
-boundary. Check parent reaction metadata first; only read text or attachments
-after the parent passes the Slack ownership gate.
+Enumerate channel parents newest backward through `next_cursor` until older
+than 5 days. Check reactions first; skip marked messages.
 
 **`slack_search` can rank and truncate.** Use channel reads to enumerate parents
 and put their count in the recap. Sort targeted searches oldest-first and follow
 `next_cursor` until exhausted.
 
-A channel read returns parents, so use its timestamps directly; *search* hits
-are usually replies, so resolve those through the permalink `thread_ts` first
-and check the parent reactions before using the hit text or opening the thread.
+Search hits are often replies; resolve `thread_ts` and check parent reactions
+before reading the hit or opening the thread.
 
 Read back each `👀` this run added once before investigation. Never resume a
 pre-existing `👀` or checkmark.
 
-Claiming does not investigate. Search-discovered work gets the same eye-first
-read-back. Do not claim items that are already classified as out of scope. If
-an item is later found out of scope after this run claimed it, keep `👀`, record
-**Skipped**, and post one concise status reply, no question. New evidence or a
-current `:upvote:` never reopens a message excluded by the ownership gate.
+Claiming does not investigate. Read back new claims. Do not claim out-of-scope
+items. If a current-run claim proves out of scope, keep `👀` and post **Skipped**
+once without a question. New evidence or upvotes never override the ownership
+gate.
 
-Give each item claimed in this run a disposition and recap row; reply only with
-informative outcomes. Record reaction-gated skips only in the aggregate count.
+Record eligible claims and dispositions; report gated skips in aggregate only.
 Cluster fresh repeats for Phase 2.
 
 ### External trackers are evidence, not status
@@ -160,10 +139,8 @@ proof. Each row needs a post-change ledger result. If it cannot be read, say
 
 ## Phase 1: answer the people who answered you
 
-Every question you ask creates an obligation to handle an answer during this
-run. On later runs, apply the Slack ownership gate first: a question whose
-parent already has `👀` or a checkmark is excluded, even if you asked it or a
-reporter has since replied.
+Answer eligible questions first; the ownership gate excludes prior-run marked
+questions, even if a reporter has since replied.
 
 Slack is the ledger; a per-run state file cannot carry state across runs. First,
 exhaust this search to enumerate prior questions and context:
@@ -173,10 +150,8 @@ slack_search: "this was sent from a bot." in:<#CHANNEL>
   sort=timestamp sort_dir=asc include_context=true max_context_length=300
 ```
 
-Keep `include_context=true` on every page and follow `next_cursor` until
-exhausted. Its `Context after` block identifies human replies; do not filter to
-replies ending in `?`. Apply the ownership gate before reading search text or
-opening a thread; open only eligible threads with a human reply.
+Keep context and exhaust pages; include human replies regardless of
+punctuation. Open only eligible threads with a human reply.
 
 **The parent is the permalink's `thread_ts`.** `Message_ts` is your own
 reply's timestamp; acting on it targets the wrong message.
@@ -191,17 +166,14 @@ slack_search: in:<#CHANNEL> after:<YYYY-MM-DD>
   sort=timestamp sort_dir=asc
 ```
 
-Filter hits by their own timestamp after the cursor, resolve each to its
-parent's `thread_ts`, and check the parent's reactions before reading the full
-thread. Discard marked parents without reading their text or replies. Never
-filter by the older parent/disclosure timestamp. Slack's `after:` is date-only,
-so begin one day before the cursor date. Exhaust `next_cursor`; advance each
-cursor only to its greatest fully processed timestamp.
+Filter hits by their timestamp, resolve parent `thread_ts`, and check reactions
+first. Skip marked parents without opening threads. Never filter by the older
+parent timestamp; `after:` is date-only, so start a day earlier and exhaust
+pages. Advance the cursor to the greatest processed hit.
 
-For eligible questions only, count an answer when a person posts after it
-without this workflow's disclosure marker; read the thread to reject partial,
-unrelated, or deferred replies. Count each answer once; only a newer message
-reopens an eligible question.
+Count a question answered only when a person posts after it without this
+workflow's disclosure marker; read the thread to reject partial, unrelated, or
+deferred replies. Count each answer once; only a newer message reopens it.
 Enumerate answered threads before new work and recap the count. Keep unanswered
 **Clarification needed** pending until answered, resolved, or four days old;
 other dispositions do not substitute. Reapply Phase 0 eye/checkmark rules.
@@ -286,21 +258,18 @@ slack_search: hasmy::upvote: in:<#CHANNEL>
 `hasmy:` is already scoped to the connected identity you verified, so every
 hit is an endorsement by definition. Hits are not self-evidently in scope —
 the query also returns ordinary replies and old polls that happen to carry the
-reaction. Apply the Slack ownership gate to the parent before reading a hit or
-thread. Take eligible ones that name a concrete improvement; skip the rest
+reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
 An upvoted item is a **feature or UX change**: it skips only the clear-bug bar,
 not `👀`, fix-altitude, verification, or question-budget requirements. The
-upvote does not override the Slack ownership gate. For an eligible item, build
-the smallest endorsed version and name Sid or Alice in the recap. Add `👀`
-before investigation or delegation and read it back. Keep an evidence-limited
-disposition until Phase 2's four bars hold; then use **Shipped**, adding `✅`
-only if it also meets **Fixed**.
+upvote overrides the bug gate, not ownership; build the smallest endorsed
+version and name Sid or Alice in the recap. Add `👀` before investigation or
+delegation and read it back. Keep an evidence-limited disposition until Phase
+2's four bars hold; then use **Shipped**, adding `✅` only if it also meets
+**Fixed**.
 
-Do not search `has::eyes:` to resume or reclassify work. A pre-existing eye or
-checkmark excludes the message without a thread, linked-work, or status review;
-new evidence and upvotes do not reopen it.
+Do not search `has::eyes:` to resume work.
 
 For GitHub, Sentry, and first-party Agent-Native Analytics, use native state as
 the cursor: recent open or unresolved items with no maintainer disposition,
@@ -423,9 +392,8 @@ surface is the contract:
    verified source merge, mark **Fixed** even if release/live layers remain;
    routine rollout and optional beta checks aren't ticketed follow-ups.
    **Shipped**/**Live verified** need their own bars. Don't mark **Fixed**/`✅`
-   without merged-source proof. Reopen an eligible repeat only with a fresh
-   failing pre-change reproduction; never reopen a message excluded by the
-   Slack ownership gate.
+   without merged-source proof. Reopen repeats only with a fresh failing
+   pre-change reproduction.
 
 ### Reproduction ledger - required for every row
 
@@ -496,10 +464,7 @@ Share only new or useful information.
 
 ### After a PR merges
 
-After a Slack-fix PR merges in the same run that first claimed the unmarked
-message, reply once in each affected thread, including clusters, and name the
-fix. If the claim predates this run, the ownership gate prohibits reopening or
-replying in that thread.
+After a Slack-fix PR merges, reply only in threads claimed this run.
 
 For beta app fixes, check the merge-triggered publisher run before giving the
 normal few-hours ETA. This checks release-job status, not beta behavior. If it
@@ -513,8 +478,7 @@ For packages, state availability without verification details.
 For a fixed behavior with a ticketed handoff, state the done behavior and
 remaining action/owner/ticket separately; don't imply the fixed scope is open.
 Don't promise a ticket until created and assigned. Ask one targeted question if
-needed. If merge is later, retain source links and the reply obligation in the
-ledger.
+needed. Do not reopen Slack in later runs to reply.
 
 - **Fixed** / **Shipped** / **Live verified** meet Phase 2 bars. Recorded live
   observations may be silent; merged Slack fixes still get the reply above.
@@ -585,16 +549,14 @@ evidence or owner.
 
 If no fix is verified, recap why shipping did not start. Unavailable connectors
 and external failures are not shipping blockers.
-While waiting in this run, **Clarification needed** stays open with `👀` and no
-`✅`. It must not block merging independently verified fixes unless the report
-could affect a PR change. Later runs must skip that existing eye, even when new
-evidence arrives.
+While waiting, **Clarification needed** stays open with `👀` and no `✅`; it
+must not block independent fixes unless it could affect a PR change. Later runs
+skip the eye under the ownership gate.
 
 ## Recap
 
-Every eligible item inspected gets a row, including ones you deliberately
-stayed silent on - that is how silence stays auditable. Report reaction-gated
-skips as an aggregate count only; do not include message details.
+Every eligible item gets a row. Report gated skips by count only, without
+message details.
 
 ```md
 ## Feedback sweep
