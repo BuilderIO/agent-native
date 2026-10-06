@@ -19,8 +19,8 @@ const MAX_SEEN_WHILE_SAVING = 16;
 export function createAuthoredContentBase() {
   let unheld: { revision: string; base: AuthoredContentBase } | null = null;
   // Only the editor's own reports say what it holds. The page's local copy
-  // takes a save's answer, other writer's text included, before the editor
-  // receives that text.
+  // takes a save's answer, the other writer's text included, before the
+  // editor receives that text.
   let editorContent: string | null = null;
   // The other writer's text can arrive and be deleted here before the save's
   // answer names the body that holds it.
