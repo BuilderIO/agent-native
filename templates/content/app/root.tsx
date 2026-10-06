@@ -67,10 +67,7 @@ import {
   isPersonalLanding,
   startEarlyContentLanding,
 } from "./lib/content-landing";
-import {
-  readLastLocationHintForAnyAccount,
-  readLastLocationHintScope,
-} from "./lib/last-location-hint";
+import { readLastLocationHintForAnyAccount } from "./lib/last-location-hint";
 import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
 import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
@@ -409,7 +406,7 @@ export default function Root() {
     if (!documentId) return;
     // Asking where /home lands can create a Welcome page, so only a browser
     // that has landed before asks this early.
-    startEarlyContentLanding(location.key, readLastLocationHintScope());
+    startEarlyContentLanding(location.key);
     const search = new URLSearchParams(location.search);
     startPageOpenDocumentReads(queryClient, documentId, {
       databaseId: search.get("databaseId"),

@@ -13,11 +13,15 @@ const {
   useLastLocationTitleHint,
   locationKey,
   locationState,
+  sessionState,
 } = vi.hoisted(() => ({
   callAction: vi.fn(),
   startPageOpenDocumentReads: vi.fn(),
   locationKey: { current: "default" },
   locationState: { current: null as unknown },
+  sessionState: {
+    current: { email: "alice@example.com", orgId: "org-1" as string | null },
+  },
   resolveLanding: {
     mutateAsync: vi.fn(),
     isError: false,
@@ -50,9 +54,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     landingOptions.current = options;
     return resolveLanding;
   },
-  useSession: () => ({
-    session: { email: "alice@example.com", orgId: "org-1" },
-  }),
+  useSession: () => ({ session: sessionState.current }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -103,6 +105,8 @@ import HomeRoute from "./_app.home";
 
 const queryClient = new QueryClient();
 const aliceScope = JSON.stringify(["alice@example.com", "org-1"]);
+const alice = { email: "alice@example.com", orgId: "org-1" };
+const bob = { email: "bob@example.com", orgId: "org-1" };
 
 function renderHome(root: Root) {
   act(() => {
@@ -131,6 +135,7 @@ describe("home landing route optimistic title", () => {
     startPageOpenDocumentReads.mockReset();
     localStorage.clear();
     locationState.current = null;
+    sessionState.current = alice;
     navigate.mockReset();
     stashLandingTitleHint(null);
     container = document.createElement("div");
@@ -443,8 +448,9 @@ describe("home landing route optimistic title", () => {
     callAction.mockResolvedValue({
       documentId: "doc-3",
       resolution: "restored",
+      account: alice,
     });
-    startEarlyContentLanding(locationKey.current, aliceScope);
+    startEarlyContentLanding(locationKey.current);
     expect(callAction).toHaveBeenCalledWith("resolve-content-landing", {});
 
     renderHome(root);
@@ -463,8 +469,9 @@ describe("home landing route optimistic title", () => {
       documentId: "welcome-1",
       resolution: "welcome-created",
       welcomeCreated: true,
+      account: alice,
     });
-    startEarlyContentLanding(locationKey.current, aliceScope);
+    startEarlyContentLanding(locationKey.current);
 
     renderHome(root);
     await act(async () => Promise.resolve());
@@ -477,7 +484,7 @@ describe("home landing route optimistic title", () => {
 
   it("asks again, where its error shows, when the early landing failed", async () => {
     callAction.mockRejectedValue(new Error("network down"));
-    startEarlyContentLanding(locationKey.current, aliceScope);
+    startEarlyContentLanding(locationKey.current);
     resolveLanding.mutateAsync.mockResolvedValue({
       documentId: "doc-1",
       resolution: "restored",
@@ -497,8 +504,9 @@ describe("home landing route optimistic title", () => {
     callAction.mockResolvedValue({
       documentId: "doc-3",
       resolution: "restored",
+      account: alice,
     });
-    startEarlyContentLanding("an-earlier-load", aliceScope);
+    startEarlyContentLanding("an-earlier-load");
     resolveLanding.mutateAsync.mockResolvedValue({
       documentId: "doc-1",
       resolution: "restored",
@@ -515,15 +523,13 @@ describe("home landing route optimistic title", () => {
     );
   });
 
-  it("asks for itself when the early landing was asked as another account", async () => {
+  it("asks for itself when the early landing was resolved for another account", async () => {
     callAction.mockResolvedValue({
       documentId: "bobs-page",
       resolution: "restored",
+      account: bob,
     });
-    startEarlyContentLanding(
-      locationKey.current,
-      JSON.stringify(["bob@example.com", "org-1"]),
-    );
+    startEarlyContentLanding(locationKey.current);
     resolveLanding.mutateAsync.mockResolvedValue({
       documentId: "doc-1",
       resolution: "restored",
@@ -542,7 +548,7 @@ describe("home landing route optimistic title", () => {
   it("refreshes the Files root and recents after asking again for a failed early landing", async () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     callAction.mockRejectedValue(new Error("response lost"));
-    startEarlyContentLanding(locationKey.current, aliceScope);
+    startEarlyContentLanding(locationKey.current);
     resolveLanding.mutateAsync.mockResolvedValue({
       documentId: "welcome-1",
       resolution: "welcome-reused",
@@ -560,7 +566,7 @@ describe("home landing route optimistic title", () => {
   it("does not ask again for a personal landing the user has already left", async () => {
     let fail!: (error: Error) => void;
     callAction.mockReturnValue(new Promise((_, reject) => (fail = reject)));
-    startEarlyContentLanding(locationKey.current, aliceScope);
+    startEarlyContentLanding(locationKey.current);
     resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
 
     renderHome(root);
@@ -578,17 +584,73 @@ describe("home landing route optimistic title", () => {
   it("does not navigate when the early landing answers after /home is gone", async () => {
     let answer!: (result: unknown) => void;
     callAction.mockReturnValue(new Promise((resolve) => (answer = resolve)));
-    startEarlyContentLanding(locationKey.current, aliceScope);
+    startEarlyContentLanding(locationKey.current);
 
     renderHome(root);
     await act(async () => Promise.resolve());
     act(() => root.unmount());
     await act(async () =>
-      answer({ documentId: "doc-3", resolution: "restored" }),
+      answer({ documentId: "doc-3", resolution: "restored", account: alice }),
     );
 
     expect(navigate).not.toHaveBeenCalled();
     root = createRoot(container);
+  });
+
+  it("asks again for the new account when the session changes before the early landing answers", async () => {
+    let answer!: (result: unknown) => void;
+    callAction.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    startEarlyContentLanding(locationKey.current);
+    resolveLanding.mutateAsync.mockResolvedValue({
+      documentId: "bobs-page",
+      resolution: "restored",
+    });
+
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    sessionState.current = bob;
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    await act(async () =>
+      answer({ documentId: "doc-3", resolution: "restored", account: alice }),
+    );
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith(
+      { pathname: "/page/bobs-page", search: "", hash: "" },
+      { replace: true },
+    );
+  });
+
+  it("still refreshes the Files root and recents when the landing after a failed early one succeeds only on retry", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    callAction.mockRejectedValue(new Error("response lost"));
+    startEarlyContentLanding(locationKey.current);
+    resolveLanding.mutateAsync.mockRejectedValueOnce(new Error("offline"));
+
+    renderHome(root);
+    await act(async () => Promise.resolve());
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["action", "get-content-recent"],
+    });
+
+    resolveLanding.isError = true;
+    renderHome(root);
+    resolveLanding.isError = false;
+    resolveLanding.mutateAsync.mockResolvedValue({
+      documentId: "welcome-1",
+      resolution: "welcome-reused",
+    });
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "database.retry",
+    );
+    await act(async () => retry?.click());
+
+    expect(resolveLanding.mutateAsync).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["action", "get-content-recent"],
+    });
+    invalidate.mockRestore();
   });
 
   it("does not start an early landing for a load whose route already asked", async () => {
@@ -596,7 +658,7 @@ describe("home landing route optimistic title", () => {
     renderHome(root);
     await act(async () => Promise.resolve());
 
-    startEarlyContentLanding(locationKey.current, aliceScope);
+    startEarlyContentLanding(locationKey.current);
     expect(callAction).not.toHaveBeenCalled();
     expect(resolveLanding.mutateAsync).toHaveBeenCalledTimes(1);
   });

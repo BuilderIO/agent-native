@@ -138,12 +138,15 @@ export default function HomeRoute() {
   const startedFor = useRef<string | null>(null);
   const landingRequestIdRef = useRef(0);
   const mountedRef = useRef(true);
+  const collectionsRefreshOwedRef = useRef(false);
   const lastLocationHint = useLastLocationTitleHint();
   const lastLocationHintRef = useRef(lastLocationHint);
   lastLocationHintRef.current = lastLocationHint;
   const queryClient = useQueryClient();
   const { session } = useSession();
   const scope = filesRootHintScope(session?.email, session?.orgId);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
   const localLastDocumentId = useMemo(
     () => readLastLocationHint(scope),
     [scope],
@@ -171,25 +174,44 @@ export default function HomeRoute() {
   });
 
   const openLanding = useCallback(async () => {
-    const requestKey = spaceId ?? "personal";
+    // A session that changes while /home waits starts the landing over, so an
+    // answer asked for the previous account never navigates.
+    const requestKey = `${spaceId ?? "personal"}:${scope}`;
     if (startedFor.current === requestKey) return;
     startedFor.current = requestKey;
     const requestId = ++landingRequestIdRef.current;
     try {
       const early = spaceId
         ? null
-        : await takeEarlyContentLanding(location.key, scope);
+        : await takeEarlyContentLanding(location.key);
       const current = () =>
-        mountedRef.current && requestId === landingRequestIdRef.current;
+        mountedRef.current &&
+        requestId === landingRequestIdRef.current &&
+        scopeRef.current === scope;
       if (!current()) return;
-      if (early?.ok) refreshAfterLanding(queryClient, early.result);
-      // A failed early answer is asked again here, where its error shows. Its
-      // request may still have created Welcome before the failure, and the
-      // answer that follows would only call it reused.
-      const result = early?.ok
-        ? early.result
-        : await resolveLanding.mutateAsync(spaceId ? { spaceId } : {});
-      if (early && !early.ok) refreshLandingCollections(queryClient);
+      // The early request went out before the session was known, so only an
+      // answer resolved for this session's account is adopted.
+      const adopted =
+        early?.ok &&
+        scope !== null &&
+        filesRootHintScope(
+          early.result.account.email,
+          early.result.account.orgId,
+        ) === scope
+          ? early.result
+          : null;
+      // A failed early request may still have created Welcome, and every
+      // answer after it would only call Welcome reused, so the refresh stays
+      // owed until an answer arrives, across a failed retry.
+      if (early && !early.ok) collectionsRefreshOwedRef.current = true;
+      if (adopted) refreshAfterLanding(queryClient, adopted);
+      const result =
+        adopted ??
+        (await resolveLanding.mutateAsync(spaceId ? { spaceId } : {}));
+      if (collectionsRefreshOwedRef.current) {
+        collectionsRefreshOwedRef.current = false;
+        refreshLandingCollections(queryClient);
+      }
       if (!current()) return;
       if ("target" in result) {
         if (!result.target) return;
