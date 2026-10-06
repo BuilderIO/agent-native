@@ -62,7 +62,21 @@ const headlessTemplateSkillsDir = join(
 
 const workspaceSkillIncludes = [...DEFAULT_WORKSPACE_SKILLS];
 
-const templateSharedSkillIncludes = [...DEFAULT_WORKSPACE_SKILLS];
+const templateSharedSkillIncludes = DEFAULT_WORKSPACE_SKILLS.filter(
+  (skill) => skill !== "turn-into-app",
+);
+
+const templateSpecificSkillIncludes: Record<string, string[]> = {
+  dispatch: ["turn-into-app"],
+  factory: ["turn-into-app"],
+};
+
+function templateSkillsFor(template: string): string[] {
+  return [
+    ...templateSharedSkillIncludes,
+    ...(templateSpecificSkillIncludes[template] ?? []),
+  ];
+}
 
 const requiredTemplateSharedSkills: Record<string, string[]> = {
   chat: ["agent-native-docs"],
@@ -232,9 +246,6 @@ const workspaceSkillExcludes = [
 
 const check = process.argv.includes("--check");
 const excludeSet = new Set(workspaceSkillExcludes);
-const staleTemplateSharedSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
-  (skill) => !templateSharedSkillIncludes.includes(skill),
-);
 
 function isDirEntry(dir, entry) {
   if (entry.isDirectory()) return true;
@@ -587,7 +598,7 @@ function forEachExistingTemplateSharedSkill(fn) {
   }
 
   for (const template of listTemplateDirs()) {
-    for (const skill of templateSharedSkillIncludes) {
+    for (const skill of templateSkillsFor(template)) {
       const targetSkillDir = join(
         templatesDir,
         template,
@@ -617,23 +628,33 @@ function forEachTemplateSkillsDir(fn) {
   fn(
     "packages/core/src/templates/default/.agents/skills",
     defaultTemplateSkillsDir,
+    "default",
   );
   fn(
     "packages/core/src/templates/headless/.agents/skills",
     headlessTemplateSkillsDir,
+    "headless",
   );
   for (const template of listTemplateDirs()) {
     fn(
       `templates/${template}/.agents/skills`,
       join(templatesDir, template, ".agents", "skills"),
+      template,
     );
   }
 }
 
 function checkNoStaleTemplateSharedSkills() {
   const extra = [];
-  forEachTemplateSkillsDir((label, skillsDir) => {
-    for (const skill of staleTemplateSharedSkills) {
+  forEachTemplateSkillsDir((label, skillsDir, template) => {
+    const includedSkills =
+      template === "default" || template === "headless"
+        ? templateSharedSkillIncludes
+        : templateSkillsFor(template);
+    const staleSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
+      (skill) => !includedSkills.includes(skill),
+    );
+    for (const skill of staleSkills) {
       if (existsSync(join(skillsDir, skill))) {
         extra.push(`${label}/${skill}`);
       }
@@ -707,8 +728,15 @@ function syncTemplateSharedSkills() {
   forEachExistingTemplateSharedSkill((_template, skill, targetSkillDir) => {
     copySkill(skill, targetSkillDir);
   });
-  forEachTemplateSkillsDir((_label, skillsDir) => {
-    for (const skill of staleTemplateSharedSkills) {
+  forEachTemplateSkillsDir((_label, skillsDir, template) => {
+    const includedSkills =
+      template === "default" || template === "headless"
+        ? templateSharedSkillIncludes
+        : templateSkillsFor(template);
+    const staleSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
+      (skill) => !includedSkills.includes(skill),
+    );
+    for (const skill of staleSkills) {
       rmSync(join(skillsDir, skill), { recursive: true, force: true });
     }
   });

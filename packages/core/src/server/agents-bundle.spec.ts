@@ -661,7 +661,7 @@ describe("readAgentsBundleFromFs", () => {
     const bundle = readAgentsBundleFromFs(repoPath("templates", "chat"));
     const runtimeSkills = getRuntimeSkills(bundle);
 
-    for (const name of ["turn-into-app", "turn-into-skill"]) {
+    for (const name of ["turn-into-skill"]) {
       const skill = runtimeSkills.find(
         (candidate) => candidate.meta.name === name,
       );
@@ -670,27 +670,21 @@ describe("readAgentsBundleFromFs", () => {
       expect(skill!.meta.description).toContain("Use when");
     }
 
-    const turnIntoApp = runtimeSkills.find(
-      (candidate) => candidate.meta.name === "turn-into-app",
-    );
-    expect(turnIntoApp!.content).toContain(
-      "A fresh Claude or ChatGPT Project is a valid source",
-    );
-    expect(turnIntoApp!.content).toContain(
-      "MCP connector does not read hidden",
-    );
-    expect(turnIntoApp!.content).toContain("Spreadsheet sources");
-    expect(turnIntoApp!.content).toContain(
-      "A Google Sheets URL is not proof the sheet is readable",
-    );
-    expect(turnIntoApp!.content).toContain("Never use a public export URL");
-    expect(turnIntoApp!.extraFiles).toContain("references/fresh-project.md");
-    expect(turnIntoApp!.extraFiles).toContain(
-      "references/spreadsheet-source.md",
-    );
-
     const promptBlock = generateSkillsPromptBlock(bundle);
-    expect(promptBlock).toContain("`turn-into-app`");
+    expect(promptBlock).not.toContain("`turn-into-app`");
     expect(promptBlock).toContain("`turn-into-skill`");
+  });
+
+  it("keeps app-creation skills in Dispatch and Factory", () => {
+    for (const template of ["dispatch", "factory"]) {
+      const bundle = readAgentsBundleFromFs(repoPath("templates", template));
+      const runtimeSkills = getRuntimeSkills(bundle);
+
+      expect(
+        runtimeSkills.some(
+          (candidate) => candidate.meta.name === "turn-into-app",
+        ),
+      ).toBe(true);
+    }
   });
 });
