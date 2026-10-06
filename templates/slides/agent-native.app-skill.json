@@ -71,13 +71,13 @@
     "generic-mcp"
   ],
   "chatgpt": {
-    "version": "1.0.0",
+    "version": "1.0.2",
     "interface": {
       "displayName": "Agent-Native Slides",
       "shortDescription": "On-brand presentations",
       "longDescription": "Create and revise on-brand presentations in your Agent-Native Slides workspace. Start from a brief, inspect decks and design systems, add slides, update existing slide content, and duplicate a deck for a new draft. This connection edits presentations in Agent-Native Slides; it does not directly change PowerPoint or Google Slides files. It can access only decks and design systems available to your connected account.",
       "developerName": "Builder.io",
-      "category": "Productivity",
+      "category": "Creativity",
       "capabilities": [
         "Create presentations from a brief",
         "Edit slides and decks",
@@ -125,8 +125,8 @@
           {
             "description": "Add a slide to an identified deck",
             "prompt": "Add a closing slide titled 'Owners & Next Steps' to Quarterly Planning Demo. Use its Priorities slide for context; repeat only owners, dates, or commitments already present and use 'TBD' for missing details. Leave all existing slides unchanged.",
-            "tools_triggered": "list-decks, get-deck, add-slide",
-            "expected_behavior": "Add one closing slide using only saved owners, dates, or commitments, label missing details TBD, and preserve all existing slides."
+            "tools_triggered": "list-decks, get-deck, get-design-system, add-slide",
+            "expected_behavior": "Read the deck and its linked design-system context, then add one closing slide using only saved owners, dates, or commitments, label missing details TBD, and preserve all existing slides."
           },
           {
             "description": "Duplicate an existing deck",

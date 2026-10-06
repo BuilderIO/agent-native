@@ -1006,7 +1006,7 @@ export async function getAgentThreadDebug(input: {
     Math.min(2_000, input.maxTraceSpans ?? DEFAULT_TRACE_SPAN_LIMIT),
   );
 
-  const runRows = await optionalRows<AgentRunRow>(
+  let runRows = await optionalRows<AgentRunRow>(
     exec,
     `SELECT r.*
        FROM agent_runs r
@@ -1015,6 +1015,25 @@ export async function getAgentThreadDebug(input: {
       LIMIT ?`,
     [row.id, maxRuns],
   );
+
+  // A deep-linked run can be older than the most recent `maxRuns` runs; fetch
+  // it explicitly so the inspector opens the run someone was sent to debug
+  // instead of silently falling back to the latest one.
+  if (resolvedRunId && !runRows.some((run) => run.id === resolvedRunId)) {
+    const lookupRunRows = await optionalRows<AgentRunRow>(
+      exec,
+      `SELECT r.*
+         FROM agent_runs r
+        WHERE r.thread_id = ? AND r.id = ?
+        LIMIT 1`,
+      [row.id, resolvedRunId],
+    );
+    if (lookupRunRows[0]) {
+      runRows = [...runRows, lookupRunRows[0]].sort(
+        (a, b) => Number(b.started_at) - Number(a.started_at),
+      );
+    }
+  }
 
   const runs = [];
   for (const run of runRows) {

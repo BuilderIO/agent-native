@@ -39,6 +39,7 @@ export interface NavigationState {
   query?: string;
   runId?: string;
   threadId?: string;
+  threadDebugItem?: string;
   agentPath?: string;
   usageScope?: "me" | "workspace" | "app";
   usageUserEmail?: string;
@@ -216,6 +217,7 @@ export function buildDispatchNavigationState(
     const query = params.get("query");
     const runId = params.get("runId");
     const selectedThreadId = params.get("threadId");
+    const item = params.get("item");
     if (mode) state.threadDebugMode = mode;
     if (sourceId) state.sourceId = sourceId;
     if (inspectSourceId) state.inspectSourceId = inspectSourceId;
@@ -225,6 +227,7 @@ export function buildDispatchNavigationState(
     if (query) state.query = query;
     if (runId) state.runId = runId;
     if (selectedThreadId) state.threadId = selectedThreadId;
+    if (item) state.threadDebugItem = item;
   }
 
   if (state.view === "metrics") {

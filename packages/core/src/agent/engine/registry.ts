@@ -43,9 +43,11 @@ import {
 } from "../model-config.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
+  AI_SDK_ANTHROPIC_DEFAULT_BASE_URL,
   OLLAMA_DEFAULT_BASE_URL,
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
+  OPENAI_DEFAULT_BASE_URL,
   isCustomOpenAiBaseUrl,
 } from "./openai-compatible-endpoint.js";
 import {
@@ -368,9 +370,13 @@ export async function resolveEnginePreservesCustomModels(
   }
   if (entry.name !== "ai-sdk:openai") return false;
   try {
-    return isCustomOpenAiBaseUrl(
-      (await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR))?.baseUrl,
+    // No request key here: a deployment endpoint is in effect only when the
+    // deployment has its own key to pair with it.
+    const endpoint = await resolveProviderBaseUrl(
+      OPENAI_BASE_URL_ENV_VAR,
+      Boolean(readDeployCredentialEnv("OPENAI_API_KEY")),
     );
+    return isCustomOpenAiBaseUrl(endpoint?.baseUrl);
   } catch {
     return false;
   }
@@ -715,8 +721,43 @@ interface ResolvedProviderBaseUrl {
   endpointOwner: { scope: string; scopeId?: string };
 }
 
+/**
+ * A deployment endpoint pairs only with the deployment's own key. Hosts inject
+ * gateway URLs (Netlify AI Gateway sets OPENAI_BASE_URL at runtime) that reject
+ * any other credential, so a user or org key sent there fails with a 401.
+ */
+function keyBelongsToDeployment(
+  apiKey: string | undefined,
+  provenance: CredentialProvenance | undefined,
+  apiKeyEnvVar: string | undefined,
+): boolean {
+  if (apiKey === undefined) return true;
+  if (provenance) return provenance.scope === "deployment";
+  return (
+    apiKeyEnvVar !== undefined && isDeploymentCredential(apiKeyEnvVar, apiKey)
+  );
+}
+
+function isDeploymentCredential(key: string, value: string): boolean {
+  return (
+    canUseDeployCredentialFallbackForRequest(key) &&
+    readDeployCredentialEnv(key) === value
+  );
+}
+
+const AI_SDK_PROVIDER_DEFAULT_BASE_URLS: Readonly<Record<string, string>> = {
+  openai: OPENAI_DEFAULT_BASE_URL,
+  anthropic: AI_SDK_ANTHROPIC_DEFAULT_BASE_URL,
+};
+
+/**
+ * `deploymentEndpointAllowed` is false when the credential that will use the
+ * endpoint is not the deployment's own; a deployment value is then skipped
+ * before validation rather than resolved and discarded.
+ */
 async function resolveProviderBaseUrl(
   envVar: string,
+  deploymentEndpointAllowed: boolean,
 ): Promise<ResolvedProviderBaseUrl | undefined> {
   const isOllama = envVar === OLLAMA_BASE_URL_ENV_VAR;
   const resolved = await resolveSecretDetailed(envVar);
@@ -727,7 +768,7 @@ async function resolveProviderBaseUrl(
 
   if (!raw) {
     assertCredentialStoreReadable(resolved);
-    if (!deployValue) return undefined;
+    if (!deployValue || !deploymentEndpointAllowed) return undefined;
     const baseUrl = await validateProviderBaseUrl(deployValue, {
       allowPrivate: true,
       isOllama,
@@ -748,6 +789,9 @@ async function resolveProviderBaseUrl(
         scopeId: resolved.scopeId,
       }
     : { scope: "unknown" };
+  if (endpointOwner.scope === "deployment" && !deploymentEndpointAllowed) {
+    return undefined;
+  }
   const allowLocalOllama = isOllama && isTrustedSelfHostedRuntime();
   const baseUrl = await validateProviderBaseUrl(raw, {
     allowPrivate: isDeployValue,
@@ -955,9 +999,10 @@ async function engineCreateConfigForEntry(
         (await resolveUsableProviderSecretDetailed(key)) ?? undefined;
       if (!resolved) continue;
       resolvedMatchingCredential = resolved;
-      matchingCredentialUsesDeployFallback =
-        canUseDeployCredentialFallbackForRequest(key) &&
-        readDeployCredentialEnv(key) === resolved.value;
+      matchingCredentialUsesDeployFallback = isDeploymentCredential(
+        key,
+        resolved.value,
+      );
       break;
     }
 
@@ -985,6 +1030,11 @@ async function engineCreateConfigForEntry(
   if (aiSdkProvider) {
     const isOllama = aiSdkProvider === "ollama";
     const allowLocalOllama = isOllama && isTrustedSelfHostedRuntime();
+    const usesDeploymentKey = keyBelongsToDeployment(
+      matchingApiKey,
+      matchingApiKeyProvenance,
+      entry.requiredEnvVars[0],
+    );
     let resolvedEndpoint: ResolvedProviderBaseUrl | undefined;
     if (safeExtra.baseUrl == null && typeof safeExtra.baseURL !== "string") {
       const envVar =
@@ -993,7 +1043,12 @@ async function engineCreateConfigForEntry(
           : aiSdkProvider === "openai"
             ? OPENAI_BASE_URL_ENV_VAR
             : undefined;
-      if (envVar) resolvedEndpoint = await resolveProviderBaseUrl(envVar);
+      if (envVar) {
+        resolvedEndpoint = await resolveProviderBaseUrl(
+          envVar,
+          usesDeploymentKey,
+        );
+      }
       if (resolvedEndpoint) safeExtra.baseUrl = resolvedEndpoint.baseUrl;
     }
 
@@ -1044,6 +1099,13 @@ async function engineCreateConfigForEntry(
         OLLAMA_DEFAULT_BASE_URL,
         allowedPrivateOrigins,
       );
+    } else if (
+      !usesDeploymentKey &&
+      AI_SDK_PROVIDER_DEFAULT_BASE_URLS[aiSdkProvider]
+    ) {
+      // The deployment's own key keeps the SDK's env endpoint (a self-hosted
+      // ANTHROPIC_BASE_URL proxy, which this resolver does not read).
+      safeExtra.baseUrl = AI_SDK_PROVIDER_DEFAULT_BASE_URLS[aiSdkProvider];
     }
   }
   if (

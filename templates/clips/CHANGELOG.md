@@ -5,8 +5,15 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-05
 
+### Improved
+
+- Clips desktop offers one-click Builder account activation or sign-in.
+- Shared recording pages give the agent composer its own background.
+
 ### Fixed
 
+- Agent links copied from a clip are shorter, so Claude can fetch them without hitting its URL length limit.
+- Sign-in and signup pages now share the animated Agent-Native wave.
 - Confirming Discard recording now returns you to your library.
 - Discarding a recording now removes its failed upload card from your library.
 - Discarding a recovered recording no longer warns that it's open in another tab.
