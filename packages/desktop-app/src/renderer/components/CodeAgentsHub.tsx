@@ -1273,16 +1273,12 @@ export default function CodeAgentsHub({
     void window.electronAPI.shell.openExternal(url);
   }, []);
   const renderChatFirstAppIcon = useCallback(
-    (
-      app: ChatFirstAppItem,
-      { isInactive }: { isInactive: boolean } = { isInactive: false },
-    ) => (
+    (app: ChatFirstAppItem) => (
       <CodeAgentsAppIcon
         id={app.id}
         name={app.name}
         icon={app.icon}
         color={app.color}
-        monochrome={isInactive}
       />
     ),
     [],
@@ -1317,6 +1313,7 @@ export default function CodeAgentsHub({
           }
           activeTab={activeChatFirstPrimaryTab}
           collapsed={chatFirstRailCollapsed}
+          grayscaleInactiveIcons={false}
           layout={chatFirstAppLayout}
           createAppTrigger={
             onChatFirstAppCreated ? (
