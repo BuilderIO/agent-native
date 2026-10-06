@@ -160,6 +160,7 @@ import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import { createAuthoredContentBase } from "./authored-content-base";
 import {
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
@@ -170,6 +171,7 @@ import {
   isEffectivelyEmptyDocumentContent,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
+import { flushBeforeSave } from "./collab-flush-before-save";
 import { useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
@@ -2847,6 +2849,11 @@ function PageEditorSessionBody({
   const contentObservationEpochRef = useRef(0);
   const editorEditGenerationRef = useRef(0);
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
+  const authoredContentBaseRef = useRef(createAuthoredContentBase());
+  const authoredContentBase = useCallback(
+    () => authoredContentBaseRef.current.base(lastSavedContentRef.current),
+    [],
+  );
   const ownContentSaveLineageRef = useRef<OwnContentSaveLineage>(new Map());
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
@@ -3164,6 +3171,7 @@ function PageEditorSessionBody({
     awareness,
     isSynced: collabSynced,
     requestSync: requestCollabSync,
+    flushUpdates: flushCollabUpdates,
     initialization: collabInitialization,
     activeUsers,
     agentActive,
@@ -3218,6 +3226,7 @@ function PageEditorSessionBody({
     if (prevDocIdRef.current !== documentId) {
       historySessionRef.current.reset();
       ownContentSaveLineageRef.current.clear();
+      authoredContentBaseRef.current.reset();
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
       if (saveTimeoutRef.current) {
@@ -3869,6 +3878,12 @@ function PageEditorSessionBody({
         activeContentSavesRef.current += 1;
         let result;
         try {
+          // A peer that reads this body before the Yjs update carrying the
+          // same text merges it in, then inserts it again when the update
+          // lands. Durability outranks that, so a stalled flush still saves.
+          if (!(await flushBeforeSave(flushCollabUpdates))) {
+            console.warn("Saving before this tab's live edits reached peers");
+          }
           result = await saveDocumentWithRebase({
             base: { ...contentBase },
             content,
@@ -4019,6 +4034,19 @@ function PageEditorSessionBody({
           editGeneration: editorEditGeneration,
         });
       }
+      if (updates.content !== undefined) {
+        const sentIntent = options.authoredContentIntent;
+        authoredContentBaseRef.current.saved({
+          saved,
+          sentContent: options.editorSnapshotContent,
+          authoredOn: sentIntent
+            ? {
+                revision: sentIntent.baseRevision,
+                content: sentIntent.baseContent,
+              }
+            : null,
+        });
+      }
       if (
         contentEditVersionRef.current === contentEditVersion &&
         contentObservationEpochRef.current === contentObservationEpoch
@@ -4059,6 +4087,7 @@ function PageEditorSessionBody({
       documentId,
       autoSync,
       clearConfirmedDraftJournal,
+      flushCollabUpdates,
       isLinkedLocalSourceDocument,
       isLocalFileDocument,
       journalCurrentDraft,
@@ -6262,10 +6291,11 @@ function PageEditorSessionBody({
       if (!editorCanEdit) return false;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
+      const authoredBase = authoredContentBase();
       authoredContentIntentRef.current = {
         editGeneration: editorEditGenerationRef.current,
-        baseRevision: lastSavedContentRef.current.revision,
-        baseContent: lastSavedContentRef.current.content,
+        baseRevision: authoredBase.revision,
+        baseContent: authoredBase.content,
         candidateContent: recovery.localDraft,
       };
       if (saveTimeoutRef.current) {
@@ -6306,7 +6336,12 @@ function PageEditorSessionBody({
       );
       return result.contentPersisted;
     },
-    [editorCanEdit, journalCurrentDraft, queueDocumentSave],
+    [
+      authoredContentBase,
+      editorCanEdit,
+      journalCurrentDraft,
+      queueDocumentSave,
+    ],
   );
   reconcileSaveRef.current = handleContentSaveNow;
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
@@ -6324,13 +6359,15 @@ function PageEditorSessionBody({
   const handleContentChange = useCallback(
     (newContent: string) => {
       if (!editorCanEdit) return;
+      authoredContentBaseRef.current.edited(newContent);
       if (newContent === localContentRef.current) return;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
+      const authoredBase = authoredContentBase();
       authoredContentIntentRef.current = {
         editGeneration: editorEditGenerationRef.current,
-        baseRevision: lastSavedContentRef.current.revision,
-        baseContent: lastSavedContentRef.current.content,
+        baseRevision: authoredBase.revision,
+        baseContent: authoredBase.content,
         candidateContent: newContent,
       };
       localContentRef.current = newContent;
@@ -6350,6 +6387,7 @@ function PageEditorSessionBody({
       debouncedSave(localTitleRef.current, newContent);
     },
     [
+      authoredContentBase,
       debouncedSave,
       editorCanEdit,
       journalCurrentDraft,
@@ -6360,6 +6398,10 @@ function PageEditorSessionBody({
 
   const handleRemoteSnapshotChange = useCallback(
     (content: string) => {
+      authoredContentBaseRef.current.observed(
+        content,
+        lastSavedContentRef.current,
+      );
       if (content === localContentRef.current) return;
       contentObservationEpochRef.current += 1;
       localContentRef.current = content;
@@ -6387,6 +6429,7 @@ function PageEditorSessionBody({
         handleContentChange(newContent);
         return "retained";
       }
+      authoredContentBaseRef.current.edited(newContent);
       return (await handleContentSaveNow({
         localTitle: localTitleRef.current,
         localDraft: newContent,
@@ -6412,6 +6455,7 @@ function PageEditorSessionBody({
       localContentRef.current = result.content;
       setLocalContent(result.content);
       if (result.status === "merged") {
+        authoredContentBaseRef.current.merged(result.serverRevision);
         if (documentContentRef.current === result.serverContent) {
           void resolveReconcileAutomatically(
             {
