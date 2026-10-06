@@ -36,6 +36,39 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 Le build de workspace copie la sortie Nitro `vercel` de chaque application dans le `.vercel/output` racine, donne à chaque fonction son propre environnement de chemin de montage, et écrit la configuration de routes qui sert les applications à `/<app-id>`.
 
+## Travail planifié {#vercel-scheduled-work}
+
+Les automatisations planifiées, les automatisations par événement en file
+d’attente et le nettoyage des exécutions interrompues passent tous par un
+balayage exécuté une fois par minute. Le build ajoute une
+[tâche cron Vercel](https://vercel.com/docs/cron-jobs) qui appelle le balayage à
+`/_agent-native/jobs/_process-sweep`. Un build de workspace ajoute une tâche
+cron par application, à `/<app-id>/_agent-native/jobs/_process-sweep`.
+
+Définissez `CRON_SECRET` dans les variables d’environnement du projet avant de
+déployer. Vercel l’envoie comme jeton bearer avec chaque requête cron, et le
+balayage rejette toute requête qui ne le contient pas. Générez une valeur avec
+`openssl rand -hex 32`.
+
+- **Production uniquement.** Vercel exécute les tâches cron sur le déploiement
+  de production, jamais sur les aperçus : les planifications ne se déclenchent
+  donc pas sur un aperçu. La page **Automations** l’indique.
+- **Hobby : une fois par jour.** Vercel rejette un déploiement Hobby dont la
+  tâche cron s’exécute plus d’une fois par jour. Définissez
+  `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` dans l’environnement de build avec une
+  expression quotidienne comme `0 9 * * *`. Hobby peut aussi l’exécuter à
+  n’importe quel moment de cette heure-là. Avec un seul balayage par jour, les
+  automatisations planifiées et déclenchées par événement attendent jusqu’à un
+  jour : utilisez Pro ou un autre hébergeur lorsque l’heure d’exécution compte.
+- **Durée de la fonction.** Le balayage exécute les tâches dues dans
+  l’invocation de fonction de la tâche cron, donc une tâche est interrompue à
+  la durée maximale de la fonction (300 secondes par défaut).
+- **Pas de nouvelle tentative.** Vercel ne relance pas une invocation cron
+  échouée. Le balayage s’exécute de nouveau à la prochaine heure planifiée.
+
+Voir [Fonctionnement du planificateur](/docs/recurring-jobs#how-scheduler-runs)
+pour les autres hébergeurs.
+
 ## Et ensuite
 
 - [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production

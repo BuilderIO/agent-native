@@ -29,6 +29,34 @@ Você também pode selecionar o preset explicitamente com
 durável antes de implantar. O sistema de arquivos de um Worker não é um
 armazenamento persistente para o app.
 
+## Trabalho agendado {#cloudflare-scheduled-work}
+
+Automações agendadas, automações por evento na fila e a limpeza de execuções
+interrompidas acontecem em uma varredura executada uma vez por minuto. O build
+adiciona um
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+`* * * * *` ao `wrangler.json` gerado e mantém os Cron Triggers que você já
+tiver declarado. Quando ele dispara, o handler `scheduled` do Worker chama a
+varredura diretamente com um token de curta duração assinado com `A2A_SECRET`,
+então defina esse segredo antes de implantar:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **Tempo de CPU.** No plano gratuito do Workers, cada invocação de Cron Trigger
+  recebe 10 ms de tempo de CPU, e uma varredura que executa trabalhos do agente
+  precisa de mais. Use o plano pago do Workers para trabalho agendado.
+- **Horário.** Cron Triggers rodam em UTC, e um gatilho novo ou alterado pode
+  levar até 15 minutos para começar a disparar após uma implantação.
+- **Teste local.** Execute o Worker compilado com
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json` e
+  depois faça uma requisição para `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*`
+  para disparar a varredura uma vez.
+
+Veja [Como o agendador é executado](/docs/recurring-jobs#how-scheduler-runs)
+para os outros hosts.
+
 ## O que vem a seguir
 
 - [**Implantação**](/docs/deployment) — escolha um banco de dados persistente e um preset antes da sua primeira implantação em produção

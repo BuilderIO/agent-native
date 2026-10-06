@@ -890,6 +890,56 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("keeps any request open until pending plugin init settles", async () => {
+    const requestHooks: Array<(event: any) => unknown> = [];
+    const nitroApp = {
+      ...createNitroApp(),
+      hooks: {
+        hook(name: string, handler: (event: any) => unknown) {
+          if (name === "request") requestHooks.push(handler);
+        },
+      },
+    };
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const requestFor = (pathname: string) => {
+      const url = new URL(`http://example.test${pathname}`);
+      const req = Object.assign(new Request(url), { waitUntil: vi.fn() });
+      return {
+        url,
+        context: {},
+        req,
+        res: { status: 200, headers: new Headers(), errHeaders: new Headers() },
+      };
+    };
+    const runRequestHooks = async (event: any) => {
+      for (const hook of requestHooks) await hook(event);
+    };
+
+    const pageLoad = requestFor("/");
+    await runRequestHooks(pageLoad);
+    expect(pageLoad.req.waitUntil).toHaveBeenCalledTimes(1);
+    let held = true;
+    void pageLoad.req.waitUntil.mock.calls[0]![0].then(() => {
+      held = false;
+    });
+    await Promise.resolve();
+    expect(held).toBe(true);
+
+    release();
+    await vi.waitFor(() => expect(held).toBe(false));
+
+    const later = requestFor("/");
+    await runRequestHooks(later);
+    expect(later.req.waitUntil).not.toHaveBeenCalled();
+  });
+
   it("answers with a retryable 503 when plugin init outlives the ready deadline", async () => {
     const nitroApp = createNitroApp();
     process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS = "10";

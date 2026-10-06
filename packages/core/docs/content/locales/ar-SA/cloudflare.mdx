@@ -28,6 +28,34 @@ npx wrangler deploy --config .output/server/wrangler.json
 `NITRO_PRESET=cloudflare_module`. قم بتكوين قاعدة بيانات PostgreSQL خارجية دائمة
 قبل النشر. نظام ملفات الـ Worker ليس مخزنًا دائمًا للتطبيق.
 
+## العمل المجدول {#cloudflare-scheduled-work}
+
+تتم الأتمتة المجدولة، والأتمتة المُشغَّلة بالأحداث المنتظرة في قائمة الانتظار،
+وتنظيف عمليات التشغيل المنقطعة، جميعها عبر عملية مسح تعمل مرة كل دقيقة. يضيف
+البناء
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+بالتعبير `* * * * *` إلى ملف `wrangler.json` المُولَّد، ويحتفظ بأي Cron Triggers
+صرّحت بها مسبقًا. وعندما ينطلق، يستدعي معالج `scheduled` في الـ Worker عملية
+المسح مباشرةً برمز قصير العمر موقّع باستخدام `A2A_SECRET`، لذا اضبط هذا السر
+قبل النشر:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **وقت المعالج (CPU).** في خطة Workers Free، يحصل كل استدعاء لـ Cron Trigger
+  على 10 ms من وقت المعالج، بينما تحتاج عملية المسح التي تشغّل مهام الوكيل إلى
+  أكثر من ذلك. استخدم خطة Workers Paid للعمل المجدول.
+- **التوقيت.** تعمل Cron Triggers بتوقيت UTC، وقد يستغرق المُشغِّل الجديد أو
+  المُعدَّل ما يصل إلى 15 دقيقة حتى يبدأ بالانطلاق بعد النشر.
+- **الاختبار المحلي.** شغّل الـ Worker المبني باستخدام
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json`، ثم
+  اطلب `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` لإطلاق عملية المسح مرة
+  واحدة.
+
+راجع [كيفية تشغيل المجدول](/docs/recurring-jobs#how-scheduler-runs) لمعرفة
+المضيفات الأخرى.
+
 ## ما هي الخطوة التالية
 
 - [**النشر**](/docs/deployment) — اختر قاعدة بيانات دائمة وإعدادًا مسبقًا قبل أول عملية نشر إنتاجي

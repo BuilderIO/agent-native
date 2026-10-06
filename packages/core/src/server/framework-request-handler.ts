@@ -70,6 +70,7 @@ export const FRAMEWORK_AUTH_EARLY_PATHS = [
 
 interface PluginReadyEntry {
   promise: Promise<void>;
+  settled?: boolean;
   paths?: string[];
   excludedPaths?: string[];
 }
@@ -248,6 +249,7 @@ export function getH3App(nitroApp: any): H3AppShim {
     registerRequestContextBoundary(nitroApp);
 
     nitroApp.hooks?.hook?.("request", async (event: H3Event) => {
+      keepRequestOpenForPluginInit(nitroApp, event);
       translatePublicFrameworkRequest(event);
       const reqPath = event.url?.pathname ?? "";
       if (
@@ -461,6 +463,9 @@ export function trackPluginInit(
     paths: options.paths?.filter(Boolean),
     excludedPaths: options.excludedPaths?.filter(Boolean),
   };
+  void safe.then(() => {
+    entry.settled = true;
+  });
   const existing = nitroApp[PLUGIN_READY_KEY] as PluginReadyEntry[] | undefined;
   if (existing) {
     existing.push(entry);
@@ -575,6 +580,22 @@ function debugClientAbort(args: {
   console.debug?.(
     `[agent-native] ${args.method ?? ""} ${args.route} aborted by client: ${message}`,
   );
+}
+
+/**
+ * workerd stops a request's pending I/O once it responds, so plugin init that
+ * a page load started would never finish, and every route behind the readiness
+ * gate would time out on that isolate. Keep each request open until it does.
+ */
+function keepRequestOpenForPluginInit(nitroApp: any, event: H3Event): void {
+  const waitUntil = (event.req as { waitUntil?: unknown } | undefined)
+    ?.waitUntil;
+  if (typeof waitUntil !== "function") return;
+  const pending = (
+    (nitroApp[PLUGIN_READY_KEY] as PluginReadyEntry[] | undefined) ?? []
+  ).filter((entry) => !entry.settled);
+  if (!pending.length) return;
+  waitUntil.call(event.req, Promise.all(pending.map((entry) => entry.promise)));
 }
 
 export async function awaitPluginsReady(

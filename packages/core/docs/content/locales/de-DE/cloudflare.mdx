@@ -28,6 +28,34 @@ Sie können die Voreinstellung auch explizit mit `NITRO_PRESET=cloudflare_module
 wählen. Konfigurieren Sie vor dem Deployment eine dauerhafte externe
 PostgreSQL-Datenbank. Ein Worker-Dateisystem ist kein persistenter App-Speicher.
 
+## Geplante Arbeit {#cloudflare-scheduled-work}
+
+Geplante Automatisierungen, wartende Ereignis-Automatisierungen und das
+Aufräumen unterbrochener Läufe erledigt ein Sweep, der einmal pro Minute läuft.
+Der Build fügt der generierten `wrangler.json` einen
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+mit `* * * * *` hinzu und behält alle Cron Triggers bei, die Sie bereits
+deklariert haben. Wenn er auslöst, ruft der `scheduled`-Handler des Workers den
+Sweep direkt mit einem kurzlebigen, mit `A2A_SECRET` signierten Token auf.
+Setzen Sie dieses Secret daher vor dem Deployment:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **CPU-Zeit.** Im Workers-Free-Tarif erhält jeder Cron-Trigger-Aufruf 10 ms
+  CPU-Zeit, ein Sweep, der Agent-Jobs ausführt, braucht aber mehr. Verwenden Sie
+  für geplante Arbeit den Workers-Paid-Tarif.
+- **Timing.** Cron Triggers laufen in UTC, und ein neuer oder geänderter Trigger
+  kann nach einem Deployment bis zu 15 Minuten brauchen, bis er auslöst.
+- **Lokales Testen.** Führen Sie den gebauten Worker mit
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json` aus
+  und rufen Sie dann `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` auf, um den
+  Sweep einmal auszulösen.
+
+Die übrigen Hosts finden Sie unter
+[Wie der Planer ausgeführt wird](/docs/recurring-jobs#how-scheduler-runs).
+
 ## Was kommt als Nächstes?
 
 - [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung

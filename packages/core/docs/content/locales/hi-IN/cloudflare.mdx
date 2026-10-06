@@ -28,6 +28,34 @@ npx wrangler deploy --config .output/server/wrangler.json
 Deploy करने से पहले एक durable external PostgreSQL database configure करें। Worker
 filesystem persistent application store नहीं है।
 
+## शेड्यूल किया गया काम {#cloudflare-scheduled-work}
+
+Scheduled automations, queued event automations, और बाधित runs की सफ़ाई, ये सब
+हर मिनट एक बार चलने वाले sweep पर होते हैं। Build generated `wrangler.json` में
+एक `* * * * *`
+[Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+जोड़ता है और आपके पहले से declare किए गए Cron Triggers को बनाए रखता है। जब यह
+फायर होता है, तो Worker का `scheduled` handler `A2A_SECRET` से signed एक
+short-lived token के साथ sweep को सीधे call करता है, इसलिए deploy करने से पहले
+वह secret सेट करें:
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **CPU time।** Workers Free plan पर हर Cron Trigger invocation को 10 ms CPU
+  time मिलता है, और agent jobs चलाने वाले sweep को इससे अधिक चाहिए। Scheduled
+  काम के लिए Workers Paid plan उपयोग करें।
+- **Timing।** Cron Triggers UTC पर चलते हैं, और किसी नए या बदले गए trigger को
+  deploy के बाद फायर होना शुरू करने में 15 मिनट तक लग सकते हैं।
+- **लोकल testing।** Built Worker को
+  `npx wrangler dev --test-scheduled --config .output/server/wrangler.json` से
+  चलाएँ, फिर sweep को एक बार फायर करने के लिए
+  `/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` पर request भेजें।
+
+दूसरे hosts के लिए [शेड्यूलर कैसे चलता है](/docs/recurring-jobs#how-scheduler-runs)
+देखें।
+
 ## आगे क्या है
 
 - [**Deployment**](/docs/deployment) — अपने पहले production deploy से पहले persistent database और preset चुनें

@@ -28,6 +28,20 @@ npx wrangler deploy --config .output/server/wrangler.json
 デプロイ前に、耐久性のある外部 PostgreSQL データベースを構成してください。Worker
 のファイルシステムは永続的なアプリケーションストアではありません。
 
+## スケジュールされた作業 {#cloudflare-scheduled-work}
+
+スケジュールされた自動化、キューに入ったイベント自動化、中断された実行のクリーンアップは、すべて 1 分に 1 回のスイープで行われます。ビルドは生成される `wrangler.json` に `* * * * *` の [Cron Trigger](https://developers.cloudflare.com/workers/configuration/cron-triggers/) を追加し、すでに宣言されている Cron Trigger はそのまま残します。トリガーが起動すると、Worker の `scheduled` ハンドラーが `A2A_SECRET` で署名された短期間有効なトークンを使ってスイープを直接呼び出すため、デプロイ前にこのシークレットを設定してください。
+
+```bash
+npx wrangler secret put A2A_SECRET --config .output/server/wrangler.json
+```
+
+- **CPU 時間。** Workers Free プランでは Cron Trigger の各呼び出しに与えられる CPU 時間は 10 ms ですが、エージェントのジョブを実行するスイープにはそれ以上が必要です。スケジュールされた作業には Workers Paid プランを使用してください。
+- **タイミング。** Cron Trigger は UTC で実行され、新規または変更されたトリガーがデプロイ後に起動し始めるまで最大 15 分かかることがあります。
+- **ローカルテスト。** `npx wrangler dev --test-scheduled --config .output/server/wrangler.json` でビルド済みの Worker を実行し、`/cdn-cgi/handler/scheduled?cron=*+*+*+*+*` をリクエストするとスイープが 1 回起動します。
+
+他のホストについては、[スケジューラの実行方法](/docs/recurring-jobs#how-scheduler-runs) を参照してください。
+
 ## 次は何ですか
 
 - [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ

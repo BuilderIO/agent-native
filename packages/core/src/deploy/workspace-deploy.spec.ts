@@ -953,6 +953,12 @@ describe("workspace deploy", () => {
       src: "/_agent-native/google/callback",
       dest: "/beta-server",
     });
+    expect(config.crons).toEqual(
+      ["alpha", "beta"].map((app) => ({
+        path: `/${app}/_agent-native/jobs/_process-sweep`,
+        schedule: "* * * * *",
+      })),
+    );
   });
 
   it("propagates workspace app route access into manifests and app env", async () => {

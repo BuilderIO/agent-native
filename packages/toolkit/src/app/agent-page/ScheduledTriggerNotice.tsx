@@ -63,37 +63,58 @@ export function ScheduledTriggerNotice({
           defaultValue: "Schedules won't run in this deploy",
         });
 
-  const detail =
-    status.reason === "disabled-by-env"
-      ? t("jobs.scheduleUnavailableDisabled", {
-          defaultValue:
-            "This app was built with recurring jobs turned off, so no scheduled " +
-            "automation will fire. Event-triggered automations and Run now still work.",
-        })
-      : status.reason === "no-platform-scheduler"
-        ? t("jobs.scheduleUnavailableNoScheduler", {
-            defaultValue:
-              "This hosting target has no durable scheduler, so no scheduled automation will fire. Event-triggered automations and Run now still work.",
-          })
-        : t("jobs.scheduleUnavailableLocal", {
-            defaultValue:
-              "Schedules stay off on a dev machine unless you opt in. " +
-              "Event-triggered automations and Run now still work.",
-          });
-
-  const fix =
-    status.reason === "disabled-by-env"
-      ? t("jobs.scheduleUnavailableDisabledFix", {
-          defaultValue:
-            "To enable recurring jobs, set AGENT_NATIVE_DISABLE_RECURRING_JOBS=false in the build environment.",
-        })
-      : status.reason === "local-development"
-        ? t("jobs.scheduleUnavailableLocalFix", {
-            defaultValue:
-              "Set AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=true to run " +
-              "schedules on this machine.",
-          })
-        : null;
+  let detail: string;
+  let fix: string | null;
+  switch (status.reason) {
+    case "disabled-by-env":
+      detail = t("jobs.scheduleUnavailableDisabled", {
+        defaultValue:
+          "This app was built with recurring jobs turned off, so no scheduled " +
+          "automation will fire. Event- and webhook-triggered automations and " +
+          "Run now still work.",
+      });
+      fix = t("jobs.scheduleUnavailableDisabledFix", {
+        defaultValue:
+          "To enable recurring jobs, set AGENT_NATIVE_DISABLE_RECURRING_JOBS=false in the build environment.",
+      });
+      break;
+    case "missing-trigger-secret":
+      detail = t("jobs.scheduleUnavailableMissingSecret", {
+        secret: status.secret,
+        defaultValue:
+          "This deploy has a scheduler, but {{secret}} isn't set, so every " +
+          "scheduler request is rejected. Scheduled automations won't fire, " +
+          "event-triggered automations stay queued, and crashed runs aren't " +
+          "recovered. Webhook-triggered automations and Run now still work.",
+      });
+      fix = t("jobs.scheduleUnavailableMissingSecretFix", {
+        secret: status.secret,
+        defaultValue:
+          "Set {{secret}} in this deployment's environment variables, then redeploy.",
+      });
+      break;
+    case "no-platform-scheduler":
+      detail = t("jobs.scheduleUnavailableNoScheduler", {
+        defaultValue:
+          "This deploy has no scheduler, so scheduled automations won't fire, " +
+          "event-triggered automations stay queued, and crashed runs aren't " +
+          "recovered. Webhook-triggered automations and Run now still work.",
+      });
+      fix = null;
+      break;
+    case "local-development":
+      detail = t("jobs.scheduleUnavailableLocal", {
+        defaultValue:
+          "Schedules stay off on a dev machine unless you opt in. " +
+          "Event- and webhook-triggered automations and Run now still work.",
+      });
+      fix = t("jobs.scheduleUnavailableLocalFix", {
+        defaultValue:
+          "Set AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=true to run " +
+          "schedules on this machine.",
+      });
+      break;
+  }
 
   return (
     <div

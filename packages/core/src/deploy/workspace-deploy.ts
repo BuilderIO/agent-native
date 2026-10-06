@@ -54,6 +54,7 @@ import {
 import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
+  vercelSweepCrons,
 } from "./build.js";
 import {
   cloneServerBundleForFunction,
@@ -698,6 +699,9 @@ function writeVercelBuildConfig(
   const config = {
     version: 3,
     routes,
+    crons: vercelSweepCrons(
+      apps.map((app) => `/${app}${RECURRING_JOBS_SWEEP_PATH}`),
+    ),
   };
   fs.writeFileSync(
     path.join(outputDir, "config.json"),

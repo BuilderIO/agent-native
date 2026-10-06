@@ -36,6 +36,39 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 Der Workspace-Build kopiert die Nitro-`vercel`-Ausgabe jeder App in das Root-`.vercel/output`, gibt jeder Funktion eine eigene Mount-Pfad-Umgebung und schreibt die Routenkonfiguration, die Apps unter `/<app-id>` bereitstellt.
 
+## Geplante Arbeit {#vercel-scheduled-work}
+
+Geplante Automatisierungen, wartende Ereignis-Automatisierungen und das
+Aufräumen unterbrochener Läufe erledigt ein Sweep, der einmal pro Minute läuft.
+Der Build fügt einen [Vercel-Cron-Job](https://vercel.com/docs/cron-jobs) hinzu,
+der den Sweep unter `/_agent-native/jobs/_process-sweep` aufruft. Ein
+Workspace-Build fügt pro App einen Cron-Job hinzu, unter
+`/<app-id>/_agent-native/jobs/_process-sweep`.
+
+Setzen Sie `CRON_SECRET` vor dem Deployment in den Umgebungsvariablen des
+Projekts. Vercel sendet den Wert bei jeder Cron-Anfrage als Bearer-Token, und
+der Sweep lehnt jede Anfrage ohne ihn ab. Erzeugen Sie einen Wert mit
+`openssl rand -hex 32`.
+
+- **Nur Produktion.** Vercel führt Cron-Jobs auf dem Produktions-Deployment aus,
+  nie auf Previews, daher werden Zeitpläne in einer Preview nicht ausgelöst. Die
+  Seite **Automations** weist darauf hin.
+- **Hobby läuft einmal täglich.** Vercel lehnt ein Hobby-Deployment ab, dessen
+  Cron-Job mehr als einmal täglich läuft. Setzen Sie
+  `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` in der Build-Umgebung auf einen täglichen
+  Ausdruck wie `0 9 * * *`. Bei Hobby kann der Job außerdem zu einem beliebigen
+  Zeitpunkt innerhalb dieser Stunde laufen. Bei nur einem Sweep pro Tag warten
+  geplante und ereignisgesteuerte Automatisierungen bis zu einem Tag. Verwenden
+  Sie daher Pro oder einen anderen Host, wenn es auf das Timing ankommt.
+- **Funktionsdauer.** Der Sweep führt fällige Jobs innerhalb des
+  Funktionsaufrufs des Cron-Jobs aus, daher wird ein Job bei der maximalen
+  Dauer der Funktion abgebrochen (standardmäßig 300 Sekunden).
+- **Keine Wiederholungen.** Vercel wiederholt einen fehlgeschlagenen
+  Cron-Aufruf nicht. Der Sweep läuft zum nächsten geplanten Zeitpunkt erneut.
+
+Die übrigen Hosts finden Sie unter
+[Wie der Planer ausgeführt wird](/docs/recurring-jobs#how-scheduler-runs).
+
 ## Was kommt als nächstes?
 
 - [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung

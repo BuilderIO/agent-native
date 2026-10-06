@@ -36,6 +36,37 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 कार्यस्थान build हर ऐप के Nitro `vercel` output को root `.vercel/output` में copy करता है, हर function को अपना खुद का mount-path environment देता है, और वह route config लिखता है जो ऐप्स को `/<app-id>` पर serve करता है।
 
+## शेड्यूल किया गया काम {#vercel-scheduled-work}
+
+Scheduled automations, queued event automations, और बाधित runs की सफ़ाई, ये सब
+हर मिनट एक बार चलने वाले sweep पर होते हैं। Build एक
+[Vercel cron job](https://vercel.com/docs/cron-jobs) जोड़ता है जो
+`/_agent-native/jobs/_process-sweep` पर sweep को call करता है। कार्यस्थान build
+हर ऐप के लिए एक cron job जोड़ता है, `/<app-id>/_agent-native/jobs/_process-sweep` पर।
+
+Deploy करने से पहले project के environment variables में `CRON_SECRET` सेट करें।
+Vercel इसे हर cron request के साथ bearer token के रूप में भेजता है, और sweep इसके
+बिना आने वाली हर request को reject कर देता है। `openssl rand -hex 32` से एक value
+generate करें।
+
+- **केवल production।** Vercel cron jobs को केवल production deployment पर चलाता है,
+  previews पर कभी नहीं, इसलिए preview पर schedules फायर नहीं होते।
+  **Automations** पेज यह बताता है।
+- **Hobby दिन में एक बार चलता है।** Vercel ऐसे Hobby deployment को reject कर देता है
+  जिसका cron job दिन में एक से अधिक बार चलता हो। Build environment में
+  `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` को `0 9 * * *` जैसे daily expression पर सेट
+  करें। Hobby इसे उस घंटे के भीतर किसी भी समय चला सकता है। दिन में एक sweep होने पर
+  scheduled और event-triggered automations एक दिन तक इंतज़ार कर सकते हैं, इसलिए जब
+  timing मायने रखती हो तो Pro या कोई दूसरा host उपयोग करें।
+- **Function duration।** Sweep due jobs को cron job के function invocation के भीतर
+  चलाता है, इसलिए कोई job function की maximum duration (डिफ़ॉल्ट रूप से 300
+  सेकंड) पर कट जाता है।
+- **कोई retry नहीं।** Vercel failed cron invocation को retry नहीं करता। Sweep अगले
+  scheduled समय पर फिर से चलता है।
+
+दूसरे hosts के लिए [शेड्यूलर कैसे चलता है](/docs/recurring-jobs#how-scheduler-runs)
+देखें।
+
 ## आगे क्या है
 
 - [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें

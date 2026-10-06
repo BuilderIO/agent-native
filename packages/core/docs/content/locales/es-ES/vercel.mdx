@@ -36,6 +36,41 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 La compilación del espacio de trabajo copia la salida `vercel` de Nitro de cada aplicación en la raíz `.vercel/output`, le da a cada función su propio entorno de ruta de montaje, y escribe la configuración de rutas que sirve las aplicaciones en `/<app-id>`.
 
+## Trabajo programado {#vercel-scheduled-work}
+
+Las automatizaciones programadas, las automatizaciones por eventos en cola y la
+limpieza de ejecuciones interrumpidas se realizan en un barrido que se ejecuta
+una vez por minuto. La compilación añade un
+[trabajo cron de Vercel](https://vercel.com/docs/cron-jobs) que llama al barrido
+en `/_agent-native/jobs/_process-sweep`. Una compilación de espacio de trabajo
+añade un trabajo cron por aplicación, en
+`/<app-id>/_agent-native/jobs/_process-sweep`.
+
+Establece `CRON_SECRET` en las variables de entorno del proyecto antes de
+implementar. Vercel lo envía como token bearer con cada solicitud de cron, y el
+barrido rechaza toda solicitud que no lo incluya. Genera un valor con
+`openssl rand -hex 32`.
+
+- **Solo producción.** Vercel ejecuta los trabajos cron en la implementación de
+  producción, nunca en las vistas previas, así que las programaciones no se
+  disparan en una vista previa. La página **Automations** lo indica.
+- **Hobby se ejecuta una vez al día.** Vercel rechaza una implementación Hobby
+  cuyo trabajo cron se ejecute más de una vez al día. Establece
+  `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` en el entorno de compilación con una
+  expresión diaria como `0 9 * * *`. Hobby también puede ejecutarlo en cualquier
+  momento dentro de esa hora. Con un barrido al día, las automatizaciones
+  programadas y las activadas por eventos esperan hasta un día, así que usa Pro
+  u otro host cuando el momento de ejecución importe.
+- **Duración de la función.** El barrido ejecuta los trabajos pendientes dentro
+  de la invocación de la función del trabajo cron, por lo que un trabajo se
+  corta al alcanzar la duración máxima de la función (300 segundos de forma
+  predeterminada).
+- **Sin reintentos.** Vercel no reintenta una invocación de cron fallida. El
+  barrido se vuelve a ejecutar en la siguiente hora programada.
+
+Consulta [Cómo se ejecuta el programador](/docs/recurring-jobs#how-scheduler-runs)
+para los demás hosts.
+
 ## Qué sigue
 
 - [**Implementación**](/docs/deployment) — elige una base de datos persistente y un ajuste preestablecido antes de tu primera implementación en producción

@@ -36,6 +36,36 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 The workspace build copies each app's Nitro `vercel` output into the root `.vercel/output`, gives each function its own mount-path environment, and writes the route config that serves apps at `/<app-id>`.
 
+## Scheduled work {#vercel-scheduled-work}
+
+Scheduled automations, queued event automations, and cleanup of interrupted
+runs all happen on a once-a-minute sweep. The build adds a
+[Vercel cron job](https://vercel.com/docs/cron-jobs) that calls the sweep at
+`/_agent-native/jobs/_process-sweep`. A workspace build adds one cron job per
+app, at `/<app-id>/_agent-native/jobs/_process-sweep`.
+
+Set `CRON_SECRET` in the project's environment variables before you deploy.
+Vercel sends it as a bearer token with each cron request, and the sweep rejects
+every request without it. Generate a value with `openssl rand -hex 32`.
+
+- **Production only.** Vercel runs cron jobs on the production deployment,
+  never on previews, so schedules don't fire on a preview. The
+  **Automations** page says so.
+- **Hobby runs once a day.** Vercel rejects a Hobby deployment whose cron job
+  runs more than once a day. Set `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` in the
+  build environment to a daily expression such as `0 9 * * *`. Hobby can also
+  run it any time within that hour. With one sweep a day, scheduled and
+  event-triggered automations wait up to a day, so use Pro or another host when
+  timing matters.
+- **Function duration.** The sweep runs due jobs inside the cron job's
+  function invocation, so a job is cut off at the function's maximum duration
+  (300 seconds by default).
+- **No retries.** Vercel doesn't retry a failed cron invocation. The sweep runs
+  again at the next scheduled time.
+
+See [How the scheduler runs](/docs/recurring-jobs#how-scheduler-runs) for the
+other hosts.
+
 ## What's next
 
 - [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy

@@ -35,6 +35,19 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 这个工作区构建会把每个应用的 Nitro `vercel` 输出复制到根目录的 `.vercel/output` 中,为每个函数配置自己的挂载路径环境,并写出把各个应用服务在 `/<app-id>` 下的路由配置。
 
+## 计划任务 {#vercel-scheduled-work}
+
+计划自动化、排队中的事件自动化以及被中断运行的清理，都在每分钟一次的清扫中完成。构建会添加一个 [Vercel cron 任务](https://vercel.com/docs/cron-jobs)，通过 `/_agent-native/jobs/_process-sweep` 调用清扫。工作区构建会为每个应用各添加一个 cron 任务，路径为 `/<app-id>/_agent-native/jobs/_process-sweep`。
+
+部署之前，请在项目的环境变量中设置 `CRON_SECRET`。Vercel 会在每个 cron 请求中把它作为 bearer token 发送，清扫会拒绝所有不带它的请求。可以用 `openssl rand -hex 32` 生成一个值。
+
+- **仅限生产环境。** Vercel 只在生产部署上运行 cron 任务，从不在预览部署上运行，因此计划不会在预览中触发。**Automations** 页面会说明这一点。
+- **Hobby 每天只运行一次。** Vercel 会拒绝 cron 任务每天运行超过一次的 Hobby 部署。请在构建环境中将 `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` 设置为每天一次的表达式，例如 `0 9 * * *`。Hobby 还可能在该小时内的任意时间运行它。每天只清扫一次时，计划自动化和事件触发自动化最多要等待一天，因此在时效很重要时，请使用 Pro 或其他托管平台。
+- **函数时长。** 清扫会在 cron 任务的函数调用中运行到期的作业，因此作业会在达到函数的最长运行时间（默认 300 秒）时被截断。
+- **不会重试。** Vercel 不会重试失败的 cron 调用。清扫会在下一个计划时间再次运行。
+
+参见 [调度程序如何运行](/docs/recurring-jobs#how-scheduler-runs) 了解其他托管平台。
+
 ## 下一步
 
 - [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
