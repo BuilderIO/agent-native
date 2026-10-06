@@ -401,7 +401,7 @@ Uma chamada posterior substitui o provedor anterior. A função retornada cancel
 
 Funções serverless congelam entre invocações, então o timer de exportação de um SDK pode nunca disparar. Quando um provedor registrado implementa `forceFlush()`, o core o chama a partir do hook de resposta após cada requisição e aguarda sua conclusão. Cada flush disputa um único timeout compartilhado de 2 segundos, então a telemetria nunca segura uma resposta por mais tempo que isso.
 
-Um flush que falha ou estoura o tempo descarta seus pontos e soma 1 a `agent_native.telemetry.flush_failures`, que o próximo flush exporta. Seu `error.type` é `timeout`, `suspended` quando o runtime congelou o processo no meio do flush, ou o nome do erro.
+Quando um flush falha ou estoura o tempo, o core para de esperá-lo e soma 1 a `agent_native.telemetry.flush_failures`, que o próximo flush exporta. Uma exportação que estourou o tempo continua em andamento e ainda pode chegar, a menos que o runtime congele o processo antes. O `error.type` da falha é `timeout`, `suspended` quando o runtime congelou o processo no meio do flush, ou o nome do erro.
 
 Em um servidor de longa duração, um flush após cada resposta significa uma exportação por requisição. Registre os provedores ali sem `forceFlush()` e deixe os próprios timers do SDK exportarem. `isServerlessRuntime()` de `@agent-native/core/server` distingue os dois casos. Ele é true no Netlify, Vercel, AWS Lambda e Cloudflare.
 

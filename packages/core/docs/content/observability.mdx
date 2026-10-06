@@ -459,7 +459,7 @@ A later call replaces the earlier provider. The returned function unregisters th
 
 Serverless functions freeze between invocations, so an SDK's export timer may never fire. When a registered provider implements `forceFlush()`, core calls it from the response hook after every request and waits for it. Each flush races one shared 2-second timeout, so telemetry never holds a response longer than that.
 
-A flush that fails or times out drops its points and adds 1 to `agent_native.telemetry.flush_failures`, which the next flush exports. Its `error.type` is `timeout`, `suspended` when the runtime froze the process mid-flush, or the error's name.
+When a flush fails or times out, core stops waiting for it and adds 1 to `agent_native.telemetry.flush_failures`, which the next flush exports. A timed-out export keeps running and can still arrive, unless the runtime freezes the process first. The failure's `error.type` is `timeout`, `suspended` when the runtime froze the process mid-flush, or the error's name.
 
 On a long-running server, a flush after every response means one export per request. Register providers without `forceFlush()` there and let the SDK's own timers export. `isServerlessRuntime()` from `@agent-native/core/server` tells the two apart. It is true on Netlify, Vercel, AWS Lambda, and Cloudflare.
 

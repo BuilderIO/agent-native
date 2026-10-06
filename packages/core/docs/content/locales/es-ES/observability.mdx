@@ -401,7 +401,7 @@ Una llamada posterior reemplaza al proveedor anterior. La función devuelta anul
 
 Las funciones serverless se congelan entre invocaciones, por lo que el temporizador de exportación de un SDK puede no dispararse nunca. Cuando un proveedor registrado implementa `forceFlush()`, core lo llama desde el hook de respuesta después de cada solicitud y espera a que termine. Cada vaciado compite con un único tiempo límite compartido de 2 segundos, así que la telemetría nunca retiene una respuesta más que eso.
 
-Un vaciado que falla o agota el tiempo descarta sus puntos y suma 1 a `agent_native.telemetry.flush_failures`, que el siguiente vaciado exporta. Su `error.type` es `timeout`, `suspended` cuando el runtime congeló el proceso a mitad del vaciado, o el nombre del error.
+Cuando un vaciado falla o agota el tiempo, core deja de esperarlo y suma 1 a `agent_native.telemetry.flush_failures`, que el siguiente vaciado exporta. Una exportación que agotó el tiempo sigue en curso y aún puede llegar, salvo que el runtime congele antes el proceso. El `error.type` del fallo es `timeout`, `suspended` cuando el runtime congeló el proceso a mitad del vaciado, o el nombre del error.
 
 En un servidor de larga duración, vaciar después de cada respuesta supone una exportación por solicitud. Registra allí los proveedores sin `forceFlush()` y deja que exporten los propios temporizadores del SDK. `isServerlessRuntime()` de `@agent-native/core/server` distingue ambos casos. Devuelve true en Netlify, Vercel, AWS Lambda y Cloudflare.
 
