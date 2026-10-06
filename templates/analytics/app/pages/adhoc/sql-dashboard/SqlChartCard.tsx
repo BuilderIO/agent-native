@@ -16,7 +16,6 @@ import {
   IconBrandGoogle,
   IconArrowUpRight,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -62,7 +61,6 @@ import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-con
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
-import { serializePanelSql } from "./panel-sql";
 import { timeRangeDays } from "./pivot";
 import type { DashboardFilter, SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
@@ -152,7 +150,6 @@ export function SqlChartCard({
 }: SqlChartCardProps) {
   const t = useT();
   const timeRange = timeRangeDays(filters?.timeRange);
-  const queryClient = useQueryClient();
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
@@ -172,17 +169,8 @@ export function SqlChartCard({
       panel.chartType === "section" ||
       panel.chartType === "extension",
   );
+  const [refreshToken, setRefreshToken] = useState(0);
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const chartQueryKey = useMemo(
-    () =>
-      [
-        "sql-chart",
-        dashboardId || panel.id,
-        serializePanelSql(resolvedSql ?? panel.sql),
-        panel.source,
-      ] as const,
-    [dashboardId, panel.id, panel.source, panel.sql, resolvedSql],
-  );
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
   }, []);
@@ -210,10 +198,8 @@ export function SqlChartCard({
 
   const handleRefresh = useCallback(() => {
     setShouldLoadData(true);
-    void queryClient.invalidateQueries({
-      queryKey: chartQueryKey,
-    });
-  }, [chartQueryKey, queryClient]);
+    setRefreshToken((token) => token + 1);
+  }, []);
 
   const handleExportToGoogleSheets = useCallback(async () => {
     if (!dashboardId || panel.chartType !== "table") return;
@@ -784,6 +770,8 @@ export function SqlChartCard({
             loadData={shouldLoadData}
             timeRange={timeRange}
             reportScreenshot={reportScreenshot}
+            refreshToken={refreshToken}
+            onRefreshRequested={handleRefresh}
             dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
@@ -805,6 +793,8 @@ export function SqlChartCard({
                 loadData
                 timeRange={timeRange}
                 reportScreenshot={reportScreenshot}
+                refreshToken={refreshToken}
+                onRefreshRequested={handleRefresh}
                 dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />

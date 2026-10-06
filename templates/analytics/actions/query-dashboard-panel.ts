@@ -14,6 +14,7 @@ export default defineAction({
   schema: z.object({
     source: z.enum(DASHBOARD_PANEL_SOURCES),
     query: z.unknown(),
+    forceRefresh: z.boolean().optional(),
   }),
   http: { method: "POST" },
   readOnly: true,
@@ -26,6 +27,13 @@ export default defineAction({
     }
 
     const query = normalizeDashboardPanelQuery(args.source, args.query);
-    return resolveAnalyticsPanelSource({ source: args.source, query }, context);
+    return resolveAnalyticsPanelSource(
+      {
+        source: args.source,
+        query,
+        ...(args.forceRefresh ? { forceRefresh: true } : {}),
+      },
+      context,
+    );
   },
 });

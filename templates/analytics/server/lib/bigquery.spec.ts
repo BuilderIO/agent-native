@@ -233,6 +233,41 @@ describe("runQuery cancellation", () => {
     );
   });
 
+  it("bypasses result caches on forced refresh and replaces the cached result", async () => {
+    const response = (signups: string) =>
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "signups", type: "INT64" }] },
+        rows: [{ f: [{ v: signups }] }],
+        totalBytesProcessed: "12",
+      });
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(response("3918"))
+      .mockResolvedValueOnce(response("4200"));
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT 1 AS manual_dashboard_refresh_test";
+
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      rows: [{ signups: 3918 }],
+    });
+    await expect(runQuery(sql, { forceRefresh: true })).resolves.toMatchObject({
+      rows: [{ signups: 4200 }],
+    });
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      rows: [{ signups: 4200 }],
+      cached: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).not.toHaveProperty("useQueryCache");
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+    ).toHaveProperty("useQueryCache", false);
+  });
+
   it("rejects mutating SQL before resolving credentials or contacting BigQuery", async () => {
     const fetchMock = vi.fn<typeof globalThis.fetch>();
     vi.stubGlobal("fetch", fetchMock);

@@ -229,6 +229,7 @@ export interface QueryResult {
 
 export interface RunQueryOptions {
   signal?: AbortSignal;
+  forceRefresh?: boolean;
 }
 
 interface BigQueryField {
@@ -432,14 +433,16 @@ export async function runQuery(
   const cacheableSql = addUtcDateCacheKey(resolvedSql);
 
   const cacheKey = getCacheKey(cacheableSql, projectId, cacheScope);
-  const l1Hit = getL1(cacheKey);
-  if (l1Hit) {
-    return { ...l1Hit, cached: true };
-  }
-  const l2Hit = await getL2(cacheKey);
-  if (l2Hit) {
-    setL1(cacheKey, l2Hit);
-    return { ...l2Hit, cached: true };
+  if (!options.forceRefresh) {
+    const l1Hit = getL1(cacheKey);
+    if (l1Hit) {
+      return { ...l1Hit, cached: true };
+    }
+    const l2Hit = await getL2(cacheKey);
+    if (l2Hit) {
+      setL1(cacheKey, l2Hit);
+      return { ...l2Hit, cached: true };
+    }
   }
 
   const token = await getAccessToken();
@@ -457,6 +460,7 @@ export async function runQuery(
       query: cacheableSql,
       useLegacySql: false,
       maximumBytesBilled: "750000000000", // 750GB cap
+      ...(options.forceRefresh ? { useQueryCache: false } : {}),
     }),
   });
 

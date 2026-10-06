@@ -5,6 +5,7 @@ import {
   MAX_CONCURRENT_SQL_QUERIES,
 } from "@shared/sql-query-limits";
 import { useQuery } from "@tanstack/react-query";
+import { useRef } from "react";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -138,7 +139,7 @@ export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
   signal?: AbortSignal,
-  options?: { reportScreenshot?: boolean },
+  options?: { reportScreenshot?: boolean; forceRefresh?: boolean },
 ): Promise<SqlQueryResult> {
   const deadline = createDeadlineSignal(
     signal,
@@ -150,7 +151,13 @@ export async function executeSqlQuery(
     release = await acquireSqlQuerySlot(source, deadline.signal);
     data = await callAction<DashboardPanelQueryResponse>(
       "query-dashboard-panel",
-      { query: sql, source },
+      {
+        query: sql,
+        source,
+        ...(options?.forceRefresh && source === "bigquery"
+          ? { forceRefresh: true }
+          : {}),
+      },
       {
         signal: deadline.signal,
         timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
@@ -191,15 +198,26 @@ export function useSqlQuery(
     refetchOnWindowFocus?: boolean | "always";
     retry?: boolean | number;
     reportScreenshot?: boolean;
+    refreshToken?: number;
     staleTime?: number;
   },
 ) {
+  const successfulRefreshToken = useRef(0);
   return useQuery<SqlQueryResult>({
     queryKey,
-    queryFn: ({ signal }) =>
-      executeSqlQuery(sql, source, signal, {
+    queryFn: async ({ signal }) => {
+      const refreshToken = options?.refreshToken ?? 0;
+      const forceRefresh = refreshToken > successfulRefreshToken.current;
+      const result = await executeSqlQuery(sql, source, signal, {
         reportScreenshot: options?.reportScreenshot,
-      }),
+        forceRefresh,
+      });
+      successfulRefreshToken.current = Math.max(
+        successfulRefreshToken.current,
+        refreshToken,
+      );
+      return result;
+    },
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     refetchOnMount: options?.refetchOnMount ?? false,

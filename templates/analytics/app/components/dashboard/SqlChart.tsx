@@ -1253,6 +1253,8 @@ interface SqlChartProps {
   showLoadingWhenDisabled?: boolean;
   timeRange?: number;
   reportScreenshot?: boolean;
+  refreshToken?: number;
+  onRefreshRequested?: () => void;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   dashboardId?: string;
@@ -1267,6 +1269,8 @@ export function SqlChart({
   showLoadingWhenDisabled = true,
   timeRange,
   reportScreenshot = false,
+  refreshToken = 0,
+  onRefreshRequested,
   onExportCsvChange,
   onCopyTableChange,
   dashboardId,
@@ -1288,8 +1292,15 @@ export function SqlChart({
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
     panel.source,
-    { enabled: shouldQuery, reportScreenshot },
+    { enabled: shouldQuery, reportScreenshot, refreshToken },
   );
+  const previousRefreshToken = useRef(refreshToken);
+
+  useEffect(() => {
+    if (refreshToken <= previousRefreshToken.current) return;
+    previousRefreshToken.current = refreshToken;
+    void refetch();
+  }, [refreshToken, refetch]);
 
   const result = resultOverride ?? queryResult;
   const isLoading = resultOverride ? false : queryIsLoading;
@@ -1402,7 +1413,9 @@ export function SqlChart({
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => void refetch()}
+            onClick={() =>
+              onRefreshRequested ? onRefreshRequested() : void refetch()
+            }
           >
             <IconRefresh className="mr-2 h-3.5 w-3.5" />
             {t("sqlDashboard.refresh")}
