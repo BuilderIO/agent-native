@@ -291,10 +291,34 @@ export function resolveContextChipBackspaceAction(options: {
 
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const FILE_COMPARISON_CHUNK_BYTES = 64 * 1024;
+const MAX_ATTACHMENT_COMPARISON_BYTES = 16 * 1024 * 1024;
+const MAX_ATTACHMENT_COMPARISONS = 128;
 
-async function haveSameFileContents(first: Blob, second: Blob) {
+type AttachmentComparisonBudget = {
+  remainingBytes: number;
+  remainingComparisons: number;
+};
+
+function normalizeAttachmentContentType(contentType: string | undefined) {
+  return contentType?.trim().toLowerCase() || "application/octet-stream";
+}
+
+async function haveSameFileContents(
+  first: Blob,
+  second: Blob,
+  budget: AttachmentComparisonBudget,
+) {
   if (first === second) return true;
   if (first.size !== second.size) return false;
+  const comparisonBytes = first.size * 2;
+  if (
+    budget.remainingComparisons === 0 ||
+    comparisonBytes > budget.remainingBytes
+  ) {
+    return false;
+  }
+  budget.remainingBytes -= comparisonBytes;
+  budget.remainingComparisons -= 1;
 
   for (
     let offset = 0;
@@ -319,11 +343,12 @@ async function haveSameFileContents(first: Blob, second: Blob) {
 async function haveSameAttachmentInput(
   first: { file: Blob; name: string; contentType: string },
   second: { file: Blob; name: string; contentType: string },
+  budget: AttachmentComparisonBudget,
 ) {
   if (first.name !== second.name || first.contentType !== second.contentType) {
     return false;
   }
-  return haveSameFileContents(first.file, second.file);
+  return haveSameFileContents(first.file, second.file, budget);
 }
 
 function isBlob(value: unknown): value is Blob {
@@ -3063,7 +3088,9 @@ export function TiptapComposer({
                   {
                     file: attachment.file,
                     name: attachment.name,
-                    contentType: attachment.contentType ?? "",
+                    contentType: normalizeAttachmentContentType(
+                      attachment.contentType,
+                    ),
                   },
                 ]
               : [],
@@ -3075,15 +3102,32 @@ export function TiptapComposer({
                   {
                     file: pendingFile,
                     name: pendingFile.name,
-                    contentType: pendingFile.type,
+                    contentType: normalizeAttachmentContentType(
+                      pendingFile.type,
+                    ),
                   },
                 ]
               : [],
         );
         const filesToCompare = [...existingFiles, ...pendingFiles];
-        const candidate = { file, name: file.name, contentType: file.type };
+        const candidate = {
+          file,
+          name: file.name,
+          contentType: normalizeAttachmentContentType(file.type),
+        };
+        const comparisonBudget = {
+          remainingBytes: MAX_ATTACHMENT_COMPARISON_BYTES,
+          remainingComparisons: MAX_ATTACHMENT_COMPARISONS,
+        };
         for (const existingFile of filesToCompare) {
-          if (await haveSameAttachmentInput(candidate, existingFile)) {
+          if (comparisonBudget.remainingComparisons === 0) break;
+          if (
+            await haveSameAttachmentInput(
+              candidate,
+              existingFile,
+              comparisonBudget,
+            )
+          ) {
             return false;
           }
         }
@@ -4315,6 +4359,47 @@ export function TiptapComposer({
         !areComposerContextItemsReady(contextItemsRef.current)
       )
         return false;
+
+      const attachmentScopeGeneration = draftScopeGenerationRef.current;
+      submitInFlightRef.current = true;
+      onSubmissionPendingChange?.(true);
+      try {
+        const priorScopeAdds = [...pendingAttachmentAddsRef.current]
+          .filter(([generation]) => generation !== attachmentScopeGeneration)
+          .flatMap(([, additions]) => [...additions]);
+        await Promise.all(priorScopeAdds);
+        await cleanStaleAttachments();
+        if (staleAttachmentFilesRef.current.size > 0) {
+          throw new Error("Previous draft attachments could not be removed.");
+        }
+      } catch (error) {
+        if (
+          mountedRef.current &&
+          draftScopeGenerationRef.current === attachmentScopeGeneration
+        ) {
+          setContextSubmissionError(
+            formatAttachmentError(
+              error,
+              t("agentChat.composer.submitFailed", {
+                defaultValue: "Could not submit. Try again.",
+              }),
+            ),
+          );
+        }
+        return false;
+      } finally {
+        submitInFlightRef.current = false;
+        onSubmissionPendingChange?.(false);
+      }
+      if (
+        !isComposerEditorUsable(ed) ||
+        draftScopeGenerationRef.current !== attachmentScopeGeneration ||
+        draftKeyRef.current !== draftKey ||
+        submissionDisabledRef.current ||
+        !areComposerContextItemsReady(contextItemsRef.current)
+      ) {
+        return false;
+      }
       if (
         composerRuntime
           .getState()
@@ -4954,6 +5039,7 @@ export function TiptapComposer({
       draftKey,
       editor,
       failedAttachmentCleanupSnapshots,
+      cleanStaleAttachments,
       flushComposerDraft,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,

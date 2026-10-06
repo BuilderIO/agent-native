@@ -1077,6 +1077,104 @@ describe("createTiptapComposerExtensions", () => {
     ).toEqual(["new.txt"]);
   });
 
+  it("does not submit a stale attachment when stale cleanup keeps failing", async () => {
+    let releaseOldAdd!: () => void;
+    let notifyOldAddStarted!: () => void;
+    const oldAddStarted = new Promise<void>((resolve) => {
+      notifyOldAddStarted = resolve;
+    });
+    const oldAddGate = new Promise<void>((resolve) => {
+      releaseOldAdd = resolve;
+    });
+    const onSubmit = vi.fn();
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => {
+        if (file.name === "old.txt") {
+          notifyOldAddStarted();
+          await oldAddGate;
+        }
+        return {
+          id: file.name,
+          type: "document",
+          name: file.name,
+          contentType: file.type,
+          file,
+          status: { type: "requires-action", reason: "composer-send" },
+        };
+      },
+      remove: async () => {
+        throw new Error("stale removal failed");
+      },
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({ draftScope }: { draftScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    let oldAdd: Promise<void> | undefined;
+    await act(async () => {
+      oldAdd = focusRef.current!.addAttachment(
+        new File(["old contents"], "old.txt", { type: "text/plain" }),
+      );
+      await oldAddStarted;
+    });
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      releaseOldAdd();
+      await expect(oldAdd).rejects.toThrow("stale removal failed");
+    });
+
+    expect(
+      harnessRuntime?.thread.composer
+        .getState()
+        .attachments.map(({ name }) => name),
+    ).toEqual(["old.txt"]);
+    act(() => focusRef.current?.setText("new draft"));
+    let submitted: boolean | undefined;
+    await act(async () => {
+      submitted = await focusRef.current!.submit!();
+    });
+
+    expect(submitted).toBe(false);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("deduplicates only files with matching names, types, and contents", async () => {
     let nextAttachmentId = 0;
     const attachmentAdapter: AttachmentAdapter = {
@@ -1173,6 +1271,159 @@ describe("createTiptapComposerExtensions", () => {
       "report.txt",
       "report.txt",
     ]);
+  });
+
+  it("normalizes an empty MIME type to the document adapter fallback", async () => {
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: file.name,
+        type: "document",
+        name: file.name,
+        contentType: file.type || "application/octet-stream",
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      await Promise.all([
+        focusRef.current!.addAttachment(new File(["same"], "unknown.bin")),
+        focusRef.current!.addAttachment(new File(["same"], "unknown.bin")),
+      ]);
+    });
+
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      1,
+    );
+  });
+
+  it("bounds aggregate byte reads while comparing attachment contents", async () => {
+    const comparisonFileSize = 4 * 1024 * 1024;
+    const maxComparisonBytes = 16 * 1024 * 1024;
+    let comparisonBytesRead = 0;
+    const makeFile = (lastByte: number) => {
+      const file = new File(["seed"], "same.bin", {
+        type: "application/octet-stream",
+      });
+      Object.defineProperty(file, "size", {
+        configurable: true,
+        value: comparisonFileSize,
+      });
+      const slice = vi.fn((start: number, end: number) => ({
+        arrayBuffer: async () => {
+          comparisonBytesRead += end - start;
+          const bytes = new Uint8Array(end - start);
+          if (end === comparisonFileSize) bytes[bytes.length - 1] = lastByte;
+          return bytes.buffer;
+        },
+      }));
+      Object.defineProperty(file, "slice", {
+        configurable: true,
+        value: slice,
+      });
+      return { file, slice };
+    };
+    const files = [makeFile(1), makeFile(2), makeFile(3)];
+    let nextAttachmentId = 0;
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: String(++nextAttachmentId),
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      for (const { file } of files) {
+        await focusRef.current!.addAttachment(file);
+      }
+    });
+
+    comparisonBytesRead = 0;
+    const previousSliceCalls = files.map(
+      ({ slice }) => slice.mock.calls.length,
+    );
+    await act(async () => {
+      await focusRef.current!.addAttachment(makeFile(4).file);
+    });
+
+    expect(comparisonBytesRead).toBe(maxComparisonBytes);
+    expect(files[2].slice).toHaveBeenCalledTimes(previousSliceCalls[2]);
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      4,
+    );
   });
 
   it.each([
