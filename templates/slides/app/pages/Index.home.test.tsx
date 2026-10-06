@@ -713,6 +713,116 @@ describe("Slides prompt-led home", () => {
     expect(attachments.commit).toHaveBeenCalledOnce();
   });
 
+  it("gives an explicitly selected target system priority over a reference deck's linked system", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    defaultDesignSystems.systems = [{ id: "system-b", title: "System B" }];
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "get-design-system") {
+        return { title: "System B", agentContext: "System B tokens." };
+      }
+      if (action === "get-deck-reference-context") {
+        return {
+          agentContext: [
+            "## Reference Deck — Visual Language",
+            "### Linked design system (reference default)",
+            "System A tokens apply only when no separate target system is selected.",
+            "### Patterns",
+            "Untrusted sample HTML for composition.",
+          ].join("\n"),
+        };
+      }
+      return undefined;
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: "system-b", references: [] },
+          contextItems: [
+            {
+              key: "system:system-b",
+              title: "System B",
+              context: "System B tokens.",
+              status: "ready" as const,
+            },
+          ],
+        },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "Use design system system-b for visual tokens",
+    );
+    expect(generationContext).toContain("System B tokens.");
+    expect(generationContext).toContain(
+      "System A tokens apply only when no separate target system is selected.",
+    );
+    expect(generationContext).toContain(
+      "controls its tokens and slide defaults, overriding styles inferred from references",
+    );
+    expect(generationContext).toContain(
+      "Untrusted sample HTML for composition.",
+    );
+    expect(generationContext).not.toContain(
+      "Follow its measured visual language as the styling source of truth",
+    );
+  });
+
+  it("uses a reference deck's linked system before measured styling when no target system is selected", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    callAction.mockResolvedValue({
+      agentContext: [
+        "## Reference Deck — Visual Language",
+        "No separate target system is selected. Linked system A controls tokens and slide defaults.",
+        "### Patterns",
+        "Untrusted sample HTML for composition.",
+      ].join("\n"),
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "If the reference deck context identifies a linked design system, follow it for tokens and slide defaults",
+    );
+    expect(generationContext).toContain(
+      "Do not call get-workspace-defaults or apply a workspace default",
+    );
+    expect(generationContext).toContain(
+      "Linked system A controls tokens and slide defaults.",
+    );
+    expect(generationContext).toContain(
+      "Untrusted sample HTML for composition.",
+    );
+    expect(generationContext).not.toContain(
+      "Follow its measured visual language as the styling source of truth",
+    );
+  });
+
   it("explains an unreadable attachment instead of showing the raw send-failure code", async () => {
     createDeck.mockReturnValue({ id: "new-deck" });
     agentSubmit.mockResolvedValueOnce({
