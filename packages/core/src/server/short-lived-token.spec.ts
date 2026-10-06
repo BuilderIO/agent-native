@@ -127,7 +127,7 @@ describe("short-lived-token", () => {
       });
     });
 
-    it("bounds the display-only agent label by its encoded byte length", () => {
+    it("bounds the display-only agent label by its JSON-encoded byte length", () => {
       const token = signCompactShortLivedToken({
         resourceId: "rec_abc",
         agentLabel: "a".repeat(60),
@@ -137,6 +137,19 @@ describe("short-lived-token", () => {
         ok: true,
         viewerEmail: undefined,
         agentLabel: "a".repeat(16),
+      });
+    });
+
+    it("bounds agent labels whose control characters expand during JSON encoding", () => {
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        agentLabel: "\0".repeat(16),
+      });
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: true,
+        viewerEmail: undefined,
+        agentLabel: "\0".repeat(2),
       });
     });
 
