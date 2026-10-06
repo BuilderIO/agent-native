@@ -132,6 +132,12 @@ describe("startDeckGeneration", () => {
     expect(route.searchParams.get("generating")).toBe("1");
     expect(routeSubmitId).toBeTruthy();
     expect(agentSubmit.mock.calls[0]?.[2]?.submitMessageId).toBe(routeSubmitId);
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "For a requested slide count, compare the slideCount returned by every add-slide result",
+    );
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "If add-slide returns errorCode target_slide_count_reached, re-read get-deck once",
+    );
   });
 
   it("treats an implicit improvement prompt as source-preserving", () => {
