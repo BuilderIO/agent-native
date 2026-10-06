@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
+  useLocale: () => ({ locale: "en-US" }),
 }));
 vi.mock("sonner", async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),

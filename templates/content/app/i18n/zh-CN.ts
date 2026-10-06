@@ -1184,6 +1184,8 @@ const exactEnglish = {
       openInClaude: "在 Claude 中打开",
       openInClaudeCode: "在 Claude Code 中打开",
       openInCodex: "在 Codex 中打开",
+      connectContent: "连接 Content",
+      otherAgents: "其他智能体",
       agentCopyAccessNote: "智能体可以通过现有权限使用 Content MCP",
       temporaryAgentLink: "临时智能体链接",
       privateLinkCanView: "只有有权限的人可以查看",

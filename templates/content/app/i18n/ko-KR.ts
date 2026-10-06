@@ -1095,6 +1095,8 @@ const exactEnglish = {
       openInClaude: "Claude에서 열기",
       openInClaudeCode: "Claude Code에서 열기",
       openInCodex: "Codex에서 열기",
+      connectContent: "Content 연결",
+      otherAgents: "다른 에이전트",
       agentCopyAccessNote:
         "에이전트는 기존 권한으로 Content MCP를 사용할 수 있습니다",
       temporaryAgentLink: "임시 에이전트 링크",
