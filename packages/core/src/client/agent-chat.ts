@@ -1194,8 +1194,11 @@ function sendToAgentChatInternal(
       : normalizeAgentActionScope(opts.actionScope);
   const mcpBridgeEnabled = isMcpAppChatBridgeEnabled();
   const mcpAppLocalPayload = mcpBridgeEnabled && hasMcpAppLocalPayload(opts);
+  const mcpAppPayloadBlocksCodeRoute =
+    mcpBridgeEnabled && hasMcpAppLocalPayload({ ...opts, newTab: false });
   const routesLocalToChatGpt = routesForcedLocalChatToOpenAiHost(opts);
-  const isCodeRequest = routesToCodeFrame(opts) && !mcpAppLocalPayload;
+  const isCodeRequest =
+    routesToCodeFrame(opts) && !mcpAppPayloadBlocksCodeRoute;
   const localChatTarget =
     (opts.chatTarget === "local" && !routesLocalToChatGpt) ||
     keepsApprovalInAppChat(opts) ||

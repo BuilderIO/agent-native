@@ -945,13 +945,16 @@ describe("sendToAgentChat", () => {
       submit: true,
       chatTarget: "local",
       type: "code",
+      newTab: true,
     });
 
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
     expect(parentPostMessageSpy.mock.calls[0]?.[0]?.data).toMatchObject({
       message: "Update the repository implementation",
       type: "code",
+      newTab: true,
     });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("keeps new-branch prompts in the app for other MCP hosts", () => {
