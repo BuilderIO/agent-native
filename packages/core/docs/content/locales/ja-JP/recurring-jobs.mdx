@@ -212,7 +212,7 @@ Summarize overnight emails.`,
 ## ジョブのデバッグ {#debugging}
 
 - **Settings › Automations** でオートメーションの詳細を開くか、エージェント リソースで `jobs/<name>.md` を確認します。フロントマターには `lastRun`、`lastStatus`、`lastError`、`nextRun` が表示されます。
-- **待たずにテストしてください:** **Settings › Automations** で **Run now** をクリックするか、エージェントに実行を依頼します (`manage-automations` の `action=run-now`)。ジョブのプロンプトが実際の副作用を伴ってすぐに実行され、`nextRun` は変わりません。例外は、繰り返し失敗したためにフレームワークが一時停止したジョブです。実行が成功するとジョブが再び有効になり、`nextRun` が再計算されます。Run now はスケジューラを必要としないため、`AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` なしでも localhost で動作します。
+- **待たずにテストしてください:** **Settings › Automations** で **Run now** をクリックするか、エージェントに実行を依頼します (`manage-automations` の `action=run-now`)。ジョブのプロンプトが実際の副作用を伴ってすぐに実行され、`nextRun` は変わりません。例外は、フレームワークが一時停止したジョブです。実行が成功するとジョブが再び有効になり、`nextRun` が再計算されます。Run now はスケジューラを必要としないため、`AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` なしでも localhost で動作します。
 - **一時停止します:** `enabled: false` を反転します。ファイルはそのまま残り、実行が停止するだけです。
 
 ## エージェント ツール {#agent-tool}

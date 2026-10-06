@@ -243,7 +243,7 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 - Open the automation's details in **Settings › Automations**, or inspect
   `jobs/<name>.md` in Agent Resources — the frontmatter shows `lastRun`,
   `lastStatus`, `lastError`, and `nextRun`.
-- **Test it without waiting:** click **Run now** in **Settings › Automations**, or ask the agent to run it (`manage-automations` with `action=run-now`). The job's prompt runs immediately with its real side effects, and `nextRun` doesn't change. The exception is a job the framework paused after repeated failures: a successful run turns it back on and recomputes `nextRun`. Run now doesn't need the scheduler, so it also works on localhost without `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
+- **Test it without waiting:** click **Run now** in **Settings › Automations**, or ask the agent to run it (`manage-automations` with `action=run-now`). The job's prompt runs immediately with its real side effects, and `nextRun` doesn't change. The exception is a job the framework paused: a successful run turns it back on and recomputes `nextRun`. Run now doesn't need the scheduler, so it also works on localhost without `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
 - **Pause it:** flip `enabled: false`. The file stays put, just stops running.
 
 ## Agent tool {#agent-tool}

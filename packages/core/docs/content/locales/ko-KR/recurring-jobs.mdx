@@ -212,7 +212,7 @@ Summarize overnight emails.`,
 ## 작업 디버깅 {#debugging}
 
 - **Settings › Automations**에서 자동화의 세부 정보를 열거나 에이전트 리소스에서 `jobs/<name>.md`를 확인합니다. 머리말에는 `lastRun`, `lastStatus`, `lastError`, `nextRun`가 표시됩니다.
-- **기다리지 않고 테스트하세요.** **Settings › Automations**에서 **Run now**를 클릭하거나 에이전트에게 실행을 요청하세요(`manage-automations`의 `action=run-now`). 작업의 프롬프트가 실제 부작용과 함께 즉시 실행되며 `nextRun`은 바뀌지 않습니다. 예외는 반복된 실패로 프레임워크가 일시 중지한 작업입니다. 실행이 성공하면 작업이 다시 켜지고 `nextRun`이 다시 계산됩니다. Run now는 스케줄러가 필요 없으므로 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` 없이도 localhost에서 작동합니다.
+- **기다리지 않고 테스트하세요.** **Settings › Automations**에서 **Run now**를 클릭하거나 에이전트에게 실행을 요청하세요(`manage-automations`의 `action=run-now`). 작업의 프롬프트가 실제 부작용과 함께 즉시 실행되며 `nextRun`은 바뀌지 않습니다. 예외는 프레임워크가 일시 중지한 작업입니다. 실행이 성공하면 작업이 다시 켜지고 `nextRun`이 다시 계산됩니다. Run now는 스케줄러가 필요 없으므로 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` 없이도 localhost에서 작동합니다.
 - **일시 중지:** `enabled: false`를 뒤집습니다. 파일은 그대로 유지되고 실행이 중지됩니다.
 
 ## 에이전트 도구 {#agent-tool}

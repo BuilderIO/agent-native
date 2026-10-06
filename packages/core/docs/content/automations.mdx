@@ -86,9 +86,10 @@ runs the automation in the background.
 Send a stable event ID in an `X-Webhook-Event-Id`, `X-Event-Id`, or
 `X-GitHub-Delivery` header, or as a top-level string `id` in a JSON body. A
 repeated delivery with the same ID isn't queued again and gets a `200` reply
-marked as a duplicate. The ID only stops duplicate deliveries: if a run fails,
-it's retried, and the retry can repeat side effects the failed run already
-caused.
+marked as a duplicate. The ID only stops duplicate deliveries. A failed run can
+be retried, and the retry can repeat side effects the failed run already
+caused. Once a delivery fails for good, its ID is released, and a later
+delivery with that ID is queued as a new one.
 
 ## Creating automations {#creating}
 
@@ -108,8 +109,9 @@ there.
 **Run now** is the quickest way to test an automation. It runs the
 automation's instructions immediately, with their real side effects. It skips
 the trigger and the condition, and it doesn't change the next scheduled run,
-with one exception: if the framework paused the automation after repeated
-failures, a successful run turns it back on and schedules its next run. The agent can do the same with `manage-automations` and `action=run-now`.
+with one exception: if the framework paused the automation, a successful run
+turns it back on, and a scheduled automation gets its next run calculated
+again. The agent can do the same with `manage-automations` and `action=run-now`.
 
 <Callout tone="info">
 

@@ -69,7 +69,7 @@ Ereignis- und Webhook-Auslöser können einen `condition` enthalten: eine Zeiche
 
 Beim Erstellen einer Webhook-Automatisierung wird ein URL-Pfad der Form `/_agent-native/automations/webhook/<token>` zurückgegeben. Das Token ist das Geheimnis, geben Sie die URL also nur an den Dienst weiter, der sie aufruft. Jeder `POST` an diese URL wird zur Nutzlast der Automatisierung, bis zu 64 KB. Ein Body mit JSON-Content-Type wird geparst, jeder andere Body wird als Text übergeben. Der Endpunkt antwortet mit `202` und führt die Automatisierung im Hintergrund aus.
 
-Senden Sie eine stabile Ereignis-ID in einem der Header `X-Webhook-Event-Id`, `X-Event-Id` oder `X-GitHub-Delivery` oder als `id` vom Typ Zeichenfolge auf oberster Ebene eines JSON-Bodys. Eine wiederholte Zustellung mit derselben ID wird nicht erneut in die Warteschlange gestellt und erhält eine Antwort `200`, die als Duplikat gekennzeichnet ist. Die ID verhindert nur doppelte Zustellungen: Schlägt ein Lauf fehl, wird er wiederholt, und die Wiederholung kann Nebenwirkungen erneut auslösen, die der fehlgeschlagene Lauf bereits verursacht hat.
+Senden Sie eine stabile Ereignis-ID in einem der Header `X-Webhook-Event-Id`, `X-Event-Id` oder `X-GitHub-Delivery` oder als `id` vom Typ Zeichenfolge auf oberster Ebene eines JSON-Bodys. Eine wiederholte Zustellung mit derselben ID wird nicht erneut in die Warteschlange gestellt und erhält eine Antwort `200`, die als Duplikat gekennzeichnet ist. Die ID verhindert nur doppelte Zustellungen. Ein fehlgeschlagener Lauf kann wiederholt werden, und die Wiederholung kann Nebenwirkungen erneut auslösen, die der fehlgeschlagene Lauf bereits verursacht hat. Sobald eine Zustellung endgültig fehlschlägt, wird ihre ID freigegeben, und eine spätere Zustellung mit dieser ID wird als neue Zustellung in die Warteschlange gestellt.
 
 ## Automatisierungen erstellen {#creating}
 
@@ -83,7 +83,7 @@ Der Agent erkennt verfügbare Ereignisse, bestätigt den Plan und schreibt die A
 
 Öffnen Sie **Settings › Automations**. Das ist der zentrale Ort, um geplante, ereignisgesteuerte und Webhook-Automatisierungen anzuzeigen, ihren Status zu prüfen, eine davon sofort auszuführen, sie zu pausieren oder fortzusetzen und sie zu löschen. Alte `/agent#jobs`-Links leiten dorthin weiter.
 
-**Run now** ist der schnellste Weg, eine Automatisierung zu testen. Es führt die Anweisungen der Automatisierung sofort aus, mit ihren echten Nebenwirkungen. Auslöser und Bedingung werden übersprungen, und der nächste geplante Lauf ändert sich nicht, mit einer Ausnahme: Hat das Framework die Automatisierung nach wiederholten Fehlern pausiert, schaltet ein erfolgreicher Lauf sie wieder ein und plant ihren nächsten Lauf. Der Agent kann dasselbe mit `manage-automations` und `action=run-now` tun.
+**Run now** ist der schnellste Weg, eine Automatisierung zu testen. Es führt die Anweisungen der Automatisierung sofort aus, mit ihren echten Nebenwirkungen. Auslöser und Bedingung werden übersprungen, und der nächste geplante Lauf ändert sich nicht, mit einer Ausnahme: Hat das Framework die Automatisierung pausiert, schaltet ein erfolgreicher Lauf sie wieder ein, und bei einer geplanten Automatisierung wird der nächste Lauf neu berechnet. Der Agent kann dasselbe mit `manage-automations` und `action=run-now` tun.
 
 <Callout tone="warning">
 
