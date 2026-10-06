@@ -4436,6 +4436,25 @@ describe("Brain connector smoke coverage", () => {
     });
   });
 
+  it("explains when a Slack source has no channels selected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ ok: false, error: "unexpected" })),
+    );
+    const source = seedSource({
+      id: "slack-no-channels",
+      provider: "slack",
+      configJson: "{}",
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    expect(source.lastError).toBe(
+      "No Slack channels are selected. Add channel IDs to this source or turn on public channels.",
+    );
+  });
+
   it("still rejects a private channel configured by name instead of ID", async () => {
     const historyCalls: string[] = [];
     vi.stubGlobal(

@@ -2338,7 +2338,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     );
     if (!channelRefs.length && !includePublicChannels) {
       throw new Error(
-        "Slack source must configure channelIds, channels, allowedChannels, or includePublicChannels",
+        "No Slack channels are selected. Add channel IDs to this source or turn on public channels.",
       );
     }
 

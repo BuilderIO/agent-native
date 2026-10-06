@@ -5,6 +5,7 @@ import { sanitizeCaptureForStorage } from "./capture-sanitization.js";
 import {
   classifyWithJev,
   clearJevScoreCache,
+  isTransientJevFailure,
   jevSensitivityDecision,
   requestJevSensitivityScores,
   resolveClassifierPreference,
@@ -357,6 +358,24 @@ describe("review fixes", () => {
     expect(outcome.decision?.categoryScores?.[WORKSPACE_RULE_QUESTION]).toBe(
       0.95,
     );
+  });
+});
+
+describe("transient Jev failures", () => {
+  it("retries timeouts, rate limits, and server errors soon", () => {
+    for (const status of [408, 429, 500, 503]) {
+      expect(isTransientJevFailure("jev-http-" + status), String(status)).toBe(
+        true,
+      );
+    }
+  });
+
+  it("leaves other client errors to the normal sync schedule", () => {
+    for (const status of [400, 401, 403, 404]) {
+      expect(isTransientJevFailure("jev-http-" + status), String(status)).toBe(
+        false,
+      );
+    }
   });
 });
 
