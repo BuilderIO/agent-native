@@ -609,6 +609,33 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_123",
       });
+
+      // A browser holding only a last touch still signs it into the link.
+      const lastTouch = encodeURIComponent(JSON.stringify({ ref: "steve" }));
+      await handler(
+        createJsonPostEvent(
+          "/_agent-native/auth/magic-link",
+          { email: "other@example.com", callbackURL: "/welcome" },
+          { cookie: `an_lt=${lastTouch}` },
+        ),
+      );
+      const lastOnly = new URL(
+        signInMagicLink.mock.calls[1]?.[0].body.newUserCallbackURL,
+      );
+      const lastOnlyVerification = new URL(verification);
+      lastOnlyVerification.searchParams.set(
+        "newUserCallbackURL",
+        lastOnly.toString(),
+      );
+      expect(
+        readMagicLinkSignupAttribution(lastOnlyVerification.toString(), secret),
+      ).toEqual({
+        attribution: {
+          referral_source: "direct",
+          last_touch_source: "steve",
+          last_touch_ref: "steve",
+        },
+      });
     });
 
     it("promotes tracking callbacks that Better Auth cannot accept relatively", async () => {

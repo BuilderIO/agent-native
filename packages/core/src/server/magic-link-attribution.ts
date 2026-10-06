@@ -5,7 +5,8 @@ import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.
 export const MAGIC_LINK_ATTRIBUTION_PARAM = "signup_attribution";
 
 const MAGIC_LINK_ATTRIBUTION_TTL_SECONDS = 10 * 60;
-const MAX_ATTRIBUTION_FIELDS = 32;
+// A signup carries up to 17 first-touch and 16 last-touch properties.
+const MAX_ATTRIBUTION_FIELDS = 48;
 const MAX_ATTRIBUTION_VALUE_LENGTH = 200;
 
 export interface MagicLinkSignupAttribution {

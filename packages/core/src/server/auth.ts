@@ -162,7 +162,6 @@ import { getAppProductionUrl } from "./app-url.js";
 import {
   addSignupAttributionHeader,
   readAnalyticsAnonymousId,
-  readFirstTouchAttribution,
   signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
   type SignupAttributionContext,
@@ -6517,20 +6516,11 @@ async function mountBetterAuthRoutes(
           callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
         const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
-        const cookieHeader = getHeader(event, "cookie") ?? null;
-        const signupAttribution =
-          signupAttributionFromCookieHeader(cookieHeader);
-        const signupAnonymousId = readAnalyticsAnonymousId(cookieHeader);
-        const hasSignupAttribution =
-          !!readFirstTouchAttribution(cookieHeader) || !!signupAnonymousId;
-        const attributionToken = hasSignupAttribution
-          ? encodeMagicLinkSignupAttribution(
-              {
-                attribution: signupAttribution,
-                anonymousId: signupAnonymousId,
-              },
-              getAuthSecret(),
-            )
+        const signupContext = signupAttributionContextFromCookieHeader(
+          getHeader(event, "cookie") ?? null,
+        );
+        const attributionToken = signupContext
+          ? encodeMagicLinkSignupAttribution(signupContext, getAuthSecret())
           : undefined;
         const newUserCallbackUrl = new URL(
           `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/magic-link/new-user")}?return=${encodeURIComponent(callbackPath)}`,
