@@ -79,7 +79,7 @@ describe("manage-provider-models", () => {
         },
         admin,
       ),
-    ).resolves.toMatchObject({ scope: "org", models: ["gpt-6-sol"] });
+    ).resolves.toMatchObject({ scope: "org", models: ["gpt-6.1-sol"] });
   });
 
   it("refuses a member's organization change with 403", async () => {
@@ -98,7 +98,7 @@ describe("manage-provider-models", () => {
         { action: "set", provider: "openai", models: ["gpt-5.6-luna"] },
         member,
       ),
-    ).resolves.toMatchObject({ scope: "user", models: ["gpt-5.6-luna"] });
+    ).resolves.toMatchObject({ scope: "user", models: ["gpt-6-luna"] });
   });
 
   it("requires models for set", async () => {
@@ -128,7 +128,7 @@ describe("get-provider-models", () => {
         action: "set",
         provider: "openai",
         scope: "org",
-        models: ["gpt-6-sol"],
+        models: ["gpt-6.1-sol"],
       },
       admin,
     );
@@ -140,10 +140,10 @@ describe("get-provider-models", () => {
       label: "OpenAI",
       state: "selected",
       scope: "org",
-      models: ["gpt-6-sol"],
+      models: ["gpt-6.1-sol"],
       rows: {
         user: { models: null },
-        org: { models: ["gpt-6-sol"] },
+        org: { models: ["gpt-6.1-sol"] },
       },
     });
     expect(result.providers[0].recommendedModels.length).toBeGreaterThan(0);
