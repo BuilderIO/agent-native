@@ -267,6 +267,8 @@ La conexión es **por usuario, de ámbito y revocable**. En la ruta OAuth, el ho
 
 ### Reautenticación después de un 401 {#reconnect}
 
+La actualización del vínculo de propietario de OAuth requiere que cada conexión OAuth existente [se vuelva a conectar una vez](/docs/external-agents#reconnect). Los tokens de acceso OAuth antiguos se rechazan tras el despliegue. Los tokens de actualización antiguos sin vínculo de propietario devuelven `invalid_grant`, y los códigos de autorización antiguos pendientes deben reiniciar el consentimiento. Los tokens de acceso recién emitidos utilizan la duración configurada y las comprobaciones de pertenencia en cada solicitud. Esta transición no modifica las credenciales antiguas de `mcp-connect` en formato A2A ni los tokens A2A entre aplicaciones. Las conexiones que utilizan tokens antiguos de Connect en formato OAuth también deben volver a conectarse.
+
 Una vez conectado, la autenticación debe persistir a largo plazo: los tokens de acceso duran 30 días de forma predeterminada (anular con `MCP_OAUTH_ACCESS_TOKEN_TTL` en el servidor, por ejemplo, `7d` o `12h`) con una ventana deslizante de actualización de 365 días, por lo que los 401 aleatorios deberían ser raros. Cuando esto suceda, utilice el comando ligero de reconexión en lugar de reinstalar:
 
 ```bash
@@ -315,7 +317,7 @@ Esta es la misma entrada exclusiva para URL que `npx @agent-native/core@latest c
 https://dispatch.agent-native.com/mcp
 ```
 
-El flujo OAuth es código de autorización + PKCE con rotación de token de actualización. Los tokens de acceso están vinculados a la audiencia al recurso MCP exacto, URL, y llevan la identidad de usuario/organización firmada, por lo que las llamadas a herramientas, `resources/read` y `tools/call` iniciado por iframe de la aplicación MCP se ejecutan a través del mismo alcance de inquilino `runWithRequestContext` que la ruta JWT creada por conexión existente. El iframe nunca recibe tokens OAuth sin procesar; el host media las llamadas a través de la conexión MCP autenticada.
+El flujo OAuth es código de autorización + PKCE con tokens de actualización, que no se rotan. Los tokens de acceso están vinculados a la audiencia al recurso MCP exacto, URL, y llevan la identidad de usuario/organización firmada, por lo que las llamadas a herramientas, `resources/read` y `tools/call` iniciado por iframe de la aplicación MCP se ejecutan a través del mismo alcance de inquilino `runWithRequestContext` que la ruta JWT creada por conexión existente. El iframe nunca recibe tokens OAuth sin procesar; el host media las llamadas a través de la conexión MCP autenticada.
 
 Los alcances actuales son:
 

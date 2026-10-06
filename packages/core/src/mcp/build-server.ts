@@ -7,6 +7,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/server";
 
+import { verifyA2AOrganizationIdentity } from "../a2a/organization-identity.js";
 import {
   actionCallEmitsChange,
   actionChangeResource,
@@ -32,6 +33,7 @@ import { getAppConfig } from "../app-config/store.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import {
   buildDeepLink,
   isAgentNativeOpenUrl,
@@ -69,6 +71,8 @@ import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
+  type ConnectTokenOrgLookup,
+  type StoredConnectTokenIdentity,
 } from "./connect-store.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
@@ -1252,6 +1256,7 @@ function mcpAppUiMeta(
   requestMeta?: MCPRequestMeta,
   description?: string,
   widgetDomain?: string,
+  directoryMode = false,
 ): Record<string, unknown> | undefined {
   const base =
     resource._meta && typeof resource._meta === "object"
@@ -1263,9 +1268,21 @@ function mcpAppUiMeta(
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
   delete ui.domain;
+  if (
+    directoryMode &&
+    ui.csp &&
+    typeof ui.csp === "object" &&
+    !Array.isArray(ui.csp)
+  ) {
+    const csp = { ...(ui.csp as Record<string, unknown>) };
+    delete csp.baseUriDomains;
+    ui.csp = csp;
+  }
   if (resolvedCsp) {
+    const csp = { ...resolvedCsp };
+    if (directoryMode) delete csp.baseUriDomains;
     ui.csp = {
-      ...resolvedCsp,
+      ...csp,
       connectDomains: expandRequestOriginSources(
         resolvedCsp.connectDomains,
         requestMeta,
@@ -1278,10 +1295,14 @@ function mcpAppUiMeta(
         resolvedCsp.frameDomains,
         requestMeta,
       ),
-      baseUriDomains: expandRequestOriginSources(
-        resolvedCsp.baseUriDomains,
-        requestMeta,
-      ),
+      ...(!directoryMode
+        ? {
+            baseUriDomains: expandRequestOriginSources(
+              resolvedCsp.baseUriDomains,
+              requestMeta,
+            ),
+          }
+        : {}),
     };
   }
   if (resource.permissions) ui.permissions = resource.permissions;
@@ -1355,6 +1376,7 @@ async function resolveMcpAppResource(
     requestMeta,
     description,
     config.catalogMode === "directory" ? config.widgetDomain : undefined,
+    config.catalogMode === "directory",
   );
   return {
     uri: resolvedUri.uri,
@@ -2627,13 +2649,14 @@ export function getBearerToken(
   return match?.[1]?.trim() || undefined;
 }
 
-function addSecretCandidate(
-  candidates: string[],
-  secret: string | null | undefined,
-): void {
-  const trimmed = secret?.trim();
-  if (!trimmed || candidates.includes(trimmed)) return;
-  candidates.push(trimmed);
+export class McpIdentityVerificationUnavailableError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("MCP identity verification is temporarily unavailable");
+    this.name = "McpIdentityVerificationUnavailableError";
+    this.cause = cause;
+  }
 }
 
 async function verifyA2AJwtForMcp(
@@ -2648,46 +2671,110 @@ async function verifyA2AJwtForMcp(
     return null;
   }
 
-  const candidateSecrets: string[] = [];
-  addSecretCandidate(candidateSecrets, process.env.A2A_SECRET);
-
   const orgDomain =
     typeof unverifiedPayload.org_domain === "string"
-      ? unverifiedPayload.org_domain
+      ? unverifiedPayload.org_domain.trim().toLowerCase()
       : undefined;
-  if (orgDomain) {
-    try {
-      const { getA2ASecretByDomain } = await import("../org/context.js");
-      addSecretCandidate(
-        candidateSecrets,
-        await getA2ASecretByDomain(orgDomain),
-      );
-    } catch {
-      // DB not ready or org lookup unavailable — fall back to other candidates.
-    }
-  }
-
   const firstPartyMcp = unverifiedPayload.agent_native_first_party_mcp === true;
   const audiences = firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
   if (firstPartyMcp && !audiences?.length) return null;
 
-  for (const secret of candidateSecrets) {
-    const encodedSecret = new TextEncoder().encode(secret);
+  const verifyWithSecret = async (secret: string) => {
     for (const audience of audiences ?? [undefined]) {
       try {
         const { payload } = await jose.jwtVerify(
           token,
-          encodedSecret,
+          new TextEncoder().encode(secret),
           audience ? { audience } : undefined,
         );
         return payload as Record<string, unknown>;
       } catch {
-        // Try the next candidate without exposing which secret matched.
+        // coercion-ok: bad signature or audience rejects this candidate; credential lookup failures throw separately.
       }
+    }
+    return null;
+  };
+
+  const globalSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+  if (globalSecret) {
+    const payload = await verifyWithSecret(globalSecret);
+    if (payload) {
+      const tokenScope =
+        typeof payload.scope === "string" ? payload.scope : undefined;
+      const firstPartyMcp = payload.agent_native_first_party_mcp === true;
+      const hasOrganizationClaim =
+        Object.prototype.hasOwnProperty.call(payload, "org_id") &&
+        payload.org_id !== null;
+      const locallyIssuedConnectToken =
+        tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp;
+      const unclaimedFirstPartyToken = firstPartyMcp && !hasOrganizationClaim;
+      if (locallyIssuedConnectToken || unclaimedFirstPartyToken) {
+        return payload;
+      }
+
+      let verifiedOrganization:
+        | Awaited<ReturnType<typeof verifyA2AOrganizationIdentity>>
+        | undefined;
+      try {
+        verifiedOrganization = await verifyA2AOrganizationIdentity(payload);
+      } catch (error) {
+        throw new McpIdentityVerificationUnavailableError(error);
+      }
+      if (verifiedOrganization === null) return null;
+      return verifiedOrganization
+        ? {
+            ...payload,
+            org_id: verifiedOrganization.orgId,
+            org_domain: verifiedOrganization.orgDomain,
+          }
+        : payload;
     }
   }
 
-  return null;
+  if (!orgDomain) return null;
+  let organization: {
+    orgId: string;
+    orgDomain: string;
+    secret: string;
+  } | null;
+  try {
+    const { resolveA2AOrganizationCredentialsByDomain } =
+      await import("../org/context.js");
+    organization = await resolveA2AOrganizationCredentialsByDomain(orgDomain);
+  } catch (error) {
+    throw new McpIdentityVerificationUnavailableError(error);
+  }
+  if (!organization) return null;
+
+  const payload = await verifyWithSecret(organization.secret);
+  if (!payload) return null;
+  const verifiedDomain =
+    typeof payload.org_domain === "string"
+      ? payload.org_domain.trim().toLowerCase()
+      : "";
+  const email = typeof payload.sub === "string" ? payload.sub.trim() : "";
+  const claimedOrgId = payload.org_id;
+  if (
+    !email ||
+    verifiedDomain !== organization.orgDomain ||
+    (typeof claimedOrgId !== "undefined" &&
+      (typeof claimedOrgId !== "string" ||
+        claimedOrgId.trim() !== organization.orgId))
+  ) {
+    return null;
+  }
+
+  try {
+    const { isOrgMemberForA2A } = await import("../org/membership.js");
+    if (!(await isOrgMemberForA2A(organization.orgId, email))) return null;
+  } catch (error) {
+    throw new McpIdentityVerificationUnavailableError(error);
+  }
+  return {
+    ...payload,
+    org_id: organization.orgId,
+    org_domain: organization.orgDomain,
+  };
 }
 
 function mcpAudienceList(resource: string | string[] | undefined): string[] {
@@ -2704,47 +2791,172 @@ function mcpAudienceList(resource: string | string[] | undefined): string[] {
   return out;
 }
 
-async function isConnectTokenAllowed(
+/**
+ * Null while the connect token is active. A revoked or jti-less token is
+ * refused, and unreadable revocation state answers a retryable 503.
+ */
+async function refuseInactiveConnectToken(
   jti: string | undefined,
-): Promise<boolean> {
-  if (!jti) return false;
+): Promise<VerifyAuthResult | null> {
+  if (!jti) return { authed: false };
+  const { isJtiRevoked } = await import("./connect-store.js");
   try {
-    const { isJtiRevoked, touchTokenUsed } = await import("./connect-store.js");
-    if (await isJtiRevoked(jti)) return false;
+    return (await isJtiRevoked(jti)) ? { authed: false } : null;
+  } catch (error) {
+    console.error(
+      "[mcp] Connect-token revocation check failed; refusing the token:",
+      error,
+    );
+    return { authed: false, unavailable: true };
+  }
+}
+
+/**
+ * Records a connect token's use once the request is admitted, so a refused
+ * call (revoked, removed member, membership check unavailable) never moves
+ * `last_used_at`.
+ */
+async function markConnectTokenUsed(jti: string | undefined): Promise<void> {
+  if (!jti) return;
+  try {
+    const { touchTokenUsed } = await import("./connect-store.js");
     void touchTokenUsed(jti);
   } catch {
-    // Store import / lookup failed — fail open. Signature verification already
-    // passed; this only gates explicit revokes.
+    // coercion-ok: last_used_at is informational; failing to record it must not refuse an admitted request.
   }
-  return true;
 }
 
 type ConnectTokenOrgResolution =
-  | { status: "claimed"; orgId: string | null }
-  | { status: "found"; orgId: string | null }
-  | { status: "missing" }
-  | { status: "unavailable" };
+  | {
+      status: "claimed";
+      orgId: string | null;
+      storedConnectToken?: StoredConnectTokenIdentity;
+    }
+  | ConnectTokenOrgLookup
+  | { status: "unclaimed" };
 
+/**
+ * `connectJti` is set only for connect tokens. Any other token without an
+ * `org_id` claim is `unclaimed`, and its org is resolved later from
+ * `org_domain` or the caller's email.
+ */
 async function resolveConnectTokenOrgId(
-  jti: string | undefined,
+  connectJti: string | undefined,
   claimedOrgId: string | null | undefined,
 ): Promise<ConnectTokenOrgResolution> {
-  if (claimedOrgId !== undefined) {
-    return { status: "claimed", orgId: claimedOrgId };
+  let stored: ConnectTokenOrgLookup | undefined;
+  if (connectJti) {
+    const { lookupConnectTokenOrg } = await import("./connect-store.js");
+    stored = await lookupConnectTokenOrg(connectJti);
+    if (stored.status === "unavailable") return stored;
   }
-  if (!jti) return { status: "missing" };
-  const { lookupConnectTokenOrg } = await import("./connect-store.js");
-  return lookupConnectTokenOrg(jti);
+  if (claimedOrgId !== undefined) {
+    return {
+      status: "claimed",
+      orgId: claimedOrgId,
+      ...(stored?.status === "found" ? { storedConnectToken: stored } : {}),
+    };
+  }
+  return stored ?? { status: "unclaimed" };
 }
 
 function orgIdFromConnectTokenResolution(
   resolution: ConnectTokenOrgResolution,
 ): string | null | undefined {
-  if (resolution.status === "claimed") return resolution.orgId;
-  if (resolution.status === "found") {
+  if (resolution.status === "claimed" || resolution.status === "found") {
     return resolution.orgId;
   }
+  // A first-party cross-app token with no row here was not issued for any org
+  // this app knows. Its `org_domain` claim must not grant that domain's org.
+  if (resolution.status === "missing") return null;
   return undefined;
+}
+
+function matchesStoredConnectTokenIdentity(
+  resolution: ConnectTokenOrgResolution,
+  input: {
+    ownerEmail: string | undefined;
+    orgId: string | null | undefined;
+  },
+): boolean {
+  const stored =
+    resolution.status === "found"
+      ? resolution
+      : resolution.status === "claimed"
+        ? resolution.storedConnectToken
+        : undefined;
+  if (!stored || !input.ownerEmail?.trim()) return false;
+  return (
+    stored.ownerEmail.trim().toLowerCase() ===
+      input.ownerEmail.trim().toLowerCase() &&
+    (input.orgId === undefined || stored.orgId === input.orgId)
+  );
+}
+
+export type VerifyAuthResult = {
+  authed: boolean;
+  identity?: MCPCallerIdentity;
+  fullSurface?: boolean;
+  fullCatalog?: boolean;
+  /**
+   * The token verified, but its standing could not be checked: the
+   * connect-token revocation or org lookup, the retired-address check, or the
+   * membership check hit a database or identity-authority error. Answer with
+   * a retryable error, not an auth challenge: signing in again would not help.
+   */
+  unavailable?: true;
+};
+
+/**
+ * Credentials this app issues (MCP OAuth access tokens and connect tokens)
+ * carry the organization chosen when they were issued: the signed `org_id`
+ * claim, or the stored org of a connect token. Membership can end after
+ * issuance, so that org is admitted only while the subject is still a member
+ * here. The action-route bearer path reuses verifyAuth and gets the same
+ * check.
+ *
+ * They also carry the subject's address, which an email change retires; a
+ * credential signed for it before the change is refused, Personal or not.
+ *
+ * Shared-secret A2A org claims must resolve against local metadata before they
+ * become request scope. A sibling app's user roster is not this app's roster;
+ * locally issued connect credentials instead use their stored JTI owner and
+ * organization.
+ */
+async function admitIssuedCredential(
+  result: VerifyAuthResult & { identity: MCPCallerIdentity },
+  requestOrigin: string | undefined,
+  orgResolution: ConnectTokenOrgResolution,
+  issuedAt: number | undefined,
+): Promise<VerifyAuthResult> {
+  const { checkCredentialEmailRetirement, checkCredentialOrgMembership } =
+    await import("./credential-membership.js");
+  if (result.identity.userEmail) {
+    const retirement = await checkCredentialEmailRetirement({
+      email: result.identity.userEmail,
+      issuedAt,
+    });
+    if (retirement !== "current")
+      return retirement === "unavailable"
+        ? { authed: false, unavailable: true }
+        : { authed: false };
+  }
+  const orgId = result.identity.orgId;
+  if (typeof orgId !== "string" || !orgId) return result;
+  const membership = await checkCredentialOrgMembership({
+    orgId,
+    email: result.identity.userEmail,
+    requestOrigin,
+    ...(orgResolution.status === "found"
+      ? { storedConnectToken: orgResolution }
+      : orgResolution.status === "claimed" && orgResolution.storedConnectToken
+        ? { storedConnectToken: orgResolution.storedConnectToken }
+        : {}),
+  });
+  if (membership === "member") return result;
+  return membership === "unavailable"
+    ? { authed: false, unavailable: true }
+    : { authed: false };
 }
 
 /**
@@ -2768,19 +2980,23 @@ function orgIdFromConnectTokenResolution(
  * is consulted ONLY on the static-token / dev-open path (never to influence
  * verified JWT identity), so the install flow runs tools as the configured
  * owner instead of an unscoped anonymous caller.
+ *
+ * A credential this app issued that names an organization is admitted only
+ * while its subject is still a member, and none is admitted for an address an
+ * email change retired after signing (see `admitIssuedCredential`).
  */
 export async function verifyAuth(
   authHeader: string | undefined,
   ownerEmailHeader?: string,
-  options: { allowDevOpen?: boolean; resourceUrl?: string | string[] } = {},
-): Promise<{
-  authed: boolean;
-  identity?: MCPCallerIdentity;
-  fullSurface?: boolean;
-  fullCatalog?: boolean;
-}> {
+  options: {
+    allowDevOpen?: boolean;
+    resourceUrl?: string | string[];
+    /** This app's public origin; federated orgs need it for the membership check. */
+    requestOrigin?: string;
+  } = {},
+): Promise<VerifyAuthResult> {
   const accessTokens = getAccessTokens();
-  const hasA2ASecret = !!process.env.A2A_SECRET?.trim();
+  const hasA2ASecret = !!readDeployCredentialEnv("A2A_SECRET")?.trim();
   const token = getBearerToken(authHeader);
   if (token) {
     const oauthIdentity = await verifyMcpOAuthAccessToken(
@@ -2788,11 +3004,9 @@ export async function verifyAuth(
       options.resourceUrl,
     );
     if (oauthIdentity) {
-      if (
-        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID &&
-        !(await isConnectTokenAllowed(oauthIdentity.jti))
-      ) {
-        return { authed: false };
+      if (oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID) {
+        const refused = await refuseInactiveConnectToken(oauthIdentity.jti);
+        if (refused) return refused;
       }
       const orgResolution = await resolveConnectTokenOrgId(
         oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
@@ -2801,21 +3015,42 @@ export async function verifyAuth(
         oauthIdentity.orgId,
       );
       if (orgResolution.status === "unavailable") {
+        return { authed: false, unavailable: true };
+      }
+      if (
+        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID &&
+        !matchesStoredConnectTokenIdentity(orgResolution, {
+          ownerEmail: oauthIdentity.userEmail,
+          orgId: oauthIdentity.orgId,
+        })
+      ) {
         return { authed: false };
       }
       const orgId = orgIdFromConnectTokenResolution(orgResolution);
-      return {
-        authed: true,
-        identity: {
-          userEmail: oauthIdentity.userEmail,
-          ...(orgId !== undefined ? { orgId } : {}),
-          orgDomain: oauthIdentity.orgDomain,
-          oauthScopes: oauthIdentity.scopes,
-          oauthClientId: oauthIdentity.clientId,
+      const admitted = await admitIssuedCredential(
+        {
+          authed: true,
+          identity: {
+            userEmail: oauthIdentity.userEmail,
+            ...(orgId !== undefined ? { orgId } : {}),
+            orgDomain: oauthIdentity.orgDomain,
+            oauthScopes: oauthIdentity.scopes,
+            oauthClientId: oauthIdentity.clientId,
+          },
+          fullSurface: true,
+          fullCatalog: oauthIdentity.catalogScope === "full",
         },
-        fullSurface: true,
-        fullCatalog: oauthIdentity.catalogScope === "full",
-      };
+        options.requestOrigin,
+        orgResolution,
+        oauthIdentity.issuedAt,
+      );
+      if (
+        admitted.authed &&
+        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
+      ) {
+        await markConnectTokenUsed(oauthIdentity.jti);
+      }
+      return admitted;
     }
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {
@@ -2831,7 +3066,15 @@ export async function verifyAuth(
 
   if (!token) return { authed: false };
 
-  const payload = await verifyA2AJwtForMcp(token, options.resourceUrl);
+  let payload: Record<string, unknown> | null;
+  try {
+    payload = await verifyA2AJwtForMcp(token, options.resourceUrl);
+  } catch (error) {
+    if (error instanceof McpIdentityVerificationUnavailableError) {
+      return { authed: false, unavailable: true };
+    }
+    throw error;
+  }
   if (payload) {
     const tokenScope =
       typeof payload.scope === "string" ? payload.scope : undefined;
@@ -2842,29 +3085,41 @@ export async function verifyAuth(
     // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
     // and are individually revocable. Only these tokens hit the revoke
     // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
-    // the hot path is unchanged. The signature was already
-    // cryptographically verified, so failing open here only widens the
-    // explicit-revoke gate, never the trust boundary.
+    // the hot path is unchanged.
     if (tokenScope === MCP_CONNECT_SCOPE) {
-      if (!(await isConnectTokenAllowed(payload.jti as string | undefined))) {
-        return { authed: false };
-      }
+      const refused = await refuseInactiveConnectToken(
+        payload.jti as string | undefined,
+      );
+      if (refused) return refused;
     }
 
     const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
     if (!orgIdClaim) return { authed: false };
+    const firstPartyMcp = payload.agent_native_first_party_mcp === true;
     const orgResolution = await resolveConnectTokenOrgId(
-      tokenScope === MCP_CONNECT_SCOPE
+      tokenScope === MCP_CONNECT_SCOPE &&
+        (!firstPartyMcp || orgIdClaim.orgId === undefined)
         ? (payload.jti as string | undefined)
         : undefined,
       orgIdClaim.orgId,
     );
     if (orgResolution.status === "unavailable") {
-      return { authed: false };
+      return { authed: false, unavailable: true };
     }
-    const orgId = orgIdFromConnectTokenResolution(orgResolution);
 
-    return {
+    if (tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp) {
+      if (
+        !matchesStoredConnectTokenIdentity(orgResolution, {
+          ownerEmail: typeof payload.sub === "string" ? payload.sub : undefined,
+          orgId: orgIdClaim.orgId,
+        })
+      ) {
+        return { authed: false };
+      }
+    }
+
+    const orgId = orgIdFromConnectTokenResolution(orgResolution);
+    const verified = {
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
@@ -2873,24 +3128,32 @@ export async function verifyAuth(
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
             : undefined,
-        ...(payload.agent_native_first_party_mcp === true
-          ? { firstPartyMcp: true }
-          : {}),
+        ...(firstPartyMcp ? { firstPartyMcp: true } : {}),
       },
       fullSurface: true,
       fullCatalog: payload.catalog_scope === "full",
     };
+    // First-party MCP tokens share the connect scope but are minted by a
+    // sibling app per call, so they are cross-app A2A tokens.
+    const admitted =
+      tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp
+        ? await admitIssuedCredential(
+            verified,
+            options.requestOrigin,
+            orgResolution,
+            typeof payload.iat === "number" ? payload.iat : undefined,
+          )
+        : verified;
+    if (admitted.authed && tokenScope === MCP_CONNECT_SCOPE) {
+      await markConnectTokenUsed(payload.jti as string | undefined);
+    }
+    return admitted;
   }
 
-  if (accessTokens.length === 0 && !hasA2ASecret) {
-    if (options.allowDevOpen === false) {
-      return { authed: false };
-    }
-    return {
-      authed: true,
-      identity: deriveStaticTokenIdentity(ownerEmailHeader),
-      fullSurface: !!(ownerEmailHeader && ownerEmailHeader.trim()),
-    };
+  if (accessTokens.length === 0) {
+    // A supplied bearer that failed JWT verification must not fall through to
+    // dev-open auth or reuse a forwarded owner-email hint.
+    return { authed: false };
   }
 
   // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no

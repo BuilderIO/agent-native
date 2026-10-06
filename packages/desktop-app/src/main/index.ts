@@ -17,7 +17,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
-import { buildChatFirstAppCreationPrompt } from "@agent-native/core/shared";
+import { buildChatFirstAppCreationPrompt } from "@agent-native/core/shared/chat-first-app-creation";
 import {
   DESKTOP_DEFAULT_APPS,
   FRAME_PORT,

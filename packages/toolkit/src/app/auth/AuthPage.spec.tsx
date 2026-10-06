@@ -270,7 +270,9 @@ describe("AuthPage", () => {
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain("Say it. Show it.");
     expect(html).toContain('class="auth-marketing-description-link"');
-    expect(html).toContain('href="https://agent-native.com/apps/slides"');
+    expect(html).toContain(
+      'href="https://agent-native.com/apps/slides?utm_source=app&amp;utm_medium=product&amp;utm_content=onboarding-learn-more"',
+    );
     expect(html).toContain(">Learn more</a>");
     expect(html).toContain('class="oss-badge"');
     expect(html).not.toContain("data-agent-native-starfield");

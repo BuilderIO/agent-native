@@ -137,12 +137,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "Incluido gratis con una cuenta de Builder.io",
   "onboarding.builderMonthlyCredits": "60 Agent Credits al mes",
+  "onboarding.builderIncludedFree": "Incluido gratis",
+  "onboarding.builderMoreServices": "+ {{count}} servicios más",
+  "onboarding.builderIncludedServices": "Servicios incluidos",
   "onboarding.builderActivateTitle": "Activar créditos gratuitos",
   "onboarding.builderAccountExistsTitle": "Ya tienes una cuenta de Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Inicia sesión para usar tu cuenta.",
   "onboarding.builderActivationDescription":
-    "Crearemos automáticamente tu cuenta de Builder.io con un solo clic.",
+    "Crea o conecta una cuenta de Builder.io con un solo clic para obtener créditos gratis.",
   "onboarding.builderOrgActivationDescription":
     "Crearemos tu cuenta de Builder.io con un solo clic para que tu organización pueda usarla.",
   "onboarding.builderCreateAndActivate": "Crear y activar",
@@ -169,6 +172,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Conecta tu propio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
     "Carga y almacenamiento de archivos",
+  "onboarding.capability.llm.why":
+    "El agente usa un modelo de lenguaje para entender solicitudes y generar respuestas.",
+  "onboarding.capability.fileStorage.why":
+    "Guarda imágenes y archivos subidos para que el agente vuelva a usarlos en el hilo.",
   "onboarding.fileStorage.title": "Conecta almacenamiento para subir archivos",
   "onboarding.fileStorage.statusUnavailable":
     "No se pudo comprobar el almacenamiento",
@@ -186,6 +193,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Vectores semánticos",
   "onboarding.capability.embeddings.why":
     "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
+  "onboarding.capability.systemOne.why":
+    "Jev es un modelo de decisión opcional que ayuda a elegir herramientas y habilidades relevantes antes de la primera solicitud al modelo del agente.",
   "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Créditos de Builder o una clave de proveedor de imágenes",
@@ -780,11 +789,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{count}} en cola — enviar un mensaje de seguimiento...",
   "queue.remove": "Quitar de la cola",
   "queue.sendNow": "Enviar ahora",
-  "queue.sendNowHint": "Enviar ahora (detiene la respuesta actual)",
-  "queue.steer": "Dirigir",
-  "queue.steerHint": "Enviar este mensaje a continuación",
+  "queue.sendNowHint": "Detiene la respuesta actual y luego envía este mensaje",
+  "queue.sendNext": "Enviar a continuación",
+  "queue.sendNextHint": "Enviar después de que termine la respuesta actual",
   "queue.moreActions": "Más acciones",
-  "queue.moveToTop": "Mover arriba",
   "recovery.connectingBuilder": "Configurando Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
@@ -1106,6 +1114,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Subir archivo de habilidad",
   "composer.upload": "Subir",
   "composer.uploadFailed": "No se pudo cargar el archivo seleccionado.",
+  "composer.unsupportedFileType": "Este tipo de archivo no es compatible.",
   "composer.useAttachedContext": "Usa el contexto adjunto.",
   "mentions.commands": "Comandos",
   "mentions.learnMore": "Más información",
