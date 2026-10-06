@@ -1,0 +1,201 @@
+---
+title: "Koyeb"
+description: "Deploy a standalone Agent-Native app to Koyeb as a Node.js web service."
+search: "Koyeb deployment standalone app Nitro koyeb preset web service GitHub buildpack build command run command secrets production migrate"
+---
+
+# Koyeb
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+Koyeb hosts your app as a web service, so there is no server to set up or keep
+running. Koyeb runs the same Node.js server described in the
+[Node.js guide](/docs/node-js), builds it from your GitHub repository, and
+gives the app a public address with HTTPS.
+
+This guide walks through deploying one standalone app from scratch. You will
+create the app and push it to GitHub, give it a production database and an auth
+secret, prepare the database, and then create a Koyeb web service that builds
+and runs it.
+
+<Callout tone="info">
+
+Node.js `22.22+` is required.
+
+</Callout>
+
+You also need a Koyeb account and a GitHub repository. Run the commands in this
+guide on your own computer. Koyeb builds and runs the app from your repository.
+
+## Step 1: Create the app
+
+Create your new standalone app. The example below creates an app from the Chat
+template, but you can start from any template. Move into the app's folder and
+install its dependencies. `corepack enable` turns on the `pnpm` version the app
+expects, so you do not need to install `pnpm` yourself.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Replace `my-app` with your own app name if you like. The rest of this guide
+assumes you are inside the app's folder.
+
+Koyeb builds the app from GitHub, so push the app's folder to a new GitHub
+repository before you continue. Commit the `pnpm-lock.yaml` file too. Koyeb
+uses it, together with the `packageManager` field in `package.json`, to install
+the app with `pnpm`. It also reads the Node.js version from the `engines` field
+in `package.json`. A new app already sets both fields.
+
+## Step 2: Configure environment secrets
+
+The app reads its production settings from environment variables:
+
+| Variable             | Required | Purpose                                              |
+| -------------------- | -------- | ---------------------------------------------------- |
+| `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database          |
+| `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                  |
+| `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
+
+The exports below make the following commands work in this shell. Before
+deploying, save these same variables in your host's project or service
+environment settings. Step 4 shows how to save them in Koyeb.
+
+### Database URL
+
+During local development the app stores data in a local database when
+`DATABASE_URL` is unset. A deployed app needs a real PostgreSQL database that
+keeps its data between deploys. Koyeb replaces the service's files on every
+deploy and restart, so the database must live outside the web service. Copy the
+connection string from your provider and export it:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+The [database provider guides](/docs/neon) show where to find the connection
+string for each provider.
+
+<Callout tone="warning">
+
+Select a persistent PostgreSQL provider: Neon, Supabase, Amazon RDS, etc.
+
+</Callout>
+
+### Auth secret
+
+Generate this once and keep it stable across deploys.
+
+The app uses `BETTER_AUTH_SECRET` to sign user sessions. If it changes, every
+signed-in user is signed out. The command below generates a random value:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Save the generated value somewhere safe, such as a password manager. Use the
+same value every time you deploy.
+
+### Public URL
+
+Optional. Set it when using a custom domain, reverse proxy, or an auth/OAuth flow
+that needs a fixed public origin.
+
+`BETTER_AUTH_URL` is the public address people use to reach your app. Without
+it, the app works out its address from each incoming request. That is usually
+fine on the address Koyeb gives you, but set it when you connect a custom domain
+so sign-in links and OAuth redirects use that domain.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Step 3: Migrate
+
+Migrations create and update the tables the app needs in your database. Run
+this before the first deploy:
+
+```bash
+pnpm migrate:production
+```
+
+The command runs on your computer and connects to the production database with
+the `DATABASE_URL` you exported in Step 2. Run it again after you upgrade the
+app, before you deploy the new version.
+
+## Step 4: Create the web service
+
+In the Koyeb control panel, create a new **Web Service**, choose **GitHub** as
+the deployment method, and select the repository and branch from Step 1. Keep
+the **Buildpack** builder, then override the build and run commands with these
+values:
+
+| Setting       | Value                           |
+| ------------- | ------------------------------- |
+| Build command | `NITRO_PRESET=koyeb pnpm build` |
+| Run command   | `node .output/server/index.mjs` |
+
+`NITRO_PRESET=koyeb` builds the same Node.js server as the Node.js guide, set
+up to serve its own static files. The run command starts that server. Koyeb
+exposes port `8000` by default and sets the `PORT` environment variable to
+match, and the server reads `PORT` automatically, so you do not need to change
+the port settings.
+
+Under **Environment variables**, add `DATABASE_URL` and `BETTER_AUTH_SECRET`.
+For values like these, Koyeb recommends storing each one as a **Secret** and
+referencing it from the variable. For example, save the connection string as a
+Secret named `DATABASE_URL`, then set the variable's value to
+`{{ secret.DATABASE_URL }}`. If you set `BETTER_AUTH_URL`, add it the same way.
+
+## Step 5: Deploy
+
+<Steps>
+
+### Choose an instance type
+
+Pick the instance type for the web service. The Free instance type works for
+trying the app out. Choose a paid instance type if the app needs to answer
+right away.
+
+### Create the web service
+
+Name the service and the app, then deploy. Koyeb builds the app from your
+repository and starts it. The first build takes a few minutes, and you can
+follow it in the service's build and runtime logs.
+
+### Open the app
+
+When the deploy finishes, the control panel shows the app's address, which ends
+in `koyeb.app`. Open it and create the first account.
+
+</Steps>
+
+On the Free instance type, Koyeb scales the service down to zero after an hour
+without traffic. The next visit then waits while the service starts again. Each
+organization can run one Free instance.
+
+## Deploy updates
+
+Koyeb deploys again every time you push to the branch you chose in Step 4. To
+ship a new version, run the migrations first, then push:
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+The service settings and saved variables stay in place, so you do not need to
+repeat Step 4.
+
+## What's next
+
+- [**Node.js**](/docs/node-js) - run the same server on a machine you manage
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings
+- [**Deployment**](/docs/deployment) - compare hosting targets and prerequisites

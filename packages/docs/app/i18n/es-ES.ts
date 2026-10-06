@@ -2620,6 +2620,7 @@ const esES = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentOtherPlatforms: "Otras Plataformas",
     ssrCaching: "Caché de SSR",
     deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",

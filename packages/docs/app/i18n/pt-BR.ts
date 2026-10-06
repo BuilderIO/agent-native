@@ -2612,6 +2612,7 @@ const ptBR = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentOtherPlatforms: "Outras Plataformas",
     ssrCaching: "Cache de SSR",
     deploymentEnvironmentVariables: "Deploy: Variáveis de Ambiente",

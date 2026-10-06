@@ -2627,6 +2627,7 @@ const deDE = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentOtherPlatforms: "Weitere Plattformen",
     ssrCaching: "SSR-Caching",
     deploymentEnvironmentVariables: "Deployment: Umgebungsvariablen",

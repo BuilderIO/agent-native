@@ -2631,6 +2631,7 @@ const frFR = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentOtherPlatforms: "Autres Plateformes",
     ssrCaching: "Mise en Cache SSR",
     deploymentEnvironmentVariables: "Déploiement : Variables d'Environnement",

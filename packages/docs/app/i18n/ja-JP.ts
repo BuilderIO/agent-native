@@ -2599,6 +2599,7 @@ const jaJP = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentOtherPlatforms: "その他のプラットフォーム",
     ssrCaching: "SSRキャッシュ",
     deploymentEnvironmentVariables: "デプロイ: 環境変数",

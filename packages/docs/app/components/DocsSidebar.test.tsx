@@ -115,6 +115,7 @@ describe("DocsSidebar", () => {
       "netlify",
       "cloudflare",
       "render",
+      "koyeb",
     ]);
     const databaseGroup = deployment?.items.find(
       (item) => item.id === "database-providers",

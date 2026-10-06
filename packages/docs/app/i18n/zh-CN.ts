@@ -2530,6 +2530,7 @@ const zhCN = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 缓存",
     deploymentEnvironmentVariables: "部署：环境变量",

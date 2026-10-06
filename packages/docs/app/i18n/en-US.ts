@@ -2587,6 +2587,7 @@ const enUS = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentOtherPlatforms: "Other Platforms",
     ssrCaching: "SSR Caching",
     deploymentEnvironmentVariables: "Deployment: Environment Variables",

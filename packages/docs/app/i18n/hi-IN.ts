@@ -2577,6 +2577,7 @@ const hiIN = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentOtherPlatforms: "अन्य Platforms",
     ssrCaching: "SSR कैशिंग",
     deploymentEnvironmentVariables: "Deployment: पर्यावरण चर",

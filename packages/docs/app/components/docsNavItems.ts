@@ -102,6 +102,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "deploymentRender",
             slug: "render",
           },
+          {
+            id: "koyeb",
+            labelKey: "deploymentKoyeb",
+            slug: "koyeb",
+          },
         ],
       },
       {

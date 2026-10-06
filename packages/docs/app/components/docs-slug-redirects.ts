@@ -5,7 +5,6 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "aws-lambda": "deployment",
   "deno-deploy": "deployment",
   "azure-static-web-apps": "deployment",
-  koyeb: "deployment",
   "other-platforms": "deployment",
   "aws-amplify": "deployment",
   database: "server-database",
