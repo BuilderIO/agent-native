@@ -724,7 +724,7 @@ export function reduceAgentEvent(
         ),
       };
     case "tool.started":
-    case "tool.updated":
+    case "tool.updated": {
       if (
         wouldReopenTerminalItem(
           next.tools[event.toolCall.id]?.status,
@@ -733,10 +733,18 @@ export function reduceAgentEvent(
       ) {
         return next;
       }
+      const currentToolCall = next.tools[event.toolCall.id];
+      const toolCall =
+        event.type === "tool.updated" &&
+        event.toolCall.messageId === undefined &&
+        currentToolCall?.messageId
+          ? { ...event.toolCall, messageId: currentToolCall.messageId }
+          : event.toolCall;
       return {
         ...next,
-        tools: { ...next.tools, [event.toolCall.id]: event.toolCall },
+        tools: { ...next.tools, [event.toolCall.id]: toolCall },
       };
+    }
     case "tool.delta": {
       const current =
         next.tools[event.toolCallId] ??

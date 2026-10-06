@@ -388,6 +388,36 @@ describe("AgentKit lifecycle projections", () => {
     expect(reduced.tools["tool-1"]?.input).toBeUndefined();
   });
 
+  it("preserves the message association when a terminal tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.started",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+          messageId: "assistant-1",
+        },
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "Found it.",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      messageId: "assistant-1",
+      output: "Found it.",
+    });
+  });
+
   it("does not reopen settled tool, activity, task, or action projections", () => {
     const reduced = [
       event(1, { type: "run.started" }),

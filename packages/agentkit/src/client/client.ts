@@ -717,6 +717,39 @@ function orderedThreadToolCalls(thread: AgentThreadState): AgentToolCall[] {
   ];
 }
 
+interface RepresentedToolHistoryParts {
+  callIds: Set<string>;
+  resultIds: Set<string>;
+}
+
+function representedToolHistoryParts(
+  message: AgentMessage,
+): RepresentedToolHistoryParts {
+  const represented = {
+    callIds: new Set<string>(),
+    resultIds: new Set<string>(),
+  };
+  for (const part of message.parts) {
+    if (part.type !== "data") continue;
+    const ids =
+      part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE
+        ? represented.callIds
+        : part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE
+          ? represented.resultIds
+          : undefined;
+    if (
+      !ids ||
+      typeof part.data !== "object" ||
+      part.data === null ||
+      Array.isArray(part.data)
+    )
+      continue;
+    const id = (part.data as Record<string, unknown>).id;
+    if (typeof id === "string") ids.add(id);
+  }
+  return represented;
+}
+
 function messagesWithToolCallHistory(
   messages: AgentMessage[],
   toolCalls: AgentToolCall[],
@@ -726,13 +759,33 @@ function messagesWithToolCallHistory(
       .filter((message) => message.role === "assistant")
       .map((message) => message.id),
   );
-  const eligibleCalls = toolCalls.filter(
-    (toolCall) =>
+  const existingToolHistoryPartsByMessageId = new Map<
+    string,
+    RepresentedToolHistoryParts
+  >();
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      existingToolHistoryPartsByMessageId.set(
+        message.id,
+        representedToolHistoryParts(message),
+      );
+    }
+  }
+  const eligibleCalls = toolCalls.filter((toolCall) => {
+    const messageId = toolCall.messageId;
+    const represented = messageId
+      ? existingToolHistoryPartsByMessageId.get(messageId)
+      : undefined;
+    return (
       toolCall.status !== "running" &&
       Boolean(
-        toolCall.messageId && assistantMessageIds.has(toolCall.messageId),
-      ),
-  );
+        messageId &&
+        assistantMessageIds.has(messageId) &&
+        (!represented?.callIds.has(toolCall.id) ||
+          !represented.resultIds.has(toolCall.id)),
+      )
+    );
+  });
   const historyPartsByMessageId = new Map<
     string,
     AgentMessage["parts"][number][]
@@ -758,7 +811,13 @@ function messagesWithToolCallHistory(
       continue;
     }
 
-    const parts = toolCallHistoryParts(toolCall);
+    const represented = existingToolHistoryPartsByMessageId.get(
+      toolCall.messageId!,
+    );
+    const parts = toolCallHistoryParts(toolCall, {
+      call: !represented?.callIds.has(toolCall.id),
+      result: !represented?.resultIds.has(toolCall.id),
+    });
     const candidate = { messageId: toolCall.messageId!, parts };
     if (
       projectedToolHistoryBytes(
@@ -807,13 +866,16 @@ function messagesWithToolCallHistory(
   });
 }
 
-function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
+function toolCallHistoryParts(
+  toolCall: AgentToolCall,
+  include: { call: boolean; result: boolean },
+): DataPart[] {
   const inputProjection =
-    toolCall.input === undefined
+    !include.call || toolCall.input === undefined
       ? undefined
       : projectToolHistoryValue(toolCall.input);
   const outputProjection =
-    toolCall.output === undefined
+    !include.result || toolCall.output === undefined
       ? undefined
       : projectToolHistoryValue(toolCall.output);
   const inputOmission =
@@ -824,9 +886,10 @@ function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
     outputProjection && !outputProjection.ok
       ? outputProjection.omission
       : undefined;
-  const outputOmissionText = outputOmission
-    ? `Tool output omitted from history because ${outputOmission}.`
-    : undefined;
+  const outputOmissionText =
+    include.result && outputOmission
+      ? `Tool output omitted from history because ${outputOmission}.`
+      : undefined;
   const errorText = toolCall.error?.message
     ? `Tool error: ${toolCall.error.message}`
     : undefined;
@@ -838,8 +901,9 @@ function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
       ? `Tool error omitted from history because ${errorTextOmission}.`
       : errorText
     : undefined;
-  const statusText =
-    toolCall.output === undefined
+  const statusText = !include.result
+    ? undefined
+    : toolCall.output === undefined
       ? boundedErrorText
         ? undefined
         : `Tool call ${toolCall.status} without a recorded result.`
@@ -854,8 +918,9 @@ function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
     ? `Tool result details omitted from history because ${resultTextOmission}.`
     : resultText;
 
-  return [
-    {
+  const parts: DataPart[] = [];
+  if (include.call) {
+    parts.push({
       type: "data",
       mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
       data: {
@@ -868,8 +933,10 @@ function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
             }
           : {}),
       },
-    },
-    {
+    });
+  }
+  if (include.result) {
+    parts.push({
       type: "data",
       mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
       data: {
@@ -881,8 +948,9 @@ function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
           ? {}
           : { isError: true }),
       },
-    },
-  ];
+    });
+  }
+  return parts;
 }
 
 export class AgentKitClient implements AgentKitController {
