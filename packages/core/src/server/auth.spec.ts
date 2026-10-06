@@ -1192,6 +1192,21 @@ describe("server/auth", () => {
       expect(response.headers.get("set-cookie")).toContain(
         "agent-native-first-run=1",
       );
+
+      // A browser arriving with `?return=` lands on a page the edge cannot
+      // append that query to.
+      const navigation = createMockEvent({
+        path: callbackPath,
+        query: { return: "/welcome" },
+        headers: { "sec-fetch-mode": "navigate" },
+      });
+      const page = await handler(navigation);
+      expect(page.status).toBe(200);
+      expect(page.headers.get("location")).toBeNull();
+      expect(page.headers.get("set-cookie")).toContain(
+        "agent-native-first-run=1",
+      );
+      expect(await page.text()).toContain('content="0;url=/welcome"');
     });
 
     it("sets first-run onboarding when the new-user callback has no resolved session", async () => {
@@ -10917,6 +10932,23 @@ describe("server/auth", () => {
         "an_session=example-session",
       );
       expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+    });
+
+    // Deep-link and embed routes rebuild this response from its status and
+    // headers, so only callbacks that consumed a one-time query opt into the
+    // HTML landing page.
+    it("stays a redirect for a navigation that carries a query", async () => {
+      const { redirectWithStagedCookies } = await import("./auth.js");
+      const event = createMockEvent({
+        path: "/_agent-native/open",
+        query: { view: "inbox" },
+        headers: { "sec-fetch-mode": "navigate" },
+      });
+
+      const response = redirectWithStagedCookies(event, "/inbox");
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe("/inbox");
     });
   });
 

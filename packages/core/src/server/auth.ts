@@ -4859,11 +4859,7 @@ export function redirectWithStagedCookies(
   for (const cookie of staged) headers.append("set-cookie", cookie);
   const referrerPolicy = event.res?.headers?.get?.("Referrer-Policy");
   if (referrerPolicy) headers.set("Referrer-Policy", referrerPolicy);
-  return queryEchoSafeRedirect(
-    event,
-    new Response("", { status, headers }),
-    getOrigin(event),
-  );
+  return new Response("", { status, headers });
 }
 
 export { isHttpsRequest };
@@ -6512,7 +6508,11 @@ async function mountBetterAuthRoutes(
         ? query.return[0]
         : query.return;
       setFirstRunOnboardingCookie(event);
-      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302),
+        getOrigin(event),
+      );
     }),
   );
 
