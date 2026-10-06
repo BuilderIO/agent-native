@@ -270,6 +270,15 @@ describe("AgentKitClient", () => {
         push({
           type: "message.created",
           message: {
+            id: "assistant-old",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "An earlier answer." }],
+          },
+        });
+        push({
+          type: "message.created",
+          message: {
             id: "assistant-1",
             role: "assistant",
             status: "streaming",
@@ -347,12 +356,14 @@ describe("AgentKitClient", () => {
         ];
         for (const call of calls) {
           const { output, error, status, ...toolCall } = call;
+          const messageId =
+            call.id === "call-history-0" ? "assistant-old" : "assistant-1";
           push({
             type: "tool.started",
             toolCall: {
               ...toolCall,
               status: "running",
-              messageId: "assistant-1",
+              messageId,
             },
           });
           if (status !== "running") {
@@ -363,7 +374,7 @@ describe("AgentKitClient", () => {
                 ...(output === undefined ? {} : { output }),
                 ...(error === undefined ? {} : { error }),
                 status,
-                messageId: "assistant-1",
+                messageId,
               },
             });
           }
@@ -397,6 +408,9 @@ describe("AgentKitClient", () => {
     const secondRequest = startRun.mock.calls[1]![0];
     const assistantMessage = secondRequest.messages.find(
       (message) => message.id === "assistant-1",
+    );
+    const earlierAssistantMessage = secondRequest.messages.find(
+      (message) => message.id === "assistant-old",
     );
     expect(assistantMessage?.parts).toEqual(
       expect.arrayContaining([
@@ -510,7 +524,11 @@ describe("AgentKitClient", () => {
     expect(
       assistantMessage?.parts.filter((part) => part.type === "data"),
     ).toHaveLength(64 * 2);
-    expect(assistantMessage?.parts).toContainEqual({
+    expect(earlierAssistantMessage?.parts).toContainEqual({
+      type: "text",
+      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+    });
+    expect(assistantMessage?.parts).not.toContainEqual({
       type: "text",
       text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
     });
@@ -532,7 +550,7 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("caps the aggregate prior tool history sent on a later turn", async () => {
+  it("caps object-result history after structured-history serialization", async () => {
     const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
       runId: "run-1",
     }));
@@ -582,7 +600,7 @@ describe("AgentKitClient", () => {
           const toolCall = {
             id: `call-${index}`,
             name: "search",
-            input: { query: "i".repeat(40 * 1024) },
+            input: { query: "small query" },
             messageId: "assistant-1",
           };
           yield push({
@@ -593,7 +611,7 @@ describe("AgentKitClient", () => {
             type: "tool.updated",
             toolCall: {
               ...toolCall,
-              output: "o".repeat(40 * 1024),
+              output: { value: "\\".repeat(31 * 1024) },
               status: "completed",
             },
           });
@@ -631,10 +649,8 @@ describe("AgentKitClient", () => {
     const dataParts = assistantMessage?.parts.filter(
       (part) => part.type === "data",
     );
-    expect(dataParts).toHaveLength(3 * 2);
-    expect(dataParts?.[0]).toMatchObject({
-      data: { id: "call-1" },
-    });
+    expect(dataParts).toHaveLength(2 * 2);
+    expect(dataParts?.[0]).toMatchObject({ data: { id: "call-2" } });
     expect(assistantMessage?.parts).toContainEqual({
       type: "text",
       text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",

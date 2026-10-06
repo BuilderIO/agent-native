@@ -567,8 +567,93 @@ async function defaultUploadDriver(
 }
 
 const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
-const MAX_TOOL_HISTORY_BYTES = 256 * 1024 - 256;
+const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_CALLS = 64;
+const TOOL_HISTORY_OMISSION_TEXT =
+  "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.";
+
+type StructuredToolHistoryPart =
+  | { type: "text"; text: string }
+  | { type: "tool-call"; id: string; name: string; input?: unknown }
+  | {
+      type: "tool-result";
+      toolCallId: string;
+      toolName?: string;
+      content: string;
+      isError?: true;
+    };
+
+// Project the added parts through Core's structuredHistory shape before sizing.
+function projectStructuredToolHistory(
+  messages: AgentMessage[],
+  calls: Array<{ messageId: string; parts: DataPart[] }>,
+  omissionMessageId?: string,
+): Array<{
+  role: "assistant" | "user";
+  content: StructuredToolHistoryPart[];
+}> {
+  const partsByMessageId = new Map<string, DataPart[]>();
+  for (const { messageId, parts } of calls) {
+    const messageParts = partsByMessageId.get(messageId) ?? [];
+    messageParts.push(...parts);
+    partsByMessageId.set(messageId, messageParts);
+  }
+
+  const structured: Array<{
+    role: "assistant" | "user";
+    content: StructuredToolHistoryPart[];
+  }> = [];
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const content: StructuredToolHistoryPart[] = [];
+    const results: StructuredToolHistoryPart[] = [];
+    for (const part of partsByMessageId.get(message.id) ?? []) {
+      const data = part.data as Record<string, unknown>;
+      if (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE) {
+        if (typeof data.inputText === "string" && data.inputText.trim()) {
+          content.push({ type: "text", text: data.inputText });
+        }
+        content.push({
+          type: "tool-call",
+          id: data.id as string,
+          name: data.name as string,
+          ...(data.input === undefined ? {} : { input: data.input }),
+        });
+      } else if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
+        const result =
+          data.result === undefined
+            ? ((data.resultText as string | undefined) ??
+              "No tool result was recorded.")
+            : `${typeof data.result === "string" ? data.result : (JSON.stringify(data.result) ?? "Tool result could not be serialized for history.")}${data.resultText ? `\n${data.resultText as string}` : ""}`;
+        results.push({
+          type: "tool-result",
+          toolCallId: data.id as string,
+          ...(typeof data.name === "string" ? { toolName: data.name } : {}),
+          content: result,
+          ...(data.isError === true ? { isError: true } : {}),
+        });
+      }
+    }
+    if (message.id === omissionMessageId) {
+      content.push({ type: "text", text: TOOL_HISTORY_OMISSION_TEXT });
+    }
+    if (content.length) structured.push({ role: "assistant", content });
+    if (results.length) structured.push({ role: "user", content: results });
+  }
+  return structured;
+}
+
+function projectedToolHistoryBytes(
+  messages: AgentMessage[],
+  calls: Array<{ messageId: string; parts: DataPart[] }>,
+  omissionMessageId?: string,
+): number {
+  return new TextEncoder().encode(
+    JSON.stringify(
+      projectStructuredToolHistory(messages, calls, omissionMessageId),
+    ),
+  ).byteLength;
+}
 
 function toolHistoryValueOmission(value: unknown): string | undefined {
   try {
@@ -647,24 +732,37 @@ function messagesWithToolCallHistory(
     messageId: string;
     parts: DataPart[];
   }> = [];
-  let totalBytes = 0;
   const recentCalls = eligibleCalls.slice(-MAX_TOOL_HISTORY_CALLS);
   let omittedHistory = recentCalls.length < eligibleCalls.length;
+  let omissionMessageId = omittedHistory
+    ? eligibleCalls[0]?.messageId
+    : undefined;
 
   for (let index = recentCalls.length - 1; index >= 0; index--) {
     const toolCall = recentCalls[index]!;
 
     const parts = toolCallHistoryParts(toolCall);
-    const bytes = new TextEncoder().encode(
-      JSON.stringify(parts) ?? "",
-    ).byteLength;
-    if (totalBytes + bytes > MAX_TOOL_HISTORY_BYTES) {
+    const candidate = { messageId: toolCall.messageId!, parts };
+    if (
+      projectedToolHistoryBytes(
+        messages,
+        [...selectedCalls, candidate],
+        omissionMessageId,
+      ) > MAX_ADDED_TOOL_HISTORY_BYTES
+    ) {
       omittedHistory = true;
+      omissionMessageId ??= candidate.messageId;
+      while (
+        selectedCalls.length > 0 &&
+        projectedToolHistoryBytes(messages, selectedCalls, omissionMessageId) >
+          MAX_ADDED_TOOL_HISTORY_BYTES
+      ) {
+        selectedCalls.pop();
+      }
       continue;
     }
 
-    selectedCalls.push({ messageId: toolCall.messageId!, parts });
-    totalBytes += bytes;
+    selectedCalls.push(candidate);
   }
 
   if (selectedCalls.length < recentCalls.length) omittedHistory = true;
@@ -674,19 +772,13 @@ function messagesWithToolCallHistory(
     historyPartsByMessageId.set(messageId, historyParts);
   }
 
-  if (omittedHistory) {
-    const latestAssistantMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === "assistant");
-    if (latestAssistantMessage) {
-      const historyParts =
-        historyPartsByMessageId.get(latestAssistantMessage.id) ?? [];
-      historyParts.push({
-        type: "text",
-        text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
-      });
-      historyPartsByMessageId.set(latestAssistantMessage.id, historyParts);
-    }
+  if (omittedHistory && selectedCalls.length && omissionMessageId) {
+    const historyParts = historyPartsByMessageId.get(omissionMessageId) ?? [];
+    historyParts.push({
+      type: "text",
+      text: TOOL_HISTORY_OMISSION_TEXT,
+    });
+    historyPartsByMessageId.set(omissionMessageId, historyParts);
   }
 
   if (historyPartsByMessageId.size === 0) return messages;
