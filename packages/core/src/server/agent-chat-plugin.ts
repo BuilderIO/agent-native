@@ -89,7 +89,6 @@ import {
   executeAgentToolCall,
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
-  toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
   abortTurnByRefDurably,
@@ -2756,9 +2755,6 @@ export function createAgentChatPlugin(
               // scope when a processor hop or alternate runner is involved.
               ownerEmail: userEmail,
               orgId: getRequestOrgId() ?? null,
-              approvedToolCalls: context.approvedActions?.map((approved) =>
-                toolCallCacheKey(approved.tool, approved.input),
-              ),
               executionMode: "act",
               runId: context.taskId,
               networkProtocol: "a2a",

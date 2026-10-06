@@ -69,7 +69,6 @@ import { StorageSetupCard } from "./storage-setup-card";
 
 const CREATE = "agentChat.onboarding.builderCreateAndActivate";
 const EXISTING_ACCOUNT = "agentChat.onboarding.builderExistingAccount";
-const SIGN_IN = "agentChat.onboarding.builderSignInWithAccount";
 const CONSENT = "agentChat.onboarding.builderConsentPrefix";
 
 function flowState(overrides: Record<string, unknown> = {}) {
@@ -233,14 +232,18 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("signs in without a popover when account creation is unavailable", async () => {
+  it("keeps the chooser and disables activation when provisioning is unavailable", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ agentNativeProvisioningEnabled: false }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(bodyButton(CREATE)?.disabled).toBe(true);
+    expect(bodyButton(EXISTING_ACCOUNT)?.disabled).toBe(false);
+
+    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });
@@ -256,11 +259,14 @@ describe("StorageSetupCard", () => {
     await renderCard();
 
     await clickConnect();
-    expect(mocks.retry).toHaveBeenCalledOnce();
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(bodyButton(CREATE)?.disabled).toBe(true);
+    expect(bodyButton(EXISTING_ACCOUNT)?.disabled).toBe(false);
+    expect(mocks.retry).not.toHaveBeenCalled();
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("opens the shared account popover when activation finds an existing account", async () => {
+  it("keeps the same two-choice popover when activation finds an existing account", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ accountExists: true }),
     );
@@ -271,16 +277,15 @@ describe("StorageSetupCard", () => {
     expect(document.body.textContent).toContain(
       "agentChat.onboarding.builderIncludedFree",
     );
-    expect(bodyButton(SIGN_IN)).toBeDefined();
-    expect(bodyButton(CREATE)).toBeUndefined();
-    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
-    await act(async () => bodyButton(SIGN_IN)?.click());
+    expect(bodyButton(CREATE)).toBeDefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeDefined();
+    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });
   });
 
-  it("opens the shared account popover for an existing Builder credential", async () => {
+  it("keeps the same two-choice popover for an existing Builder credential", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ configured: true, credentialSource: "user" }),
     );
@@ -291,11 +296,10 @@ describe("StorageSetupCard", () => {
     expect(document.body.textContent).toContain(
       "agentChat.onboarding.builderIncludedFree",
     );
-    expect(bodyButton(SIGN_IN)).toBeDefined();
-    expect(bodyButton(CREATE)).toBeUndefined();
-    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
+    expect(bodyButton(CREATE)).toBeDefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeDefined();
 
-    await act(async () => bodyButton(SIGN_IN)?.click());
+    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });

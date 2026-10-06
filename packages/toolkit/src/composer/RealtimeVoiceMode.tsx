@@ -298,30 +298,7 @@ export function RealtimeVoiceModeEntry({
                       {copy.connectBuilder}
                     </Button>
                   </BuilderConnectPopover>
-                ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="w-full justify-start px-3"
-                    disabled={connectingBuilder}
-                    onClick={() =>
-                      choose("realtime", () =>
-                        // Without the consent popover there is no terms
-                        // line, so never create an account.
-                        onConnectBuilder
-                          ? onConnectBuilder({ provisionAccount: false })
-                          : onStartVoiceMode(),
-                      )
-                    }
-                  >
-                    {connectingBuilder ? (
-                      <IconLoader2 className="animate-spin" />
-                    ) : (
-                      <IconPlugConnected aria-hidden="true" />
-                    )}
-                    {copy.connectBuilder}
-                  </Button>
-                )}
+                ) : null}
                 <Button
                   type="button"
                   variant="outline"

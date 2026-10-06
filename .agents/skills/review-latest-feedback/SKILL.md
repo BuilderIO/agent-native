@@ -33,7 +33,8 @@ Default channels: `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#dev-agent-native-feedback` (`C0AJ5QV0J03`). Apply the full workflow to each:
 use its `in:<#CHANNEL>` filter for searches and read each channel. Track
 pagination, reply cursors, and counts separately. Honor narrower invocation
-scope.
+scope. Each channel uses the same five-day scan boundary; `#dev-agent-native-feedback`
+is a default input, not a special-case exclusion.
 
 ## Phase 0: claim what you are taking
 

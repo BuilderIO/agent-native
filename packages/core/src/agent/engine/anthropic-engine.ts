@@ -21,6 +21,7 @@ import {
 } from "./error-detail.js";
 import { createFirstEventAbortController } from "./first-event-timeout.js";
 import { limitProviderTools } from "./limit-provider-tools.js";
+import { ANTHROPIC_API_ORIGIN } from "./openai-compatible-endpoint.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -68,14 +69,21 @@ class AnthropicEngine implements AgentEngine {
   readonly capabilities = ANTHROPIC_CAPABILITIES;
 
   private readonly apiKey: string;
+  private readonly baseURL: string | undefined;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, baseURL: string | undefined) {
     this.apiKey = apiKey;
+    this.baseURL = baseURL;
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
     const Anthropic = (await import("@anthropic-ai/sdk")).default;
-    const client = new Anthropic({ apiKey: this.apiKey, maxRetries: 1 });
+    // An undefined baseURL lets the SDK read ANTHROPIC_BASE_URL itself.
+    const client = new Anthropic({
+      apiKey: this.apiKey,
+      baseURL: this.baseURL,
+      maxRetries: 1,
+    });
 
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
     const tools = engineToolsToAnthropic(
@@ -349,5 +357,13 @@ export function createAnthropicEngine(
       },
     };
   }
-  return new AnthropicEngine(apiKey);
+  // Only the deployment's own key may follow a deployment ANTHROPIC_BASE_URL;
+  // hosts inject gateway URLs there that reject every other key.
+  const deploymentKey = readDeployCredentialEnv("ANTHROPIC_API_KEY");
+  return new AnthropicEngine(
+    apiKey,
+    deploymentKey && apiKey === deploymentKey
+      ? undefined
+      : ANTHROPIC_API_ORIGIN,
+  );
 }
