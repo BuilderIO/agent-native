@@ -111,6 +111,7 @@ function parseVideoUrl(url: string): URL | null {
         : window.location.href;
     return new URL(url, base);
   } catch {
+    // coercion-ok: Callers distinguish unparseable URLs and retain the raw source.
     return null;
   }
 }
@@ -675,8 +676,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const v = videoRef.current;
       const sameResource =
         activeVideoSourceIdentity === incomingVideoSourceIdentity;
-      if (recoveringFromErrorRef.current && sameResource) return;
-
       const playbackActive =
         playAttemptPendingRef.current ||
         isPlayPending ||
@@ -684,6 +683,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         Boolean(v && !v.paused && !v.ended);
 
       if (isMediaVersionRefresh(activeVideoSrc, resolvedVideoSrc)) {
+        autoErrorRetriesRef.current = 0;
         const posMs = currentMsRef.current > 0 ? currentMsRef.current : null;
         if (posMs != null) resumeAfterReloadMsRef.current = posMs;
         recoveringFromErrorRef.current = true;
@@ -695,6 +695,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setActiveVideoSrc(resolvedVideoSrc);
         return;
       }
+
+      if (recoveringFromErrorRef.current && sameResource) return;
 
       if (!sameResource || !playbackActive) {
         setActiveVideoSrc(resolvedVideoSrc);
@@ -1808,6 +1810,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onEnded?.();
             }}
             onError={(e) => {
+              const wasPlaying =
+                playAttemptPendingRef.current || isPlayingRef.current;
               clearPlayAttemptWatchdog();
               playAttemptPendingRef.current = false;
               setIsPlayPending(false);
@@ -1826,7 +1830,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               ) {
                 autoErrorRetriesRef.current += 1;
                 recoveringFromErrorRef.current = true;
-                const wasPlaying = isPlayingRef.current;
                 const v = e.currentTarget;
                 const cacheBustedSrc = setUrlSearchParam(
                   activeVideoSrc,
