@@ -77,8 +77,7 @@ plano.
 
 Envíe un ID de evento estable en un encabezado `X-Webhook-Event-Id`,
 `X-Event-Id` o `X-GitHub-Delivery`, o como `id` de cadena de nivel superior en un cuerpo
-JSON. Una entrega reintentada con el mismo ID ejecuta la automatización una sola
-vez y recibe una respuesta `200` marcada como duplicada.
+JSON. Una entrega repetida con el mismo ID no se vuelve a poner en cola y recibe una respuesta `200` marcada como duplicada. El ID solo evita las entregas duplicadas: si una ejecución falla, se reintenta, y el reintento puede repetir efectos secundarios que la ejecución fallida ya causó.
 
 ## Crear automatizaciones {#creating}
 
@@ -92,7 +91,7 @@ El agente descubre eventos disponibles, confirma el plan y escribe la automatiza
 
 Abra **Settings › Automations**. Es el lugar principal para ver las automatizaciones programadas, activadas por eventos y activadas por webhook, revisar su estado, ejecutar una ahora, pausarlas o reanudarlas y eliminarlas. Los enlaces antiguos a `/agent#jobs` redirigen allí.
 
-**Run now** es la forma más rápida de probar una automatización. Ejecuta las instrucciones de la automatización de inmediato, con sus efectos secundarios reales. Omite el activador y la condición, y no cambia la siguiente ejecución programada. El agente puede hacer lo mismo con `manage-automations` y `action=run-now`.
+**Run now** es la forma más rápida de probar una automatización. Ejecuta las instrucciones de la automatización de inmediato, con sus efectos secundarios reales. Omite el activador y la condición, y no cambia la siguiente ejecución programada, con una excepción: si el framework pausó la automatización tras fallos repetidos, una ejecución exitosa la vuelve a activar y programa su siguiente ejecución. El agente puede hacer lo mismo con `manage-automations` y `action=run-now`.
 
 <Callout tone="warning">
 
@@ -146,7 +145,7 @@ Las automatizaciones comparten todos los campos del [recurring-jobs frontmatter 
 | `mode`        | `"agentic"`                              | `"agentic"`    | Bucle de agente completo (el único modo compatible). `"deterministic"` fue eliminado: nunca se implementó, y las automatizaciones que lo configuraban nunca se ejecutaban. |
 | `domain`      | cadena                                   | _(opcional)_   | Etiqueta de agrupación (correo, calendario, clips, etc.)                                                                                                                   |
 
-Para un desencadenador de evento o de webhook, `schedule` es `""` (vacío); para un desencadenador de programación, lleva la expresión cron. El despachador también escribe los mismos campos administrados `lastRun` / `lastStatus` / `lastError` que escribe el programador, además de un estado `"skipped"` cuando una condición se evalúa como falsa y un estado `"error"` cuando no se puede evaluar.
+Para un desencadenador de evento o de webhook, `schedule` es `""` (vacío); para un desencadenador de programación, lleva la expresión cron. El despachador también escribe los mismos campos administrados `lastRun` / `lastStatus` / `lastError` que escribe el programador, además de un estado `"skipped"` cuando una condición se evalúa como falsa. Cuando una condición no se puede evaluar, consulte [Condiciones](#conditions) para ver qué se registra.
 
 ## El autobús de eventos {#event-bus}
 

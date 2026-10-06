@@ -69,7 +69,7 @@ Les déclencheurs d'événement et de webhook peuvent inclure un `condition` : u
 
 Créer une automatisation webhook renvoie un chemin d'URL de la forme `/_agent-native/automations/webhook/<token>`. Le jeton est le secret : ne donnez donc l'URL qu'au service qui l'appelle. Chaque `POST` envoyé à cette URL devient la charge utile de l'automatisation, jusqu'à 64 Ko. Un corps envoyé avec un type de contenu JSON est analysé, et tout autre corps est transmis comme texte. Le point de terminaison répond `202` et exécute l'automatisation en arrière-plan.
 
-Envoyez un identifiant d'événement stable dans un en-tête `X-Webhook-Event-Id`, `X-Event-Id` ou `X-GitHub-Delivery`, ou sous la forme d'un `id` de type chaîne de premier niveau dans un corps JSON. Une livraison renvoyée avec le même identifiant n'exécute l'automatisation qu'une seule fois et reçoit une réponse `200` marquée comme doublon.
+Envoyez un identifiant d'événement stable dans un en-tête `X-Webhook-Event-Id`, `X-Event-Id` ou `X-GitHub-Delivery`, ou sous la forme d'un `id` de type chaîne de premier niveau dans un corps JSON. Une livraison répétée avec le même identifiant n'est pas remise en file d'attente et reçoit une réponse `200` marquée comme doublon. L'identifiant n'empêche que les livraisons en double : si une exécution échoue, elle fait l'objet d'une nouvelle tentative, et cette nouvelle tentative peut répéter des effets de bord que l'exécution échouée a déjà causés.
 
 ## Créer des automatisations {#creating}
 
@@ -83,7 +83,7 @@ L'agent découvre les événements disponibles, confirme le plan et rédige l'au
 
 Ouvrez **Settings › Automations**. C'est l'endroit principal pour voir les automatisations planifiées, déclenchées par événement et par webhook, consulter leur statut, en exécuter une immédiatement, les mettre en pause ou les reprendre, et les supprimer. Les anciens liens `/agent#jobs` y redirigent.
 
-**Run now** est le moyen le plus rapide de tester une automatisation. Il exécute immédiatement les instructions de l'automatisation, avec leurs effets de bord réels. Il ignore le déclencheur et la condition, et il ne modifie pas la prochaine exécution planifiée. L'agent peut faire la même chose avec `manage-automations` et `action=run-now`.
+**Run now** est le moyen le plus rapide de tester une automatisation. Il exécute immédiatement les instructions de l'automatisation, avec leurs effets de bord réels. Il ignore le déclencheur et la condition, et il ne modifie pas la prochaine exécution planifiée, à une exception près : si le framework a mis l'automatisation en pause après des échecs répétés, une exécution réussie la réactive et planifie sa prochaine exécution. L'agent peut faire la même chose avec `manage-automations` et `action=run-now`.
 
 <Callout tone="warning">
 
@@ -137,7 +137,7 @@ Les automatisations partagent tous les champs du [recurring-jobs frontmatter tab
 | `mode`        | `"agentic"`                              | `"agentic"`    | Boucle d'agent complète (le seul mode pris en charge). `"deterministic"` a été supprimé — il n'a jamais été implémenté, et les automatisations qui le définissaient ne se déclenchaient jamais. |
 | `domain`      | chaîne                                   | _(facultatif)_ | Balise de regroupement (mail, calendrier, clips, etc.)                                                                                                                                          |
 
-Pour un déclencheur d'événement ou de webhook, `schedule` est `""` (vide) ; pour un déclencheur de planification, il porte l'expression cron. Le répartiteur écrit également les mêmes champs gérés `lastRun` / `lastStatus` / `lastError` que le planificateur, plus un statut `"skipped"` lorsqu'une condition est évaluée comme fausse et un statut `"error"` lorsqu'elle ne peut pas être évaluée.
+Pour un déclencheur d'événement ou de webhook, `schedule` est `""` (vide) ; pour un déclencheur de planification, il porte l'expression cron. Le répartiteur écrit également les mêmes champs gérés `lastRun` / `lastStatus` / `lastError` que le planificateur, plus un statut `"skipped"` lorsqu'une condition est évaluée comme fausse. Lorsqu'une condition ne peut pas être évaluée, consultez [Conditions](#conditions) pour savoir ce qui est enregistré.
 
 ## Le bus événementiel {#event-bus}
 

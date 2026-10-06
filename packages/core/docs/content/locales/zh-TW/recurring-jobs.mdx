@@ -211,7 +211,7 @@ Summarize overnight emails.`,
 ## 偵錯作業 {#debugging}
 
 - 在 **Settings › Automations** 中開啟該自動化的詳細資料，或在代理資源中檢查 `jobs/<name>.md` — frontmatter 顯示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
-- **無需等待即可測試：**在 **Settings › Automations** 中點選 **Run now**，或讓代理執行它（`manage-automations` 搭配 `action=run-now`）。作業的提示會立即執行並產生真實的副作用，`nextRun` 不會改變。Run now 不需要調度程式，因此在 localhost 上不設定 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` 也能使用。
+- **無需等待即可測試：**在 **Settings › Automations** 中點選 **Run now**，或讓代理執行它（`manage-automations` 搭配 `action=run-now`）。作業的提示會立即執行並產生真實的副作用，`nextRun` 不會改變。例外情況是框架在反覆失敗後暫停的作業：成功的執行會重新開啟它並重新計算 `nextRun`。Run now 不需要調度程式，因此在 localhost 上不設定 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` 也能使用。
 - **暫停：**翻轉`enabled: false`。檔案保持不變，只是停止執行。
 
 ## 代理工具 {#agent-tool}

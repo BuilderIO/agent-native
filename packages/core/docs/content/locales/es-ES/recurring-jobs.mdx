@@ -212,7 +212,7 @@ El programador es un complemento de marco (la rutina interna `processRecurringJo
 ## Depurar un trabajo {#debugging}
 
 - Abra los detalles de la automatización en **Settings › Automations**, o abra `jobs/<name>.md` en el Recursos del Agente; el frontmatter muestra `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Pruébalo sin esperar:** haga clic en **Run now** en **Settings › Automations**, o pida al agente que lo ejecute (`manage-automations` con `action=run-now`). El mensaje del trabajo se ejecuta de inmediato con sus efectos secundarios reales, y `nextRun` no cambia. Run now no necesita el programador, así que también funciona en localhost sin `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
+- **Pruébalo sin esperar:** haga clic en **Run now** en **Settings › Automations**, o pida al agente que lo ejecute (`manage-automations` con `action=run-now`). El mensaje del trabajo se ejecuta de inmediato con sus efectos secundarios reales, y `nextRun` no cambia. La excepción es un trabajo que el framework pausó tras fallos repetidos: una ejecución exitosa lo vuelve a activar y recalcula `nextRun`. Run now no necesita el programador, así que también funciona en localhost sin `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
 - **Pausa:** voltea `enabled: false`. El archivo permanece ahí, simplemente deja de ejecutarse.
 
 ## Herramienta de agente {#agent-tool}

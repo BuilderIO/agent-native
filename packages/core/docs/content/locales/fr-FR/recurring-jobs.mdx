@@ -212,7 +212,7 @@ Le planificateur est un plugin de framework (la routine interne `processRecurrin
 ## Débogage d'une tâche {#debugging}
 
 - Ouvrez les détails de l'automatisation dans **Settings › Automations**, ou consultez `jobs/<name>.md` dans l'ressources de l'agent : le premier plan affiche `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Testez-le sans attendre :** cliquez sur **Run now** dans **Settings › Automations**, ou demandez à l'agent de l'exécuter (`manage-automations` avec `action=run-now`). L'invite de la tâche s'exécute immédiatement, avec ses effets de bord réels, et `nextRun` ne change pas. Run now n'a pas besoin du planificateur : il fonctionne donc aussi sur localhost sans `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
+- **Testez-le sans attendre :** cliquez sur **Run now** dans **Settings › Automations**, ou demandez à l'agent de l'exécuter (`manage-automations` avec `action=run-now`). L'invite de la tâche s'exécute immédiatement, avec ses effets de bord réels, et `nextRun` ne change pas. L'exception est une tâche que le framework a mise en pause après des échecs répétés : une exécution réussie la réactive et recalcule `nextRun`. Run now n'a pas besoin du planificateur : il fonctionne donc aussi sur localhost sans `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
 - **Mettez-le en pause :** retournez `enabled: false`. Le fichier reste en place, arrête simplement de s'exécuter.
 
 ## Outil d'agent {#agent-tool}

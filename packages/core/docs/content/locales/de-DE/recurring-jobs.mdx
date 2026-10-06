@@ -212,7 +212,7 @@ Der Scheduler ist ein Framework-Plugin (die interne `processRecurringJobs()`-Rou
 ## Debuggen eines Jobs {#debugging}
 
 - Öffnen Sie die Details der Automatisierung in **Settings › Automations** oder `jobs/<name>.md` im Agent-Ressourcen – die Vorderseite zeigt `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Testen Sie es ohne zu warten:** Klicken Sie in **Settings › Automations** auf **Run now** oder bitten Sie den Agenten, den Job auszuführen (`manage-automations` mit `action=run-now`). Die Eingabeaufforderung des Jobs läuft sofort mit ihren echten Nebenwirkungen, und `nextRun` ändert sich nicht. Run now benötigt den Planer nicht und funktioniert daher auch auf localhost ohne `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
+- **Testen Sie es ohne zu warten:** Klicken Sie in **Settings › Automations** auf **Run now** oder bitten Sie den Agenten, den Job auszuführen (`manage-automations` mit `action=run-now`). Die Eingabeaufforderung des Jobs läuft sofort mit ihren echten Nebenwirkungen, und `nextRun` ändert sich nicht. Die Ausnahme ist ein Job, den das Framework nach wiederholten Fehlern pausiert hat: Ein erfolgreicher Lauf schaltet ihn wieder ein und berechnet `nextRun` neu. Run now benötigt den Planer nicht und funktioniert daher auch auf localhost ohne `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
 - **Pause:** umdrehen `enabled: false`. Die Datei bleibt bestehen und wird einfach nicht mehr ausgeführt.
 
 ## Agent-Tool {#agent-tool}

@@ -84,9 +84,11 @@ parsed, and any other body is passed as text. The endpoint answers `202` and
 runs the automation in the background.
 
 Send a stable event ID in an `X-Webhook-Event-Id`, `X-Event-Id`, or
-`X-GitHub-Delivery` header, or as a top-level string `id` in a JSON body. A retried
-delivery with the same ID runs the automation once and gets a `200` reply
-marked as a duplicate.
+`X-GitHub-Delivery` header, or as a top-level string `id` in a JSON body. A
+repeated delivery with the same ID isn't queued again and gets a `200` reply
+marked as a duplicate. The ID only stops duplicate deliveries: if a run fails,
+it's retried, and the retry can repeat side effects the failed run already
+caused.
 
 ## Creating automations {#creating}
 
@@ -105,8 +107,9 @@ there.
 
 **Run now** is the quickest way to test an automation. It runs the
 automation's instructions immediately, with their real side effects. It skips
-the trigger and the condition, and it doesn't change the next scheduled run.
-The agent can do the same with `manage-automations` and `action=run-now`.
+the trigger and the condition, and it doesn't change the next scheduled run,
+with one exception: if the framework paused the automation after repeated
+failures, a successful run turns it back on and schedules its next run. The agent can do the same with `manage-automations` and `action=run-now`.
 
 <Callout tone="info">
 
@@ -163,7 +166,7 @@ Automations share every field in the [recurring-jobs frontmatter table](/docs/re
 | `mode`        | `"agentic"`                              | `"agentic"`  | Full agent loop (the only supported mode). `"deterministic"` was removed — it was never implemented, and automations that set it never fired. |
 | `domain`      | string                                   | _(optional)_ | Grouping tag (mail, calendar, clips, etc.)                                                                                                    |
 
-For an event or webhook trigger, `schedule` is `""` (empty); for a schedule trigger it carries the cron expression. The dispatcher also writes the same managed `lastRun` / `lastStatus` / `lastError` fields the scheduler does, plus a `"skipped"` status when a condition evaluates to false and an `"error"` status when it can't be evaluated.
+For an event or webhook trigger, `schedule` is `""` (empty); for a schedule trigger it carries the cron expression. The dispatcher also writes the same managed `lastRun` / `lastStatus` / `lastError` fields the scheduler does, plus a `"skipped"` status when a condition evaluates to false. When a condition can't be evaluated, see [Conditions](#conditions) for what gets recorded.
 
 `model` selects a per-automation model. `mcpTools` is an explicit list of MCP
 tool names such as `mcp__server__tool`. The shared execution runner exposes

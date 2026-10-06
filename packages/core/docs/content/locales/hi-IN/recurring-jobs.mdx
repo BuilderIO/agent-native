@@ -212,7 +212,7 @@ Summarize overnight emails.`,
 ## किसी कार्य को डिबग करना {#debugging}
 
 - ऑटोमेशन का विवरण **Settings › Automations** में खोलें, या एजेंट संसाधन में `jobs/<name>.md` देखें - फ्रंटमैटर `lastRun`, `lastStatus`, `lastError`, `nextRun` दिखाता है।
-- **बिना प्रतीक्षा किए इसका परीक्षण करें:** **Settings › Automations** में **Run now** पर क्लिक करें, या एजेंट से इसे चलाने को कहें (`manage-automations` के साथ `action=run-now`)। कार्य का प्रॉम्प्ट तुरंत उसके वास्तविक साइड इफ़ेक्ट के साथ चलता है, और `nextRun` नहीं बदलता। Run now को शेड्यूलर की ज़रूरत नहीं होती, इसलिए यह localhost पर भी `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` के बिना काम करता है।
+- **बिना प्रतीक्षा किए इसका परीक्षण करें:** **Settings › Automations** में **Run now** पर क्लिक करें, या एजेंट से इसे चलाने को कहें (`manage-automations` के साथ `action=run-now`)। कार्य का प्रॉम्प्ट तुरंत उसके वास्तविक साइड इफ़ेक्ट के साथ चलता है, और `nextRun` नहीं बदलता। अपवाद वह कार्य है जिसे फ्रेमवर्क ने बार-बार विफल होने के बाद रोक दिया है: एक सफल रन उसे फिर चालू करता है और `nextRun` की दोबारा गणना करता है। Run now को शेड्यूलर की ज़रूरत नहीं होती, इसलिए यह localhost पर भी `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` के बिना काम करता है।
 - **इसे रोकें:** `enabled: false` को पलटें। फ़ाइल वहीं रुक जाती है, बस चलना बंद हो जाती है।
 
 ## एजेंट टूल {#agent-tool}

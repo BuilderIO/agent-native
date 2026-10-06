@@ -211,7 +211,7 @@ Summarize overnight emails.`,
 ## 调试作业 {#debugging}
 
 - 在 **Settings › Automations** 中打开该自动化的详情，或在代理资源中检查 `jobs/<name>.md` — frontmatter 显示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
-- **无需等待即可测试：**在 **Settings › Automations** 中点击 **Run now**，或让代理运行它（`manage-automations` 搭配 `action=run-now`）。作业的提示会立即运行并产生真实的副作用，`nextRun` 不会改变。Run now 不需要调度程序，因此在 localhost 上不设置 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` 也能使用。
+- **无需等待即可测试：**在 **Settings › Automations** 中点击 **Run now**，或让代理运行它（`manage-automations` 搭配 `action=run-now`）。作业的提示会立即运行并产生真实的副作用，`nextRun` 不会改变。例外情况是框架在反复失败后暂停的作业：成功的运行会重新开启它并重新计算 `nextRun`。Run now 不需要调度程序，因此在 localhost 上不设置 `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` 也能使用。
 - **暂停：**翻转`enabled: false`。文件保持不变，只是停止运行。
 
 ## 代理工具 {#agent-tool}

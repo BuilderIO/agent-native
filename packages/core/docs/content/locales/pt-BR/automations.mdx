@@ -76,7 +76,7 @@ a carga útil da automação, até 64 KB. Um corpo enviado com tipo de conteúdo
 
 Envie um ID de evento estável em um cabeçalho `X-Webhook-Event-Id`,
 `X-Event-Id` ou `X-GitHub-Delivery`, ou como `id` de string de nível superior em um corpo
-JSON. Uma nova tentativa de entrega com o mesmo ID executa a automação apenas uma vez e recebe uma resposta `200` marcada como duplicada.
+JSON. Uma entrega repetida com o mesmo ID não é colocada na fila de novo e recebe uma resposta `200` marcada como duplicada. O ID só impede entregas duplicadas: se uma execução falhar, ela é tentada novamente, e a nova tentativa pode repetir efeitos colaterais que a execução com falha já causou.
 
 ## Criando automações {#creating}
 
@@ -90,7 +90,7 @@ O agente descobre os eventos disponíveis, confirma o plano e escreve a automaç
 
 Abra **Settings › Automations**. É o lugar principal para ver as automações agendadas, acionadas por eventos e acionadas por webhook, inspecionar o status, executar uma agora, pausá-las ou retomá-las e excluí-las. Links antigos para `/agent#jobs` redirecionam para lá.
 
-**Run now** é a forma mais rápida de testar uma automação. Ele executa as instruções da automação imediatamente, com seus efeitos colaterais reais. Ele ignora o gatilho e a condição e não altera a próxima execução agendada. O agente pode fazer o mesmo com `manage-automations` e `action=run-now`.
+**Run now** é a forma mais rápida de testar uma automação. Ele executa as instruções da automação imediatamente, com seus efeitos colaterais reais. Ele ignora o gatilho e a condição e não altera a próxima execução agendada, com uma exceção: se o framework pausou a automação após falhas repetidas, uma execução bem-sucedida a reativa e agenda sua próxima execução. O agente pode fazer o mesmo com `manage-automations` e `action=run-now`.
 
 <Callout tone="warning">
 
@@ -144,7 +144,7 @@ As automações compartilham todos os campos do [recurring-jobs frontmatter tabl
 | `mode`        | `"agentic"`                              | `"agentic"`  | Loop completo do agente (o único modo suportado). `"deterministic"` foi removido — nunca foi implementado, e as automações que o definiam nunca eram disparadas. |
 | `domain`      | string                                   | _(opcional)_ | Tag de agrupamento (e-mail, calendário, clipes etc.)                                                                                                             |
 
-Para um acionador de evento ou de webhook, `schedule` é `""` (vazio); para um gatilho de agendamento, ele carrega a expressão cron. O despachante também grava os mesmos campos gerenciados `lastRun`/`lastStatus`/`lastError` que o agendador faz, além de um status `"skipped"` quando uma condição é avaliada como falsa e um status `"error"` quando ela não pode ser avaliada.
+Para um acionador de evento ou de webhook, `schedule` é `""` (vazio); para um gatilho de agendamento, ele carrega a expressão cron. O despachante também grava os mesmos campos gerenciados `lastRun`/`lastStatus`/`lastError` que o agendador faz, além de um status `"skipped"` quando uma condição é avaliada como falsa. Quando uma condição não pode ser avaliada, veja [Condições](#conditions) para saber o que é registrado.
 
 ## O ônibus do evento {#event-bus}
 

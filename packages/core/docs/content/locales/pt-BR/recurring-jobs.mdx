@@ -212,7 +212,7 @@ O agendador é um plugin de estrutura (a rotina interna `processRecurringJobs()`
 ## Depurando um trabalho {#debugging}
 
 - Abra os detalhes da automação em **Settings › Automations**, ou abra `jobs/<name>.md` na área de trabalho — o frontmatter mostra `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Teste sem esperar:** clique em **Run now** em **Settings › Automations**, ou peça ao agente para executá-lo (`manage-automations` com `action=run-now`). O prompt do trabalho é executado imediatamente com seus efeitos colaterais reais, e `nextRun` não muda. Run now não precisa do agendador, então também funciona em localhost sem `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
+- **Teste sem esperar:** clique em **Run now** em **Settings › Automations**, ou peça ao agente para executá-lo (`manage-automations` com `action=run-now`). O prompt do trabalho é executado imediatamente com seus efeitos colaterais reais, e `nextRun` não muda. A exceção é um trabalho que o framework pausou após falhas repetidas: uma execução bem-sucedida o reativa e recalcula `nextRun`. Run now não precisa do agendador, então também funciona em localhost sem `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS`.
 - **Pause:** vire `enabled: false`. O arquivo permanece no mesmo lugar, apenas para de ser executado.
 
 ## Ferramenta de agente {#agent-tool}
