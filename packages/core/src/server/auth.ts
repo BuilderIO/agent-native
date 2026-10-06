@@ -3807,6 +3807,20 @@ function createAuthGuardFn(
       return "";
     }
 
+    const directoryResponseOrigin =
+      isDirectoryMcpPath && getHeader(event, "origin");
+    if (
+      directoryResponseOrigin &&
+      MCP_DIRECTORY_CORS_ORIGINS.has(directoryResponseOrigin)
+    ) {
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Origin",
+        directoryResponseOrigin,
+      );
+      setResponseHeader(event, "Vary", "Origin");
+    }
+
     const cors = applyCorsHeaders(event, config.publicCorsPaths, p);
     if (getMethod(event) === "OPTIONS") {
       if (cors.hasOrigin && !cors.allowed) {
