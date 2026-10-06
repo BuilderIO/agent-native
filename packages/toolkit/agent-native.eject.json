@@ -270,7 +270,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -377,7 +379,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -458,7 +462,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -580,7 +586,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -663,15 +671,21 @@
       "label": "Toolkit app Auth",
       "catalog": "toolkit-ui",
       "catalogItems": ["app-auth"],
-      "entrypoints": ["./app/auth"],
+      "entrypoints": ["./app/auth", "./app/auth/server"],
       "strategy": "source-copy",
-      "sourceEntries": ["src/app/auth"],
+      "sourceEntries": [
+        "src/app/auth/server.ts",
+        "src/app/auth",
+        "src/wgsl-env.d.ts"
+      ],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/core",
         "@tabler/icons-react",
         "react",
-        "react-dom"
+        "react-dom",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -691,6 +705,7 @@
         "@agent-native/core/shared/runtime-config",
         "@agent-native/core/shared/sign-in-journey",
         "@agent-native/core/shared/ssr-session-bootstrap",
+        "@agent-native/core/server",
         "@agent-native/core/shared/test-traffic"
       ]
     },
@@ -846,7 +861,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -954,7 +971,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1082,7 +1101,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1200,7 +1221,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1240,14 +1263,18 @@
         "@agent-native/core",
         "@radix-ui/react-select",
         "@tabler/icons-react",
-        "react"
+        "react",
+        "react-router"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/analytics",
+        "@agent-native/core/client/hooks",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/sharing/useAccessRequestReview",
         "@agent-native/core/client/sharing/useShareButtonController",
         "@agent-native/core/client/sharing/useShareDialogController",
+        "@agent-native/core/client/sign-in-return",
         "@agent-native/core/client/use-action",
         "@agent-native/core/client/use-avatar"
       ]

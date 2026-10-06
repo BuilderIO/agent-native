@@ -19,6 +19,7 @@ import {
   serializeCapture,
   stableJson,
 } from "./brain.js";
+import { BrainClassifierUnavailableError } from "./capture-sanitization.js";
 import { resolveMeetingMemberEmails } from "./meeting-audience.js";
 import {
   ensureSlackPublicChannelMembership,
@@ -34,10 +35,13 @@ import {
   fetchZoomAccessToken,
   listZoomRecordings,
   hasProcessingTranscript,
-  listZoomUserIds,
+  listZoomAccountRecordings,
   nextZoomCursorFrom,
   normalizeZoomRecording,
   zoomExternalId,
+  zoomMeetingFilterFromConfig,
+  zoomMeetingFilterKey,
+  zoomMeetingMatchesFilter,
 } from "./zoom.js";
 
 export interface ConnectorSyncResult {
@@ -183,6 +187,7 @@ interface SlackSyncCursor {
   channels?: Record<string, SlackChannelCursor>;
   publicChannelOffset?: number;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
@@ -190,12 +195,15 @@ interface GranolaSyncCursor {
   cursor?: string | null;
   updatedAfter?: string;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
 interface ZoomSyncCursor {
   from?: string;
+  filterKey?: string | null;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
@@ -293,6 +301,7 @@ interface GitHubRepoCursor {
 interface GitHubSyncCursor {
   repositories?: Record<string, GitHubRepoCursor>;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
@@ -686,6 +695,31 @@ async function requireConnectorCredential(
     throw new Error(`${label} credential ${key} is not configured`);
   }
   return value;
+}
+
+export function connectorErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const record = error as { message?: unknown; error?: unknown };
+    if (typeof record.message === "string" && record.message.trim()) {
+      return record.message;
+    }
+    if (record.error instanceof Error && record.error.message) {
+      return record.error.message;
+    }
+  }
+  const kind =
+    error && typeof error === "object" && error.constructor?.name
+      ? error.constructor.name
+      : typeof error;
+  return `Sync stopped by an unexpected ${kind} with no details, often a dropped database or network connection. Nothing was lost; Brain retries at the next sync.`;
+}
+
+function transientRetryAt(error: unknown): string | undefined {
+  return error instanceof BrainClassifierUnavailableError && error.retryAfterMs
+    ? new Date(Date.now() + error.retryAfterMs).toISOString()
+    : undefined;
 }
 
 function retryCursor(
@@ -1298,7 +1332,7 @@ export async function runSlackPilot(
           : undefined,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const channelValidation = {
       requested: requestedRefs.length,
       checked: 0,
@@ -2171,7 +2205,7 @@ async function syncFromConfiguredItems(
     };
   } catch (err) {
     await heartbeat.stop();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     await renewRunLease(run);
     await getDb()
       .update(schema.brainSources)
@@ -2598,12 +2632,13 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         : "Slack sync completed with no new channel messages",
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const failedCursor: SlackSyncCursor = {
       ...cursor,
       ...nextCursor,
       retry: isRateLimit ? retryCursor(err, "slack") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;
@@ -2740,7 +2775,7 @@ export async function refreshSlackThreadCapture(
         : null,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = connectorErrorMessage(error);
     await finishRun(run, "error", { capturesCreated: 0 }, message);
     throw error;
   }
@@ -2948,11 +2983,12 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
         : "Granola sync completed with no new notes",
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const nextCursor: GranolaSyncCursor = {
       ...cursor,
       retry: isRateLimit ? retryCursor(err, "granola") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;
@@ -3013,24 +3049,32 @@ async function zoomCall<T>(endpoint: string, call: () => Promise<T>) {
   }
 }
 
+const ZOOM_DEDUPE_CHUNK_SIZE = 500;
+
 async function importedZoomExternalIds(
   sourceId: string,
   externalIds: string[],
 ): Promise<Set<string>> {
   const imported = new Set<string>();
-  if (!externalIds.length) return imported;
-  const rows = await getDb()
-    .select({ externalId: schema.brainRawCaptures.externalId })
-    .from(schema.brainRawCaptures)
-    .where(
-      and(
-        eq(schema.brainRawCaptures.sourceId, sourceId),
-        inArray(schema.brainRawCaptures.externalId, externalIds),
-        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
-      ),
-    );
-  for (const row of rows) {
-    if (row.externalId) imported.add(row.externalId);
+  for (
+    let offset = 0;
+    offset < externalIds.length;
+    offset += ZOOM_DEDUPE_CHUNK_SIZE
+  ) {
+    const chunk = externalIds.slice(offset, offset + ZOOM_DEDUPE_CHUNK_SIZE);
+    const rows = await getDb()
+      .select({ externalId: schema.brainRawCaptures.externalId })
+      .from(schema.brainRawCaptures)
+      .where(
+        and(
+          eq(schema.brainRawCaptures.sourceId, sourceId),
+          inArray(schema.brainRawCaptures.externalId, chunk),
+          eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        ),
+      );
+    for (const row of rows) {
+      if (row.externalId) imported.add(row.externalId);
+    }
   }
   return imported;
 }
@@ -3068,8 +3112,12 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const dayMs = 24 * 60 * 60 * 1000;
   const to = utcDate(runStartedAt);
   const earliest = utcDate(runStartedAt - ZOOM_MAX_LOOKBACK_DAYS * dayMs);
+  const meetingFilter = zoomMeetingFilterFromConfig(objectValue(config.zoom));
+  const filterKey = zoomMeetingFilterKey(meetingFilter);
+  // A changed filter can include meetings the cursor has already moved past.
+  const filterChanged = (cursor.filterKey ?? null) !== filterKey;
   const requestedFrom =
-    cursor.from && ZOOM_DATE.test(cursor.from)
+    !filterChanged && cursor.from && ZOOM_DATE.test(cursor.from)
       ? cursor.from
       : utcDate(runStartedAt - lookbackDays * dayMs);
   const from = requestedFrom < earliest ? earliest : requestedFrom;
@@ -3078,8 +3126,10 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const stats: Record<string, unknown> = {
     from,
     to,
-    usersScanned: 0,
+    recordingListsScanned: 0,
     meetingsSeen: 0,
+    meetingsSkippedByFilter: 0,
+    filterChanged,
     transcriptsDownloaded: 0,
     emptyTranscripts: 0,
     alreadyImported: 0,
@@ -3113,22 +3163,35 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       fetchZoomAccessToken({ accountId, clientId, clientSecret }),
     );
     const configuredUserIds = zoomUserIdsFromConfig(config);
-    const userIds =
-      configuredUserIds ??
-      (await zoomCall("/users", () => listZoomUserIds(token)));
+    const renewLease = () => renewRunLease(run);
+    const recordingLists = configuredUserIds
+      ? configuredUserIds.map((userId) => ({
+          endpoint: "/users/{userId}/recordings",
+          list: () => listZoomRecordings(token, userId, from, to, renewLease),
+        }))
+      : [
+          {
+            endpoint: "/accounts/{accountId}/recordings",
+            list: () =>
+              listZoomAccountRecordings(token, accountId, from, to, renewLease),
+          },
+        ];
 
-    for (const userId of userIds) {
-      const meetings = await zoomCall("/users/{userId}/recordings", () =>
-        listZoomRecordings(token, userId, from, to),
-      );
+    for (const recordingList of recordingLists) {
+      const listed = await zoomCall(recordingList.endpoint, recordingList.list);
       await renewRunLease(run);
-      stats.usersScanned = Number(stats.usersScanned) + 1;
+      stats.recordingListsScanned = Number(stats.recordingListsScanned) + 1;
+      stats.meetingsSeen = Number(stats.meetingsSeen) + listed.length;
+      const meetings = listed.filter((meeting) =>
+        zoomMeetingMatchesFilter(meeting, meetingFilter),
+      );
+      stats.meetingsSkippedByFilter =
+        Number(stats.meetingsSkippedByFilter) + listed.length - meetings.length;
       const imported = await importedZoomExternalIds(
         source.id,
         meetings.map(zoomExternalId),
       );
       for (const meeting of meetings) {
-        stats.meetingsSeen = Number(stats.meetingsSeen) + 1;
         if (hasProcessingTranscript(meeting)) {
           pendingMeetingStarts.push(meeting.start_time);
           stats.pendingTranscripts = Number(stats.pendingTranscripts) + 1;
@@ -3181,6 +3244,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         pendingMeetingStarts,
         earliest,
       }),
+      filterKey,
       retry: undefined,
       lastRunAt: nowIso(),
     };
@@ -3216,11 +3280,12 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         : "Zoom sync completed with no new transcripts",
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const nextCursor: ZoomSyncCursor = {
       ...cursor,
       retry: isRateLimit ? retryCursor(err, "zoom") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;
@@ -3582,12 +3647,13 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     };
   } catch (err) {
     await heartbeat.stop();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const failedCursor: GitHubSyncCursor = {
       ...cursor,
       ...nextCursor,
       retry: isRateLimit ? retryCursor(err, "github") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;

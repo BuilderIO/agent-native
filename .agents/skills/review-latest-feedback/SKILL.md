@@ -33,7 +33,8 @@ Default channels: `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#dev-agent-native-feedback` (`C0AJ5QV0J03`). Apply the full workflow to each:
 use its `in:<#CHANNEL>` filter for searches and read each channel. Track
 pagination, reply cursors, and counts separately. Honor narrower invocation
-scope.
+scope. Each channel uses the same five-day scan boundary; `#dev-agent-native-feedback`
+is a default input, not a special-case exclusion.
 
 ## Phase 0: claim what you are taking
 
@@ -50,18 +51,18 @@ details and logs yourself; don't send reporters to developer tools.
 The proposed remedy may be wrong while the bug is real. Trace the failure to
 its owning boundary; do not reject it because the suggestion is unsuitable.
 
-For a parent with multiple symptoms, record a disposition for each symptom
-before claiming it. A subjective or out-of-scope suggestion does not close a
-separate defect.
+Record each symptom's disposition; subjective or out-of-scope feedback
+doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 ### Reaction gate
 
-Add `✅` to every claimed thread resolved by a verified **Fixed** item (all
-Phase 2 bars). Add `🎫` when any investigated item remains unfixed, including
-subjective, deferred, or out-of-scope work; it means “not fixed” and does not
-imply an existing ticket. Mixed threads get both. **Shipped** or **Live
-verified** alone do not earn `✅`. Use the ledger and newer evidence for current
-disposition. Never remove reactions.
+`👀` is claim history; `✅` requires **Fixed** after all Phase 2 bars. `🎫`
+marks accepted work another owner must do; use it only with an existing ticket
+naming that owner and exact action, linked in the ledger and reply. No `🎫` for
+fixed scope, routine rollout, optional live checks, subjective/out-of-scope, or
+unapproved work. Pair `✅` + `🎫` only for distinct scopes; name the fixed
+behavior and ticket action. **Shipped**/**Live verified** alone don't earn
+`✅`. Never remove reactions.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -89,10 +90,11 @@ For clusters, post one owner status with each source permalink and
 - **Foreign ownership:** **Owned elsewhere** only when the latest thread update
   or linked work confirms another active owner; an eye alone is claim history.
 
-After merge, **Fixed** closes the source issue; track publication, beta, and
-live follow-up separately. Link each to the source, package/release/runtime,
-owner, and verification command or URL. Open-issue scans must not reopen closed
-fixes. **Clustered** closes one row but retains it.
+After merge, **Fixed** closes the source issue. Track release/runtime
+separately; normal rollout and optional live checks neither reopen it nor
+warrant `🎫`. Follow up only on accepted work outside this run; record source,
+target, owner, exact action, and verification. Don't reopen closed fixes.
+**Clustered** closes one row but retains it.
 
 Enumerate `slack_read_channel` newest backward through `next_cursor` until a
 parent is older than 5 days. Record the oldest in-range parent as the scan
@@ -302,11 +304,11 @@ re-read before posting/closing.
 Query both production Sentry projects - frontend/browser and backend/CLI -
 paginate unresolved issues, and record representative events, releases, and
 fingerprints. Classify each as repo-owned, external/provider,
-deployment/configuration, or unclear; fix repo-owned failures at the boundary
-and verify the source/build. Check the published runtime when available, but
-record any release or live gap separately rather than holding a merged fix open.
-Record external actions for the rest; silence or an old release is not proof the
-current error is gone.
+deployment/configuration, or unclear. Fix repo-owned failures at the boundary
+and verify locally. Use hosted runtime only when the full symptom cannot be
+reproduced locally and hosted behavior is needed. Track release gaps separately;
+don't hold a merged fix open. Record other external actions; silence or a stale
+release doesn't prove the error is gone.
 
 Query authenticated Agent-Native Analytics error issues in parallel. Use
 `list-error-issues` for unresolved groups, then `get-error-issue` for stacks,
@@ -315,9 +317,9 @@ and server `captureError()` failures when the server Analytics key/provider is
 configured. Use it as the Sentry fallback when rate-limited. Do not query
 `error_issues` or `error_events` through
 `query-agent-native-analytics`; use that action only for bounded event/LLM
-correlation. Apply the same ownership gate: fix worthwhile repo-owned issues
-at their boundary, verify runtime, and record external, deployment, or unclear
-issues without inventing a fix.
+correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
+at their boundary; record external, deployment, or unclear issues without
+inventing a fix.
 
 ## Phase 2: fix
 
@@ -389,18 +391,17 @@ surface is the contract:
    read UI and persisted state, and cover failure/retry/cancel/async paths.
    Destructive flows require wrong/partial/exact confirmation and recovery;
    do not delete unless needed.
-4. **Test release and race layers.** Use deterministic concurrency or 10 runs,
-   a clean scaffold/cache and exact published/candidate package, and the exact
-   beta/production URL when those layers are in scope. These strengthen
-   **Shipped** and **Live verified**; they do not keep a verified, merged source
-   fix open.
-5. Record untested layers/variants. Before a verified merge, use the narrowest
-   evidence-limited disposition. Once the source fix is verified in the merged
-   shipping snapshot, use **Fixed** even when publication, beta, or live layers
-   remain; create or link the durable follow-up required above. Use **Shipped**
-   or **Live verified** only after their additional bars hold. Never release
-   `✅` or call **Fixed** without merged source proof. A post-checkmark repeat
-   reopens the item and needs a fresh failing pre-change reproduction.
+4. **Test release/race layers when needed.** Use concurrency/10 runs, a clean
+   scaffold, and the exact package for package reports. Reproduce and verify
+   locally by default; use beta only if the full symptom cannot be reproduced
+   locally and hosted behavior is needed. Record why. These checks support
+   **Shipped**/**Live verified**, not a merged **Fixed** claim.
+5. Record untested layers. Before merge, use an evidence-limited status. After
+   verified source merge, mark **Fixed** even if release/live layers remain;
+   routine rollout and optional beta checks aren't ticketed follow-ups.
+   **Shipped**/**Live verified** need their own bars. Don't mark **Fixed**/`✅`
+   without merged-source proof. Reopen repeats only with a fresh failing
+   pre-change reproduction.
 
 ### Reproduction ledger - required for every row
 
@@ -471,28 +472,28 @@ Share only new or useful information.
 
 ### After a PR merges
 
-After a Slack-fix PR merges, update each affected thread once, including
-clusters. This is the only exception to the single-owner rule; name the fix.
-For beta app fixes, check that the merge-triggered publisher run succeeded before
-sharing timing. Then say when the update should appear in plain language. If
-the run is missing or failed, say publication is pending and report the
-publisher issue.
-For packages, say when the update should be available. Never claim live without
-runtime proof.
+After a Slack-fix PR merges, reply once in each affected thread, including
+clusters, and name the fix.
 
-For mixed reports, list each unaddressed item and why, including subjective or
-out-of-scope items. Ask one targeted question if needed. Say clear deferred
-work will be ticketed, but claim a ticket only if created or linked. Keep both
-`✅` and `🎫`. If merge comes later, carry source permalinks and the reply
-obligation into the ledger and finish after merge.
+For beta app fixes, check the merge-triggered publisher run before giving the
+normal few-hours ETA. This checks release-job status, not beta behavior. If it
+succeeds, say what changed and that it'll be on beta in the next few hours.
+Keep test environment, verification, publisher results, and rollout details out
+of the reply; record evidence in the recap or PR. If the run is missing or
+failed, omit the ETA and state what's done, the exact remaining action and owner,
+and an existing ticket when available. Apply the Reaction gate before `🎫`.
+For packages, state availability without verification details.
 
-- **Fixed** / **Shipped** / **Live verified** - meet Phase 2's proof bars. A
-  recorded live observation may be silent, except merged Slack fixes still get
-  the reply above. Follow the package publication rules above; name beta/runtime
-  only when exercised.
-  Use **Shipped** for upvoted improvements.
-- **In progress** — name the active work when it will continue beyond this run;
-  acknowledge existing concrete ownership. Ask nothing.
+For a fixed behavior with a ticketed handoff, state the done behavior and
+remaining action/owner/ticket separately; don't imply the fixed scope is open.
+Don't promise a ticket until created and assigned. Ask one targeted question if
+needed. If merge is later, retain source links and the reply obligation in the
+ledger.
+
+- **Fixed** / **Shipped** / **Live verified** meet Phase 2 bars. Recorded live
+  observations may be silent; merged Slack fixes still get the reply above.
+  **Shipped** is for upvoted improvements.
+- **In progress** — name continuing work and its owner; ask nothing.
 - **A question** — subject to the budget below.
 
 Unclaimed scope/noise gets an internal recap row. Ask about an unverified defect
@@ -576,9 +577,9 @@ Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker row / source item | Reporter | Disposition | Repro and expected vs actual | Pre / post result | Runtime / build / live evidence | Docs locales | Replied? | Slack reactions |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [Slack thread](...) | ... | <one disposition from the authoritative list above> | command or click sequence; expected / actual | before: ...; after: ... | source / tests / build / deploy / URL | updated / not applicable / pending | yes / no | 👀 ours / 👀 other / unclaimed; ✅ only for verified fixes |
+| Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

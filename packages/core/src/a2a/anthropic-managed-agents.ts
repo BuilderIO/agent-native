@@ -1,11 +1,13 @@
+import { getAppConfig } from "../app-config/index.js";
 import type { AgentChatRuntimeApprovalRequestEvent } from "../client/chat/runtime.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { canonicalA2AAudience } from "./audience.js";
 import { resolveA2ACallerAuth } from "./caller-auth.js";
-import { shouldPreferGlobalA2ASecret, signA2AToken } from "./client.js";
+import { getGlobalA2ASecret, signA2AToken } from "./client.js";
 import {
   RemoteAgentCredentialRejectedError,
   resolveRemoteAgentToken,
@@ -252,6 +254,7 @@ function invalidContinuation(message?: string): AnthropicManagedAgentsError {
 async function mintContinuationToken(
   sessionId: string,
   pendingToolUseIds: string[],
+  context: A2AHandlerContext,
   options: AnthropicManagedAgentHandlerOptions,
 ): Promise<string> {
   const caller = await resolveA2ACallerAuth({
@@ -262,25 +265,37 @@ async function mintContinuationToken(
       "Anthropic Managed Agents approvals require an authenticated caller.",
     );
   }
-  try {
-    return await signA2AToken(
-      caller.userEmail,
-      caller.orgDomain,
-      caller.orgSecret,
-      {
-        expiresIn: MANAGED_CONTINUATION_TOKEN_TTL,
-        preferGlobalSecret: shouldPreferGlobalA2ASecret(caller.orgSecret),
-        extraClaims: {
-          typ: MANAGED_CONTINUATION_TOKEN_TYPE,
-          managed_session_id: sessionId,
-          managed_pending_tool_use_ids: pendingToolUseIds,
-          managed_agent_id: options.agentId.trim(),
-          managed_environment_id: options.environmentId.trim(),
-          managed_agent_url: normalizeApiBaseUrl(options.apiBaseUrl),
-          ...(caller.orgId ? { org_id: caller.orgId } : {}),
-        },
-      },
+  if (!getGlobalA2ASecret()) {
+    throw invalidContinuation(
+      "Anthropic Managed Agents approvals require the deployment A2A_SECRET; an organization secret cannot prove a user approval.",
     );
+  }
+  try {
+    let audience: string | undefined;
+    if (context.event) {
+      const { getRequestURL } = await import("h3");
+      audience = canonicalA2AAudience(
+        getRequestURL(context.event as never).href,
+      );
+    } else {
+      const appUrl = getAppConfig().app.url;
+      if (appUrl) audience = canonicalA2AAudience(appUrl);
+    }
+    if (!audience) throw new Error("The request origin is unavailable.");
+    return await signA2AToken(caller.userEmail, caller.orgDomain, undefined, {
+      expiresIn: MANAGED_CONTINUATION_TOKEN_TTL,
+      preferGlobalSecret: true,
+      ...(audience ? { audience } : {}),
+      extraClaims: {
+        typ: MANAGED_CONTINUATION_TOKEN_TYPE,
+        managed_session_id: sessionId,
+        managed_pending_tool_use_ids: pendingToolUseIds,
+        managed_agent_id: options.agentId.trim(),
+        managed_environment_id: options.environmentId.trim(),
+        managed_agent_url: normalizeApiBaseUrl(options.apiBaseUrl),
+        ...(caller.orgId ? { org_id: caller.orgId } : {}),
+      },
+    });
   } catch (cause) {
     throw new AnthropicManagedAgentsError({
       code: "continuation_invalid",
@@ -303,13 +318,8 @@ async function verifyContinuationToken(
   try {
     verified = await verifyA2AToken(token, context.event, {
       includeClaims: true,
+      globalSecretOnly: true,
     });
-    if (verified.email === null && caller.orgSecret) {
-      verified = await verifyA2AToken(token, context.event, {
-        includeClaims: true,
-        verificationSecret: caller.orgSecret,
-      });
-    }
   } catch (cause) {
     throw new AnthropicManagedAgentsError({
       code: "continuation_invalid",
@@ -719,6 +729,7 @@ async function mapSessionEvents(
     const continuationToken = await mintContinuationToken(
       sessionId,
       pendingToolUseIds,
+      context,
       options,
     );
     const approvals = pendingToolUseIds.map((id) => {

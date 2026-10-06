@@ -13,6 +13,7 @@ export const CHATGPT_DIRECTORY_TOOL_NAMES = [
 
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
+  widgets: false,
   keyToolNames: [
     "search-documents",
     "get-document",
