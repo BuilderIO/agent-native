@@ -254,6 +254,11 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
                       <span className="uppercase tracking-wide">
                         {matchLabel(hit, t)}
                       </span>
+                      {hit.trashedAt ? (
+                        <span className="rounded-sm border border-border px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {t("navigation.trash")}
+                        </span>
+                      ) : null}
                       {typeof hit.matchMs === "number" ? (
                         <>
                           <span aria-hidden="true">·</span>

@@ -1227,8 +1227,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Tu página anterior ya no está disponible, así que abrimos la página de bienvenida.",
-  requestedPageUnavailable:
-    "Esa página no está disponible para tu cuenta, así que abrimos la página de bienvenida.",
   saveFailed: "No se pudo guardar tu ubicación",
   workspaceWelcomeUnavailableTitle: "Todavía no hay nada abierto aquí",
   workspaceWelcomeUnavailableDescription:
@@ -1349,6 +1347,10 @@ const exactEnglish = {
     iconPickerUploading: "Subiendo…",
     suggestionAmendmentEmpty:
       "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
+    suggestionUnplaceable:
+      "El texto alrededor de esta sugerencia cambió, así que no se puede aplicar. Sigue pendiente: recházala o vuelve a sugerir el cambio.",
+    proposalUnplaceable:
+      "Una de estas sugerencias no se puede aplicar porque el texto a su alrededor cambió, así que no se aplicó ninguna. Siguen pendientes: acéptalas o recházalas de una en una.",
     suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
     suggestionAmendmentResolved:
       "Esta sugerencia cambió en otro lugar. Tu borrador sin guardar sigue aquí.",
@@ -1634,6 +1636,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Ninguna página seleccionada",
+    pageNoAccess: "No tienes acceso a esta página",
+    pageMissing: "Esta página no existe",
+    pageInTrash: "Esta página está en la papelera",
+    pageInTrashAskOwner: "Pide al propietario que la restaure.",
+    openTrash: "Abrir la papelera",
+    goToMyPages: "Ir a mis páginas",
     noPageDescription:
       "Selecciona una página en la barra lateral o crea una nueva para empezar.",
     newPage: "Nueva página",

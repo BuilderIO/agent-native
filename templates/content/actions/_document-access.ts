@@ -234,10 +234,27 @@ export async function resolveDocumentAccess(
     .from(schema.documents)
     .where(eq(schema.documents.id, id))
     .limit(1);
-  if (!reference?.spaceId) return null;
-  let spaceAccess;
+  const authority = await contentSpaceAuthority(reference?.spaceId);
+  if (!authority) return null;
+  const granted = await resolve({
+    userEmail: authority.userEmail,
+    orgId: authority.orgId ?? undefined,
+  });
+  if (!granted) return null;
+  return { ...granted, authority };
+}
+
+/**
+ * The authority a space lends its members, or null when there's no space or
+ * the caller isn't a member of it.
+ */
+export async function contentSpaceAuthority(
+  spaceId: string | null | undefined,
+): Promise<{ userEmail: string; orgId: string | null } | null> {
+  if (!spaceId) return null;
   try {
-    spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
+    const { authority } = await resolveContentSpaceAccess(spaceId);
+    return { userEmail: authority.userEmail, orgId: authority.orgId ?? null };
   } catch (error) {
     if (
       error instanceof Error &&
@@ -248,16 +265,4 @@ export async function resolveDocumentAccess(
     }
     throw error;
   }
-  const granted = await resolve({
-    userEmail: spaceAccess.authority.userEmail,
-    orgId: spaceAccess.authority.orgId ?? undefined,
-  });
-  if (!granted) return null;
-  return {
-    ...granted,
-    authority: {
-      userEmail: spaceAccess.authority.userEmail,
-      orgId: spaceAccess.authority.orgId ?? null,
-    },
-  };
 }

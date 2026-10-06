@@ -16,8 +16,19 @@ export class ZoomHttpError extends Error {
   ) {
     const code = zoomCode ? " (code " + zoomCode + ")" : "";
     const reason = zoomReason ? ": " + zoomReason : "";
+    const hint =
+      zoomCode === "unsupported_grant_type"
+        ? " These credentials are not from a Zoom Server-to-Server OAuth app. Create one in the Zoom App Marketplace and replace ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET."
+        : "";
     super(
-      "Zoom " + step + " failed with status " + status + code + reason + ".",
+      "Zoom " +
+        step +
+        " failed with status " +
+        status +
+        code +
+        reason +
+        "." +
+        hint,
     );
     this.name = "ZoomHttpError";
   }
@@ -43,11 +54,6 @@ export interface ZoomMeeting {
   start_time: string;
   share_url?: string;
   recording_files?: ZoomRecordingFile[];
-}
-
-interface ZoomUsersPage {
-  users?: Array<{ id?: string }>;
-  next_page_token?: string;
 }
 
 interface ZoomRecordingsPage {
@@ -139,33 +145,36 @@ export async function fetchZoomAccessToken(
   return body.access_token;
 }
 
-export async function listZoomUserIds(token: string): Promise<string[]> {
-  const ids: string[] = [];
-  let nextPageToken: string | undefined;
-  do {
-    const params = new URLSearchParams({
-      status: "active",
-      page_size: String(ZOOM_PAGE_SIZE),
-    });
-    if (nextPageToken) params.set("next_page_token", nextPageToken);
-    const page = await zoomApiJson<ZoomUsersPage>(
-      token,
-      `${ZOOM_API_BASE}/users?${params.toString()}`,
-      "user list",
-    );
-    for (const user of page.users ?? []) {
-      if (user.id) ids.push(user.id);
-    }
-    nextPageToken = page.next_page_token || undefined;
-  } while (nextPageToken);
-  return ids;
+type ZoomPageCallback = () => Promise<void>;
+
+export function listZoomAccountRecordings(
+  token: string,
+  accountId: string,
+  from: string,
+  to: string,
+  onPage?: ZoomPageCallback,
+) {
+  const path = "/accounts/" + encodeURIComponent(accountId) + "/recordings";
+  return listZoomRecordingPages(token, path, from, to, onPage);
 }
 
-export async function listZoomRecordings(
+export function listZoomRecordings(
   token: string,
   userId: string,
   from: string,
   to: string,
+  onPage?: ZoomPageCallback,
+) {
+  const path = "/users/" + encodeURIComponent(userId) + "/recordings";
+  return listZoomRecordingPages(token, path, from, to, onPage);
+}
+
+async function listZoomRecordingPages(
+  token: string,
+  path: string,
+  from: string,
+  to: string,
+  onPage?: ZoomPageCallback,
 ): Promise<ZoomMeeting[]> {
   const meetings: ZoomMeeting[] = [];
   let nextPageToken: string | undefined;
@@ -178,10 +187,11 @@ export async function listZoomRecordings(
     if (nextPageToken) params.set("next_page_token", nextPageToken);
     const page = await zoomApiJson<ZoomRecordingsPage>(
       token,
-      `${ZOOM_API_BASE}/users/${encodeURIComponent(userId)}/recordings?${params.toString()}`,
+      `${ZOOM_API_BASE}${path}?${params.toString()}`,
       "recording list",
     );
     meetings.push(...(page.meetings ?? []));
+    await onPage?.();
     nextPageToken = page.next_page_token || undefined;
   } while (nextPageToken);
   return meetings;

@@ -1,10 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
-import {
-  readAppState,
-  writeAppState,
-} from "@agent-native/core/application-state";
-import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import { writeAppState } from "@agent-native/core/application-state";
 import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
@@ -37,25 +33,28 @@ import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status.js"
 import {
   AudioOnlyExtractionError,
   assertAudioHasAudibleSignal,
+  audioExtractionTimeoutMs,
   isNoExtractableAudioError,
   isTransientExtractionError,
-  prepareAudioOnlyTranscriptionMedia,
   type AudioOnlyTranscriptionMedia,
 } from "./lib/audio-only-transcription.js";
 import {
   clearBuilderCreditsExhausted,
   noteBuilderCreditsExhausted,
 } from "./lib/builder-credits-state.js";
+import {
+  ChunkTranscriptionError,
+  joinChunkTranscripts,
+  transcribeAudioChunks,
+} from "./lib/chunked-transcription.js";
 import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
 import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
 import { isLoomRecording } from "./lib/native-media.js";
-import {
-  isLikelyMismatchedTranscriptLanguage,
-  normalizeProviderTranscript,
-} from "./lib/provider-transcript.js";
+import { isLikelyMismatchedTranscriptLanguage } from "./lib/provider-transcript.js";
+import { prepareRecordingTranscriptionAudio } from "./lib/recording-audio-source.js";
 import regenerateSummary from "./regenerate-summary.js";
 import regenerateTitle from "./regenerate-title.js";
 
@@ -158,6 +157,24 @@ export function builderTranscriptionTimeoutMs(
   );
 }
 
+// The stored size may describe the original upload or its compressed copy,
+// depending on whether compression finished, so budget for the larger of it
+// and a duration-based estimate.
+export function estimatedRecordingMediaBytes(
+  videoSizeBytes: number | null | undefined,
+  durationMs: number | null | undefined,
+): number {
+  const sizeBytes =
+    videoSizeBytes && Number.isFinite(videoSizeBytes) && videoSizeBytes > 0
+      ? videoSizeBytes
+      : 0;
+  const durationBytes =
+    durationMs && Number.isFinite(durationMs) && durationMs > 0
+      ? Math.ceil(durationMs / 60_000) * ESTIMATED_VIDEO_BYTES_PER_MINUTE
+      : 0;
+  return Math.max(sizeBytes, durationBytes);
+}
+
 export function recordingMediaFetchTimeoutMs(
   videoSizeBytes: number | null | undefined,
   durationMs: number | null | undefined,
@@ -172,12 +189,10 @@ export function recordingMediaFetchTimeoutMs(
     );
   }
 
-  const estimatedBytes =
-    videoSizeBytes && Number.isFinite(videoSizeBytes) && videoSizeBytes > 0
-      ? videoSizeBytes
-      : durationMs && Number.isFinite(durationMs) && durationMs > 0
-        ? Math.ceil(durationMs / 60_000) * ESTIMATED_VIDEO_BYTES_PER_MINUTE
-        : 0;
+  const estimatedBytes = estimatedRecordingMediaBytes(
+    videoSizeBytes,
+    durationMs,
+  );
   if (!estimatedBytes) return MEDIA_FETCH_MIN_TIMEOUT_MS;
 
   const fiftyMbUnits = Math.ceil(estimatedBytes / (50 * 1024 * 1024));
@@ -299,78 +314,6 @@ function summarizeError(err: unknown): string {
 function rootCause(err: Error): Error {
   const cause = (err as Error & { cause?: unknown }).cause;
   return cause instanceof Error ? rootCause(cause) : err;
-}
-
-function recordingFallbackMimeType(
-  rec: Pick<RecordingMediaRow, "videoFormat">,
-): string {
-  return rec.videoFormat === "mp4" ? "video/mp4" : "video/webm";
-}
-
-function pickSourceMimeType(
-  actual: string | null | undefined,
-  fallback: string,
-): string {
-  const base = (actual ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-  if (!base || base === "application/octet-stream") return fallback;
-  return actual ?? fallback;
-}
-
-async function loadRecordingMediaBlob({
-  recordingId,
-  videoUrl,
-  fallbackMimeType,
-  timeoutMs,
-}: {
-  recordingId: string;
-  videoUrl: string;
-  fallbackMimeType: string;
-  timeoutMs: number;
-}): Promise<{ blob: Blob; sourceMimeType: string }> {
-  const isLocalBlob =
-    videoUrl.startsWith("/api/video/") ||
-    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"));
-  if (isLocalBlob) {
-    const stash = await readAppState(`recording-blob-${recordingId}`);
-    const b64 = typeof stash?.data === "string" ? stash.data : null;
-    if (!b64) throw new Error("recording-blob app-state missing");
-    const bytes = Buffer.from(b64, "base64");
-    const mime =
-      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
-    return {
-      blob: new Blob([bytes], { type: mime }),
-      sourceMimeType: pickSourceMimeType(mime, fallbackMimeType),
-    };
-  }
-
-  let resolvedVideoUrl = videoUrl;
-  const isAppRelativeUrl =
-    resolvedVideoUrl.startsWith("/") && !resolvedVideoUrl.startsWith("//");
-  if (isAppRelativeUrl) {
-    const port = process.env.NITRO_PORT || process.env.PORT || "3000";
-    const origin =
-      process.env.PUBLIC_URL ??
-      process.env.NITRO_PUBLIC_URL ??
-      `http://localhost:${port}`;
-    resolvedVideoUrl = `${origin}${resolvedVideoUrl}`;
-  }
-  const vidRes = isAppRelativeUrl
-    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(timeoutMs) })
-    : await ssrfSafeFetch(
-        resolvedVideoUrl,
-        { signal: AbortSignal.timeout(timeoutMs) },
-        { maxRedirects: 3 },
-      );
-  if (!vidRes.ok) {
-    throw new Error(
-      `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,
-    );
-  }
-  const blob = await vidRes.blob();
-  return {
-    blob,
-    sourceMimeType: pickSourceMimeType(blob.type, fallbackMimeType),
-  };
 }
 
 function isRecentlyPendingTranscript(transcript: {
@@ -1069,8 +1012,8 @@ const requestTranscriptAction = defineAction({
     const now = new Date().toISOString();
 
     let builderError: string | null = null;
+    let builderFailureCode: TranscriptFailureCode = "CLOUD_FAILED";
     let audioMediaPromise: Promise<AudioOnlyTranscriptionMedia> | null = null;
-    let audioSignalPromise: Promise<void> | null = null;
 
     const getAudioMedia = (
       rec: RecordingMediaRow,
@@ -1083,30 +1026,20 @@ const requestTranscriptAction = defineAction({
           transcriptFailureMessage("NO_AUDIO_SAVED"),
         );
       }
-      audioMediaPromise ??= (async () => {
-        const fallbackMimeType = recordingFallbackMimeType(rec);
-        const media = await loadRecordingMediaBlob({
-          recordingId: args.recordingId,
-          videoUrl,
-          fallbackMimeType,
-          timeoutMs: recordingMediaFetchTimeoutMs(
+      audioMediaPromise ??= prepareRecordingTranscriptionAudio({
+        recordingId: args.recordingId,
+        videoUrl,
+        timeouts: {
+          downloadMs: recordingMediaFetchTimeoutMs(
             rec.videoSizeBytes,
             rec.durationMs,
           ),
-        });
-        return prepareAudioOnlyTranscriptionMedia({
-          blob: media.blob,
-          recordingId: args.recordingId,
-          sourceMimeType: media.sourceMimeType,
-        });
-      })();
+          extractionMs: audioExtractionTimeoutMs(
+            estimatedRecordingMediaBytes(rec.videoSizeBytes, rec.durationMs),
+          ),
+        },
+      });
       return audioMediaPromise;
-    };
-    const ensureAudioHasSignal = (
-      media: AudioOnlyTranscriptionMedia,
-    ): Promise<void> => {
-      audioSignalPromise ??= assertAudioHasAudibleSignal(media);
-      return audioSignalPromise;
     };
 
     const [existingNativeTranscript] = await db
@@ -1231,13 +1164,14 @@ const requestTranscriptAction = defineAction({
       }
 
       let audioMedia: AudioOnlyTranscriptionMedia;
+      const extractionStartedAt = Date.now();
       try {
         audioMedia = await withPendingTranscriptHeartbeat(
           db,
           args.recordingId,
           async () => {
             const media = await getAudioMedia(rec);
-            await ensureAudioHasSignal(media);
+            assertAudioHasAudibleSignal(media);
             return media;
           },
         );
@@ -1252,35 +1186,39 @@ const requestTranscriptAction = defineAction({
         });
       }
 
+      console.log("[clips] transcription audio prepared", {
+        recordingId: args.recordingId,
+        chunks: audioMedia.chunks.length,
+        audioBytes: audioMedia.chunks.reduce(
+          (total, chunk) => total + chunk.audioBytes.byteLength,
+          0,
+        ),
+        elapsedMs: Date.now() - extractionStartedAt,
+      });
+
       try {
         const startedAt = Date.now();
-        const builderResult = await withPendingTranscriptHeartbeat(
+        const chunkResults = await withPendingTranscriptHeartbeat(
           db,
           args.recordingId,
           () =>
-            transcribeWithBuilderModelFallback({
-              audioBytes: audioMedia.audioBytes,
-              mimeType: audioMedia.mimeType,
-              diarize: true,
-              instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
-              timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
+            transcribeAudioChunks({
+              chunks: audioMedia.chunks,
+              isRetryable: isTransientTranscriptionError,
+              transcribe: (chunk) =>
+                transcribeWithBuilderModelFallback({
+                  audioBytes: chunk.audioBytes,
+                  mimeType: audioMedia.mimeType,
+                  diarize: true,
+                  instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
+                  timeoutMs: builderTranscriptionTimeoutMs(chunk.durationMs),
+                }),
             }),
         );
 
-        const segments = (builderResult.segments ?? [])
-          .map((s) => {
-            const speaker = s.speakerLabel?.trim();
-            return {
-              startMs: s.startMs,
-              endMs: s.endMs,
-              text: s.text.trim(),
-              ...(speaker ? { speaker } : {}),
-            };
-          })
-          .filter((segment) => segment.text);
-        const normalizedTranscript = normalizeProviderTranscript(
-          builderResult.text,
-          segments,
+        const normalizedTranscript = joinChunkTranscripts(
+          audioMedia.chunks,
+          chunkResults,
         );
         const fullText = normalizedTranscript.fullText;
 
@@ -1309,7 +1247,7 @@ const requestTranscriptAction = defineAction({
             ownerEmail,
             status: "ready",
             failureReason: null,
-            language: builderResult.language ?? "en",
+            language: normalizedTranscript.language ?? "en",
             segmentsJson: JSON.stringify(normalizedTranscript.segments),
             fullText,
             now,
@@ -1363,7 +1301,7 @@ const requestTranscriptAction = defineAction({
 
           const elapsedMs = Date.now() - startedAt;
           console.log(
-            `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${normalizedTranscript.segments.length} segments)`,
+            `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${audioMedia.chunks.length} parts, ${normalizedTranscript.segments.length} segments)`,
           );
           return {
             recordingId: args.recordingId,
@@ -1375,6 +1313,8 @@ const requestTranscriptAction = defineAction({
       } catch (err) {
         const reason = (err as Error).message;
         const details = serializeError(err);
+        const chunkErr = err instanceof ChunkTranscriptionError ? err : null;
+        if (chunkErr) builderFailureCode = "CHUNK_FAILED";
         if (isBuilderCreditsExhaustedMessage(reason)) {
           await noteBuilderCreditsExhausted({
             source: "transcription",
@@ -1401,6 +1341,12 @@ const requestTranscriptAction = defineAction({
           provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           failureReason: reason,
           details,
+          ...(chunkErr
+            ? {
+                chunkIndex: chunkErr.chunkIndex,
+                chunkCount: chunkErr.chunkCount,
+              }
+            : {}),
         });
       }
     }
@@ -1424,14 +1370,14 @@ const requestTranscriptAction = defineAction({
       ownerEmail,
       status: "failed",
       failureReason: reason,
-      failureCode: builderError ? "CLOUD_FAILED" : "CLOUD_UNCONFIGURED",
+      failureCode: builderError ? builderFailureCode : "CLOUD_UNCONFIGURED",
       now,
       ...(cloudTransient ? { retryCount: cloudNextRetryCount } : {}),
     });
     track(
       "recording_transcription_failed",
       {
-        failure_code: builderError ? "CLOUD_FAILED" : "CLOUD_UNCONFIGURED",
+        failure_code: builderError ? builderFailureCode : "CLOUD_UNCONFIGURED",
         stage: "transcription",
         retryable: cloudTransient,
         output_id: args.recordingId,

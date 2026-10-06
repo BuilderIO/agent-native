@@ -497,7 +497,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       to: "/trash",
       label: t("navigation.trash"),
       icon: IconTrash,
-      match: (p) => p.startsWith("/trash"),
+      match: (p) =>
+        p.startsWith("/trash") ||
+        (p.startsWith("/r/") && recordingSection === "trash"),
     },
   ];
 

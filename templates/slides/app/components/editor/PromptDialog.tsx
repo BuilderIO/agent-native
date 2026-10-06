@@ -174,6 +174,7 @@ interface PromptPopoverProps {
   onBeforeSubmit?: (
     draft?: ComposerDraftSnapshot,
   ) => boolean | Promise<boolean>;
+  preflightPending?: boolean;
   loading?: boolean;
   disabled?: boolean;
   submissionDisabled?: boolean;
@@ -214,6 +215,7 @@ export default function PromptPopover({
   placeholder = "Describe what you want...",
   onSubmit,
   onBeforeSubmit,
+  preflightPending = false,
   loading = false,
   disabled = false,
   submissionDisabled = false,
@@ -851,6 +853,20 @@ export default function PromptPopover({
               onRetry={() => void storageQuery.refetch()}
               anchorRef={panelRef}
             />
+
+            {preflightPending && (
+              <div
+                className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                <IconLoader2
+                  className="size-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+                <span>{t("common.loading")}</span>
+              </div>
+            )}
 
             {uploading && (
               <div

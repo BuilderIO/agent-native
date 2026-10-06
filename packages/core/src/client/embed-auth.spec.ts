@@ -408,6 +408,92 @@ describe("embed auth client", () => {
     expect(originalFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("replays an embed's refusal instead of sending the read again", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=expired-token`,
+    );
+    const originalFetch = vi.fn(
+      async () => new Response("Unauthorized", { status: 401 }),
+    );
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    const { ensureEmbedAuthFetchInterceptor } = await loadEmbedAuth();
+    ensureEmbedAuthFetchInterceptor();
+
+    await window.fetch("/_agent-native/actions/list-emails");
+    const replayed = await window.fetch("/_agent-native/actions/list-emails");
+
+    expect(replayed.status).toBe(401);
+    expect(replayed.headers.get("x-agent-native-auth-circuit-breaker")).toBe(
+      "1",
+    );
+    expect(originalFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends a refused read again outside an embed, where access can arrive mid-session", async () => {
+    let shared = false;
+    const originalFetch = vi.fn(async () =>
+      shared
+        ? new Response("draft", { status: 200 })
+        : new Response("No access", { status: 403 }),
+    );
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    const { ensureEmbedAuthFetchInterceptor } = await loadEmbedAuth();
+    ensureEmbedAuthFetchInterceptor();
+
+    const read = "/_agent-native/actions/get-draft?documentId=doc-1";
+    expect((await window.fetch(read)).status).toBe(403);
+    shared = true;
+    const afterShare = await window.fetch(read);
+
+    expect(afterShare.status).toBe(200);
+    expect(originalFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends a refused read again once access is known to have changed", async () => {
+    // An embed token stays in this tab's storage after it leaves the embed.
+    sessionStorage.setItem(STORAGE_KEY, "stored-token");
+    window.history.replaceState(null, "", "/page/doc-1");
+    let shared = false;
+    const originalFetch = vi.fn(async () =>
+      shared
+        ? new Response("page", { status: 200 })
+        : new Response("No access", { status: 403 }),
+    );
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    const { ensureEmbedAuthFetchInterceptor, forgetAuthFailures } =
+      await loadEmbedAuth();
+    ensureEmbedAuthFetchInterceptor();
+
+    const read = "/_agent-native/actions/get-document?id=doc-1";
+    expect((await window.fetch(read)).status).toBe(403);
+    shared = true;
+    expect((await window.fetch(read)).status).toBe(403);
+    expect(originalFetch).toHaveBeenCalledTimes(1);
+
+    forgetAuthFailures();
+    const afterShare = await window.fetch(read);
+
+    expect(afterShare.status).toBe(200);
+    expect(originalFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("uses location.href as the app origin when the sandbox origin is opaque", async () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
     sessionStorage.setItem(STORAGE_KEY, "stored-token");

@@ -73,6 +73,7 @@ import {
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
   requestedDatabaseViewId,
+  exactRequestedDatabaseViewUnavailable,
 } from "./DatabaseView";
 
 describe("database view icons", () => {
@@ -99,6 +100,23 @@ describe("database view deep-link selection", () => {
     );
     expect(requestedDatabaseViewId(null, " default ")).toBe("default");
     expect(requestedDatabaseViewId("   ", null)).toBeNull();
+  });
+
+  it("keeps a cached exact view available after its refresh fails", () => {
+    const config = defaultDatabaseViewConfig();
+    const data = {
+      database: { viewConfig: config },
+    } as unknown as ContentDatabaseResponse;
+
+    expect(
+      exactRequestedDatabaseViewUnavailable(config.activeViewId, data),
+    ).toBe(false);
+    expect(
+      exactRequestedDatabaseViewUnavailable(config.activeViewId, undefined),
+    ).toBe(false);
+    expect(exactRequestedDatabaseViewUnavailable("missing-view", data)).toBe(
+      true,
+    );
   });
 });
 
