@@ -288,7 +288,7 @@ export default defineAction({
 - **idFrom**: 리소스의 id를 담고 있는 입력 필드입니다. `"target.formId"` 같은 점 표기 경로는 중첩된 필드를 읽습니다. 값이 없거나 비어 있지 않은 문자열이 아니면 호출은 거부됩니다.
 - **level**: 호출자에게 필요한 최소 역할로, `"viewer"`, `"commenter"`, `"editor"`, `"admin"`, `"owner"` 중 하나입니다. 기본값은 `"viewer"`입니다.
 
-`authorize`와 마찬가지로 이 검사는 `run()` 자체를 감싸므로, UI, HTTP 호출자, 앱 내 에이전트, MCP 클라이언트, A2A 호출자, CLI 모두 본문이 실행되기 전에 같은 검사를 통과합니다. 호출자의 역할을 `assertAccess()`와 같은 방식으로 판별하므로 소유권, 공유, 가시성이 모두 반영됩니다. `level`보다 낮은 호출자는 `Requires editor access to form <id>.` 같은 403을 받습니다. 존재하지 않는 리소스도 같은 403을 받으므로, 거부 응답만으로는 그 id가 실제로 있는지 알 수 없습니다.
+`authorize`와 마찬가지로 이 검사는 `run()` 자체를 감싸므로, UI, HTTP 호출자, 앱 내 에이전트, MCP 클라이언트, A2A 호출자, CLI 모두 본문이 실행되기 전에 같은 검사를 통과합니다. 호출자의 역할을 `assertAccess()`와 같은 방식으로 판별하므로 소유권, 공유, 가시성이 모두 반영됩니다. `level`보다 낮은 호출자는 `Requires editor access to form <id>.` 같은 403을 받습니다. 존재하지 않는 리소스도 같은 403을 받습니다.
 
 하나의 입력 필드가 action이 다루는 단 하나의 리소스를 가리킬 때 `access`를 사용하세요. id가 먼저 불러온 행처럼 다른 곳에서 오거나, 한 번의 호출이 여러 리소스를 다룰 때는 `run()` 안에서 `assertAccess()`를 사용하세요. 목록 쿼리에는 검사할 단일 id가 없으므로 `accessFilter()`를 사용합니다. 아래 [Actions에서의 액세스 제어](#access-control)를 참고하세요. [Doctor](/docs/doctor) 검사 `resource-action-access`는 선언된 `access`와 `assertAccess()` 호출 중 어느 쪽이든 인정합니다.
 

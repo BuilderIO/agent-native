@@ -288,7 +288,7 @@ export default defineAction({
 - **idFrom**：存放該資源 id 的輸入欄位。像 `"target.formId"` 這樣以點分隔的路徑會讀取巢狀欄位。如果該值缺少或不是非空字串，這次呼叫就會被拒絕。
 - **level**：呼叫者至少需要的角色，為 `"viewer"`、`"commenter"`、`"editor"`、`"admin"` 或 `"owner"` 其中之一。預設值是 `"viewer"`。
 
-和 `authorize` 一樣，這項檢查包裝的是 `run()` 本身，因此 UI、HTTP 呼叫者、應用程式內的代理、MCP 用戶端、A2A 呼叫者與 CLI，在函式主體執行之前都會通過同一項檢查。它解析呼叫者角色的方式與 `assertAccess()` 相同，因此所有權、分享與可見性都會納入計算。角色低於 `level` 的呼叫者會收到 403，例如 `Requires editor access to form <id>.`。不存在的資源也會收到相同的 403，因此這次拒絕不會透露該 id 是否真的存在。
+和 `authorize` 一樣，這項檢查包裝的是 `run()` 本身，因此 UI、HTTP 呼叫者、應用程式內的代理、MCP 用戶端、A2A 呼叫者與 CLI，在函式主體執行之前都會通過同一項檢查。它解析呼叫者角色的方式與 `assertAccess()` 相同，因此所有權、分享與可見性都會納入計算。角色低於 `level` 的呼叫者會收到 403，例如 `Requires editor access to form <id>.`。不存在的資源也會收到相同的 403。
 
 當單一輸入欄位就指定了 action 所觸及的那一個資源時，請使用 `access`。當 id 來自其他地方（例如你先載入的某個資料列），或一次呼叫會觸及多個資源時，請在 `run()` 內使用 `assertAccess()`。列表查詢沒有單一 id 可以檢查，因此會使用 `accessFilter()`。請參閱下方的 [Action 中的存取控制](#access-control)。宣告的 `access` 或 `assertAccess()` 呼叫，任一種都能通過 [doctor](/docs/doctor) 的 `resource-action-access` 檢查。
 

@@ -287,7 +287,7 @@ export default defineAction({
 - **idFrom**: the input field that holds the resource's id. A dotted path like `"target.formId"` reads a nested field. If the value is missing or not a non-empty string, the call is denied.
 - **level**: the minimum role the caller needs, one of `"viewer"`, `"commenter"`, `"editor"`, `"admin"`, or `"owner"`. It defaults to `"viewer"`.
 
-Like `authorize`, the check wraps `run()` itself, so the UI, HTTP callers, the in-app agent, MCP clients, A2A callers, and the CLI all pass the same check before the body runs. It resolves the caller's role the same way `assertAccess()` does, so ownership, shares, and visibility all count. A caller below `level` gets a 403 such as `Requires editor access to form <id>.` A resource that doesn't exist gets the same 403, so the refusal doesn't reveal whether the id is real.
+Like `authorize`, the check wraps `run()` itself, so the UI, HTTP callers, the in-app agent, MCP clients, A2A callers, and the CLI all pass the same check before the body runs. It resolves the caller's role the same way `assertAccess()` does, so ownership, shares, and visibility all count. A caller below `level` gets a 403 such as `Requires editor access to form <id>.` A resource that doesn't exist gets the same 403.
 
 Use `access` when one input field names the one resource the action touches. Use `assertAccess()` inside `run()` when the id comes from somewhere else, like a row you load first, or when one call touches several resources. List queries have no single id to check, so they use `accessFilter()`. See [Access control in actions](#access-control) below. The [doctor](/docs/doctor) check `resource-action-access` accepts either a declared `access` or an `assertAccess()` call.
 

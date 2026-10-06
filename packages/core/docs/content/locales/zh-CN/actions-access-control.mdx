@@ -287,7 +287,7 @@ export default defineAction({
 - **idFrom**:保存该资源 id 的输入字段。像 `"target.formId"` 这样的点分路径会读取嵌套字段。如果该值缺失,或者不是非空字符串,这次调用就会被拒绝。
 - **level**:调用者至少需要的角色,取 `"viewer"`、`"commenter"`、`"editor"`、`"admin"` 或 `"owner"` 之一。默认值是 `"viewer"`。
 
-与 `authorize` 一样,这个检查包裹的是 `run()` 本身,所以 UI、HTTP 调用者、应用内代理、MCP 客户端、A2A 调用者和 CLI,在函数体运行之前都要通过同一个检查。它解析调用者角色的方式与 `assertAccess()` 相同,所以所有权、共享和可见性都会计入。角色低于 `level` 的调用者会收到一个 403,例如 `Requires editor access to form <id>.`。一个不存在的资源会得到同样的 403,所以这次拒绝不会泄露这个 id 是否真实存在。
+与 `authorize` 一样,这个检查包裹的是 `run()` 本身,所以 UI、HTTP 调用者、应用内代理、MCP 客户端、A2A 调用者和 CLI,在函数体运行之前都要通过同一个检查。它解析调用者角色的方式与 `assertAccess()` 相同,所以所有权、共享和可见性都会计入。角色低于 `level` 的调用者会收到一个 403,例如 `Requires editor access to form <id>.`。一个不存在的资源会得到同样的 403。
 
 当一个输入字段就指明了该 action 所触碰的那唯一一个资源时,使用 `access`。当 id 来自别处(比如你先加载的某一行),或者一次调用会触碰多个资源时,在 `run()` 内部使用 `assertAccess()`。列表查询没有单一的 id 可供检查,所以它们使用 `accessFilter()`。见下方 [Action 中的访问控制](#access-control)。[doctor](/docs/doctor) 检查 `resource-action-access` 既接受声明的 `access`,也接受 `assertAccess()` 调用。
 
