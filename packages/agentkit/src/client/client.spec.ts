@@ -658,6 +658,131 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("retains sanitized JSON projections for stateful tool values", async () => {
+    const statefulJsonValue = (projection: Record<string, unknown>) => {
+      let calls = 0;
+      const toJSON = vi.fn(() => {
+        calls += 1;
+        if (calls > 1) throw new Error("toJSON was called more than once.");
+        return projection;
+      });
+      const value = { original: true };
+      Object.defineProperty(value, "toJSON", { value: toJSON });
+      return { value, toJSON };
+    };
+    const input = statefulJsonValue({ safe: "input" });
+    const output = statefulJsonValue({ safe: "output" });
+    let runNumber = 0;
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: `run-${++runNumber}`,
+    }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      startRun,
+      async *subscribeToRun({ runId }) {
+        const event = (
+          sequence: number,
+          body: Omit<
+            AgentEvent,
+            "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+          >,
+        ) =>
+          ({
+            ...body,
+            id: `${runId}-event-${sequence}`,
+            threadId: "thread-1",
+            runId,
+            sequence,
+            occurredAt: "2026-08-29T00:00:00.000Z",
+          }) as AgentEvent;
+        if (runId !== "run-1") {
+          yield event(1, { type: "run.started" });
+          yield event(2, { type: "run.completed" });
+          return;
+        }
+
+        yield event(1, { type: "run.started" });
+        yield event(2, {
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [{ type: "text", text: "I searched the document." }],
+          },
+        });
+        const toolCall = {
+          id: "call-stateful",
+          name: "search",
+          input: input.value,
+          messageId: "assistant-1",
+        };
+        yield event(3, {
+          type: "tool.started",
+          toolCall: { ...toolCall, status: "running" },
+        });
+        yield event(4, {
+          type: "tool.updated",
+          toolCall: {
+            ...toolCall,
+            output: output.value,
+            status: "completed",
+          },
+        });
+        yield event(5, {
+          type: "message.completed",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "I searched the document." }],
+          },
+        });
+        yield event(6, { type: "run.completed" });
+      },
+    };
+    const client = new AgentKitClient({ transport });
+
+    await (
+      await client.sendMessage({ threadId: "thread-1", text: "Search" })
+    ).completed;
+    await (
+      await client.sendMessage({
+        threadId: "thread-1",
+        text: "What did you find?",
+      })
+    ).completed;
+
+    const secondRequest = startRun.mock.calls[1]![0];
+    const serializedRequest = JSON.stringify(secondRequest);
+    if (serializedRequest === undefined) {
+      throw new Error("Follow-up request was not JSON serializable.");
+    }
+    const parsedRequest = JSON.parse(serializedRequest) as {
+      messages: AgentMessage[];
+    };
+    const assistantMessage = parsedRequest.messages.find(
+      (message) => message.id === "assistant-1",
+    );
+    expect(assistantMessage?.parts).toContainEqual({
+      type: "data",
+      mediaType: "application/x-agent-native-tool-call",
+      data: { id: "call-stateful", name: "search", input: { safe: "input" } },
+    });
+    expect(assistantMessage?.parts).toContainEqual({
+      type: "data",
+      mediaType: "application/x-agent-native-tool-result",
+      data: {
+        id: "call-stateful",
+        name: "search",
+        result: { safe: "output" },
+      },
+    });
+    expect(input.toJSON).toHaveBeenCalledOnce();
+    expect(output.toJSON).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
   it("caps serialized prior tool history by aggregate bytes", async () => {
     let runNumber = 0;
     const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({

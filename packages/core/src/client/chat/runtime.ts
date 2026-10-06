@@ -1637,6 +1637,9 @@ function nativeHistoryFromMessages(
 }
 
 const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
+const MAX_TOOL_HISTORY_CALLS = 64;
+const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
+const MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES = 4 * 1024;
 const TOOL_INPUT_OMISSION_TEXT =
   "Tool input omitted from history because it could not be serialized.";
 const TOOL_INPUT_SIZE_OMISSION_TEXT =
@@ -1645,9 +1648,37 @@ const TOOL_RESULT_OMISSION_TEXT =
   "Tool result omitted from history because it could not be serialized.";
 const TOOL_RESULT_SIZE_OMISSION_TEXT =
   "Tool result omitted from history because it exceeds 64 KiB.";
+const TOOL_HISTORY_OMISSION_TEXT =
+  "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.";
+
+type StructuredToolHistoryPart = AgentChatStructuredMessage["content"][number];
+type StructuredToolCallPart = Extract<
+  StructuredToolHistoryPart,
+  { type: "tool-call" }
+>;
+type StructuredToolResultPart = Extract<
+  StructuredToolHistoryPart,
+  { type: "tool-result" }
+>;
+type StructuredTextPart = Extract<StructuredToolHistoryPart, { type: "text" }>;
+
+interface StructuredToolHistoryCandidate {
+  position: number;
+  content: AgentChatStructuredMessage["content"];
+  inputTextParts: StructuredTextPart[];
+  callPart?: StructuredToolCallPart;
+  resultParts: StructuredToolResultPart[];
+}
+
+interface StructuredToolHistoryResultReference {
+  position: number;
+  content: AgentChatStructuredMessage["content"];
+  part: StructuredToolResultPart;
+}
 
 function exceedsToolHistoryValueLimit(value: string): boolean {
   return (
+    value.length > MAX_TOOL_HISTORY_VALUE_BYTES ||
     new TextEncoder().encode(value).byteLength > MAX_TOOL_HISTORY_VALUE_BYTES
   );
 }
@@ -1667,6 +1698,23 @@ function toolInputForStructuredHistory(
   }
 }
 
+function toolResultOmissionWithSummary(
+  omissionText: string,
+  resultText?: string,
+): string {
+  if (
+    !resultText ||
+    resultText.length > MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES ||
+    new TextEncoder().encode(resultText).byteLength >
+      MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES ||
+    !resultText.trim()
+  ) {
+    return omissionText;
+  }
+  const content = `${omissionText}\n${resultText}`;
+  return exceedsToolHistoryValueLimit(content) ? omissionText : content;
+}
+
 function toolResultForStructuredHistory(
   result: unknown,
   resultText?: string,
@@ -1679,14 +1727,139 @@ function toolResultForStructuredHistory(
     try {
       serialized = typeof result === "string" ? result : JSON.stringify(result);
     } catch {
-      return TOOL_RESULT_OMISSION_TEXT;
+      return toolResultOmissionWithSummary(
+        TOOL_RESULT_OMISSION_TEXT,
+        resultText,
+      );
     }
-    if (serialized === undefined) return TOOL_RESULT_OMISSION_TEXT;
+    if (serialized === undefined) {
+      return toolResultOmissionWithSummary(
+        TOOL_RESULT_OMISSION_TEXT,
+        resultText,
+      );
+    }
     content = `${serialized}${resultText ? `\n${resultText}` : ""}`;
   }
   return exceedsToolHistoryValueLimit(content)
-    ? TOOL_RESULT_SIZE_OMISSION_TEXT
+    ? toolResultOmissionWithSummary(TOOL_RESULT_SIZE_OMISSION_TEXT, resultText)
     : content;
+}
+
+function structuredToolHistoryCandidateByteLength(
+  candidate: StructuredToolHistoryCandidate,
+): number {
+  const projection = [
+    ...(candidate.callPart
+      ? [
+          {
+            role: "assistant" as const,
+            content: [...candidate.inputTextParts, candidate.callPart],
+          },
+        ]
+      : []),
+    ...(candidate.resultParts.length
+      ? [{ role: "user" as const, content: candidate.resultParts }]
+      : []),
+  ];
+  const serialized = JSON.stringify(projection);
+  return serialized === undefined
+    ? MAX_ADDED_TOOL_HISTORY_BYTES + 1
+    : new TextEncoder().encode(serialized).byteLength + 1;
+}
+
+function boundStructuredToolHistory(
+  structuredHistory: AgentChatStructuredMessage[],
+  callCandidates: StructuredToolHistoryCandidate[],
+  resultReferences: StructuredToolHistoryResultReference[],
+  toolHistoryParts: Set<StructuredToolHistoryPart>,
+): AgentChatStructuredMessage[] {
+  const candidatesByCallId = new Map<
+    string,
+    StructuredToolHistoryCandidate[]
+  >();
+  for (const candidate of callCandidates) {
+    const callId = candidate.callPart?.id;
+    if (!callId) continue;
+    const candidates = candidatesByCallId.get(callId) ?? [];
+    candidates.push(candidate);
+    candidatesByCallId.set(callId, candidates);
+  }
+
+  const candidates = [...callCandidates];
+  for (const result of resultReferences) {
+    const matchingCalls = candidatesByCallId.get(result.part.toolCallId) ?? [];
+    let matchingCall: StructuredToolHistoryCandidate | undefined;
+    for (let index = matchingCalls.length - 1; index >= 0; index--) {
+      const candidate = matchingCalls[index]!;
+      if (candidate.position < result.position) {
+        matchingCall = candidate;
+        break;
+      }
+    }
+    if (matchingCall) {
+      matchingCall.resultParts.push(result.part);
+      continue;
+    }
+    candidates.push({
+      position: result.position,
+      content: result.content,
+      inputTextParts: [],
+      resultParts: [result.part],
+    });
+  }
+  candidates.sort((left, right) => left.position - right.position);
+
+  const omissionMarkerBytes = new TextEncoder().encode(
+    JSON.stringify({ type: "text", text: TOOL_HISTORY_OMISSION_TEXT }),
+  ).byteLength;
+  const selected = new Set<StructuredToolHistoryCandidate>();
+  let selectedBytes = 0;
+  let omittedHistory = false;
+  for (let index = candidates.length - 1; index >= 0; index--) {
+    const candidate = candidates[index]!;
+    if (selected.size >= MAX_TOOL_HISTORY_CALLS) {
+      omittedHistory = true;
+      continue;
+    }
+    const candidateBytes = structuredToolHistoryCandidateByteLength(candidate);
+    if (
+      selectedBytes + candidateBytes + omissionMarkerBytes >
+      MAX_ADDED_TOOL_HISTORY_BYTES
+    ) {
+      omittedHistory = true;
+      continue;
+    }
+    selected.add(candidate);
+    selectedBytes += candidateBytes;
+  }
+
+  const retainedParts = new Set<StructuredToolHistoryPart>();
+  for (const candidate of selected) {
+    for (const part of candidate.inputTextParts) retainedParts.add(part);
+    if (candidate.callPart) retainedParts.add(candidate.callPart);
+    for (const part of candidate.resultParts) retainedParts.add(part);
+  }
+
+  if (omittedHistory) {
+    const firstOmitted = candidates.find(
+      (candidate) => !selected.has(candidate),
+    );
+    const targetPart = firstOmitted?.callPart ?? firstOmitted?.resultParts[0];
+    if (firstOmitted && targetPart) {
+      const markerIndex = firstOmitted.content.indexOf(targetPart);
+      firstOmitted.content.splice(markerIndex < 0 ? 0 : markerIndex, 0, {
+        type: "text",
+        text: TOOL_HISTORY_OMISSION_TEXT,
+      });
+    }
+  }
+
+  for (const message of structuredHistory) {
+    message.content = message.content.filter(
+      (part) => !toolHistoryParts.has(part) || retainedParts.has(part),
+    );
+  }
+  return structuredHistory.filter((message) => message.content.length > 0);
 }
 
 function nativeStructuredHistoryFromMessages(
@@ -1694,6 +1867,10 @@ function nativeStructuredHistoryFromMessages(
   currentPrompt: string,
 ): AgentChatStructuredMessage[] | undefined {
   const structuredHistory: AgentChatStructuredMessage[] = [];
+  const callCandidates: StructuredToolHistoryCandidate[] = [];
+  const resultReferences: StructuredToolHistoryResultReference[] = [];
+  const toolHistoryParts = new Set<StructuredToolHistoryPart>();
+  let toolHistoryPosition = 0;
   let hasToolHistory = false;
 
   for (const message of priorNativeHistoryMessages(messages, currentPrompt)) {
@@ -1721,36 +1898,58 @@ function nativeStructuredHistoryFromMessages(
       } else if (part.type === "tool-call" && message.role === "assistant") {
         hasToolHistory = true;
         flushResults();
+        const inputTextParts: StructuredTextPart[] = [];
+        const addToolInputText = (text: string) => {
+          const inputTextPart: StructuredTextPart = { type: "text", text };
+          content.push(inputTextPart);
+          inputTextParts.push(inputTextPart);
+          toolHistoryParts.add(inputTextPart);
+        };
         if (part.inputText?.trim()) {
-          content.push({
-            type: "text",
-            text: exceedsToolHistoryValueLimit(part.inputText)
+          addToolInputText(
+            exceedsToolHistoryValueLimit(part.inputText)
               ? TOOL_INPUT_SIZE_OMISSION_TEXT
               : part.inputText,
-          });
+          );
         }
         const input =
           part.input === undefined
             ? undefined
             : toolInputForStructuredHistory(part.input);
         if (input && "omissionText" in input) {
-          content.push({ type: "text", text: input.omissionText });
+          addToolInputText(input.omissionText);
         }
-        content.push({
+        const callPart: StructuredToolCallPart = {
           type: "tool-call",
           id: part.toolCallId,
           name: part.toolName,
           ...(input && "input" in input ? { input: input.input } : {}),
+        };
+        content.push(callPart);
+        toolHistoryParts.add(callPart);
+        callCandidates.push({
+          position: toolHistoryPosition++,
+          content,
+          inputTextParts,
+          callPart,
+          resultParts: [],
         });
       } else if (part.type === "tool-result") {
         hasToolHistory = true;
         flushContent();
-        results.push({
+        const resultPart: StructuredToolResultPart = {
           type: "tool-result",
           toolCallId: part.toolCallId,
           ...(part.toolName ? { toolName: part.toolName } : {}),
           content: toolResultForStructuredHistory(part.result, part.resultText),
           ...(part.isError ? { isError: true } : {}),
+        };
+        results.push(resultPart);
+        toolHistoryParts.add(resultPart);
+        resultReferences.push({
+          position: toolHistoryPosition++,
+          content: results,
+          part: resultPart,
         });
       }
     }
@@ -1758,7 +1957,13 @@ function nativeStructuredHistoryFromMessages(
     flushResults();
   }
 
-  return hasToolHistory ? structuredHistory : undefined;
+  if (!hasToolHistory) return undefined;
+  return boundStructuredToolHistory(
+    structuredHistory,
+    callCandidates,
+    resultReferences,
+    toolHistoryParts,
+  );
 }
 
 type AgentNativeMessageContentState =

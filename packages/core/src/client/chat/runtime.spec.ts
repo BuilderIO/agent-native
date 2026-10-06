@@ -618,16 +618,19 @@ describe("createAgentNativeChatRuntime", () => {
               type: "tool-result",
               toolCallId: "call-cyclic-result",
               result: cyclicResult,
+              resultText: "The cyclic tool result was omitted.",
             },
             {
               type: "tool-result",
               toolCallId: "call-bigint-result",
               result: 1n,
+              resultText: "x".repeat(4 * 1024 + 1),
             },
             {
               type: "tool-result",
               toolCallId: "call-oversized-result",
               result: oversizedResult,
+              resultText: "The result exceeded the per-value size limit.",
             },
           ],
         },
@@ -673,7 +676,7 @@ describe("createAgentNativeChatRuntime", () => {
             type: "tool-result",
             toolCallId: "call-cyclic-result",
             content:
-              "Tool result omitted from history because it could not be serialized.",
+              "Tool result omitted from history because it could not be serialized.\nThe cyclic tool result was omitted.",
           },
           {
             type: "tool-result",
@@ -685,11 +688,147 @@ describe("createAgentNativeChatRuntime", () => {
             type: "tool-result",
             toolCallId: "call-oversized-result",
             content:
-              "Tool result omitted from history because it exceeds 64 KiB.",
+              "Tool result omitted from history because it exceeds 64 KiB.\nThe result exceeded the per-value size limit.",
           },
         ],
       },
     ]);
+  });
+
+  it("caps direct runtime tool history at 64 calls", async () => {
+    const toolContent = Array.from({ length: 65 }, (_, index) => {
+      const id = `call-${index}`;
+      return [
+        {
+          type: "tool-call" as const,
+          toolCallId: id,
+          toolName: "search",
+          input: { query: id },
+        },
+        {
+          type: "tool-result" as const,
+          toolCallId: id,
+          toolName: "search",
+          result: { result: id },
+        },
+      ];
+    }).flat();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-tool-history-call-cap",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: toolContent,
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = body.structuredHistory as Array<{
+      content: Array<{
+        type: string;
+        id?: string;
+        text?: string;
+        toolCallId?: string;
+      }>;
+    }>;
+    const parts = history.flatMap((message) => message.content);
+    const calls = parts.filter((part) => part.type === "tool-call");
+    const results = parts.filter((part) => part.type === "tool-result");
+    const omission = parts.find(
+      (part) =>
+        part.text ===
+        "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+    );
+
+    expect(calls).toHaveLength(64);
+    expect(calls[0]?.id).toBe("call-1");
+    expect(calls.at(-1)?.id).toBe("call-64");
+    expect(results).toHaveLength(64);
+    expect(omission).toBeDefined();
+  });
+
+  it("caps direct runtime tool history at 256 KiB", async () => {
+    const largeInput = "x".repeat(60 * 1024);
+    const toolContent = Array.from({ length: 5 }, (_, index) => {
+      const id = `call-${index}`;
+      return [
+        {
+          type: "tool-call" as const,
+          toolCallId: id,
+          toolName: "search",
+          input: largeInput,
+        },
+        {
+          type: "tool-result" as const,
+          toolCallId: id,
+          toolName: "search",
+          result: { result: id },
+        },
+      ];
+    }).flat();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-tool-history-byte-cap",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: toolContent,
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const parts = history.flatMap((message) => message.content);
+    const calls = parts.filter((part) => part.type === "tool-call");
+    const results = parts.filter((part) => part.type === "tool-result");
+    const historyBytes = new TextEncoder().encode(
+      JSON.stringify(body.structuredHistory),
+    ).byteLength;
+
+    expect(calls.length).toBeLessThan(5);
+    expect(results).toHaveLength(calls.length);
+    expect(historyBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+    });
   });
 
   it("wraps the existing Agent-Native chat endpoint and normalizes SSE events", async () => {

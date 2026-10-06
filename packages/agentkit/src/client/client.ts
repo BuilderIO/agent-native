@@ -655,19 +655,25 @@ function projectedToolHistoryBytes(
   ).byteLength;
 }
 
-function toolHistoryValueOmission(value: unknown): string | undefined {
+type ToolHistoryValueProjection =
+  | { ok: true; value: unknown }
+  | { ok: false; omission: string };
+
+function projectToolHistoryValue(value: unknown): ToolHistoryValueProjection {
   try {
     const serialized = JSON.stringify(value);
-    if (serialized === undefined) return "it could not be serialized";
+    if (serialized === undefined) {
+      return { ok: false, omission: "it could not be serialized" };
+    }
     if (
       new TextEncoder().encode(serialized).byteLength >
       MAX_TOOL_HISTORY_VALUE_BYTES
     ) {
-      return "it exceeds 64 KiB";
+      return { ok: false, omission: "it exceeds 64 KiB" };
     }
-    return undefined;
+    return { ok: true, value: JSON.parse(serialized) as unknown };
   } catch {
-    return "it could not be serialized";
+    return { ok: false, omission: "it could not be serialized" };
   }
 }
 
@@ -802,14 +808,22 @@ function messagesWithToolCallHistory(
 }
 
 function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
-  const inputOmission =
+  const inputProjection =
     toolCall.input === undefined
       ? undefined
-      : toolHistoryValueOmission(toolCall.input);
-  const outputOmission =
+      : projectToolHistoryValue(toolCall.input);
+  const outputProjection =
     toolCall.output === undefined
       ? undefined
-      : toolHistoryValueOmission(toolCall.output);
+      : projectToolHistoryValue(toolCall.output);
+  const inputOmission =
+    inputProjection && !inputProjection.ok
+      ? inputProjection.omission
+      : undefined;
+  const outputOmission =
+    outputProjection && !outputProjection.ok
+      ? outputProjection.omission
+      : undefined;
   const outputOmissionText = outputOmission
     ? `Tool output omitted from history because ${outputOmission}.`
     : undefined;
@@ -847,9 +861,7 @@ function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
       data: {
         id: toolCall.id,
         name: toolCall.name,
-        ...(toolCall.input === undefined || inputOmission !== undefined
-          ? {}
-          : { input: toolCall.input }),
+        ...(inputProjection?.ok ? { input: inputProjection.value } : {}),
         ...(inputOmission !== undefined
           ? {
               inputText: `Tool input omitted from history because ${inputOmission}.`,
@@ -863,9 +875,7 @@ function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
       data: {
         id: toolCall.id,
         name: toolCall.name,
-        ...(toolCall.output === undefined || outputOmission !== undefined
-          ? {}
-          : { result: toolCall.output }),
+        ...(outputProjection?.ok ? { result: outputProjection.value } : {}),
         ...(boundedResultText ? { resultText: boundedResultText } : {}),
         ...(toolCall.status === "completed" && !toolCall.error
           ? {}
