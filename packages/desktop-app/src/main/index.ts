@@ -6,13 +6,6 @@ import {
   type ChildProcess,
 } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import {
-  createServer,
-  type IncomingMessage,
-  type Server as HttpServer,
-  type ServerResponse,
-} from "node:http";
-import type { AddressInfo } from "node:net";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -88,12 +81,7 @@ import {
   type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
   type CodeAgentRemoteWaitlistResult,
-  type CodeAgentBuilderActivationRequest,
-  type CodeAgentBuilderActivationResult,
-  type CodeAgentBuilderConnectOpenRequest,
-  type CodeAgentBuilderConnectOpenResult,
   type CodeAgentBuilderConnectionResult,
-  type CodeAgentBuilderConnectionStatus,
   type CodeAgentProviderCredentialKey,
   type CodeAgentProviderSettings,
   type CodeAgentProviderStatus,
@@ -8991,7 +8979,7 @@ const lastDesktopAppRuntimeStatus = new Map<string, string>();
 
 function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const signature = `${status.state} ${status.message ?? ""}`;
+  const signature = `${status.state}\0${status.message ?? ""}`;
   if (lastDesktopAppRuntimeStatus.get(status.appId) === signature) return;
   lastDesktopAppRuntimeStatus.set(status.appId, signature);
   mainWindow.webContents.send(IPC.APP_STATUS, status);
