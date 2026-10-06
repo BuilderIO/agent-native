@@ -227,7 +227,10 @@ type Navigate = (
 
 type CreateDeck = (
   title?: string,
-  options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
+  options?: {
+    noDefaultSlides?: boolean;
+    designSystemId?: string | null;
+  },
 ) => Deck;
 
 type SubmitAgent = (

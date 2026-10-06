@@ -1646,11 +1646,13 @@ async function awaitReplayUpload(
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
-  callbacks: { beforeKeepaliveUpload?: () => void } = {},
-): Promise<void> {
+  callbacks: { beforeUpload?: (keepalive: boolean) => "send" | "defer" } = {},
+): Promise<"sent" | "deferred"> {
   if (isCrossOriginReplayEndpoint(options.endpoint)) {
     const canUseKeepalive = canUseReplayKeepalive(body);
-    if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+    if (callbacks.beforeUpload?.(canUseKeepalive) === "defer") {
+      return "deferred";
+    }
     const timeout = startReplayUploadTimeout();
     await awaitReplayUploadRequest(timeout, () =>
       fetch(options.endpoint, {
@@ -1661,12 +1663,12 @@ async function sendReplayUpload(
         signal: timeout.signal,
       }),
     );
-    return;
+    return "sent";
   }
 
   const upload = await buildReplayUploadBody(body);
   const canUseKeepalive = canUseReplayKeepalive(upload.body);
-  if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
+  if (callbacks.beforeUpload?.(canUseKeepalive) === "defer") return "deferred";
   const timeout = startReplayUploadTimeout();
   await awaitReplayUploadRequest(timeout, () =>
     fetch(options.endpoint, {
@@ -1680,6 +1682,7 @@ async function sendReplayUpload(
       signal: timeout.signal,
     }),
   );
+  return "sent";
 }
 
 function isFinalFlushReason(reason: string): boolean {
@@ -1697,6 +1700,19 @@ function isFinalFlushReason(reason: string): boolean {
 
 function isTerminalReplayFlushReason(reason: string): boolean {
   return reason === "pagehide" || reason === "beforeunload";
+}
+
+/**
+ * A navigation fires `visibilitychange` before or after `pagehide`, depending
+ * on the browser, and a mobile page may get only `visibilitychange`. A page in
+ * the back/forward cache can be evicted without running again.
+ */
+function isPageLeaveReplayFlushReason(reason: string): boolean {
+  return (
+    isTerminalReplayFlushReason(reason) ||
+    reason === "pagehide-persisted" ||
+    reason === "visibility-hidden"
+  );
 }
 
 function flushReasonPriority(reason: string): number {
@@ -1720,15 +1736,6 @@ function mergePendingFlushReason(
   return flushReasonPriority(requested) > flushReasonPriority(current)
     ? requested
     : current;
-}
-
-function shouldReserveSequenceBeforeKeepalive(reason: string): boolean {
-  return (
-    reason === "pagehide" ||
-    reason === "pagehide-persisted" ||
-    reason === "beforeunload" ||
-    reason === "visibility-hidden"
-  );
 }
 
 function hasFullSnapshot(events: QueuedReplayEvent[]): boolean {
@@ -2060,18 +2067,40 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   let pausedForQuota = false;
   let quotaRetryAfterSeconds: number | null = null;
   try {
-    await sendReplayUpload(state.options, payload.body, {
-      beforeKeepaliveUpload: shouldReserveSequenceBeforeKeepalive(reason)
-        ? () => {
-            advanceReplaySequence(state, payload);
-            reservedSequence = true;
-          }
-        : undefined,
+    // An upload can be stored after a navigation has destroyed this page and
+    // its response handler: a keepalive one because the browser finishes
+    // sending it, and a larger one when the server already has its body.
+    // Persist the next index first, or the next page resends this chunk number
+    // with different content and the server rejects it (HTTP 409). A flush as
+    // the page hides or leaves never starts an upload too large for keepalive:
+    // a navigation usually cancels it, so a reserved number would leave a gap,
+    // and an unreserved one that still arrives would be reused. Its events stay
+    // queued for the next flush of a page that survives. A same-origin body is
+    // compressed before this check, so a hide or leave event can arrive in
+    // between; it is queued as the pending reason.
+    const outcome = await sendReplayUpload(state.options, payload.body, {
+      beforeUpload: (keepalive) => {
+        const pendingReason = state.pendingFlushReason;
+        if (
+          !keepalive &&
+          (isPageLeaveReplayFlushReason(reason) ||
+            (pendingReason !== null &&
+              isPageLeaveReplayFlushReason(pendingReason)))
+        ) {
+          return "defer";
+        }
+        advanceReplaySequence(state, payload);
+        reservedSequence = true;
+        return "send";
+      },
     });
-    if (!reservedSequence) advanceReplaySequence(state, payload);
-    state.automaticConflictRestartAttempted = false;
-    state.transientClientErrorFailures = 0;
-    uploaded = true;
+    if (outcome === "deferred") {
+      restoreReplayEvents(state, events);
+    } else {
+      state.automaticConflictRestartAttempted = false;
+      state.transientClientErrorFailures = 0;
+      uploaded = true;
+    }
   } catch (error) {
     if (error instanceof ReplayUploadInFlightTimeoutError) {
       const pending: PendingReplayUpload = {

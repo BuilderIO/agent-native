@@ -37,6 +37,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -93,13 +94,23 @@ export function limitChartRows(
 ): Record<string, unknown>[] {
   if (
     rows.length <= MAX_CHART_POINTS ||
-    !["line", "area", "bar", "pie", "heatmap", "funnel", "callout"].includes(
-      chartType,
-    )
+    ![
+      "line",
+      "area",
+      "bar",
+      "combo",
+      "pie",
+      "heatmap",
+      "funnel",
+      "callout",
+    ].includes(chartType)
   ) {
     return rows;
   }
-  return chartType !== "line" && chartType !== "area" && chartType !== "heatmap"
+  return chartType !== "line" &&
+    chartType !== "area" &&
+    chartType !== "combo" &&
+    chartType !== "heatmap"
     ? rows.slice(0, MAX_CHART_POINTS)
     : rows.slice(-MAX_CHART_POINTS);
 }
@@ -946,12 +957,14 @@ function chartTypeReservesLegend(panel: SqlPanel): boolean {
     panel.chartType === "line" ||
     panel.chartType === "area" ||
     panel.chartType === "bar" ||
+    panel.chartType === "combo" ||
     panel.chartType === "pie";
   if (!chartUsesFrame) return false;
   return (
     panel.chartType === "line" ||
     panel.chartType === "area" ||
     panel.chartType === "bar" ||
+    panel.chartType === "combo" ||
     usesPrometheusPresentation(panel)
   );
 }
@@ -1458,6 +1471,20 @@ export function SqlChart({
         colors={colors}
         yFormatter={yFormatter}
         stacked={panel.config?.stacked === true}
+        panel={panel}
+      />,
+    );
+  }
+
+  if (chartType === "combo") {
+    return withConfigWarning(
+      <ComboRenderer
+        rows={chartRows}
+        xKey={xKey}
+        yKeys={yKeys}
+        colors={colors}
+        yFormatter={yFormatter}
+        barKeys={panel.config?.barKeys ?? []}
         panel={panel}
       />,
     );
@@ -2218,6 +2245,111 @@ function BarRenderer({
             />
           ))}
         </BarChart>
+      </ChartResponsiveContainer>
+    </ChartFrame>
+  );
+}
+
+function ComboRenderer({
+  rows,
+  xKey,
+  yKeys,
+  colors,
+  yFormatter,
+  barKeys,
+  panel,
+}: {
+  rows: Record<string, unknown>[];
+  xKey: string;
+  yKeys: string[];
+  colors: string[];
+  yFormatter?: "number" | "currency" | "percent";
+  barKeys: string[];
+  panel: SqlPanel;
+}) {
+  const xLabelFormatter = (value: any) =>
+    formatXLabel(String(value ?? ""), panel);
+  const xTooltipLabelFormatter = (value: any) =>
+    formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
+  const seriesNameFormatter = (name: string) =>
+    formatSeriesLabelForPanel(panel, name);
+  const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
+  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
+  const valueFormatter = seriesValueFormatter(
+    yKeys,
+    dualAxis,
+    seriesNameFormatter,
+    yFormatter,
+  );
+  const barKeySet = new Set(barKeys);
+
+  return (
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
+      showCustomLegend
+    >
+      <ChartResponsiveContainer>
+        <ComposedChart data={rows}>
+          <XAxis
+            dataKey={xKey}
+            stroke="hsl(var(--muted-foreground))"
+            fontSize={12}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={xLabelFormatter}
+          />
+          {renderChartYAxes(dualAxis, yFormatter)}
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="hsl(var(--border))"
+            vertical={false}
+          />
+          <Tooltip
+            {...CHART_TOOLTIP_PROPS}
+            cursor={BAR_TOOLTIP_CURSOR_PROPS}
+            labelFormatter={xTooltipLabelFormatter}
+            content={
+              <ChartTooltip
+                labelFormatter={xTooltipLabelFormatter}
+                seriesNameFormatter={seriesNameFormatter}
+                valueFormatter={valueFormatter}
+              />
+            }
+            itemSorter={(item) => -(Number(item.value) || 0)}
+          />
+          {yKeys.map((key, i) =>
+            barKeySet.has(key) ? (
+              <Bar
+                key={key}
+                dataKey={key}
+                name={seriesNameFormatter(key)}
+                yAxisId={seriesAxisId(dualAxis, key)}
+                fill={colors[i % colors.length]}
+                radius={[4, 4, 0, 0]}
+                hide={hiddenKeys.has(key)}
+                isAnimationActive={false}
+              />
+            ) : (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                name={seriesNameFormatter(key)}
+                yAxisId={seriesAxisId(dualAxis, key)}
+                stroke={colors[i % colors.length]}
+                strokeWidth={2}
+                dot={false}
+                hide={hiddenKeys.has(key)}
+                isAnimationActive={false}
+              />
+            ),
+          )}
+        </ComposedChart>
       </ChartResponsiveContainer>
     </ChartFrame>
   );

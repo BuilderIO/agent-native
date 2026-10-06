@@ -1240,6 +1240,23 @@ function suggestionAnchorRange(
     if (!mapped) return null;
     const plain = buildDocText(doc);
     if (plain.text !== mapped.text) return null;
+    if (mapped.emptyCell) {
+      const emptyCells: number[] = [];
+      doc.descendants((node, pos) => {
+        if (
+          (node.type.name === "tableCell" ||
+            node.type.name === "tableHeader") &&
+          node.childCount === 1 &&
+          node.firstChild!.type.name === "paragraph" &&
+          node.firstChild!.content.size === 0
+        )
+          emptyCells.push(pos + 2);
+      });
+      const at = emptyCells[mapped.emptyCell.index];
+      return emptyCells.length === mapped.emptyCell.count && at !== undefined
+        ? { from: at, to: at }
+        : null;
+    }
     const position = (offset: number, affinity: "left" | "right") => {
       let textOffset = 0;
       let result: number | null = null;
@@ -1567,6 +1584,7 @@ interface VisualEditorProps {
     offsetTop: number,
     anchor?: CommentTextAnchor,
     range?: { from: number; to: number },
+    suggestionId?: string,
   ) => void;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;
@@ -4262,20 +4280,21 @@ export function VisualEditor({
         .join("|"),
     [suggestions],
   );
-  const applySuggestionsRef = useRef<(() => void) | null>(null);
+  const applySuggestionsRef = useRef<((report?: boolean) => void) | null>(null);
 
   useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const apply = () => {
+    const apply = (report = true) => {
       if (editor.isDestroyed) return;
       const specs = suggestions
         .map((suggestion) =>
           suggestionHighlightSpec(editor.state.doc, suggestion),
         )
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
-      onSuggestionAnchorsChange?.(
-        Array.from(new Set(specs.map((spec) => spec.suggestionId))),
-      );
+      if (report)
+        onSuggestionAnchorsChange?.(
+          Array.from(new Set(specs.map((spec) => spec.suggestionId))),
+        );
       const visibleSpecs = showCommentIndicators
         ? specs
         : specs.filter((spec) => spec.settling);
@@ -4307,7 +4326,11 @@ export function VisualEditor({
     if (!editor || editor.isDestroyed) return;
     // Prop updates must not move reconciliation behind other transaction consumers.
     const onTransaction = ({ transaction }: { transaction: Transaction }) => {
-      if (transaction.docChanged) applySuggestionsRef.current?.();
+      // While suggesting, the draft reaches the parent a tick after the doc
+      // changes, so these are the previous draft's suggestions; reporting
+      // their anchors would mark text the author is typing as unplaced.
+      if (transaction.docChanged)
+        applySuggestionsRef.current?.(!suggestingRef.current);
     };
     editor.on("transaction", onTransaction);
     return () => {

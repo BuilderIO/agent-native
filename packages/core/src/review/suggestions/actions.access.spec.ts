@@ -75,7 +75,6 @@ vi.mock("./store.js", () => ({
   getDecision: vi.fn(),
   recordSuggestionCreation: vi.fn(),
   deleteUnclaimedSuggestion: vi.fn(),
-  replaceSuggestionStatus: vi.fn(),
   updateSuggestionStatus,
 }));
 
@@ -143,7 +142,6 @@ const creationReceipt = {
 function expectNoReviewWrites() {
   expect(suggestionStore.insertSuggestion).not.toHaveBeenCalled();
   expect(suggestionStore.recordSuggestionCreation).not.toHaveBeenCalled();
-  expect(suggestionStore.replaceSuggestionStatus).not.toHaveBeenCalled();
   expect(suggestionStore.updateSuggestionStatus).not.toHaveBeenCalled();
   expect(suggestionStore.recordDecision).not.toHaveBeenCalled();
   expect(reviewStore.insertReviewCommentWithClient).not.toHaveBeenCalled();
@@ -296,9 +294,14 @@ describe("suggestion action access", () => {
     expect(reviewStore.insertReviewCommentWithClient).not.toHaveBeenCalled();
   });
 
-  it.each(["accepted", "rejected"] as const)(
-    "denies a commenter deciding %s without changing the suggestion or canonical resource",
-    async (decision) => {
+  it.each([
+    ["accepted", "another commenter", "other-commenter@example.com"],
+    ["rejected", "another commenter", "other-commenter@example.com"],
+    ["accepted", "the author", suggestion.authorEmail],
+    ["rejected", "the author", suggestion.authorEmail],
+  ] as const)(
+    "denies %s by %s with comment access without changing the suggestion or canonical resource",
+    async (decision, _who, userEmail) => {
       const resolveAccess = vi.fn(
         (_resourceId: string, _ctx?: ReviewResourceContext) => ({
           role: "commenter" as const,
@@ -316,18 +319,105 @@ describe("suggestion action access", () => {
             idempotencyKey: `commenter-${decision}-1`,
             observedBase: suggestion.baseRevision,
           },
-          { userEmail: "commenter@example.com" },
+          { userEmail },
         ),
       ).rejects.toThrow("Not allowed to access doc:doc-1");
 
       expect(resolveAccess).toHaveBeenCalledWith(
         "doc-1",
-        expect.objectContaining({ userEmail: "commenter@example.com" }),
+        expect.objectContaining({ userEmail }),
       );
       expect(client.transaction).not.toHaveBeenCalled();
       expectNoReviewWrites();
     },
   );
+
+  it("denies withdrawing another author's suggestion even with edit access", async () => {
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+      }),
+    });
+
+    await expect(
+      decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "withdrawn",
+          idempotencyKey: "withdraw-other-1",
+          observedBase: suggestion.baseRevision,
+        },
+        { userEmail: "editor@example.com" },
+      ),
+    ).rejects.toThrow("Only the author can withdraw this suggestion");
+    expect(client.transaction).not.toHaveBeenCalled();
+    expectNoReviewWrites();
+  });
+
+  it("lets the author withdraw their own pending suggestion with comment access, whatever base they observed", async () => {
+    const withdrawn = { ...suggestion, status: "withdrawn" as const };
+    const decision = {
+      id: "decision-withdraw",
+      suggestionId: suggestion.id,
+      idempotencyKey: "withdraw-1",
+      reviewer: suggestion.authorEmail,
+      decision: "withdrawn" as const,
+      observedBase: "base-after-another-edit",
+      outcome: "withdrawn",
+      detail: null,
+      createdAt: "now",
+    };
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "commenter",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+      }),
+    });
+    vi.mocked(suggestionStore.getSuggestion)
+      .mockResolvedValueOnce(suggestion)
+      .mockResolvedValueOnce(suggestion)
+      .mockResolvedValueOnce(withdrawn);
+    updateSuggestionStatus.mockResolvedValueOnce(true);
+    vi.mocked(suggestionStore.recordDecision).mockResolvedValueOnce({
+      record: decision,
+      duplicate: false,
+    });
+
+    await expect(
+      decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "withdrawn",
+          idempotencyKey: decision.idempotencyKey,
+          observedBase: decision.observedBase,
+          observedRevision: suggestion.revision,
+        },
+        { userEmail: suggestion.authorEmail },
+      ),
+    ).resolves.toEqual({ suggestion: withdrawn, decision });
+    expect(updateSuggestionStatus).toHaveBeenCalledWith(
+      transaction,
+      suggestion.id,
+      "withdrawn",
+      suggestion.revision,
+    );
+    expect(reviewStore.resolveReviewThreadWithClient).toHaveBeenCalledWith(
+      transaction,
+      suggestion.threadId,
+      suggestion.authorEmail,
+      {
+        resourceType: suggestion.resourceType,
+        resourceId: suggestion.resourceId,
+      },
+      "withdrawn",
+    );
+    expect(applySuggestion).not.toHaveBeenCalled();
+  });
 
   it("rechecks editor access inside the decision transaction", async () => {
     await expect(
@@ -388,19 +478,7 @@ describe("suggestion action access", () => {
     expect(applySuggestion).not.toHaveBeenCalled();
   });
 
-  it("returns the recorded same-key stale decision when it loses the status CAS", async () => {
-    const stale = { ...suggestion, status: "stale" as const };
-    const decision = {
-      id: "decision-stale",
-      suggestionId: suggestion.id,
-      idempotencyKey: "decision-stale",
-      reviewer: "editor@example.com",
-      decision: "accepted" as const,
-      observedBase: "revision-before-refresh",
-      outcome: "stale",
-      detail: "Base revision changed",
-      createdAt: "now",
-    };
+  it("rejects an outdated observed base without changing the suggestion", async () => {
     registerReviewableResource({
       type: "doc",
       resolveAccess: () => ({
@@ -409,26 +487,73 @@ describe("suggestion action access", () => {
         visibility: "private",
       }),
     });
-    vi.mocked(suggestionStore.getSuggestion)
-      .mockResolvedValueOnce(suggestion)
-      .mockResolvedValueOnce(suggestion)
-      .mockResolvedValueOnce(stale);
-    updateSuggestionStatus.mockResolvedValueOnce(false);
-    vi.mocked(suggestionStore.getDecision).mockResolvedValueOnce(decision);
 
     await expect(
       decideResourceSuggestion.run(
         {
           id: suggestion.id,
           decision: "accepted",
-          idempotencyKey: decision.idempotencyKey,
-          observedBase: decision.observedBase,
+          idempotencyKey: "decision-outdated-base",
+          observedBase: "revision-before-refresh",
           observedRevision: suggestion.revision,
         },
-        { userEmail: decision.reviewer },
+        { userEmail: "editor@example.com" },
       ),
-    ).resolves.toEqual({ suggestion: stale, decision });
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "suggestion_conflict",
+    });
+    expect(updateSuggestionStatus).not.toHaveBeenCalled();
     expect(suggestionStore.recordDecision).not.toHaveBeenCalled();
     expect(applySuggestion).not.toHaveBeenCalled();
+  });
+
+  it("fails an accept the adapter cannot place instead of reporting success", async () => {
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+      }),
+    });
+    updateSuggestionStatus.mockResolvedValueOnce(true);
+    vi.mocked(suggestionStore.recordDecision).mockResolvedValueOnce({
+      record: {
+        id: "decision-unplaceable",
+        suggestionId: suggestion.id,
+        idempotencyKey: "decision-unplaceable",
+        reviewer: "editor@example.com",
+        decision: "accepted",
+        observedBase: suggestion.baseRevision,
+        outcome: "accepted",
+        detail: null,
+        createdAt: "now",
+      },
+      duplicate: false,
+    });
+    applySuggestion.mockRejectedValueOnce(
+      Object.assign(new Error("The text around it changed"), {
+        name: "SuggestionStaleError",
+      }),
+    );
+
+    await expect(
+      decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "accepted",
+          idempotencyKey: "decision-unplaceable",
+          observedBase: suggestion.baseRevision,
+          observedRevision: suggestion.revision,
+        },
+        { userEmail: "editor@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      message: "The text around it changed",
+      statusCode: 409,
+      errorCode: "suggestion_stale",
+    });
+    expect(reviewStore.resolveReviewThreadWithClient).not.toHaveBeenCalled();
   });
 });

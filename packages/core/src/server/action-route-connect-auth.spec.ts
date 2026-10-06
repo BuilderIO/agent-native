@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionEntry } from "../agent/production-agent.js";
 
 const ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS = 15_000;
+const CONNECT_TOKEN_JTI = "jti-action-route-e2e";
 
 vi.mock("./framework-request-handler.js", () => ({
   getH3App: (app: any) => app,
@@ -59,7 +60,10 @@ async function buildOwnerResolver() {
  * undefined for a token this app has no row for.
  */
 function mockDb(
-  opts: { memberOf?: string[]; storedTokenOrgId?: string | null } = {},
+  opts: {
+    memberOf?: string[];
+    storedToken?: { jti: string; orgId: string | null };
+  } = {},
 ) {
   const execute = vi.fn(
     async (query: string | { sql: string; args?: unknown[] }) => {
@@ -82,12 +86,12 @@ function mockDb(
       }
       if (
         /SELECT org_id, owner_email, kind FROM mcp_connect_tokens/.test(sql) &&
-        opts.storedTokenOrgId !== undefined
+        opts.storedToken?.jti === String(args[0])
       ) {
         return {
           rows: [
             {
-              org_id: opts.storedTokenOrgId,
+              org_id: opts.storedToken.orgId,
               owner_email: "owner@plans.test",
               kind: "personal",
             },
@@ -124,7 +128,7 @@ async function mintConnectToken(opts: {
     scope: MCP_OAUTH_DEFAULT_SCOPE,
     resource: opts.resource,
     issuer: opts.issuer,
-    jti: "jti-action-route-e2e",
+    jti: CONNECT_TOKEN_JTI,
     expiresIn: "30d",
   });
 }
@@ -146,7 +150,10 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
 
-      mockDb({ memberOf: ["org-123"] });
+      mockDb({
+        memberOf: ["org-123"],
+        storedToken: { jti: CONNECT_TOKEN_JTI, orgId: "org-123" },
+      });
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
         getBetterAuthSync: () => null,
@@ -214,7 +221,9 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
 
-      mockDb({ storedTokenOrgId: "org-123" });
+      mockDb({
+        storedToken: { jti: CONNECT_TOKEN_JTI, orgId: "org-123" },
+      });
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
         getBetterAuthSync: () => null,
@@ -263,7 +272,10 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
 
-      mockDb({ storedTokenOrgId: "org-from-row", memberOf: ["org-from-row"] });
+      mockDb({
+        storedToken: { jti: CONNECT_TOKEN_JTI, orgId: "org-from-row" },
+        memberOf: ["org-from-row"],
+      });
       const resolveOrgIdForEmail = vi
         .fn()
         .mockResolvedValue("org-from-membership");
@@ -334,7 +346,9 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
 
-      mockDb();
+      mockDb({
+        storedToken: { jti: CONNECT_TOKEN_JTI, orgId: null },
+      });
       const resolveOrgIdForEmail = vi
         .fn()
         .mockResolvedValue("org-from-membership");

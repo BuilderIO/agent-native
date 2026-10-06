@@ -105,6 +105,65 @@ describe("task-store lifecycle (real pglite)", () => {
         ownerScope: "acme.test",
       });
     });
+
+    it("scopes task reads and updates by owner email and stable org id", async () => {
+      const { createTask, getTask, updateTask } = await loadStore();
+      const task = await createTask(
+        makeMessage("hi"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "__a2a_org_id__:org-acme",
+      );
+
+      await expect(
+        getTask(task.id, {
+          ownerEmail: "owner@example.com",
+          ownerScope: "__a2a_org_id__:org-other",
+        }),
+      ).resolves.toBeNull();
+      await expect(
+        updateTask(
+          task.id,
+          { state: "canceled" },
+          {
+            ownerEmail: "owner@example.com",
+            ownerScope: "__a2a_org_id__:org-other",
+          },
+        ),
+      ).resolves.toBeNull();
+      await expect(getTask(task.id)).resolves.toMatchObject({
+        status: { state: "submitted" },
+      });
+      await expect(
+        updateTask(
+          task.id,
+          { state: "canceled" },
+          {
+            ownerEmail: "OWNER@example.com",
+            ownerScope: "__a2a_org_id__:org-acme",
+          },
+        ),
+      ).resolves.toMatchObject({ status: { state: "canceled" } });
+    });
+
+    it("keeps scoped access to owner-backed legacy tasks with an empty scope", async () => {
+      const { createTask, getTask, updateTask } = await loadStore();
+      const task = await createTask(
+        makeMessage("legacy"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      const accessScope = { ownerEmail: "owner@example.com", ownerScope: null };
+
+      await expect(getTask(task.id, accessScope)).resolves.toMatchObject({
+        id: task.id,
+      });
+      await expect(
+        updateTask(task.id, { state: "canceled" }, accessScope),
+      ).resolves.toMatchObject({ status: { state: "canceled" } });
+    });
   });
 
   describe("createOrReuseTask idempotency", () => {

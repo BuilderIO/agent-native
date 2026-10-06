@@ -134,12 +134,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "Incluído gratuitamente em uma conta do Builder.io",
   "onboarding.builderMonthlyCredits": "60 Agent Credits por mês",
+  "onboarding.builderIncludedFree": "Incluído grátis",
+  "onboarding.builderMoreServices": "+ {{count}} serviços adicionais",
+  "onboarding.builderIncludedServices": "Serviços incluídos",
   "onboarding.builderActivateTitle": "Ativar créditos gratuitos",
   "onboarding.builderAccountExistsTitle": "Você já tem uma conta do Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Faça login para usar sua conta.",
   "onboarding.builderActivationDescription":
-    "Criaremos automaticamente sua conta do Builder.io com um clique.",
+    "Crie ou conecte uma conta do Builder.io com um clique para obter créditos grátis.",
   "onboarding.builderOrgActivationDescription":
     "Criaremos sua conta do Builder.io com um clique para que sua organização possa usá-la.",
   "onboarding.builderCreateAndActivate": "Criar e ativar",
@@ -166,6 +169,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Conecte seu próprio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
     "Upload e armazenamento de arquivos",
+  "onboarding.capability.llm.why":
+    "O agente usa um modelo de linguagem para entender solicitações e gerar respostas.",
+  "onboarding.capability.fileStorage.why":
+    "Armazena imagens e arquivos enviados para que o agente possa reutilizá-los na conversa.",
   "onboarding.fileStorage.title":
     "Conecte o armazenamento para enviar arquivos",
   "onboarding.fileStorage.statusUnavailable":
@@ -184,6 +191,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Vetores semânticos",
   "onboarding.capability.embeddings.why":
     "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
+  "onboarding.capability.systemOne.why":
+    "Jev é um modelo de decisão opcional que ajuda a escolher ferramentas e habilidades relevantes antes da primeira solicitação de modelo do agente.",
   "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Créditos Builder ou chave de provedor de imagens",
@@ -775,11 +784,11 @@ const messages: ToolkitAgentChatTranslation = {
     "{{count}} na fila — enviar uma mensagem de acompanhamento...",
   "queue.remove": "Remover da fila",
   "queue.sendNow": "Enviar agora",
-  "queue.sendNowHint": "Enviar agora (interrompe a resposta atual)",
-  "queue.steer": "Orientar",
-  "queue.steerHint": "Enviar esta mensagem em seguida",
+  "queue.sendNowHint":
+    "Interrompe a resposta atual e depois envia esta mensagem",
+  "queue.sendNext": "Enviar em seguida",
+  "queue.sendNextHint": "Enviar após o término da resposta atual",
   "queue.moreActions": "Mais ações",
-  "queue.moveToTop": "Mover para o topo",
   "recovery.connectingBuilder": "Configurando o Builder.io",
   "recovery.copyDebug": "Copiar informações de depuração",
   "recovery.copyFailed": "Falha ao copiar",
@@ -900,6 +909,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "Nenhum detalhe do erro disponível.",
   "tool.input": "Entrada",
   "tool.inputWithLabel": "Entrada - {{label}}",
+  "tool.identifierHidden": "[Identificador oculto]",
+  "tool.contentOmitted": "[Conteúdo omitido]",
+  "tool.circularReference": "[Referência circular]",
   "tool.interrupted":
     "Interrompido antes da confirmação da conclusão — a operação pode ou não ter sido concluída. Verifique antes de tentar novamente.",
   "tool.longRunning":
@@ -1097,6 +1109,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Carregar",
   "composer.uploadFailed":
     "Não foi possível fazer upload do arquivo selecionado.",
+  "composer.unsupportedFileType": "Este tipo de arquivo não é compatível.",
   "composer.useAttachedContext": "Use o contexto anexado.",
   "mentions.commands": "Comandos",
   "mentions.learnMore": "Saber mais",
@@ -1343,6 +1356,55 @@ const messages: ToolkitAgentChatTranslation = {
   "contextXray.tokensShare": "tokens · {{share}}%",
   "contextXray.unpin": "Desafixar",
   "contextXray.unpinSegment": "Desafixar segmento",
+  "accessGate.deniedTitle": "Você não tem acesso",
+  "accessGate.deniedDescription":
+    "Peça ao proprietário para compartilhar com você.",
+  "accessGate.missingTitle": "Isto não existe",
+  "accessGate.missingDescription":
+    "O link pode estar errado ou o item pode ter sido excluído.",
+  "accessGate.trashedTitle": "Isto está na lixeira",
+  "accessGate.trashedDescription": "Restaure para abrir novamente.",
+  "accessGate.signedOutTitle": "Entre para continuar",
+  "accessGate.signedOutDescription": "Entre com uma conta que tenha acesso.",
+  "accessGate.signIn": "Entrar",
+  "accessGate.signedInAs": "Você está conectado como {{email}}",
+  "accessGate.switchAccount": "Trocar de conta",
+  "accessGate.requestDescription":
+    "Solicite acesso e o proprietário será notificado.",
+  "accessGate.requestSent":
+    "Solicitação enviada. O proprietário foi notificado.",
+  "accessGate.requestAccess": "Solicitar acesso",
+  "accessGate.requestNoteLabel": "Nota (opcional)",
+  "accessGate.requestNotePlaceholder": "Adicione uma nota para o proprietário",
+  "accessGate.sendRequest": "Enviar solicitação",
+  "accessGate.cancel": "Cancelar",
+  "accessGate.requestRateLimited":
+    "Muitas solicitações no momento. Tente novamente mais tarde.",
+  "accessGate.requestFailed":
+    "Não foi possível enviar sua solicitação. Tente novamente.",
+  "accessGate.signedOutRequestDescription": "Entre para solicitar acesso.",
+  "accessRequest.title": "{{name}} está pedindo acesso",
+  "accessRequest.approvedTitle": "Acesso permitido",
+  "accessRequest.declinedTitle": "Solicitação recusada",
+  "accessRequest.allow": "Permitir",
+  "accessRequest.decline": "Recusar",
+  "accessRequest.unavailableTitle": "Você não pode revisar esta solicitação",
+  "accessRequest.unavailableDescription":
+    "Ela pode ter sido retirada, ou esta conta não pode gerenciar o acesso.",
+  "accessRequest.loadFailed": "Não foi possível carregar esta solicitação.",
+  "accessRequest.retry": "Tentar novamente",
+  "accessRequest.decisionFailed":
+    "Não foi possível salvar sua decisão. Tente novamente.",
+  "accessRequest.stale": "Alguém já tratou esta solicitação, ou ela mudou.",
+  "share.accessRequests": "Solicitações de acesso",
+  "share.accessRequestsLoadFailed":
+    "Não foi possível carregar as solicitações de acesso.",
+  "share.accessRequestsNewest":
+    "Mostrando as {{count}} solicitações mais recentes.",
+  "accessRequest.emailFailed":
+    "{{name}} já tem acesso, mas não conseguimos enviar um e-mail.",
+  "share.allowRequestFrom": "Permitir {{name}}",
+  "share.declineRequestFrom": "Recusar {{name}}",
   "share.add": "Adicionar",
   "share.addPeopleEmail": "Adicionar pessoas por e-mail",
   "share.addPeopleOrganization": "Adicionar pessoas da sua organização",

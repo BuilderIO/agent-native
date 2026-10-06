@@ -1,7 +1,16 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
+import * as orgContext from "../org/context.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   ANTHROPIC_MANAGED_AGENTS_BETA_HEADER,
@@ -46,6 +55,7 @@ function context() {
 describe("Anthropic Managed Agents A2A handler", () => {
   let server: Server;
   let origin = "";
+  const previousAppUrl = process.env.APP_URL;
   let mode:
     | "complete"
     | "approval"
@@ -184,6 +194,7 @@ describe("Anthropic Managed Agents A2A handler", () => {
           throw new Error("fixture did not bind");
         }
         origin = `http://127.0.0.1:${address.port}`;
+        process.env.APP_URL = origin;
         resolve();
       });
     });
@@ -192,6 +203,8 @@ describe("Anthropic Managed Agents A2A handler", () => {
   afterAll(async () => {
     if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
     else process.env.A2A_SECRET = previousA2ASecret;
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
@@ -201,6 +214,12 @@ describe("Anthropic Managed Agents A2A handler", () => {
     mode = "complete";
     streamConnected = false;
     requests.length = 0;
+    vi.spyOn(
+      orgContext,
+      "resolveA2AOrganizationMetadataById",
+    ).mockImplementation(async (orgId) =>
+      orgId === "org_fixture" ? { orgId, orgDomain: null } : null,
+    );
   });
 
   function makeHandler(

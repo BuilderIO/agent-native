@@ -205,7 +205,7 @@ export default {
       tokenLabel: "Figma 访问令牌",
       tokenPlaceholder: "粘贴 Figma 访问令牌",
       connecting: "正在连接…",
-      connect: "使用 Builder.io",
+      connect: "连接 Figma",
       getToken: "获取令牌",
       importFrame: "导入画框",
       chooseFrame: "选择画框",
