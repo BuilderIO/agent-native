@@ -28,10 +28,7 @@ import {
   BUILTIN_AGENTS_ENV_KEY,
   workspaceBuiltinAgentsJson,
 } from "../server/builtin-agents.js";
-import {
-  normalizeFrameworkRoutePrefix,
-  toPublicFrameworkPath,
-} from "../shared/framework-route-prefix.js";
+import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppHomePath,
@@ -57,7 +54,7 @@ import {
 import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
-  vercelSweepCrons,
+  readVercelSweepCron,
 } from "./build.js";
 import {
   cloneServerBundleForFunction,
@@ -258,6 +255,7 @@ export async function runWorkspaceDeploy(
   );
 
   const execFile = opts.execFile ?? execFileSync;
+  const sweepCrons: Array<{ path: string; schedule: string }> = [];
   for (const app of apps) {
     buildOneApp(
       workspaceRoot,
@@ -278,6 +276,14 @@ export async function runWorkspaceDeploy(
       workspaceApps,
       workspaceAuthMode,
     );
+    if (preset === "vercel") {
+      sweepCrons.push(
+        readVercelSweepCron(
+          path.join(appsDir, app, VERCEL_OUTPUT_DIR),
+          `/${app}`,
+        ),
+      );
+    }
   }
   writeWorkspaceAppManifests(workspaceRoot, apps, workspaceApps, preset);
   if (workspaceRootPage === "directory") {
@@ -296,6 +302,7 @@ export async function runWorkspaceDeploy(
       apps,
       workspaceApps,
       workspaceRootPage,
+      sweepCrons,
     );
   }
 
@@ -629,6 +636,7 @@ function writeVercelBuildConfig(
   apps: string[],
   workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
+  sweepCrons: Array<{ path: string; schedule: string }>,
 ): void {
   const routes: Array<Record<string, any>> = [
     ...vercelImmutableAssetHeaderRoutes(outputDir, apps),
@@ -702,14 +710,7 @@ function writeVercelBuildConfig(
   const config = {
     version: 3,
     routes,
-    crons: vercelSweepCrons(
-      apps.map(
-        (app) =>
-          `/${app}${toPublicFrameworkPath(RECURRING_JOBS_SWEEP_PATH, {
-            publicPrefix: workspaceFrameworkRoutePrefix(),
-          })}`,
-      ),
-    ),
+    crons: sweepCrons,
   };
   fs.writeFileSync(
     path.join(outputDir, "config.json"),

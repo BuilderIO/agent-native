@@ -98,6 +98,7 @@ import {
   patchCloudflareModuleNitroEntry,
   publicRecurringJobsSweepPath,
   pruneServerlessFunctionDeadWeight,
+  readVercelSweepCron,
   removeNetlifyStaticRootShell,
   resolveNitroBundledYjsEntry,
   resolveNitroBuildReplacements,
@@ -1096,6 +1097,28 @@ describe("Vercel sweep cron", () => {
     expect(config.crons).toEqual([
       { path: "/mail/_framework/jobs/_process-sweep", schedule: "* * * * *" },
     ]);
+  });
+
+  it("reads back the app's sweep cron among its other crons", () => {
+    const outputDir = makeTempDir();
+    const sweep = {
+      path: "/mail/_framework/jobs/_process-sweep",
+      schedule: "0 9 * * *",
+    };
+    fs.writeFileSync(
+      path.join(outputDir, "config.json"),
+      JSON.stringify({
+        version: 3,
+        crons: [
+          { path: "/mail/api/report", schedule: "0 0 * * *" },
+          { path: "/mail/a/b/jobs/_process-sweep", schedule: "0 0 * * *" },
+          sweep,
+        ],
+      }),
+    );
+
+    expect(readVercelSweepCron(outputDir, "/mail")).toEqual(sweep);
+    expect(() => readVercelSweepCron(outputDir, "/tasks")).toThrow("found 0");
   });
 });
 

@@ -56,6 +56,7 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   normalizeFrameworkRoutePrefix,
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
@@ -3554,6 +3555,49 @@ export function addVercelSweepCron(
         : " Hobby only allows daily crons: set AGENT_NATIVE_VERCEL_CRON_SCHEDULE " +
           'to a daily expression such as "0 9 * * *" there.'),
   );
+}
+
+const SWEEP_PATH_AFTER_PREFIX = RECURRING_JOBS_SWEEP_PATH.slice(
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX.length,
+);
+
+/**
+ * Reads back the sweep cron `addVercelSweepCron` wrote for an app mounted at
+ * `basePath`. A workspace deploy must reuse it rather than recompute it: the
+ * app's build resolved its framework route prefix from config files the
+ * workspace build never reads.
+ */
+export function readVercelSweepCron(
+  outputDir: string,
+  basePath: string,
+): { path: string; schedule: string } {
+  const configPath = path.join(outputDir, "config.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(`[deploy] Expected Vercel build config at ${configPath}`);
+  }
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    crons?: Array<{ path: string; schedule: string }>;
+  };
+  const sweepCrons = (config.crons ?? []).filter((cron) => {
+    if (
+      !cron.path.startsWith(`${basePath}/`) ||
+      !cron.path.endsWith(SWEEP_PATH_AFTER_PREFIX)
+    ) {
+      return false;
+    }
+    const prefix = cron.path.slice(
+      basePath.length,
+      -SWEEP_PATH_AFTER_PREFIX.length,
+    );
+    return /^\/[^/]+$/.test(prefix);
+  });
+  if (sweepCrons.length !== 1) {
+    throw new Error(
+      `[deploy] Expected one recurring-jobs sweep cron under ${basePath} in ${configPath}, found ${sweepCrons.length}. ` +
+        "Build the app with this version of @agent-native/core so its scheduled work runs on Vercel.",
+    );
+  }
+  return sweepCrons[0];
 }
 
 export function emitSingleTemplateNetlifyKeepWarmFunction(
