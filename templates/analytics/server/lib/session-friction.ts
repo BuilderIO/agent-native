@@ -59,6 +59,8 @@ import {
 import {
   detectReplayFriction,
   parseReplayFrictionDetectorState,
+  type ReplayFrictionDelta,
+  type ReplayFrictionDetectorState,
 } from "./session-friction-detector.js";
 
 /**
@@ -67,8 +69,10 @@ import {
  *
  * Replay friction is per recording. A recording is measured only when its
  * first chunks arrived after the friction tables existed, and only while the
- * row has processed every chunk the recording stores; any batch it misses
- * leaves the counts short of the recording, so reads report it unmeasured.
+ * row has processed every chunk the recording stores. A chunk that never
+ * arrives is skipped. A batch it misses, or a chunk that arrives after a later
+ * one, leaves the counts short of the recording, so reads report it
+ * unmeasured until the recording ends and is measured again from storage.
  *
  * Event friction is per analytics session and is written in a savepoint of
  * its own inside the session event index savepoint. A failed friction write
@@ -185,6 +189,15 @@ function parseReplayEventsStrict(inlineData: string): unknown[] | null {
   return Array.isArray(events) ? events : null;
 }
 
+/** A stored chunk's events as JSON text, or `null` when they cannot be read. */
+export interface StoredReplayChunk {
+  seq: number;
+  inlineData: string | null;
+}
+
+/** Every chunk a recording stores, in sequence order. */
+export type ReadStoredReplayChunks = () => AsyncIterable<StoredReplayChunk>;
+
 export interface ReplayFrictionInput {
   recordingId: string;
   sessionId: string;
@@ -193,12 +206,14 @@ export interface ReplayFrictionInput {
   /** Chunks the recording stored before this batch. */
   priorChunkCount: number;
   /** Chunks this batch stored, with the events they arrived with. */
-  newChunks: ReadonlyArray<{ seq: number; inlineData: string | null }>;
+  newChunks: ReadonlyArray<StoredReplayChunk>;
   /** The counts this batch wrote to the recording, so the score matches. */
   errorCount: number;
   rageClickCount: number;
   /** Whether the recording has ended, so an error near its end means leaving. */
   recordingEnded: boolean;
+  /** Measures an ended recording again when its row fell behind. */
+  readStoredChunks: ReadStoredReplayChunks;
   ingestedAt: string;
 }
 
@@ -236,6 +251,7 @@ export async function finalizeReplayFriction(
     rageClickCount: number;
   },
   finalizedAt: string,
+  readStoredChunks: ReadStoredReplayChunks,
 ): Promise<void> {
   await measureReplayFriction({
     recordingId: recording.id,
@@ -247,8 +263,53 @@ export async function finalizeReplayFriction(
     errorCount: recording.errorCount,
     rageClickCount: recording.rageClickCount,
     recordingEnded: true,
+    readStoredChunks,
     ingestedAt: finalizedAt,
   });
+}
+
+type ReplayFrictionRow = typeof schema.sessionRecordingFriction.$inferSelect;
+type ReplayFrictionCounts = Record<
+  (typeof REPLAY_COLUMNS)[ReplayFrictionSignal],
+  number
+>;
+
+interface ReplayFrictionProgress {
+  state: ReplayFrictionDetectorState;
+  /** The highest chunk sequence measured so far. */
+  lastSeq: number;
+}
+
+/**
+ * A row written before chunk gaps were allowed has no `lastSeq`: it measured
+ * chunks 0 through `processedChunks - 1`.
+ */
+function readReplayFrictionProgress(
+  row: ReplayFrictionRow,
+): ReplayFrictionProgress | null {
+  const parsed = parseReplayFrictionDetectorState(row.detectorState);
+  if (!parsed) return null;
+  const { lastSeq, ...state } = parsed as ReplayFrictionDetectorState & {
+    lastSeq?: unknown;
+  };
+  if (lastSeq === undefined) return { state, lastSeq: row.processedChunks - 1 };
+  if (typeof lastSeq !== "number" || !Number.isFinite(lastSeq)) return null;
+  return { state, lastSeq };
+}
+
+function parseReplayChunks(
+  chunks: ReadonlyArray<StoredReplayChunk>,
+): unknown[] | null {
+  const events: unknown[] = [];
+  for (const chunk of chunks) {
+    const parsed =
+      chunk.inlineData === null
+        ? null
+        : parseReplayEventsStrict(chunk.inlineData);
+    if (!parsed) return null;
+    events.push(...parsed);
+  }
+  return events;
 }
 
 /**
@@ -259,71 +320,142 @@ export async function finalizeReplayFriction(
 async function measureReplayFriction(
   input: ReplayFrictionInput,
 ): Promise<void> {
-  // Chunks can arrive out of order. A batch that does not continue exactly at
-  // the processed count would be measured out of order, so it is left out and
-  // the row falls behind the recording.
-  const seqs = input.newChunks.map((chunk) => chunk.seq).sort((a, b) => a - b);
-  if (seqs.some((seq, index) => seq !== input.priorChunkCount + index)) return;
+  if (input.priorChunkCount === 0 && !input.newChunks.length) return;
   const db = getDb() as any;
   if (!(await sessionFrictionReady(db))) return;
   const t = schema.sessionRecordingFriction;
-  let existing: typeof t.$inferSelect | undefined;
+  let existing: ReplayFrictionRow | undefined;
   if (input.priorChunkCount > 0) {
     [existing] = await db
       .select()
       .from(t)
       .where(eq(t.recordingId, input.recordingId))
       .limit(1);
-    if (!existing || existing.processedChunks !== input.priorChunkCount) {
-      return;
-    }
-  } else if (!input.newChunks.length) {
-    return;
   }
-  const previousState = existing
-    ? parseReplayFrictionDetectorState(existing.detectorState)
-    : null;
-  if (existing && !previousState) return;
-
-  const events: unknown[] = [];
-  for (const chunk of [...input.newChunks].sort((a, b) => a.seq - b.seq)) {
-    const parsed = chunk.inlineData
-      ? parseReplayEventsStrict(chunk.inlineData)
-      : null;
-    if (!parsed) return;
-    events.push(...parsed);
+  const progress = existing ? readReplayFrictionProgress(existing) : null;
+  const newChunks = [...input.newChunks].sort((a, b) => a.seq - b.seq);
+  // A lost upload leaves a gap in the sequence, which is skipped. A chunk that
+  // arrives after a later one cannot be measured in order, so the row falls
+  // behind until the recording ends and is measured again from storage.
+  const continues =
+    input.priorChunkCount === 0 ||
+    (existing?.processedChunks === input.priorChunkCount &&
+      progress !== null &&
+      (newChunks.length === 0 || newChunks[0]!.seq > progress.lastSeq));
+  const events = continues ? parseReplayChunks(newChunks) : null;
+  if (!events) {
+    if (input.recordingEnded) await remeasureReplayFriction(input, existing);
+    return;
   }
   const { state, delta, errorThenLeave } = detectReplayFriction(
     events,
-    previousState,
+    progress ? progress.state : null,
   );
-  const counts = {
-    deadClicks: (existing?.deadClicks ?? 0) + delta.deadClicks,
-    errorToasts: (existing?.errorToasts ?? 0) + delta.errorToasts,
-    retryLoops: (existing?.retryLoops ?? 0) + delta.retryLoops,
-    errorThenLeave: errorThenLeave && input.recordingEnded ? 1 : 0,
-    stalledRequests: (existing?.stalledRequests ?? 0) + delta.stalledRequests,
-    http4xx: (existing?.http4xx ?? 0) + delta.http4xx,
-    http5xx: (existing?.http5xx ?? 0) + delta.http5xx,
+  const lastChunk = newChunks[newChunks.length - 1];
+  await writeReplayFriction(input, existing, {
+    counts: {
+      deadClicks: (existing?.deadClicks ?? 0) + delta.deadClicks,
+      errorToasts: (existing?.errorToasts ?? 0) + delta.errorToasts,
+      retryLoops: (existing?.retryLoops ?? 0) + delta.retryLoops,
+      errorThenLeave: errorThenLeave && input.recordingEnded ? 1 : 0,
+      stalledRequests: (existing?.stalledRequests ?? 0) + delta.stalledRequests,
+      http4xx: (existing?.http4xx ?? 0) + delta.http4xx,
+      http5xx: (existing?.http5xx ?? 0) + delta.http5xx,
+    },
+    issueErrors: !existing
+      ? delta.issueErrors
+      : existing.issueErrors === null
+        ? null
+        : existing.issueErrors + delta.issueErrors,
+    processedChunks: input.priorChunkCount + newChunks.length,
+    progress: {
+      state,
+      lastSeq: lastChunk ? lastChunk.seq : progress!.lastSeq,
+    },
+  });
+}
+
+/**
+ * Measures an ended recording from every chunk it stores, in sequence order.
+ * A chunk that cannot be read leaves the row behind, which reads as
+ * unmeasured.
+ */
+async function remeasureReplayFriction(
+  input: ReplayFrictionInput,
+  existing: ReplayFrictionRow | undefined,
+): Promise<void> {
+  const totals: ReplayFrictionDelta = {
+    deadClicks: 0,
+    errorToasts: 0,
+    retryLoops: 0,
+    stalledRequests: 0,
+    http4xx: 0,
+    http5xx: 0,
+    issueErrors: 0,
   };
+  let progress: ReplayFrictionProgress | null = null;
+  let errorThenLeave = false;
+  let processedChunks = 0;
+  for await (const chunk of input.readStoredChunks()) {
+    const events = parseReplayChunks([chunk]);
+    if (!events) return;
+    const result = detectReplayFriction(
+      events,
+      progress ? progress.state : null,
+    );
+    for (const key of Object.keys(totals) as Array<keyof ReplayFrictionDelta>) {
+      totals[key] += result.delta[key];
+    }
+    progress = { state: result.state, lastSeq: chunk.seq };
+    errorThenLeave = result.errorThenLeave;
+    processedChunks += 1;
+  }
+  if (!progress) return;
+  await writeReplayFriction(input, existing, {
+    counts: {
+      deadClicks: totals.deadClicks,
+      errorToasts: totals.errorToasts,
+      retryLoops: totals.retryLoops,
+      errorThenLeave: errorThenLeave ? 1 : 0,
+      stalledRequests: totals.stalledRequests,
+      http4xx: totals.http4xx,
+      http5xx: totals.http5xx,
+    },
+    issueErrors: totals.issueErrors,
+    processedChunks,
+    progress,
+  });
+}
+
+async function writeReplayFriction(
+  input: ReplayFrictionInput,
+  existing: ReplayFrictionRow | undefined,
+  measured: {
+    counts: ReplayFrictionCounts;
+    issueErrors: number | null;
+    processedChunks: number;
+    progress: ReplayFrictionProgress;
+  },
+): Promise<void> {
+  const db = getDb() as any;
+  const t = schema.sessionRecordingFriction;
   const score = sessionFrictionScore(
     {
-      ...replayCountsBySignal(counts),
+      ...replayCountsBySignal(measured.counts),
       errors: input.errorCount,
       rage_clicks: input.rageClickCount,
     },
     REPLAY_FRICTION_SCORE_INPUTS,
   );
   const values = {
-    ...counts,
-    issueErrors: !existing
-      ? delta.issueErrors
-      : existing.issueErrors === null
-        ? null
-        : existing.issueErrors + delta.issueErrors,
-    processedChunks: input.priorChunkCount + input.newChunks.length,
+    ...measured.counts,
+    issueErrors: measured.issueErrors,
+    processedChunks: measured.processedChunks,
     score,
-    detectorState: JSON.stringify(state),
+    detectorState: JSON.stringify({
+      ...measured.progress.state,
+      lastSeq: measured.progress.lastSeq,
+    }),
     updatedAt: input.ingestedAt,
   };
   if (existing) {
@@ -335,7 +467,7 @@ async function measureReplayFriction(
       .where(
         and(
           eq(t.recordingId, input.recordingId),
-          eq(t.processedChunks, input.priorChunkCount),
+          eq(t.processedChunks, existing.processedChunks),
         ),
       );
     return;
@@ -354,7 +486,7 @@ async function measureReplayFriction(
 }
 
 function replayCountsBySignal(
-  row: Record<(typeof REPLAY_COLUMNS)[ReplayFrictionSignal], number>,
+  row: ReplayFrictionCounts,
 ): Record<ReplayFrictionSignal, number> {
   return Object.fromEntries(
     REPLAY_FRICTION_SIGNALS.map((signal) => [

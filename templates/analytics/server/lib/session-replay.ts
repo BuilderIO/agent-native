@@ -29,6 +29,7 @@ import {
   asc,
   desc,
   eq,
+  gt,
   gte,
   inArray,
   isNull,
@@ -63,6 +64,7 @@ import {
   finalizeReplayFriction,
   getSessionFrictionCoverageStart,
   pruneSessionFriction,
+  type ReadStoredReplayChunks,
   recordReplayFriction,
   sessionFrictionFilterConditions,
   sessionFrictionSortOrder,
@@ -1750,6 +1752,7 @@ export async function recordSessionReplayChunks(
     errorCount,
     rageClickCount,
     recordingEnded,
+    readStoredChunks: storedReplayChunkReader(recording.id),
     ingestedAt,
   });
 
@@ -2189,6 +2192,57 @@ function parseInlineReplayEvents(inlineData: string): unknown[] {
   } catch {
     return [{ data: inlineData }];
   }
+}
+
+/** A stored chunk's events as JSON text, or `null` when they cannot be read. */
+async function readStoredReplayChunkText(row: any): Promise<string | null> {
+  if (row.storageKind === "inline") {
+    return typeof row.inlineData === "string" ? row.inlineData : null;
+  }
+  const ref =
+    row.storageKind === "blob" ? decodeReplayBlobRef(row.storageRef) : null;
+  if (!ref) return null;
+  try {
+    const blob = await readPrivateBlob(ref.handle);
+    return gunzipSync(Buffer.from(blob.data)).toString("utf8");
+  } catch (error) {
+    console.warn(
+      "[session-replay] Could not read a stored replay chunk; its recording reads as unmeasured:",
+      error,
+    );
+    // coercion-ok: null is "unreadable"; friction leaves the recording unmeasured.
+    return null;
+  }
+}
+
+/**
+ * A recording's stored chunks in sequence order, read a page at a time so a
+ * long recording is never held in memory at once.
+ */
+function storedReplayChunkReader(recordingId: string): ReadStoredReplayChunks {
+  return async function* () {
+    const db = getDb() as any;
+    const c = schema.sessionReplayChunks;
+    let afterSeq = -1;
+    for (let read = 0; read < MAX_REPLAY_CHUNKS_PER_RECORDING; ) {
+      // guard:allow-unscoped -- the caller already holds this recording in its owner's scope, and the chunks feed only that recording's friction row.
+      const rows = await db
+        .select()
+        .from(c)
+        .where(and(eq(c.recordingId, recordingId), gt(c.seq, afterSeq)))
+        .orderBy(asc(c.seq))
+        .limit(MAX_REPLAY_CHUNKS_PER_REQUEST);
+      for (const row of rows) {
+        yield {
+          seq: row.seq,
+          inlineData: await readStoredReplayChunkText(row),
+        };
+      }
+      if (rows.length < MAX_REPLAY_CHUNKS_PER_REQUEST) return;
+      read += rows.length;
+      afterSeq = rows[rows.length - 1].seq;
+    }
+  };
 }
 
 async function readStoredReplayEvents(row: any): Promise<unknown[]> {
@@ -2742,6 +2796,7 @@ export async function finalizeAbandonedSessionRecordings(
           rageClickCount: Number(row.rageClickCount ?? 0),
         },
         now.toISOString(),
+        storedReplayChunkReader(row.id),
       );
     } catch (error) {
       console.warn(

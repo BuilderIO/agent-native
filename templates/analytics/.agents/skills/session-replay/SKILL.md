@@ -139,10 +139,12 @@ agent answers about browser recordings in the Analytics template.
   clients send no id and are skipped: followed together, two tabs would look
   like one tab going back.
 - A replay row counts only while `processed_chunks` equals the recording's
-  `chunk_count`. Each batch must continue from the stored detector state and
-  its chunk seqs must start exactly at `processed_chunks`, so a batch that
-  cannot be measured, or arrives out of order, leaves the row behind and the
-  recording reads as unmeasured; never restart from fresh state. An event row
+  `chunk_count`. Each batch continues from the stored detector state, whose
+  `lastSeq` is the highest chunk measured; a seq the recorder lost is skipped.
+  A batch that cannot be measured, or a chunk below `lastSeq`, leaves the row
+  behind and the recording reads as unmeasured until it ends. Then
+  `remeasureReplayFriction` measures every stored chunk again in seq order;
+  never continue a row that fell behind from fresh state. An event row
   counts only when the tenant's friction coverage began before every
   recording of the session and the session has neither an event index gap
   nor a friction gap (`analytics_session_friction_gaps`). A friction write

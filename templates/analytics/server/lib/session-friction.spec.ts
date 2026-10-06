@@ -52,9 +52,11 @@ import {
   listRecordingFriction,
   pruneSessionFriction,
   QUICK_BACK_WINDOW_MS,
+  type ReadStoredReplayChunks,
   recordReplayFriction,
   sessionFrictionFilterConditions,
   sessionFrictionSortOrder,
+  type StoredReplayChunk,
 } from "./session-friction";
 
 /** Migration DDL comes straight from db.ts so the tests track it. */
@@ -575,8 +577,11 @@ describe("aggregateSessionFrictionEvents", () => {
 describe("session friction on Postgres", () => {
   let client: PGliteClient;
   let db: any;
+  /** What each recording stores, by recording id and chunk sequence. */
+  const storedChunks = new Map<string, Map<number, string | null>>();
 
   beforeEach(async () => {
+    storedChunks.clear();
     __resetSessionEventIndexForTests();
     __resetSessionFrictionForTests();
     client = await PGlite.create("memory://");
@@ -622,6 +627,21 @@ describe("session friction on Postgres", () => {
     };
   }
 
+  function storeChunks(recordingId: string, chunks: StoredReplayChunk[]) {
+    const stored = storedChunks.get(recordingId) ?? new Map();
+    for (const chunk of chunks) stored.set(chunk.seq, chunk.inlineData);
+    storedChunks.set(recordingId, stored);
+  }
+
+  function readStored(recordingId: string): ReadStoredReplayChunks {
+    return async function* () {
+      const stored = storedChunks.get(recordingId) ?? new Map();
+      for (const seq of [...stored.keys()].sort((a, b) => a - b)) {
+        yield { seq, inlineData: stored.get(seq) ?? null };
+      }
+    };
+  }
+
   async function replayBatch(
     recordingId: string,
     sessionId: string,
@@ -629,18 +649,49 @@ describe("session friction on Postgres", () => {
     events: unknown[],
     recordingEnded = true,
   ) {
+    const newChunks = [
+      { seq: priorChunkCount, inlineData: JSON.stringify({ events }) },
+    ];
+    storeChunks(recordingId, newChunks);
     await recordReplayFriction({
       recordingId,
       sessionId,
       ownerEmail: OWNER,
       orgId: ORG,
       priorChunkCount,
-      newChunks: [
-        { seq: priorChunkCount, inlineData: JSON.stringify({ events }) },
-      ],
+      newChunks,
       errorCount: 0,
       rageClickCount: 0,
       recordingEnded,
+      readStoredChunks: readStored(recordingId),
+      ingestedAt: at(0),
+    });
+  }
+
+  /** Stores one dead click per chunk, a minute apart, then measures the batch. */
+  async function deadClickBatch(
+    recordingId: string,
+    sessionId: string,
+    priorChunkCount: number,
+    seqs: number[],
+    recordingEnded = false,
+  ) {
+    const newChunks = seqs.map((seq) => ({
+      seq,
+      inlineData: JSON.stringify({ events: deadClick(1_000 + seq * 60_000) }),
+    }));
+    storeChunks(recordingId, newChunks);
+    await recordReplayFriction({
+      recordingId,
+      sessionId,
+      ownerEmail: OWNER,
+      orgId: ORG,
+      priorChunkCount,
+      newChunks,
+      errorCount: 0,
+      rageClickCount: 0,
+      recordingEnded,
+      readStoredChunks: readStored(recordingId),
       ingestedAt: at(0),
     });
   }
@@ -986,59 +1037,96 @@ describe("session friction on Postgres", () => {
     ]);
   });
 
-  it("leaves a recording unmeasured when a batch skips or reorders its chunks", async () => {
+  it("measures a recording past a chunk that never arrived", async () => {
     await migrateFriction(client);
-    await addRecording("r-gap", "s1", at(0), 3);
-    await addRecording("r-late", "s2", at(0), 2);
-    const write = (
-      recordingId: string,
-      sessionId: string,
-      priorChunkCount: number,
-      seqs: number[],
-    ) =>
-      recordReplayFriction({
-        recordingId,
-        sessionId,
-        ownerEmail: OWNER,
-        orgId: ORG,
-        priorChunkCount,
-        newChunks: seqs.map((seq) => ({
-          seq,
-          inlineData: JSON.stringify({
-            events: deadClick(1_000 + seq * 60_000),
-          }),
-        })),
-        errorCount: 0,
-        rageClickCount: 0,
-        recordingEnded: false,
-        ingestedAt: at(0),
-      });
-    // Chunk 0 arrives after chunk 1, so this batch does not start the recording,
-    // and neither the late chunk 0 nor the next chunk, whose seq matches the
-    // stored count, can start it afterwards.
-    await write("r-gap", "s1", 0, [1]);
-    await write("r-gap", "s1", 1, [0]);
-    await write("r-gap", "s1", 2, [2]);
-    // Two chunks, but one of them is not the next one.
-    await write("r-late", "s2", 0, [0, 2]);
-    const rows = await client.query(
-      "SELECT recording_id FROM session_recording_friction",
-    );
-    expect(rows.rows).toEqual([]);
-    const details = await getSessionFrictionDetails(SCOPE, [
-      recordingInput("r-gap", "s1", 3),
-      recordingInput("r-late", "s2", 2),
-    ]);
-    expect(details.get("r-gap")?.replay).toBeNull();
-    expect(details.get("r-late")?.replay).toBeNull();
-
-    // In-order batches, even listed out of order, are measured.
+    await addRecording("r-gap", "s1", at(0), 2);
+    await addRecording("r-first", "s2", at(0), 2);
     await addRecording("r-ok", "s3", at(0), 2);
-    await write("r-ok", "s3", 0, [1, 0]);
-    const measured = await getSessionFrictionDetails(SCOPE, [
+    // Chunk 1 never arrives.
+    await deadClickBatch("r-gap", "s1", 0, [0]);
+    await deadClickBatch("r-gap", "s1", 1, [2]);
+    // Nor does chunk 0, and the first batch skips chunk 2.
+    await deadClickBatch("r-first", "s2", 0, [1, 3]);
+    // In-order chunks, even listed out of order, are measured.
+    await deadClickBatch("r-ok", "s3", 0, [1, 0]);
+
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-gap", "s1", 2),
+      recordingInput("r-first", "s2", 2),
       recordingInput("r-ok", "s3", 2),
     ]);
-    expect(measured.get("r-ok")?.replay).toMatchObject({ dead_clicks: 2 });
+    expect(details.get("r-gap")?.replay).toMatchObject({ dead_clicks: 2 });
+    expect(details.get("r-first")?.replay).toMatchObject({ dead_clicks: 2 });
+    expect(details.get("r-ok")?.replay).toMatchObject({ dead_clicks: 2 });
+  });
+
+  it("measures an ended recording again from storage after a chunk arrived late", async () => {
+    await migrateFriction(client);
+    await addRecording("r-late", "s1", at(0), 3);
+    await addRecording("r-abandoned", "s2", at(0), 2);
+    // Chunk 0 arrives after chunk 1, so the rows fall behind.
+    await deadClickBatch("r-late", "s1", 0, [1]);
+    await deadClickBatch("r-late", "s1", 1, [0]);
+    await deadClickBatch("r-abandoned", "s2", 0, [1]);
+    await deadClickBatch("r-abandoned", "s2", 1, [0]);
+    let details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-late", "s1", 2),
+      recordingInput("r-abandoned", "s2", 2),
+    ]);
+    expect(details.get("r-late")?.replay).toBeNull();
+    expect(details.get("r-abandoned")?.replay).toBeNull();
+
+    // The final upload ends one recording; retention finalizes the other.
+    await deadClickBatch("r-late", "s1", 2, [2], true);
+    await finalizeReplayFriction(
+      recordingInput("r-abandoned", "s2", 2),
+      at(60),
+      readStored("r-abandoned"),
+    );
+    details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-late", "s1", 3),
+      recordingInput("r-abandoned", "s2", 2),
+    ]);
+    expect(details.get("r-late")?.replay).toMatchObject({ dead_clicks: 3 });
+    expect(details.get("r-abandoned")?.replay).toMatchObject({
+      dead_clicks: 2,
+    });
+
+    // The rebuilt row keeps measuring later chunks as they arrive.
+    await deadClickBatch("r-late", "s1", 3, [3], true);
+    details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-late", "s1", 4),
+    ]);
+    expect(details.get("r-late")?.replay).toMatchObject({ dead_clicks: 4 });
+  });
+
+  it("leaves an ended recording unmeasured when a stored chunk cannot be read", async () => {
+    await migrateFriction(client);
+    await addRecording("r1", "s1", at(0), 3);
+    await deadClickBatch("r1", "s1", 0, [1]);
+    await deadClickBatch("r1", "s1", 1, [0]);
+    storeChunks("r1", [{ seq: 0, inlineData: null }]);
+    await deadClickBatch("r1", "s1", 2, [2], true);
+
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r1", "s1", 3),
+    ]);
+    expect(details.get("r1")?.replay).toBeNull();
+  });
+
+  it("continues a row written before chunk gaps were allowed", async () => {
+    await migrateFriction(client);
+    await addRecording("r1", "s1", at(0), 2);
+    await deadClickBatch("r1", "s1", 0, [0]);
+    await client.query(
+      `UPDATE session_recording_friction SET detector_state = (detector_state::jsonb - 'lastSeq')::text`,
+    );
+    await deadClickBatch("r1", "s1", 1, [1]);
+
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r1", "s1", 2),
+    ]);
+    expect(details.get("r1")?.replay).toMatchObject({ dead_clicks: 2 });
   });
 
   it("counts leaving after an error only once the recording has ended", async () => {
@@ -1054,7 +1142,11 @@ describe("session friction on Postgres", () => {
     });
 
     // Retention finalizes a recording that never sent its final upload.
-    await finalizeReplayFriction(recordingInput("r1", "s1", 1), at(60));
+    await finalizeReplayFriction(
+      recordingInput("r1", "s1", 1),
+      at(60),
+      readStored("r1"),
+    );
     details = await getSessionFrictionDetails(SCOPE, [
       recordingInput("r1", "s1", 1),
     ]);
@@ -1087,6 +1179,7 @@ describe("session friction on Postgres", () => {
       errorCount: 2,
       rageClickCount: 0,
       recordingEnded: true,
+      readStoredChunks: readStored("r1"),
       ingestedAt: at(60),
     });
     const details = await getSessionFrictionDetails(SCOPE, [
