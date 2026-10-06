@@ -709,7 +709,7 @@ describe("connect-store", () => {
       const tx = {
         execute: vi.fn(async (input: Parameters<typeof exec>[0]) => {
           if (typeof input !== "string" && input.sql.startsWith("UPDATE"))
-            devices[0].expires_at = Date.now() - 1;
+            devices[0].expires_at = Date.now() - 1_000;
           return exec(input);
         }),
       };
@@ -738,7 +738,7 @@ describe("connect-store", () => {
         const tx = {
           execute: vi.fn(async (input: Parameters<typeof exec>[0]) => {
             if (typeof input !== "string" && input.sql.startsWith("UPDATE"))
-              devices[0].expires_at = Date.now() - 1;
+              devices[0].expires_at = Date.now() - 1_000;
             return exec(input);
           }),
         };
