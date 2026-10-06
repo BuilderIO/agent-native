@@ -1175,9 +1175,8 @@ export interface TiptapComposerProps {
    */
   providerConnectStatusEnabled?: boolean;
   /**
-   * Override the Builder.io connect action in the model picker. When provided,
-   * clicking "Use Builder.io" calls this instead of opening a browser popup.
-   * Used by the Electron desktop app to route through the native IPC handler.
+   * Handle the existing-account choice in the Builder chooser in the model
+   * picker. "Create and activate" always uses the shared one-click flow.
    */
   onConnectProvider?: () => void;
   /** Route local runtime setup through the host's native bridge. */
@@ -2325,59 +2324,20 @@ function ModelSelector({
                   <>
                     {showProviderActions && (
                       <>
-                        {showBuilderAction && (
+                        {showBuilderAction && BuilderConnectPopover ? (
                           <>
-                            {BuilderConnectPopover ? (
-                              <BuilderConnectPopover
-                                flow={builderFlow}
-                                onConnect={(provisionAccount) => {
-                                  if (onConnectProvider && !provisionAccount) {
-                                    onConnectProvider();
-                                  } else {
-                                    builderFlow.start({ provisionAccount });
-                                  }
-                                }}
-                              >
-                                <button
-                                  type="button"
-                                  disabled={builderFlow.connecting}
-                                  className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
-                                >
-                                  <IconPlugConnected className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block text-[12px] font-medium text-foreground">
-                                      {builderFlow.connecting
-                                        ? t("agentPanel.connectingBuilder", {
-                                            defaultValue:
-                                              "Setting up Builder.io…",
-                                          })
-                                        : t("agentPanel.connectBuilderIo", {
-                                            defaultValue: "Use Builder.io",
-                                          })}
-                                    </span>
-                                    <span className="block text-[11px] text-muted-foreground">
-                                      {t("agentPanel.builderModelCredits", {
-                                        defaultValue:
-                                          "Free credits for Claude, OpenAI & Gemini",
-                                      })}
-                                    </span>
-                                  </span>
-                                </button>
-                              </BuilderConnectPopover>
-                            ) : (
+                            <BuilderConnectPopover
+                              flow={builderFlow}
+                              onConnect={(provisionAccount) => {
+                                if (onConnectProvider && !provisionAccount) {
+                                  onConnectProvider();
+                                } else {
+                                  builderFlow.start({ provisionAccount });
+                                }
+                              }}
+                            >
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (onConnectProvider) {
-                                    onConnectProvider();
-                                  } else {
-                                    // Without the consent popover there is no
-                                    // terms line, so never create an account.
-                                    builderFlow.start({
-                                      provisionAccount: false,
-                                    });
-                                  }
-                                }}
                                 disabled={builderFlow.connecting}
                                 className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
                               >
@@ -2401,7 +2361,7 @@ function ModelSelector({
                                   </span>
                                 </span>
                               </button>
-                            )}
+                            </BuilderConnectPopover>
                             {!onConnectProvider && builderFlow.error && (
                               <p
                                 role="alert"
@@ -2411,7 +2371,7 @@ function ModelSelector({
                               </p>
                             )}
                           </>
-                        )}
+                        ) : null}
                         {showAddKeysAction && (
                           <button
                             type="button"

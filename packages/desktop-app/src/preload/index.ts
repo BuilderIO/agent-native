@@ -61,6 +61,11 @@ import {
   type CodeAgentProviderSettings,
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
+  type CodeAgentBuilderConnectionResult,
+  type CodeAgentBuilderActivationRequest,
+  type CodeAgentBuilderActivationResult,
+  type CodeAgentBuilderConnectOpenRequest,
+  type CodeAgentBuilderConnectOpenResult,
   type DesktopOpenRequest,
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
@@ -537,9 +542,18 @@ const electronAPI = {
       request: CodeAgentProviderSettingsUpdate,
     ): Promise<CodeAgentProviderSettingsUpdateResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE, request),
-    connectBuilderProvider:
-      (): Promise<CodeAgentProviderSettingsUpdateResult> =>
-        ipcRenderer.invoke(IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT),
+    getBuilderConnectionStatus: (
+      connectAttemptId?: string,
+    ): Promise<CodeAgentBuilderConnectionResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_BUILDER_STATUS_GET, connectAttemptId),
+    activateBuilderAccount: (
+      request: CodeAgentBuilderActivationRequest,
+    ): Promise<CodeAgentBuilderActivationResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_BUILDER_ACTIVATE, request),
+    openBuilderConnectUrl: (
+      request: CodeAgentBuilderConnectOpenRequest,
+    ): Promise<CodeAgentBuilderConnectOpenResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_BUILDER_CONNECT_OPEN, request),
     onOpenRequest: (
       cb: (request: DesktopOpenRequest) => void,
     ): (() => void) => {

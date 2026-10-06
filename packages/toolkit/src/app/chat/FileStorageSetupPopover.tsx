@@ -151,7 +151,6 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
                     {flow ? (
                       <BuilderConnectPopover
                         flow={flow}
-                        defaultProvisionAccount
                         onConnect={(provisionAccount) =>
                           flow.start({ provisionAccount })
                         }
