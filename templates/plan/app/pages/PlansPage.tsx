@@ -352,6 +352,20 @@ export type { PlanOrgAccessPrompt } from "@/lib/plan-access-prompt";
 export { canSubmitInlineCommentDraft, mentionQueryAtCaret };
 export type { CommentDraft } from "@/lib/plan-comment-editor-helpers";
 
+export function buildPlanEmailVerificationCallbackURL(
+  location: Pick<Location, "pathname" | "search" | "hash">,
+): string {
+  return buildSignInReturnHref({
+    returnTo: planReturnPathFromLocation(location),
+  });
+}
+
+function isPlanEmailVerificationPendingMessage(message: string): boolean {
+  return /\b(?:email|account)\b.*\b(?:not\s+verified|isn't\s+verified|is\s+not\s+verified|unverified)\b/i.test(
+    message,
+  );
+}
+
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -7006,7 +7020,7 @@ function LocalPlanConnection({
   );
 }
 
-function PlanLoadError({
+export function PlanLoadError({
   error,
   planId,
   accessStatus,
@@ -7038,6 +7052,12 @@ function PlanLoadError({
   const [emailAuthError, setEmailAuthError] = useState<string | null>(null);
   const [emailAuthNotice, setEmailAuthNotice] = useState<string | null>(null);
   const [emailAuthPending, setEmailAuthPending] = useState(false);
+  const [verificationResendPending, setVerificationResendPending] =
+    useState(false);
+  const [verificationResendMessage, setVerificationResendMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
   const [googlePending, setGooglePending] = useState(false);
 
   const message =
@@ -7078,10 +7098,50 @@ function PlanLoadError({
     return data?.error ?? data?.message ?? fallback;
   };
 
+  const resendVerificationEmail = async () => {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail || verificationResendPending) return;
+    setVerificationResendPending(true);
+    setVerificationResendMessage(null);
+    try {
+      const response = await fetch(
+        agentNativePath("/_agent-native/auth/ba/send-verification-email"),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: normalizedEmail,
+            callbackURL: buildPlanEmailVerificationCallbackURL(window.location),
+          }),
+        },
+      );
+      setVerificationResendMessage(
+        response.ok
+          ? {
+              kind: "success",
+              text: t("plansPage.loadError.verificationEmailResent"),
+            }
+          : {
+              kind: "error",
+              text: t("plansPage.loadError.verificationEmailFailed"),
+            },
+      );
+    } catch {
+      setVerificationResendMessage({
+        kind: "error",
+        text: t("plansPage.loadError.verificationEmailFailed"),
+      });
+    } finally {
+      setVerificationResendPending(false);
+    }
+  };
+
   const submitEmailAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setEmailAuthError(null);
     setEmailAuthNotice(null);
+    setVerificationResendMessage(null);
     setEmailAuthPending(true);
     const body = {
       email,
@@ -7095,7 +7155,12 @@ function PlanLoadError({
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify({
+              ...body,
+              callbackURL: buildPlanEmailVerificationCallbackURL(
+                window.location,
+              ),
+            }),
           },
         );
         if (!registerRes.ok) {
@@ -7129,7 +7194,8 @@ function PlanLoadError({
         authError instanceof Error
           ? authError.message
           : t("plansPage.loadError.emailSignInFailed");
-      if (/not verified|verification/i.test(next)) {
+      if (isPlanEmailVerificationPendingMessage(next)) {
+        setEmailMode("sign-in");
         setEmailAuthNotice(t("plansPage.loadError.verifyEmail"));
       } else {
         setEmailAuthError(next);
@@ -7310,7 +7376,10 @@ function PlanLoadError({
                           type="email"
                           autoComplete="email"
                           value={email}
-                          onChange={(event) => setEmail(event.target.value)}
+                          onChange={(event) => {
+                            setEmail(event.target.value);
+                            setVerificationResendMessage(null);
+                          }}
                           required
                         />
                       </div>
@@ -7338,9 +7407,41 @@ function PlanLoadError({
                         </p>
                       ) : null}
                       {emailAuthNotice ? (
-                        <p className="text-sm text-muted-foreground">
-                          {emailAuthNotice}
-                        </p>
+                        <div className="space-y-2" aria-live="polite">
+                          <p className="text-sm text-muted-foreground">
+                            {emailAuthNotice}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              verificationResendPending || !email.trim()
+                            }
+                            onClick={() => void resendVerificationEmail()}
+                          >
+                            {verificationResendPending
+                              ? t("plansPage.loadError.resendingVerification")
+                              : t("plansPage.loadError.resendVerification")}
+                          </Button>
+                          {verificationResendMessage ? (
+                            <p
+                              className={cn(
+                                "text-sm",
+                                verificationResendMessage.kind === "error"
+                                  ? "text-destructive"
+                                  : "text-muted-foreground",
+                              )}
+                              role={
+                                verificationResendMessage.kind === "error"
+                                  ? "alert"
+                                  : "status"
+                              }
+                            >
+                              {verificationResendMessage.text}
+                            </p>
+                          ) : null}
+                        </div>
                       ) : null}
                       <div className="flex flex-wrap items-center gap-2">
                         <Button type="submit" disabled={emailAuthPending}>
@@ -7362,6 +7463,7 @@ function PlanLoadError({
                             );
                             setEmailAuthError(null);
                             setEmailAuthNotice(null);
+                            setVerificationResendMessage(null);
                           }}
                         >
                           {emailMode === "create"
