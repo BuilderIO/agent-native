@@ -67,6 +67,8 @@ describe("onboarding app profiles", () => {
           suggested: true,
           builderIncluded: true,
           keySummary: "Jev decision model key",
+          whyKey: "agentChat.onboarding.capability.systemOne.why",
+          why: "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
         }),
       ]),
     );

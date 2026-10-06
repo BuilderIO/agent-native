@@ -4,10 +4,12 @@ import {
   IconDeviceFloppy,
   IconFilterOff,
 } from "@tabler/icons-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -33,15 +35,14 @@ import { cn } from "@/lib/utils";
 
 import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import {
+  FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
   resolveDefault,
   resolveFilterVars,
 } from "./filter-vars";
 import type { DashboardFilter } from "./types";
 
-export { resolveFilterVars } from "./filter-vars";
-
-export const FILTER_PARAM_PREFIX = "f_";
+export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";
 
 /** Check if any filter param in the URL differs from the defaults */
 function hasActiveFilters(
@@ -95,7 +96,11 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
-  onSaveView?: (name: string, filters: Record<string, string>) => void;
+  onSaveView?: (
+    name: string,
+    filters: Record<string, string>,
+    isDefault: boolean,
+  ) => void | Promise<void>;
 }
 
 export function DashboardFilterBar({
@@ -106,6 +111,9 @@ export function DashboardFilterBar({
   const [searchParams, setSearchParams] = useSearchParams();
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
+  const [setAsDefault, setSetAsDefault] = useState(false);
+  const [savingView, setSavingView] = useState(false);
+  const defaultCheckboxId = useId();
   const [filtersOpen, setFiltersOpen] = useState(true);
   const uniqueFilters = useMemo(() => {
     const seen = new Set<string>();
@@ -160,13 +168,36 @@ export function DashboardFilterBar({
     });
   }, [setSearchParams]);
 
-  const handleSaveView = useCallback(() => {
-    if (!viewName.trim() || !onSaveView) return;
-    const currentFilters = extractFilterParams(uniqueFilters, searchParams);
-    onSaveView(viewName.trim(), currentFilters);
-    setViewName("");
-    setSaveDialogOpen(false);
-  }, [viewName, onSaveView, uniqueFilters, searchParams]);
+  const handleSaveView = useCallback(async () => {
+    if (!viewName.trim() || !onSaveView || savingView) return;
+    setSavingView(true);
+    try {
+      const currentFilters = extractFilterParams(uniqueFilters, searchParams);
+      await onSaveView(viewName.trim(), currentFilters, setAsDefault);
+      setViewName("");
+      setSetAsDefault(false);
+      setSaveDialogOpen(false);
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.saveViewFailedWithMessage", {
+          message:
+            error instanceof Error
+              ? error.message
+              : t("sqlDashboard.saveViewFailed"),
+        }),
+      );
+    } finally {
+      setSavingView(false);
+    }
+  }, [
+    viewName,
+    onSaveView,
+    savingView,
+    uniqueFilters,
+    searchParams,
+    setAsDefault,
+    t,
+  ]);
 
   const vars = useMemo(
     () => resolveFilterVars(uniqueFilters, getParam),
@@ -248,7 +279,16 @@ export function DashboardFilterBar({
         </div>
       </Collapsible>
 
-      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+      <Dialog
+        open={saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) {
+            setViewName("");
+            setSetAsDefault(false);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{t("sqlDashboard.saveAsView")}</DialogTitle>
@@ -258,24 +298,40 @@ export function DashboardFilterBar({
               placeholder={t("sqlDashboard.viewNameRecentPlaceholder")}
               value={viewName}
               onChange={(e) => setViewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSaveView()}
+              onKeyDown={(e) => e.key === "Enter" && void handleSaveView()}
               autoFocus
             />
+            <label
+              htmlFor={defaultCheckboxId}
+              className="mt-3 flex cursor-pointer items-center gap-2 text-sm"
+            >
+              <Checkbox
+                id={defaultCheckboxId}
+                checked={setAsDefault}
+                onCheckedChange={(checked) => setSetAsDefault(checked === true)}
+              />
+              <span>{t("sqlDashboard.setAsDefault")}</span>
+            </label>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSaveDialogOpen(false)}
+              onClick={() => {
+                setSaveDialogOpen(false);
+                setViewName("");
+                setSetAsDefault(false);
+              }}
+              disabled={savingView}
             >
               {t("sidebar.cancel")}
             </Button>
             <Button
               size="sm"
-              onClick={handleSaveView}
-              disabled={!viewName.trim()}
+              onClick={() => void handleSaveView()}
+              disabled={!viewName.trim() || savingView}
             >
-              {t("explorer.save")}
+              {savingView ? t("sqlDashboard.saving") : t("explorer.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -332,7 +388,7 @@ function FilterControl({
     const supportsCustomRange = isDateRangePresetFilter(filter);
     const startKey = filter.id + "Start";
     const endKey = filter.id + "End";
-    return (
+    const selectControl = (
       <div className="flex flex-col gap-1">
         <label className="text-xs text-muted-foreground font-medium">
           {filter.label}
@@ -371,17 +427,24 @@ function FilterControl({
               )}
           </SelectContent>
         </Select>
-        {supportsCustomRange && current === "custom" && (
+      </div>
+    );
+    if (supportsCustomRange && current === "custom") {
+      return (
+        <div className="flex min-w-0 flex-wrap items-end gap-3">
+          {selectControl}
           <DateRangeInput
             label={t("sqlDashboard.customRange")}
             startDate={vars[startKey] || ""}
             endDate={vars[endKey] || ""}
             onStartChange={(v) => setValue({ [startKey]: v })}
             onEndChange={(v) => setValue({ [endKey]: v })}
+            className="shrink-0"
           />
-        )}
-      </div>
-    );
+        </div>
+      );
+    }
+    return selectControl;
   }
 
   if (filter.type === "toggle") {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   getRequestContext,
@@ -2449,13 +2450,13 @@ describe("mountActionRoutes", () => {
     expect(context).toMatchObject({
       caller: "a2a",
       userEmail: "admin@example.com",
-      orgId: "receiver-org",
+      orgId: "org-1",
       networkProtocol: "a2a",
       networkId: "request-1",
       networkPeer: "https://analytics.example",
     });
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
-    expect(mockResolveOrgByDomain).toHaveBeenCalledWith("builder.io");
+    expect(mockResolveOrgByDomain).not.toHaveBeenCalled();
   });
 
   it("recognizes a scope-only delegation in a space-separated scope claim", async () => {
@@ -2494,10 +2495,11 @@ describe("mountActionRoutes", () => {
     expect(context).toMatchObject({
       caller: "a2a",
       userEmail: "admin@example.com",
-      orgId: "receiver-org",
+      orgId: "org-1",
     });
     expect(mockVerifyA2ATokenWithClaims).toHaveBeenCalledOnce();
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(mockResolveOrgByDomain).not.toHaveBeenCalled();
   });
 
   it("leaves ordinary bearer auth to legacy owner resolution", async () => {
@@ -2607,7 +2609,7 @@ describe("mountActionRoutes", () => {
     expect(context).toMatchObject({
       caller: "a2a",
       userEmail: "writer@example.com",
-      orgId: "receiver-org",
+      orgId: "org-2",
     });
     expect(mockConsumeOneTimeJti).toHaveBeenCalledWith("request-2");
   });
@@ -2673,7 +2675,36 @@ describe("mountActionRoutes", () => {
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
   });
 
-  it("hard-rejects a verified delegation whose domain has no local organization", async () => {
+  it("preserves unavailable org identity lookup as a 503", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockRejectedValue(
+      new A2AIdentityVerificationUnavailableError(new Error("database down")),
+    );
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      { "list-feature-flags": { run: vi.fn() } as any },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "request-lookup-failed",
+      scope: "flags:read",
+    });
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { authorization: `Bearer ${token}` },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage: "Identity verification temporarily unavailable",
+    });
+  });
+
+  it("keeps verified org scope when the current domain lookup is unavailable", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     mockVerifyA2ATokenWithClaims.mockResolvedValue({
       email: "admin@example.com",
@@ -2684,22 +2715,33 @@ describe("mountActionRoutes", () => {
     });
     mockResolveOrgByDomain.mockResolvedValue(null);
     const mounted: Array<{ path: string; handler: any }> = [];
+    let context: any;
     mountActionRoutes(
       { use: (path: string, handler: any) => mounted.push({ path, handler }) },
-      { "list-feature-flags": { run: vi.fn() } as any },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
     );
 
-    await expect(
-      mounted[0].handler({
-        _method: "POST",
-        _headers: {
-          authorization: `Bearer ${fakeUnsignedJwt({ scope: "flags:read" })}`,
-        },
-        context: {},
-        req: { json: async () => ({}) },
-      }),
-    ).rejects.toMatchObject({ statusCode: 401 });
-    expect(mockResolveOrgByDomain).toHaveBeenCalledWith("outside.example");
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {
+        authorization: `Bearer ${fakeUnsignedJwt({ scope: "flags:read" })}`,
+      },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(mockResolveOrgByDomain).not.toHaveBeenCalled();
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "admin@example.com",
+      orgId: "sender-org",
+    });
   });
 
   it("allows allowlisted no-org list and set delegations without active-org fallback", async () => {
@@ -2714,7 +2756,7 @@ describe("mountActionRoutes", () => {
     ] as const) {
       mockVerifyA2ATokenWithClaims.mockResolvedValue({
         email: "ADMIN@example.com",
-        orgId: "sender-org",
+        orgId: null,
         orgDomain: "outside.example",
         jti: `${actionName}-no-org`,
         issuer: "https://analytics.example",

@@ -550,9 +550,15 @@ describe("document editor layout", () => {
     expect(
       positionUnanchoredCommentCard({
         containerRect: { top: -100, width: 280 },
-        boundaryRect: { top: 0 },
+        boundaryRect: { top: 0, bottom: 600 },
       }),
-    ).toEqual({ left: 16, top: 116, width: 248, placement: "below" });
+    ).toEqual({
+      left: 16,
+      top: 116,
+      width: 248,
+      maxHeight: 568,
+      placement: "below",
+    });
   });
   it("re-validates the pending comment target on selection changes only", () => {
     const source = readFileSync(
@@ -572,6 +578,7 @@ describe("document editor layout", () => {
       left: 16,
       top: 120,
       width: 248,
+      maxHeight: 568,
       placement: "below" as const,
     };
     expect(sameAnchoredCommentPosition(position, { ...position })).toBe(true);
@@ -579,6 +586,9 @@ describe("document editor layout", () => {
     expect(sameAnchoredCommentPosition(null, position)).toBe(false);
     expect(
       sameAnchoredCommentPosition(position, { ...position, top: 121 }),
+    ).toBe(false);
+    expect(
+      sameAnchoredCommentPosition(position, { ...position, maxHeight: 400 }),
     ).toBe(false);
     expect(
       sameAnchoredCommentPosition(position, {
@@ -1225,9 +1235,15 @@ describe("document editor layout", () => {
     expect(
       positionUnanchoredCommentCard({
         containerRect: { top: -240, width: 390 },
-        boundaryRect: { top: 0 },
+        boundaryRect: { top: 0, bottom: 720 },
       }),
-    ).toEqual({ left: 16, top: 256, width: 320, placement: "below" });
+    ).toEqual({
+      left: 16,
+      top: 256,
+      width: 320,
+      maxHeight: 688,
+      placement: "below",
+    });
   });
 
   it("ignores delayed additional-field cleanup from the previous document", () => {
@@ -1256,7 +1272,13 @@ describe("document editor layout", () => {
         },
         cardHeight: 180,
       }),
-    ).toEqual({ left: 140, top: 164, width: 320, placement: "below" });
+    ).toEqual({
+      left: 140,
+      top: 164,
+      width: 320,
+      maxHeight: 768,
+      placement: "below",
+    });
   });
 
   it("flips a compact comment card above and clamps it within the viewport", () => {
@@ -1272,7 +1294,13 @@ describe("document editor layout", () => {
         },
         cardHeight: 220,
       }),
-    ).toEqual({ left: 16, top: 396, width: 320, placement: "above" });
+    ).toEqual({
+      left: 16,
+      top: 396,
+      width: 320,
+      maxHeight: 688,
+      placement: "above",
+    });
   });
 
   it("uses the visible scroller as the compact card boundary", () => {
@@ -1289,7 +1317,36 @@ describe("document editor layout", () => {
         boundaryRect: { top: 0, bottom: 720 },
         cardHeight: 220,
       }),
-    ).toEqual({ left: 140, top: 696, width: 320, placement: "above" });
+    ).toEqual({
+      left: 140,
+      top: 696,
+      width: 320,
+      maxHeight: 688,
+      placement: "above",
+    });
+  });
+
+  it("caps a long comment card to the visible scroller", () => {
+    expect(
+      positionAnchoredCommentCard({
+        anchorRect: { top: 300, bottom: 340, left: 100, right: 500 },
+        containerRect: {
+          top: -900,
+          bottom: 3000,
+          left: 0,
+          right: 700,
+          width: 700,
+        },
+        boundaryRect: { top: 0, bottom: 500 },
+        cardHeight: 1600,
+      }),
+    ).toEqual({
+      left: 140,
+      top: 916,
+      width: 320,
+      maxHeight: 468,
+      placement: "above",
+    });
   });
   it("keeps a local-file editor mounted when its saved timestamp advances", () => {
     const key = (documentUpdatedAt: string) =>

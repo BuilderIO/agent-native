@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as callerAuth from "../a2a/caller-auth.js";
 import * as a2aClient from "../a2a/client.js";
+import * as orgContext from "../org/context.js";
 import { toAbsoluteOpenUrl } from "../server/deep-link.js";
 import * as embedSession from "../server/embed-session.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -93,6 +94,10 @@ describe("verifyAuth — static-token caller identity", () => {
 
   it("a valid JWT identity is not overridden by the owner header", async () => {
     process.env.A2A_SECRET = "jwt-secret";
+    vi.spyOn(
+      orgContext,
+      "resolveA2AOrganizationMetadataByDomain",
+    ).mockResolvedValue({ orgId: "org-acme", orgDomain: "acme.com" });
     const jose = await import("jose");
     const token = await new jose.SignJWT({
       sub: "jwt-user@example.com",

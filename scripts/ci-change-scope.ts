@@ -79,7 +79,12 @@ const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/global-teardown.ts",
   "templates/design/e2e/helpers.ts",
   "templates/design/e2e/parity-drag-reparent.spec.ts",
+  "templates/design/e2e/parity-report-interactions.spec.ts",
+  "templates/design/e2e/parity-oversized-nested.spec.ts",
+  "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
+  "templates/design/e2e/z-order-parity.spec.ts",
   "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/e2e/responsive-overview-regressions.spec.ts",
   "templates/design/playwright.config.ts",
 ]);
 
@@ -468,9 +473,11 @@ export function shardQueryBudgetApps(
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
   return [
     "packages/core/",
+    "packages/otel/",
     "packages/toolkit/",
     "packages/recap-cli/",
     "packages/creative-context/",
+    "packages/otel/",
   ].some((prefix) => hasPath(paths, prefix));
 }
 

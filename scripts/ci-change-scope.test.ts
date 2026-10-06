@@ -350,9 +350,12 @@ test("smokes every SSR template when a shared package or CI changes", () => {
     "packages/toolkit/src/index.ts",
     "templates/plan/app/root.tsx",
   ]);
+  const otel = classifyChangedPaths(["packages/otel/src/index.ts"]);
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
 
   assert.deepEqual(toolkit.ssrBootApps, [...SSR_BOOT_APPS]);
+  assert.equal(otel.checks.ssr_boot, true);
+  assert.deepEqual(otel.ssrBootApps, [...SSR_BOOT_APPS]);
   assert.equal(full.full, true);
   assert.deepEqual(full.ssrBootApps, [...SSR_BOOT_APPS]);
 });
@@ -421,7 +424,12 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/e2e/drag-out-of-screen-to-board.spec.ts",
     "templates/design/e2e/parity-drag-reparent.spec.ts",
     "templates/design/e2e/parity-vector-endpoints.spec.ts",
+    "templates/design/e2e/parity-report-interactions.spec.ts",
+    "templates/design/e2e/parity-oversized-nested.spec.ts",
+    "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
+    "templates/design/e2e/z-order-parity.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
+    "templates/design/e2e/responsive-overview-regressions.spec.ts",
     "templates/design/e2e/helpers.ts",
     "templates/design/e2e/drag-and-drop.shared.ts",
     "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",

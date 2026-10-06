@@ -20,6 +20,7 @@ on:
 
 permissions:
   actions: write
+  checks: read
   contents: write
   pull-requests: read
 
@@ -49,6 +50,7 @@ jobs:
             const coordinatorDeadline = startedAt + 350 * 60_000;
             const pollIntervalMs = 15_000;
             const reservedTags = new Map();
+            let downstreamNotificationFailureUrl;
 
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             const phaseDeadline = (timeoutMs) =>
@@ -324,7 +326,10 @@ jobs:
               run,
               label,
               timeoutMs,
-              { retryIfSupersededPending = false } = {},
+              {
+                retryIfSupersededPending = false,
+                allowCompletedFailure = false,
+              } = {},
             ) {
               const deadline = phaseDeadline(timeoutMs);
               let lastStatus = "";
@@ -342,6 +347,12 @@ jobs:
                 }
                 if (current.status === "completed") {
                   if (current.conclusion !== "success") {
+                    if (
+                      allowCompletedFailure &&
+                      current.conclusion === "failure"
+                    ) {
+                      return current;
+                    }
                     if (
                       retryIfSupersededPending &&
                       current.conclusion === "cancelled" &&
@@ -363,6 +374,143 @@ jobs:
                 await sleep(Math.min(pollIntervalMs, remaining));
               }
               throw new Error(`${label} did not finish before the coordinator timeout: ${run.url}`);
+            }
+
+            const hostedRunnerFailure =
+              "The job was not acquired by Runner of type hosted even after multiple attempts";
+
+            async function listWorkflowRunJobs(runId) {
+              const response = await github.rest.actions.listJobsForWorkflowRun({
+                owner,
+                repo,
+                run_id: runId,
+                filter: "latest",
+                per_page: 100,
+              });
+              return response.data.jobs;
+            }
+
+            async function hasOnlyHostedRunnerFailure(job) {
+              const response = await github.rest.checks.listAnnotations({
+                owner,
+                repo,
+                check_run_id: job.id,
+                per_page: 100,
+              });
+              const failures = response.data.filter(
+                (annotation) => annotation.annotation_level === "failure",
+              );
+              return (
+                failures.length === 1 &&
+                failures[0].message === hostedRunnerFailure
+              );
+            }
+
+            function requireSingleJob(jobs, name) {
+              const matches = jobs.filter((job) => job.name === name);
+              if (matches.length !== 1) {
+                throw new Error(
+                  `Expected one ${name} job, found ${matches.length}.`,
+                );
+              }
+              return matches[0];
+            }
+
+            async function requireRecoverableStablePublishFailure(run) {
+              if (run.conclusion !== "failure") {
+                throw new Error(
+                  `Stable npm publication ended ${run.conclusion || "without a conclusion"}: ${run.html_url}`,
+                );
+              }
+              const jobs = await listWorkflowRunJobs(run.id);
+              const verify = requireSingleJob(jobs, "Verify stable release merge");
+              const publish = requireSingleJob(
+                jobs,
+                "Prepare or publish stable npm packages",
+              );
+              const notify = requireSingleJob(jobs, "Notify downstream repos");
+              const unexpected = jobs.filter(
+                (job) =>
+                  ![
+                    "Verify stable release merge",
+                    "Prepare or publish stable npm packages",
+                    "Notify downstream repos",
+                  ].includes(job.name) &&
+                  !["success", "skipped"].includes(job.conclusion),
+              );
+              if (
+                verify.conclusion !== "success" ||
+                publish.conclusion !== "success" ||
+                notify.conclusion !== "cancelled" ||
+                unexpected.length > 0 ||
+                !(await hasOnlyHostedRunnerFailure(notify))
+              ) {
+                throw new Error(
+                  `Stable npm publication had failures beyond downstream runner acquisition: ${run.html_url}`,
+                );
+              }
+            }
+
+            async function recoverDownstreamNotification() {
+              const recovery = await dispatch("auto-publish.yml", "main", {
+                releaseType: "patch",
+                redispatchDownstream: "true",
+              });
+              const completed = await waitForRun(
+                recovery,
+                "Stable downstream notification recovery",
+                30 * 60_000,
+                { allowCompletedFailure: true },
+              );
+              const jobs = await listWorkflowRunJobs(completed.id);
+              const verify = requireSingleJob(jobs, "Verify stable release merge");
+              const publish = requireSingleJob(
+                jobs,
+                "Prepare or publish stable npm packages",
+              );
+              const notify = requireSingleJob(jobs, "Notify downstream repos");
+              const unexpected = jobs.filter(
+                (job) =>
+                  ![
+                    "Verify stable release merge",
+                    "Prepare or publish stable npm packages",
+                    "Notify downstream repos",
+                  ].includes(job.name) &&
+                  !["success", "skipped"].includes(job.conclusion),
+              );
+              const verifyUnavailable =
+                verify.conclusion === "cancelled" &&
+                (await hasOnlyHostedRunnerFailure(verify));
+              if (
+                publish.conclusion !== "skipped" ||
+                unexpected.length > 0 ||
+                (verify.conclusion !== "success" && !verifyUnavailable)
+              ) {
+                throw new Error(
+                  `Downstream notification recovery had an unexpected job result: ${recovery.url}`,
+                );
+              }
+              if (notify.conclusion === "success") {
+                if (verifyUnavailable) {
+                  core.warning(
+                    `The recovery verification job could not acquire a hosted runner, but downstream notifications completed: ${recovery.url}`,
+                  );
+                }
+                return;
+              }
+              if (
+                notify.conclusion === "cancelled" &&
+                (await hasOnlyHostedRunnerFailure(notify))
+              ) {
+                core.warning(
+                  `Downstream notification recovery also could not acquire a hosted runner; continuing the desktop and production release: ${recovery.url}`,
+                );
+                downstreamNotificationFailureUrl = recovery.url;
+                return;
+              }
+              throw new Error(
+                `Downstream notification recovery did not complete successfully: ${recovery.url}`,
+              );
             }
 
             async function listReleasePullRequests() {
@@ -460,7 +608,11 @@ jobs:
                     },
                     "Stable npm publication",
                     remaining,
+                    { allowCompletedFailure: true },
                   );
+                  if (completed.conclusion === "failure") {
+                    await requireRecoverableStablePublishFailure(completed);
+                  }
                   const tagSha = await getRemoteTagSha(packageTag);
                   if (!tagSha || (requireMergeTag && tagSha !== mergeSha)) {
                     const tagDescription = requireMergeTag
@@ -469,6 +621,12 @@ jobs:
                     throw new Error(
                       `Stable npm publication completed without ${tagDescription}: ${run.html_url}`,
                     );
+                  }
+                  if (completed.conclusion === "failure") {
+                    core.warning(
+                      `Stable packages and their merge tag are verified; retrying the downstream notification job that did not acquire a hosted runner: ${run.html_url}`,
+                    );
+                    await recoverDownstreamNotification();
                   }
                   return completed;
                 }
@@ -558,6 +716,7 @@ jobs:
               releaseSha,
               "scripts/netlify-production-sites.json",
             );
+            const docsSite = sitesManifest.fw;
             let desktopVersion;
             let clipsVersion;
             let productionSites;
@@ -573,9 +732,14 @@ jobs:
                 stableVersion(clipsPackage.version, "Clips desktop app"),
                 releaseSha,
               );
+              if (docsSite?.host !== "www.agent-native.com") {
+                throw new Error("The production docs site is not configured for www.agent-native.com.");
+              }
               productionSites = Object.entries(sitesManifest)
-                .filter(([, site]) =>
-                  typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),
+                .filter(([name, site]) =>
+                  name !== "fw" &&
+                  typeof site?.host === "string" &&
+                  site.host.endsWith(".agent-native.com"),
                 )
                 .map(([name]) => name);
               if (productionSites.length === 0) {
@@ -588,7 +752,7 @@ jobs:
             core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
 
             // Downstream workflows own these reserved tags after dispatch.
-            const [desktop, clips, production] = await Promise.all([
+            const [desktop, clips, production, docs] = await Promise.all([
               dispatch("desktop-release.yml", workflowRef, {
                 channel: "production",
                 version: desktopVersion,
@@ -605,12 +769,17 @@ jobs:
                 beta_e2e: "false",
                 smoke: "true",
               }),
+              dispatch("deploy-docs-production.yml", workflowRef, {
+                source_ref: releaseSha,
+                smoke: "true",
+              }),
             ]);
 
             const downstream = await Promise.allSettled([
               waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
               waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
               waitForRun(production, "Production site fleet", 120 * 60_000),
+              waitForRun(docs, "Agent-Native docs production site", 120 * 60_000),
             ]);
             const failures = downstream
               .filter((result) => result.status === "rejected")
@@ -627,12 +796,19 @@ jobs:
                 ["Agent-Native desktop", `stable v${desktopVersion}`],
                 ["Clips desktop", `stable v${clipsVersion}`],
                 ["Production sites", `${productionSites.length} *.agent-native.com apps`],
+                ["Docs site", docsSite.host],
                 ["Source commit", releaseSha],
               ])
               .addLink("Package release PR", releasePr.html_url)
               .addLink("Desktop release run", desktop.url)
               .addLink("Clips release run", clips.url)
               .addLink("Production fleet run", production.url)
+              .addLink("Docs production run", docs.url)
               .write();
 
+            if (downstreamNotificationFailureUrl) {
+              throw new Error(
+                `Production releases completed, but downstream package notifications were not delivered: ${downstreamNotificationFailureUrl}`,
+              );
+            }
             core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);

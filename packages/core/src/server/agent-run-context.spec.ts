@@ -24,6 +24,7 @@ import {
   runWithAgentRunContext,
   seedBackgroundAgentRunOwnerContext,
 } from "./agent-run-context.js";
+import { markCredentialMembershipUnavailable } from "./credential-membership-unavailable.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
@@ -102,6 +103,17 @@ describe("server/agent-run-context", () => {
     ).rejects.toMatchObject({
       statusCode: 401,
     });
+  });
+
+  it("throws a retryable 503, not 401 or an anonymous owner, when the bearer's org membership could not be checked", async () => {
+    const event = makeEvent();
+    markCredentialMembershipUnavailable(event);
+
+    await expect(
+      resolveAgentRunOwnerContext(event, {
+        anonymousOwner: () => "anon-visitor",
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
   });
 
   it("prefers the explicit org resolver over session and implicit org context", async () => {
