@@ -1517,6 +1517,39 @@ button.agentkit-object {
   color: var(--agentkit-text);
 }
 
+.agentkit-activity-summary-section {
+  display: grid;
+  gap: 0.25rem;
+  margin-block-start: 0.5rem;
+}
+
+.agentkit-activity-summary-label {
+  color: var(--agentkit-text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.agentkit-activity-summary-value {
+  max-block-size: 12rem;
+  overflow: auto;
+  border: 1px solid var(--agentkit-border);
+  border-radius: var(--radius-md, var(--radius));
+  padding: 0.5rem 0.625rem;
+  background: var(--agentkit-subtle);
+  color: var(--agentkit-text);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agentkit-activity-summary-value:focus-visible {
+  outline: 2px solid var(--agentkit-focus);
+  outline-offset: 2px;
+}
+
 .agentkit-approval,
 .agentkit-connection-request,
 .agentkit-widget {

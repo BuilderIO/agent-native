@@ -1300,6 +1300,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "لا تتوفر تفاصيل للخطأ.",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",
+  "tool.identifierHidden": "[تم إخفاء المعرّف]",
+  "tool.contentOmitted": "[تم حذف المحتوى]",
+  "tool.circularReference": "[مرجع دائري]",
   "tool.interrupted":
     "توقفت العملية قبل اكتمال التقرير — ربما اكتملت أو لم تكتمل. تحقّق قبل إعادة المحاولة.",
   "tool.longRunning":

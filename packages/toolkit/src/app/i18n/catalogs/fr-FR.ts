@@ -922,6 +922,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "Aucun détail d’erreur disponible.",
   "tool.input": "Entrée",
   "tool.inputWithLabel": "Entrée - {{label}}",
+  "tool.identifierHidden": "[Identifiant masqué]",
+  "tool.contentOmitted": "[Contenu omis]",
+  "tool.circularReference": "[Référence circulaire]",
   "tool.interrupted":
     "Interrompu avant la confirmation de la fin de l’opération ; celle-ci a peut-être abouti ou non. Vérifiez avant de réessayer.",
   "tool.longRunning":

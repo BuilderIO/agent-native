@@ -1306,6 +1306,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
+  "tool.identifierHidden": "[識別子を非表示]",
+  "tool.contentOmitted": "[内容を省略]",
+  "tool.circularReference": "[循環参照]",
   "tool.interrupted":
     "完了報告の前に中断されました。処理は完了している場合も、していない場合もあります。再試行する前に確認してください。",
   "tool.longRunning":

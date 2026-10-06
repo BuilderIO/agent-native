@@ -728,6 +728,11 @@ export const AgentKitAssistantChat = forwardRef<
       },
       agents: t("agentChat.activity.agents"),
       tasks: t("agentChat.activity.tasks"),
+      toolInput: t("agentChat.tool.input"),
+      toolResult: t("agentChat.tool.result"),
+      activityValueIdentifierHidden: t("agentChat.tool.identifierHidden"),
+      activityValueOmitted: t("agentChat.tool.contentOmitted"),
+      activityValueCircular: t("agentChat.tool.circularReference"),
       working: t("agentChat.status.working"),
       workingFor: t("agentChat.status.workingFor", {
         duration: "{{duration}}",

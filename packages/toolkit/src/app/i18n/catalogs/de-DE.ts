@@ -920,6 +920,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "Keine Fehlerdetails verfügbar.",
   "tool.input": "Eingabe",
   "tool.inputWithLabel": "Eingabe – {{label}}",
+  "tool.identifierHidden": "[Kennung ausgeblendet]",
+  "tool.contentOmitted": "[Inhalt ausgelassen]",
+  "tool.circularReference": "[Zirkuläre Referenz]",
   "tool.interrupted":
     "Die Ausgabe wurde vorzeitig unterbrochen. Der Vorgang kann abgeschlossen worden sein oder nicht. Prüfe dies vor einem erneuten Versuch.",
   "tool.longRunning":
