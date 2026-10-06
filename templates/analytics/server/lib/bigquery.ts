@@ -352,8 +352,12 @@ async function finishCacheQuery(
     if (Math.random() < 0.01) {
       try {
         await db.execute({
-          sql: "DELETE FROM bigquery_cache WHERE expires_at <= $1 AND refresh_in_progress = FALSE",
-          args: [now.toISOString()],
+          // Reclaim abandoned leases without deleting rows owned by active queries.
+          sql: "DELETE FROM bigquery_cache WHERE (expires_at <= $1 AND refresh_in_progress = FALSE) OR (refresh_in_progress = TRUE AND refresh_started_at < $2)",
+          args: [
+            now.toISOString(),
+            new Date(now.getTime() - STALE_REFRESH_MS).toISOString(),
+          ],
         });
       } catch (err) {
         console.warn("[bigquery] Expired cache cleanup failed:", err);

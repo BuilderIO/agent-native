@@ -73,6 +73,20 @@ function useCacheDatabase(): Map<
     }
   >();
   execute.mockImplementation(async ({ sql, args }) => {
+    if (sql.startsWith("DELETE FROM bigquery_cache")) {
+      const expiresBefore = String(args[0]);
+      const staleBefore = String(args[1]);
+      for (const [key, entry] of cache) {
+        const expiredIdleResult =
+          !entry.refreshInProgress && entry.expiresAt <= expiresBefore;
+        const abandonedRefresh =
+          entry.refreshInProgress &&
+          entry.refreshStartedAt !== null &&
+          entry.refreshStartedAt < staleBefore;
+        if (expiredIdleResult || abandonedRefresh) cache.delete(key);
+      }
+      return { rows: [] };
+    }
     const key = String(args[0]);
     const entry = cache.get(key);
     if (sql.startsWith("SELECT generation, fence_token")) {
@@ -857,6 +871,57 @@ describe("runQuery cancellation", () => {
       cached: true,
     });
     expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("reclaims stale refresh rows while preserving active cache fences", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-06T00:00:00Z"));
+    const cache = useCacheDatabase();
+    const now = Date.now();
+    const expiredAt = new Date(now - 1_000).toISOString();
+    cache.set("stale-refresh", {
+      result: "{}",
+      generation: 1,
+      fenceToken: "stale-token",
+      refreshInProgress: true,
+      refreshForced: true,
+      refreshStartedAt: new Date(now - 6 * 60 * 1000).toISOString(),
+      expiresAt: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
+    });
+    cache.set("active-refresh", {
+      result: "{}",
+      generation: 1,
+      fenceToken: "active-token",
+      refreshInProgress: true,
+      refreshForced: false,
+      refreshStartedAt: new Date(now - 60 * 1000).toISOString(),
+      expiresAt: expiredAt,
+    });
+    cache.set("expired-result", {
+      result: "{}",
+      generation: 1,
+      fenceToken: null,
+      refreshInProgress: false,
+      refreshForced: false,
+      refreshStartedAt: null,
+      expiresAt: expiredAt,
+    });
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: [],
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runQuery("SELECT 1 AS stale_cache_cleanup_test");
+
+    expect(cache.has("stale-refresh")).toBe(false);
+    expect(cache.has("expired-result")).toBe(false);
+    expect(cache.has("active-refresh")).toBe(true);
   });
 
   it("keeps the prior cached result usable when a forced refresh fails", async () => {
