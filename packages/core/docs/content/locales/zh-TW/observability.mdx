@@ -336,13 +336,28 @@ export default defineAppConfig({
 
 代理迴圈發出三種跨度型別：
 
-| 跨度        | 何時             | 屬性                                                              |
-| ----------- | ---------------- | ----------------------------------------------------------------- |
-| `agent.run` | 每個代理執行一次 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | 每次操作呼叫一次 | `tool.name`，加上成功/錯誤狀態                                    |
-| `llm.call`  | 每個模型呼叫     | 計時+正常/錯誤狀態                                                |
+| 跨度                  | 何時             | 屬性                                                                                                      |
+| --------------------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | 每個代理執行一次 | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | 每次操作呼叫一次 | `gen_ai.tool.name`，加上成功/錯誤狀態                                                                     |
+| `chat {model}`        | 每個模型呼叫     | `gen_ai.provider.name`, 計時+正常/錯誤狀態                                                                |
 
 跨度以 OK/ERROR 狀態完成，並在失敗時紀錄由代碼產生的固定訊息。零/哨兵屬性值被修剪，因此跨度不會因噪音而混亂。該 OTel 層純粹是對內部 `agent_trace_spans` / `agent_trace_summaries` 表的補充，這些表為上面的儀表板提供支援 - 兩者都是由相同的執行事件產生的。
+
+### 指標 {#otel-metrics}
+
+宿主透過 `@agent-native/core/server` 中的 `registerObservabilityProvider()` 註冊指標提供者（meter provider）後，Core 也會記錄指標。指標會針對每個請求與每次執行記錄，不進行取樣：
+
+| 指標工具                                | 屬性                                                                                         |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+在指標中，`gen_ai.tool.name` 是框架動作的名稱或 `other`；只有當引擎將某個模型 ID 列為支援時，`gen_ai.request.model` 才會是該模型 ID，否則為 `_OTHER`。因此，應用程式自訂的工具與呼叫端傳入的模型 ID 不會產生無限增長的序列；span 中會保留確切的值。
 
 ## 錯誤報告（Sentry） {#sentry}
 

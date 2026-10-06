@@ -16,4 +16,5 @@ export * from "./PrimitiveButton.js";
 export * from "./RouteTransitionIndicator.js";
 export * from "./RuntimeConfigNotice.js";
 export * from "./StarfieldBackground.js";
+export * from "./WaveBackground.js";
 export * from "./Turnstile.js";

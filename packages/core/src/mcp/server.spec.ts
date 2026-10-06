@@ -675,6 +675,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const directoryOnlyAction = defineAction({
       description: "A tool reserved for the ChatGPT directory profile.",
       parameters: {},
+      readOnly: true,
       mcpAnnotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -786,6 +787,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         { appId: "design", profile: designDirectoryProfile },
         { appId: "content", profile: contentDirectoryProfile },
       ] as const;
+      const expectedWidgetToolNames = {
+        slides: ["add-slide", "create-deck", "get-deck"],
+        design: [
+          "create-design",
+          "create-design-from-template",
+          "generate-design",
+          "get-design-snapshot",
+          "present-design-variants",
+        ],
+        content: ["create-content-database", "create-document"],
+      };
 
       for (const { appId, profile } of profiles) {
         const logStart = requestLogs.length;
@@ -823,7 +835,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           builtinCrossAppTools: false,
           directoryProfile: profile,
         };
-        const host = `${appId}.agent-native.com`;
+        const host = `${appId}.preview.invalid`;
         const authHeaders = {
           authorization: "Bearer test-access-token",
           "x-agent-native-owner-email": "scanner+autoz@example.test",
@@ -906,25 +918,35 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
           { "mcp-protocol-version": protocolVersion },
         );
-        const resources = await send(
-          {
-            jsonrpc: "2.0",
-            id: 3,
-            method: "resources/list",
-            params: {},
-          },
-          { "mcp-protocol-version": protocolVersion },
+        const resourcesSupported = Boolean(
+          init.body?.result?.capabilities?.resources,
         );
-        const resourceTemplates = await send(
-          {
-            jsonrpc: "2.0",
-            id: 4,
-            method: "resources/templates/list",
-            params: {},
-          },
-          { "mcp-protocol-version": protocolVersion },
-        );
+        const resources = resourcesSupported
+          ? await send(
+              {
+                jsonrpc: "2.0",
+                id: 3,
+                method: "resources/list",
+                params: {},
+              },
+              { "mcp-protocol-version": protocolVersion },
+            )
+          : { body: { result: { resources: [] } } };
+        const resourceTemplates = resourcesSupported
+          ? await send(
+              {
+                jsonrpc: "2.0",
+                id: 4,
+                method: "resources/templates/list",
+                params: {},
+              },
+              { "mcp-protocol-version": protocolVersion },
+            )
+          : { body: { result: { resourceTemplates: [] } } };
         const listedTools = tools.body?.result?.tools ?? [];
+        const widgetTools = listedTools.filter(
+          (tool: any) => typeof tool._meta?.ui?.resourceUri === "string",
+        );
         const linkedUris = [
           ...new Set(
             listedTools.flatMap((tool: any) =>
@@ -936,7 +958,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           ),
         ];
         const reads = [];
-        for (const [index, uri] of linkedUris.entries()) {
+        for (const [index, uri] of (resourcesSupported
+          ? linkedUris
+          : []
+        ).entries()) {
           reads.push(
             await send(
               {
@@ -1000,24 +1025,74 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         const resourceContents = reads.flatMap(
           (response) => response.body?.result?.contents ?? [],
         );
-        const expectedOrigin = `https://${host}`;
+        const expectedOrigin = profile.widgetDomain;
+        expect(expectedOrigin).toBe(`https://${appId}.agent-native.com`);
         expect(init.body?.result?.protocolVersion).toBe(protocolVersion);
         expect(init.body?.result?.capabilities?.prompts).toBeUndefined();
+        expect(resourcesSupported).toBe(profile.widgets !== false);
         expect(listedTools.map((tool: any) => tool.name).sort()).toEqual(
           [...profile.connectorCatalog].sort(),
         );
-        expect(linkedUris.length).toBeGreaterThan(0);
+        if (profile.widgets === false) {
+          expect(linkedUris).toEqual([]);
+          expect(JSON.stringify(listedTools)).not.toMatch(
+            /ui:\/\/|openai\/(?:ui|outputTemplate|widget)/,
+          );
+        } else {
+          expect(widgetTools.length).toBeGreaterThan(0);
+          expect(widgetTools.map((tool: any) => tool.name).sort()).toEqual(
+            expectedWidgetToolNames[appId],
+          );
+          expect(linkedUris).toEqual([`ui://${appId}/shell-v66`]);
+          for (const tool of widgetTools) {
+            const uri = tool._meta.ui.resourceUri;
+            expect(Object.keys(tool._meta).sort()).toEqual([
+              "openai/outputTemplate",
+              "openai/toolInvocation/invoked",
+              "openai/toolInvocation/invoking",
+              "ui",
+            ]);
+            expect(tool._meta.ui).toEqual({ resourceUri: uri });
+            expect(tool._meta["openai/outputTemplate"]).toBe(uri);
+            expect(tool._meta["openai/toolInvocation/invoking"]).toEqual(
+              expect.any(String),
+            );
+            expect(tool._meta["openai/toolInvocation/invoked"]).toEqual(
+              expect.any(String),
+            );
+            expect(tool._meta).not.toHaveProperty("ui/resourceUri");
+            expect(tool._meta).not.toHaveProperty("openai/ui");
+            expect(
+              Object.keys(tool._meta).filter((key: string) =>
+                key.startsWith("openai/widget"),
+              ),
+            ).toEqual([]);
+            expect(tool.outputSchema).toEqual({
+              type: "object",
+              additionalProperties: true,
+            });
+            expect(tool.annotations).not.toHaveProperty(
+              "agent-native/producesOpenLink",
+            );
+          }
+        }
+        expect(
+          listedTools.some(
+            (tool: any) =>
+              tool.annotations?.["agent-native/producesOpenLink"] === true,
+          ),
+        ).toBe(false);
         expect(resources.body?.result?.resources).toHaveLength(
           linkedUris.length,
         );
-        expect(resourceTemplates.body?.result?.resourceTemplates).toHaveLength(
-          linkedUris.length,
-        );
+        expect(resourceTemplates.body?.result?.resourceTemplates).toEqual([]);
         expect(resourceContents).toHaveLength(linkedUris.length);
         for (const resource of resourceContents) {
           expect(resource.mimeType).toBe("text/html;profile=mcp-app");
-          expect(resource._meta?.ui?.domain).toBe(expectedOrigin);
-          expect(resource._meta?.["openai/widgetDomain"]).toBe(expectedOrigin);
+          expect(resource._meta?.["openai/ui"]?.availableDisplayModes).toEqual([
+            "inline",
+            "fullscreen",
+          ]);
           expect(resource._meta?.["openai/widgetDescription"]).toEqual(
             expect.any(String),
           );
@@ -1025,17 +1100,38 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             resource._meta?.["openai/widgetDescription"].length,
           ).toBeGreaterThan(0);
           expect(resource._meta?.ui?.csp?.connectDomains).toContain(
-            expectedOrigin,
+            `https://${host}`,
           );
           expect(resource._meta?.ui?.csp?.resourceDomains).toContain(
-            expectedOrigin,
-          );
-          expect(resource._meta?.ui?.csp?.frameDomains).toContain(
-            expectedOrigin,
+            `https://${host}`,
           );
           expect(resource._meta?.ui?.csp).not.toHaveProperty("baseUriDomains");
+          expect(
+            resource._meta?.["openai/widgetCSP"]?.redirect_domains,
+          ).toEqual([expectedOrigin]);
+          if (profile.widgetDiagnostic === "no-frame-domains") {
+            expect(resource._meta?.ui?.domain).toBeUndefined();
+            expect(resource._meta?.["openai/widgetDomain"]).toBeUndefined();
+            expect(resource._meta?.ui?.csp).not.toHaveProperty("frameDomains");
+            expect(resource._meta?.["openai/widgetCSP"]).not.toHaveProperty(
+              "frame_domains",
+            );
+          } else {
+            expect(resource._meta?.ui?.domain).toBe(expectedOrigin);
+            expect(resource._meta?.["openai/widgetDomain"]).toBe(
+              expectedOrigin,
+            );
+            expect(resource._meta?.ui?.csp?.frameDomains).toContain(
+              `https://${host}`,
+            );
+          }
           expect(resource.text).toMatch(/<\/body>\n<\/html>$/);
           expect(resource.text).not.toContain("https://esm.sh");
+          if (profile.widgetDiagnostic === "tiny-html") {
+            expect(resource.text.length).toBeGreaterThan(500);
+            expect(resource.text.length).toBeLessThan(2_500);
+            expect(resource.text).toContain("Widget resource size diagnostic");
+          }
         }
         expect(responses.every((response) => !response.hasSessionId)).toBe(
           true,
@@ -1048,9 +1144,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         for (const response of [
           init,
           tools,
-          resources,
-          resourceTemplates,
-          ...reads,
+          ...(resourcesSupported
+            ? [resources, resourceTemplates, ...reads]
+            : []),
           prompts,
           ping,
           safeRead,
@@ -1071,9 +1167,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           "initialize",
           "notifications/initialized",
           "tools/list",
-          "resources/list",
-          "resources/templates/list",
-          ...linkedUris.map(() => "resources/read"),
+          ...(resourcesSupported
+            ? [
+                "resources/list",
+                "resources/templates/list",
+                ...linkedUris.map(() => "resources/read"),
+              ]
+            : []),
           "prompts/list",
           "ping",
           "tools/call",
@@ -1506,6 +1606,152 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("can omit widgets from one directory profile without changing /mcp", async () => {
+    const directoryAction = defineAction({
+      description: "Create one workspace artifact.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/directory-action/shell-v65",
+          title: "Created artifact",
+          html: "<!doctype html><html><body>Created</body></html>",
+        },
+      },
+      run: async () => ({ ok: true }),
+    });
+    (directoryAction.tool as any)._meta = {
+      ui: { resourceUri: "ui://content/directory-action/shell-v65" },
+      "openai/ui": { entrypoints: [{ type: "thread" }] },
+      "openai/outputTemplate": "ui://content/directory-action/shell-v65",
+      "openai/widgetDomain": "https://content.agent-native.com",
+      "openai/widgetCSP": {
+        frameDomains: ["https://content.agent-native.com"],
+      },
+      "agent-native/retained": true,
+    };
+    const profileConfig = {
+      ...config,
+      catalogMode: undefined,
+      directoryProfile: {
+        connectorCatalog: ["directory-action"],
+        widgets: false,
+      },
+      actions: { "directory-action": directoryAction },
+    };
+    const directoryHeaders = await mcpAppsAuthHeaders({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const normalHeaders = await mcpAppsAuthHeaders({
+      resource: "https://mail.agent-native.com/_agent-native/mcp",
+    });
+
+    const directoryTools = await callWeb(
+      { jsonrpc: "2.0", id: 160, method: "tools/list", params: {} },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryTools.result.tools).toHaveLength(1);
+    expect(directoryTools.result.tools[0]._meta).toEqual({
+      "agent-native/retained": true,
+    });
+
+    const directoryResources = await callWeb(
+      { jsonrpc: "2.0", id: 161, method: "resources/list", params: {} },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryResources.error.code).toBe(-32601);
+
+    const directoryTemplates = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 162,
+        method: "resources/templates/list",
+        params: {},
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryTemplates.error.code).toBe(-32601);
+
+    const hiddenResource = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 163,
+        method: "resources/read",
+        params: { uri: "ui://content/directory-action/shell-v65" },
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(hiddenResource.error.code).toBe(-32601);
+
+    const directoryInitialize = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 166,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "widget-disabled-test", version: "1.0.0" },
+        },
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryInitialize.result.capabilities.resources).toBeUndefined();
+    expect(directoryInitialize.result.capabilities.extensions).toBeUndefined();
+
+    const directoryCall = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "directory-action", arguments: {} },
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(JSON.stringify(directoryCall)).not.toMatch(
+      /ui:\/\/|openai\/(?:ui|outputTemplate|widget)/,
+    );
+
+    const normalTools = await callWeb(
+      { jsonrpc: "2.0", id: 165, method: "tools/list", params: {} },
+      { headers: normalHeaders, config: profileConfig },
+    );
+    expect(normalTools.result.tools[0]._meta.ui.resourceUri).toBe(
+      "ui://content/directory-action/shell-v65",
+    );
+    expect(normalTools.result.tools[0]._meta["openai/outputTemplate"]).toBe(
+      "ui://content/directory-action/shell-v65",
+    );
+  });
+
   it("rejects directory actions without complete annotations", async () => {
     const configWithoutAnnotations = {
       ...config,
@@ -1523,6 +1769,30 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     await expect(
       createMCPServerForRequest(configWithoutAnnotations as any, undefined),
     ).rejects.toThrow(/must declare boolean readOnlyHint/);
+  });
+
+  it("rejects directory actions whose read-only hint disagrees with the action", async () => {
+    const configWithReadOnlyMismatch = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["mismatched-action"],
+      widgetDomain: "https://slides.agent-native.com",
+      actions: {
+        "mismatched-action": {
+          tool: { description: "Mismatched tool", parameters: {} },
+          mcpAnnotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            openWorldHint: false,
+          },
+          run: async () => ({ ok: true }),
+        },
+      },
+    };
+
+    await expect(
+      createMCPServerForRequest(configWithReadOnlyMismatch as any, undefined),
+    ).rejects.toThrow(/readOnlyHint must match its readOnly action setting/);
   });
 
   it("mints a directory widget embed ticket from an action link without a hidden tool", async () => {
@@ -1632,7 +1902,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(wrongAudience).toMatchObject({ error: "Unauthorized" });
   });
 
-  it("does not mint an unrestricted embed ticket from a read-only directory link", async () => {
+  it("does not mint an embed ticket for a read-only directory widget link", async () => {
     const readArtifact = defineAction({
       description: "Read one workspace document.",
       parameters: {},
@@ -1684,8 +1954,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(called.result.isError).not.toBe(true);
+    expect(called.result._meta).not.toHaveProperty("agent-native/embedStart");
     expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
-    expect(called.result._meta["agent-native/embedStart"]).toBeUndefined();
   });
 
   it("handles `initialize` without a 501", async () => {
@@ -1794,6 +2064,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const { client } = await createModernClient(approvalConfig, {
       manualInputRequired: true,
       supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
     });
     try {
       const first = (await client.callTool(
@@ -1869,6 +2140,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     };
     const { client, wireResponses } = await createModernClient(approvalConfig, {
       approvalDecision: "deny",
+      requestHeaders: await mcpAppsAuthHeaders(),
     });
     try {
       const denied = await client.callTool({
@@ -1915,6 +2187,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const { client } = await createModernClient(approvalConfig, {
       manualInputRequired: true,
       supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
     });
     try {
       const first = (await client.callTool(
@@ -2037,6 +2310,33 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("does not accept action approval from a static-token caller", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "publish-draft": {
+          tool: { description: "Publish a draft" },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const { client } = await createModernClient(approvalConfig, {
+      approvalDecision: "approve",
+    });
+    try {
+      const result = await client.callTool({
+        name: "publish-draft",
+        arguments: {},
+      });
+      expect(result.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
   it("runs a false approval predicate normally and fails closed when it throws", async () => {
     const ordinaryRun = vi.fn(async () => ({ ok: true }));
     const throwingRun = vi.fn(async () => ({ ok: true }));
@@ -2057,7 +2357,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
       },
     };
-    const { client } = await createModernClient(approvalConfig);
+    const { client } = await createModernClient(approvalConfig, {
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
     try {
       const ordinary = await client.callTool({
         name: "ordinary",

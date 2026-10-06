@@ -6,8 +6,12 @@ import type {
   ServerContext,
   Tool,
 } from "@modelcontextprotocol/server";
+import type { JWTPayload } from "jose";
 
-import { verifyA2AOrganizationIdentity } from "../a2a/organization-identity.js";
+import {
+  organizationPrincipalClaims,
+  verifyA2AOrganizationIdentity,
+} from "../a2a/organization-identity.js";
 import {
   actionCallEmitsChange,
   actionChangeResource,
@@ -137,6 +141,10 @@ export interface MCPConfig {
   directoryProfile?: {
     connectorCatalog: string[];
     instructions?: string;
+    widgets?: boolean;
+    widgetDomain?: string;
+    // TEMPORARY: remove this field and both configured values after the OpenAI widget scan A/B.
+    widgetDiagnostic?: "tiny-html" | "no-frame-domains";
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;
@@ -150,6 +158,7 @@ export interface MCPConfig {
 
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
+  identityAssurance?: "user" | "organization" | "service";
   orgId?: string | null;
   orgDomain: string | undefined;
   oauthScopes?: string[];
@@ -421,6 +430,11 @@ export function validateMcpDirectoryProfile(
     ) {
       throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory catalog action "${name}" must declare boolean readOnlyHint, destructiveHint, and openWorldHint values.`,
+      );
+    }
+    if (annotations.readOnlyHint !== (entry.readOnly === true)) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory catalog action "${name}" readOnlyHint must match its readOnly action setting.`,
       );
     }
   }
@@ -943,12 +957,20 @@ async function withServerMintedMcpAppEmbedStart(
   result: unknown,
   meta: MCPRequestMeta | undefined,
   directoryLinkUrl?: string,
+  suppressDirectoryReadOnlyEmbed = false,
 ): Promise<unknown> {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return result;
   }
 
   const out = result as Record<string, unknown>;
+  if (suppressDirectoryReadOnlyEmbed) {
+    const resultWithoutEmbedSession = { ...out };
+    delete resultWithoutEmbedSession.embedStartUrl;
+    delete resultWithoutEmbedSession.embedTargetPath;
+    delete resultWithoutEmbedSession.embedExpiresAt;
+    return resultWithoutEmbedSession;
+  }
   if (out.embed === false || (out.embed !== true && !directoryLinkUrl)) {
     return result;
   }
@@ -1135,6 +1157,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 }
 
 const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v65";
+const MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION = "shell-v66";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -1144,10 +1167,11 @@ function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
 
 function versionMcpAppResourceUri(
   rawUri: string,
+  shellVersion = MCP_APP_RESOURCE_SHELL_VERSION,
 ): VersionedMcpAppResourceUri | null {
   const uri = rawUri.trim();
   if (!uri.startsWith("ui://")) return null;
-  const versionSuffix = `/${MCP_APP_RESOURCE_SHELL_VERSION}`;
+  const versionSuffix = "/" + shellVersion;
   let versionedUri: string;
   try {
     const parsed = new URL(uri);
@@ -1210,7 +1234,30 @@ function getMcpAppResourceUri(
   if (!resource) return null;
   const baseUri =
     resource.uri?.trim() || legacyDefaultMcpAppUri(config, actionName);
-  return versionMcpAppResourceUri(baseUri);
+  const actionResource = versionMcpAppResourceUri(baseUri);
+  if (
+    !actionResource ||
+    config.catalogMode !== "directory" ||
+    !mcpAppWidgetsEnabled(config)
+  ) {
+    return actionResource;
+  }
+  const app = safeUiSegment(config.appId ?? config.name, "agent-native");
+  const sharedResource = versionMcpAppResourceUri(
+    "ui://" + app + "/" + MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION,
+    MCP_DIRECTORY_APP_RESOURCE_SHELL_VERSION,
+  );
+  if (!sharedResource) return actionResource;
+  return {
+    ...sharedResource,
+    legacyUris: [
+      ...new Set([
+        ...(sharedResource.legacyUris ?? []),
+        actionResource.uri,
+        ...(actionResource.legacyUris ?? []),
+      ]),
+    ],
+  };
 }
 
 function expandRequestOriginSources(
@@ -1257,6 +1304,7 @@ function mcpAppUiMeta(
   description?: string,
   widgetDomain?: string,
   directoryMode = false,
+  widgetDiagnostic?: "tiny-html" | "no-frame-domains",
 ): Record<string, unknown> | undefined {
   const base =
     resource._meta && typeof resource._meta === "object"
@@ -1268,6 +1316,8 @@ function mcpAppUiMeta(
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
   delete ui.domain;
+  const omitFrameDomains =
+    directoryMode && widgetDiagnostic === "no-frame-domains";
   if (
     directoryMode &&
     ui.csp &&
@@ -1276,11 +1326,13 @@ function mcpAppUiMeta(
   ) {
     const csp = { ...(ui.csp as Record<string, unknown>) };
     delete csp.baseUriDomains;
+    if (omitFrameDomains) delete csp.frameDomains;
     ui.csp = csp;
   }
   if (resolvedCsp) {
     const csp = { ...resolvedCsp };
     if (directoryMode) delete csp.baseUriDomains;
+    if (omitFrameDomains) delete csp.frameDomains;
     ui.csp = {
       ...csp,
       connectDomains: expandRequestOriginSources(
@@ -1291,10 +1343,14 @@ function mcpAppUiMeta(
         resolvedCsp.resourceDomains,
         requestMeta,
       ),
-      frameDomains: expandRequestOriginSources(
-        resolvedCsp.frameDomains,
-        requestMeta,
-      ),
+      ...(!omitFrameDomains
+        ? {
+            frameDomains: expandRequestOriginSources(
+              resolvedCsp.frameDomains,
+              requestMeta,
+            ),
+          }
+        : {}),
       ...(!directoryMode
         ? {
             baseUriDomains: expandRequestOriginSources(
@@ -1309,14 +1365,18 @@ function mcpAppUiMeta(
   const hostSpecificDomain =
     hostSpecificDomainString(resource.domain) ??
     hostSpecificDomainString(existingUi.domain);
-  if (widgetDomain) ui.domain = widgetDomain;
+  if (omitFrameDomains) {
+    delete ui.domain;
+    delete base["openai/widgetDomain"];
+  } else if (widgetDomain) ui.domain = widgetDomain;
   else if (hostSpecificDomain) ui.domain = hostSpecificDomain;
-  const openAiWidgetDomain =
-    originString(widgetDomain) ??
-    originString(resource.domain) ??
-    originString(ui.domain) ??
-    originString(existingUi.domain) ??
-    originString(requestMeta?.origin);
+  const openAiWidgetDomain = omitFrameDomains
+    ? undefined
+    : (originString(widgetDomain) ??
+      originString(resource.domain) ??
+      originString(ui.domain) ??
+      originString(existingUi.domain) ??
+      originString(requestMeta?.origin));
   if (typeof resource.prefersBorder === "boolean") {
     ui.prefersBorder = resource.prefersBorder;
   }
@@ -1331,10 +1391,26 @@ function mcpAppUiMeta(
     base["openai/widgetPrefersBorder"] = resource.prefersBorder;
   }
   const openAiCsp = openAiWidgetCsp(resolvedCsp, requestMeta);
-  if (openAiCsp && base["openai/widgetCSP"] == null) {
+  if (directoryMode) {
+    const directoryCsp = { ...(openAiCsp ?? {}) };
+    if (omitFrameDomains) delete directoryCsp.frame_domains;
+    const redirectDomain = originString(widgetDomain);
+    if (redirectDomain) directoryCsp.redirect_domains = [redirectDomain];
+    if (Object.keys(directoryCsp).length > 0) {
+      base["openai/widgetCSP"] = directoryCsp;
+    } else {
+      delete base["openai/widgetCSP"];
+    }
+    const openAiUi = metadataObject(base["openai/ui"]);
+    base["openai/ui"] = {
+      ...openAiUi,
+      availableDisplayModes: ["inline", "fullscreen"],
+    };
+  } else if (openAiCsp && base["openai/widgetCSP"] == null) {
     base["openai/widgetCSP"] = openAiCsp;
   }
   if (
+    !omitFrameDomains &&
     openAiWidgetDomain &&
     (widgetDomain || base["openai/widgetDomain"] == null)
   ) {
@@ -1377,6 +1453,9 @@ async function resolveMcpAppResource(
     description,
     config.catalogMode === "directory" ? config.widgetDomain : undefined,
     config.catalogMode === "directory",
+    config.catalogMode === "directory"
+      ? config.directoryProfile?.widgetDiagnostic
+      : undefined,
   );
   return {
     uri: resolvedUri.uri,
@@ -1407,21 +1486,82 @@ async function resolveMcpAppResourceSafely(
   }
 }
 
+function mcpAppWidgetsEnabled(config: MCPConfig): boolean {
+  return !(
+    config.catalogMode === "directory" &&
+    config.directoryProfile?.widgets === false
+  );
+}
+
+function stripDirectoryWidgetMeta(
+  config: MCPConfig,
+  metadata: Record<string, unknown>,
+): void {
+  if (config.catalogMode !== "directory") return;
+  delete metadata.ui;
+  delete metadata[MCP_APP_RESOURCE_URI_META_KEY];
+  delete metadata["openai/ui"];
+  delete metadata["openai/outputTemplate"];
+  delete metadata["openai/toolInvocation/invoking"];
+  delete metadata["openai/toolInvocation/invoked"];
+  for (const key of Object.keys(metadata)) {
+    if (key.startsWith("openai/widget")) delete metadata[key];
+  }
+}
+
 async function getMcpAppResources(
   config: MCPConfig,
   actions: Record<string, ActionEntry>,
   requestMeta?: MCPRequestMeta,
 ): Promise<ResolvedMcpAppResource[]> {
-  if (!requestMeta?.inlineMcpApps) return [];
+  if (!requestMeta?.inlineMcpApps || !mcpAppWidgetsEnabled(config)) return [];
+  const actionEntries = Object.entries(actions);
+  const orderedActionEntries =
+    config.catalogMode === "directory"
+      ? actionEntries.sort(([a], [b]) => compareMcpCatalogValues(a, b))
+      : actionEntries;
   const resources = await Promise.all(
-    Object.entries(actions).map(([name, entry]) =>
+    orderedActionEntries.map(([name, entry]) =>
       resolveMcpAppResourceSafely(config, name, entry, requestMeta),
     ),
   );
-  return resources.filter((resource): resource is ResolvedMcpAppResource =>
-    Boolean(resource),
+  const resolved = resources.filter(
+    (resource): resource is ResolvedMcpAppResource => Boolean(resource),
   );
+  if (config.catalogMode !== "directory") return resolved;
+  const seenUris = new Set<string>();
+  return resolved.filter((resource) => {
+    if (seenUris.has(resource.uri)) return false;
+    seenUris.add(resource.uri);
+    return true;
+  });
 }
+
+const DIRECTORY_TINY_WIDGET_HTML = [
+  "<!doctype html>",
+  '<html lang="en">',
+  "<head>",
+  '  <meta charset="utf-8">',
+  '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+  "  <title>Widget resource size diagnostic</title>",
+  "  <style>",
+  "    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }",
+  "    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: Canvas; color: CanvasText; }",
+  "    main { width: min(42rem, calc(100% - 3rem)); padding: 2rem; border: 1px solid color-mix(in srgb, CanvasText 20%, Canvas); border-radius: 1rem; }",
+  "    h1 { margin: 0 0 1rem; font-size: 1.4rem; }",
+  "    p { line-height: 1.6; }",
+  "  </style>",
+  "</head>",
+  "<body>",
+  '  <main role="status">',
+  "    <h1>Widget resource size diagnostic</h1>",
+  "    <p>This temporary resource replaces the full Agent-Native Slides widget shell while the ChatGPT plugin scan is being diagnosed.</p>",
+  "    <p>The Slides app and its MCP tools remain available. This page measures whether the review scan completes when the linked HTML resource is small.</p>",
+  "    <p>After the scan experiment, remove this diagnostic lane and restore the production widget resource.</p>",
+  "  </main>",
+  "</body>",
+  "</html>",
+].join("\n");
 
 function renderMcpAppHtml(
   resource: ResolvedMcpAppResource,
@@ -1429,6 +1569,12 @@ function renderMcpAppHtml(
   config: MCPConfig,
   requestMeta?: MCPRequestMeta,
 ): string {
+  if (
+    config.catalogMode === "directory" &&
+    config.directoryProfile?.widgetDiagnostic === "tiny-html"
+  ) {
+    return DIRECTORY_TINY_WIDGET_HTML;
+  }
   if (typeof resource.html === "function") {
     return resource.html({
       actionName,
@@ -1443,6 +1589,7 @@ function renderMcpAppHtml(
 function openAiToolDescriptorMeta(
   resource: ResolvedMcpAppResource,
   entrypoints?: Array<{ type: "global" | "thread" }>,
+  directoryMode = false,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
   const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
@@ -1450,9 +1597,11 @@ function openAiToolDescriptorMeta(
     "openai/outputTemplate": resource.uri,
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
-    "openai/widgetAccessible": true,
-    ...(entrypoints?.length ? { "openai/ui": { entrypoints } } : {}),
-    ...(Object.keys(widgetCsp).length > 0
+    ...(!directoryMode ? { "openai/widgetAccessible": true } : {}),
+    ...(!directoryMode && entrypoints?.length
+      ? { "openai/ui": { entrypoints } }
+      : {}),
+    ...(!directoryMode && Object.keys(widgetCsp).length > 0
       ? { "openai/widgetCSP": widgetCsp }
       : {}),
   };
@@ -1460,6 +1609,7 @@ function openAiToolDescriptorMeta(
 
 function openAiToolResultMeta(
   resource: ResolvedMcpAppResource,
+  directoryMode = false,
 ): Record<string, unknown> {
   const label = resource.title ?? resource.name;
   const widgetCsp = metadataObject(resource._meta?.["openai/widgetCSP"]);
@@ -1467,8 +1617,8 @@ function openAiToolResultMeta(
     "openai/outputTemplate": resource.uri,
     "openai/toolInvocation/invoking": `Opening ${label}`,
     "openai/toolInvocation/invoked": `${label} ready`,
-    "openai/widgetAccessible": true,
-    ...(Object.keys(widgetCsp).length > 0
+    ...(!directoryMode ? { "openai/widgetAccessible": true } : {}),
+    ...(!directoryMode && Object.keys(widgetCsp).length > 0
       ? { "openai/widgetCSP": widgetCsp }
       : {}),
   };
@@ -1477,10 +1627,15 @@ function openAiToolResultMeta(
 function mcpAppToolUiMeta(
   resource: ResolvedMcpAppResource,
   visibility: unknown,
+  directoryMode = false,
 ): Record<string, unknown> {
   return {
     resourceUri: resource.uri,
-    visibility: Array.isArray(visibility) ? visibility : ["model", "app"],
+    ...(!directoryMode
+      ? {
+          visibility: Array.isArray(visibility) ? visibility : ["model", "app"],
+        }
+      : {}),
   };
 }
 
@@ -1791,11 +1946,12 @@ export async function createMCPServerForRequest(
     }
   }
   const supportsMcpApps =
-    compactMcpAppCatalog ||
-    directoryCatalog ||
-    Object.values(advertisedActions).some((entry) =>
-      Boolean(entry.mcpApp?.resource),
-    );
+    mcpAppWidgetsEnabled(config) &&
+    (compactMcpAppCatalog ||
+      directoryCatalog ||
+      Object.values(advertisedActions).some((entry) =>
+        Boolean(entry.mcpApp?.resource),
+      ));
   const servedKeyToolNames = config.keyToolNames?.filter(
     (name) => name in advertisedActions,
   );
@@ -1862,8 +2018,16 @@ export async function createMCPServerForRequest(
     const verifiedState =
       ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined;
     const argumentsHash = await sha256Base64Url(canonicalJson(args));
+    const hasVerifiedUserIdentity =
+      effectiveIdentity?.identityAssurance === "user" &&
+      Boolean(effectiveIdentity.userEmail?.trim());
 
     if (verifiedState !== undefined) {
+      if (!hasVerifiedUserIdentity) {
+        return actionApprovalError(
+          `${name} requires approval from a verified user identity.`,
+        );
+      }
       if (
         verifiedState.version !== 1 ||
         typeof verifiedState.nonce !== "string" ||
@@ -1921,6 +2085,12 @@ export async function createMCPServerForRequest(
     }
     if (!mustApprove) return undefined;
 
+    if (!hasVerifiedUserIdentity) {
+      return actionApprovalError(
+        `${name} requires approval from a verified user identity.`,
+      );
+    }
+
     if (approvalConfigurationError || !approvalCodec || !approvalCallerKey) {
       return actionApprovalError(
         `${name} requires approval, but secure MCP approval is not configured on this server.`,
@@ -1973,18 +2143,21 @@ export async function createMCPServerForRequest(
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
           .map(async ([name, entry]) => {
             const hasLink = typeof entry.link === "function";
-            const mcpAppResource = await resolveMcpAppResourceSafely(
-              config,
-              name,
-              entry,
-              requestMeta,
-            );
+            const mcpAppResource = mcpAppWidgetsEnabled(config)
+              ? await resolveMcpAppResourceSafely(
+                  config,
+                  name,
+                  entry,
+                  requestMeta,
+                )
+              : null;
             const rawToolMeta =
               (entry.tool as any)._meta &&
               typeof (entry.tool as any)._meta === "object" &&
               !Array.isArray((entry.tool as any)._meta)
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
+            stripDirectoryWidgetMeta(config, rawToolMeta);
             const inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
             if (directoryCatalog) {
               const properties = inputSchema.properties as
@@ -2021,12 +2194,16 @@ export async function createMCPServerForRequest(
                       hasOpenAppEntrypoint
                         ? [{ type: "global" }, { type: "thread" }]
                         : undefined,
+                      directoryCatalog,
                     ),
-                    [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
+                    ...(!directoryCatalog
+                      ? { [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri }
+                      : {}),
                     ui: mcpAppToolUiMeta(
                       mcpAppResource,
                       entry.mcpApp?.visibility ??
                         metadataObject(rawToolMeta.ui).visibility,
+                      directoryCatalog,
                     ),
                   }
                 : {}),
@@ -2048,13 +2225,25 @@ export async function createMCPServerForRequest(
                     entry.needsApproval !== undefined,
                   openWorldHint: false,
                 };
-            if (hasLink) annotations["agent-native/producesOpenLink"] = true;
+            if (directoryCatalog) {
+              delete annotations["agent-native/producesOpenLink"];
+            } else if (hasLink) {
+              annotations["agent-native/producesOpenLink"] = true;
+            }
             return {
               name,
               description: hasLink
                 ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                 : baseDescription,
               inputSchema,
+              ...(directoryCatalog && mcpAppResource
+                ? {
+                    outputSchema: {
+                      type: "object",
+                      additionalProperties: true,
+                    },
+                  }
+                : {}),
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;
@@ -2256,14 +2445,15 @@ export async function createMCPServerForRequest(
             !!mcpResult.raw &&
             typeof mcpResult.raw === "object" &&
             (mcpResult.raw as Record<string, unknown>).isError === true;
-          const mcpAppResourceCandidate = requestMeta?.inlineMcpApps
-            ? await resolveMcpAppResourceSafely(
-                config,
-                name,
-                entry,
-                requestMeta,
-              )
-            : null;
+          const mcpAppResourceCandidate =
+            requestMeta?.inlineMcpApps && mcpAppWidgetsEnabled(config)
+              ? await resolveMcpAppResourceSafely(
+                  config,
+                  name,
+                  entry,
+                  requestMeta,
+                )
+              : null;
           let directoryLinkUrl: string | undefined;
           if (config.catalogMode === "directory" && entry.link) {
             const linked = entry.link({
@@ -2272,15 +2462,14 @@ export async function createMCPServerForRequest(
             });
             directoryLinkUrl = linked?.url ?? undefined;
           }
-          const rawResultForClient =
-            mcpAppResourceCandidate &&
-            !(directoryCatalog && entry.readOnly === true)
-              ? await withServerMintedMcpAppEmbedStart(
-                  projectedRawResult,
-                  requestMeta,
-                  directoryLinkUrl,
-                )
-              : projectedRawResult;
+          const rawResultForClient = mcpAppResourceCandidate
+            ? await withServerMintedMcpAppEmbedStart(
+                projectedRawResult,
+                requestMeta,
+                directoryLinkUrl,
+                directoryCatalog && entry.readOnly === true,
+              )
+            : projectedRawResult;
           const {
             value: actionResultForClient,
             images: resultImages,
@@ -2313,7 +2502,9 @@ export async function createMCPServerForRequest(
                   requestMeta,
                 )
               : {}),
-            ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
+            ...(mcpAppResource
+              ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
+              : {}),
           };
           const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
           const toolVisibility = toolUiMeta.visibility;
@@ -2482,6 +2673,9 @@ export async function createMCPServerForRequest(
     );
 
     server.setRequestHandler("resources/templates/list", async () => {
+      if (config.catalogMode === "directory") {
+        return withCallerContext(async () => ({ resourceTemplates: [] }));
+      }
       return withCallerContext(async () => {
         const mcpAppResources = await getMcpAppResources(
           config,
@@ -2531,7 +2725,16 @@ export async function createMCPServerForRequest(
               actionName: string;
               resource: ResolvedMcpAppResource;
             } | null = null;
-            for (const [name, entry] of Object.entries(advertisedActions)) {
+            const resourceActions = mcpAppWidgetsEnabled(config)
+              ? Object.entries(advertisedActions)
+              : [];
+            const orderedResourceActions =
+              config.catalogMode === "directory"
+                ? resourceActions.sort(([a], [b]) =>
+                    compareMcpCatalogValues(a, b),
+                  )
+                : resourceActions;
+            for (const [name, entry] of orderedResourceActions) {
               const resourceUri = getMcpAppResourceUri(config, name, entry);
               if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
                 continue;
@@ -2676,8 +2879,10 @@ async function verifyA2AJwtForMcp(
       ? unverifiedPayload.org_domain.trim().toLowerCase()
       : undefined;
   const firstPartyMcp = unverifiedPayload.agent_native_first_party_mcp === true;
-  const audiences = firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
-  if (firstPartyMcp && !audiences?.length) return null;
+  const hasAudience = typeof unverifiedPayload.aud !== "undefined";
+  const audiences =
+    hasAudience || firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
+  if ((hasAudience || firstPartyMcp) && !audiences?.length) return null;
 
   const verifyWithSecret = async (secret: string) => {
     for (const audience of audiences ?? [undefined]) {
@@ -2699,15 +2904,41 @@ async function verifyA2AJwtForMcp(
   if (globalSecret) {
     const payload = await verifyWithSecret(globalSecret);
     if (payload) {
+      if (orgDomain) {
+        let organization: {
+          orgId: string;
+          orgDomain: string;
+          secret: string;
+        } | null;
+        try {
+          const { resolveA2AOrganizationCredentialsByDomain } =
+            await import("../org/context.js");
+          organization =
+            await resolveA2AOrganizationCredentialsByDomain(orgDomain);
+        } catch (error) {
+          throw new McpIdentityVerificationUnavailableError(error);
+        }
+        if (organization?.secret.trim() === globalSecret) {
+          return organizationPrincipalClaims(
+            payload as JWTPayload,
+            organization,
+          ) as Record<string, unknown> | null;
+        }
+      }
+
       const tokenScope =
         typeof payload.scope === "string" ? payload.scope : undefined;
       const firstPartyMcp = payload.agent_native_first_party_mcp === true;
       const hasOrganizationClaim =
         Object.prototype.hasOwnProperty.call(payload, "org_id") &&
         payload.org_id !== null;
+      const hasOrganizationDomainClaim =
+        Object.prototype.hasOwnProperty.call(payload, "org_domain") &&
+        payload.org_domain !== null;
       const locallyIssuedConnectToken =
         tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp;
-      const unclaimedFirstPartyToken = firstPartyMcp && !hasOrganizationClaim;
+      const unclaimedFirstPartyToken =
+        firstPartyMcp && !hasOrganizationClaim && !hasOrganizationDomainClaim;
       if (locallyIssuedConnectToken || unclaimedFirstPartyToken) {
         return payload;
       }
@@ -2748,33 +2979,10 @@ async function verifyA2AJwtForMcp(
 
   const payload = await verifyWithSecret(organization.secret);
   if (!payload) return null;
-  const verifiedDomain =
-    typeof payload.org_domain === "string"
-      ? payload.org_domain.trim().toLowerCase()
-      : "";
-  const email = typeof payload.sub === "string" ? payload.sub.trim() : "";
-  const claimedOrgId = payload.org_id;
-  if (
-    !email ||
-    verifiedDomain !== organization.orgDomain ||
-    (typeof claimedOrgId !== "undefined" &&
-      (typeof claimedOrgId !== "string" ||
-        claimedOrgId.trim() !== organization.orgId))
-  ) {
-    return null;
-  }
-
-  try {
-    const { isOrgMemberForA2A } = await import("../org/membership.js");
-    if (!(await isOrgMemberForA2A(organization.orgId, email))) return null;
-  } catch (error) {
-    throw new McpIdentityVerificationUnavailableError(error);
-  }
-  return {
-    ...payload,
-    org_id: organization.orgId,
-    org_domain: organization.orgDomain,
-  };
+  return organizationPrincipalClaims(
+    payload as JWTPayload,
+    organization,
+  ) as Record<string, unknown> | null;
 }
 
 function mcpAudienceList(resource: string | string[] | undefined): string[] {
@@ -2961,17 +3169,18 @@ async function admitIssuedCredential(
 
 /**
  * Verify the inbound auth header. Returns:
- *   - { authed: true, identity } when verified — `identity` is derived from
- *     the JWT (`sub` / `org_domain`) for JWT auth, with stored org scope for
- *     legacy connect tokens; or from the
- *     `AGENT_NATIVE_OWNER_EMAIL` env / `X-Agent-Native-Owner-Email` header
- *     for static-token auth (the `agent-native mcp install` flow). `identity`
- *     is undefined only for true dev-open with no owner hint.
+ *   - { authed: true, identity } when verified. A deployment-secret JWT may
+ *     supply its asserted user (`sub`), while an org-secret JWT supplies only
+ *     verified organization scope. Legacy connect tokens recover stored org
+ *     scope. Static-token auth gets identity from `AGENT_NATIVE_OWNER_EMAIL`
+ *     or `X-Agent-Native-Owner-Email` (the `agent-native mcp install` flow).
+ *     `identity` is undefined only for true dev-open with no owner hint.
  *   - { authed: false } on rejection.
  *
- * When A2A_SECRET is set we extract the JWT's `sub` (caller email) and
- * `org_domain` claims, with a stored-org fallback for legacy connect tokens,
- * so the MCP endpoint can wrap tool runs in
+ * A deployment-secret A2A JWT can supply its trusted `sub` (caller email).
+ * An org-secret JWT never supplies a user identity; both paths bind
+ * `org_domain` to local organization metadata. Legacy connect tokens can use
+ * a stored-org fallback. The MCP endpoint wraps tool runs in
  * `runWithRequestContext({ userEmail, orgId })`. Without that wrap, the
  * MCP endpoint loses tenant identity and downstream `accessFilter` /
  * `resolveCredential` calls fall back to platform-wide defaults.
@@ -3032,6 +3241,7 @@ export async function verifyAuth(
           authed: true,
           identity: {
             userEmail: oauthIdentity.userEmail,
+            identityAssurance: "user",
             ...(orgId !== undefined ? { orgId } : {}),
             orgDomain: oauthIdentity.orgDomain,
             oauthScopes: oauthIdentity.scopes,
@@ -3119,10 +3329,26 @@ export async function verifyAuth(
     }
 
     const orgId = orgIdFromConnectTokenResolution(orgResolution);
+    const storedConnectToken =
+      orgResolution.status === "found"
+        ? orgResolution
+        : orgResolution.status === "claimed"
+          ? orgResolution.storedConnectToken
+          : undefined;
     const verified = {
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
+        ...(tokenScope === MCP_CONNECT_SCOPE &&
+        !firstPartyMcp &&
+        storedConnectToken?.kind === "service"
+          ? { identityAssurance: "service" as const }
+          : typeof payload.sub === "string"
+            ? { identityAssurance: "user" as const }
+            : typeof payload.org_id === "string" ||
+                typeof payload.org_domain === "string"
+              ? { identityAssurance: "organization" as const }
+              : {}),
         ...(orgId !== undefined ? { orgId } : {}),
         orgDomain:
           typeof payload.org_domain === "string"

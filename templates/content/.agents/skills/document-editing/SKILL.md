@@ -149,9 +149,14 @@ complete current and proposed Markdown in `before.markdown` and
 
 Use `list-resource-suggestions` to inspect pending and historical proposals.
 Only accept or reject when the user has asked for that decision and the caller
-has editor authority; call `decide-resource-suggestion` with a fresh
-idempotency key and the suggestion's `baseRevision` as `observedBase`. A stale
-result means canonical Content was not overwritten. Suggested edits are
+has editor authority. A suggestion's author may instead withdraw their own
+pending suggestion with comment access (`decision: "withdrawn"`); withdrawn
+suggestions leave the Page unchanged and drop out of review. Call
+`decide-resource-suggestion` with a fresh idempotency key and the suggestion's
+`baseRevision` as `observedBase`. An accept that fails with `suggestion_stale`
+didn't land because the text around it changed; the Page is unchanged and the
+suggestion stays pending, so tell the user which suggestion it was instead of
+counting it as accepted. Suggested edits are
 unavailable for local-file, source-owned, externally linked, or trashed Pages,
 Collection Pages, Pages with inline databases, and collection-item Pages without
 an accessible primary Blocks field.

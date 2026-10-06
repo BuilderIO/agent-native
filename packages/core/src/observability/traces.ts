@@ -29,8 +29,10 @@ import {
 } from "./trace-error.js";
 import { redactSensitiveFields } from "./trace-redaction.js";
 export { redactSensitiveFields } from "./trace-redaction.js";
+import { recordAgentToolCall, recordGenAiChat } from "./metrics.js";
 import {
   type AgentSpan,
+  type AgentSpanAttributeValue,
   endAgentSpan,
   startAgentSpan,
   withAgentSpanContext,
@@ -473,6 +475,15 @@ export async function instrumentAgentLoop(opts: {
     | undefined;
 }): Promise<AgentLoopUsage> {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
+  const engineName =
+    typeof loopOpts.engine?.name === "string"
+      ? loopOpts.engine.name
+      : undefined;
+  const engineSupportedModels: readonly string[] | undefined = Array.isArray(
+    loopOpts.engine?.supportedModels,
+  )
+    ? loopOpts.engine.supportedModels
+    : undefined;
   const orgId = getRequestOrgId() ?? null;
   const spanName = opts.spanName?.trim() || "agent_run";
   const runStart = Date.now();
@@ -492,11 +503,13 @@ export async function instrumentAgentLoop(opts: {
   const browserSessionId =
     opts.browserSessionId ?? getRequestContext()?.browserSessionId;
 
-  const otelRunSpanPromise = startAgentSpan("agent.run", {
+  const otelRunSpanPromise = startAgentSpan("invoke_agent", {
+    "gen_ai.operation.name": "invoke_agent",
+    "gen_ai.provider.name": engineName,
+    "gen_ai.conversation.id": threadId ?? undefined,
+    "gen_ai.request.model": loopOpts.model,
     "agent.run_id": runId,
-    "agent.thread_id": threadId ?? undefined,
     "agent.user_id": userId ?? undefined,
-    "agent.model": loopOpts.model,
     "agent.model_selection_source": opts.modelSelectionSource,
     "agent.experiment_id":
       opts.experimentAssignments?.length === 1
@@ -573,7 +586,7 @@ export async function instrumentAgentLoop(opts: {
     status: "success" | "error";
     errorMessage: string | null;
     errorCode?: string;
-    attributes: Record<string, string | number | boolean | null | undefined>;
+    attributes: Record<string, AgentSpanAttributeValue | null | undefined>;
     endTime?: number;
   };
   const pendingOtelModelSpans = new Map<
@@ -591,13 +604,15 @@ export async function instrumentAgentLoop(opts: {
     const trip = modelRoundTrips[index];
     const callUsage = trip?.usage;
     return {
-      "llm.model": callUsage?.model ?? loopOpts.model,
+      "gen_ai.response.model": callUsage?.model,
+      "gen_ai.response.finish_reasons": trip?.stopReason
+        ? [trip.stopReason]
+        : undefined,
+      "gen_ai.usage.input_tokens": callUsage?.inputTokens,
+      "gen_ai.usage.output_tokens": callUsage?.outputTokens,
+      "gen_ai.usage.cache_read.input_tokens": callUsage?.cacheReadTokens,
+      "gen_ai.usage.cache_creation.input_tokens": callUsage?.cacheWriteTokens,
       "llm.call_index": index,
-      "llm.stop_reason": trip?.stopReason,
-      "llm.input_tokens": callUsage?.inputTokens,
-      "llm.output_tokens": callUsage?.outputTokens,
-      "llm.cache_read_tokens": callUsage?.cacheReadTokens,
-      "llm.cache_write_tokens": callUsage?.cacheWriteTokens,
       "llm.cost_cents_x100": calculateUsageCost(callUsage),
     };
   };
@@ -609,9 +624,11 @@ export async function instrumentAgentLoop(opts: {
       ended: false,
     };
     entry.spanPromise = startAgentSpan(
-      "llm.call",
+      `chat ${loopOpts.model}`,
       {
-        "llm.model": loopOpts.model,
+        "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": engineName,
+        "gen_ai.request.model": loopOpts.model,
         "llm.call_index": index,
       },
       otelRunSpan,
@@ -806,9 +823,11 @@ export async function instrumentAgentLoop(opts: {
         pendingTools.set(counter, entry);
         if (event.id) toolCallIdToCounter.set(event.id, counter);
         void startAgentSpan(
-          "tool.call",
+          `execute_tool ${event.tool}`,
           {
-            "tool.name": event.tool,
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.tool.name": event.tool,
+            "gen_ai.tool.call.id": event.id,
           },
           otelRunSpan,
         ).then((span) => {
@@ -894,6 +913,15 @@ export async function instrumentAgentLoop(opts: {
           });
         }
 
+        recordAgentToolCall({
+          toolName: event.tool,
+          errorType: !isError
+            ? undefined
+            : explicitError
+              ? "tool_error"
+              : "legacy_inferred_error",
+        });
+
         const otelEndResult = {
           status: (isError ? "error" : "success") as "success" | "error",
           errorMessage: toolErrorMessage,
@@ -903,7 +931,7 @@ export async function instrumentAgentLoop(opts: {
           endToolTelemetrySpan(pending.otelSpan, {
             status: otelEndResult.status,
             errorMessage: otelEndResult.errorMessage,
-            attributes: { "tool.name": event.tool },
+            attributes: { "gen_ai.tool.name": event.tool },
           });
         } else if (pending) {
           pending.endResult = otelEndResult;
@@ -1030,6 +1058,10 @@ export async function instrumentAgentLoop(opts: {
             ? interruptedMessage
             : null;
           toolSpanErrorClass.set(pending.spanId, "interrupted");
+          recordAgentToolCall({
+            toolName: pending.toolName,
+            errorType: "interrupted",
+          });
           if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
             generationToolCalls.set(counter, {
               name: pending.toolName,
@@ -1044,7 +1076,7 @@ export async function instrumentAgentLoop(opts: {
             endToolTelemetrySpan(pending.otelSpan, {
               status: "error",
               errorMessage: capturedInterruptedMessage,
-              attributes: { "tool.name": pending.toolName },
+              attributes: { "gen_ai.tool.name": pending.toolName },
             });
           } else {
             pending.endResult = {
@@ -1154,10 +1186,6 @@ export async function instrumentAgentLoop(opts: {
         // case, not measured values — the tracking events below must omit them
         // rather than report a fabricated 0.
         const usageReported = usage?.usageReported === true;
-        const engineName =
-          typeof loopOpts.engine?.name === "string"
-            ? loopOpts.engine.name
-            : undefined;
         const derivedLlmDurationMs =
           measuredModelDurationMs ??
           Math.max(
@@ -1491,6 +1519,38 @@ export async function instrumentAgentLoop(opts: {
           ? effectiveTerminalOutcome.code
           : errorCode;
       try {
+        // Metrics are unsampled and independent of trace export.
+        for (const [tripIndex, trip] of modelRoundTrips.entries()) {
+          recordGenAiChat({
+            requestModel: loopOpts.model,
+            providerName: engineName,
+            supportedModels: engineSupportedModels,
+            durationMs: trip.end - trip.start,
+            failed:
+              tripIndex === interruptedModelRoundTrip ||
+              !trip.stopReason ||
+              trip.stopReason === "error",
+            inputTokens: trip.usage?.inputTokens,
+            outputTokens: trip.usage?.outputTokens,
+          });
+        }
+        // Loops that never bracket model calls get no durations at all: a
+        // failure-only duration here would read as a 100% failure rate.
+        if (modelRoundTrips.length === 0 && usage?.usageReported) {
+          recordGenAiChat({
+            requestModel: loopOpts.model,
+            providerName: engineName,
+            supportedModels: engineSupportedModels,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+          });
+        }
+        // coercion-ok: metrics must never affect the run or trace export.
+      } catch {
+        // Metrics must never affect the run or trace export.
+      }
+
+      try {
         if (interruptedModelRoundTrip !== null) {
           finishOtelModelSpan(interruptedModelRoundTrip, {
             status: "error",
@@ -1517,18 +1577,32 @@ export async function instrumentAgentLoop(opts: {
         );
         if (usage && modelRoundTrips.length === 0) {
           const aggregateLlmSpan = await withAgentSpanContext(otelRunSpan, () =>
-            startAgentSpan("llm.call", {}, otelRunSpan),
+            startAgentSpan(
+              `chat ${loopOpts.model}`,
+              {
+                "gen_ai.operation.name": "chat",
+                "gen_ai.provider.name": engineName,
+                "gen_ai.request.model": loopOpts.model,
+              },
+              otelRunSpan,
+            ),
           );
           endRunTelemetrySpan(aggregateLlmSpan, {
             status: runStatus,
             errorMessage,
             errorCode: runTerminalCode,
             attributes: {
-              "llm.model": usage.model,
-              "llm.input_tokens": usage.inputTokens,
-              "llm.output_tokens": usage.outputTokens,
-              "llm.cache_read_tokens": usage.cacheReadTokens,
-              "llm.cache_write_tokens": usage.cacheWriteTokens,
+              "gen_ai.response.model": usage.model,
+              ...(usage.usageReported
+                ? {
+                    "gen_ai.usage.input_tokens": usage.inputTokens,
+                    "gen_ai.usage.output_tokens": usage.outputTokens,
+                    "gen_ai.usage.cache_read.input_tokens":
+                      usage.cacheReadTokens,
+                    "gen_ai.usage.cache_creation.input_tokens":
+                      usage.cacheWriteTokens,
+                  }
+                : {}),
               "llm.cost_cents_x100": costCentsX100,
             },
           });
@@ -1557,8 +1631,12 @@ export async function instrumentAgentLoop(opts: {
             "agent.successful_tools": successfulTools,
             "agent.failed_tools": failedTools,
             "agent.duration_ms": totalDurationMs,
-            "agent.input_tokens": usage?.inputTokens ?? 0,
-            "agent.output_tokens": usage?.outputTokens ?? 0,
+            "gen_ai.usage.input_tokens": usage?.usageReported
+              ? usage.inputTokens
+              : undefined,
+            "gen_ai.usage.output_tokens": usage?.usageReported
+              ? usage.outputTokens
+              : undefined,
             "agent.cost_cents_x100": costCentsX100,
             "agent.terminal_state": effectiveTerminalOutcome?.state,
             "agent.terminal_code": runTerminalCode,

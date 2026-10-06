@@ -325,11 +325,12 @@ export default function Index() {
   const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
   const ensureAgentEngineConfigured = useCallback(
     async (draft?: ComposerDraftSnapshot) => {
-      if (agentEngineConfigured) return true;
       const requestId = ++preflightRequestIdRef.current;
       let nextState: AgentEngineConfiguredState;
       try {
-        nextState = await fetchAgentEngineConfiguredState();
+        nextState = await fetchAgentEngineConfiguredState(true, {
+          fresh: true,
+        });
       } catch {
         nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
       }

@@ -397,12 +397,17 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     }));
     if (!props.open) return null;
     return (
-      <textarea
-        aria-label="Presentation prompt"
-        value={props.initialText ?? ""}
-        readOnly
-        disabled={props.disabled}
-      />
+      <>
+        <textarea
+          aria-label="Presentation prompt"
+          value={props.initialText ?? ""}
+          readOnly
+          disabled={props.disabled}
+        />
+        {props.preflightPending ? (
+          <div role="status">Preflight pending</div>
+        ) : null}
+      </>
     );
   },
 }));
@@ -1146,7 +1151,7 @@ describe("Slides prompt-led home", () => {
       prompt,
     );
     expect(promptProps.mock.lastCall![0].disabled).toBe(false);
-    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
     expect(createDeck).not.toHaveBeenCalled();
   });
   it("uses the shared Builder setup card and keeps the composer interactive", async () => {
@@ -1318,11 +1323,35 @@ describe("Slides prompt-led home", () => {
     expect(promptProps.mock.lastCall![0].onBeforeSubmit).toEqual(
       expect.any(Function),
     );
+    let resolveStatus: (state: "unavailable") => void = () => {};
+    fetchAgentEngineConfiguredState.mockReturnValueOnce(
+      new Promise<"unavailable">((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
     let canSubmit = true;
+    let preflight = Promise.resolve(false);
     await act(async () => {
-      canSubmit = await promptProps.mock.lastCall![0].onBeforeSubmit();
+      preflight = promptProps.mock.lastCall![0].onBeforeSubmit();
+    });
+    expect(promptProps.mock.lastCall![0].preflightPending).toBe(true);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+    expect(screen.getByRole("status").textContent).toBe("Preflight pending");
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).disabled,
+    ).toBe(false);
+
+    await act(async () => resolveStatus("unavailable"));
+    await act(async () => {
+      canSubmit = await preflight;
     });
     expect(canSubmit).toBe(false);
+    expect(promptProps.mock.lastCall![0].preflightPending).toBe(false);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
     expect(screen.getByRole("status").textContent).toContain(
       "providerStatusUnavailable",
     );
@@ -1377,6 +1406,55 @@ describe("Slides prompt-led home", () => {
 
     expect(await preflight).toBe(true);
     expect(screen.queryByTestId("builder-setup-card")).toBeNull();
+  });
+
+  it("rechecks readiness before sending and holds the draft if AI was disconnected", async () => {
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    getDraftSnapshot.mockReturnValue({ ...submittedDraft });
+    submitDraft.mockClear();
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    let resolveStatus: (state: "missing") => void = () => {};
+    fetchAgentEngineConfiguredState.mockReturnValueOnce(
+      new Promise<"missing">((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+
+    let preflight = Promise.resolve(false);
+    await act(async () => {
+      preflight = promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+
+    expect(fetchAgentEngineConfiguredState).toHaveBeenCalledOnce();
+    expect(promptProps.mock.lastCall![0].preflightPending).toBe(true);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).disabled,
+    ).toBe(false);
+
+    await act(async () => resolveStatus("missing"));
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = await preflight;
+    });
+
+    expect(canSubmit).toBe(false);
+    expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
+    expect(submitDraft).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use Builder.io" }));
+    await act(async () => home.rerenderHome());
+
+    expect(screen.queryByTestId("builder-setup-card")).toBeNull();
+    expect(getDraftSnapshot).toHaveBeenCalled();
+    expect(submitDraft).toHaveBeenCalledOnce();
   });
 
   it("shows both tabs while loading, then defaults to Recent when decks are available", async () => {
@@ -1704,7 +1782,9 @@ describe("Slides prompt-led home", () => {
         modelStatusChecksEnabled: ready,
         onBeforeSubmit: expect.any(Function),
       });
-      expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+      expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(
+        state === "missing" || missing ? true : undefined,
+      );
       expect(screen.queryByLabelText("home.suggestedPrompts")).toBeTruthy();
       expect(
         Boolean(screen.queryByRole("button", { name: "Build a pitch" })),

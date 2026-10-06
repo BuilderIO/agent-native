@@ -6,13 +6,6 @@ import {
   type ChildProcess,
 } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import {
-  createServer,
-  type IncomingMessage,
-  type Server as HttpServer,
-  type ServerResponse,
-} from "node:http";
-import type { AddressInfo } from "node:net";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -88,8 +81,10 @@ import {
   type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
   type CodeAgentRemoteWaitlistResult,
+  type CodeAgentBuilderConnectionResult,
   type CodeAgentProviderCredentialKey,
   type CodeAgentProviderSettings,
+  type CodeAgentProviderStatus,
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
@@ -294,7 +289,13 @@ import {
 } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
-import { registerDesktopChatIpc } from "./ipc/desktop-chat";
+import {
+  activateDesktopBuilderAccount,
+  getDesktopBuilderConnectionStatus,
+  getDesktopBuilderGatewayRunnerEnvironment,
+  openDesktopBuilderConnect,
+  registerDesktopChatIpc,
+} from "./ipc/desktop-chat";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
 import { registerShortcutsIpc } from "./ipc/shortcuts";
@@ -485,11 +486,11 @@ function forwardDesktopNavigationShortcut(
 
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
   "ANTHROPIC_API_KEY",
   "OPENAI_API_KEY",
   "GOOGLE_GENERATIVE_AI_API_KEY",
-  "BUILDER_PRIVATE_KEY",
-  "BUILDER_PUBLIC_KEY",
 ];
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CODEX_CLI_DEFAULT_MODEL = "gpt-6-luna";
@@ -505,7 +506,6 @@ const CODE_AGENT_WORKTREE_ENGINES = new Set([
 const CODE_AGENT_REMOTE_WAITLIST_URL =
   "https://agent-native.com/_agent-native/builder/branch-waitlist";
 const DEFAULT_PORTAL_RELAY_URL = "https://dispatch.agent-native.com";
-const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 export {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
   CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
@@ -6023,6 +6023,25 @@ async function spawnCodeAgentRunner(
     }
   }
   startingCodeAgentRuns.add(runId);
+  const managedBuilder = await getManagedBuilderRunnerEnvironment(runRecord);
+  if (managedBuilder.error) {
+    appendCodeAgentStatusEvent(
+      runId,
+      "Could not start the Builder.io coding chat.",
+      { source: "desktop-builder-relay", error: managedBuilder.error },
+    );
+    touchCodeAgentRunRecord(runId, {
+      status: "errored",
+      phase: "missing-credentials",
+      metadata: {
+        runnerState: "failed",
+        runnerError: managedBuilder.error,
+      },
+    });
+    startingCodeAgentRuns.delete(runId);
+    reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
+    return;
+  }
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok) {
     appendCodeAgentStatusEvent(
@@ -6100,6 +6119,7 @@ async function spawnCodeAgentRunner(
         invocation.env,
         mcpEnvironment.env,
         computerEnv,
+        managedBuilder.env,
       ),
     });
     const runnerStartedAt = new Date().toISOString();
@@ -6232,17 +6252,32 @@ async function spawnCodeAgentRunner(
   }
 }
 
-function spawnCodeAgentApprovalRunner(
+async function spawnCodeAgentApprovalRunner(
   runId: string,
   cwd: string,
   subcommand: "approve" | "approve-always" | "deny" = "approve",
-): CodeAgentControlResult {
+): Promise<CodeAgentControlResult> {
   if (activeCodeAgentProcesses.has(runId)) {
     return {
       ok: true,
       command: "approve",
       action: "refresh",
       message: "This Agent-Native Code run already has an active process.",
+    };
+  }
+  const runRecord = readCodeAgentRunRecord(runId);
+  const managedBuilder = await getManagedBuilderRunnerEnvironment(runRecord);
+  if (managedBuilder.error) {
+    appendCodeAgentStatusEvent(runId, "Could not start the approval command.", {
+      source: "desktop-builder-relay",
+      error: managedBuilder.error,
+    });
+    return {
+      ok: false,
+      command: "approve",
+      action: "refresh",
+      message: "Builder.io is not ready for this coding chat.",
+      error: managedBuilder.error,
     };
   }
   const provider = ensureCodeAgentLlmProvider();
@@ -6268,7 +6303,6 @@ function spawnCodeAgentApprovalRunner(
     };
   }
   const repoRoot = resolveRepositoryRoot(cwd);
-  const runRecord = readCodeAgentRunRecord(runId);
   const normalizedPermissionMode =
     readCodeAgentPermissionMode(runRecord) ??
     DEFAULT_CODE_AGENT_PERMISSION_MODE;
@@ -6303,6 +6337,7 @@ function spawnCodeAgentApprovalRunner(
         },
         invocation.env,
         computerEnv,
+        managedBuilder.env,
       ),
     });
     const runnerStartedAt = new Date().toISOString();
@@ -6762,7 +6797,11 @@ async function controlDesktopCodeBackgroundAgentRun(
       getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
     const subcommand =
       input.command === "approve-always" ? "approve-always" : "approve";
-    const result = spawnCodeAgentApprovalRunner(input.runId, cwd, subcommand);
+    const result = await spawnCodeAgentApprovalRunner(
+      input.runId,
+      cwd,
+      subcommand,
+    );
     return desktopControlResultToBackgroundResult(input.runId, result);
   }
 
@@ -6783,7 +6822,7 @@ async function controlDesktopCodeBackgroundAgentRun(
     }
     const cwd =
       getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-    const result = spawnCodeAgentApprovalRunner(input.runId, cwd, "deny");
+    const result = await spawnCodeAgentApprovalRunner(input.runId, cwd, "deny");
     return desktopControlResultToBackgroundResult(input.runId, result);
   }
 
@@ -6973,6 +7012,9 @@ async function createCodeAgentRun(
   const isDesktopAppCreation = userMetadata.kind === "desktop-create-app";
   const isDesktopLocalCodeChange =
     userMetadata.kind === "desktop-local-code-change";
+  const engine = normalizeCodeAgentRequestedEngine(
+    firstStringValue(payload.engine),
+  );
   const requestedExecutionTarget = firstStringValue(payload.executionTarget);
   if (
     requestedExecutionTarget &&
@@ -7014,6 +7056,14 @@ async function createCodeAgentRun(
       error: "Named worktrees require a name.",
     };
   }
+  const builderConnection = await refreshBuilderConnectionForEngine(engine);
+  if (!builderConnection.ok) {
+    return {
+      ok: false,
+      message: "Builder.io is not ready for this coding chat.",
+      error: builderConnection.error,
+    };
+  }
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok && !isDesktopAppCreation) {
     if (!isDesktopLocalCodeChange && executionTarget !== "portal") {
@@ -7037,9 +7087,6 @@ async function createCodeAgentRun(
   const permissionMode =
     getCodeAgentPermissionMode(firstStringValue(payload.permissionMode)) ??
     DEFAULT_CODE_AGENT_PERMISSION_MODE;
-  const engine = normalizeCodeAgentRequestedEngine(
-    firstStringValue(payload.engine),
-  );
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
@@ -7732,6 +7779,22 @@ async function appendCodeAgentFollowUp(
       metadata: userMetadata,
       runRecord: portalRunRecord,
     });
+  }
+  const existingRunRecord = readCodeAgentRunRecord(runId);
+  const existingRunMetadata = isObject(existingRunRecord?.metadata)
+    ? existingRunRecord.metadata
+    : undefined;
+  const engineForProvider = firstStringValue(payload.engine)
+    ? engine
+    : (getRecordString(existingRunMetadata, "engine") ?? engine);
+  const builderConnection =
+    await refreshBuilderConnectionForEngine(engineForProvider);
+  if (!builderConnection.ok) {
+    return {
+      ok: false,
+      message: "Builder.io is not ready for this coding chat.",
+      error: builderConnection.error,
+    };
   }
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok) {
@@ -8916,7 +8979,7 @@ const lastDesktopAppRuntimeStatus = new Map<string, string>();
 
 function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const signature = `${status.state} ${status.message ?? ""}`;
+  const signature = `${status.state}\0${status.message ?? ""}`;
   if (lastDesktopAppRuntimeStatus.get(status.appId) === signature) return;
   lastDesktopAppRuntimeStatus.set(status.appId, signature);
   mainWindow.webContents.send(IPC.APP_STATUS, status);
@@ -11484,6 +11547,53 @@ function parseSimpleFrontmatter(raw: string): {
   return { data };
 }
 
+let desktopBuilderConnectionStatus: CodeAgentBuilderConnectionResult | null =
+  null;
+
+async function refreshDesktopBuilderConnectionStatus(): Promise<CodeAgentBuilderConnectionResult> {
+  desktopBuilderConnectionStatus = await getDesktopBuilderConnectionStatus();
+  return desktopBuilderConnectionStatus;
+}
+
+function withDesktopBuilderProviderStatus(
+  settings: CodeAgentProviderSettings,
+  connection: CodeAgentBuilderConnectionResult,
+): CodeAgentProviderSettings {
+  const localBuilder = settings.providers.find(
+    (provider) => provider.id === "builder",
+  );
+  const builder: CodeAgentProviderStatus = localBuilder?.configured
+    ? localBuilder
+    : {
+        id: "builder",
+        label: "Builder.io",
+        configured: connection.state === "connected",
+        configuredKeys: localBuilder?.configuredKeys ?? [],
+        missingKeys: localBuilder?.missingKeys ?? [
+          "BUILDER_PRIVATE_KEY",
+          "BUILDER_PUBLIC_KEY",
+        ],
+        savedKeys: localBuilder?.savedKeys ?? [],
+        ...(connection.state === "connected"
+          ? { source: "desktop-managed" as const }
+          : connection.state === "unavailable"
+            ? { error: connection.error }
+            : {}),
+      };
+  const providers = [
+    builder,
+    ...settings.providers.filter((provider) => provider.id !== "builder"),
+  ];
+  return {
+    ...settings,
+    configured: providers.some((provider) => provider.configured),
+    configuredProviders: providers
+      .filter((provider) => provider.configured)
+      .map((provider) => provider.label),
+    providers,
+  };
+}
+
 function getCodeAgentLlmProviderStatus(): NonNullable<
   CodeAgentHostMetadata["llmProvider"]
 > {
@@ -11515,6 +11625,10 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
     ...(pi.available ? [pi.label] : []),
     ...(opencode.available ? [opencode.label] : []),
     ...settings.configuredProviders,
+    ...(desktopBuilderConnectionStatus?.state === "connected" &&
+    !settings.configuredProviders.includes("Builder.io")
+      ? ["Builder.io"]
+      : []),
   ];
 
   return {
@@ -11554,6 +11668,7 @@ function hasRuntimeNonCodexCodeAgentLlmProvider(
   if (process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE !== undefined) {
     return true;
   }
+  if (desktopBuilderConnectionStatus?.state === "connected") return true;
   if (env.AGENT_ENGINE) return true;
   if (env.ANTHROPIC_API_KEY) return true;
   if (env.OPENAI_API_KEY) return true;
@@ -11606,6 +11721,77 @@ function ensureCodeAgentLlmProvider(): {
     error:
       "Connect Builder.io, run `codex login` or `claude auth login --claudeai`, or add an API key.",
   };
+}
+
+function hasConfiguredLocalBuilderProvider(): boolean {
+  return Boolean(
+    providerStatusById(AppStore.getCodeAgentProviderSettingsStatus(), "builder")
+      ?.configured,
+  );
+}
+
+async function refreshBuilderConnectionForEngine(
+  engine: string | undefined,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (engine !== "builder" || hasConfiguredLocalBuilderProvider()) {
+    return { ok: true };
+  }
+  try {
+    const connection = await refreshDesktopBuilderConnectionStatus();
+    if (connection.state === "connected") return { ok: true };
+    return {
+      ok: false,
+      error:
+        connection.state === "unavailable"
+          ? connection.error
+          : "Activate Builder.io in Desktop settings before starting this coding chat.",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? `Could not check Builder.io connection status: ${error.message}`
+          : "Could not check Builder.io connection status.",
+    };
+  }
+}
+
+async function getManagedBuilderRunnerEnvironment(
+  runRecord: unknown,
+): Promise<{ env?: NodeJS.ProcessEnv; error?: string }> {
+  const record = isObject(runRecord) ? runRecord : {};
+  const metadata = isObject(record.metadata) ? record.metadata : {};
+  const engine = firstStringValue(metadata.engine, record.engine);
+  if (engine !== "builder" || hasConfiguredLocalBuilderProvider()) return {};
+
+  try {
+    const result = await getDesktopBuilderGatewayRunnerEnvironment();
+    desktopBuilderConnectionStatus = result.status;
+    if (result.status.state === "unavailable") {
+      return { error: result.status.error };
+    }
+    if (result.status.state === "disconnected") {
+      return {
+        error:
+          "Activate Builder.io in Desktop settings before running this chat.",
+      };
+    }
+    if (!result.env) {
+      return {
+        error:
+          result.error ?? "The Desktop Builder relay could not be started.",
+      };
+    }
+    return { env: result.env };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error
+          ? `Could not prepare the Desktop Builder relay: ${error.message}`
+          : "Could not prepare the Desktop Builder relay.",
+    };
+  }
 }
 
 const CLI_PROBE_TIMEOUT_MS = 1500;
@@ -11897,9 +12083,13 @@ function parseLocalCliAvailability(
   };
 }
 
-function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
+async function getCodeAgentProviderSettings(): Promise<CodeAgentProviderSettings> {
+  const connection = await refreshDesktopBuilderConnectionStatus();
   return withLocalCodexProviderStatus(
-    AppStore.getCodeAgentProviderSettingsStatus(),
+    withDesktopBuilderProviderStatus(
+      AppStore.getCodeAgentProviderSettingsStatus(),
+      connection,
+    ),
   );
 }
 
@@ -11932,9 +12122,9 @@ function withLocalCodexProviderStatus(
   };
 }
 
-function updateCodeAgentProviderSettings(
+async function updateCodeAgentProviderSettings(
   input: unknown,
-): CodeAgentProviderSettingsUpdateResult {
+): Promise<CodeAgentProviderSettingsUpdateResult> {
   const payload = isObject(input) ? input : {};
   const updates: CodeAgentProviderSettingsUpdate = {};
   for (const key of CODE_AGENT_PROVIDER_SETTING_KEYS) {
@@ -11947,9 +12137,8 @@ function updateCodeAgentProviderSettings(
     }
   }
   try {
-    const settings = withLocalCodexProviderStatus(
-      AppStore.saveCodeAgentProviderCredentials(updates),
-    );
+    AppStore.saveCodeAgentProviderCredentials(updates);
+    const settings = await getCodeAgentProviderSettings();
     return {
       ok: true,
       settings,
@@ -11960,7 +12149,7 @@ function updateCodeAgentProviderSettings(
   } catch (err) {
     return {
       ok: false,
-      settings: getCodeAgentProviderSettings(),
+      settings: await getCodeAgentProviderSettings(),
       message: "Could not save code provider settings.",
       error: err instanceof Error ? err.message : String(err),
     };
@@ -11997,14 +12186,16 @@ function pushCodeAgentModelOptions(
   }
 }
 
-function getCodeAgentModelList(input?: unknown): CodeAgentModelListResult {
+async function getCodeAgentModelList(
+  input?: unknown,
+): Promise<CodeAgentModelListResult> {
   try {
     const refreshLocalCliStatus = isObject(input) && input.refresh === true;
     const cliStatusOptions = refreshLocalCliStatus
       ? { refresh: true }
       : undefined;
     const codex = getLocalCodexCliStatus(cliStatusOptions);
-    const settings = getCodeAgentProviderSettings();
+    const settings = await getCodeAgentProviderSettings();
     const models: CodeAgentModelOption[] = [];
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,
@@ -12548,8 +12739,11 @@ registerCodeAgentsIpc({
   getBundledChromeExtensionPath,
   prepareBrowserSetup: ensureDesktopComputerMcpBridge,
   getCodeAgentProviderSettings,
+  getBuilderConnectionStatus: (connectAttemptId) =>
+    getDesktopBuilderConnectionStatus(connectAttemptId),
+  activateBuilderAccount: (input) => activateDesktopBuilderAccount(input),
+  openBuilderConnectUrl: (input) => openDesktopBuilderConnect(input),
   updateCodeAgentProviderSettings,
-  connectDesktopBuilderProvider,
   listCodeAgentProjectPacks,
   listCodeAgentProjects,
   upsertCodeAgentProject,
@@ -12822,6 +13016,7 @@ registerAppsIpc({
 
 registerDesktopChatIpc({
   captureActiveBrowserScreenshot: captureActiveDesktopBrowserScreenshot,
+  resolveBuilderDispatchApp: () => resolveDesktopIdentityApp("dispatch"),
 });
 
 registerChatFirstMcpIpc({
@@ -12975,203 +13170,6 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
     callbackPathFragments: ["/_agent-native/builder/callback"],
   },
 ];
-
-function getBuilderCliAuthHost(): string {
-  return process.env.BUILDER_APP_HOST || "https://builder.io";
-}
-
-function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
-  const callback = new URL(callbackUrl);
-  const authUrl = new URL("/cli-auth", getBuilderCliAuthHost());
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("host", "agent-native-desktop");
-  authUrl.searchParams.set("client_id", "Agent-Native Desktop");
-  authUrl.searchParams.set("redirect_url", callback.toString());
-  authUrl.searchParams.set("preview_url", callback.origin);
-  authUrl.searchParams.set("framework", "agent-native");
-  authUrl.searchParams.set("signupSource", "agent-native");
-  authUrl.searchParams.set("agentNativeFlow", "desktop_code");
-  authUrl.searchParams.set("agentNativeApp", "agent-native-desktop");
-  authUrl.searchParams.set(
-    "agentNativeConnectSource",
-    "desktop_code_provider_settings",
-  );
-  authUrl.searchParams.set("utm_source", "agent-native");
-  authUrl.searchParams.set("utm_medium", "product");
-  authUrl.searchParams.set("utm_campaign", "onboarding");
-  authUrl.searchParams.set("utm_content", "desktop_code_provider_settings");
-  return authUrl.toString();
-}
-
-function desktopBuilderCallbackPage(
-  kind: "success" | "error",
-  message: string,
-) {
-  const title =
-    kind === "success" ? "Builder.io connected" : "Builder.io connect failed";
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111; color: #fff; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      main { max-width: 360px; padding: 24px; text-align: center; }
-      p { color: #aaa; line-height: 1.5; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>${title}</h1>
-      <p>${message}</p>
-    </main>
-  </body>
-</html>`;
-}
-
-function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdateResult> {
-  return new Promise((resolve) => {
-    let settled = false;
-    let callbackServer: HttpServer | null = null;
-    let callbackOrigin: string | null = null;
-    let timeout: NodeJS.Timeout | null = null;
-
-    const finish = (result: CodeAgentProviderSettingsUpdateResult) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      if (callbackServer) {
-        callbackServer.close(() => {});
-      }
-      resolve(result);
-    };
-
-    const handleCallbackRequest = (
-      req: IncomingMessage,
-      res: ServerResponse,
-    ) => {
-      const origin = callbackOrigin;
-      if (!origin) {
-        res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end("Callback server is not ready");
-        return;
-      }
-      let requestUrl: URL;
-      try {
-        requestUrl = new URL(req.url ?? "/", origin);
-      } catch {
-        res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end("Bad request");
-        return;
-      }
-
-      if (requestUrl.pathname !== "/_agent-native/desktop-builder/callback") {
-        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end("Not found");
-        return;
-      }
-
-      const privateKey = requestUrl.searchParams.get("p-key");
-      const publicKey = requestUrl.searchParams.get("api-key");
-      if (!privateKey || !publicKey) {
-        const message = "Builder did not return credentials.";
-        res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(desktopBuilderCallbackPage("error", message));
-        finish({
-          ok: false,
-          settings: getCodeAgentProviderSettings(),
-          message: "Could not connect Builder.io.",
-          error: message,
-        });
-        return;
-      }
-
-      const settings = withLocalCodexProviderStatus(
-        AppStore.saveCodeAgentProviderCredentials({
-          BUILDER_PRIVATE_KEY: privateKey,
-          BUILDER_PUBLIC_KEY: publicKey,
-        }),
-      );
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(
-        desktopBuilderCallbackPage(
-          "success",
-          "You can close this tab and return to Agent-Native Desktop.",
-        ),
-      );
-      finish({
-        ok: true,
-        settings,
-        message: "Builder.io connected for Code.",
-      });
-    };
-
-    callbackServer = createServer();
-
-    callbackServer.once("error", (err) => {
-      finish({
-        ok: false,
-        settings: getCodeAgentProviderSettings(),
-        message: "Could not start Builder.io connect flow.",
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-
-    callbackServer.listen(0, "127.0.0.1", () => {
-      const server = callbackServer;
-      if (!server) {
-        finish({
-          ok: false,
-          settings: getCodeAgentProviderSettings(),
-          message: "Could not start Builder.io connect flow.",
-          error: "No callback server was available.",
-        });
-        return;
-      }
-      const address = server.address() as AddressInfo | null;
-      if (!address) {
-        finish({
-          ok: false,
-          settings: getCodeAgentProviderSettings(),
-          message: "Could not start Builder.io connect flow.",
-          error: "No callback port was assigned.",
-        });
-        return;
-      }
-
-      callbackOrigin = `http://127.0.0.1:${address.port}`;
-      server.on("request", handleCallbackRequest);
-      const callbackUrl = `http://127.0.0.1:${address.port}/_agent-native/desktop-builder/callback`;
-      const authUrl = buildDesktopBuilderCliAuthUrl(callbackUrl);
-      if (!canOpenDesktopExternalUrl(authUrl, process.platform)) {
-        finish({
-          ok: false,
-          settings: getCodeAgentProviderSettings(),
-          message: "Could not open Builder.io connect.",
-          error: "The Builder.io connect URL was not valid.",
-        });
-        return;
-      }
-
-      shell.openExternal(authUrl).catch((err) => {
-        finish({
-          ok: false,
-          settings: getCodeAgentProviderSettings(),
-          message: "Could not open Builder.io connect.",
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-      timeout = setTimeout(() => {
-        finish({
-          ok: false,
-          settings: getCodeAgentProviderSettings(),
-          message: "Builder.io connect timed out.",
-          error: "No callback was received before the connect flow timed out.",
-        });
-      }, DESKTOP_BUILDER_CONNECT_TIMEOUT_MS);
-    });
-  });
-}
 
 function matchOAuthProvider(
   urlString: string,
