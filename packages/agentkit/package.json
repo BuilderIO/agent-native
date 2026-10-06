@@ -29,6 +29,10 @@
       "types": "./dist/protocol/index.d.ts",
       "import": "./dist/protocol/index.js"
     },
+    "./chat-context": {
+      "types": "./dist/chat-context.d.ts",
+      "import": "./dist/chat-context.js"
+    },
     "./client": {
       "types": "./dist/client/index.d.ts",
       "import": "./dist/client/index.js"
