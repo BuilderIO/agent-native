@@ -7,6 +7,7 @@ export class ReplayScreenshotAssetError extends Error {
 
 const REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS = 8_000;
 const REMOTE_IMAGE_PREFLIGHT_CONCURRENCY = 4;
+const REPLAY_FONT_TIMEOUT_MS = 8_000;
 
 function replayDocuments(document: Document): Document[] {
   const documents: Document[] = [];
@@ -45,12 +46,52 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
     for (const match of value.matchAll(/url\(["']?([^"')]+)["']?\)/gi)) {
       addUrl(match[1], baseURI);
     }
+
+    const imageSetFunction = /(?:-webkit-)?image-set\s*\(/gi;
+    for (const match of value.matchAll(imageSetFunction)) {
+      const contentStart = (match.index ?? 0) + match[0].length;
+      let depth = 1;
+      let quote = "";
+      let contentEnd = contentStart;
+      for (; contentEnd < value.length; contentEnd += 1) {
+        const character = value[contentEnd];
+        if (character === "\\") {
+          contentEnd += 1;
+          continue;
+        }
+        if (quote) {
+          if (character === quote) quote = "";
+          continue;
+        }
+        if (character === '"' || character === "'") {
+          quote = character;
+        } else if (character === "(") {
+          depth += 1;
+        } else if (character === ")") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+
+      const candidates = value.slice(contentStart, contentEnd);
+      const candidateStart = /^\s*(["'])(.*?)\1/s;
+      for (const candidate of candidates.split(/,(?![^()]*\))/)) {
+        const quotedUrl = candidate.match(candidateStart)?.[2];
+        if (quotedUrl) addUrl(quotedUrl.replace(/\\(.)/g, "$1"), baseURI);
+      }
+    }
   };
 
   for (const current of documents) {
     for (const image of current.querySelectorAll<HTMLImageElement>("img")) {
       const source = image.currentSrc || image.src;
       if (source) addUrl(source, current.baseURI);
+    }
+
+    for (const image of current.querySelectorAll<HTMLInputElement>(
+      'input[type="image"]',
+    )) {
+      if (image.src) addUrl(image.src, current.baseURI);
     }
 
     for (const image of current.querySelectorAll<SVGImageElement>(
@@ -62,10 +103,16 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
       if (source) addUrl(source, current.baseURI);
     }
 
-    for (const video of current.querySelectorAll<HTMLVideoElement>(
-      "video[poster]",
-    )) {
-      if (video.poster) addUrl(video.poster, current.baseURI);
+    for (const video of current.querySelectorAll<HTMLVideoElement>("video")) {
+      if (
+        video.poster ||
+        video.currentSrc ||
+        video.hasAttribute("src") ||
+        video.srcObject ||
+        video.querySelector("source[src]")
+      ) {
+        throw new ReplayScreenshotAssetError();
+      }
     }
 
     for (const element of current.querySelectorAll<Element>("*")) {
@@ -74,6 +121,9 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
       addCssUrls(styles.backgroundImage, current.baseURI);
       addCssUrls(styles.listStyleImage, current.baseURI);
       addCssUrls(styles.maskImage, current.baseURI);
+      if (styles.borderImageSource && styles.borderImageSource !== "none") {
+        throw new ReplayScreenshotAssetError();
+      }
 
       for (const pseudo of ["::before", "::after"]) {
         const pseudoStyles = view.getComputedStyle(element, pseudo);
@@ -81,6 +131,12 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
         addCssUrls(pseudoStyles.backgroundImage, current.baseURI);
         addCssUrls(pseudoStyles.listStyleImage, current.baseURI);
         addCssUrls(pseudoStyles.maskImage, current.baseURI);
+        if (
+          pseudoStyles.borderImageSource &&
+          pseudoStyles.borderImageSource !== "none"
+        ) {
+          throw new ReplayScreenshotAssetError();
+        }
       }
     }
   }
@@ -96,31 +152,21 @@ export async function assertRemoteImagesCapturable(
   document: Document,
 ): Promise<void> {
   const documents = replayDocuments(document);
-  if (
-    documents.some((current) =>
-      Array.from(current.querySelectorAll<HTMLVideoElement>("video")).some(
-        (video) =>
-          video.currentSrc ||
-          video.hasAttribute("src") ||
-          video.srcObject ||
-          video.querySelector("source[src]"),
-      ),
-    )
-  ) {
-    throw new ReplayScreenshotAssetError();
-  }
-
   const urls = imageUrlsInDocuments(documents);
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS,
+  );
   let nextUrlIndex = 0;
   let allCapturable = true;
+  const fail = () => {
+    allCapturable = false;
+    controller.abort();
+  };
   const checkNextUrl = async () => {
     while (allCapturable && nextUrlIndex < urls.length) {
       const url = urls[nextUrlIndex++];
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(
-        () => controller.abort(),
-        REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS,
-      );
       let response: Response | undefined;
       try {
         response = await fetch(url, {
@@ -133,29 +179,54 @@ export async function assertRemoteImagesCapturable(
           !response.ok ||
           !response.headers.get("content-type")?.startsWith("image/")
         ) {
-          allCapturable = false;
+          fail();
         }
       } catch {
-        allCapturable = false;
+        fail();
       } finally {
-        window.clearTimeout(timeoutId);
         try {
           await response?.body?.cancel();
         } catch {
-          allCapturable = false;
+          fail();
         }
       }
     }
   };
-  await Promise.all(
-    Array.from(
-      { length: Math.min(REMOTE_IMAGE_PREFLIGHT_CONCURRENCY, urls.length) },
-      () => checkNextUrl(),
-    ),
-  );
+  try {
+    await Promise.all(
+      Array.from(
+        { length: Math.min(REMOTE_IMAGE_PREFLIGHT_CONCURRENCY, urls.length) },
+        () => checkNextUrl(),
+      ),
+    );
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   if (!allCapturable) {
     throw new ReplayScreenshotAssetError();
+  }
+}
+
+export async function assertReplayFontsReady(
+  document: Document,
+): Promise<void> {
+  const fontSet = document.fonts;
+  if (!fontSet?.ready) return;
+
+  let timeoutId: number | undefined;
+  try {
+    await Promise.race([
+      fontSet.ready,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = window.setTimeout(
+          () => reject(new ReplayScreenshotAssetError()),
+          REPLAY_FONT_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
   }
 }
 
@@ -170,7 +241,7 @@ export async function downloadReplayScreenshot(
     throw new Error("Replay frame is unavailable");
   }
 
-  await replayDocument.fonts?.ready;
+  await assertReplayFontsReady(replayDocument);
   await assertRemoteImagesCapturable(replayDocument);
   await new Promise<void>((resolve) => {
     window.requestAnimationFrame(() =>

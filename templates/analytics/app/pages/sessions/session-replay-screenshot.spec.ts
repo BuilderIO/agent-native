@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  assertReplayFontsReady,
   assertRemoteImagesCapturable,
   crossOriginImageUrls,
   ReplayScreenshotAssetError,
@@ -49,6 +50,35 @@ describe("session replay screenshot asset checks", () => {
     );
 
     element.remove();
+  });
+
+  it("finds quoted image-set candidates and image-submit sources", () => {
+    const input = document.createElement("input");
+    input.type = "image";
+    input.src = "https://assets.example.test/submit.png";
+    document.body.appendChild(input);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (_element, pseudo) =>
+        ({
+          backgroundImage:
+            pseudo == null
+              ? 'image-set("https://assets.example.test/one.png" 1x, "https://assets.example.test/two.png" 2x)'
+              : "none",
+          maskImage: "none",
+          listStyleImage: "none",
+          content: "none",
+        }) as CSSStyleDeclaration,
+    );
+
+    expect(crossOriginImageUrls(document)).toEqual(
+      expect.arrayContaining([
+        "https://assets.example.test/one.png",
+        "https://assets.example.test/two.png",
+        "https://assets.example.test/submit.png",
+      ]),
+    );
+
+    input.remove();
   });
 
   it("finds remote SVG images and images in accessible child frames", () => {
@@ -168,6 +198,53 @@ describe("session replay screenshot asset checks", () => {
     video.remove();
   });
 
+  it("rejects poster-only videos and border-image visuals", () => {
+    const video = document.createElement("video");
+    video.poster = "https://assets.example.test/poster.png";
+    document.body.appendChild(video);
+    expect(() => crossOriginImageUrls(document)).toThrow(
+      ReplayScreenshotAssetError,
+    );
+    video.remove();
+
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    vi.spyOn(window, "getComputedStyle").mockReturnValue({
+      backgroundImage: "none",
+      listStyleImage: "none",
+      maskImage: "none",
+      borderImageSource: 'url("https://assets.example.test/frame.png")',
+    } as CSSStyleDeclaration);
+    expect(() => crossOriginImageUrls(document)).toThrow(
+      ReplayScreenshotAssetError,
+    );
+    element.remove();
+  });
+
+  it("bounds replay font readiness", async () => {
+    vi.useFakeTimers();
+    const fontsDescriptor = Object.getOwnPropertyDescriptor(document, "fonts");
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { ready: new Promise<void>(() => {}) },
+    });
+
+    try {
+      const pending = assertReplayFontsReady(document);
+      const rejection = expect(pending).rejects.toBeInstanceOf(
+        ReplayScreenshotAssetError,
+      );
+      await vi.advanceTimersByTimeAsync(8_000);
+      await rejection;
+    } finally {
+      if (fontsDescriptor) {
+        Object.defineProperty(document, "fonts", fontsDescriptor);
+      } else {
+        Reflect.deleteProperty(document, "fonts");
+      }
+    }
+  });
+
   it("times out remote asset checks instead of waiting indefinitely", async () => {
     vi.useFakeTimers();
     const image = document.createElement("img");
@@ -224,6 +301,38 @@ describe("session replay screenshot asset checks", () => {
     expect(maximumActive).toBeLessThanOrEqual(4);
     expect(cancelBodies).toHaveBeenCalledTimes(9);
     images.forEach((image) => image.remove());
+  });
+
+  it("aborts in-flight asset checks after the first failed response", async () => {
+    const failed = document.createElement("img");
+    failed.src = "https://assets.example.test/fail.png";
+    const pending = document.createElement("img");
+    pending.src = "https://assets.example.test/pending.png";
+    document.body.append(failed, pending);
+    let pendingRequestAborted = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (String(input).includes("fail.png")) {
+        return Promise.resolve({
+          body: { cancel: vi.fn() },
+          headers: { get: () => "text/plain" },
+          ok: false,
+        } as unknown as Response);
+      }
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          pendingRequestAborted = true;
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      });
+    });
+
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    expect(pendingRequestAborted).toBe(true);
+
+    failed.remove();
+    pending.remove();
   });
 
   it("rejects when it cannot release a preflight response body", async () => {

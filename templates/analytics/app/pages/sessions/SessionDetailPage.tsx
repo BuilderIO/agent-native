@@ -1029,12 +1029,12 @@ function ReplayPlayer({
     const captureAt = Number(
       replayer.getCurrentTime?.() ?? currentTimeRef.current,
     );
-    replayer.pause(captureAt);
-    setPlaying(false);
-    updateTime(captureAt);
     setSavingScreenshot(true);
 
     try {
+      replayer.pause(captureAt);
+      setPlaying(false);
+      updateTime(captureAt);
       await downloadReplayScreenshot(
         stage,
         iframe,
