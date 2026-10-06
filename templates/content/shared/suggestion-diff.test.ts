@@ -438,6 +438,27 @@ describe("suggestion decomposition", () => {
     expectIntactOperations(before, after, operations);
   });
 
+  it("reads a letter outside the Basic Multilingual Plane as a letter", () => {
+    const before = "Use 𐐀x𐐀 here.";
+    const after = "Use 𐐨x𐐨 here.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([["𐐀x𐐀", "𐐨x𐐨"]]);
+    expectIntactOperations(before, after, operations);
+    expect(
+      suggestionDiffParts(before, after)?.filter(
+        (part) => part.type !== "equal",
+      ),
+    ).toEqual([
+      { type: "delete", text: "𐐀x𐐀" },
+      { type: "insert", text: "𐐨x𐐨" },
+    ]);
+  });
+
   it("never joins edits across a block boundary", () => {
     const before = "Draft\nReady";
     const after = "Final\nShip";

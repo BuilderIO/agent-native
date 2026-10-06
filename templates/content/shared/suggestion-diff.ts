@@ -172,6 +172,22 @@ function coalesce(parts: DiffPart[]): DiffPart[] {
 
 const WORD_CHARACTER = /[\p{L}\p{M}\p{N}]/u;
 
+// Source offsets count UTF-16 code units. Read whole code points so a letter
+// outside the Basic Multilingual Plane is not taken for two non-word halves.
+function characterBefore(text: string, at: number): string {
+  return /.$/su.exec(text.slice(Math.max(0, at - 2), at))?.[0] ?? "";
+}
+
+function characterAt(text: string, at: number): string {
+  const point = text.codePointAt(at);
+  return point === undefined ? "" : String.fromCodePoint(point);
+}
+
+const isWordBefore = (text: string, at: number) =>
+  WORD_CHARACTER.test(characterBefore(text, at));
+const isWordAt = (text: string, at: number) =>
+  WORD_CHARACTER.test(characterAt(text, at));
+
 /**
  * A character diff keeps every letter two phrasings share, which splits one
  * rewritten phrase into letter-sized hunks. Shared letters or spacing join the
@@ -180,9 +196,10 @@ const WORD_CHARACTER = /[\p{L}\p{M}\p{N}]/u;
  * never join it and the phrase would stay split. A shared whole word keeps its
  * edits apart, and nothing joins across a line break, so word choices with an
  * unchanged word between them and edits in different blocks stay separately
- * reviewable. Adjacent rewritten words with only spacing between them become
- * one edit on purpose: no spacing rule tells a rewritten phrase from two
- * independent word swaps, and one edit can never leave a half-accepted phrase.
+ * reviewable. Adjacent rewritten words separated only by spacing shorter than
+ * their edits become one edit on purpose: no spacing rule tells a rewritten
+ * phrase from two independent word swaps, and one edit can never leave a
+ * half-accepted phrase.
  */
 function absorbIncidentalEqualities(parts: DiffPart[]): DiffPart[] {
   type Change = { type: "change"; removed: string; inserted: string };
@@ -198,16 +215,13 @@ function absorbIncidentalEqualities(parts: DiffPart[]): DiffPart[] {
   const after = parts
     .map((part) => (part.type === "delete" ? "" : part.text))
     .join("");
-  const isWord = (character: string | undefined) =>
-    Boolean(character && WORD_CHARACTER.test(character));
   const holdsWholeWord = ({ text, beforeFrom, afterFrom }: Equal) =>
-    [...text.matchAll(/[\p{L}\p{M}\p{N}]+/gu)].some(({ index, 0: word }) =>
-      [
-        before[beforeFrom + index - 1],
-        after[afterFrom + index - 1],
-        before[beforeFrom + index + word.length],
-        after[afterFrom + index + word.length],
-      ].every((character) => !isWord(character)),
+    [...text.matchAll(/[\p{L}\p{M}\p{N}]+/gu)].some(
+      ({ index, 0: word }) =>
+        !isWordBefore(before, beforeFrom + index) &&
+        !isWordBefore(after, afterFrom + index) &&
+        !isWordAt(before, beforeFrom + index + word.length) &&
+        !isWordAt(after, afterFrom + index + word.length),
     );
   const segments: Array<Equal | Change> = [];
   let beforeOffset = 0;
@@ -680,8 +694,6 @@ function wholeWordReplacements(
   beforeMarked: MarkedSourceRanges,
   afterMarked: MarkedSourceRanges,
 ): MarkdownSuggestionOperation[] {
-  const isWord = (character: string | undefined) =>
-    Boolean(character && /[\p{L}\p{M}\p{N}]/u.test(character));
   const groups: Array<{
     from: number;
     to: number;
@@ -697,11 +709,12 @@ function wholeWordReplacements(
       lexicalChange &&
       !/<br\/?\s*>/u.test(removed + inserted) &&
       (removed || !/\s/u.test(inserted)) &&
-      (isWord(before[from - 1]) || isWord(before[to]))
+      (isWordBefore(before, from) || isWordAt(before, to))
     ) {
-      while (group.from > 0 && isWord(before[group.from - 1])) group.from -= 1;
-      while (group.to < before.length && isWord(before[group.to]))
-        group.to += 1;
+      while (isWordBefore(before, group.from))
+        group.from -= characterBefore(before, group.from).length;
+      while (isWordAt(before, group.to))
+        group.to += characterAt(before, group.to).length;
     }
     // Two edits inside one word are one review decision.
     while (groups.length && group.from < groups[groups.length - 1]!.to) {
