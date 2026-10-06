@@ -37,6 +37,7 @@ vi.mock("../../mcp/actions/service-token-access.js", () => ({
 
 let keySource: "user" | "org" | undefined = "org";
 vi.mock("../../server/credential-provider.js", () => ({
+  readDeployCredentialEnv: vi.fn(() => undefined),
   resolveSecretDetailed: vi.fn(async () =>
     keySource
       ? { value: "fake-placeholder", lookupFailed: false, source: keySource }

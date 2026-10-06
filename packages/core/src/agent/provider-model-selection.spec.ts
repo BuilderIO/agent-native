@@ -562,6 +562,48 @@ describe("resolveUncheckedDefaultModelReplacement", () => {
     ).toBe("gpt-6.1-sol");
   });
 
+  it("does not upgrade a checked default against the public catalog for a custom endpoint", async () => {
+    scopedSecrets.set(`org::${ORG}::OPENAI_API_KEY`, "org-key-placeholder");
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://gateway.example/v1",
+    );
+    await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-6-sol", "gpt-5.6-luna"],
+    );
+
+    expect(
+      await resolveUncheckedDefaultModelReplacement({
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-luna",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("retains custom endpoint preservation when no selection row exists", async () => {
+    scopedSecrets.set(`org::${ORG}::OPENAI_API_KEY`, "org-key-placeholder");
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://gateway.example/v1",
+    );
+
+    await expect(
+      resolveEffectiveProviderModelSelection("openai"),
+    ).resolves.toMatchObject({
+      state: "default",
+      preserveCustomModels: true,
+    });
+    await expect(
+      resolveUncheckedDefaultModelReplacement({
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-luna",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it("keeps the engine default when the selection can't be read", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     settingsReadThrows = true;

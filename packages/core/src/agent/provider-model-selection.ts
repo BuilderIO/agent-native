@@ -85,12 +85,14 @@ export type EffectiveProviderModelSelection =
       state: "default";
       provider: ProviderModelSelectionProvider;
       scope: ProviderModelSelectionScope;
+      preserveCustomModels?: boolean;
     }
   | {
       state: "selected";
       provider: ProviderModelSelectionProvider;
       scope: ProviderModelSelectionScope;
       models: string[];
+      preserveCustomModels?: boolean;
     }
   | {
       state: "unreadable";
@@ -530,13 +532,22 @@ export async function resolveProviderModelSelectionAtScope(
 function selectionFromRow(
   row: ProviderModelSelectionRow,
 ): EffectiveProviderModelSelection {
+  const customModelMetadata = row.preserveCustomModels
+    ? { preserveCustomModels: true }
+    : {};
   return row.models === null
-    ? { state: "default", provider: row.provider, scope: row.scope }
+    ? {
+        state: "default",
+        provider: row.provider,
+        scope: row.scope,
+        ...customModelMetadata,
+      }
     : {
         state: "selected",
         provider: row.provider,
         scope: row.scope,
         models: row.models,
+        ...customModelMetadata,
       };
 }
 
@@ -571,11 +582,12 @@ export async function resolveUncheckedDefaultModelReplacement(engine: {
     return undefined;
   }
   if (selection.state !== "selected") return undefined;
-  const currentDefault =
-    upgradeModelToLatestSupportedVersion(
-      engine.defaultModel,
-      recommendedProviderModels(provider),
-    ) ?? engine.defaultModel;
+  const currentDefault = selection.preserveCustomModels
+    ? engine.defaultModel
+    : (upgradeModelToLatestSupportedVersion(
+        engine.defaultModel,
+        recommendedProviderModels(provider),
+      ) ?? engine.defaultModel);
   if (selection.models.includes(currentDefault)) return undefined;
   return selection.models[0];
 }
