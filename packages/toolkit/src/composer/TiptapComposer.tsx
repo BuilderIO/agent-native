@@ -311,14 +311,8 @@ async function haveSameFileContents(
   if (first === second) return true;
   if (first.size !== second.size) return false;
   const comparisonBytes = first.size * 2;
-  if (
-    budget.remainingComparisons === 0 ||
-    comparisonBytes > budget.remainingBytes
-  ) {
-    return false;
-  }
+  if (comparisonBytes > budget.remainingBytes) return false;
   budget.remainingBytes -= comparisonBytes;
-  budget.remainingComparisons -= 1;
 
   for (
     let offset = 0;
@@ -345,6 +339,8 @@ async function haveSameAttachmentInput(
   second: { file: Blob; name: string; contentType: string },
   budget: AttachmentComparisonBudget,
 ) {
+  if (budget.remainingComparisons === 0) return false;
+  budget.remainingComparisons -= 1;
   const firstExtension = first.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? "";
   const secondExtension =
     second.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? "";

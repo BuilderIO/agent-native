@@ -1358,6 +1358,76 @@ describe("createTiptapComposerExtensions", () => {
     ]);
   });
 
+  it("caps candidate checks when attachment metadata differs", async () => {
+    let nextAttachmentId = 0;
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: String(++nextAttachmentId),
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      await Promise.all(
+        Array.from({ length: 128 }, (_, index) =>
+          focusRef.current!.addAttachment(
+            new File([`other-${index}`], `other-${index}.type${index}`, {
+              type: `application/x-type-${index}`,
+            }),
+          ),
+        ),
+      );
+      await focusRef.current!.addAttachment(
+        new File(["target"], "target.txt", { type: "text/plain" }),
+      );
+      await focusRef.current!.addAttachment(
+        new File(["target"], "target.txt", { type: "text/plain" }),
+      );
+    });
+
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      130,
+    );
+  });
+
   it("normalizes an empty MIME type to the document adapter fallback", async () => {
     const attachmentAdapter: AttachmentAdapter = {
       accept: "*",
