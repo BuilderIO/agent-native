@@ -413,6 +413,68 @@ describe("present-design-variants", () => {
     expect(result.nextRequiredAction).toContain("bounded pass");
   });
 
+  it("preserves exact prompt dimensions and suppresses generated breakpoints", async () => {
+    mocks.designData = {
+      breakpointSet: {
+        id: "existing",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Create a poster with exact dimensions 2400x3200 pixels",
+      variants: [
+        {
+          id: "a",
+          label: "Warm",
+          width: 1200,
+          height: 1600,
+          content: "<!doctype html><html><body>Warm</body></html>",
+        },
+        {
+          id: "b",
+          label: "Cool",
+          content: "<!doctype html><html><body>Cool</body></html>",
+        },
+      ],
+    });
+
+    expect(result.screens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "file-a", width: 2400, height: 3200 }),
+        expect.objectContaining({ id: "file-b", width: 2400, height: 3200 }),
+      ]),
+    );
+    expect(mocks.designData.canvasFrames).toMatchObject({
+      "file-a": { width: 2400, height: 3200 },
+      "file-b": { width: 2400, height: 3200 },
+    });
+    const metadata = mocks.designData.screenMetadata as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(metadata["file-a"]).toMatchObject({
+      width: 2400,
+      height: 3200,
+      breakpointWidths: [],
+    });
+    expect(mocks.designData.breakpointSet).toMatchObject({ id: "existing" });
+  });
+
+  it("requires complete variant content for an exact-size prompt", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Create an email header at 1200x400",
+        variants: [
+          { id: "a", label: "Warm" },
+          { id: "b", label: "Cool" },
+        ],
+      }),
+    ).rejects.toThrow("requires complete self-contained HTML");
+  });
+
   it("does not reserve responsive space for JSX support files", async () => {
     mocks.filesSelectChain.where.mockResolvedValue([
       {

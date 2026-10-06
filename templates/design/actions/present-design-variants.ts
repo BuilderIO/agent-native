@@ -16,6 +16,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import { explicitCanvasDimensionsFromPrompt } from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
@@ -56,6 +57,7 @@ const SPECIFICATION_SIGNAL_PATTERNS = [
 export function hasSpecifiedDesignPrompt(prompt?: string): boolean {
   const value = prompt?.trim() ?? "";
   if (!value) return false;
+  if (explicitCanvasDimensionsFromPrompt(value)) return true;
   return SPECIFICATION_SIGNAL_PATTERNS.some((pattern) => pattern.test(value));
 }
 
@@ -489,8 +491,21 @@ function inferVariantSize(
   variant: z.infer<typeof variantSchema>,
   prompt?: string,
 ) {
-  const explicitWidth = boundedDimension(variant.width, 240, 1920);
-  const explicitHeight = boundedDimension(variant.height, 240, 3000);
+  const promptDimensions = explicitCanvasDimensionsFromPrompt(prompt);
+  if (promptDimensions) return promptDimensions;
+
+  const explicitWidth =
+    typeof variant.width === "number" &&
+    Number.isFinite(variant.width) &&
+    variant.width > 0
+      ? variant.width
+      : undefined;
+  const explicitHeight =
+    typeof variant.height === "number" &&
+    Number.isFinite(variant.height) &&
+    variant.height > 0
+      ? variant.height
+      : undefined;
   if (explicitWidth && explicitHeight) {
     return { width: explicitWidth, height: explicitHeight };
   }
@@ -786,7 +801,8 @@ export default defineAction({
     "complete self-contained HTML for every variant; the generic fallback is " +
     "blocked there. Design will render compact screens from direction data only " +
     "for open-ended exploration. Expand the chosen direction after the user " +
-    "picks. Screens from an earlier variant set are never " +
+    "picks. Exact pixel dimensions in the prompt set every variant's exact " +
+    "canvas size and suppress extra mobile or tablet frames. Screens from an earlier variant set are never " +
     "deleted automatically: if you are knowingly replacing your own earlier " +
     "set that the user never picked from or discussed, pass its set id in " +
     "deleteSupersededSetIds; otherwise leave old sets in place.",
@@ -802,6 +818,12 @@ export default defineAction({
       .max(5)
       .describe(
         "2-5 concise, visually distinct generated design options to place as overview screens (3 is the sweet spot). Prefer short label/description/features for each direction; include inline HTML content only when it is compact enough to finish.",
+      ),
+    responsive: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether generated direction screens should include responsive breakpoint frames. Defaults to true; exact pixel dimensions in the prompt always suppress extra device frames.",
       ),
     deleteSupersededSetIds: z
       .array(z.string())
@@ -834,11 +856,13 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (
-    { designId, prompt, variants, deleteSupersededSetIds },
+    { designId, prompt, variants, deleteSupersededSetIds, responsive },
     context,
   ) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
+    const promptDimensions = explicitCanvasDimensionsFromPrompt(prompt);
+    const useResponsiveFrames = !promptDimensions && responsive !== false;
 
     const omittedContent = variants.filter(
       (variant) => !variant.content?.trim(),
@@ -906,7 +930,10 @@ export default defineAction({
             providedContent ||
             fallbackVariantContent(variant, index, prompt, initialSize);
           const { width, height } = providedContent
-            ? inferVariantSize({ ...variant, content: rawContent })
+            ? inferVariantSize(
+                { ...variant, content: rawContent },
+                promptDimensions ? prompt : undefined,
+              )
             : initialSize;
           const content = annotateScreenHtmlForPersist(rawContent, "html");
 
@@ -946,20 +973,22 @@ export default defineAction({
       designId,
       mutate: (current, { updatedAt }) => {
         installedBreakpointSet =
+          useResponsiveFrames &&
           classifyBreakpointSet(current.breakpointSet) === "absent";
+        const currentBreakpointWidths = effectiveBreakpointWidths(
+          current.breakpointSet,
+        );
         const mergedFrames = mergeCanvasFramePlacements({
           existing: current.canvasFrames,
           placements: placeVariantScreens(
             screens,
-            effectiveBreakpointWidths(current.breakpointSet),
+            useResponsiveFrames ? currentBreakpointWidths : [],
             nextFreeCanvasRowY(current.canvasFrames, VARIANT_GAP, {
               ignoreFileIds: screens.map((screen) => screen.id),
               responsiveLayout: {
                 screenFileIds,
                 screenMetadataByFileId: current.screenMetadata,
-                breakpointWidths: effectiveBreakpointWidths(
-                  current.breakpointSet,
-                ),
+                breakpointWidths: currentBreakpointWidths,
               },
             }),
           ),
@@ -972,7 +1001,9 @@ export default defineAction({
           ? { ...current.designVariantSets }
           : {};
         for (const screen of screens) {
-          previousMetadata[screen.id] = {
+          const existingMetadata = previousMetadata[screen.id];
+          const metadata: Record<string, unknown> = {
+            ...(isRecord(existingMetadata) ? existingMetadata : {}),
             sourceType: "inline",
             previewState: "preview",
             title: screen.label,
@@ -981,6 +1012,12 @@ export default defineAction({
             variantSetId,
             variantId: screen.variantId,
           };
+          if (useResponsiveFrames) {
+            delete metadata.breakpointWidths;
+          } else {
+            metadata.breakpointWidths = [];
+          }
+          previousMetadata[screen.id] = metadata;
         }
         previousVariantSets[variantSetId] = {
           id: variantSetId,
@@ -1002,7 +1039,8 @@ export default defineAction({
           canvasFrames: mergedFrames.canvasFrames,
           screenMetadata: previousMetadata,
           designVariantSets: previousVariantSets,
-          ...(classifyBreakpointSet(current.breakpointSet) !== "absent"
+          ...(!useResponsiveFrames ||
+          classifyBreakpointSet(current.breakpointSet) !== "absent"
             ? {}
             : {
                 breakpointSet: {
@@ -1029,16 +1067,27 @@ export default defineAction({
           : null;
         const persistedScreens = Array.isArray(set?.screens) ? set.screens : [];
         return (
-          hasBreakpointSet(current.breakpointSet) &&
-          screens.every(
-            (screen) =>
-              isRecord(canvasFrames[screen.id]) &&
-              isRecord(metadata[screen.id]) &&
+          (!useResponsiveFrames || hasBreakpointSet(current.breakpointSet)) &&
+          screens.every((screen) => {
+            const frame = canvasFrames[screen.id];
+            const screenMetadata = metadata[screen.id];
+            return (
+              isRecord(frame) &&
+              frame.width === screen.width &&
+              frame.height === screen.height &&
+              isRecord(screenMetadata) &&
+              screenMetadata.width === screen.width &&
+              screenMetadata.height === screen.height &&
+              (useResponsiveFrames
+                ? screenMetadata.breakpointWidths === undefined
+                : Array.isArray(screenMetadata.breakpointWidths) &&
+                  screenMetadata.breakpointWidths.length === 0) &&
               persistedScreens.some(
                 (persisted) =>
                   isRecord(persisted) && persisted.id === screen.id,
-              ),
-          )
+              )
+            );
+          })
         );
       },
     });

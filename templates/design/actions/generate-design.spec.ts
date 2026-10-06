@@ -950,6 +950,79 @@ describe("generate-design: new-file creation path", () => {
     });
   });
 
+  it("uses exact prompt dimensions and skips generated device frames", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create an Instagram post at exactly 1080x1080 pixels",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "post.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Post</body></html>",
+        },
+      ],
+      canvasFrames: [
+        {
+          filename: "post.html",
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    const frames = data.canvasFrames as Record<string, Record<string, unknown>>;
+    const metadata = data.screenMetadata as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(frames[fileId]).toMatchObject({ width: 1080, height: 1080 });
+    expect(metadata[fileId]).toMatchObject({
+      width: 1080,
+      height: 1080,
+      breakpointWidths: [],
+    });
+    expect(data.breakpointSet).toBeUndefined();
+  });
+
+  it("keeps existing breakpoints while hiding them for an exact-size screen", async () => {
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "existing",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create an email banner at 1200x600",
+      files: [
+        {
+          filename: "banner.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Banner</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    const metadata = data.screenMetadata as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(data.breakpointSet).toMatchObject({ id: "existing" });
+    expect(metadata[fileId]).toMatchObject({
+      width: 1200,
+      height: 600,
+      breakpointWidths: [],
+    });
+  });
+
   it("derives the base frame and breakpoint set from an explicit devices list", async () => {
     await action.run({
       designId: "design-1",

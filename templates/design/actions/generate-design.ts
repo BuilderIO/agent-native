@@ -38,6 +38,7 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
+import { explicitCanvasDimensionsFromPrompt } from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
   parseCanvasFrameGeometryById,
@@ -433,7 +434,8 @@ const generateDesignAgentParameters = {
       type: "string",
       description:
         "Optional JSON array of overview-canvas placements keyed by filename or fileId. " +
-        "Pass explicit x/y/width/height for every generated screen as numbers; desktop is 1440x900.",
+        "Pass explicit x/y/width/height for every generated screen as numbers. " +
+        "When the prompt gives exact pixel dimensions, use those exact width/height values.",
     },
     contextPackId: {
       type: "string",
@@ -464,7 +466,9 @@ const generateDesignAgentParameters = {
       items: { type: "string", enum: ["mobile", "tablet", "desktop"] },
       description:
         "Device set for responsive frames. Honor the devices the prompt " +
-        'explicitly names; omit to default to ["desktop","mobile"]. The widest ' +
+        'explicitly names; omit to default to ["desktop","mobile"]. Use [] ' +
+        "for an exact-size static screen so no mobile or tablet frame is added. " +
+        "Exact pixel dimensions in the prompt always take precedence and suppress extra device frames. The widest " +
         "device becomes the primary/base frame and the narrower devices become " +
         "breakpoint frames — never a duplicate of the base width and never an " +
         "auto-added tablet. A single device yields one frame with no breakpoints. " +
@@ -494,8 +498,10 @@ const generateDesignAction = defineAction({
     "get-design-system, or call get-design-snapshot for an existing design; " +
     "apply its tokens/docs before writing file content. Do not treat an id " +
     "alone as enough design-system context. " +
-    "Every web design must be responsive. This action adds responsive editor " +
-    "breakpoints: by default a Desktop 1440x900 base frame plus a Mobile " +
+    "Every web design without a fixed exact-size request must be responsive. " +
+    "For exact pixel dimensions, use those values for the screen's canvas frame " +
+    "and do not add mobile or tablet frames. This action adds responsive editor " +
+    "breakpoints by default: a Desktop 1440x900 base frame plus a Mobile " +
     "breakpoint (no auto tablet, no duplicate desktop). Pass `devices` to honor " +
     "the form factors the prompt explicitly names — the widest becomes the base " +
     "frame and the narrower ones become breakpoint frames. Set `primaryViewport` " +
@@ -640,7 +646,9 @@ const generateDesignAction = defineAction({
       .optional()
       .describe(
         "Explicit device set for responsive frames. Honor the devices the " +
-          'prompt names; omit to default to ["desktop","mobile"]. Widest ' +
+          'prompt names; omit to default to ["desktop","mobile"]. Pass [] for ' +
+          "an exact-size static screen with no extra device frames. Exact pixel " +
+          "dimensions in the prompt always take precedence. Widest " +
           "device = primary/base frame; narrower devices = breakpoint frames " +
           "(never the base width, never an auto tablet). One device = a single " +
           "frame with no breakpoints. When provided, this overrides " +
@@ -914,15 +922,18 @@ const generateDesignAction = defineAction({
       fileId: string;
       width: number;
       height: number;
+      breakpointWidths: number[] | undefined;
     }> = [];
     const normalizedTweaks = tweaks?.map((tweak) => ({
       ...tweak,
       type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
     }));
-    const resolvedDevices =
-      devices && devices.length > 0
-        ? devices
-        : devicesForPrimaryViewport(primaryViewport);
+    const promptCanvasDimensions = explicitCanvasDimensionsFromPrompt(prompt);
+    const resolvedDevices = promptCanvasDimensions
+      ? []
+      : (devices ?? devicesForPrimaryViewport(primaryViewport));
+    const explicitDeviceSelection =
+      !promptCanvasDimensions && devices !== undefined && devices.length > 0;
     const resolvedPrimaryViewport = widestGenerationDevice(resolvedDevices);
     const generatedBreakpointSet = breakpointSetForDevices(resolvedDevices);
     await mutateDesignData({
@@ -963,15 +974,25 @@ const generateDesignAction = defineAction({
               : undefined;
           },
         });
+        if (promptCanvasDimensions) {
+          for (const file of savedFiles) {
+            const frame = merged.canvasFrames[file.id];
+            if (!frame) continue;
+            merged.canvasFrames[file.id] = {
+              ...frame,
+              width: promptCanvasDimensions.width,
+              height: promptCanvasDimensions.height,
+            };
+          }
+        }
         const viewport = GENERATION_VIEWPORT_SIZES[resolvedPrimaryViewport];
-        const effectiveBreakpointWidths =
-          devices && devices.length > 0
-            ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
-            : classifyBreakpointSet(prevData.breakpointSet) === "present"
-              ? getResponsiveBreakpointWidths(prevData.breakpointSet)
-              : classifyBreakpointSet(prevData.breakpointSet) === "absent"
-                ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
-                : [];
+        const effectiveBreakpointWidths = explicitDeviceSelection
+          ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
+          : classifyBreakpointSet(prevData.breakpointSet) === "present"
+            ? getResponsiveBreakpointWidths(prevData.breakpointSet)
+            : classifyBreakpointSet(prevData.breakpointSet) === "absent"
+              ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
+              : [];
         const responsiveScreenFileIds = new Set([
           ...getOverviewScreenFileIds(existingFiles),
           ...getOverviewScreenFileIds(savedFiles),
@@ -981,7 +1002,7 @@ const generateDesignAction = defineAction({
             ? Object.keys(prevData.canvasFrames as Record<string, unknown>)
             : [],
         );
-        if (devices && devices.length > 0) {
+        if (explicitDeviceSelection) {
           for (const file of savedFiles) {
             const current = merged.canvasFrames[file.id];
             if (
@@ -1020,7 +1041,8 @@ const generateDesignAction = defineAction({
               : {};
           const frame = merged.canvasFrames[file.id];
           const width =
-            devices && devices.length > 0
+            promptCanvasDimensions?.width ??
+            (explicitDeviceSelection
               ? typeof frame?.width === "number" && frame.width > 0
                 ? frame.width
                 : viewport.width
@@ -1028,9 +1050,10 @@ const generateDesignAction = defineAction({
                 ? metadata.width
                 : typeof frame?.width === "number" && frame.width > 0
                   ? frame.width
-                  : viewport.width;
+                  : viewport.width);
           const height =
-            devices && devices.length > 0
+            promptCanvasDimensions?.height ??
+            (explicitDeviceSelection
               ? typeof frame?.height === "number" && frame.height > 0
                 ? frame.height
                 : viewport.height
@@ -1038,18 +1061,27 @@ const generateDesignAction = defineAction({
                 ? metadata.height
                 : typeof frame?.height === "number" && frame.height > 0
                   ? frame.height
-                  : viewport.height;
-          if (
-            rawMetadata === undefined ||
-            metadata.width !== width ||
-            metadata.height !== height
-          ) {
-            nextScreenMetadata[file.id] = {
-              ...metadata,
+                  : viewport.height);
+          const breakpointWidths =
+            generatedBreakpointSet.length === 0 ? [] : undefined;
+          const nextMetadata: Record<string, unknown> = {
+            ...metadata,
+            width,
+            height,
+          };
+          if (breakpointWidths) {
+            nextMetadata.breakpointWidths = breakpointWidths;
+          } else {
+            delete nextMetadata.breakpointWidths;
+          }
+          if (!jsonValuesEqual(rawMetadata, nextMetadata)) {
+            nextScreenMetadata[file.id] = nextMetadata;
+            screenMetadataUpdates.push({
+              fileId: file.id,
               width,
               height,
-            };
-            screenMetadataUpdates.push({ fileId: file.id, width, height });
+              breakpointWidths,
+            });
           }
         }
         const metadataByFileId = nextScreenMetadata;
@@ -1082,9 +1114,17 @@ const generateDesignAction = defineAction({
             typeof metadata.height === "number" && metadata.height > 0
               ? metadata.height
               : 2560;
+          const screenBreakpointWidths = Array.isArray(
+            metadata.breakpointWidths,
+          )
+            ? metadata.breakpointWidths.filter(
+                (value): value is number =>
+                  typeof value === "number" && Number.isFinite(value),
+              )
+            : effectiveBreakpointWidths;
           const visibleWidths = visibleBreakpointWidths(
             responsiveScreenFileIds.has(fileId ?? "")
-              ? effectiveBreakpointWidths
+              ? screenBreakpointWidths
               : [],
             typeof metadata.width === "number" ? metadata.width : width,
           );
@@ -1164,8 +1204,10 @@ const generateDesignAction = defineAction({
           ) {
             continue;
           }
-          const width = current.width ?? viewport.width;
-          const height = current.height ?? viewport.height;
+          const width =
+            current.width ?? promptCanvasDimensions?.width ?? viewport.width;
+          const height =
+            current.height ?? promptCanvasDimensions?.height ?? viewport.height;
           let x = current.x ?? nextX;
           let y = current.y ?? 0;
           let candidateRect = rectOf(
@@ -1241,10 +1283,38 @@ const generateDesignAction = defineAction({
             frameRect.x + frameRect.width + GENERATED_FRAME_GAP,
           );
         }
+        for (const file of savedFiles) {
+          if (generationFrames.some((placed) => placed.fileId === file.id)) {
+            continue;
+          }
+          const frame = merged.canvasFrames[file.id];
+          if (
+            !frame ||
+            frame.x === undefined ||
+            frame.y === undefined ||
+            frame.width === undefined ||
+            frame.height === undefined
+          ) {
+            continue;
+          }
+          generationFrames.push({
+            fileId: file.id,
+            filename: file.filename,
+            frame: {
+              x: frame.x,
+              y: frame.y,
+              width: frame.width,
+              height: frame.height,
+              ...(frame.rotation === undefined
+                ? {}
+                : { rotation: frame.rotation }),
+            },
+          });
+        }
         mergedData.canvasFrames = merged.canvasFrames;
         mergedData.screenMetadata = nextScreenMetadata;
         placedFrames = generationFrames;
-        if (devices && devices.length > 0) {
+        if (explicitDeviceSelection) {
           if (generatedBreakpointSet.length > 0) {
             mergedData.breakpointSet = {
               id: "generated-responsive",
@@ -1302,14 +1372,21 @@ const generateDesignAction = defineAction({
             ? (current.screenMetadata as Record<string, unknown>)
             : {};
         const screenMetadataApplied = screenMetadataUpdates.every(
-          ({ fileId, width, height }) => {
+          ({ fileId, width, height, breakpointWidths }) => {
             const metadata = currentMetadata[fileId];
             return (
               metadata &&
               typeof metadata === "object" &&
               !Array.isArray(metadata) &&
               (metadata as Record<string, unknown>).width === width &&
-              (metadata as Record<string, unknown>).height === height
+              (metadata as Record<string, unknown>).height === height &&
+              (breakpointWidths === undefined
+                ? (metadata as Record<string, unknown>).breakpointWidths ===
+                  undefined
+                : jsonValuesEqual(
+                    (metadata as Record<string, unknown>).breakpointWidths,
+                    breakpointWidths,
+                  ))
             );
           },
         );
@@ -1330,11 +1407,10 @@ const generateDesignAction = defineAction({
         const expectedBreakpointWidths = generatedBreakpointSet
           .map((bp) => bp.widthPx)
           .sort((a, b) => a - b);
-        const breakpointSetApplied =
-          devices && devices.length > 0
-            ? jsonValuesEqual(currentBreakpointWidths, expectedBreakpointWidths)
-            : generatedBreakpointSet.length === 0 ||
-              classifyBreakpointSet(current.breakpointSet) !== "absent";
+        const breakpointSetApplied = explicitDeviceSelection
+          ? jsonValuesEqual(currentBreakpointWidths, expectedBreakpointWidths)
+          : generatedBreakpointSet.length === 0 ||
+            classifyBreakpointSet(current.breakpointSet) !== "absent";
         return framesApplied && screenMetadataApplied && breakpointSetApplied;
       },
     });
