@@ -9,7 +9,7 @@ export interface CanvasDimensions {
 }
 
 const DIMENSION_PAIR =
-  /(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d{1,12})\s*(px|pixels?)?\s*(?:x|×|by)\s*(\d{1,3}(?:,\d{3})+|\d{1,12})\s*(px|pixels?)?(?!\w)/gi;
+  /(?<![\d.,])(-?(?:\d{1,3}(?:,\d{3})+|\d+))\s*(px|pixels?)?\s*(?:x|×|by)\s*(-?(?:\d{1,3}(?:,\d{3})+|\d+))\s*(px|pixels?)?(?!\w)/gi;
 const DIMENSION_CONTEXT_BEFORE =
   /\b(?:exact(?:ly)?|fixed[- ]size|dimensions?|size|canvas|artboard|frame|screen|pixels?)\s*(?:[:=]\s*)?$/i;
 const DIMENSION_CONTEXT_AFTER =
@@ -40,10 +40,10 @@ export function explicitCanvasDimensionsFromPrompt(
 
   for (let index = 0; index < matches.length; index += 1) {
     const match = matches[index]!;
-    const width = Number(match[1]?.replace(/,/g, ""));
-    const height = Number(match[3]?.replace(/,/g, ""));
-    if (!Number.isFinite(width) || !Number.isFinite(height)) continue;
-    if (width <= 0 || height <= 0) continue;
+    const rawWidth = match[1] ?? "";
+    const rawHeight = match[3] ?? "";
+    const width = Number(rawWidth.replace(/,/g, ""));
+    const height = Number(rawHeight.replace(/,/g, ""));
 
     const start = match.index ?? 0;
     const end = start + match[0].length;
@@ -88,17 +88,24 @@ export function explicitCanvasDimensionsFromPrompt(
     }
 
     if (
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
       width > MAX_SANE_FRAME_DIMENSION_PX ||
       height > MAX_SANE_FRAME_DIMENSION_PX
     ) {
       throw new Error(
-        `Exact canvas dimensions ${width}×${height} exceed the Design editor limit of ${MAX_SANE_FRAME_DIMENSION_PX} px per dimension. Choose smaller exact dimensions.`,
+        `Exact canvas dimensions ${rawWidth}×${rawHeight} exceed the Design editor limit of ${MAX_SANE_FRAME_DIMENSION_PX} px per dimension. Choose smaller exact dimensions.`,
+      );
+    }
+    if (width <= 0 || height <= 0) {
+      throw new Error(
+        `Exact canvas dimensions ${rawWidth}×${rawHeight} must be greater than zero. Choose positive exact dimensions.`,
       );
     }
     const aspectRatio = Math.max(width / height, height / width);
     if (aspectRatio > MAX_SANE_FRAME_ASPECT_RATIO) {
       throw new Error(
-        `Exact canvas dimensions ${width}×${height} exceed the Design editor limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1. Choose supported exact dimensions.`,
+        `Exact canvas dimensions ${rawWidth}×${rawHeight} exceed the Design editor limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1. Choose supported exact dimensions.`,
       );
     }
 

@@ -92,6 +92,11 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         `Set the exact size to ${MAX_SANE_FRAME_DIMENSION_PX + 1}x2000 pixels`,
       ),
     ).toThrow(`limit of ${MAX_SANE_FRAME_DIMENSION_PX} px per dimension`);
+    expect(() =>
+      explicitCanvasDimensionsFromPrompt(
+        "Set the exact size to 1000000000000x1000 pixels",
+      ),
+    ).toThrow(`limit of ${MAX_SANE_FRAME_DIMENSION_PX} px per dimension`);
   });
 
   it("rejects exact dimensions beyond the editor's maximum aspect ratio", () => {
@@ -100,5 +105,18 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         `Set the exact size to 100000x1000 pixels`,
       ),
     ).toThrow(`limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1`);
+  });
+
+  it("rejects non-positive exact dimensions instead of ignoring them", () => {
+    expect(() =>
+      explicitCanvasDimensionsFromPrompt(
+        "Create an image exactly 0x600 pixels",
+      ),
+    ).toThrow("must be greater than zero");
+    expect(() =>
+      explicitCanvasDimensionsFromPrompt(
+        "Create an image exactly -300x250 pixels",
+      ),
+    ).toThrow("must be greater than zero");
   });
 });

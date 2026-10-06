@@ -1067,12 +1067,17 @@ const generateDesignAction = defineAction({
                   ? frame.height
                   : viewport.height);
           const breakpointWidths =
-            generatedBreakpointSet.length === 0 ||
-            (!explicitDeviceSelection &&
-              Array.isArray(metadata.breakpointWidths) &&
-              metadata.breakpointWidths.length === 0)
+            generatedBreakpointSet.length === 0
               ? []
-              : undefined;
+              : explicitDeviceSelection
+                ? undefined
+                : Array.isArray(metadata.breakpointWidths) &&
+                    metadata.breakpointWidths.every(
+                      (value): value is number =>
+                        typeof value === "number" && Number.isFinite(value),
+                    )
+                  ? metadata.breakpointWidths
+                  : undefined;
           const nextMetadata: Record<string, unknown> = {
             ...metadata,
             width,

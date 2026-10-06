@@ -1062,6 +1062,55 @@ describe("generate-design: new-file creation path", () => {
     ]);
   });
 
+  it("preserves a fixed screen's non-empty breakpoint override on content updates", async () => {
+    setExistingFile("<html><body>Old post copy</body></html>", {
+      filename: "post.html",
+    });
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [
+          { id: "mobile", label: "Mobile", widthPx: 390 },
+          { id: "tablet", label: "Tablet", widthPx: 768 },
+        ],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1080, height: 1080 },
+      },
+      screenMetadata: {
+        "file-1": {
+          breakpointWidths: [768],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Update the social post copy",
+      files: [
+        {
+          filename: "post.html",
+          fileType: "html",
+          content: "<html><body>Updated post copy</body></html>",
+        },
+      ],
+    });
+
+    const metadata = mocks.getDesignData().screenMetadata as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(metadata["file-1"]).toMatchObject({
+      width: 1080,
+      height: 1080,
+      breakpointWidths: [768],
+      heightPinned: true,
+      heightMode: "fixed",
+    });
+  });
+
   it("rejects multiple exact canvas sizes before writing files", async () => {
     await expect(
       action.run({
