@@ -1,6 +1,6 @@
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 
-const CONTENT_SIZE_REPORT_BRIDGE = `
+export const CONTENT_SIZE_REPORT_BRIDGE = `
 <style data-agent-native-content-size-guard>
   .min-h-screen { min-height: var(--agent-native-device-vh, 100vh) !important; }
   .h-screen { height: var(--agent-native-device-vh, 100vh) !important; }
@@ -65,16 +65,24 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     }
   }
 
+  // A sheet's rules are remapped in place, so a sheet only needs another pass
+  // when its rule count changes; a rewritten <style> yields a new sheet object.
+  var remappedRuleCounts = new WeakMap();
   function applyViewportHeightGuard() {
     for (var i = 0; i < document.styleSheets.length; i++) {
+      var sheet = document.styleSheets[i];
       try {
-        remapRuleList(document.styleSheets[i].cssRules);
+        var rules = sheet.cssRules;
+        if (remappedRuleCounts.get(sheet) === rules.length) continue;
+        remapRuleList(rules);
+        remappedRuleCounts.set(sheet, rules.length);
       } catch (err) {
         /* Cross-origin stylesheet - the parent-side feedback guard remains. */
       }
     }
     var inlineStyles = document.querySelectorAll("[style]");
     for (var j = 0; j < inlineStyles.length; j++) {
+      if (!/vh/i.test(inlineStyles[j].getAttribute("style") || "")) continue;
       remapStyleDeclaration(inlineStyles[j].style);
     }
   }
@@ -233,10 +241,25 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     }
     return true;
   }
+  // The editor rescales its chrome through custom properties on <html> on
+  // every zoom step; those never change content size.
+  function withoutEditorVars(style) {
+    return (style || "").replace(/--agent-native-[a-z-]+:[^;]*;?/g, "").trim();
+  }
+  function isEditorVarWrite(record) {
+    return (
+      record.type === "attributes" &&
+      record.attributeName === "style" &&
+      record.target === document.documentElement &&
+      withoutEditorVars(record.oldValue) ===
+        withoutEditorVars(document.documentElement.getAttribute("style"))
+    );
+  }
   function touchesAuthoredContent(records) {
     for (var i = 0; i < records.length; i++) {
       var record = records[i];
       if (isChromeNode(record.target)) continue;
+      if (isEditorVarWrite(record)) continue;
       if (
         record.type === "childList" &&
         allChromeNodes(record.addedNodes) &&
@@ -257,6 +280,7 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
       childList: true,
       subtree: true,
       attributes: true,
+      attributeOldValue: true,
       characterData: true,
     });
   }

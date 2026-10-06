@@ -1335,7 +1335,7 @@ describe("Slides prompt-led home", () => {
       preflight = promptProps.mock.lastCall![0].onBeforeSubmit();
     });
     expect(promptProps.mock.lastCall![0].preflightPending).toBe(true);
-    expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
     expect(screen.getByRole("status").textContent).toBe("Preflight pending");
     expect(
       (
@@ -1429,7 +1429,7 @@ describe("Slides prompt-led home", () => {
 
     expect(fetchAgentEngineConfiguredState).toHaveBeenCalledOnce();
     expect(promptProps.mock.lastCall![0].preflightPending).toBe(true);
-    expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
     expect(
       (
         screen.getByRole("textbox", {

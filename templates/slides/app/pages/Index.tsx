@@ -2540,11 +2540,9 @@ export default function Index({ active = true }: { active?: boolean }) {
               controllerRef={homeComposerRef}
               disabled={!isHome}
               preflightPending={agentEnginePreflightPending}
-              submissionDisabled={
-                agentEngineMissing || agentEnginePreflightPending
-                  ? true
-                  : undefined
-              }
+              // The composer re-reads this right after onBeforeSubmit resolves,
+              // before React re-renders, so a preflight flag here drops the send.
+              submissionDisabled={agentEngineMissing ? true : undefined}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
               open={showNewDeckPrompt}

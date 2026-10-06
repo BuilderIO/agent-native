@@ -2,6 +2,8 @@ import { buildCodeLayerProjection } from "@shared/code-layer";
 import { sourceContentHash } from "@shared/source-workspace";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { flushCommitsAfterPaint } from "@/pages/design-editor/commit-after-paint";
+
 import { runCommitVisualStyles } from "../commands/commit-visual-styles";
 import { syncLatestActiveContentFromRender } from "./sync-latest-active-content";
 
@@ -63,6 +65,7 @@ it("composes a follow-up padding write from pending source when render content l
     replacePreviewContent: vi.fn(() => "applied" as const),
     responsiveEditScopeRef: ref("cascade-smaller"),
     selectedElement: null,
+    selectedElementRef: { current: null },
     setCollabContent: vi.fn(),
     setCollabContentFileId: vi.fn(),
     setContentRenderRevision: vi.fn(),
@@ -79,6 +82,7 @@ it("composes a follow-up padding write from pending source when render content l
   };
 
   runCommitVisualStyles(args, "#player", { flexDirection: "row" });
+  flushCommitsAfterPaint();
   const horizontalSource = latestActiveContentRef.current;
   expect(horizontalSource).toContain("flex-direction: row");
 
@@ -92,6 +96,7 @@ it("composes a follow-up padding write from pending source when render content l
     paddingLeft: "10px",
     paddingRight: "10px",
   });
+  flushCommitsAfterPaint();
 
   const [, savedContent, saveOptions] =
     queueFileContentSave.mock.calls[1] ?? [];

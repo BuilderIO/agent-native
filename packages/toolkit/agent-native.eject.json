@@ -1121,6 +1121,7 @@
         "@agent-native/core/feature-flags/registry",
         "@agent-native/core/navigation",
         "@agent-native/core/onboarding/types",
+        "@agent-native/core/onboarding/workspace-services",
         "@agent-native/core/shared/docs-url",
         "@agent-native/core/shared/first-run-onboarding",
         "@agent-native/core/shared/workspace-app-id"
