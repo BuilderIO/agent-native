@@ -145,13 +145,11 @@ export function verifyShortLivedToken(
 // Agent-access tokens ride in URLs that Anthropic's web fetch tool refuses once
 // they pass 250 characters. The legacy payload carries the resource id (up to
 // ~110 characters for Clips), so here the signature covers the id instead and
-// the verifier supplies it. Both formats are `<payload>.<sig>`, so a verifier
-// tries this one first and falls back to `verifyShortLivedToken` for legacy
-// tokens, which stay valid for as long as they live (up to seven days).
+// the verifier supplies it.
 //
 // The HMAC input starts with a domain tag and contains a newline, which a
-// legacy signature input (base64url text) can never contain, so neither format
-// can be replayed as the other.
+// `signShortLivedToken` signature input (base64url text) can never contain, so
+// neither kind of token can be replayed as the other.
 
 interface DecodedCompactClaims {
   e: number;
@@ -190,8 +188,9 @@ export function signCompactShortLivedToken(
 
 /**
  * Verify a token produced by {@link signCompactShortLivedToken}. A token for a
- * different resource, and any legacy token, fails as `bad_signature` — the id
- * is not in the payload, so a mismatch is indistinguishable from tampering.
+ * different resource, and any `signShortLivedToken` token, fails as
+ * `bad_signature` — the id is not in the payload, so a mismatch is
+ * indistinguishable from tampering.
  */
 export function verifyCompactShortLivedToken(
   token: string,
