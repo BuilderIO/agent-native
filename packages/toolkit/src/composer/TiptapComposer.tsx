@@ -3049,6 +3049,7 @@ export function TiptapComposer({
   const draftScopeGenerationRef = useRef(0);
   const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
   const attachmentAddQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const submittingAttachmentIdsRef = useRef(new Set<string>());
   const pendingAttachmentAddsRef = useRef(
     new Map<number, Set<Promise<void>>>(),
   );
@@ -3084,8 +3085,10 @@ export function TiptapComposer({
 
         const existingFiles = composerRuntime
           .getState()
-          .attachments.flatMap((attachment) =>
-            isBlob(attachment.file)
+          .attachments.flatMap((attachment) => {
+            if (submittingAttachmentIdsRef.current.has(attachment.id))
+              return [];
+            return isBlob(attachment.file)
               ? [
                   {
                     file: attachment.file,
@@ -3095,8 +3098,8 @@ export function TiptapComposer({
                     ),
                   },
                 ]
-              : [],
-          );
+              : [];
+          });
         const pendingFiles = [...pendingAttachmentFilesRef.current].flatMap(
           ([pendingFile, pendingGeneration]) =>
             pendingGeneration === scopeGeneration
@@ -4863,6 +4866,9 @@ export function TiptapComposer({
       if (currentOnSubmit) {
         if (submitInFlightRef.current) return false;
         const submittedAttachments = [...attachments];
+        submittingAttachmentIdsRef.current = new Set(
+          submittedAttachments.map((attachment) => attachment.id),
+        );
         submitInFlightRef.current = true;
         let locallySubmitted = false;
         let settled = false;
@@ -4962,6 +4968,7 @@ export function TiptapComposer({
           return false;
         } finally {
           settled = true;
+          submittingAttachmentIdsRef.current = new Set();
           submitInFlightRef.current = false;
           onSubmissionPendingChange?.(false);
         }
