@@ -461,6 +461,20 @@ export function createFetchToolEntry(
             });
           }
           body = redactString(body, secretValues);
+          if (response.ok) {
+            const { providerApiResponseOutcomeForUrl } =
+              await import("../provider-api/index.js");
+            const outcome = providerApiResponseOutcomeForUrl(
+              resolvedUrl,
+              response,
+              body,
+            );
+            if (!outcome.ok)
+              fail(
+                `HTTP ${response.status} ${outcome.statusText}\n\n${body.slice(0, maxChars)}`,
+                { errorCode: "web_request_provider_failed" },
+              );
+          }
           let displayBody: string;
           let processedMode = "raw";
           try {

@@ -14,6 +14,46 @@ vi.mock("../workspace-files/store.js", () => ({
 }));
 
 describe("createFetchToolEntry", () => {
+  it.each([undefined, "exports/digest.json", "scratch/digest.json"])(
+    "rejects a provider failure inside HTTP 200 before saving (%s)",
+    async (saveToFile) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ ok: false, error: "invalid_auth" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://slack.com/api/chat.postMessage",
+          method: "POST",
+          saveToFile,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "web_request_provider_failed",
+        message: expect.stringContaining("invalid_auth"),
+      });
+      expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { url: "https://slack.com/api/chat.postMessage", ok: true },
+    { url: "https://93.184.216.34/api/chat.postMessage", ok: false },
+    { url: "https://slack.com/api-example", ok: false },
+    { url: "https://slack.com/help", ok: false },
+  ])(
+    "uses only the matching provider envelope: $url, ok=$ok",
+    async ({ url, ok }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ ok }), { status: 200 }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({ url, method: "POST" }),
+      ).resolves.toContain("HTTP 200");
+    },
+  );
+
   it.each([200, 429, 503])(
     "preserves an HTTP failure when its body is unreadable (%s)",
     async (status) => {

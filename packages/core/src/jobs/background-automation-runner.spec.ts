@@ -244,6 +244,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
     { trackProgress: false, status: 429 },
     { trackProgress: false, status: 503 },
     { trackProgress: true, status: 503 },
+    { trackProgress: false, status: 200 },
   ])(
     "rejects a real HTTP $status send failure (progress bookkeeping: $trackProgress)",
     async ({ trackProgress, status }) => {
@@ -286,7 +287,10 @@ describe("runBackgroundAutomation — confirmed work", () => {
                   id: "send-1",
                   name: "web-request",
                   input: {
-                    url: "https://93.184.216.34/digest",
+                    url:
+                      status === 200
+                        ? "https://slack.com/api/chat.postMessage"
+                        : "https://93.184.216.34/digest",
                     method: "POST",
                     body: '{"text":"Digest"}',
                   },
@@ -304,10 +308,15 @@ describe("runBackgroundAutomation — confirmed work", () => {
         },
       };
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-        new Response("Delivery unavailable", {
-          status,
-          statusText: "Unavailable",
-        }),
+        new Response(
+          status === 200
+            ? JSON.stringify({ ok: false, error: "invalid_auth" })
+            : "Delivery unavailable",
+          {
+            status,
+            statusText: "Unavailable",
+          },
+        ),
       );
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         actualLoop,
@@ -326,7 +335,8 @@ describe("runBackgroundAutomation — confirmed work", () => {
             },
           ),
         ).rejects.toMatchObject({
-          errorCode: `http_${status}`,
+          errorCode:
+            status === 200 ? "web_request_provider_failed" : `http_${status}`,
           message: expect.stringContaining(`HTTP ${status}`),
         });
         expect(requests).toBe(2);
