@@ -336,13 +336,28 @@ export default defineAppConfig({
 
 تصدر حلقة الوكيل ثلاثة أنواع من الامتداد:
 
-| امتداد      | متى                         | السمات                                                            |
-| ----------- | --------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | مرة واحدة لكل وكيل          | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | مرة واحدة لكل استدعاء إجراء | `tool.name`، بالإضافة إلى حالة النجاح/الخطأ                       |
-| `llm.call`  | لكل مكالمة نموذجية          | التوقيت + حالة موافق/خطأ                                          |
+| امتداد                | متى                         | السمات                                                                                                    |
+| --------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | مرة واحدة لكل وكيل          | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | مرة واحدة لكل استدعاء إجراء | `gen_ai.tool.name`، بالإضافة إلى حالة النجاح/الخطأ                                                        |
+| `chat {model}`        | لكل مكالمة نموذجية          | `gen_ai.provider.name`, التوقيت + حالة موافق/خطأ                                                          |
 
 تم الانتهاء من الامتدادات بحالة OK/ERROR وتسجيل رسالة الخطأ عند الفشل. يتم تقليم قيم السمات الصفرية/الحارسة حتى لا تزدحم الامتدادات بالضوضاء. تعتبر طبقة OTel هذه إضافة بحتة إلى جداول `agent_trace_spans` / `agent_trace_summaries` الداخلية التي تعمل على تشغيل لوحة المعلومات أعلاه - وكلاهما يتم إنتاجهما من نفس أحداث التشغيل.
+
+### المقاييس {#otel-metrics}
+
+يسجّل Core أيضًا المقاييس بمجرد أن يسجّل المضيف موفّر مقاييس (meter provider) باستخدام `registerObservabilityProvider()` من `@agent-native/core/server`. تُسجَّل المقاييس لكل طلب وكل تشغيل، دون أخذ عينات:
+
+| الأداة                                  | السمات                                                                                       |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+في المقاييس، تكون `gen_ai.tool.name` اسم إجراء من إجراءات إطار العمل أو `other`، وتكون `gen_ai.request.model` معرّف النموذج فقط عندما يدرجه المحرك ضمن النماذج المدعومة، وإلا فهي `_OTHER`. لذلك لا يمكن للأدوات التي يعرّفها التطبيق ولا لمعرّفات النماذج التي يمرّرها المستدعي إنشاء سلاسل غير محدودة؛ وتحتفظ الامتدادات (spans) بالقيم الدقيقة.
 
 ## الإبلاغ عن الأخطاء (Sentry) {#sentry}
 

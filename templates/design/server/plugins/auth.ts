@@ -1,8 +1,8 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppAudience: "internal",
   workspaceAppPublicPaths: ["/", "/visual-edit", "/design", "/present"],
   marketing: {

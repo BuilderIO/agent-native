@@ -128,6 +128,7 @@ export {
   AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
   getMcpAppHostContext,
   initializeMcpAppHost,
+  isOpenAiMcpAppHost,
   openMcpAppHostLink,
   requestMcpAppDisplayMode,
   sendMcpAppHostMessage,

@@ -1,3 +1,4 @@
+import { MutationObserver } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -22,6 +23,25 @@ describe("createAgentNativeQueryClient", () => {
       expect(retry(0, new Error("network"))).toBe(true);
       expect(retry(1, new Error("network"))).toBe(false);
     }
+  });
+
+  it("drops a settled mutation once its hook moves on, instead of keeping its closures", async () => {
+    const qc = createAgentNativeQueryClient();
+    const observer = new MutationObserver(qc, {
+      mutationFn: async (value: string) => value,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    await observer.mutate("first");
+    await observer.mutate("second");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(
+      qc
+        .getMutationCache()
+        .getAll()
+        .map((mutation) => mutation.state.data),
+    ).toEqual(["second"]);
+    unsubscribe();
   });
 
   it("merges caller overrides onto house defaults", () => {

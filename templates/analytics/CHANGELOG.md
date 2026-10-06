@@ -3,11 +3,37 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-02
+## 2026-10-05
 
 ### Improved
 
+- Custom date controls stay beside the range selector, and dashboards can save a shared default view.
+
+### Fixed
+
+- Session replay agent links stay usable with large event lists and longer agent names.
+- Agent links copied from a dashboard, analysis, or session replay are shorter, so Claude can fetch them without hitting its URL length limit.
+- Analytics keeps workspace access working across apps with different local organization IDs.
+- BigQuery dashboard filters work with values that contain apostrophes or backslashes
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Added
+
+- With the Sessions triage Lab on, filter sessions by speed, see page vitals and slow requests on replays, and compare p50 and p95 load, interaction, and request times per route
+- With the Sessions triage Lab on, rank and filter sessions by friction signals like dead clicks, error toasts, retry loops, failed actions, and agent failures, and open their Monitoring issues from the list.
+
+### Improved
+
+- Builder.io setup now explains free credits and the existing-account option.
+- Owners and admins can save data source credentials for the whole organization or just for themselves.
 - Retention reports now compare returns from paid and untagged signups.
+
+### Fixed
+
+- Dashboard queries preserve recording permissions across supported SQL formats
+- Events with a very long name, app, or page path no longer cause the rest of their batch to be lost
 
 ## 2026-10-01
 

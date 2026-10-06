@@ -3,10 +3,73 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-05
+
+### Improved
+
+- Commenting on text you suggested now replies on that suggestion instead of leaving a comment that loses its place.
+- Collection pages keep selected rows visible through failed refreshes, and review space stays in place while comments refresh.
+
+### Fixed
+
+- A paragraph suggested just before a heading, list, quote, or code block now shows as a suggestion.
+- Accepting a suggestion whose surrounding text changed now says so and keeps it pending, and separately saved suggestions on the same line now all land.
+- Agent links copied from a document are shorter, so Claude can fetch them without hitting its URL length limit.
+- Editing a page an agent wrote in two tabs no longer drops one tab's words or files them in Version History.
+- Long comments now scroll inside their card instead of jumping the page or running off the screen
+- Refreshing a page after a save failed no longer asks which of two identical versions to keep.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+- Suggested edits now save as you type, so they no longer disappear when you stay in Suggesting mode.
+- Suggested edits that rewrite a phrase show as one replacement instead of scattered letters
+- Suggesting mode now stays on until you switch it off, a reload reopens the page in the mode you left it in, and a change from another tab or an agent while you suggest no longer turns your suggestions into direct page edits.
+- Typing in two tabs on one page no longer shows "This page changed elsewhere" when the tabs' edits merge cleanly.
+- Typing in two tabs on one page, or switching between them, no longer loses or doubles words.
+- Collection view context now survives quick page changes when the saved summary fits.
+- Exact saved-view links keep the collection retry available when rows fail to load
+- Expanding a Files folder now shares one navigation read across open branches, and legacy owner shares retain their row controls.
+- Files navigation retries temporary failures consistently
+- Shared page owners keep edit and manage controls in Files, and newly opened folders populate faster.
+- Tagging an AI in a comment works again instead of failing right away with "AI request failed".
+- The home loading shell keeps the layout of your last opened page.
+- Typing `>` and a space, or inserting a toggle or callout, no longer freezes and crashes the page on a Mac.
+
+## 2026-10-03
+
+### Fixed
+
+- A malformed Lab preference no longer blocks unrelated editor commands.
+
+## 2026-10-02
+
+### Added
+
+- You and agents can now suggest edits to the text inside tables, callouts, toggles, and columns, including new paragraphs in callouts, toggles, and columns, while their rows, icons, and titles stay as they are.
+- You can now request access to a page you don't have access to, with an optional note. The owner gets a notification and an email, and can allow you with the role they choose or decline, from the request link or the page's Share dialog. Once they allow it, the page opens for you without a reload.
+
+### Improved
+
+- A page link you can't open now says whether the page exists. "You don't have access to this page" means it does and hasn't been shared with you; "This page doesn't exist" means there's nothing there. If you could open a page that's in the trash, its link says so, with Restore when you're allowed to restore it.
+- Collections fit phones, tablets, and open side panels: view tabs use the full width, narrow column headers stay readable, and a long press selects rows on touch screens
+- After a refresh, the Files sidebar shows the open page's folders in one load instead of one level at a time
+- Builder.io setup instructions now use consistent action language across editor workflows.
+- Large collections open faster
+- Pages with open comments and collections with sorted or filtered views no longer jump while they load
+
+### Fixed
+
+- Comment and suggestion headers keep the author's name and time readable in narrow columns
+- While you suggest edits, images and other blocks that suggestions don't support yet are read-only, and an agent that tries to suggest a change to one gets a clear message instead of "Internal server error".
+- A page link you can't open now says so, with the account you're signed in as, instead of opening another page. People who can open a private share link no longer see "This document is private" first.
+- Comment edits and deletions now refresh collaborators with the document open.
+- Pages stay inside the window at every width: long inline code and links wrap, and wide tables scroll inside their own frame instead of crushing their columns
+- Suggest edits works on pages written by agents, including pages with Markdown tables, instead of refusing to start or rejecting each edit; suggestions inside a table cell are still not supported
+- While you suggest edits, tables and other blocks that suggestions don't support yet are read-only, and an agent that tries to suggest a change inside one gets a clear message instead of "Internal server error".
+
 ## 2026-10-01
 
 ### Improved
 
+- Home opens the page you were last on sooner
 - Pages and the sidebar load in place instead of jumping around
 
 ### Fixed

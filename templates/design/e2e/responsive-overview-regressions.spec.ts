@@ -245,6 +245,61 @@ test("responsive frames select and edit directly with explicit scope persistence
   }
 });
 
+test("exact-size generation preserves its canvas dimensions without mobile frames", async ({
+  page,
+  request,
+}) => {
+  const { designId, fileIds } = await createDesign(request);
+  const [fileId] = fileIds;
+  try {
+    await configureResponsiveDesign(request, designId, fileIds);
+    await action(request, "generate-design", {
+      designId,
+      prompt: "Create an email ad at exactly 300x250 pixels",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content:
+            '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main>Email ad</main></body></html>',
+        },
+      ],
+      canvasFrames: [
+        { filename: "index.html", x: 0, y: 0, width: 1440, height: 900 },
+      ],
+    });
+
+    const data = await designData(request, designId);
+    expect(data.canvasFrames[fileId!]).toMatchObject({
+      width: 300,
+      height: 250,
+    });
+    expect(data.screenMetadata[fileId!]).toMatchObject({
+      width: 300,
+      height: 250,
+      breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
+    });
+    expect(data.breakpointSet.breakpoints).toHaveLength(2);
+
+    await gotoEditor(page, designId);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+    await expect(
+      page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
+    ).toBeVisible();
+    const card = page.locator(`[data-frame-id="${fileId}"] [data-screen-card]`);
+    await expect(card).toBeVisible();
+    const bounds = await card.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.width / bounds!.height).toBeCloseTo(300 / 250, 2);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
 test("persists tall breakpoint content before server-side row placement", async ({
   page,
   request,
@@ -486,21 +541,7 @@ test("adding a breakpoint reflows screen rows before their previews overlap", as
   }
 });
 
-// Redo does not restore the screen undo removed: after Cmd+Shift+Z the
-// overview still shows 2 shells instead of 3. The frame-draw half of this
-// test now passes; this is the remaining defect, same family as
-// canvas-tools' "overview undo skips deleted screen content history".
-//
-// Lead: only redoFileCreation (commands/redo.ts) can recreate a screen, and
-// it pops fileCreationRedoStackRef — which only undoFileCreation fills.
-// undoFileCreation resolves the created file by FILENAME
-// (files.find(f => f.filename === entry.filename)) and bails when that misses,
-// so a duplicate — whose filename differs from the recorded entry — can be
-// removed by another undo path that never fills the redo stack, leaving redo
-// with nothing to pop. The skipFileCreationRedoPrune comment right there
-// documents an earlier bug in the same stack, so filename-keyed history is
-// the fragile part worth fixing rather than the symptom.
-test.fixme("add duplicate undo and redo keep the created screen selected and visible", async ({
+test("overview screen creation and duplicate undo/redo keep screens selected and visible", async ({
   page,
   request,
 }) => {
@@ -574,7 +615,29 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
     const assertCreatedScreenSelectedVisibleWithSingleCameraCommit = async (
       screenId: string,
     ) => {
-      await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
+      const selectionBoxes = page.locator("[data-frame-selection-box]");
+      await expect(selectionBoxes).toHaveCount(1);
+      await expect
+        .poll(() =>
+          page.evaluate((targetId) => {
+            const selection = document
+              .querySelector("[data-frame-selection-box]")
+              ?.getBoundingClientRect();
+            const target = document
+              .querySelector(
+                `[data-frame-id="${CSS.escape(targetId)}"] [data-screen-card]`,
+              )
+              ?.getBoundingClientRect();
+            if (!selection || !target) return false;
+            return [
+              Math.abs(selection.left - target.left),
+              Math.abs(selection.top - target.top),
+              Math.abs(selection.width - target.width),
+              Math.abs(selection.height - target.height),
+            ].every((difference) => difference < 1);
+          }, screenId),
+        )
+        .toBe(true);
       try {
         await expect
           .poll(() =>
@@ -622,27 +685,41 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
       ).toBeLessThanOrEqual(1);
     };
 
-    let beforeIds = await designFileIds(request, designId);
-    resetCameraProbe();
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+D" : "Control+D",
-    );
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
-    const duplicatedId = await createdScreenId(beforeIds);
-    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(
-      duplicatedId,
-    );
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Z" : "Control+Z",
-    );
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
-    resetCameraProbe();
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
-    );
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
-    const redoneId = await createdScreenId(beforeIds);
-    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
+    const assertDuplicateRespectsBoardGap = async (
+      sourceId: string,
+      duplicateId: string,
+    ) => {
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              ({ sourceId, duplicateId }) => {
+                const card = (screenId: string) =>
+                  document
+                    .querySelector(
+                      `[data-frame-id="${CSS.escape(screenId)}"] [data-screen-card]`,
+                    )
+                    ?.getBoundingClientRect();
+                const source = card(sourceId);
+                const duplicate = card(duplicateId);
+                const world = document.querySelector<HTMLElement>(
+                  "[data-multi-screen-canvas-world]",
+                );
+                if (!source || !duplicate || !world) return false;
+                const transform = getComputedStyle(world).transform;
+                const scale =
+                  transform === "none" ? 1 : new DOMMatrixReadOnly(transform).a;
+                return duplicate.left - source.right >= 56 * scale - 1;
+              },
+              { sourceId, duplicateId },
+            ),
+          {
+            message:
+              "Cmd+D should leave at least the 56-unit board gap to the right of its source",
+          },
+        )
+        .toBe(true);
+    };
 
     const findEmptyCanvasPoint = async () => {
       await expect(surface).toBeVisible();
@@ -682,6 +759,21 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
       }
       throw new Error("no empty canvas point");
     };
+    let beforeIds = await designFileIds(request, designId);
+    resetCameraProbe();
+    await frameToolButton(page).click();
+    const phoneGroup = page
+      .locator(".design-inspector-scroll > section")
+      .nth(1);
+    await phoneGroup.locator(":scope > button").click();
+    await phoneGroup
+      .getByRole("button", { name: /iPhone 17/ })
+      .first()
+      .click();
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
+    const presetId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(presetId);
+
     beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
     await pickFrameMode(page, "Screen");
@@ -696,14 +788,35 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
 
     beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
-    await frameToolButton(page).click();
-    await page
-      .getByRole("button", { name: /iPhone 17/ })
-      .first()
-      .click();
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+D" : "Control+D",
+    );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(5);
-    const presetId = await createdScreenId(beforeIds);
-    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(presetId);
+    const duplicatedId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(
+      duplicatedId,
+    );
+    await assertDuplicateRespectsBoardGap(drawnId, duplicatedId);
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+Z" : "Control+Z",
+    );
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(4);
+    await expect
+      .poll(async () => (await designFileIds(request, designId)).sort())
+      .toEqual([...beforeIds].sort());
+    expect(await designFileIds(request, designId)).not.toContain(duplicatedId);
+    resetCameraProbe();
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
+    );
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(5);
+    const redoneId = await createdScreenId(beforeIds);
+    expect(redoneId).not.toBe(duplicatedId);
+    await expect
+      .poll(async () => (await designFileIds(request, designId)).sort())
+      .toEqual([...beforeIds, redoneId].sort());
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
+    await assertDuplicateRespectsBoardGap(drawnId, redoneId);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
