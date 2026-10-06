@@ -176,6 +176,7 @@ import {
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_CHAT_RECOVERY_OF_RUN_FIELD,
   backgroundRuntimeDiagnosticDetail,
   dispatchPathTargetsNetlifyBackgroundFunction,
   isAgentChatDurableBackgroundEnabled,
@@ -343,10 +344,7 @@ import {
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
-import {
-  buildResumeJournalNote,
-  findCompletedJournalEntry,
-} from "./tool-call-journal.js";
+import { findCompletedJournalEntry } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
@@ -365,6 +363,7 @@ import {
   TOOL_SEARCH_ACTION_NAME,
   withLoadedToolNames,
 } from "./tool-search.js";
+import { buildTurnResumeContext } from "./turn-resume-context.js";
 import {
   normalizeAgentActionScope,
   type AgentActionScope,
@@ -4967,6 +4966,7 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  const internalContinuationTurn = isInternalContinuationTurn(messages);
   const followUpRunId = opts.followUpSuggestions ? opts.runId : undefined;
   if (opts.followUpSuggestions && !followUpRunId) {
     throw new Error("Follow-up suggestions require the canonical run id.");
@@ -5224,7 +5224,7 @@ export async function runAgentLoop(opts: {
       result.content.startsWith("# Skill:")
     );
   });
-  if (isInternalContinuationTurn(messages) && hasLoadedSkillPage) {
+  if (internalContinuationTurn && hasLoadedSkillPage) {
     const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
       await import("../server/agents-bundle.js");
     const runtimeSkills = await getRuntimeSkillsForUser(
@@ -5242,7 +5242,7 @@ export async function runAgentLoop(opts: {
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
   const unreadableJournalStop: TerminalActionStop | null =
-    journalRead.status === "unreadable" && isInternalContinuationTurn(messages)
+    journalRead.status === "unreadable" && internalContinuationTurn
       ? {
           message:
             "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
@@ -6752,8 +6752,17 @@ export async function runAgentLoop(opts: {
 
       if (!actionIsReadOnly) {
         const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
-        const priorInterruptions =
-          writeToolInterruptions.get(writeCacheKey) ?? 0;
+        // An unknown write cannot become fresh work merely by rewording its
+        // arguments, or by eliding its tool pair from the replayed history.
+        const unknownJournalCalls = internalContinuationTurn
+          ? (toolCallJournal?.interrupted.filter(
+              (entry) => entry.tool === toolCall.name,
+            ).length ?? 0)
+          : 0;
+        const priorInterruptions = Math.max(
+          writeToolInterruptions.get(writeCacheKey) ?? 0,
+          unknownJournalCalls,
+        );
 
         if (priorInterruptions > 0) {
           const ledgerResult = opts.threadId
@@ -10360,6 +10369,10 @@ export function createProductionAgentHandler(
     });
     const isChainedBackgroundContinuation =
       isBackgroundWorker && backgroundContinuationCount > 0;
+    const isReaperSuccessor =
+      isBackgroundWorker &&
+      typeof mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD] === "string" &&
+      Boolean(mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD]);
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
     const resolvedApprovalTurnId =
@@ -10532,14 +10545,20 @@ export function createProductionAgentHandler(
     // A server successor and a continuation, automatic or chosen, resume the
     // same turn the same way: the thread's tool calls and results, plus the turn's
     // journal of finished steps, so nothing already done is sent again.
-    if ((isChainedBackgroundContinuation || continueOf) && effectiveThreadId) {
+    if (
+      (isChainedBackgroundContinuation || isReaperSuccessor || continueOf) &&
+      effectiveThreadId
+    ) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
         const { latestPromptTurnId, resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
-        const threadData = (await getThread(effectiveThreadId))?.threadData;
-        const { messages: resumed, foundTurnPrompt } =
-          resumeThreadHistoryForRequest(threadData);
+        const threadData = isReaperSuccessor
+          ? undefined
+          : (await getThread(effectiveThreadId))?.threadData;
+        const { messages: resumed, foundTurnPrompt } = isReaperSuccessor
+          ? { messages: [...messages], foundTurnPrompt: true }
+          : resumeThreadHistoryForRequest(threadData);
         // A continuation always follows a stopped run, so a thread without
         // that turn's prompt means its history was lost, not that there was
         // none. A successor stays best-effort and resumes from what is there.
@@ -10567,43 +10586,56 @@ export function createProductionAgentHandler(
             backgroundRunMarker?.continuationReason,
           )
             ? backgroundRunMarker.continuationReason
-            : "run_timeout";
+            : isReaperSuccessor
+              ? "network_interrupted"
+              : "run_timeout";
           const journalRead = await loadPriorTurnToolCallJournal(
             effectiveThreadId,
             effectiveTurnId,
           );
-          if (continueOf && journalRead.status === "unreadable") {
+          if (
+            (continueOf || isReaperSuccessor) &&
+            journalRead.status === "unreadable"
+          ) {
             throw new Error(journalRead.error);
           }
-          const journalNote =
-            journalRead.status === "read" && journalRead.toolCallJournal
-              ? buildResumeJournalNote(journalRead.toolCallJournal)
-              : null;
-          appendAgentLoopContinuation(resumed, continuationReason, {
+          const context = buildTurnResumeContext({
+            messages: resumed,
+            journal:
+              journalRead.status === "read"
+                ? journalRead.toolCallJournal
+                : null,
+            ...(isReaperSuccessor && journalRead.status === "read"
+              ? { events: journalRead.events }
+              : {}),
+          });
+          appendAgentLoopContinuation(context.messages, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
-            ...(journalNote ? { journalNote } : {}),
+            ...(context.journalNote
+              ? { journalNote: context.journalNote }
+              : {}),
           });
           messages.length = 0;
-          messages.push(...resumed);
+          messages.push(...context.messages);
         }
       } catch (error) {
-        if (continueOf) {
+        if (continueOf || isReaperSuccessor) {
           // The browser's history lacks the stopped run's tool results, so
           // continuing from it could repeat a step that already finished.
           console.warn(
             `[agent-chat] auto-continue history unreadable for thread ${effectiveThreadId}:`,
             error,
           );
+          const code = isReaperSuccessor
+            ? "recovery_history_unreadable"
+            : "auto_continue_history_unreadable";
           if (await updateRunStatusIfRunning(runId, "errored")) {
-            await setRunTerminalReason(
-              runId,
-              "auto_continue_history_unreadable",
-            );
+            await setRunTerminalReason(runId, code);
           }
           setResponseStatus(event, 503);
           return {
             error: "This turn's history could not be read to continue it.",
-            code: "auto_continue_history_unreadable",
+            code,
             retryable: true,
           };
         }

@@ -23,6 +23,7 @@ import {
   type ContinueRefusalCode,
   type ContinueTrigger,
 } from "./auto-continue.js";
+import { AGENT_CHAT_RECOVERY_OF_RUN_FIELD } from "./durable-background.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -1726,7 +1727,7 @@ function generateRecoveryRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function staleRecoveryDispatchPayload(payload: string): string {
+function staleRecoveryDispatchPayload(payload: string, runId: string): string {
   try {
     const parsed = JSON.parse(payload);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -1735,6 +1736,8 @@ function staleRecoveryDispatchPayload(payload: string): string {
     return JSON.stringify({
       ...(parsed as Record<string, unknown>),
       internalContinuation: true,
+      // The worker replaces __backgroundRun when rehydrating a payloadRef.
+      [AGENT_CHAT_RECOVERY_OF_RUN_FIELD]: runId,
     });
   } catch {
     return payload;
@@ -1842,7 +1845,7 @@ async function attemptStaleRunRecovery(
       now,
       now,
       turnId,
-      staleRecoveryDispatchPayload(payload),
+      staleRecoveryDispatchPayload(payload, runId),
       continuationOrder,
     ],
   });

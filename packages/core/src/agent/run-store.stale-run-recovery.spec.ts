@@ -312,6 +312,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
       message: "original ingress",
       foo: "bar",
       internalContinuation: true,
+      __agentChatRecoveryOfRunId: runId,
     });
 
     const reapedAgain = await reapIfStale(runId);
