@@ -493,12 +493,13 @@ Share only new or useful information.
 After a Slack-fix PR merges, update each affected thread once, including
 clusters. This is the only exception to the single-owner rule; name the fix.
 For beta app fixes, say what changed and that it'll be on beta in the next
-few hours. Do not mention the test environment, beta confirmation, publisher
-results, or rollout progress in the reply; keep verification evidence in the
-recap or PR. If a separate, ticketed external action blocks that timing, state
-what is already done, the exact action still needed, its owner, and the ticket
-link. For packages, say when the update should be available without describing
-verification details.
+few hours as the normal rollout expectation. Do not mention the test
+environment, beta confirmation, publisher results, or rollout progress in the
+reply; keep verification evidence in the recap or PR. If a known release
+blocker makes that ETA inaccurate, do not promise the ETA: state what is done
+and the exact remaining action and owner, and link the existing ticket when
+there is one. Apply the Reaction gate before adding `🎫`. For packages, say
+when the update should be available without describing verification details.
 
 For a fixed behavior with a separate ticketed handoff, make the split explicit:
 state what is done, then name the exact action still needed, who owns it, and
