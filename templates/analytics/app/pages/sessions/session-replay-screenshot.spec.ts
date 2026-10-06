@@ -221,6 +221,24 @@ describe("session replay screenshot asset checks", () => {
     element.remove();
   });
 
+  it("rejects embedded object and embed content", async () => {
+    const object = document.createElement("object");
+    object.data = "https://assets.example.test/document.svg";
+    document.body.appendChild(object);
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    object.remove();
+
+    const embed = document.createElement("embed");
+    embed.src = "https://assets.example.test/image.svg";
+    document.body.appendChild(embed);
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    embed.remove();
+  });
+
   it("bounds replay font readiness", async () => {
     vi.useFakeTimers();
     const fontsDescriptor = Object.getOwnPropertyDescriptor(document, "fonts");
@@ -243,6 +261,41 @@ describe("session replay screenshot asset checks", () => {
         Reflect.deleteProperty(document, "fonts");
       }
     }
+  });
+
+  it("waits for fonts in accessible child frames", async () => {
+    const childDocument = document.implementation.createHTMLDocument();
+    let resolveChildFonts: () => void = () => {};
+    const childFontsReady = new Promise<void>((resolve) => {
+      resolveChildFonts = resolve;
+    });
+    Object.defineProperty(childDocument, "fonts", {
+      configurable: true,
+      value: { ready: childFontsReady },
+    });
+    const frame = {
+      contentDocument: childDocument,
+      getAttribute: () => null,
+    } as unknown as HTMLIFrameElement;
+    const querySelectorAll = document.querySelectorAll.bind(document);
+    vi.spyOn(document, "querySelectorAll").mockImplementation(((
+      selector: string,
+    ) =>
+      selector === "iframe"
+        ? ([frame] as unknown as NodeListOf<Element>)
+        : querySelectorAll(selector)) as typeof document.querySelectorAll);
+
+    let finished = false;
+    const pending = assertReplayFontsReady(document).then(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(finished).toBe(false);
+
+    resolveChildFonts();
+    await pending;
+    expect(finished).toBe(true);
   });
 
   it("times out remote asset checks instead of waiting indefinitely", async () => {

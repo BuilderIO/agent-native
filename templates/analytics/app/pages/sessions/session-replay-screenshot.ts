@@ -83,6 +83,10 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
   };
 
   for (const current of documents) {
+    if (current.querySelector("object, embed")) {
+      throw new ReplayScreenshotAssetError();
+    }
+
     for (const image of current.querySelectorAll<HTMLImageElement>("img")) {
       const source = image.currentSrc || image.src;
       if (source) addUrl(source, current.baseURI);
@@ -208,9 +212,7 @@ export async function assertRemoteImagesCapturable(
   }
 }
 
-export async function assertReplayFontsReady(
-  document: Document,
-): Promise<void> {
+async function assertDocumentFontsReady(document: Document): Promise<void> {
   const fontSet = document.fonts;
   if (!fontSet?.ready) return;
 
@@ -228,6 +230,12 @@ export async function assertReplayFontsReady(
   } finally {
     if (timeoutId !== undefined) window.clearTimeout(timeoutId);
   }
+}
+
+export async function assertReplayFontsReady(
+  document: Document,
+): Promise<void> {
+  await Promise.all(replayDocuments(document).map(assertDocumentFontsReady));
 }
 
 export async function downloadReplayScreenshot(
