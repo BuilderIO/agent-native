@@ -1723,7 +1723,16 @@ const AgentKitAssistantChatBody = forwardRef<
     }
   }, [props.tabId, thread, threadId]);
 
+  const reportedMessageCountRef = useRef<number | null>(null);
+
   useEffect(() => {
+    // This effect re-runs on every host render; reporting an unchanged count
+    // makes the host re-render, which re-runs it.
+    const reportMessageCount = (count: number) => {
+      if (reportedMessageCountRef.current === count) return;
+      reportedMessageCountRef.current = count;
+      props.onMessageCountChange?.(count);
+    };
     if (observedThreadIdRef.current !== threadId) {
       observedThreadIdRef.current = threadId;
       observedMessagesRef.current = new Set();
@@ -1750,7 +1759,7 @@ const AgentKitAssistantChatBody = forwardRef<
             .map((event) => event.id),
         ),
       };
-      props.onMessageCountChange?.(thread.messages.length);
+      reportMessageCount(thread.messages.length);
       return;
     }
     let addedUserMessage = false;
@@ -1801,7 +1810,7 @@ const AgentKitAssistantChatBody = forwardRef<
     ) {
       saveSnapshotRef.current();
     }
-    props.onMessageCountChange?.(
+    reportMessageCount(
       thread.messages.length +
         voiceTranscriptMessages.filter(
           (message) => !thread.messages.some((item) => item.id === message.id),

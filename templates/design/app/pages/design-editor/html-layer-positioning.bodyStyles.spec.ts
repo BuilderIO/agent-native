@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  getBodyInlineStyles,
   removeAbsolutePositioningFromNodeInHtml,
   rawAbsoluteContainerOffsetFromDrop,
   setAbsolutePositioningForNodeInHtml,
@@ -395,5 +396,66 @@ describe("rawAbsoluteContainerOffsetFromDrop", () => {
         anchorSelector: "html > body",
       }),
     ).toEqual({ x: 260, y: 80 });
+  });
+});
+
+describe("getBodyInlineStyles", () => {
+  it("reads what setBodyInlineStyles wrote by parsing only the body tag", () => {
+    const written = setBodyInlineStyles(
+      `<!DOCTYPE html><html><head></head><body><main>${"<p>x</p>".repeat(500)}</main></body></html>`,
+      { backgroundColor: "rgb(1, 2, 3)", fontSize: "18px" },
+    )!;
+    const parse = vi.spyOn(DOMParser.prototype, "parseFromString");
+    try {
+      expect(getBodyInlineStyles(written)).toMatchObject({
+        backgroundColor: "rgb(1, 2, 3)",
+        fontSize: "18px",
+        backgroundImage: "",
+      });
+      expect(parse).toHaveBeenCalledOnce();
+      expect(parse.mock.calls[0]![0]).toBe(
+        '<body style="background-color: rgb(1, 2, 3); font-size: 18px">',
+      );
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it("reports empty styles for content without a body tag", () => {
+    expect(getBodyInlineStyles("<main>x</main>").backgroundColor).toBe("");
+  });
+});
+
+describe("the body tag inside head scripts and comments", () => {
+  const decoys = `<!DOCTYPE html><html><head>
+    <!-- <body style="color: green"> -->
+    <script>document.write('<body style="color: red">');</script>
+    <style>/* <body style="color: purple"> */</style>
+    <meta name="example" content='<body style="color: orange">'>
+    <noframes><body style="color: teal"></noframes>
+    <noembed><body style="color: navy"></noembed>
+  </head><xmp><body style="color: gray"></xmp><body style="background-color: blue"><p>x</p></body></html>`;
+
+  it("reads the real body's styles", () => {
+    expect(getBodyInlineStyles(decoys).backgroundColor).toBe("blue");
+  });
+
+  it("writes to the real body", () => {
+    const next = setBodyInlineStyles(decoys, { backgroundColor: "red" })!;
+    expect(next).toContain('<body style="background-color: red">');
+    expect(next).toContain(`'<body style="color: red">'`);
+    expect(next).toContain('<!-- <body style="color: green"> -->');
+  });
+});
+
+describe("text that runs to the end of the document", () => {
+  const unclosedScript = `<!DOCTYPE html><html><head><script>let x = '<body style="color: red">';</head><body style="background-color: blue"></body></html>`;
+  const plaintext = `<!DOCTYPE html><html><head></head><plaintext><body style="color: red">`;
+
+  it("finds no body inside an unclosed script or plaintext", () => {
+    for (const content of [unclosedScript, plaintext]) {
+      expect(getBodyInlineStyles(content).color ?? "").toBe("");
+      expect(setBodyInlineStyles(content, { color: "green" })).toBeNull();
+    }
   });
 });
