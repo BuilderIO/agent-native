@@ -1711,6 +1711,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_in_progress BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_started_at TEXT`,
     },
+    {
+      version: 159,
+      name: "bigquery-cache-fence-token",
+      sql: `ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS fence_token TEXT`,
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -77,6 +77,24 @@ describe("Analytics dashboard panel source resolver registry", () => {
     });
   });
 
+  it("passes request cancellation through to the Analytics query runner", async () => {
+    const context = { userEmail: "alice@example.com", orgId: "org-1" };
+    const signal = new AbortController().signal;
+    mocks.runDashboardPanelQuery.mockResolvedValue({ rows: [], schema: [] });
+
+    await resolveAnalyticsPanelSource(
+      { source: "bigquery", query: "SELECT 1", signal },
+      context,
+    );
+
+    expect(mocks.runDashboardPanelQuery).toHaveBeenCalledWith({
+      source: "bigquery",
+      query: "SELECT 1",
+      ctx: context,
+      signal,
+    });
+  });
+
   it("fails loudly when no source resolver is registered", async () => {
     await expect(
       resolveAnalyticsPanelSource(

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
@@ -20,7 +20,7 @@ export default defineAction({
   readOnly: true,
   agentTool: false,
   grounding: true,
-  run: async (args) => {
+  run: async (args, actionContext?: ActionRunContext) => {
     const context = getCredentialContext();
     if (!context) {
       throw new Error("No authenticated context for query-dashboard-panel.");
@@ -32,6 +32,7 @@ export default defineAction({
         source: args.source,
         query,
         ...(args.forceRefresh ? { forceRefresh: true } : {}),
+        ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
       },
       context,
     );

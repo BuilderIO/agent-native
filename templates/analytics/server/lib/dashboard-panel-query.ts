@@ -407,10 +407,11 @@ export async function runDashboardPanelQuery(args: {
   ctx: CredentialContext;
   timeoutMs?: number;
   forceRefresh?: boolean;
+  signal?: AbortSignal;
 }): Promise<
   DashboardPanelQueryResult | MissingKeyResponse | UnsupportedBackendResponse
 > {
-  const { source, query, ctx, timeoutMs, forceRefresh } = args;
+  const { source, query, ctx, timeoutMs, forceRefresh, signal } = args;
 
   if (source === "bigquery") {
     const missing = await missingCredential(
@@ -419,7 +420,10 @@ export async function runDashboardPanelQuery(args: {
       "BigQuery",
     );
     if (missing) return missing;
-    return await runQuery(query, forceRefresh ? { forceRefresh: true } : {});
+    return await runQuery(query, {
+      ...(forceRefresh ? { forceRefresh: true } : {}),
+      ...(signal ? { signal } : {}),
+    });
   }
 
   if (source === "ga4") {

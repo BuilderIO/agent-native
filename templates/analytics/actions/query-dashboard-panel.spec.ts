@@ -1,3 +1,4 @@
+import type { ActionRunContext } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -80,6 +81,27 @@ describe("query-dashboard-panel", () => {
 
     expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
       { source: "bigquery", query, forceRefresh: true },
+      context,
+    );
+  });
+
+  it("forwards action cancellation to the source resolver", async () => {
+    const context = { userEmail: "alice@example.com", orgId: "org-1" };
+    const signal = new AbortController().signal;
+    mocks.getCredentialContext.mockReturnValue(context);
+    mocks.normalizeDashboardPanelQuery.mockReturnValue("SELECT 1");
+    mocks.resolveAnalyticsPanelSource.mockResolvedValue({
+      rows: [],
+      schema: [],
+    });
+
+    await queryDashboardPanel.run({ source: "bigquery", query: "SELECT 1" }, {
+      caller: "frontend",
+      signal,
+    } as ActionRunContext);
+
+    expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
+      { source: "bigquery", query: "SELECT 1", signal },
       context,
     );
   });
