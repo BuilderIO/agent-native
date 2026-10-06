@@ -371,6 +371,19 @@ describe("MCP OAuth route", () => {
     });
   });
 
+  it("names the resource on the MCP server's base path when both variables are set", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubEnv("APP_BASE_PATH", "/legacy");
+    try {
+      const protectedRes = handleMcpOAuthProtectedResourceMetadata(event());
+      await expect(protectedRes.json()).resolves.toMatchObject({
+        resource: "https://mail.agent-native.com/dispatch/mcp",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("prefers configured public URL over forwarded request headers for OAuth resource", async () => {
     process.env.APP_URL = "https://plan.agent-native.com";
     const protectedRes = handleMcpOAuthProtectedResourceMetadata(

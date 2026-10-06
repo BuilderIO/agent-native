@@ -1385,6 +1385,14 @@ describe("connect identity", () => {
     expect(identity.serverName).toBe("agent-native-content");
   });
 
+  it("advertises the base path the MCP server is mounted on when both variables are set", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/content");
+    vi.stubEnv("APP_BASE_PATH", "/legacy");
+    const identity = await identityFor("workspace.example.com");
+    expect(identity.appUrl).toBe("https://workspace.example.com/content");
+    expect(identity.mcpUrl).toBe("https://workspace.example.com/content/mcp");
+  });
+
   it("matches the name the token payload writes", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
     process.env.A2A_SECRET = SECRET;

@@ -14,6 +14,7 @@ import {
   type LocaleCode,
 } from "../localization/shared.js";
 import { getOrgDomain } from "../org/context.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   getSession,
   getConfiguredLoginHtml,
@@ -133,19 +134,6 @@ function isLoopbackOrigin(origin: string): boolean {
   } catch {
     return false;
   }
-}
-
-function normalizeBasePath(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed || trimmed === "/") return "";
-  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withSlash.replace(/\/+$/, "");
-}
-
-function configuredBasePath(): string {
-  return normalizeBasePath(
-    process.env.APP_BASE_PATH || process.env.VITE_APP_BASE_PATH,
-  );
 }
 
 function joinAppPath(basePath: string, path: string): string {
@@ -1315,7 +1303,7 @@ export async function handleMcpConnect(
 ): Promise<Response> {
   const method = getMethod(event);
   const origin = deriveOrigin(event);
-  const basePath = configuredBasePath();
+  const basePath = getConfiguredAppBasePath();
   const appUrl = `${origin}${basePath}`;
   let requestUrl: URL | null = null;
   try {
