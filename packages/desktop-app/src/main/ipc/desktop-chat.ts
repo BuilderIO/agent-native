@@ -10,7 +10,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
-import { createPtyWebSocketServer } from "@agent-native/core/terminal/server";
+import { createPtyWebSocketServer } from "@agent-native/core/terminal/pty-server";
 import {
   getDesktopVisibleApps,
   getDesktopTemplateGatewayAppUrl,

@@ -265,6 +265,11 @@ describe("useBuilderStatus", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/_agent-native/connection-status/builder",
+      expect.objectContaining({
+        headers: {
+          "x-agent-native-preview-origin": "http://localhost:3000",
+        },
+      }),
     );
   });
 

@@ -84,6 +84,7 @@ const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
   "templates/design/e2e/z-order-parity.spec.ts",
   "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/e2e/responsive-overview-regressions.spec.ts",
   "templates/design/playwright.config.ts",
 ]);
 
@@ -472,6 +473,7 @@ export function shardQueryBudgetApps(
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
   return [
     "packages/core/",
+    "packages/otel/",
     "packages/toolkit/",
     "packages/recap-cli/",
     "packages/creative-context/",

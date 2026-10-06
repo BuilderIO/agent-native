@@ -5,8 +5,15 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-05
 
+### Improved
+
+- The home page shows both library tabs and starter prompts immediately while content loads.
+
 ### Fixed
 
+- File uploads explain the free Builder.io option and how to connect S3-compatible storage.
+- Slides keeps a pending generation question and its chat available when you leave and reopen a deck.
+- Prompt-generated Slides decks remain when Cmd+Z reaches deck creation.
 - The Recent tab shows loading placeholders until your decks are ready.
 
 ## 2026-10-03

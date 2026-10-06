@@ -1,5 +1,23 @@
 # @agent-native/toolkit
 
+## 0.201.1
+
+### Patch Changes
+
+- 88908c5: Fix Builder OAuth origins and status checks for hosted previews, preserve signup errors when Sentry is unavailable, and bind organization A2A identities to verified membership.
+- cc3c820: Explain Builder.io's included services in first-run onboarding and keep the list collapsed until expanded.
+- a78f2a0: Clarify queued-message controls with Send now and Send next labels and contextual tooltips.
+- bdb9e68: Keep explicit light mode on the shared composer border tokens.
+- bb72f96: Give shared chat composers a subtle border in dark mode.
+- Release all public npm packages with a patch version bump.
+- 5d05eb6: Keep queued messages attached to the composer without a vertical scrollbar.
+- cbfea3c: Restore storage connection guidance and spacing in the file upload popover.
+- b88b078: Declare the Tailwind typography plugin imported by the toolkit stylesheet and
+  show a localized unsupported-file message in the shared composer. Keep Core's
+  sync guard aligned with the Design and Slides tab variants already in main.
+- Updated dependencies
+  - @agent-native/agentkit@0.201.1
+
 ## 0.201.0
 
 ### Patch Changes
@@ -1037,14 +1055,5 @@
 ### Patch Changes
 
 - 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
-
-## 0.10.1
-
-### Patch Changes
-
-- c15d20f: Harden browser and CLI error handling and hide editor commands for disabled features.
-- c15d20f: Expand design-system conformance coverage for uncontrolled tooltip and menu
-  opening, and align the example adapters with those default-open semantics.
-- c15d20f: Show a soft rotating blue glow for live realtime voice sessions and brighten it while the agent is working.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

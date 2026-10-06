@@ -609,6 +609,33 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_123",
       });
+
+      // A browser holding only a last touch still signs it into the link.
+      const lastTouch = encodeURIComponent(JSON.stringify({ ref: "steve" }));
+      await handler(
+        createJsonPostEvent(
+          "/_agent-native/auth/magic-link",
+          { email: "other@example.com", callbackURL: "/welcome" },
+          { cookie: `an_lt=${lastTouch}` },
+        ),
+      );
+      const lastOnly = new URL(
+        signInMagicLink.mock.calls[1]?.[0].body.newUserCallbackURL,
+      );
+      const lastOnlyVerification = new URL(verification);
+      lastOnlyVerification.searchParams.set(
+        "newUserCallbackURL",
+        lastOnly.toString(),
+      );
+      expect(
+        readMagicLinkSignupAttribution(lastOnlyVerification.toString(), secret),
+      ).toEqual({
+        attribution: {
+          referral_source: "direct",
+          last_touch_source: "steve",
+          last_touch_ref: "steve",
+        },
+      });
     });
 
     it("promotes tracking callbacks that Better Auth cannot accept relatively", async () => {
@@ -8974,12 +9001,29 @@ describe("server/auth", () => {
         .spyOn(console, "error")
         .mockImplementation(() => undefined);
 
-      const mockExecute = vi.fn(async ({ sql }: { sql: string }) => {
-        if (/FROM org_members/.test(sql)) {
-          throw new Error("connection terminated");
-        }
-        return { rows: [] };
-      });
+      const mockExecute = vi.fn(
+        async ({ sql, args }: { sql: string; args?: unknown[] }) => {
+          if (/FROM org_members/.test(sql)) {
+            throw new Error("connection terminated");
+          }
+          if (
+            /FROM mcp_connect_tokens/.test(sql) &&
+            args?.[0] === "jti-connect-unavailable-test"
+          ) {
+            return {
+              rows: [
+                {
+                  org_id: "org-123",
+                  owner_email: "owner@plans.test",
+                  kind: "personal",
+                  revoked_at: null,
+                },
+              ],
+            };
+          }
+          return { rows: [] };
+        },
+      );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,

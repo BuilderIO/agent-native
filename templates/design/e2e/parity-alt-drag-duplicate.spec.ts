@@ -1580,6 +1580,16 @@ test.describe("absolute child exit from a plain frame", () => {
         '[data-agent-native-node-id="later-sibling"]',
       );
       await expect(child).toBeVisible();
+      await expandAllLayers(page);
+      const childRow = page
+        .getByRole("tree", { name: "Layers" })
+        .locator("[data-layer-row-button]")
+        .filter({ has: page.locator('span[title="Absolute child"]') })
+        .first();
+      await childRow.click({ force: true });
+      await expect(
+        childRow.locator('xpath=ancestor::*[@role="treeitem"][1]'),
+      ).toHaveAttribute("aria-selected", "true");
       const [outerBox, childBox, laterBox] = await Promise.all([
         outer.boundingBox(),
         child.boundingBox(),
@@ -1710,6 +1720,27 @@ test.describe("absolute child exit from a plain frame", () => {
         .poll(persistedChildren)
         .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
       const savedHtml = await fileContent(request, designId, "index.html");
+
+      await page.keyboard.press("ControlOrMeta+z");
+      await expect
+        .poll(() => fileContent(request, designId, "index.html"))
+        .toBe(beforeDrop);
+      await expect
+        .poll(() =>
+          child.evaluate((element) =>
+            element.parentElement?.getAttribute("data-agent-native-node-id"),
+          ),
+        )
+        .toBe("exit-frame");
+
+      await page.keyboard.press("ControlOrMeta+Shift+z");
+      await expect
+        .poll(() => fileContent(request, designId, "index.html"))
+        .toBe(savedHtml);
+      await expect
+        .poll(directChildren)
+        .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+
       await gotoEditor(page, designId);
       const reloadedFrame = designFrame(page);
       const reloadedOuter = reloadedFrame.locator(

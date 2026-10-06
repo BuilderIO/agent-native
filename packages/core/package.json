@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.201.0",
+  "version": "0.201.1",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -458,6 +458,7 @@
     "./triggers": "./dist/triggers/index.js",
     "./terminal": "./dist/client/terminal/index.js",
     "./terminal/server": "./dist/terminal/index.js",
+    "./terminal/pty-server": "./dist/terminal/pty-server.js",
     "./tailwind": "./dist/tailwind.preset.js",
     "./agent/engine": "./dist/agent/engine/index.js",
     "./agent/engine/error-detail": "./dist/agent/engine/error-detail.js",
@@ -578,6 +579,7 @@
     "./shared/app-status": "./dist/shared/app-status.js",
     "./shared/auth-page-types": "./dist/shared/auth-page-types.js",
     "./shared/builder-referrals": "./dist/shared/builder-referrals.js",
+    "./shared/chat-first-app-creation": "./dist/shared/chat-first-app-creation.js",
     "./shared/context-xray": "./dist/shared/context-xray.js",
     "./shared/docs-url": "./dist/shared/docs-url.js",
     "./shared/document-title": "./dist/shared/document-title.js",
