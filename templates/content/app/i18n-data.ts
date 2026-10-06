@@ -1189,6 +1189,10 @@ const enUS = {
       "Some page formatting cannot be suggested safely. An editor can update it before you retry.",
     suggestionAmendmentEmpty:
       "This edit matches the current page. Reject the suggestion to remove it.",
+    suggestionUnplaceable:
+      "The text around this suggestion changed, so it can't be applied. It's still pending: reject it, or suggest the edit again.",
+    proposalUnplaceable:
+      "One of these suggestions can't be applied because the text around it changed, so none were applied. They're all still pending: accept or reject them one at a time.",
     suggestionAmendmentFailed: "Could not save suggestion",
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
