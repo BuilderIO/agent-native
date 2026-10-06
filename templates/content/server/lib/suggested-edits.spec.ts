@@ -224,7 +224,10 @@ describe("Content document suggestion adapter", () => {
           },
         },
       }),
-    ).rejects.toThrow("inline databases cannot receive suggestions yet");
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "suggestion_body_unavailable",
+    });
   });
 
   it("rejects unsupported after-state before mutating canonical or collaborative content", async () => {
@@ -296,7 +299,10 @@ describe("Content document suggestion adapter", () => {
         transaction: tx,
         coordination,
       }),
-    ).rejects.toThrow("cannot add or change unsupported structures");
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "suggestion_structure_unsupported",
+    });
     expect(lockPrimaryBlocksFields).not.toHaveBeenCalled();
     expect(persistBlocksFieldIdentity).not.toHaveBeenCalled();
     expect(coordination.ydoc.persist).not.toHaveBeenCalled();
@@ -462,7 +468,10 @@ describe("Content document suggestion adapter", () => {
             },
           },
         }),
-      ).rejects.toThrow("cannot add or change unsupported structures");
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: "suggestion_structure_unsupported",
+      });
     },
   );
 
@@ -541,7 +550,10 @@ describe("Content document suggestion adapter", () => {
           },
         },
       }),
-    ).rejects.toThrow("cannot add or change unsupported structures");
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "suggestion_structure_unsupported",
+    });
   });
 
   it("does not publish a duplicate accepted retry without a persisted event", () => {

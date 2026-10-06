@@ -110,6 +110,7 @@ export interface SearchHit {
   title: string;
   description: string;
   thumbnailUrl: string | null;
+  trashedAt: string | null;
   durationMs: number;
   matchType:
     | "title-description"

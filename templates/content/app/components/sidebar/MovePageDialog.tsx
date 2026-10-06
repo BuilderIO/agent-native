@@ -26,6 +26,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { filesNavigationPageParams } from "@/lib/files-navigation";
 
 import { SidebarRowIcon } from "./SidebarNavigationRow";
 
@@ -93,11 +94,10 @@ export function MovePageDialog({
 
   const roots = useActionQuery(
     "query-content-database-items",
-    {
+    filesNavigationPageParams({
       databaseId: space?.filesDatabaseId ?? "",
-      limit: 20,
-      navigation: { parentId: null, sort: "custom" },
-    },
+      parentId: null,
+    }),
     { enabled: open && query === "" },
   );
   const results = useActionQuery(

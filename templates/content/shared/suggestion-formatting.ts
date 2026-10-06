@@ -1,4 +1,5 @@
 import {
+  canonicalizeNfm,
   docToNfm,
   nfmToDoc,
   serializeInlineTextNodeWithOffsets,
@@ -17,6 +18,7 @@ type TextRun = {
   sourceTo: number;
   nonTextBefore: boolean;
   verbatim?: boolean;
+  emptyCell?: boolean;
 };
 type TextRange = { from: number; to: number };
 
@@ -58,7 +60,14 @@ function longestBacktickRun(text: string): number {
 
 function formattingRuns(
   source: string,
-): { runs: TextRun[]; nonTextAfter: boolean } | null {
+  anchorEmptyCells = false,
+): {
+  runs: TextRun[];
+  nonTextAfter: boolean;
+  restored: string;
+  spans: Array<Record<SourceSide, SourceSpan>>;
+  emptyCells: Array<{ sourceOffset: number; textOffset: number }>;
+} | null {
   const doc = nfmToDoc(source);
   let markerPrefix = "suggestiontextboundary";
   while (source.includes(markerPrefix)) markerPrefix += "z";
@@ -98,6 +107,34 @@ function formattingRuns(
         ...node,
         content: [{ type: "text", text: `${markerPrefix}${index}${fence}x` }],
       };
+    }
+    const [paragraph] = node.content ?? [];
+    if (
+      anchorEmptyCells &&
+      (node.type === "tableCell" || node.type === "tableHeader") &&
+      node.content?.length === 1 &&
+      paragraph?.type === "paragraph" &&
+      !paragraph.content?.length
+    ) {
+      // An empty cell has no text, so a zero-length run gives typing into it
+      // a position on both sides.
+      const index = runs.length;
+      runs.push({
+        text: "",
+        marks: "[]",
+        markValues: [],
+        serialized: "",
+        textOffsets: [0],
+        from: offset,
+        to: offset,
+        sourceFrom: -1,
+        sourceTo: -1,
+        nonTextBefore: nonTextPending,
+        emptyCell: true,
+      });
+      nonTextPending = true;
+      const marker = { type: "text", text: `${markerPrefix}${index}x` };
+      return { ...node, content: [{ ...paragraph, content: [marker] }] };
     }
     if (node.type === "text" && node.text) {
       const index = runs.length;
@@ -155,12 +192,131 @@ function formattingRuns(
     },
   );
   if (unmappable || runs.some((run) => run.sourceFrom < 0)) return null;
+  const canonicalSpans = runs.map(({ sourceFrom, sourceTo, textOffsets }) => ({
+    from: sourceFrom,
+    to: sourceTo,
+    textOffsets,
+  }));
   if (
     restored !== source &&
     !mapStoredSourceRuns(source, restored, runs, markers, withPlaceholders)
   )
     return null;
-  return { runs, nonTextAfter: nonTextPending };
+  return {
+    runs: runs.filter((run) => !run.emptyCell),
+    nonTextAfter: nonTextPending,
+    emptyCells: runs
+      .filter((run) => run.emptyCell)
+      .map((run) => ({ sourceOffset: run.sourceFrom, textOffset: run.from })),
+    restored,
+    spans: runs.map((run, index) => ({
+      canonical: canonicalSpans[index]!,
+      stored: {
+        from: run.sourceFrom,
+        to: run.sourceTo,
+        textOffsets: run.textOffsets,
+      },
+    })),
+  };
+}
+
+type SourceSpan = TextRange & { textOffsets: number[] };
+type SourceSide = "canonical" | "stored";
+
+export type SuggestionSourceAlignment = {
+  canonical: string;
+  map(offset: number, from: SourceSide): number | null;
+  // Whether the offset is the edge of text both forms hold, including an
+  // empty cell, so it maps exactly rather than into the syntax between.
+  atTextEdge(offset: number, from: SourceSide): boolean;
+};
+
+let lastAlignment: {
+  source: string;
+  alignment: SuggestionSourceAlignment | null;
+} | null = null;
+
+// A draft session maps every keystroke against the same stored base.
+export function suggestionSourceAlignment(
+  source: string,
+): SuggestionSourceAlignment | null {
+  if (lastAlignment?.source !== source)
+    lastAlignment = { source, alignment: sourceAlignment(source) };
+  return lastAlignment.alignment;
+}
+
+// Pairs each text run's canonical and stored bytes. An offset maps inside a
+// run, at a run or gap edge, or inside a gap's leading or trailing bytes that
+// both sides share, such as the end of a callout's last line when only the
+// blank lines after the callout differ. An offset touching the bytes that
+// differ, such as the middle of a blank-line run canonicalization collapses,
+// would be a guess, so it has no image.
+function sourceAlignment(source: string): SuggestionSourceAlignment | null {
+  const canonical = canonicalizeNfm(source);
+  const inside = (offset: number, text: string) =>
+    Number.isInteger(offset) && offset >= 0 && offset <= text.length;
+  if (canonical === source)
+    return {
+      canonical,
+      map: (offset) => (inside(offset, source) ? offset : null),
+      atTextEdge: (offset) => inside(offset, source),
+    };
+  const mapped = formattingRuns(source, true) ?? formattingRuns(source, false);
+  if (!mapped || mapped.restored !== canonical) return null;
+  const texts = { canonical, stored: source };
+  const { spans } = mapped;
+  return {
+    canonical,
+    atTextEdge: (offset, from) =>
+      spans.some(
+        (span) => span[from].from === offset || span[from].to === offset,
+      ),
+    map(offset, from) {
+      if (!inside(offset, texts[from])) return null;
+      const to: SourceSide = from === "canonical" ? "stored" : "canonical";
+      type Edge = Record<SourceSide, number>;
+      const gap = (start: Edge, end: Edge) => {
+        if (offset === start[from]) return start[to];
+        if (offset === end[from]) return end[to];
+        const own = texts[from].slice(start[from], end[from]);
+        const other = texts[to].slice(start[to], end[to]);
+        const shortest = Math.min(own.length, other.length);
+        let prefix = 0;
+        while (prefix < shortest && own[prefix] === other[prefix]) prefix++;
+        let suffix = 0;
+        while (
+          suffix < shortest - prefix &&
+          own[own.length - 1 - suffix] === other[other.length - 1 - suffix]
+        )
+          suffix++;
+        const before = offset - start[from];
+        const after = end[from] - offset;
+        if (own === other || before < prefix) return start[to] + before;
+        return after < suffix ? end[to] - after : null;
+      };
+      let previous: Edge = { canonical: 0, stored: 0 };
+      for (const span of spans) {
+        const own = span[from];
+        const other = span[to];
+        if (offset < own.from)
+          return gap(previous, {
+            canonical: span.canonical.from,
+            stored: span.stored.from,
+          });
+        if (offset <= own.to) {
+          if (offset === own.from) return other.from;
+          if (offset === own.to) return other.to;
+          const index = own.textOffsets.indexOf(offset - own.from);
+          return index < 0 ? null : other.from + other.textOffsets[index]!;
+        }
+        previous = { canonical: span.canonical.to, stored: span.stored.to };
+      }
+      return gap(previous, {
+        canonical: canonical.length,
+        stored: source.length,
+      });
+    },
+  };
 }
 
 function normalizedSourceGap(source: string, from: number, to: number): string {
@@ -175,6 +331,28 @@ function normalizedSourceGap(source: string, from: number, to: number): string {
         `${indent}${number ? "1. " : "- "}`,
     )
     .slice(prefix.length);
+}
+
+const TABLE_TAG = /<\/?(?:table|tr|td|th)\b[^>]*>/;
+
+// Canonical NFM writes a stored pipe table as an HTML table. Both reduce to
+// "|" between cells and a newline between rows, with or without the stored
+// rows' optional outer pipes; the final reparse proves the cells.
+function tableBoundaries(
+  gap: string,
+  startsLine: boolean,
+  endsLine: boolean,
+): string {
+  return `${startsLine ? "\n" : ""}${gap}${endsLine ? "\n" : ""}`
+    .replace(/^[ \t|:-]*$/gm, (line) =>
+      line.includes("|") && line.includes("-") ? "" : line,
+    )
+    .replace(/[ \t]*\|?[ \t]*\n[ \t]*\|?/g, "\n")
+    .replace(/<tr\b[^>]*>\s*<t[dh]\b[^>]*>/g, "\n")
+    .replace(/<t[dh]\b[^>]*>/g, "|")
+    .replace(/<\/?(?:table|tr|td|th)\b[^>]*>/g, "\n")
+    .replace(/\s*\|\s*/g, "|")
+    .replace(/\s*\n\s*/g, "\n");
 }
 
 function mapStoredSourceRuns(
@@ -210,13 +388,56 @@ function mapStoredSourceRuns(
       stored = stored.replace(/\n+$/, "");
       expected = expected.replace(/\n+$/, "");
     }
-    return stored === expected;
+    if (stored === expected) return true;
+    const lineEdges = (text: string, start: number, end: number) =>
+      [
+        start === 0 || /[\r\n]/.test(text[start - 1]!),
+        end === text.length || /[\r\n]/.test(text[end]!),
+      ] as const;
+    return (
+      TABLE_TAG.test(canonical.slice(canonicalFrom, canonicalTo)) &&
+      tableBoundaries(stored, ...lineEdges(source, from, to)) ===
+        tableBoundaries(
+          expected,
+          ...lineEdges(canonical, canonicalFrom, canonicalTo),
+        )
+    );
   };
   let cursor = 0;
   let canonicalCursor = 0;
   const pieces: string[] = [];
+  // An empty cell has no text to find, so it goes right after the first
+  // pipe that opens a cell, outside the delimiter row, where the gap before
+  // it matches. A row's closing pipe also reads as a row break, so a pipe
+  // opens a cell only when another pipe follows it on its line.
+  const emptyCellStart = (canonicalTo: number) => {
+    for (let start = cursor + 1; start <= source.length; start += 1) {
+      if (!/[\s|:-]/.test(source[start - 1]!)) return -1;
+      if (source[start - 1] !== "|") continue;
+      const lineFrom = source.lastIndexOf("\n", start - 1) + 1;
+      const lineTo = source.indexOf("\n", start);
+      const line = source.slice(lineFrom, lineTo < 0 ? source.length : lineTo);
+      if (
+        /^[\s|:]*-[\s|:-]*$/.test(line) ||
+        !line.slice(start - lineFrom).includes("|")
+      )
+        continue;
+      if (gapMatches(cursor, start, canonicalCursor, canonicalTo)) return start;
+    }
+    return -1;
+  };
   for (let index = 0; index < runs.length; index += 1) {
     const run = runs[index]!;
+    if (run.emptyCell) {
+      const start = emptyCellStart(run.sourceFrom);
+      if (start < 0) return false;
+      canonicalCursor = run.sourceTo;
+      pieces.push(source.slice(cursor, start), markers[index]!);
+      cursor = start;
+      run.sourceFrom = start;
+      run.sourceTo = start;
+      continue;
+    }
     const prefix = run.serialized.slice(0, run.textOffsets[0]);
     const suffix = run.serialized.slice(run.textOffsets[run.text.length]);
     const tokens = run.text
@@ -514,31 +735,65 @@ export function suggestionFormattingSourceRange(
   to: number;
   fromAffinity: "left" | "right";
   toAffinity: "left" | "right";
+  emptyCell?: { index: number; count: number };
 } | null {
-  const mapped = formattingRuns(source);
+  const mapped = formattingRuns(source, true) ?? formattingRuns(source);
   if (!mapped) return null;
-  const syntaxGaps: Array<{
+  // Text offsets can't tell one empty cell from the next, so a place inside
+  // one is reported by its order among the page's empty cells.
+  const emptyCell = mapped.emptyCells.findIndex(
+    (cell) => from === to && cell.sourceOffset === from,
+  );
+  if (emptyCell >= 0) {
+    const offset = mapped.emptyCells[emptyCell]!.textOffset;
+    return {
+      text: mapped.runs.map((run) => run.text).join(""),
+      from: offset,
+      to: offset,
+      fromAffinity: "right",
+      toAffinity: "left",
+      emptyCell: { index: emptyCell, count: mapped.emptyCells.length },
+    };
+  }
+  const gaps: Array<{
     sourceFrom: number;
     sourceTo: number;
     offset: number;
+    structural: boolean;
+    afterText: boolean;
+    beforeText: boolean;
+    beforeCode: boolean;
   }> = [];
   let previousSourceTo = 0;
   let previousTextTo = 0;
-  for (const run of mapped.runs) {
-    if (run.sourceFrom > previousSourceTo && !run.nonTextBefore)
-      syntaxGaps.push({
+  for (const [index, run] of mapped.runs.entries()) {
+    if (run.sourceFrom > previousSourceTo && !run.nonTextBefore) {
+      gaps.push({
         sourceFrom: previousSourceTo,
         sourceTo: run.sourceFrom,
         offset: run.from,
+        structural: Boolean(
+          structuralGapParts(source, previousSourceTo, run.sourceFrom),
+        ),
+        afterText: index > 0,
+        beforeText: true,
+        beforeCode: Boolean(run.verbatim),
       });
+    }
     previousSourceTo = run.sourceTo;
     previousTextTo = run.to;
   }
   if (previousSourceTo < source.length && !mapped.nonTextAfter)
-    syntaxGaps.push({
+    gaps.push({
       sourceFrom: previousSourceTo,
       sourceTo: source.length,
       offset: previousTextTo,
+      structural: Boolean(
+        structuralGapParts(source, previousSourceTo, source.length),
+      ),
+      afterText: mapped.runs.length > 0,
+      beforeText: false,
+      beforeCode: false,
     });
   if (from < to) {
     let coveredTo = from;
@@ -576,17 +831,41 @@ export function suggestionFormattingSourceRange(
           });
       }
     }
-    for (const gap of syntaxGaps) {
+    for (const gap of gaps) {
       if (offset < gap.sourceFrom || offset > gap.sourceTo) continue;
-      candidates.push({
-        offset: gap.offset,
-        affinity:
-          offset === gap.sourceFrom
-            ? "left"
-            : offset === gap.sourceTo
-              ? "right"
-              : preferredAffinity,
-      });
+      if (gap.structural) {
+        candidates.push({
+          offset: gap.offset,
+          affinity:
+            offset === gap.sourceFrom
+              ? "left"
+              : offset === gap.sourceTo
+                ? "right"
+                : preferredAffinity,
+        });
+        continue;
+      }
+      // A gap can also hold a frame's tags, as in "\n</callout>\n". An offset
+      // inside it still belongs to the text beside it when only line breaks
+      // and indentation separate the two, or when only the syntax opening the
+      // next text's block does: a heading, list, or quote marker on that
+      // text's line, or a code block's fence line. A fence before other text
+      // closes a code block instead.
+      const opening = source.slice(offset, gap.sourceTo);
+      if (
+        gap.afterText &&
+        offset > gap.sourceFrom &&
+        structuralGapParts(source, gap.sourceFrom, offset)
+      )
+        candidates.push({ offset: gap.offset, affinity: "left" });
+      if (
+        gap.beforeText &&
+        offset < gap.sourceTo &&
+        (structuralGapParts(source, offset, gap.sourceTo) ||
+          !/[\r\n]/.test(opening) ||
+          (gap.beforeCode && /^[^\r\n]*\r?\n$/.test(opening)))
+      )
+        candidates.push({ offset: gap.offset, affinity: "right" });
     }
     return (
       candidates.find(

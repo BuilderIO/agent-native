@@ -6,7 +6,8 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Calendar",
-    learnMoreUrl: "https://agent-native.com/apps/calendar",
+    learnMoreUrl:
+      "https://agent-native.com/apps/calendar?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
     features: [

@@ -423,8 +423,8 @@ describe("embedApp", () => {
         ? await resource.csp(context)
         : resource.csp;
 
-    expect(html).toContain("const remoteBridgeFallbackEnabled = false");
-    expect(html).toContain("if (!remoteBridgeFallbackEnabled) throw nativeErr");
+    expect(html).not.toContain("startMcpAppsBridge");
+    expect(html).not.toContain("https://esm.sh");
     expect(html.endsWith("</body>\n</html>")).toBe(true);
     expect(csp?.connectDomains).not.toContain("https://esm.sh");
     expect(csp?.resourceDomains).not.toContain("https://esm.sh");

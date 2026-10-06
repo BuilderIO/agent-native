@@ -78,4 +78,11 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT
     `,
   },
+  {
+    version: 6,
+    name: "agent-run-auto-continue-of",
+    sql: `
+      ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS auto_continue_of TEXT
+    `,
+  },
 ];

@@ -42,6 +42,9 @@ import {
 import { VisualEditor } from "./VisualEditor";
 
 const BLOCK_FIELD_DRAG_THRESHOLD = 6;
+// The default `auto` track grows to its widest unbreakable line, which widens
+// the whole page body past the window; the track must be allowed to shrink.
+const BLOCK_FIELDS_GRID = "grid grid-cols-[minmax(0,1fr)]";
 
 interface DocumentBlockFieldsProps {
   documentId: string;
@@ -309,7 +312,10 @@ export function DocumentBlockFields({
   // that state could bind the body before we know which storage target owns it.
   if (query.isError) {
     return (
-      <div className="grid gap-1" data-block-fields-state="error">
+      <div
+        className={cn(BLOCK_FIELDS_GRID, "gap-1")}
+        data-block-fields-state="error"
+      >
         <QueryErrorState
           compact
           onRetry={() => globalThis.location.reload()}
@@ -325,7 +331,7 @@ export function DocumentBlockFields({
     case "loading":
       return (
         <div
-          className="grid gap-1"
+          className={cn(BLOCK_FIELDS_GRID, "gap-1")}
           data-block-fields-state="loading"
           aria-busy="true"
         >
@@ -334,7 +340,10 @@ export function DocumentBlockFields({
       );
     case "empty":
       return (
-        <div className="grid gap-1" data-block-fields-state="empty">
+        <div
+          className={cn(BLOCK_FIELDS_GRID, "gap-1")}
+          data-block-fields-state="empty"
+        >
           {canEdit ? (
             <p className="px-1 py-2 text-sm text-muted-foreground">
               {t("editor.noBlocksFields")}
@@ -345,7 +354,10 @@ export function DocumentBlockFields({
     case "solo":
       if (state.target === "block_field_store") {
         return (
-          <div className="grid gap-1" data-block-fields-state="solo">
+          <div
+            className={cn(BLOCK_FIELDS_GRID, "gap-1")}
+            data-block-fields-state="solo"
+          >
             <AdditionalBlockEditor
               key={`${documentId}:${state.field.definition.id}`}
               documentId={documentId}
@@ -359,7 +371,10 @@ export function DocumentBlockFields({
         );
       }
       return (
-        <div className="grid gap-1" data-block-fields-state="solo">
+        <div
+          className={cn(BLOCK_FIELDS_GRID, "gap-1")}
+          data-block-fields-state="solo"
+        >
           {primaryEditor}
         </div>
       );
@@ -546,7 +561,7 @@ function MultiBlockFields({
   }
 
   return (
-    <div className="grid">
+    <div className={BLOCK_FIELDS_GRID}>
       <BlockFieldDragPreview preview={dragPreview} />
       {blockFields.map((property, index) => {
         const primary = isPrimaryBlocksField(property.definition.options);

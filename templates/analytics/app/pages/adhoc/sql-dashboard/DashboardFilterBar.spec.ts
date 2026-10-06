@@ -89,6 +89,28 @@ describe("resolveFilterVars", () => {
     );
   });
 
+  it("quotes BigQuery panel values with GoogleSQL escapes", () => {
+    const sql = interpolateDashboardPanelSql(
+      "SELECT * FROM events WHERE name = '{{name}}' AND note = \"{{note}}\"",
+      { name: "o'brien\\", note: 'say "hi"\nnow' },
+      { source: "bigquery" },
+    );
+
+    expect(sql).toBe(
+      String.raw`SELECT * FROM events WHERE name = 'o\'brien\\' AND note = "say \"hi\"\nnow"`,
+    );
+  });
+
+  it("keeps PostgreSQL quoting for first-party panels the BigQuery binder re-quotes", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM analytics_events WHERE name = '{{name}}'",
+        { name: "o'brien\\" },
+        { source: "first-party" },
+      ),
+    ).toBe("SELECT * FROM analytics_events WHERE name = 'o''brien\\'");
+  });
+
   it("applies custom bounds to repeated Postgres cohort predicates", () => {
     const sql = interpolate(
       "SELECT * FROM events WHERE ((('{{timeRange}}' = '365d' AND cohort_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) OR (('{{timeRange}}' = '365d' AND b.event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))))",

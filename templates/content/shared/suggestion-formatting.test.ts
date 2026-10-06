@@ -126,9 +126,21 @@ describe("formatting source ranges", () => {
       const lineStart = source.indexOf("\n") + 1;
       expect(
         suggestionFormattingSourceRange(source, lineStart, lineStart),
-      ).toMatchObject({ from: textOffset, to: textOffset });
+      ).toMatchObject({
+        from: textOffset,
+        to: textOffset,
+        fromAffinity: "right",
+      });
     },
   );
+
+  it("keeps a place before a closing fence with the code it closes", () => {
+    const source = "```ts\nconst x = 1;\n```\nAfter";
+    const fence = source.indexOf("\n```\n") + 1;
+    expect(suggestionFormattingSourceRange(source, fence, fence)).toMatchObject(
+      { from: "const x = 1;".length, fromAffinity: "left" },
+    );
+  });
 
   it.each([
     "A\n---\nB",

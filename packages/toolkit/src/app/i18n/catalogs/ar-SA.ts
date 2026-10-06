@@ -132,11 +132,14 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "مضمّنة مع أرصدة Builder.io المجانية",
   "onboarding.builderIncludedFreeWithAccount": "مُضمّن مجانًا مع حساب Builder.io",
   "onboarding.builderMonthlyCredits": "60 رصيد Agent شهريًا",
+  "onboarding.builderIncludedFree": "مُضمّن مجانًا",
+  "onboarding.builderMoreServices": "+ {{count}} خدمات أخرى",
+  "onboarding.builderIncludedServices": "الخدمات المضمنة",
   "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
   "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
   "onboarding.builderAccountExistsDescription": "سجّل الدخول لاستخدام حسابك.",
   "onboarding.builderActivationDescription":
-    "سننشئ حساب Builder.io الخاص بك تلقائيًا بنقرة واحدة.",
+    "أنشئ حساب Builder.io أو اربطه بنقرة واحدة للحصول على أرصدة مجانية.",
   "onboarding.builderOrgActivationDescription":
     "سننشئ حساب Builder.io الخاص بك بنقرة واحدة ليتمكن مؤسستك من استخدامه.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
@@ -158,6 +161,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "فتح إعدادات الوكيل في الخلفية",
   "onboarding.capability.llm.keySummary": "اربط نموذج الذكاء الاصطناعي الخاص بك",
   "onboarding.capability.fileStorage.keySummary": "تحميل الملفات وتخزينها",
+  "onboarding.capability.llm.why":
+    "يستخدم الوكيل نموذجًا لغويًا لفهم الطلبات وصياغة الإجابات.",
+  "onboarding.capability.fileStorage.why":
+    "يحفظ الصور والملفات المرفوعة ليتمكن الوكيل من إعادة استخدامها في المحادثة.",
   "onboarding.fileStorage.title": "اختر تخزين الملفات",
   "onboarding.fileStorage.statusUnavailable": "تعذّر التحقق من التخزين",
   "onboarding.fileStorage.description":
@@ -174,6 +181,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "التضمينات",
   "onboarding.capability.embeddings.why":
     "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
+  "onboarding.capability.systemOne.why":
+    "Jev نموذج قرار اختياري يساعد في اختيار الأدوات والمهارات المناسبة قبل أول طلب للنموذج من الوكيل.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "أرصدة Builder أو مفتاح مزود صور",
@@ -478,6 +487,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "رفع ملف مهارة",
   "composer.upload": "رفع",
   "composer.uploadFailed": "تعذّر رفع الملف المحدد.",
+  "composer.unsupportedFileType": "نوع الملف هذا غير مدعوم.",
   "composer.useAttachedContext": "استخدم السياق المرفق.",
   "mentions.commands": "الأوامر",
   "mentions.learnMore": "معرفة المزيد",
@@ -1107,11 +1117,10 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}} في قائمة الانتظار — أرسل متابعة...",
   "queue.remove": "إزالة من قائمة الانتظار",
   "queue.sendNow": "إرسال الآن",
-  "queue.sendNowHint": "الإرسال الآن (يوقف الرد الحالي)",
-  "queue.steer": "توجيه",
-  "queue.steerHint": "إرسال هذه الرسالة التالية",
+  "queue.sendNowHint": "يوقف الرد الحالي، ثم يرسل هذه الرسالة",
+  "queue.sendNext": "إرسال التالي",
+  "queue.sendNextHint": "إرسال بعد انتهاء الرد الحالي",
   "queue.moreActions": "إجراءات إضافية",
-  "queue.moveToTop": "نقل إلى الأعلى",
   "recovery.connectingBuilder": "جارٍ إعداد Builder.io",
   "recovery.copyDebug": "نسخ معلومات التصحيح",
   "recovery.copyFailed": "فشل النسخ",
@@ -1291,6 +1300,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "لا تتوفر تفاصيل للخطأ.",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",
+  "tool.identifierHidden": "[تم إخفاء المعرّف]",
+  "tool.contentOmitted": "[تم حذف المحتوى]",
+  "tool.circularReference": "[مرجع دائري]",
   "tool.interrupted":
     "توقفت العملية قبل اكتمال التقرير — ربما اكتملت أو لم تكتمل. تحقّق قبل إعادة المحاولة.",
   "tool.longRunning":

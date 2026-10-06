@@ -29,8 +29,10 @@ describe("MultiScreenCanvas selection chrome transitions", () => {
     expect(getChromeBorderTransition(true)).toContain("inset");
   });
 
-  it("settles frame labels with an all-property transition after zoom", () => {
-    expect(getChromeLabelTransition(true)).toBe("all 150ms ease-out");
+  it("keeps frame label truncation in sync while chrome settles after zoom", () => {
+    expect(getChromeLabelTransition(true)).toBe(
+      "transform 150ms ease-out, opacity 150ms ease-out",
+    );
     expect(getChromeLabelTransition(false)).toBe("opacity 150ms ease-out");
   });
 

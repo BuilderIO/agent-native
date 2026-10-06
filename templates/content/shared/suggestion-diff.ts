@@ -2,7 +2,9 @@ import { canonicalizeNfm } from "./nfm.js";
 import {
   suggestionFormattingChanges,
   suggestionMarkedSourceRanges,
+  suggestionSourceAlignment,
   SuggestionFormattingMappingError,
+  type SuggestionSourceAlignment,
 } from "./suggestion-formatting.js";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
 
@@ -168,6 +170,124 @@ function coalesce(parts: DiffPart[]): DiffPart[] {
     else result.push({ ...part });
   }
   return result;
+}
+
+const WORD_CHARACTER = /[\p{L}\p{M}\p{N}]/u;
+
+// Source offsets count UTF-16 code units. Read whole code points so a letter
+// outside the Basic Multilingual Plane is not taken for two non-word halves.
+function characterBefore(text: string, at: number): string {
+  return /.$/su.exec(text.slice(Math.max(0, at - 2), at))?.[0] ?? "";
+}
+
+function characterAt(text: string, at: number): string {
+  const point = text.codePointAt(at);
+  return point === undefined ? "" : String.fromCodePoint(point);
+}
+
+const isWordBefore = (text: string, at: number) =>
+  WORD_CHARACTER.test(characterBefore(text, at));
+const isWordAt = (text: string, at: number) =>
+  WORD_CHARACTER.test(characterAt(text, at));
+
+/**
+ * A character diff keeps every letter two phrasings share, which splits one
+ * rewritten phrase into letter-sized hunks. Shared letters or spacing join the
+ * word edits on both sides when shorter than each edit's longer side: a pure
+ * insertion or deletion has an empty side, so measuring the shorter one would
+ * never join it and the phrase would stay split. A shared whole word keeps its
+ * edits apart, and nothing joins across a line break, so word choices with an
+ * unchanged word between them and edits in different blocks stay separately
+ * reviewable. Adjacent rewritten words separated only by spacing shorter than
+ * their edits become one edit on purpose: no spacing rule tells a rewritten
+ * phrase from two independent word swaps, and one edit can never leave a
+ * half-accepted phrase.
+ */
+function absorbIncidentalEqualities(parts: DiffPart[]): DiffPart[] {
+  type Change = { type: "change"; removed: string; inserted: string };
+  type Equal = {
+    type: "equal";
+    text: string;
+    beforeFrom: number;
+    afterFrom: number;
+  };
+  const before = parts
+    .map((part) => (part.type === "insert" ? "" : part.text))
+    .join("");
+  const after = parts
+    .map((part) => (part.type === "delete" ? "" : part.text))
+    .join("");
+  const holdsWholeWord = ({ text, beforeFrom, afterFrom }: Equal) =>
+    [...text.matchAll(/[\p{L}\p{M}\p{N}]+/gu)].some(
+      ({ index, 0: word }) =>
+        !isWordBefore(before, beforeFrom + index) &&
+        !isWordBefore(after, afterFrom + index) &&
+        !isWordAt(before, beforeFrom + index + word.length) &&
+        !isWordAt(after, afterFrom + index + word.length),
+    );
+  const segments: Array<Equal | Change> = [];
+  let beforeOffset = 0;
+  let afterOffset = 0;
+  for (const part of parts) {
+    const previous = segments[segments.length - 1];
+    if (part.type === "equal")
+      segments.push({
+        type: "equal",
+        text: part.text,
+        beforeFrom: beforeOffset,
+        afterFrom: afterOffset,
+      });
+    if (part.type !== "insert") beforeOffset += part.text.length;
+    if (part.type !== "delete") afterOffset += part.text.length;
+    if (part.type === "equal") continue;
+    if (previous?.type === "change") {
+      if (part.type === "delete") previous.removed += part.text;
+      else previous.inserted += part.text;
+    } else
+      segments.push({
+        type: "change",
+        removed: part.type === "delete" ? part.text : "",
+        inserted: part.type === "insert" ? part.text : "",
+      });
+  }
+  const absorbs = (change: Change, equal: Equal) =>
+    WORD_CHARACTER.test(change.removed + change.inserted) &&
+    !/\n/.test(change.removed + change.inserted) &&
+    equal.text.length < Math.max(change.removed.length, change.inserted.length);
+  let absorbed: boolean;
+  do {
+    absorbed = false;
+    for (let index = 1; index < segments.length - 1; index += 1) {
+      const left = segments[index - 1]!;
+      const equal = segments[index]!;
+      const right = segments[index + 1]!;
+      if (
+        equal.type !== "equal" ||
+        left.type !== "change" ||
+        right.type !== "change" ||
+        equal.text.includes("\n") ||
+        holdsWholeWord(equal) ||
+        !absorbs(left, equal) ||
+        !absorbs(right, equal)
+      )
+        continue;
+      left.removed += equal.text + right.removed;
+      left.inserted += equal.text + right.inserted;
+      segments.splice(index, 2);
+      absorbed = true;
+      index -= 1;
+    }
+  } while (absorbed);
+  return segments.flatMap((segment): DiffPart[] => {
+    if (segment.type === "equal")
+      return [{ type: "equal", text: segment.text }];
+    const changed: DiffPart[] = [];
+    if (segment.removed)
+      changed.push({ type: "delete", text: segment.removed });
+    if (segment.inserted)
+      changed.push({ type: "insert", text: segment.inserted });
+    return changed;
+  });
 }
 
 function changeBoundaryRank(text: string, position: number): number {
@@ -593,7 +713,7 @@ export function markdownSuggestionOperations(
       })),
     );
   }
-  const markedParts = diffParts(before, after);
+  const markedParts = suggestionDiffParts(before, after);
   if (!markedParts && (beforeMarked.length || afterMarked.length))
     throw new SuggestionFormattingMappingError();
   const marked =
@@ -673,8 +793,9 @@ function plainDiffOperations(
 export function suggestionDiffParts(
   before: string,
   after: string,
-): ReadonlyArray<DiffPart> | null {
-  return diffParts(before, after);
+): DiffPart[] | null {
+  const parts = diffParts(before, after);
+  return parts && absorbIncidentalEqualities(parts);
 }
 
 function wholeWordReplacements(
@@ -683,59 +804,51 @@ function wholeWordReplacements(
   beforeMarked: MarkedSourceRanges,
   afterMarked: MarkedSourceRanges,
 ): MarkdownSuggestionOperation[] {
-  const isWord = (character: string | undefined) =>
-    Boolean(character && /[\p{L}\p{M}\p{N}]/u.test(character));
-  const expanded = operations.map((operation) => {
+  const groups: Array<{
+    from: number;
+    to: number;
+    members: MarkdownSuggestionOperation[];
+  }> = [];
+  for (const operation of operations) {
     const { from, to } = operation.anchor;
     const removed = operation.before.changedText;
     const inserted = operation.after.changedText;
     const lexicalChange = /[\p{L}\p{M}\p{N}]/u.test(removed + inserted);
+    let group = { from, to, members: [operation] };
     if (
-      !lexicalChange ||
-      /<br\/?\s*>/u.test(removed + inserted) ||
-      (!removed && /\s/u.test(inserted)) ||
-      (!isWord(before[from - 1]) && !isWord(before[to]))
-    )
-      return { from, to, inserted };
-    let wordFrom = from;
-    let wordTo = to;
-    while (wordFrom > 0 && isWord(before[wordFrom - 1])) wordFrom -= 1;
-    while (wordTo < before.length && isWord(before[wordTo])) wordTo += 1;
-    return {
-      from: wordFrom,
-      to: wordTo,
-      inserted:
-        before.slice(wordFrom, from) + inserted + before.slice(to, wordTo),
-    };
-  });
-  const groups: typeof expanded = [];
-  for (const change of expanded) {
-    const previous = groups[groups.length - 1];
-    if (previous && change.from < previous.to) {
-      // Two edits inside one word are one review decision.
-      const mergedAfter = operations
-        .filter(
-          (operation) =>
-            operation.anchor.from >= previous.from &&
-            operation.anchor.from < change.to,
-        )
-        .reduceRight(
-          (text, operation) =>
-            text.slice(0, operation.anchor.from - previous.from) +
-            operation.after.changedText +
-            text.slice(operation.anchor.to - previous.from),
-          before.slice(previous.from, Math.max(previous.to, change.to)),
-        );
-      previous.to = Math.max(previous.to, change.to);
-      previous.inserted = mergedAfter;
-    } else groups.push({ ...change });
+      lexicalChange &&
+      !/<br\/?\s*>/u.test(removed + inserted) &&
+      (removed || !/\s/u.test(inserted)) &&
+      (isWordBefore(before, from) || isWordAt(before, to))
+    ) {
+      while (isWordBefore(before, group.from))
+        group.from -= characterBefore(before, group.from).length;
+      while (isWordAt(before, group.to))
+        group.to += characterAt(before, group.to).length;
+    }
+    // Two edits inside one word are one review decision.
+    while (groups.length && group.from < groups[groups.length - 1]!.to) {
+      const previous = groups.pop()!;
+      group = {
+        from: Math.min(previous.from, group.from),
+        to: Math.max(previous.to, group.to),
+        members: [...previous.members, ...group.members],
+      };
+    }
+    groups.push(group);
   }
-  const result = groups.map((change, ordinal) =>
+  const result = groups.map((group, ordinal) =>
     operationForChange(
       before,
-      change.from,
-      change.to,
-      change.inserted,
+      group.from,
+      group.to,
+      group.members.reduceRight(
+        (text, operation) =>
+          text.slice(0, operation.anchor.from - group.from) +
+          operation.after.changedText +
+          text.slice(operation.anchor.to - group.from),
+        before.slice(group.from, group.to),
+      ),
       ordinal,
     ),
   );
@@ -771,7 +884,11 @@ function wholeWordReplacements(
           text.slice(change.anchor.to),
         before,
       );
-  return reconstruct(result) === reconstruct(operations) ? result : operations;
+  if (reconstruct(result) !== reconstruct(operations))
+    throw new Error(
+      "Whole-word edit ranges do not reconstruct the proposed source",
+    );
+  return result;
 }
 
 export function markdownSuggestionOperation(
@@ -946,8 +1063,13 @@ export function markdownSuggestionOperationsForEditorRevision(input: {
       },
     ];
   }
-  const editorBefore = canonicalizeNfm(input.before);
+  const alignment = suggestionSourceAlignment(input.before);
+  const editorBefore = alignment
+    ? alignment.canonical
+    : canonicalizeNfm(input.before);
   const replacements = input.replacements.map(({ from, to }) => {
+    const aligned = alignment && alignedRange(alignment, from, to, "stored");
+    if (aligned) return aligned;
     const changedText = input.before.slice(from, to);
     const range = resolveMarkdownSuggestionRange(editorBefore, {
       before: { markdown: input.before, changedText },
@@ -962,47 +1084,142 @@ export function markdownSuggestionOperationsForEditorRevision(input: {
     if (!range) throw new SuggestionFormattingMappingError();
     return range;
   });
+  const operations = markdownSuggestionOperationsForReplacements({
+    before: editorBefore,
+    after: input.after,
+    replacements,
+  });
   return isolateSiblingAnchorContexts(
-    markdownSuggestionOperationsForReplacements({
-      before: editorBefore,
-      after: input.after,
-      replacements,
-    }).map((operation, ordinal) => {
-      const range = resolveMarkdownSuggestionRange(input.before, operation);
-      if (!range) throw new SuggestionFormattingMappingError();
-      return operationForChange(
+    (alignment &&
+      alignedStoredOperations(
         input.before,
+        input.after,
+        operations,
+        alignment,
+      )) ??
+      operations.map((operation, ordinal) => {
+        const range = resolveMarkdownSuggestionRange(input.before, operation);
+        if (!range) throw new SuggestionFormattingMappingError();
+        return operationForChange(
+          input.before,
+          range.from,
+          range.to,
+          operation.after.changedText,
+          ordinal,
+        );
+      }),
+  );
+}
+
+function alignedRange(
+  alignment: SuggestionSourceAlignment,
+  from: number,
+  to: number,
+  side: "canonical" | "stored",
+) {
+  const alignedFrom = alignment.map(from, side);
+  const alignedTo = alignment.map(to, side);
+  return alignedFrom === null || alignedTo === null
+    ? null
+    : { from: alignedFrom, to: alignedTo };
+}
+
+function alignedStoredOperations(
+  before: string,
+  after: string,
+  operations: MarkdownSuggestionOperation[],
+  alignment: SuggestionSourceAlignment,
+): MarkdownSuggestionOperation[] | null {
+  const stored: MarkdownSuggestionOperation[] = [];
+  for (const operation of operations) {
+    const range = alignedRange(
+      alignment,
+      operation.anchor.from,
+      operation.anchor.to,
+      "canonical",
+    );
+    if (!range) return null;
+    stored.push(
+      operationForChange(
+        before,
         range.from,
         range.to,
         operation.after.changedText,
-        ordinal,
-      );
-    }),
-  );
+        stored.length,
+      ),
+    );
+  }
+  let reconstructed = before;
+  for (const operation of [...stored].reverse())
+    reconstructed =
+      reconstructed.slice(0, operation.anchor.from) +
+      operation.after.changedText +
+      reconstructed.slice(operation.anchor.to);
+  // An edit spanning a gap writes the editor's syntax for it, which a stored
+  // pipe table cannot hold; only a reparse shows the page still matches.
+  return reconstructed === after ||
+    canonicalizeNfm(reconstructed) === canonicalizeNfm(after)
+    ? stored
+    : null;
+}
+
+// Replays the operations onto the base's canonical form; the result must be
+// the draft byte for byte, so every anchor lands where the editor shows it.
+function alignedDraftAnchors(
+  operations: readonly MarkdownSuggestionOperation[],
+  draft: string,
+): MarkdownSuggestionOperation["anchor"][] | null {
+  const alignment = suggestionSourceAlignment(operations[0]!.before.markdown);
+  if (!alignment) return null;
+  const ranges: Array<{ from: number; to: number }> = [];
+  let reconstructed = "";
+  let cursor = 0;
+  for (const operation of operations) {
+    const range = alignedRange(
+      alignment,
+      operation.anchor.from,
+      operation.anchor.to,
+      "stored",
+    );
+    if (!range || range.from < cursor) return null;
+    reconstructed += alignment.canonical.slice(cursor, range.from);
+    ranges.push({
+      from: reconstructed.length,
+      to: reconstructed.length + operation.after.changedText.length,
+    });
+    reconstructed += operation.after.changedText;
+    cursor = range.to;
+  }
+  if (reconstructed + alignment.canonical.slice(cursor) !== draft) return null;
+  return ranges.map(({ from, to }) => ({
+    from,
+    to,
+    prefix: draft.slice(Math.max(0, from - 32), from),
+    suffix: draft.slice(to, to + 32),
+  }));
 }
 
 export function draftSuggestionAnchors(
   operations: readonly MarkdownSuggestionOperation[],
   draft: string,
 ): MarkdownSuggestionOperation["anchor"][] {
-  const canonical = operations.every(
-    (operation) =>
-      canonicalizeNfm(operation.after.markdown) === operation.after.markdown,
-  );
-  let proposedRaw = operations[0]?.before.markdown ?? draft;
+  if (operations.length === 0) return [];
+  const aligned = alignedDraftAnchors(operations, draft);
+  if (aligned) return aligned;
+  let proposedRaw = operations[0]!.before.markdown;
   for (const operation of [...operations].reverse()) {
     proposedRaw =
       proposedRaw.slice(0, operation.anchor.from) +
       operation.after.changedText +
       proposedRaw.slice(operation.anchor.to);
   }
-  const parts = canonical ? null : diffParts(proposedRaw, draft);
-  if (!canonical && !parts) throw new SuggestionFormattingMappingError();
+  const parts = diffParts(proposedRaw, draft);
+  if (!parts) throw new SuggestionFormattingMappingError();
   const boundaryMap = new Array<number>(proposedRaw.length + 1);
   let rawOffset = 0;
   let draftOffset = 0;
   boundaryMap[0] = 0;
-  for (const part of parts ?? []) {
+  for (const part of parts) {
     if (part.type === "insert") {
       draftOffset += part.text.length;
       boundaryMap[rawOffset] = draftOffset;
@@ -1014,27 +1231,11 @@ export function draftSuggestionAnchors(
       boundaryMap[rawOffset] = draftOffset;
     }
   }
-  if (
-    !canonical &&
-    (rawOffset !== proposedRaw.length || draftOffset !== draft.length)
-  )
+  if (rawOffset !== proposedRaw.length || draftOffset !== draft.length)
     throw new SuggestionFormattingMappingError();
 
   let delta = 0;
   return operations.map((operation) => {
-    if (canonical) {
-      const from = operation.anchor.from + delta;
-      const to = from + operation.after.changedText.length;
-      delta +=
-        operation.after.changedText.length -
-        operation.before.changedText.length;
-      return {
-        from,
-        to,
-        prefix: draft.slice(Math.max(0, from - 32), from),
-        suffix: draft.slice(to, to + 32),
-      };
-    }
     const rawFrom = operation.anchor.from + delta;
     const rawTo = rawFrom + operation.after.changedText.length;
     const from = boundaryMap[rawFrom];

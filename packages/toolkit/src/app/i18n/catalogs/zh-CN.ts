@@ -127,11 +127,14 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "拥有 Builder.io 账户即可免费使用",
   "onboarding.builderMonthlyCredits": "每月 60 个 Agent Credits",
+  "onboarding.builderIncludedFree": "免费包含",
+  "onboarding.builderMoreServices": "+ {{count}} 项其他服务",
+  "onboarding.builderIncludedServices": "包含的服务",
   "onboarding.builderActivateTitle": "激活免费额度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 账户",
   "onboarding.builderAccountExistsDescription": "登录以使用你的账户。",
   "onboarding.builderActivationDescription":
-    "我们会一键自动为您创建 Builder.io 账户。",
+    "一键创建或连接 Builder.io 账户，即可获得免费额度。",
   "onboarding.builderOrgActivationDescription":
     "我们会一键创建你的 Builder.io 账户，让你的组织可以使用它。",
   "onboarding.builderCreateAndActivate": "创建并激活",
@@ -151,6 +154,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "打开后台代理设置",
   "onboarding.capability.llm.keySummary": "连接您自己的 AI 模型",
   "onboarding.capability.fileStorage.keySummary": "文件上传和存储",
+  "onboarding.capability.llm.why": "智能体使用语言模型理解请求并生成答复。",
+  "onboarding.capability.fileStorage.why":
+    "保存上传的图片和文件，方便智能体在对话中再次使用。",
   "onboarding.fileStorage.title": "连接存储以上传文件",
   "onboarding.fileStorage.statusUnavailable": "无法检查存储",
   "onboarding.fileStorage.description":
@@ -167,6 +173,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可以改进语义搜索。没有嵌入向量时，关键词搜索仍然有效。",
+  "onboarding.capability.systemOne.why":
+    "Jev 是一个可选的决策模型，可在代理首次请求模型前帮助选择相关工具和技能。",
   "onboarding.capability.assetsImageGeneration.label": "图像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 积分或图像提供商密钥",
@@ -465,6 +473,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上传技能文件",
   "composer.upload": "上传",
   "composer.uploadFailed": "无法上传所选文件。",
+  "composer.unsupportedFileType": "不支持此文件类型。",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
   "mentions.learnMore": "了解更多",
@@ -1034,11 +1043,10 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}} 条排队中——发送后续消息...",
   "queue.remove": "从队列中移除",
   "queue.sendNow": "立即发送",
-  "queue.sendNowHint": "立即发送（停止当前响应）",
-  "queue.steer": "引导",
-  "queue.steerHint": "下一条发送此消息",
+  "queue.sendNowHint": "停止当前响应，然后发送此消息",
+  "queue.sendNext": "下一条发送",
+  "queue.sendNextHint": "在当前响应结束后发送",
   "queue.moreActions": "更多操作",
-  "queue.moveToTop": "移至顶部",
   "recovery.connectingBuilder": "正在设置 Builder.io",
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",
@@ -1210,6 +1218,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "没有可用的错误详情。",
   "tool.input": "输入",
   "tool.inputWithLabel": "输入 - {{label}}",
+  "tool.identifierHidden": "[标识符已隐藏]",
+  "tool.contentOmitted": "[内容已省略]",
+  "tool.circularReference": "[循环引用]",
   "tool.interrupted":
     "在完成报告前被中断——操作可能已经完成，也可能尚未完成。重试前请先检查。",
   "tool.longRunning": "仍在处理。大型更新可能需要一两分钟。",

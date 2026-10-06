@@ -4,7 +4,7 @@ const mockReadBody = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
-const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
+const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockRunLoomImportJob = vi.hoisted(() => vi.fn());
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
@@ -54,8 +54,9 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
-  verifyScopedAgentAccessToken: (...args: unknown[]) =>
-    mockVerifyScopedAgentAccessToken(...args),
+  scopedAgentAccessResourceId: (kind: string, id: string) => `${kind}:${id}`,
+  verifyShortLivedToken: (...args: unknown[]) =>
+    mockVerifyShortLivedToken(...args),
 }));
 
 vi.mock("../../../../actions/finalize-recording.js", () => ({
@@ -130,7 +131,7 @@ describe("post-finalize worker", () => {
       uploadAttemptId: "attempt-1",
       uploadGenerationId: "generation-1",
     });
-    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    mockVerifyShortLivedToken.mockReturnValue({ ok: true });
     mockRunWithRequestContext.mockImplementation(
       (_context: unknown, callback: () => unknown) => callback(),
     );
