@@ -1755,6 +1755,73 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("uses the canonical fallback app ID and marks ticketed safe reads", async () => {
+    const { createMcpDirectoryWidgetReadCapability } =
+      await import("../shared/embed-auth.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      caller: context?.caller,
+      userEmail: context?.userEmail,
+    }));
+    const capability = createMcpDirectoryWidgetReadCapability({
+      appId: "agent",
+      resourceUri: "ui://agent/shell-v67",
+      resourceIds: { deckId: "deck-1" },
+      actionArguments: { "get-deck": { id: "deck-1" } },
+    })!;
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      orgId: null,
+      token: "signed-directory-capability",
+      targetPath: "/deck/deck-1",
+      scope: capability,
+    });
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-deck": {
+          http: { method: "GET" },
+          readOnly: false,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      {
+        mcpDirectoryWidgetReadActionArguments: { "get-deck": ["id"] },
+        mcpDirectoryWidgetReadOnlyActions: ["get-deck"],
+        mcpDirectoryWidgetAppId: "agent",
+        mcpDirectoryWidgetResourceUri: "ui://agent/shell-v67",
+        getOwnerFromEvent: async () => {
+          throw Object.assign(new Error("Unauthenticated"), {
+            statusCode: 401,
+          });
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: { id: "deck-1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-deck?id=deck-1",
+        },
+      }),
+    ).resolves.toEqual({
+      caller: "mcp-widget",
+      userEmail: "ticket-owner@example.com",
+    });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("rejects a capability request for a different design", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

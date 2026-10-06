@@ -154,6 +154,8 @@ export interface MCPConfig {
       ) => McpDirectoryWidgetTarget | null
     >;
     widgetReadActionArguments?: Record<string, Record<string, string>>;
+    /** Actions whose capability-backed `mcp-widget` execution is strictly read-only. */
+    widgetReadOnlyActions?: readonly string[];
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;
@@ -485,8 +487,9 @@ export function validateMcpDirectoryProfile(
   const widgetActionNames = names.filter((name) =>
     Boolean(actions[name]?.mcpApp?.resource),
   );
+  const widgetReadOnlyActions = new Set(profile?.widgetReadOnlyActions ?? []);
   const widgetTargetNames = Object.keys(profile?.widgetTargets ?? {});
-  if (profile?.widgets !== false) {
+  if (profile && profile.widgets !== false && profile.widgetTargets) {
     const missingTarget = widgetActionNames.find(
       (name) => !profile?.widgetTargets?.[name],
     );
@@ -505,6 +508,22 @@ export function validateMcpDirectoryProfile(
     }
   }
 
+  for (const name of widgetReadOnlyActions) {
+    const entry = actions[name];
+    if (
+      !names.includes(name) ||
+      !profile?.widgetReadActionArguments?.[name] ||
+      !entry ||
+      entry.http === false ||
+      entry.http?.method !== "GET" ||
+      entry.requiresAuth === false
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory widget read-only override "${name}" must name a mapped, authenticated GET action in the connector allowlist.`,
+      );
+    }
+  }
+
   for (const [name, argumentMap] of Object.entries(
     profile?.widgetReadActionArguments ?? {},
   )) {
@@ -512,6 +531,7 @@ export function validateMcpDirectoryProfile(
     if (
       !names.includes(name) ||
       !entry ||
+      (entry.readOnly !== true && !widgetReadOnlyActions.has(name)) ||
       entry.http === false ||
       entry.http?.method !== "GET" ||
       entry.requiresAuth === false ||
@@ -523,7 +543,7 @@ export function validateMcpDirectoryProfile(
       )
     ) {
       throw new McpDirectoryProfileValidationError(
-        `[agent-native] MCP directory widget read route "${name}" must be an authenticated GET action with a valid resource argument map in the connector allowlist.`,
+        `[agent-native] MCP directory widget read route "${name}" must be a read-only authenticated GET action with a valid resource argument map in the connector allowlist.`,
       );
     }
   }
@@ -1158,6 +1178,17 @@ async function withServerMintedMcpAppEmbedStart(
   };
 }
 
+function withoutMcpAppEmbedTicket(result: unknown): unknown {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  const output = { ...(result as Record<string, unknown>) };
+  delete output.embedStartUrl;
+  delete output.embedTargetPath;
+  delete output.embedExpiresAt;
+  return output;
+}
+
 function mcpDirectoryWidgetCapabilityForTool(
   config: MCPConfig,
   resource: ResolvedMcpAppResource,
@@ -1180,6 +1211,8 @@ function mcpDirectoryWidgetCapabilityForTool(
     if (
       !entry ||
       !profile.connectorCatalog.includes(actionName) ||
+      (entry.readOnly !== true &&
+        !profile.widgetReadOnlyActions?.includes(actionName)) ||
       entry.http === false ||
       entry.http?.method !== "GET" ||
       entry.requiresAuth === false
@@ -1798,9 +1831,13 @@ async function resolveMcpAppResourceSafely(
 }
 
 function mcpAppWidgetsEnabled(config: MCPConfig): boolean {
-  return !(
-    config.catalogMode === "directory" &&
-    config.directoryProfile?.widgets === false
+  if (config.catalogMode !== "directory") return true;
+  const profile = config.directoryProfile;
+  return Boolean(
+    profile &&
+    profile.widgets !== false &&
+    profile.widgetTargets &&
+    Object.keys(profile.widgetTargets).length > 0,
   );
 }
 
@@ -2794,19 +2831,21 @@ export async function createMCPServerForRequest(
                   advertisedActions,
                 )
               : undefined;
-          if (directoryCatalog && mcpAppResourceCandidate && !directoryWidget) {
-            throw new Error(
-              `Could not create a target-scoped widget session for ${name}.`,
-            );
-          }
-          const rawResultForClient = mcpAppResourceCandidate
-            ? await withServerMintedMcpAppEmbedStart(
-                projectedRawResult,
-                requestMeta,
-                directoryLinkUrl,
-                directoryWidget,
-              )
-            : projectedRawResult;
+          const missingDirectoryWidgetCapability =
+            directoryCatalog &&
+            config.directoryProfile !== undefined &&
+            mcpAppResourceCandidate !== null &&
+            directoryWidget === undefined;
+          const rawResultForClient = missingDirectoryWidgetCapability
+            ? withoutMcpAppEmbedTicket(projectedRawResult)
+            : mcpAppResourceCandidate
+              ? await withServerMintedMcpAppEmbedStart(
+                  projectedRawResult,
+                  requestMeta,
+                  directoryLinkUrl,
+                  directoryWidget,
+                )
+              : projectedRawResult;
           const {
             value: actionResultForClient,
             images: resultImages,
@@ -2819,7 +2858,10 @@ export async function createMCPServerForRequest(
             resultImages.length > 0 ||
             mcpResultHasContent(actionResultForClient);
           const mcpAppResource =
-            mcpAppResourceCandidate && !mcpResultIsError && embedHasContent
+            mcpAppResourceCandidate &&
+            !missingDirectoryWidgetCapability &&
+            !mcpResultIsError &&
+            embedHasContent
               ? mcpAppResourceCandidate
               : null;
           const embedProducedNothing =

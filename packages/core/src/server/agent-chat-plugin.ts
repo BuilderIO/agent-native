@@ -1232,6 +1232,9 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
+      const mcpServerName = options?.appId
+        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+        : "Agent";
       const mcpActionEntryOptions: McpActionEntryOptions =
         options?.resolveMcpActionEntry
           ? { resolveActionEntry: options.resolveMcpActionEntry }
@@ -3149,9 +3152,7 @@ export function createAgentChatPlugin(
         // Mount MCP remote server — same action registry as A2A + agent chat
         const { mountMCP } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
-          name: options?.appId
-            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-            : "Agent",
+          name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
           description:
@@ -3464,14 +3465,29 @@ export function createAgentChatPlugin(
                       ([name]) =>
                         mcpOptions.directoryProfile?.connectorCatalog.includes(
                           name,
-                        ) && httpActions[name],
+                        ) &&
+                        httpActions[name] &&
+                        (httpActions[name]?.readOnly === true ||
+                          mcpOptions.directoryProfile?.widgetReadOnlyActions?.includes(
+                            name,
+                          )),
                     )
                     .map(([name, args]) => [name, Object.keys(args)]),
                 )
               : undefined,
+          mcpDirectoryWidgetReadOnlyActions:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? mcpOptions.directoryProfile.widgetReadOnlyActions
+              : undefined,
+          mcpDirectoryWidgetAppId:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? (options?.appId ?? mcpServerName)
+              : undefined,
           mcpDirectoryWidgetResourceUri:
             mcpOptions.enabled && mcpOptions.directoryProfile
-              ? getMcpDirectoryWidgetResourceUri(options?.appId)
+              ? getMcpDirectoryWidgetResourceUri(
+                  options?.appId ?? mcpServerName,
+                )
               : undefined,
         });
       }

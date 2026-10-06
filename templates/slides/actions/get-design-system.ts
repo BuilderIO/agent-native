@@ -278,7 +278,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: true,
   },
-  run: async ({ id, compact }) => {
+  run: async ({ id, compact }, ctx) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {
       throw Object.assign(new Error("Design system not found"), {
@@ -324,7 +324,11 @@ export default defineAction({
         )
       : null;
 
-    if (builder && typeof builder.docCount === "number") {
+    if (
+      ctx?.caller !== "mcp-widget" &&
+      builder &&
+      typeof builder.docCount === "number"
+    ) {
       await persistBuilderDocCount(row, builder.docCount);
     }
 

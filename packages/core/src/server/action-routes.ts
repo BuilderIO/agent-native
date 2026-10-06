@@ -337,6 +337,8 @@ export interface ActionRouteAuthAdapter {
 export interface MountActionRoutesOptions {
   clientCompatibilityVersion?: string;
   mcpDirectoryWidgetReadActionArguments?: Record<string, readonly string[]>;
+  mcpDirectoryWidgetReadOnlyActions?: readonly string[];
+  mcpDirectoryWidgetAppId?: string;
   mcpDirectoryWidgetResourceUri?: string;
   getOwnerContextFromEvent?: (
     event: any,
@@ -663,12 +665,15 @@ function mountActionRoutesInternal(
           isFrontendActionRequest(event) &&
           entry.http !== false &&
           entry.http?.method === "GET" &&
+          (entry.readOnly === true ||
+            options?.mcpDirectoryWidgetReadOnlyActions?.includes(name) ===
+              true) &&
           entry.requiresAuth !== false &&
           options?.mcpDirectoryWidgetReadActionArguments?.[name] !==
             undefined &&
           allowsMcpDirectoryWidgetReadAction(authCapability, {
             actionName: name,
-            appId: options.appId,
+            appId: options.mcpDirectoryWidgetAppId ?? options.appId,
             resourceUri: options.mcpDirectoryWidgetResourceUri,
             allowedArgumentNames:
               options.mcpDirectoryWidgetReadActionArguments[name],
@@ -1016,7 +1021,7 @@ function mountActionRoutesInternal(
                 directoryWidgetReadAllowed &&
                 !allowsMcpDirectoryWidgetReadAction(authCapability, {
                   actionName: name,
-                  appId: options.appId,
+                  appId: options.mcpDirectoryWidgetAppId ?? options.appId,
                   resourceUri: options.mcpDirectoryWidgetResourceUri,
                   args: params,
                   allowedArgumentNames:
@@ -1039,13 +1044,14 @@ function mountActionRoutesInternal(
                   statusMessage: "Unauthorized",
                 });
               }
-              const caller =
-                options?.caller ??
-                (resolvedCaller
-                  ? "a2a"
-                  : isFrontendActionRequest(event)
-                    ? "frontend"
-                    : "http");
+              const caller = directoryWidgetReadAllowed
+                ? "mcp-widget"
+                : (options?.caller ??
+                  (resolvedCaller
+                    ? "a2a"
+                    : isFrontendActionRequest(event)
+                      ? "frontend"
+                      : "http"));
               const runContext: ActionRunContext = {
                 userEmail,
                 orgId: orgId ?? null,

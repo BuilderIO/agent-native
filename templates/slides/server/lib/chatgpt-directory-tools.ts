@@ -60,9 +60,10 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     },
   },
   widgetReadActionArguments: {
-    // get-deck is GET but can repair duplicate slide IDs; tickets remain deck-scoped.
+    // The ticketed get-deck path normalizes duplicate IDs in memory only.
     "get-deck": { id: "deckId", deckId: "deckId" },
   },
+  widgetReadOnlyActions: ["get-deck"],
   keyToolNames: [
     "list-decks",
     "get-deck",

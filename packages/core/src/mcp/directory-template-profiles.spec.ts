@@ -311,4 +311,75 @@ describe("ChatGPT directory template profiles", () => {
       }),
     ).toThrow(/authenticated GET action/);
   });
+
+  it("requires read routes before widget tools run and preserves legacy tool discovery", () => {
+    const widgetAction = {
+      tool: { description: "Create one document." },
+      readOnly: false,
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/create-document",
+          title: "Document",
+          html: "<html></html>",
+        },
+      },
+      run: async () => ({ id: "doc-1" }),
+    };
+    const readAction = {
+      tool: { description: "Read one document." },
+      readOnly: false,
+      requiresAuth: true,
+      http: { method: "GET" as const },
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ id: "doc-1" }),
+    };
+    const config = {
+      name: "content",
+      description: "Content directory.",
+      catalogMode: "directory" as const,
+      actions: { "create-document": widgetAction, "get-document": readAction },
+      directoryProfile: {
+        connectorCatalog: ["create-document", "get-document"],
+        widgetTargets: {
+          "create-document": () => ({
+            targetPath: "/page/doc-1",
+            resourceIds: { documentId: "doc-1" },
+          }),
+        },
+        widgetReadActionArguments: {
+          "get-document": { id: "documentId" },
+        },
+        widgetReadOnlyActions: ["get-document"],
+      },
+    };
+
+    expect(() => validateMcpDirectoryProfile(config)).not.toThrow();
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...config,
+        directoryProfile: {
+          ...config.directoryProfile,
+          widgetReadOnlyActions: [],
+        },
+      }),
+    ).toThrow(/read-only authenticated GET action/);
+
+    const legacyConfig = {
+      name: "content",
+      description: "Content directory.",
+      catalogMode: "directory" as const,
+      directoryProfile: { connectorCatalog: ["create-document"] },
+      actions: { "create-document": widgetAction },
+    };
+    expect(() => validateMcpDirectoryProfile(legacyConfig)).not.toThrow();
+  });
 });

@@ -22,6 +22,7 @@ export type ActionCaller =
   | "tool"
   | "http"
   | "frontend"
+  | "mcp-widget"
   | "cli"
   | "mcp"
   | "webmcp"

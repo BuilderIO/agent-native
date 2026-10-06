@@ -150,6 +150,16 @@ describe("get-design-system", () => {
     });
   });
 
+  it("does not persist the Builder doc-count cache from a widget read", async () => {
+    const result = await action.run(
+      { id: "builder-ds-1" },
+      { caller: "mcp-widget" },
+    );
+
+    expect(result.builder).toMatchObject({ docCount: 1 });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it("does not write when the hydrated docCount matches the cached row", async () => {
     mockResolveAccess.mockResolvedValue({
       resource: {

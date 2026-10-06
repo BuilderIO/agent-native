@@ -24,6 +24,8 @@ export interface AgentChatMcpOptions {
       ) => McpDirectoryWidgetTarget | null
     >;
     widgetReadActionArguments?: Record<string, Record<string, string>>;
+    /** Actions whose capability-backed `mcp-widget` execution is strictly read-only. */
+    widgetReadOnlyActions?: readonly string[];
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;
