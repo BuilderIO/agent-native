@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { explicitCanvasDimensionsFromPrompt } from "./canvas-dimensions.js";
+import {
+  MAX_SANE_FRAME_ASPECT_RATIO,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "./responsive-frame-layout.js";
 
 describe("explicitCanvasDimensionsFromPrompt", () => {
   it.each([
@@ -69,5 +73,32 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         "Make a 300x250 ad; the canvas must be exactly 300x250 pixels",
       ),
     ).toEqual({ width: 300, height: 250 });
+  });
+
+  it("accepts exact dimensions at the editor's geometry limits", () => {
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        `Set the exact size to ${MAX_SANE_FRAME_DIMENSION_PX}x${MAX_SANE_FRAME_DIMENSION_PX / MAX_SANE_FRAME_ASPECT_RATIO} pixels`,
+      ),
+    ).toEqual({
+      width: MAX_SANE_FRAME_DIMENSION_PX,
+      height: MAX_SANE_FRAME_DIMENSION_PX / MAX_SANE_FRAME_ASPECT_RATIO,
+    });
+  });
+
+  it("rejects exact dimensions beyond the editor's maximum dimension", () => {
+    expect(() =>
+      explicitCanvasDimensionsFromPrompt(
+        `Set the exact size to ${MAX_SANE_FRAME_DIMENSION_PX + 1}x2000 pixels`,
+      ),
+    ).toThrow(`limit of ${MAX_SANE_FRAME_DIMENSION_PX} px per dimension`);
+  });
+
+  it("rejects exact dimensions beyond the editor's maximum aspect ratio", () => {
+    expect(() =>
+      explicitCanvasDimensionsFromPrompt(
+        `Set the exact size to 100000x1000 pixels`,
+      ),
+    ).toThrow(`limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1`);
   });
 });

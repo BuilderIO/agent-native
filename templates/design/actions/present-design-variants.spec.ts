@@ -151,7 +151,10 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
 }));
 
 import { DESIGN_HTML_INTEGRITY_ERROR_CODE } from "../shared/html-integrity.js";
-import { MAX_SANE_FRAME_DIMENSION_PX } from "../shared/responsive-frame-layout.js";
+import {
+  MAX_SANE_FRAME_ASPECT_RATIO,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "../shared/responsive-frame-layout.js";
 import action from "./present-design-variants.js";
 
 function guidedQuestionsPayload<T>(): T {
@@ -210,6 +213,22 @@ describe("present-design-variants", () => {
         ],
       }),
     ).rejects.toThrow("Use one exact canvas size per Design action call");
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported exact dimensions before writing variants", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: `Create a poster at exactly 100000x${Math.ceil(100000 / (MAX_SANE_FRAME_ASPECT_RATIO + 1))} pixels`,
+        variants: [
+          { id: "one", label: "One" },
+          { id: "two", label: "Two" },
+        ],
+      }),
+    ).rejects.toThrow(`limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1`);
 
     expect(mocks.insertChain.values).not.toHaveBeenCalled();
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
@@ -489,7 +508,7 @@ describe("present-design-variants", () => {
           id: "a",
           label: "Wide",
           width: MAX_SANE_FRAME_DIMENSION_PX + 1,
-          height: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: 1,
           content: "<!doctype html><html><body>Wide</body></html>",
         },
         {
@@ -506,14 +525,14 @@ describe("present-design-variants", () => {
       expect.arrayContaining([
         expect.objectContaining({
           width: MAX_SANE_FRAME_DIMENSION_PX,
-          height: MAX_SANE_FRAME_DIMENSION_PX,
+          height: MAX_SANE_FRAME_DIMENSION_PX / MAX_SANE_FRAME_ASPECT_RATIO,
         }),
       ]),
     );
     expect(mocks.designData.canvasFrames).toMatchObject({
       "file-a": {
         width: MAX_SANE_FRAME_DIMENSION_PX,
-        height: MAX_SANE_FRAME_DIMENSION_PX,
+        height: MAX_SANE_FRAME_DIMENSION_PX / MAX_SANE_FRAME_ASPECT_RATIO,
       },
       "file-b": {
         width: MAX_SANE_FRAME_DIMENSION_PX,

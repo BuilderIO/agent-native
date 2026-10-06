@@ -1,10 +1,15 @@
+import {
+  MAX_SANE_FRAME_ASPECT_RATIO,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "./responsive-frame-layout.js";
+
 export interface CanvasDimensions {
   width: number;
   height: number;
 }
 
 const DIMENSION_PAIR =
-  /(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d{1,5})\s*(px|pixels?)?\s*(?:x|×|by)\s*(\d{1,3}(?:,\d{3})+|\d{1,5})\s*(px|pixels?)?(?!\w)/gi;
+  /(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d{1,12})\s*(px|pixels?)?\s*(?:x|×|by)\s*(\d{1,3}(?:,\d{3})+|\d{1,12})\s*(px|pixels?)?(?!\w)/gi;
 const DIMENSION_CONTEXT_BEFORE =
   /\b(?:exact(?:ly)?|fixed[- ]size|dimensions?|size|canvas|artboard|frame|screen|pixels?)\s*(?:[:=]\s*)?$/i;
 const DIMENSION_CONTEXT_AFTER =
@@ -80,6 +85,21 @@ export function explicitCanvasDimensionsFromPrompt(
       !hasSmallFormatContext
     ) {
       continue;
+    }
+
+    if (
+      width > MAX_SANE_FRAME_DIMENSION_PX ||
+      height > MAX_SANE_FRAME_DIMENSION_PX
+    ) {
+      throw new Error(
+        `Exact canvas dimensions ${width}×${height} exceed the Design editor limit of ${MAX_SANE_FRAME_DIMENSION_PX} px per dimension. Choose smaller exact dimensions.`,
+      );
+    }
+    const aspectRatio = Math.max(width / height, height / width);
+    if (aspectRatio > MAX_SANE_FRAME_ASPECT_RATIO) {
+      throw new Error(
+        `Exact canvas dimensions ${width}×${height} exceed the Design editor limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1. Choose supported exact dimensions.`,
+      );
     }
 
     dimensionsByKey.set(`${width}x${height}`, { width, height });

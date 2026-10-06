@@ -271,6 +271,7 @@ vi.mock("@agent-native/creative-context/server", () => ({
   },
 }));
 
+import { MAX_SANE_FRAME_DIMENSION_PX } from "../shared/responsive-frame-layout.js";
 import action from "./generate-design.js";
 
 function resetDesignDataMutation() {
@@ -989,6 +990,76 @@ describe("generate-design: new-file creation path", () => {
       heightMode: "fixed",
     });
     expect(data.breakpointSet).toBeUndefined();
+  });
+
+  it("rejects unsupported exact dimensions before writing files", async () => {
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: `Create a poster at exactly ${MAX_SANE_FRAME_DIMENSION_PX + 1}x2000 pixels`,
+        files: [
+          {
+            filename: "poster.html",
+            fileType: "html",
+            content: "<!doctype html><html><body>Poster</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("Design editor limit");
+
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("preserves a fixed screen's empty breakpoint override on content updates", async () => {
+    setExistingFile("<html><body>Old post copy</body></html>", {
+      filename: "post.html",
+    });
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1080, height: 1080 },
+      },
+      screenMetadata: {
+        "file-1": {
+          breakpointWidths: [],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Update the social post copy",
+      files: [
+        {
+          filename: "post.html",
+          fileType: "html",
+          content: "<html><body>Updated post copy</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const metadata = data.screenMetadata as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(metadata["file-1"]).toMatchObject({
+      width: 1080,
+      height: 1080,
+      breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
+    });
+    expect(Object.keys(data.canvasFrames as Record<string, unknown>)).toEqual([
+      "file-1",
+    ]);
   });
 
   it("rejects multiple exact canvas sizes before writing files", async () => {

@@ -29,6 +29,7 @@ import {
   getResponsiveBreakpointWidths,
   getResponsiveGroupHeight,
   getResponsiveGroupWidth,
+  MAX_SANE_FRAME_ASPECT_RATIO,
   MAX_SANE_FRAME_DIMENSION_PX,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
@@ -488,6 +489,22 @@ function boundedDimension(value: unknown, min: number, max: number) {
     : undefined;
 }
 
+function fitVariantAspectRatio(width: number, height: number) {
+  if (width / height > MAX_SANE_FRAME_ASPECT_RATIO) {
+    return {
+      width,
+      height: Math.ceil(width / MAX_SANE_FRAME_ASPECT_RATIO),
+    };
+  }
+  if (height / width > MAX_SANE_FRAME_ASPECT_RATIO) {
+    return {
+      width: Math.ceil(height / MAX_SANE_FRAME_ASPECT_RATIO),
+      height,
+    };
+  }
+  return { width, height };
+}
+
 function inferVariantSize(
   variant: z.infer<typeof variantSchema>,
   prompt?: string,
@@ -506,7 +523,7 @@ function inferVariantSize(
     MAX_SANE_FRAME_DIMENSION_PX,
   );
   if (explicitWidth && explicitHeight) {
-    return { width: explicitWidth, height: explicitHeight };
+    return fitVariantAspectRatio(explicitWidth, explicitHeight);
   }
 
   const content = variant.content ?? "";
@@ -520,16 +537,16 @@ function inferVariantSize(
   const inferredWidth = boundedDimension(cssWidth, 240, 1920);
   const inferredHeight = boundedDimension(cssHeight, 240, 3000);
   if (inferredWidth && inferredWidth <= 560) {
-    return {
-      width: explicitWidth ?? inferredWidth,
-      height: explicitHeight ?? inferredHeight ?? MOBILE_HEIGHT,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? inferredWidth,
+      explicitHeight ?? inferredHeight ?? MOBILE_HEIGHT,
+    );
   }
   if (inferredWidth && inferredHeight) {
-    return {
-      width: explicitWidth ?? inferredWidth,
-      height: explicitHeight ?? inferredHeight,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? inferredWidth,
+      explicitHeight ?? inferredHeight,
+    );
   }
 
   const lowercase = [
@@ -545,22 +562,22 @@ function inferVariantSize(
     /\b(?:mobile|phone|iphone|android)\b/.test(lowercase) ||
     /\b(?:max-w-sm|max-w-md|w-\[(?:360|375|390|393|414)px\])\b/.test(lowercase)
   ) {
-    return {
-      width: explicitWidth ?? MOBILE_WIDTH,
-      height: explicitHeight ?? MOBILE_HEIGHT,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? MOBILE_WIDTH,
+      explicitHeight ?? MOBILE_HEIGHT,
+    );
   }
   if (/\b(?:tablet|ipad)\b/.test(lowercase)) {
-    return {
-      width: explicitWidth ?? TABLET_WIDTH,
-      height: explicitHeight ?? TABLET_HEIGHT,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? TABLET_WIDTH,
+      explicitHeight ?? TABLET_HEIGHT,
+    );
   }
 
-  return {
-    width: explicitWidth ?? DESKTOP_WIDTH,
-    height: explicitHeight ?? DESKTOP_HEIGHT,
-  };
+  return fitVariantAspectRatio(
+    explicitWidth ?? DESKTOP_WIDTH,
+    explicitHeight ?? DESKTOP_HEIGHT,
+  );
 }
 
 function escapeHtml(value: string) {
