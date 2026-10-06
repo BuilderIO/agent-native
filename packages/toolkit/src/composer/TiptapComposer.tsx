@@ -42,7 +42,10 @@ import {
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
-import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
+import {
+  searchComposerContextActions,
+  type ComposerContextMenuItem,
+} from "./ComposerContextMenu.js";
 import {
   ComposerPlusMenu,
   type ComposerTerminalModeControl,
@@ -301,6 +304,10 @@ function isSameComposerAttachment(
       (submitted.file != null && current.file === submitted.file))
   );
 }
+
+// Host Add-menu actions listed among "@" suggestions. Picking one runs the
+// action or opens its picker in the + menu instead of inserting a mention.
+const COMPOSER_CONTEXT_ENTRY_SOURCE = "composer-context";
 
 function composerReferenceFromMentionItem(
   item: MentionItem,
@@ -2733,6 +2740,9 @@ export function TiptapComposer({
   });
   const [popover, setPopover] = useState<PopoverState>(null);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [contextEntryRequest, setContextEntryRequest] = useState<{
+    id: string;
+  } | null>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
   const lastComposerRuntimeSyncRef = useRef<{
@@ -2868,6 +2878,36 @@ export function TiptapComposer({
       ),
     [hostMentionItems, mentionItems, mentionQuery, slotReferences],
   );
+  const inlineMentionItems = useMemo(() => {
+    if (popover?.type !== "@" || !hasContextMenu || !contextMenuItems?.length)
+      return filteredMentionItems;
+    const addContextLabel = t("agentChat.composer.addContext", {
+      defaultValue: "Add context",
+    });
+    return [
+      ...searchComposerContextActions(contextMenuItems, mentionQuery)
+        .filter(({ action }) => !action.disabled)
+        .map(
+          ({ action, categories }): MentionItem => ({
+            id: `${COMPOSER_CONTEXT_ENTRY_SOURCE}:${action.id}`,
+            label: action.label,
+            description: action.description,
+            source: COMPOSER_CONTEXT_ENTRY_SOURCE,
+            refType: COMPOSER_CONTEXT_ENTRY_SOURCE,
+            refId: action.id,
+            section: categories[0] ?? addContextLabel,
+          }),
+        ),
+      ...filteredMentionItems,
+    ];
+  }, [
+    popover?.type,
+    hasContextMenu,
+    contextMenuItems,
+    mentionQuery,
+    filteredMentionItems,
+    t,
+  ]);
 
   const {
     skills,
@@ -2989,11 +3029,11 @@ export function TiptapComposer({
     if (
       mentionQuery &&
       mentionSearchSettled &&
-      filteredMentionItems.length === 0
+      inlineMentionItems.length === 0
     ) {
       closePopover();
     }
-  }, [mentionQuery, mentionSearchSettled, filteredMentionItems, closePopover]);
+  }, [mentionQuery, mentionSearchSettled, inlineMentionItems, closePopover]);
 
   // Persist draft to localStorage so refreshes don't lose the prompt.
   const hasDraftScope = Boolean(draftScope?.trim());
@@ -4858,6 +4898,14 @@ export function TiptapComposer({
     const currentPos = ed.state.selection.from;
     // startPos is after the trigger char, so -1 to include the @ or /
     const deleteFrom = Math.max(0, pop.startPos - 1);
+    if (item.source === COMPOSER_CONTEXT_ENTRY_SOURCE && item.refId) {
+      ed.chain()
+        .focus()
+        .deleteRange({ from: deleteFrom, to: currentPos })
+        .run();
+      setContextEntryRequest({ id: item.refId });
+      return;
+    }
     const normalized = adapters.agentChat!.normalizeReference!(
       composerReferenceFromMentionItem(item),
     ) as AgentComposerReference | null;
@@ -5433,6 +5481,7 @@ export function TiptapComposer({
         ) : hasContextMenu ? (
           <ComposerPlusMenu
             contextMenuItems={launchersDisabled ? [] : contextLauncherItems}
+            openEntry={contextEntryRequest}
             mode={
               launchersDisabled || plusMenuMode === "hidden"
                 ? "upload-only"
@@ -5566,7 +5615,7 @@ export function TiptapComposer({
         density={mentionPopoverDensity}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
-        mentionItems={filteredMentionItems}
+        mentionItems={inlineMentionItems}
         skills={filteredSkills}
         commands={filteredCommands}
         hint={hint}

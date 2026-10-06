@@ -95,6 +95,8 @@ export interface ComposerContextMenuProps {
   onRestoreFocus?: () => void;
   contextButtonTooltipDisabled?: boolean;
   disabled?: boolean;
+  /** Runs or opens this action as if it were chosen here; each new object is a new request. */
+  openEntry?: { id: string } | null;
 }
 interface ComposerContextPage {
   id: string;
@@ -121,6 +123,58 @@ function findAction(
   }
 }
 
+export interface ComposerContextActionMatch {
+  action: ComposerContextMenuAction;
+  /** Category ids from the searched items down to the action. */
+  path: string[];
+  /** Labels of those categories, outermost first. */
+  categories: string[];
+}
+
+/** Every action under `items` that matches `query`; an empty query matches all. */
+export function searchComposerContextActions(
+  items: readonly ComposerContextMenuItem[],
+  query: string,
+): ComposerContextActionMatch[] {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const matches: ComposerContextActionMatch[] = [];
+  const visit = (
+    entries: readonly ComposerContextMenuItem[],
+    path: string[],
+    categories: string[],
+    searchable: string[],
+    disabled: boolean,
+  ) => {
+    for (const entry of entries) {
+      const text = [
+        ...searchable,
+        entry.label,
+        entry.description ?? "",
+        ...(entry.keywords ?? []),
+      ];
+      const entryDisabled = disabled || entry.disabled === true;
+      if (entry.children)
+        visit(
+          entry.children,
+          [...path, entry.id],
+          [...categories, entry.label],
+          text,
+          entryDisabled,
+        );
+      else if (
+        terms.every((term) => text.join(" ").toLocaleLowerCase().includes(term))
+      )
+        matches.push({
+          action: entryDisabled ? { ...entry, disabled: true } : entry,
+          path,
+          categories,
+        });
+    }
+  };
+  visit(items, [], [], [], false);
+  return matches;
+}
+
 export function getComposerContextMenuEntries(
   items: readonly ComposerContextMenuItem[],
   path: readonly string[],
@@ -132,33 +186,8 @@ export function getComposerContextMenuEntries(
     if (!category?.children || category.disabled) return [];
     scope = category.children;
   }
-  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) return [...scope];
-  const matches: ComposerContextMenuItem[] = [];
-  const visit = (
-    entries: readonly ComposerContextMenuItem[],
-    ancestors: string[],
-    disabled = false,
-  ) => {
-    for (const entry of entries) {
-      const searchable = [
-        ...ancestors,
-        entry.label,
-        entry.description ?? "",
-        ...(entry.keywords ?? []),
-      ];
-      if (entry.children)
-        visit(entry.children, searchable, disabled || entry.disabled === true);
-      else if (
-        terms.every((term) =>
-          searchable.join(" ").toLocaleLowerCase().includes(term),
-        )
-      )
-        matches.push(disabled ? { ...entry, disabled: true } : entry);
-    }
-  };
-  visit(scope, []);
-  return matches;
+  if (!query.trim()) return [...scope];
+  return searchComposerContextActions(scope, query).map(({ action }) => action);
 }
 
 function ContextSubmenu({
@@ -263,6 +292,7 @@ export function ComposerContextMenu({
   onRestoreFocus,
   contextButtonTooltipDisabled = false,
   disabled,
+  openEntry,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
   const allItems = [...menuActionItems, ...items];
@@ -291,6 +321,10 @@ export function ComposerContextMenu({
   const placement = useComposerPanelPlacement(triggerRef, open);
   const pendingDialog = useRef<ComposerContextDialogSession | null>(null);
   const pendingAttachmentRequest = useRef(false);
+  const pendingEntry = useRef<{
+    action: ComposerContextMenuAction;
+    origin: string[];
+  } | null>(null);
   const [dialog, setDialog] = useState<ComposerContextDialogSession | null>(
     null,
   );
@@ -352,6 +386,7 @@ export function ComposerContextMenu({
       if (controlledOpen === undefined) setInternalOpen(next);
       onOpenChange?.(next);
       if (!next) {
+        pendingEntry.current = null;
         dismissPage();
         updatePath([]);
       }
@@ -408,6 +443,49 @@ export function ComposerContextMenu({
     updatePath([...origin, action.id]);
     if (select && !action.picker) selectAction(action);
   };
+  const openRequestedEntry = (id: string) => {
+    if (disabled) return;
+    const located = [
+      ...searchComposerContextActions(menuActionItems, "").map((match) => ({
+        ...match,
+        origin: match.path,
+      })),
+      ...searchComposerContextActions(items, "").map((match) => ({
+        ...match,
+        origin: ["add-context", ...match.path],
+      })),
+    ].find((match) => match.action.id === id);
+    if (!located || located.action.disabled) {
+      reportError(
+        new Error(
+          t("agentChat.composer.contextActionFailed", {
+            defaultValue: "Could not add context.",
+          }),
+        ),
+      );
+      return;
+    }
+    const { action, origin } = located;
+    setError(null);
+    if (action.picker && typeof action.picker.presentation === "object") {
+      const session = { id: action.id, scopeKey: action.picker.scopeKey };
+      dialogRef.current = session;
+      setDialog(session);
+    } else if (action.picker || action.render) {
+      if (open) activate(action, origin);
+      else {
+        pendingEntry.current = { action, origin };
+        changeOpen(true);
+      }
+    } else {
+      selectAction(action);
+    }
+  };
+  const openRequestedEntryRef = useRef(openRequestedEntry);
+  openRequestedEntryRef.current = openRequestedEntry;
+  useEffect(() => {
+    if (openEntry) openRequestedEntryRef.current(openEntry.id);
+  }, [openEntry]);
   const currentAction = page ? findAction(allItems, page.id) : undefined;
   useEffect(() => {
     if (
@@ -626,6 +704,14 @@ export function ComposerContextMenu({
           }}
           className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100"
           data-agent-native-composer-popover="true"
+          onFocus={() => {
+            // Show a requested page only once focus is inside the menu: a
+            // submenu opened before that reads the focus move as leaving it.
+            const pending = pendingEntry.current;
+            if (!pending) return;
+            pendingEntry.current = null;
+            activate(pending.action, pending.origin);
+          }}
           onCloseAutoFocus={(event) => {
             if (pendingDialog.current) {
               event.preventDefault();

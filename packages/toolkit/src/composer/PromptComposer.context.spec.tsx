@@ -248,6 +248,136 @@ describe("controlled composer context", () => {
     ]);
     expect(onSubmit).not.toHaveBeenCalled();
   });
+  it("suggests host context sources for a typed @ and attaches the one picked", async () => {
+    const onSelect = vi.fn();
+    const { onSubmit } = await mount({
+      initialText: "",
+      contextMenuItems: [
+        {
+          id: "design-context",
+          label: "Design context",
+          children: [{ id: "figma", label: "Figma", onSelect }],
+        },
+      ],
+      includeDefaultMentionSearch: false,
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Use @fig");
+    const popover = document.querySelector(
+      '[data-agent-native-mention-popover="true"]',
+    );
+    expect(popover?.textContent).toContain("Design context");
+    expect(popover?.textContent).toContain("Figma");
+    expect(popover?.textContent).not.toContain("Slides");
+    expect(document.activeElement).toBe(editor);
+    await pressEnter(editor);
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(editor.textContent).toBe("Use ");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+  it("opens a picked host source with its own page in the + menu", async () => {
+    await mount({
+      initialText: "",
+      contextMenuItems: [
+        {
+          id: "documents",
+          label: "Documents",
+          children: [
+            {
+              id: "brief",
+              label: "Project brief",
+              onSelect() {},
+              render: () => <div data-testid="brief-page">Brief page</div>,
+            },
+          ],
+        },
+      ],
+      includeDefaultMentionSearch: false,
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "@brief");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    await pressEnter(editor);
+
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="brief-page"]')?.textContent,
+    ).toBe("Brief page");
+    expect(editor.textContent).toBe("");
+  });
+  it("dismisses @ suggestions with one Escape and keeps typing as text", async () => {
+    const { onSubmit } = await mount({
+      initialText: "",
+      contextMenuItems: [
+        { id: "source", label: "Choose source", onSelect() {} },
+      ],
+      includeDefaultMentionSearch: false,
+      mentionItems: [slidesAgent],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ask @Sli");
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).toBeNull();
+    await typeInto(editor, "des rock");
+
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).toBeNull();
+    expect(editor.textContent).toBe("Ask @Slides rock");
+    await pressEnter(editor);
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ask @Slides rock");
+  });
+  it("keeps every key typed while a slow mention search is pending", async () => {
+    const pending: Array<() => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) =>
+            pending.push(() =>
+              resolve(new Response('{"items":[]}\n', { status: 200 })),
+            ),
+          ),
+      ),
+    );
+    const { onSubmit } = await mount({ initialText: "" });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ping a @builder.io email");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 250)));
+    expect(editor.textContent).toBe("Ping a @builder.io email");
+    expect(document.activeElement).toBe(editor);
+
+    await act(async () => {
+      pending.splice(0).forEach((release) => release());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      document.querySelector('[data-agent-native-mention-popover="true"]'),
+    ).toBeNull();
+    await pressEnter(editor);
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ping a @builder.io email");
+  });
   it("opens the shared Add menu from + without inserting a mention", async () => {
     const onSelect = vi.fn();
     await mount({
