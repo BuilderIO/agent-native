@@ -14,6 +14,8 @@ const DIMENSION_CONTEXT_BEFORE =
   /\b(?:exact(?:ly)?|fixed[- ]size|dimensions?|size|canvas|artboard|frame|screen|pixels?)\s*(?:(?:to|at)\s*)?(?:[:=]\s*)?$/i;
 const DIMENSION_CONTEXT_AFTER =
   /^\s*(?:canvas|artboard|frame|screen|(?:exact(?:ly)?\s+)?(?:dimensions?|size))\b/i;
+const EXPLICIT_OUTPUT_DIMENSION_CONTEXT_BEFORE =
+  /\b(?:(?:exact(?:ly)?\s+)?(?:canvas|artboard|frame|screen)\s+)?(?:exact(?:ly)?\s+)?(?:dimensions?|size)(?:\s+(?:of|is|at|to))?\s*(?:[:=]\s*)?$/i;
 const FORMAT_CONTEXT_BEFORE =
   /\b(?:ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|social\s+post|post|story|email\s+header|email|newsletter|print|flyer|poster|screenshot)(?:\s+(?:at|for|of|in|with|size|dimensions?))?\s*[:,;]?\s*$/i;
 const FORMAT_CONTEXT_AFTER =
@@ -39,11 +41,11 @@ const OUTPUT_CONTAINER_CONTEXT =
 const NESTED_OUTPUT_ASSET_AFTER =
   /^\s*(?:[a-z-]+\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\b/i;
 const NESTED_OUTPUT_RELATIONSHIP_BEFORE = new RegExp(
-  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring|using)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
   "i",
 );
 const NESTED_PAGE_RELATIONSHIP_BEFORE = new RegExp(
-  `\\b${PAGE_CONTAINER_CONTEXT}\\b[\\s\\S]{0,96}(?:\\b(?:with|including|containing|inside|featuring|and)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
+  `\\b${PAGE_CONTAINER_CONTEXT}\\b[\\s\\S]{0,96}(?:\\b(?:with|including|containing|inside|featuring|using|and)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
   "i",
 );
 const NESTED_SCREEN_SIBLING_RELATIONSHIP_BEFORE = new RegExp(
@@ -51,7 +53,7 @@ const NESTED_SCREEN_SIBLING_RELATIONSHIP_BEFORE = new RegExp(
   "i",
 );
 const NESTED_OUTPUT_ASSET_CONTEXT_BEFORE = new RegExp(
-  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring|(?:that|which)\\s+(?:includes|contains|features|has)|and\\s+(?:include|add|insert|place|put|use))\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at|of|exact(?:ly)?)?\\s*$`,
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring|using)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})(?:[a-z-]+\\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at|of|exact(?:ly)?)?\\s*$`,
   "i",
 );
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
@@ -121,7 +123,8 @@ export function explicitCanvasDimensionsFromPrompt(
       ((NESTED_OUTPUT_RELATIONSHIP_BEFORE.test(nearbyPrefix) ||
         NESTED_PAGE_RELATIONSHIP_BEFORE.test(nearbyPrefix) ||
         NESTED_SCREEN_SIBLING_RELATIONSHIP_BEFORE.test(nearbyPrefix)) &&
-        NESTED_OUTPUT_ASSET_AFTER.test(suffix ?? ""));
+        NESTED_OUTPUT_ASSET_AFTER.test(suffix ?? "") &&
+        !EXPLICIT_OUTPUT_DIMENSION_CONTEXT_BEFORE.test(prefix ?? ""));
     const hasImageOutputContext =
       IMAGE_OUTPUT_CONTEXT_BEFORE.test(prefix ?? "") ||
       (ASSET_CONTEXT_AFTER.test(suffix ?? "") && width >= 100 && height >= 100);
