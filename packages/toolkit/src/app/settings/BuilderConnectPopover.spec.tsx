@@ -1,15 +1,57 @@
 // @vitest-environment happy-dom
 
+import { WORKSPACE_SERVICES } from "@agent-native/core/onboarding/workspace-services";
+import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (_key: string, options?: { defaultValue?: string }) =>
-    options?.defaultValue ?? _key,
+  useT:
+    () => (_key: string, options?: { defaultValue?: string; count?: number }) =>
+      (options?.defaultValue ?? _key).replace(
+        "{{count}}",
+        String(options?.count ?? ""),
+      ),
+}));
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  useOnboarding: () => ({
+    loading: false,
+    error: null,
+    profile: {
+      capabilities: [
+        {
+          id: "llm",
+          label: "AI model",
+          required: true,
+          builderIncluded: true,
+          service: "model",
+          keySummary: "Connect your own AI model",
+          why: "The agent uses a language model.",
+        },
+        {
+          id: "design-system-intelligence",
+          label: "Design system intelligence",
+          required: false,
+          builderIncluded: true,
+          service: "design-system-intelligence",
+        },
+        {
+          id: "background-agents",
+          label: "Background agents",
+          required: false,
+          builderIncluded: true,
+          service: "background-agents",
+        },
+      ],
+    },
+  }),
 }));
 
 import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
+import { getBuilderIncludedBenefitCapabilities } from "./BuilderIncludedBenefitsDisclosure.js";
+import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -29,6 +71,33 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+it("shows all eight included services when an app profile omits design intelligence", () => {
+  const clipsCapabilities = [
+    ...WORKSPACE_SERVICES.filter((service) => service.everyApp).map(
+      (service) => ({ ...service.capability, service: service.id }),
+    ),
+    {
+      id: "system-one",
+      label: "Decision model (Jev)",
+      required: false,
+      suggested: true,
+      builderIncluded: true,
+      keySummary: "Jev decision model key",
+      why: "Uses Builder-managed access when available.",
+    },
+  ];
+  const included = getBuilderIncludedBenefitCapabilities(clipsCapabilities);
+
+  expect(included.map((capability) => capability.id)).toContain(
+    "design-system-intelligence",
+  );
+  expect(
+    included.filter(
+      (capability) => capability.id !== "llm" && capability.service !== "model",
+    ),
+  ).toHaveLength(8);
+});
+
 function connectButton(): HTMLButtonElement {
   const button = container.querySelector<HTMLButtonElement>(
     "[data-testid='connect-builder']",
@@ -46,7 +115,7 @@ function click(element: HTMLElement) {
 }
 
 function render(node: React.ReactElement) {
-  act(() => root.render(node));
+  act(() => root.render(React.createElement(TooltipProvider, null, node)));
 }
 
 function trigger() {
@@ -56,32 +125,59 @@ function trigger() {
   });
 }
 
-describe("BuilderConnectPopover before the status read resolves", () => {
-  it("uses existing-account sign-in when provisioning is unavailable", () => {
+async function finishLazyLoad() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+describe("BuilderConnectPopover", () => {
+  it("shows the same chooser when one-click provisioning is unavailable", async () => {
     const onConnect = vi.fn();
     const flow = {
       connecting: false,
       start: vi.fn(),
-      provisionAccount: true,
       statusResolved: true,
       agentNativeProvisioningEnabled: false,
     };
 
     render(
       React.createElement(
-        BuilderConnectPopover,
-        { flow, onConnect },
+        DeferredBuilderConnectPopover,
+        {
+          flow,
+          onConnect,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
         trigger(),
       ),
     );
-
     click(connectButton());
-
-    expect(onConnect).toHaveBeenCalledWith(false);
     expect(flow.start).not.toHaveBeenCalled();
+    expect(onConnect).not.toHaveBeenCalled();
+
+    await finishLazyLoad();
+
+    let consent = document.querySelector("[data-testid='consent']");
+    expect(consent).not.toBeNull();
+    expect(consent?.querySelector("[data-testid='create']")).not.toBeNull();
+    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
+    expect(
+      consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
+        ?.disabled,
+    ).toBe(true);
+
+    click(consent?.querySelector("[data-testid='create']") as HTMLElement);
+    expect(onConnect).not.toHaveBeenCalled();
+    expect(flow.start).not.toHaveBeenCalled();
+
+    click(consent?.querySelector("[data-testid='sign-in']") as HTMLElement);
+    expect(onConnect).toHaveBeenLastCalledWith(false);
   });
 
-  it("never replays a queued click into the popup path", () => {
+  it("opens immediately while Builder status is unresolved", () => {
     const onConnect = vi.fn();
     const retry = vi.fn(() => true);
     const flow = {
@@ -89,51 +185,6 @@ describe("BuilderConnectPopover before the status read resolves", () => {
       start: vi.fn(),
       retry,
       statusResolved: false,
-      statusReadSettledCount: 0,
-      agentNativeProvisioningEnabled: false,
-    };
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        { flow, onConnect },
-        trigger(),
-      ),
-    );
-
-    click(connectButton());
-
-    expect(retry).toHaveBeenCalledTimes(1);
-    expect(connectButton().getAttribute("aria-busy")).toBe("true");
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow: { ...flow, statusResolved: true, statusReadSettledCount: 1 },
-          onConnect,
-        },
-        trigger(),
-      ),
-    );
-
-    expect(onConnect).not.toHaveBeenCalled();
-    expect(flow.start).not.toHaveBeenCalled();
-    expect(connectButton().getAttribute("aria-busy")).toBeNull();
-
-    click(connectButton());
-    expect(onConnect).toHaveBeenCalledTimes(1);
-    expect(onConnect).toHaveBeenCalledWith(false);
-  });
-
-  it("opens the consent popover when the resolved capability offers provisioning", () => {
-    const onConnect = vi.fn();
-    const flow = {
-      connecting: false,
-      start: vi.fn(),
-      retry: vi.fn(() => true),
-      statusResolved: false,
-      statusReadSettledCount: 0,
       agentNativeProvisioningEnabled: false,
     };
 
@@ -145,78 +196,241 @@ describe("BuilderConnectPopover before the status read resolves", () => {
           onConnect,
           contentTestId: "consent",
           primaryTestId: "create",
+          secondaryTestId: "sign-in",
         },
         trigger(),
       ),
     );
-
     click(connectButton());
+
+    expect(document.querySelector("[data-testid='consent']")).not.toBeNull();
+    expect(
+      document.querySelector<HTMLButtonElement>("[data-testid='create']")
+        ?.disabled,
+    ).toBe(true);
+    expect(retry).not.toHaveBeenCalled();
+    expect(flow.start).not.toHaveBeenCalled();
+  });
+
+  it("offers a retry after a Builder status read fails", () => {
+    const retry = vi.fn(() => true);
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry,
+      statusResolved: false,
+      statusReadSettledCount: 1,
+      agentNativeProvisioningEnabled: false,
+    };
 
     render(
       React.createElement(
         BuilderConnectPopover,
         {
-          flow: {
-            ...flow,
-            statusResolved: true,
-            statusReadSettledCount: 1,
-            agentNativeProvisioningEnabled: true,
-          },
+          flow,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    click(connectButton());
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.textContent).toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
+    click(
+      [...(consent?.querySelectorAll("button") ?? [])].find(
+        (button) => button.textContent === "Retry",
+      ) as HTMLElement,
+    );
+    expect(retry).toHaveBeenCalledOnce();
+    expect(
+      consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
+        ?.disabled,
+    ).toBe(true);
+  });
+
+  it("allows an explicit one-click handler for a custom flow", () => {
+    const onConnect = vi.fn();
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow,
           onConnect,
+          canProvisionAccount: true,
           contentTestId: "consent",
           primaryTestId: "create",
         },
         trigger(),
       ),
     );
+    click(connectButton());
 
-    expect(onConnect).not.toHaveBeenCalled();
-    const consent = document.querySelector("[data-testid='consent']");
-    expect(consent).not.toBeNull();
-    expect(consent?.className).toContain("z-[330]");
-    const create = consent?.querySelector<HTMLButtonElement>(
+    const create = document.querySelector<HTMLButtonElement>(
       "[data-testid='create']",
     );
-    expect(create).not.toBeNull();
+    expect(create?.disabled).toBe(false);
     click(create!);
-    expect(onConnect).toHaveBeenCalledWith(true);
+    expect(onConnect).toHaveBeenCalledExactlyOnceWith(true);
+    expect(flow.start).not.toHaveBeenCalled();
   });
 
-  it("stacks the create and sign-in buttons together with the terms below them", () => {
+  it("opens the chooser first and sends Create and activate to provisioning", async () => {
+    const open = vi.spyOn(window, "open");
+    const flow = {
+      connecting: false,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      start: vi.fn(),
+    };
+
+    render(
+      React.createElement(
+        DeferredBuilderConnectPopover,
+        {
+          flow,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    click(connectButton());
+    await finishLazyLoad();
+
+    expect(document.body.textContent).toContain("Create and activate");
+    expect(document.body.textContent).toContain("I have a Builder.io account");
+    expect(flow.start).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+
+    click(document.querySelector("[data-testid='create']") as HTMLElement);
+
+    expect(flow.start).toHaveBeenCalledExactlyOnceWith({
+      provisionAccount: true,
+    });
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("keeps both choices and one-click creation when an account already exists", () => {
+    const onConnect = vi.fn();
     const flow = {
       connecting: false,
       start: vi.fn(),
-      retry: vi.fn(() => true),
-      statusResolved: false,
-      statusReadSettledCount: 0,
-      agentNativeProvisioningEnabled: false,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      accountExists: true,
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow,
+          onConnect,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    click(connectButton());
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.textContent).toContain(
+      "Create or connect a Builder.io account in one click to get free credits.",
+    );
+    expect(consent?.textContent).toContain(
+      "You already have a Builder.io account",
+    );
+    expect(consent?.querySelector("[data-testid='create']")?.textContent).toBe(
+      "Create and activate",
+    );
+    expect(consent?.querySelector("[data-testid='sign-in']")?.textContent).toBe(
+      "I have a Builder.io account",
+    );
+    expect(consent?.textContent).toContain("Activate free credits");
+    expect(consent?.textContent).toContain("Terms of Service");
+    expect(consent?.textContent).toContain("Privacy Policy");
+
+    click(consent?.querySelector("[data-testid='create']") as HTMLElement);
+    expect(onConnect).toHaveBeenLastCalledWith(true);
+    click(connectButton());
+    click(
+      document.querySelector(
+        "[data-testid='consent'] [data-testid='sign-in']",
+      ) as HTMLElement,
+    );
+    expect(onConnect).toHaveBeenLastCalledWith(false);
+  });
+
+  it("reopens the same two choices after activation finds an existing account", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
     };
     const props = {
+      flow,
+      contentTestId: "consent",
+      primaryTestId: "create",
+      secondaryTestId: "sign-in",
+    };
+
+    render(React.createElement(BuilderConnectPopover, props, trigger()));
+    click(connectButton());
+    click(
+      document.querySelector(
+        "[data-testid='consent'] [data-testid='create']",
+      ) as HTMLElement,
+    );
+    expect(flow.start).toHaveBeenCalledWith({ provisionAccount: true });
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { ...props, flow: { ...flow, accountExists: true } },
+        trigger(),
+      ),
+    );
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.querySelector("[data-testid='create']")).not.toBeNull();
+    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
+    click(consent?.querySelector("[data-testid='create']") as HTMLElement);
+    expect(flow.start).toHaveBeenLastCalledWith({ provisionAccount: true });
+  });
+
+  it("shows included services collapsed and stacks both choices above the terms", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+    };
+    const props = {
+      flow,
       onConnect: vi.fn(),
       contentTestId: "consent",
       primaryTestId: "create",
       secondaryTestId: "sign-in",
     };
 
-    render(
-      React.createElement(BuilderConnectPopover, { flow, ...props }, trigger()),
-    );
+    render(React.createElement(BuilderConnectPopover, props, trigger()));
     click(connectButton());
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow: {
-            ...flow,
-            statusResolved: true,
-            statusReadSettledCount: 1,
-            agentNativeProvisioningEnabled: true,
-          },
-          ...props,
-        },
-        trigger(),
-      ),
-    );
 
     const consent = document.querySelector("[data-testid='consent']");
     const create = consent?.querySelector("[data-testid='create']");
@@ -225,9 +439,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
       p.querySelector("a"),
     );
     expect(create && signIn && terms).toBeTruthy();
-    expect(consent?.textContent).toContain(
-      "Included free with a Builder.io account",
-    );
+    expect(consent?.textContent).toContain("Included free");
     expect(consent?.textContent).toContain("60 monthly Agent Credits");
     expect(signIn?.parentElement).toBe(create?.parentElement);
     expect(create!.compareDocumentPosition(signIn!)).toBe(
@@ -237,232 +449,25 @@ describe("BuilderConnectPopover before the status read resolves", () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(signIn!.className).toContain("bg-secondary");
-  });
 
-  it("releases the queued click when the read it triggered settles unresolved", () => {
-    const onConnect = vi.fn();
-    const flow = {
-      connecting: false,
-      start: vi.fn(),
-      retry: vi.fn(() => true),
-      statusResolved: false,
-      statusReadSettledCount: 0,
-      agentNativeProvisioningEnabled: false,
-    };
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        { flow, onConnect },
-        trigger(),
-      ),
+    const services = consent?.querySelector<HTMLElement>(
+      "[data-testid='builder-included-services']",
     );
-
-    click(connectButton());
-    expect(connectButton().getAttribute("aria-busy")).toBe("true");
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow: { ...flow, statusReadSettledCount: 1 },
-          onConnect,
-        },
-        trigger(),
-      ),
+    const servicesToggle = services?.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
     );
-
-    expect(onConnect).not.toHaveBeenCalled();
-    expect(connectButton().getAttribute("aria-busy")).toBeNull();
-  });
-
-  it("keeps a click queued across a retry that started from a prior failure", () => {
-    const onConnect = vi.fn();
-    const retry = vi.fn(() => true);
-    const flow = {
-      connecting: false,
-      start: vi.fn(),
-      retry,
-      statusResolved: false,
-      statusReadSettledCount: 3,
-      agentNativeProvisioningEnabled: false,
-      error: "Couldn't reach Builder to check your account. Retrying.",
-    };
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        { flow, onConnect, contentTestId: "consent" },
-        trigger(),
-      ),
-    );
-
-    click(connectButton());
-    expect(retry).toHaveBeenCalledTimes(1);
-    expect(connectButton().getAttribute("aria-busy")).toBe("true");
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow: {
-            ...flow,
-            statusResolved: true,
-            statusReadSettledCount: 4,
-            agentNativeProvisioningEnabled: true,
-            error: null,
-          },
-          onConnect,
-          contentTestId: "consent",
-        },
-        trigger(),
-      ),
-    );
-
-    expect(document.querySelector("[data-testid='consent']")).not.toBeNull();
-  });
-
-  it("does not start a second read while a click is already queued", () => {
-    const onConnect = vi.fn();
-    const retry = vi.fn(() => true);
-    const flow = {
-      connecting: false,
-      start: vi.fn(),
-      retry,
-      statusResolved: false,
-      statusReadSettledCount: 0,
-      agentNativeProvisioningEnabled: false,
-    };
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        { flow, onConnect, contentTestId: "consent" },
-        trigger(),
-      ),
-    );
-
-    click(connectButton());
-    click(connectButton());
-    click(connectButton());
-
-    expect(retry).toHaveBeenCalledTimes(1);
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow: {
-            ...flow,
-            statusResolved: true,
-            statusReadSettledCount: 1,
-            agentNativeProvisioningEnabled: true,
-          },
-          onConnect,
-          contentTestId: "consent",
-        },
-        trigger(),
-      ),
-    );
-
-    expect(document.querySelector("[data-testid='consent']")).not.toBeNull();
-  });
-
-  it("does not queue against a flow that cannot start a read", () => {
-    const onConnect = vi.fn();
-    const flow = {
-      connecting: false,
-      start: vi.fn(),
-      retry: vi.fn(() => false),
-      statusResolved: false,
-      statusReadSettledCount: 0,
-      agentNativeProvisioningEnabled: false,
-    };
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        { flow, onConnect },
-        trigger(),
-      ),
-    );
-
-    click(connectButton());
-
-    expect(flow.retry).toHaveBeenCalledTimes(1);
-    expect(connectButton().getAttribute("aria-busy")).toBeNull();
-    expect(onConnect).not.toHaveBeenCalled();
-  });
-
-  it("releases a queued click when the flow resets its settle counter", () => {
-    const onConnect = vi.fn();
-    const flow = {
-      connecting: false,
-      start: vi.fn(),
-      retry: vi.fn(() => true),
-      statusResolved: false,
-      statusReadSettledCount: 4,
-      agentNativeProvisioningEnabled: false,
-    };
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        { flow, onConnect },
-        trigger(),
-      ),
-    );
-
-    click(connectButton());
-    expect(connectButton().getAttribute("aria-busy")).toBe("true");
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow: { ...flow, statusReadSettledCount: 0 },
-          onConnect,
-        },
-        trigger(),
-      ),
-    );
-
-    expect(connectButton().getAttribute("aria-busy")).toBeNull();
-    expect(onConnect).not.toHaveBeenCalled();
-    expect(flow.start).not.toHaveBeenCalled();
-  });
-
-  it("does not replay a pending click that the user never made", () => {
-    const onConnect = vi.fn();
-    const flow = {
-      connecting: false,
-      start: vi.fn(),
-      retry: vi.fn(() => true),
-      statusResolved: false,
-      statusReadSettledCount: 0,
-      agentNativeProvisioningEnabled: false,
-    };
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        { flow, onConnect },
-        trigger(),
-      ),
-    );
-
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow: { ...flow, statusResolved: true, statusReadSettledCount: 1 },
-          onConnect,
-        },
-        trigger(),
-      ),
-    );
-
-    expect(onConnect).not.toHaveBeenCalled();
+    expect(servicesToggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      Array.from(
+        servicesToggle?.querySelectorAll(":scope > span > span") ?? [],
+      ).map((line) => line.textContent),
+    ).toEqual([
+      "Included free",
+      "60 monthly Agent Credits",
+      "+ 2 more services",
+    ]);
+    click(servicesToggle!);
+    expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");
   });
 });
 

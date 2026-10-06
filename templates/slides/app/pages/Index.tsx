@@ -17,14 +17,13 @@ import {
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { invalidateClientStatusRequest } from "@agent-native/core/client/status-requests";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
 } from "@agent-native/toolkit/agentkit";
 import {
   PromptHome,
-  PromptHomeLibrary,
-  type PromptHomeLibraryTab,
   useHomeSearchShortcut,
   useSetHeaderActions,
   useSetPageTitle,
@@ -89,6 +88,10 @@ import PromptPopover, {
 } from "@/components/editor/PromptDialog";
 import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
 import { usePromptImport } from "@/components/editor/use-prompt-import";
+import {
+  SlidesHomeLibrary,
+  type SlidesHomeLibraryTab,
+} from "@/components/home/SlidesHomeLibrary";
 import { HomeHeaderActions } from "@/components/layout/Header";
 import { useOpenMobileSidebar } from "@/components/layout/Layout";
 import { DeckTemplateLibrary } from "@/components/templates/DeckTemplateLibrary";
@@ -202,31 +205,12 @@ function HomeChrome({ title, actions }: { title: string; actions: ReactNode }) {
   return null;
 }
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
-const HOME_LIBRARY_TAB_STORAGE_KEY = "slides:home-library-tab";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
 const PENDING_PROMPT_MODEL_SELECTION_KEY =
   "slides:pending-deck-model-selection";
 const PENDING_PROMPT_REFERENCE_SELECTION_KEY =
   "slides:pending-deck-reference-selection";
-
-function readStoredHomeLibraryTab(): PromptHomeLibraryTab | undefined {
-  try {
-    const tab = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
-    return tab === "templates" || tab === "recent" ? tab : undefined;
-  } catch {
-    // coercion-ok: the tab preference is optional when browser storage is unavailable.
-    return undefined;
-  }
-}
-
-function writeStoredHomeLibraryTab(tab: PromptHomeLibraryTab): void {
-  try {
-    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, tab);
-  } catch {
-    // coercion-ok: an unavailable preference store preserves the in-memory selection.
-  }
-}
 
 type DeckModelSelection = Pick<
   PromptComposerSubmitOptions,
@@ -512,6 +496,34 @@ async function loadReferenceDeckGenerationContext(
   ].join("\n");
 }
 
+const HOME_LIBRARY_TAB_STORAGE_KEY = "slides-home-library-tab";
+
+function readHomeLibraryTabPreference():
+  | { status: "available"; value: SlidesHomeLibraryTab | null }
+  | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
+  try {
+    const value = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
+    return {
+      status: "available",
+      value: value === "templates" || value === "recent" ? value : null,
+    };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+function writeHomeLibraryTabPreference(
+  value: SlidesHomeLibraryTab,
+): { status: "available" } | { status: "unavailable" } {
+  try {
+    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, value);
+    return { status: "available" };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
 export default function Index({ active = true }: { active?: boolean }) {
   const t = useT();
   const openMobileSidebar = useOpenMobileSidebar();
@@ -533,6 +545,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     reloadDecks,
     catchUpStaleDeckList,
   } = useDecks();
+  const viewState = deckListViewState({
+    loading,
+    loadError,
+    deckCount: decks.length,
+  });
   const systemsFlag = useDesignSystemWorkflowsState();
   const systemsEnabled = systemsFlag.enabled;
   const {
@@ -557,6 +574,8 @@ export default function Index({ active = true }: { active?: boolean }) {
   const agentEngine = useAgentEngineConfigured();
   const [preflightAgentEngineState, setPreflightAgentEngineState] =
     useState<AgentEngineConfiguredState | null>(null);
+  const [agentEnginePreflightPending, setAgentEnginePreflightPending] =
+    useState(false);
   const preflightRequestIdRef = useRef(0);
   const effectiveAgentEngineState =
     preflightAgentEngineState ?? agentEngine.state;
@@ -570,6 +589,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     if (agentEngine.state === "configured" || agentEngine.state === "missing") {
       preflightRequestIdRef.current += 1;
       setPreflightAgentEngineState(null);
+      setAgentEnginePreflightPending(false);
     }
   }, [agentEngine.state]);
   // The draft a send held back for missing AI setup is sent once, as soon as
@@ -578,13 +598,19 @@ export default function Index({ active = true }: { active?: boolean }) {
   const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
   const ensureAgentEngineConfigured = useCallback(
     async (draft?: ComposerDraftSnapshot) => {
-      if (agentEngineConfigured) return true;
       const requestId = ++preflightRequestIdRef.current;
+      setAgentEnginePreflightPending(true);
       let nextState: AgentEngineConfiguredState;
       try {
+        invalidateClientStatusRequest("/_agent-native/agent-engine/status");
+        window.dispatchEvent(new Event("agent-engine:configured-changed"));
         nextState = await fetchAgentEngineConfiguredState();
       } catch {
         nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
+      } finally {
+        if (requestId === preflightRequestIdRef.current) {
+          setAgentEnginePreflightPending(false);
+        }
       }
       if (requestId !== preflightRequestIdRef.current) {
         return canChatRef.current;
@@ -613,6 +639,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const retryAgentEngineStatus = useCallback(() => {
     preflightRequestIdRef.current += 1;
     setPreflightAgentEngineState(null);
+    setAgentEnginePreflightPending(false);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
@@ -639,7 +666,6 @@ export default function Index({ active = true }: { active?: boolean }) {
           prompt,
         }));
   const navigate = useNavigate();
-  useHomeSearchShortcut(isHome);
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
@@ -701,30 +727,42 @@ export default function Index({ active = true }: { active?: boolean }) {
     string | null
   >(null);
   const [deckSearch, setDeckSearch] = useState("");
-  const storedHomeLibraryTab = readStoredHomeLibraryTab();
-  const [homeSection, setHomeSection] = useState<PromptHomeLibraryTab>(
-    storedHomeLibraryTab ?? "templates",
+  const [storedHomeLibraryTab] = useState(readHomeLibraryTabPreference);
+  const homeLibraryTabPreferenceRef = useRef(
+    storedHomeLibraryTab.status === "available"
+      ? storedHomeLibraryTab.value
+      : null,
   );
-  const homeLibraryTabWasSelectedRef = useRef(
-    storedHomeLibraryTab !== undefined,
+  const homeLibraryTabStorageAvailableRef = useRef(
+    storedHomeLibraryTab.status === "available",
+  );
+  const [homeSection, setHomeSection] = useState<SlidesHomeLibraryTab>(
+    homeLibraryTabPreferenceRef.current ??
+      (viewState === "decks" ? "recent" : "templates"),
+  );
+  const persistHomeLibraryTab = useCallback((value: SlidesHomeLibraryTab) => {
+    if (!homeLibraryTabStorageAvailableRef.current) return;
+    homeLibraryTabStorageAvailableRef.current =
+      writeHomeLibraryTabPreference(value).status === "available";
+  }, []);
+  const selectHomeLibraryTab = useCallback(
+    (value: SlidesHomeLibraryTab) => {
+      homeLibraryTabPreferenceRef.current = value;
+      setHomeSection(value);
+      persistHomeLibraryTab(value);
+    },
+    [persistHomeLibraryTab],
   );
   const deckFilterWasSelectedRef = useRef(false);
+  const revealRecentSearch = useCallback(() => {
+    if (decks.length === 0) return false;
+    selectHomeLibraryTab("recent");
+    return true;
+  }, [decks.length, selectHomeLibraryTab]);
+  useHomeSearchShortcut(isHome, revealRecentSearch);
   useEffect(() => {
-    if (deckSearch.trim()) setHomeSection("recent");
-  }, [deckSearch]);
-  useEffect(() => {
-    if (
-      isHome &&
-      !homeLibraryTabWasSelectedRef.current &&
-      !loading &&
-      !loadError &&
-      decks.length > 0
-    ) {
-      setHomeSection("recent");
-      writeStoredHomeLibraryTab("recent");
-      homeLibraryTabWasSelectedRef.current = true;
-    }
-  }, [decks.length, isHome, loadError, loading]);
+    if (deckSearch.trim()) selectHomeLibraryTab("recent");
+  }, [deckSearch, selectHomeLibraryTab]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
@@ -779,6 +817,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       sortDecksByRecency(
         decks.filter((deck) => {
           if (deckFilter === "mine" && !deck.createdByMe) return false;
+          if (deckFilter === "not-mine" && deck.createdByMe) return false;
           return (
             normalizedDeckSearch.length === 0 ||
             deck.title.toLowerCase().includes(normalizedDeckSearch)
@@ -879,7 +918,8 @@ export default function Index({ active = true }: { active?: boolean }) {
 
   const setDeckFilter = useCallback(
     (value: string) => {
-      const nextFilter = value === "mine" ? "mine" : "all";
+      const nextFilter: DeckFilter =
+        value === "mine" || value === "not-mine" ? value : "all";
       deckFilterWasSelectedRef.current = true;
       setStoredDeckFilter(nextFilter);
       writeStoredDeckFilter(nextFilter);
@@ -888,6 +928,8 @@ export default function Index({ active = true }: { active?: boolean }) {
           const next = new URLSearchParams(prev);
           if (nextFilter === "mine") {
             next.set("createdBy", "me");
+          } else if (nextFilter === "not-mine") {
+            next.set("createdBy", "not-me");
           } else {
             next.delete("createdBy");
           }
@@ -1130,6 +1172,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         noDefaultSlides: true,
         designSystemId: selectedDesignSystem?.id ?? null,
         deferPersistence: true,
+        undoableCreation: false,
       });
     });
     if (!deck) {
@@ -2366,29 +2409,30 @@ export default function Index({ active = true }: { active?: boolean }) {
 
   const homeTitle = t("home.decksTitle");
   const deckImport = usePromptImport({ onImport: handleDirectImport });
-  const viewState = deckListViewState({
-    loading,
-    loadError,
-    deckCount: decks.length,
-  });
-  const hasDecks = viewState === "decks";
+  useEffect(() => {
+    if (viewState === "loading") return;
+    if (viewState === "empty") {
+      setHomeSection("templates");
+      homeLibraryTabPreferenceRef.current = "templates";
+      persistHomeLibraryTab("templates");
+      return;
+    }
+    if (viewState === "error") {
+      setHomeSection("templates");
+      return;
+    }
+    const preferredTab = homeLibraryTabPreferenceRef.current ?? "recent";
+    homeLibraryTabPreferenceRef.current = preferredTab;
+    setHomeSection(preferredTab);
+    persistHomeLibraryTab(preferredTab);
+  }, [persistHomeLibraryTab, viewState]);
   const homeHeaderActions = useMemo(
     () => (
-      <HomeHeaderActions
-        search={
-          hasDecks ? (
-            <DeckSearchInput
-              value={deckSearch}
-              onChange={setDeckSearch}
-              className="w-full"
-            />
-          ) : null
-        }
-      >
+      <HomeHeaderActions>
         <ImportDeckButton controller={deckImport} />
       </HomeHeaderActions>
     ),
-    [deckImport, deckSearch, hasDecks, setDeckSearch],
+    [deckImport],
   );
   if (isStartingNewDeck) {
     return (
@@ -2422,13 +2466,6 @@ export default function Index({ active = true }: { active?: boolean }) {
               >
                 <IconMenu2 className="size-4" aria-hidden="true" />
               </button>
-            ) : null}
-            {hasDecks ? (
-              <DeckSearchInput
-                value={deckSearch}
-                onChange={setDeckSearch}
-                className="slides-home-mobile-search min-w-0 flex-1"
-              />
             ) : null}
             <div className="slides-home-mobile-import">
               <ImportDeckButton controller={deckImport} />
@@ -2502,6 +2539,10 @@ export default function Index({ active = true }: { active?: boolean }) {
               context={composerContext}
               controllerRef={homeComposerRef}
               disabled={!isHome}
+              preflightPending={agentEnginePreflightPending}
+              // The composer re-reads this right after onBeforeSubmit resolves,
+              // before React re-renders, so a preflight flag here drops the send.
+              submissionDisabled={agentEngineMissing ? true : undefined}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
               open={showNewDeckPrompt}
@@ -2571,7 +2612,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome && quickActionsEnabled ? (
+        isHome && showNewDeckPrompt ? (
           <AgentSuggestionBar
             suggestions={homeSuggestions.map((suggestion, index) => ({
               ...suggestion,
@@ -2613,13 +2654,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       ) : null}
       <ClientOnly>
-        <PromptHomeLibrary
+        <SlidesHomeLibrary
           value={homeSection}
-          onValueChange={(value) => {
-            homeLibraryTabWasSelectedRef.current = true;
-            writeStoredHomeLibraryTab(value);
-            setHomeSection(value);
-          }}
+          onValueChange={selectHomeLibraryTab}
           labels={{
             templates: t("templatesPage.title"),
             recent: t("home.recent"),
@@ -2632,35 +2669,47 @@ export default function Index({ active = true }: { active?: boolean }) {
               </Link>
             </Button>
           }
+          search={
+            <DeckSearchInput
+              value={deckSearch}
+              onChange={setDeckSearch}
+              className="w-full sm:w-64 sm:shrink-0"
+            />
+          }
           recentActions={
-            hasDecks ? (
-              <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-            ) : null
+            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           }
           templates={<DeckTemplateLibrary enabled={isHome} />}
           recent={
-            <div className="agent-template-library-grid">
-              {visibleDecks.map((deck) => (
-                <DeckCard
-                  key={deck.id}
-                  deck={deck}
-                  onDelete={(id) => setDeckToDelete(id)}
-                  onRename={handleRename}
-                  onDuplicate={handleDuplicate}
-                  onToggleStar={handleToggleStar}
-                  isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
-                  canSetWorkspaceDefault={canManageWorkspaceDefaults}
-                  onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
-                />
-              ))}
-              {visibleDecks.length === 0 && (
-                <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                  {normalizedDeckSearch
-                    ? t("home.noDecksMatchSearch")
-                    : t("home.noMineDecks")}
-                </div>
-              )}
-            </div>
+            viewState === "loading" ? (
+              <DeckListLoadingSkeleton />
+            ) : viewState === "error" ? null : (
+              <div className="agent-template-library-grid">
+                {visibleDecks.map((deck) => (
+                  <DeckCard
+                    key={deck.id}
+                    deck={deck}
+                    onDelete={(id) => setDeckToDelete(id)}
+                    onRename={handleRename}
+                    onDuplicate={handleDuplicate}
+                    onToggleStar={handleToggleStar}
+                    isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
+                    canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                    onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
+                  />
+                ))}
+                {visibleDecks.length === 0 &&
+                  (normalizedDeckSearch ? (
+                    <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                      {t("home.noDecksMatchSearch")}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                      {t("home.noDecksMatchFilter")}
+                    </div>
+                  ))}
+              </div>
+            )
           }
         />
       </ClientOnly>
@@ -2827,6 +2876,29 @@ export default function Index({ active = true }: { active?: boolean }) {
   );
 }
 
+function DeckListLoadingSkeleton() {
+  return (
+    <div className="agent-template-library-grid" aria-busy="true">
+      {Array.from({ length: 8 }, (_, index) => (
+        <div
+          key={index}
+          className="agent-template-library-card group relative min-w-0"
+          aria-hidden="true"
+        >
+          <div className="agent-template-library-primary overflow-hidden rounded-xl border border-border bg-card">
+            <div className="agent-template-library-preview bg-muted/30">
+              <Skeleton className="size-full rounded-none" />
+            </div>
+            <div className="agent-template-library-caption">
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DeckSearchInput({
   value,
   onChange,
@@ -2850,7 +2922,7 @@ function DeckSearchInput({
         placeholder={t("root.searchDecks")}
         aria-label={t("root.searchDecks")}
         data-home-search="true"
-        className="h-8 pe-3 ps-9"
+        className="h-9 pe-3 ps-9"
       />
     </div>
   );

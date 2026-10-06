@@ -255,7 +255,10 @@ export default defineConfig({
             "src/native-host/browser-control-host.ts",
           ),
         },
-        output: { format: "cjs", entryFileNames: "[name].js" },
+        output: {
+          format: "cjs",
+          entryFileNames: "[name].js",
+        },
       },
     },
   },

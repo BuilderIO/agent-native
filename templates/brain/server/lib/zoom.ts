@@ -16,8 +16,19 @@ export class ZoomHttpError extends Error {
   ) {
     const code = zoomCode ? " (code " + zoomCode + ")" : "";
     const reason = zoomReason ? ": " + zoomReason : "";
+    const hint =
+      zoomCode === "unsupported_grant_type"
+        ? " These credentials are not from a Zoom Server-to-Server OAuth app. Create one in the Zoom App Marketplace and replace ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET."
+        : "";
     super(
-      "Zoom " + step + " failed with status " + status + code + reason + ".",
+      "Zoom " +
+        step +
+        " failed with status " +
+        status +
+        code +
+        reason +
+        "." +
+        hint,
     );
     this.name = "ZoomHttpError";
   }
@@ -43,11 +54,6 @@ export interface ZoomMeeting {
   start_time: string;
   share_url?: string;
   recording_files?: ZoomRecordingFile[];
-}
-
-interface ZoomUsersPage {
-  users?: Array<{ id?: string }>;
-  next_page_token?: string;
 }
 
 interface ZoomRecordingsPage {
@@ -139,33 +145,42 @@ export async function fetchZoomAccessToken(
   return body.access_token;
 }
 
-export async function listZoomUserIds(token: string): Promise<string[]> {
-  const ids: string[] = [];
-  let nextPageToken: string | undefined;
-  do {
-    const params = new URLSearchParams({
-      status: "active",
-      page_size: String(ZOOM_PAGE_SIZE),
-    });
-    if (nextPageToken) params.set("next_page_token", nextPageToken);
-    const page = await zoomApiJson<ZoomUsersPage>(
-      token,
-      `${ZOOM_API_BASE}/users?${params.toString()}`,
-      "user list",
-    );
-    for (const user of page.users ?? []) {
-      if (user.id) ids.push(user.id);
-    }
-    nextPageToken = page.next_page_token || undefined;
-  } while (nextPageToken);
-  return ids;
+type ZoomPageCallback = () => Promise<void>;
+
+// "me" is the token's own account and needs only the :admin scope; a literal
+// account ID is a master-account call that requires the :master scope.
+export function listZoomAccountRecordings(
+  token: string,
+  from: string,
+  to: string,
+  onPage?: ZoomPageCallback,
+) {
+  return listZoomRecordingPages(
+    token,
+    "/accounts/me/recordings",
+    from,
+    to,
+    onPage,
+  );
 }
 
-export async function listZoomRecordings(
+export function listZoomRecordings(
   token: string,
   userId: string,
   from: string,
   to: string,
+  onPage?: ZoomPageCallback,
+) {
+  const path = "/users/" + encodeURIComponent(userId) + "/recordings";
+  return listZoomRecordingPages(token, path, from, to, onPage);
+}
+
+async function listZoomRecordingPages(
+  token: string,
+  path: string,
+  from: string,
+  to: string,
+  onPage?: ZoomPageCallback,
 ): Promise<ZoomMeeting[]> {
   const meetings: ZoomMeeting[] = [];
   let nextPageToken: string | undefined;
@@ -178,10 +193,11 @@ export async function listZoomRecordings(
     if (nextPageToken) params.set("next_page_token", nextPageToken);
     const page = await zoomApiJson<ZoomRecordingsPage>(
       token,
-      `${ZOOM_API_BASE}/users/${encodeURIComponent(userId)}/recordings?${params.toString()}`,
+      `${ZOOM_API_BASE}${path}?${params.toString()}`,
       "recording list",
     );
     meetings.push(...(page.meetings ?? []));
+    await onPage?.();
     nextPageToken = page.next_page_token || undefined;
   } while (nextPageToken);
   return meetings;
@@ -277,6 +293,68 @@ export function hasProcessingTranscript(meeting: ZoomMeeting): boolean {
   return (meeting.recording_files ?? []).some(
     (file) => file.file_type === "TRANSCRIPT" && file.status === "processing",
   );
+}
+
+export interface ZoomMeetingFilter {
+  meetingIds: Set<string>;
+  meetingTopics: Set<string>;
+}
+
+// Zoom shows meeting IDs as "123 4567 8901"; the API returns 12345678901.
+export function normalizeZoomMeetingId(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const id = String(value).replace(/[\s-]/g, "");
+  return /^\d{6,15}$/.test(id) ? id : null;
+}
+
+export function normalizeZoomMeetingTopic(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const topic = value.trim().replace(/\s+/g, " ").toLowerCase();
+  return topic || null;
+}
+
+function normalizedSet(
+  raw: unknown,
+  normalize: (value: unknown) => string | null,
+): Set<string> {
+  if (!Array.isArray(raw)) return new Set();
+  return new Set(
+    raw.map(normalize).filter((value): value is string => Boolean(value)),
+  );
+}
+
+export function zoomMeetingFilterFromConfig(
+  zoomConfig: Record<string, unknown>,
+): ZoomMeetingFilter | null {
+  const filter = {
+    meetingIds: normalizedSet(zoomConfig.meetingIds, normalizeZoomMeetingId),
+    meetingTopics: normalizedSet(
+      zoomConfig.meetingTopics,
+      normalizeZoomMeetingTopic,
+    ),
+  };
+  return filter.meetingIds.size || filter.meetingTopics.size ? filter : null;
+}
+
+export function zoomMeetingFilterKey(
+  filter: ZoomMeetingFilter | null,
+): string | null {
+  if (!filter) return null;
+  return JSON.stringify({
+    meetingIds: [...filter.meetingIds].sort(),
+    meetingTopics: [...filter.meetingTopics].sort(),
+  });
+}
+
+export function zoomMeetingMatchesFilter(
+  meeting: Pick<ZoomMeeting, "id" | "topic">,
+  filter: ZoomMeetingFilter | null,
+): boolean {
+  if (!filter) return true;
+  const id = normalizeZoomMeetingId(meeting.id);
+  if (id && filter.meetingIds.has(id)) return true;
+  const topic = normalizeZoomMeetingTopic(meeting.topic);
+  return Boolean(topic && filter.meetingTopics.has(topic));
 }
 
 // The window must stay open until every pending transcript finishes, or a

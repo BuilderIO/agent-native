@@ -57,7 +57,7 @@ export interface GroupSelectionArgs {
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;

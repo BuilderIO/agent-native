@@ -129,7 +129,7 @@ test("selects only docs checks for an all-docs change set", () => {
   const scope = classifyChangedPaths([
     "packages/core/docs/content/actions.mdx",
     "packages/docs/public/architecture.svg",
-    "README.md",
+    "CONTRIBUTING.md",
   ]);
 
   assert.equal(scope.docsOnly, true);
@@ -139,6 +139,29 @@ test("selects only docs checks for an all-docs change set", () => {
       .filter(([, enabled]) => enabled)
       .map(([name]) => name),
     ["lint", "changeset"],
+  );
+});
+
+test("runs the guards for a README-only change set", () => {
+  for (const paths of [
+    ["README.md"],
+    ["packages/core/README.md", ".changeset/readme-link-tags.md"],
+    ["templates/chat/README.md", "packages/core/CHANGELOG.md"],
+  ]) {
+    const scope = classifyChangedPaths(paths);
+
+    assert.equal(scope.docsOnly, true, paths.join(", "));
+    assert.equal(scope.full, false, paths.join(", "));
+    assert.equal(scope.checks.guards, true, paths.join(", "));
+    assert.equal(scope.checks.lint, true, paths.join(", "));
+    assert.equal(scope.checks.typecheck, false, paths.join(", "));
+    assert.equal(scope.checks.build, false, paths.join(", "));
+    assert.equal(scope.checks.fast_tests, false, paths.join(", "));
+  }
+
+  assert.equal(
+    classifyChangedPaths(["docs/guide.md", "CHANGELOG.md"]).checks.guards,
+    false,
   );
 });
 
@@ -327,9 +350,12 @@ test("smokes every SSR template when a shared package or CI changes", () => {
     "packages/toolkit/src/index.ts",
     "templates/plan/app/root.tsx",
   ]);
+  const otel = classifyChangedPaths(["packages/otel/src/index.ts"]);
   const full = classifyChangedPaths(["pnpm-lock.yaml"]);
 
   assert.deepEqual(toolkit.ssrBootApps, [...SSR_BOOT_APPS]);
+  assert.equal(otel.checks.ssr_boot, true);
+  assert.deepEqual(otel.ssrBootApps, [...SSR_BOOT_APPS]);
   assert.equal(full.full, true);
   assert.deepEqual(full.ssrBootApps, [...SSR_BOOT_APPS]);
 });
@@ -395,8 +421,15 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/e2e/chrome-geometry.reference.ts",
     "templates/design/e2e/global-setup.ts",
     "templates/design/e2e/global-teardown.ts",
+    "templates/design/e2e/drag-out-of-screen-to-board.spec.ts",
+    "templates/design/e2e/parity-drag-reparent.spec.ts",
     "templates/design/e2e/parity-vector-endpoints.spec.ts",
+    "templates/design/e2e/parity-report-interactions.spec.ts",
+    "templates/design/e2e/parity-oversized-nested.spec.ts",
+    "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
+    "templates/design/e2e/z-order-parity.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
+    "templates/design/e2e/responsive-overview-regressions.spec.ts",
     "templates/design/e2e/helpers.ts",
     "templates/design/e2e/drag-and-drop.shared.ts",
     "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
@@ -443,6 +476,85 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
       .design_canvas_interaction_e2e,
     false,
   );
+});
+
+test("selects the Content two-tab convergence lane for its runtime dependencies", () => {
+  for (const path of [
+    "templates/content/app/components/editor/PageDraftRecovery.tsx",
+    "templates/content/app/hooks/use-db-sync.ts",
+    "templates/content/app/routes/page.$id.tsx",
+    "templates/content/app/root.tsx",
+    "templates/content/actions/update-document.ts",
+    "templates/content/server/db/schema.ts",
+    "templates/content/server/plugins/auth.ts",
+    "templates/content/shared/document-intent-merge.ts",
+    "templates/content/shared/content-editor-structural-schema.generated.json",
+    "templates/content/agent-native.config.ts",
+    "templates/content/package.json",
+    "templates/content/vite.config.ts",
+    "templates/content/e2e/two-tab-convergence.spec.ts",
+    "templates/content/e2e/helpers.ts",
+    "templates/content/e2e/convergence-summary.ts",
+    "templates/content/e2e/global-setup.ts",
+    "templates/content/e2e/playwright.config.ts",
+    "packages/core/src/collab/client.ts",
+    "packages/core/src/client/use-session.ts",
+    "packages/toolkit/src/editor/useCollabReconcile.ts",
+    "packages/toolkit/src/collab-ui/lead-client.ts",
+    "packages/toolkit/package.json",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.content_convergence, true, path);
+  }
+
+  // A toolkit-only change starts Content DB tests through this check alone.
+  const toolkit = classifyChangedPaths([
+    "packages/toolkit/src/editor/RichMarkdownEditor.tsx",
+  ]);
+  assert.equal(toolkit.checks.content, false);
+  assert.equal(toolkit.checks.content_convergence, true);
+
+  for (const path of [
+    "templates/content/app/components/editor/comment-anchors.spec.ts",
+    "templates/content/shared/nfm.spec.ts",
+    "templates/content/app/i18n/en-US.ts",
+    "templates/content/app/i18n-data.ts",
+    "templates/content/e2e/sidebar-delete.spec.ts",
+    "templates/content/evals/editing.eval.ts",
+    "templates/content/docs/product/capabilities/content.author.document-editor.md",
+    "templates/content/README.md",
+    "templates/design/app/components/MultiScreenCanvas.tsx",
+    "packages/toolkit/src/composer/PromptComposer.tsx",
+    "packages/toolkit/src/editor/useCollabReconcile.spec.ts",
+    "packages/creative-context/src/index.ts",
+    "packages/scheduling/src/index.ts",
+    "packages/dispatch/src/index.ts",
+    "docs/guide.md",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.content_convergence,
+      false,
+      path,
+    );
+  }
+
+  for (const path of [".github/workflows/ci.yml", "pnpm-lock.yaml"]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, true, path);
+    assert.equal(scope.checks.content_convergence, true, path);
+  }
+
+  for (const path of [
+    "scripts/guard-e2e-harness.mjs",
+    "AGENTS.md",
+    ".agents/skills/qa/SKILL.md",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.content_convergence,
+      false,
+      path,
+    );
+  }
 });
 
 test("runs shared coverage when core changes", () => {
@@ -772,6 +884,6 @@ test("does not run code checks for a mixed docs-only package change", () => {
     Object.entries(scope.checks)
       .filter(([, enabled]) => enabled)
       .map(([name]) => name),
-    ["lint", "changeset"],
+    ["lint", "guards", "changeset"],
   );
 });

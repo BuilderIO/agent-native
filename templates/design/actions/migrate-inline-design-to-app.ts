@@ -210,8 +210,7 @@ export default defineAction({
             connectUrl,
           },
           message:
-            "Builder is not connected (free tier available). Call connect-builder-app to start " +
-            "the OAuth flow, then retry migrate-inline-design-to-app.",
+            "Builder is not connected. Direct the user to the in-app Use Builder.io choice to create and activate in one click or sign in to an existing account, then retry migrate-inline-design-to-app.",
         };
       }
 

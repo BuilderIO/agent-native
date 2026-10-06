@@ -1,0 +1,238 @@
+import { useEffect, useRef, useState } from "react";
+
+import { readOceanColors } from "./brand-colors.js";
+import type { OceanRenderer } from "./renderer.js";
+import { OCEAN_TUNING } from "./tuning.js";
+
+const FADE_IN_MS = 700;
+const RENDERER_INIT_TIMEOUT_MS = 30_000;
+const FIRST_FRAME_TIMEOUT_MS = 6000;
+
+export interface HeroOceanBackgroundProps {
+  onError: (error: unknown) => void;
+  onReady: () => void;
+  frameRate?: number;
+  className?: string;
+}
+
+type PointerTarget = readonly [number, number, number];
+
+export function HeroOceanBackground({
+  onError,
+  onReady,
+  frameRate = 30,
+  className = "absolute inset-0 z-[-1]",
+}: HeroOceanBackgroundProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [ready, setReady] = useState(false);
+  const onErrorRef = useRef(onError);
+  const onReadyRef = useRef(onReady);
+  onErrorRef.current = onError;
+  onReadyRef.current = onReady;
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
+    let renderer: OceanRenderer | undefined;
+    let cancelled = false;
+    let rendererFailed = false;
+    const cleanups: (() => void)[] = [];
+    let firstFrameTimeout: number | undefined;
+    let firstFrameStartedAt: number | undefined;
+    let firstFrameRemainingMs = FIRST_FRAME_TIMEOUT_MS;
+    let waitingForFirstFrame = false;
+    const pauseFirstFrameDeadline = () => {
+      if (firstFrameTimeout === undefined) return;
+      window.clearTimeout(firstFrameTimeout);
+      firstFrameTimeout = undefined;
+      firstFrameRemainingMs = Math.max(
+        0,
+        firstFrameRemainingMs -
+          (Date.now() - (firstFrameStartedAt ?? Date.now())),
+      );
+      firstFrameStartedAt = undefined;
+    };
+    const resumeFirstFrameDeadline = () => {
+      if (
+        cancelled ||
+        rendererFailed ||
+        !waitingForFirstFrame ||
+        document.hidden ||
+        firstFrameTimeout !== undefined
+      ) {
+        return;
+      }
+      firstFrameStartedAt = Date.now();
+      firstFrameTimeout = window.setTimeout(
+        () => failRenderer(new Error("The ocean wave did not draw a frame")),
+        firstFrameRemainingMs,
+      );
+    };
+    const stopFirstFrameDeadline = () => {
+      waitingForFirstFrame = false;
+      pauseFirstFrameDeadline();
+    };
+    const rendererInitTimeout = window.setTimeout(() => {
+      failRenderer(new Error("The ocean wave renderer did not initialize"));
+    }, RENDERER_INIT_TIMEOUT_MS);
+    cleanups.push(() => {
+      window.clearTimeout(rendererInitTimeout);
+      stopFirstFrameDeadline();
+    });
+
+    const failRenderer = (error: unknown) => {
+      if (cancelled || rendererFailed) return;
+      rendererFailed = true;
+      window.clearTimeout(rendererInitTimeout);
+      stopFirstFrameDeadline();
+      renderer?.dispose();
+      onErrorRef.current(error);
+    };
+    const handleDocumentVisibility = () => {
+      if (document.hidden) pauseFirstFrameDeadline();
+      else resumeFirstFrameDeadline();
+    };
+    document.addEventListener("visibilitychange", handleDocumentVisibility);
+    cleanups.push(() =>
+      document.removeEventListener(
+        "visibilitychange",
+        handleDocumentVisibility,
+      ),
+    );
+    let pointerTarget: PointerTarget = [0, 0, 0];
+    let lastPointer: readonly [number, number] | undefined;
+
+    const updatePointer = (clientX: number, clientY: number) => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const inside = x >= 0 && x <= rect.width && y >= 0 && y <= rect.height;
+
+      pointerTarget = [
+        (x / rect.width) * 2 - 1,
+        1 - (y / rect.height) * 2,
+        inside ? 1 : 0,
+      ];
+      renderer?.setPointer(pointerTarget);
+    };
+
+    const handleMouseMove = (event: MouseEvent) => {
+      lastPointer = [event.clientX, event.clientY];
+      updatePointer(event.clientX, event.clientY);
+    };
+
+    const handleScroll = () => {
+      if (!lastPointer) return;
+      updatePointer(lastPointer[0], lastPointer[1]);
+    };
+
+    const fadePointer = () => {
+      lastPointer = undefined;
+      pointerTarget = [pointerTarget[0], pointerTarget[1], 0];
+      renderer?.setPointer(pointerTarget);
+    };
+
+    document.body.addEventListener("mousemove", handleMouseMove, {
+      passive: true,
+    });
+    document.body.addEventListener("mouseleave", fadePointer, {
+      passive: true,
+    });
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("blur", fadePointer);
+    cleanups.push(() => {
+      document.body.removeEventListener("mousemove", handleMouseMove);
+      document.body.removeEventListener("mouseleave", fadePointer);
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("blur", fadePointer);
+    });
+
+    void import("./renderer.js")
+      .then(({ createRenderer }) => {
+        if (cancelled || rendererFailed) return;
+        renderer = createRenderer({
+          canvas,
+          colors: readOceanColors(container),
+          fps: frameRate,
+          onError: failRenderer,
+        });
+        renderer.setPointer(pointerTarget);
+
+        void renderer.ready
+          .then(() => {
+            if (cancelled || rendererFailed) return;
+            window.clearTimeout(rendererInitTimeout);
+            waitingForFirstFrame = true;
+            resumeFirstFrameDeadline();
+            return renderer?.firstFrame;
+          })
+          .then(() => {
+            if (cancelled || rendererFailed) return;
+            stopFirstFrameDeadline();
+            setReady(true);
+            onReadyRef.current();
+          })
+          .catch(failRenderer);
+
+        const themeObserver = new MutationObserver(() => {
+          renderer?.setColors(readOceanColors(container));
+        });
+        themeObserver.observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ["class", "data-theme"],
+        });
+        cleanups.push(() => themeObserver.disconnect());
+
+        const visibility = new IntersectionObserver(
+          ([entry]) => renderer?.setPaused(!(entry?.isIntersecting ?? true)),
+          { threshold: 0 },
+        );
+        visibility.observe(container);
+        cleanups.push(() => visibility.disconnect());
+      })
+      .catch((error: unknown) => {
+        failRenderer(error);
+      });
+
+    return () => {
+      cancelled = true;
+      for (const cleanup of cleanups) cleanup();
+      renderer?.dispose();
+    };
+  }, [frameRate]);
+
+  const { bottomFadeStartPercent } = OCEAN_TUNING;
+  const mask =
+    bottomFadeStartPercent >= 100
+      ? undefined
+      : // guard:allow-raw-color - The mask channel requires opaque black, not a theme color.
+        `linear-gradient(to bottom, #000 ${bottomFadeStartPercent}%, transparent 100%)`;
+
+  return (
+    <div
+      ref={containerRef}
+      aria-hidden="true"
+      data-agent-native-wave="true"
+      // Opacity is inline rather than a class because it animates between 0
+      // and a token value; the page background remains visible until the
+      // first wave frame is ready.
+      className={className}
+      style={{
+        opacity: ready ? 0.3 : 0,
+        transition: `opacity ${FADE_IN_MS}ms ease-out`,
+        ...(mask ? { maskImage: mask, WebkitMaskImage: mask } : {}),
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        className="block h-full w-full"
+        style={{ display: "block", height: "100%", width: "100%" }}
+      />
+    </div>
+  );
+}

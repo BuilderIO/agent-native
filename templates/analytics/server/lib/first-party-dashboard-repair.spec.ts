@@ -72,6 +72,7 @@ import {
   PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
   repairCanonicalFirstPartyDashboardQueries,
   repairFirstPartyBigQueryDashboardQueries,
+  repairKnownFirstPartyDashboardQueries,
 } from "./canonical-first-party-dashboard-repair";
 import {
   repairPersistedFirstPartyDashboardQueries,
@@ -298,6 +299,46 @@ async function repairPersistedPanel(row: DashboardRow) {
 }
 
 describe("repairPersistedFirstPartyDashboardQueries", () => {
+  it("repairs the BigQuery dashboard's canonical filter defaults", () => {
+    const repaired = repairKnownFirstPartyDashboardQueries(
+      FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      {
+        filters: [
+          { id: "timeRange", default: "all" },
+          { id: "emailFilter", default: "all" },
+          { id: "appFilter", default: "all" },
+        ],
+        panels: [],
+      },
+    );
+
+    expect(repaired.changed).toBe(true);
+    expect(repaired.config.filters).toMatchObject([
+      { id: "timeRange", default: "90d" },
+      { id: "emailFilter", default: "exclude_builder" },
+      { id: "appFilter", default: "all" },
+    ]);
+  });
+
+  it("preserves custom BigQuery dashboard filter defaults", () => {
+    const config = {
+      filters: [
+        { id: "timeRange", default: "30d" },
+        { id: "emailFilter", default: "only_builder" },
+        { id: "appFilter", default: "all" },
+      ],
+      panels: [],
+    };
+
+    const repaired = repairKnownFirstPartyDashboardQueries(
+      FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+      config,
+    );
+
+    expect(repaired.changed).toBe(false);
+    expect(repaired.config.filters).toEqual(config.filters);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-21T17:00:00.000Z"));

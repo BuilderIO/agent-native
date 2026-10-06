@@ -1247,11 +1247,13 @@ export default function RecordingPage() {
   // a folder keeps that real home instead.
   const screenshotIsUnfiled = isImage && !recordingSpace && !recordingFolder;
   // The sidebar highlights the same section the breadcrumb starts with.
-  const recordingSection: RecordingSection = recordingSpace
-    ? "spaces"
-    : screenshotIsUnfiled
-      ? "screenshots"
-      : "library";
+  const recordingSection: RecordingSection = recording?.trashedAt
+    ? "trash"
+    : recordingSpace
+      ? "spaces"
+      : screenshotIsUnfiled
+        ? "screenshots"
+        : "library";
   useEffect(() => {
     setRecordingSection(recordingSection);
     return () => setRecordingSection(null);

@@ -192,7 +192,6 @@ describe("session replay agent context links", () => {
     expect(mockCreateScopedAgentAccessGrant).toHaveBeenCalledWith({
       resourceKind: "analytics-session-replay-agent-context",
       resourceId: "sr_1",
-      viewerEmail: "owner@example.com",
       ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
     });
     expect(link.url).toBe(
@@ -238,6 +237,22 @@ describe("session replay agent context links", () => {
       "navigation",
       "click",
     ]);
+  });
+
+  it("accepts recording-scoped agent access without a viewer identity claim", async () => {
+    mockVerifyScopedAgentAccessToken.mockReturnValueOnce({ ok: true });
+
+    await buildSessionReplayAgentContext({
+      recordingId: "sr_1",
+      token: "scoped-token-without-viewer-email",
+      origin: "https://analytics.example.com",
+      includeTimeline: false,
+    });
+
+    expect(mockGetSessionReplayTokenizedSummary).toHaveBeenCalledWith(
+      "sr_1",
+      undefined,
+    );
   });
 
   it("returns sanitized timeline markers without raw replay events", async () => {
