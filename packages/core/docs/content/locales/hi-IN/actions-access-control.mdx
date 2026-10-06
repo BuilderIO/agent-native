@@ -345,7 +345,7 @@ Wrappers इस क्रम में compose होते हैं:
 इनपुट वैलिडेट करें -> access -> authorize -> run -> आउटपुट वैलिडेट करें -> audit
 ```
 
-Authorization input validation के _अंदर_ बैठता है, इसलिए `args` का निरीक्षण करने वाले गार्ड को वही parsed, type-checked वैल्यू मिलती है जो `run()` को मिलती है, न कि कॉलर द्वारा भेजा गया कोई भी raw shape। `access` उसी parsed वैल्यू से `idFrom` पढ़ता है। Auditing सबसे बाहरी है, इसलिए कोई denial भी दर्ज होता है।
+Authorization input validation के _अंदर_ बैठता है, इसलिए `args` का निरीक्षण करने वाले गार्ड को वही parsed, type-checked वैल्यू मिलती है जो `run()` को मिलती है, न कि कॉलर द्वारा भेजा गया कोई भी raw shape। `access` उसी parsed वैल्यू से `idFrom` पढ़ता है। Auditing सबसे बाहरी है, इसलिए ऑडिट होने वाले action में कोई denial भी दर्ज होता है। Read-only actions डिफ़ॉल्ट रूप से ऑडिट नहीं होते, नीचे [Audit logging](#audit) देखें।
 
 `requireAny()` definition समय पर विफल होता है, request समय पर नहीं। इसे बिना किसी भूमिका के, या घोषित सूची के बाहर किसी भूमिका के साथ कॉल करने पर, मॉड्यूल लोड होते ही throw हो जाता है। इस तरह कोई गलती, जैसे किसी छूटे हुए argument के साथ `authorize: coachAccess.requireAny()`, ठीक वहीं टूट जाती है जहां वह हुई, बजाय बाद में एक अस्पष्ट 403 के रूप में सामने आने के।
 

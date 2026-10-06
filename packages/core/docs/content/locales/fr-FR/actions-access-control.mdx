@@ -345,7 +345,7 @@ Les wrappers se composent dans cet ordre :
 validate input -> access -> authorize -> run -> validate output -> audit
 ```
 
-L’autorisation se situe _à l’intérieur_ de la validation d’entrée, donc une garde qui inspecte `args` reçoit la même valeur analysée et vérifiée en type que celle que reçoit `run()`, pas la forme brute que l’appelant a envoyée. `access` lit `idFrom` dans cette même valeur analysée. L’audit est le plus externe, donc un refus est quand même enregistré.
+L’autorisation se situe _à l’intérieur_ de la validation d’entrée, donc une garde qui inspecte `args` reçoit la même valeur analysée et vérifiée en type que celle que reçoit `run()`, pas la forme brute que l’appelant a envoyée. `access` lit `idFrom` dans cette même valeur analysée. L’audit est le plus externe, donc une action auditée enregistre quand même un refus. Les actions en lecture seule ne sont pas auditées par défaut, voir [Journalisation d’audit](#audit) ci-dessous.
 
 `requireAny()` échoue au moment de la définition, pas au moment de la requête. L’appeler sans rôle, ou avec un rôle en dehors de la liste déclarée, lève une exception dès le chargement du module. Ainsi, une erreur, comme `authorize: coachAccess.requireAny()` avec un argument oublié, casse exactement là où elle s’est produite, au lieu d’apparaître plus tard comme un 403 inexpliqué.
 

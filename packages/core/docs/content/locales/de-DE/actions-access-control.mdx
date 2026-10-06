@@ -346,7 +346,7 @@ Die Wrapper setzen sich in dieser Reihenfolge zusammen:
 validate input -> access -> authorize -> run -> validate output -> audit
 ```
 
-Die Autorisierung sitzt _innerhalb_ der Eingabevalidierung, sodass ein Guard, der `args` prüft, denselben geparsten, typgeprüften Wert erhält, den auch `run()` erhält, nicht die rohe Form, die der Aufrufer gesendet hat. `access` liest `idFrom` aus demselben geparsten Wert. Das Auditing liegt außen, sodass eine Ablehnung dennoch aufgezeichnet wird.
+Die Autorisierung sitzt _innerhalb_ der Eingabevalidierung, sodass ein Guard, der `args` prüft, denselben geparsten, typgeprüften Wert erhält, den auch `run()` erhält, nicht die rohe Form, die der Aufrufer gesendet hat. `access` liest `idFrom` aus demselben geparsten Wert. Das Auditing liegt außen, sodass eine auditierte Action auch eine Ablehnung aufzeichnet. Schreibgeschützte Actions werden standardmäßig nicht auditiert, siehe [Audit-Protokollierung](#audit) unten.
 
 `requireAny()` schlägt zur Definitionszeit fehl, nicht zur Anfragezeit. Es ohne Rollen oder mit einer Rolle außerhalb der deklarierten Liste aufzurufen, wirft sofort beim Laden des Moduls. So bricht ein Fehler, wie `authorize: coachAccess.requireAny()` mit einem vergessenen Argument, genau dort, wo er passiert ist, statt später als unerklärter 403 aufzutauchen.
 

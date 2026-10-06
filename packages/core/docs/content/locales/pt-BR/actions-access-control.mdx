@@ -344,7 +344,7 @@ Os wrappers se compõem nesta ordem:
 validar entrada -> access -> authorize -> run -> validar saída -> audit
 ```
 
-A autorização fica _dentro_ da validação de entrada, então uma guarda que inspeciona `args` recebe o mesmo valor parseado e com tipo verificado que `run()` recebe, não qualquer formato bruto que o chamador tenha enviado. `access` lê `idFrom` desse mesmo valor parseado. A auditoria é a mais externa, então uma negação ainda é registrada.
+A autorização fica _dentro_ da validação de entrada, então uma guarda que inspeciona `args` recebe o mesmo valor parseado e com tipo verificado que `run()` recebe, não qualquer formato bruto que o chamador tenha enviado. `access` lê `idFrom` desse mesmo valor parseado. A auditoria é a mais externa, então uma action auditada ainda registra uma negação. Actions somente leitura não são auditadas por padrão, veja [Registro de auditoria](#audit) abaixo.
 
 `requireAny()` falha em tempo de definição, não em tempo de requisição. Chamá-la sem funções, ou com uma função fora da lista declarada, lança um erro assim que o módulo carrega. Dessa forma, um erro, como `authorize: coachAccess.requireAny()` com um argumento esquecido, quebra bem onde aconteceu, em vez de aparecer depois como um 403 inexplicado.
 

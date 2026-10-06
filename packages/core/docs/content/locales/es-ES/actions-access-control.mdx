@@ -345,7 +345,7 @@ Los envoltorios se componen en este orden:
 validar entrada -> access -> authorize -> run -> validar salida -> audit
 ```
 
-La autorización se sitúa _dentro_ de la validación de entrada, así que una guarda que inspecciona `args` recibe el mismo valor analizado y verificado en tipos que recibe `run()`, no la forma cruda que envió el invocador. `access` lee `idFrom` de ese mismo valor analizado. La auditoría es la más externa, así que una denegación también queda registrada.
+La autorización se sitúa _dentro_ de la validación de entrada, así que una guarda que inspecciona `args` recibe el mismo valor analizado y verificado en tipos que recibe `run()`, no la forma cruda que envió el invocador. `access` lee `idFrom` de ese mismo valor analizado. La auditoría es la más externa, así que una acción auditada también registra una denegación. Las acciones de solo lectura no se auditan por defecto, consulta [Registro de auditoría](#audit) más abajo.
 
 `requireAny()` falla en el momento de la definición, no en el de la petición. Llamarlo sin roles, o con un rol fuera de la lista declarada, lanza un error tan pronto como se carga el módulo. Así, un error, como `authorize: coachAccess.requireAny()` con un argumento omitido, se rompe justo donde ocurrió, en lugar de aparecer más tarde como un 403 inexplicable.
 

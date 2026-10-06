@@ -342,7 +342,7 @@ The wrappers compose in this order:
 validate input -> access -> authorize -> run -> validate output -> audit
 ```
 
-Authorization sits _inside_ input validation, so a guard that inspects `args` gets the same parsed, type-checked value that `run()` receives, not whatever raw shape the caller sent. `access` reads `idFrom` from that same parsed value. Auditing is outermost, so a denial is still recorded.
+Authorization sits _inside_ input validation, so a guard that inspects `args` gets the same parsed, type-checked value that `run()` receives, not whatever raw shape the caller sent. `access` reads `idFrom` from that same parsed value. Auditing is outermost, so an audited action still records a denial. Read-only actions aren't audited by default, see [Audit logging](#audit) below.
 
 `requireAny()` fails at definition time, not at request time. Calling it with no roles, or with a role outside the declared list, throws as soon as the module loads. That way a mistake, like `authorize: coachAccess.requireAny()` with a dropped argument, breaks right where it happened, instead of showing up later as an unexplained 403.
 

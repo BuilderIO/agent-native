@@ -342,7 +342,7 @@ export default defineAction({
 validate input -> access -> authorize -> run -> validate output -> audit
 ```
 
-授权发生在输入校验*内部*,所以一个检查 `args` 的守卫拿到的,是 `run()` 收到的那份经过解析、类型检查过的值,而不是调用者发送的原始形状。`access` 从这同一份解析后的值中读取 `idFrom`。审计是最外层的,所以一次拒绝依然会被记录下来。
+授权发生在输入校验*内部*,所以一个检查 `args` 的守卫拿到的,是 `run()` 收到的那份经过解析、类型检查过的值,而不是调用者发送的原始形状。`access` 从这同一份解析后的值中读取 `idFrom`。审计是最外层的,所以受审计的 action 依然会记录下一次拒绝。只读 action 默认不审计,见下方[审计日志](#audit)。
 
 `requireAny()` 在定义时就会失败,而不是在请求时。用空角色列表调用它,或者用一个不在已声明列表中的角色调用它,都会在模块加载时立即抛出异常。这样一来,像 `authorize: coachAccess.requireAny()` 这种漏掉参数的错误,会在它发生的那一刻就出问题,而不是之后变成一个莫名其妙的 403。
 
