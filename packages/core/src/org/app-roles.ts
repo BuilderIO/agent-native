@@ -344,6 +344,7 @@ export async function resolveAppRole<R extends string>(
   const identityId = String(
     (row as any).identityId ?? (row as any).identity_id ?? "",
   ).trim();
+  let orgRole = typeof row.orgRole === "string" ? row.orgRole : undefined;
   if (identityAuthority || identityId) {
     const { validateFederatedOrganizationMembershipForCurrentRequest } =
       await import("./federation.js");
@@ -353,6 +354,7 @@ export async function resolveAppRole<R extends string>(
         email,
       });
     if (!membership.active) return { status: "not-a-member", orgId };
+    orgRole = membership.role;
   }
 
   const raw = row.roles ?? row.appRoles ?? row.approles;
@@ -360,8 +362,7 @@ export async function resolveAppRole<R extends string>(
   const validRoles = [
     ...new Set(roles.filter((role) => descriptor.roles.includes(role))),
   ];
-  const membership =
-    typeof row.orgRole === "string" ? { orgRole: row.orgRole } : {};
+  const membership = orgRole ? { orgRole } : {};
   if (!validRoles.length)
     return {
       status: "unassigned",

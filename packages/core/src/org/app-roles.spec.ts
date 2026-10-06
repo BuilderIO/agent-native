@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockExecute = vi.fn();
 const mockGetRequestUserEmail = vi.fn();
 const mockGetRequestOrgId = vi.fn();
+const mockValidateMembership = vi.hoisted(() => vi.fn());
+
+vi.mock("./federation.js", () => ({
+  validateFederatedOrganizationMembershipForCurrentRequest:
+    mockValidateMembership,
+}));
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
@@ -258,6 +264,33 @@ describe("app roles", () => {
       await expect(
         access.assertPermission(["edit"], { userEmail: null, orgId: "org1" }),
       ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("uses the authoritative federated role after an admin is demoted", async () => {
+      const access = compatibleAccess();
+      mockExecute
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              roles: ["reviewer"],
+              orgRole: "admin",
+              identityAuthority: "https://identity.example.test",
+              identityId: "identity-example",
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] });
+      mockValidateMembership.mockResolvedValue({
+        active: true,
+        role: "member",
+      });
+      await expect(access.assertPermission(["edit"], CALLER)).rejects.toThrow(
+        ForbiddenError,
+      );
+      expect(mockValidateMembership).toHaveBeenCalledWith({
+        orgId: CALLER.orgId,
+        email: CALLER.userEmail,
+      });
     });
 
     it("applies permission overrides to the fallback role", async () => {

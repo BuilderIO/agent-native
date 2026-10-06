@@ -46,6 +46,7 @@ const dbMock = vi.hoisted(() => {
 });
 
 const sharingMock = vi.hoisted(() => ({
+  resolveAccess: vi.fn(async () => ({ role: "owner", resource: {} })),
   accessFilter: vi.fn(() => true),
   assertAccess: vi.fn(async () => ({ resource: form })),
 }));

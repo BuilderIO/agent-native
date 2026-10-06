@@ -8,6 +8,9 @@ const state = vi.hoisted(() => ({
   member: true,
   resourceRole: "editor",
   resourceRoles: {} as Record<string, string>,
+  resourceOrg: "org-example" as string | null,
+  orgRoles: {} as Record<string, string[]>,
+  lookupOrgs: [] as string[],
   overrides: [] as { permission: string; roles_json: string }[],
   write: vi.fn(),
   assertAccess: vi.fn(),
@@ -17,13 +20,21 @@ vi.mock("../../../packages/core/src/db/client.js", async (importOriginal) => ({
     typeof import("../../../packages/core/src/db/client.js")
   >()),
   getDbExec: () => ({
-    execute: async ({ sql }: { sql: string }) => ({
-      rows: sql.includes("app_permission_overrides")
-        ? state.overrides
-        : state.member
-          ? [{ roles: state.roles, orgRole: state.orgRole }]
-          : [],
-    }),
+    execute: async ({ sql, args }: { sql: string; args: string[] }) => {
+      if (sql.includes("FROM org_members")) state.lookupOrgs.push(args[1]!);
+      return {
+        rows: sql.includes("app_permission_overrides")
+          ? state.overrides
+          : state.member
+            ? [
+                {
+                  roles: state.orgRoles[args[1]!] ?? state.roles,
+                  orgRole: state.orgRole,
+                },
+              ]
+            : [],
+      };
+    },
   }),
 }));
 vi.mock(
@@ -34,12 +45,13 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   resolveAccess: async (_type: string, id: string) => {
     const role = state.resourceRoles[id] ?? state.resourceRole;
-    return role === "none" ? null : { role };
+    return role === "none"
+      ? null
+      : { role, resource: { orgId: state.resourceOrg } };
   },
   assertAccess: (...args: unknown[]) => state.assertAccess(...args),
 }));
-vi.mock("../server/db/index.js", () => ({
-  schema: { forms: { id: "id" }, responses: { formId: "formId", id: "id" } },
+const formDb = vi.hoisted(() => ({
   getDb: () => ({
     select: () => ({
       from: () => ({
@@ -47,6 +59,7 @@ vi.mock("../server/db/index.js", () => ({
           limit: async () => [
             {
               id: "shared-form",
+              formId: "shared-form",
               status: "draft",
               fields: "[]",
               settings: "{}",
@@ -65,6 +78,11 @@ vi.mock("../server/db/index.js", () => ({
     }),
   }),
 }));
+vi.mock("../server/db/index.js", () => ({
+  schema: { forms: { id: "id" }, responses: { formId: "formId", id: "id" } },
+  getDb: formDb.getDb,
+}));
+vi.mock("@agent-native/core/db", () => ({ createGetDb: () => formDb.getDb }));
 vi.mock("../server/lib/public-form-ssr.js", () => ({
   invalidatePublicFormCache: vi.fn(),
 }));
@@ -94,6 +112,9 @@ beforeEach(() => {
   state.member = true;
   state.resourceRole = "editor";
   state.resourceRoles = {};
+  state.resourceOrg = "org-example";
+  state.orgRoles = {};
+  state.lookupOrgs = [];
   state.overrides = [];
   state.write.mockClear();
   state.assertAccess.mockReset();
@@ -192,10 +213,59 @@ describe("Forms app-role enforcement", () => {
     expect(state.write).not.toHaveBeenCalled();
   });
   it("keeps authenticated personal deployments working", async () => {
+    state.resourceOrg = null;
     await updateForm.run(
       { id: "shared-form", title: "Changed" },
       { ...caller, orgId: null },
     );
     expect(state.write).toHaveBeenCalled();
+  });
+  it("does not bypass an organization form by selecting personal scope", async () => {
+    await expect(
+      updateForm.run(
+        { id: "shared-form", title: "Changed" },
+        { ...caller, orgId: null },
+      ),
+    ).rejects.toThrow("forms.edit");
+    expect(state.lookupOrgs).toEqual(["org-example"]);
+    expect(state.write).not.toHaveBeenCalled();
+  });
+  it("uses the target organization when another organization is selected", async () => {
+    state.orgRoles = { "other-org": ["editor"], "org-example": ["reviewer"] };
+    await expect(
+      updateForm.run(
+        { id: "shared-form", title: "Changed" },
+        { ...caller, orgId: "other-org" },
+      ),
+    ).rejects.toThrow("forms.edit");
+    expect(state.lookupOrgs).toEqual(["org-example"]);
+    expect(state.write).not.toHaveBeenCalled();
+  });
+  it("checks a submission's organization in personal scope", async () => {
+    await expect(
+      requireFormsPermission("forms.edit", "responseId")(
+        { responseId: "response-example" },
+        { ...caller, orgId: null },
+      ),
+    ).rejects.toThrow("forms.edit");
+    expect(state.lookupOrgs).toEqual(["org-example"]);
+  });
+  it("gates the registered visibility persistence hook before writing", async () => {
+    await vi.importActual("../server/db/index.js");
+    const { getShareableResource } = await import("@agent-native/core/sharing");
+    const persist = getShareableResource("form")!.persistVisibilityChange!;
+    const args = {
+      resource: {},
+      resourceId: "shared-form",
+      visibility: "org" as const,
+      update: { visibility: "org" },
+      userEmail: caller.userEmail,
+      orgId: caller.orgId!,
+    };
+    await expect(persist(args)).rejects.toThrow("forms.edit");
+    expect(state.write).not.toHaveBeenCalled();
+    state.resourceRole = "owner";
+    await persist(args);
+    expect(state.write).toHaveBeenCalledWith({ visibility: "org" });
   });
 });

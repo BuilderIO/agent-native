@@ -17,17 +17,20 @@ export function requireFormsPermission(
   permission: keyof typeof formsAccessDescriptor.permissions,
   idFrom?: "id" | "formId" | "responseId",
 ) {
-  return async (args: unknown, ctx?: ActionRunContext): Promise<void> => {
+  return async (
+    args: unknown,
+    ctx?: Pick<ActionRunContext, "userEmail" | "orgId">,
+  ): Promise<void> => {
     const caller = {
       userEmail:
         ctx?.userEmail !== undefined ? ctx.userEmail : getRequestUserEmail(),
       orgId: ctx?.orgId !== undefined ? ctx.orgId : getRequestOrgId(),
     };
-    if (!caller.userEmail)
-      throw new ForbiddenError("An authenticated user is required.");
-    // Personal deployments have no app-role roster; row access still governs them.
-    if (!caller.orgId) return;
-    const resourceCaller = { userEmail: caller.userEmail, orgId: caller.orgId };
+    if (!caller.userEmail) throw new ForbiddenError();
+    const resourceCaller = {
+      userEmail: caller.userEmail,
+      orgId: caller.orgId ?? undefined,
+    };
     const input = args as Record<string, unknown>;
     const selected =
       idFrom === "formId"
@@ -56,8 +59,18 @@ export function requireFormsPermission(
       const access = await Promise.all(
         ids.map((id) => resolveAccess("form", id, resourceCaller)),
       );
-      if (access.every((result) => result?.role === "owner")) return;
+      if (access.some((result) => !result)) throw new ForbiddenError();
+      const permissionOrgs = new Set<string>();
+      for (const result of access) {
+        if (result!.role === "owner") continue;
+        // A target's organization governs its roles even in personal scope.
+        const orgId = result!.resource.orgId ?? caller.orgId;
+        if (orgId) permissionOrgs.add(orgId);
+      }
+      for (const orgId of permissionOrgs)
+        await formsAccess.assertPermission([permission], { ...caller, orgId });
+      return;
     }
-    await formsAccess.assertPermission([permission], caller);
+    if (caller.orgId) await formsAccess.assertPermission([permission], caller);
   };
 }
