@@ -54,6 +54,7 @@ import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
 } from "./credential-issuance.js";
+import { getMcpOAuthIssuer, resolveMcpOAuthIssuer } from "./oauth-route.js";
 import {
   MCP_OAUTH_DEFAULT_SCOPE,
   signMcpOAuthAccessToken,
@@ -219,7 +220,8 @@ async function mintConnectToken(params: {
   orgId: string | undefined;
   label: string | null;
   ttlDays: number;
-  appUrl: string;
+  /** From `getMcpOAuthIssuer`, the issuer `verifyAuth` checks. */
+  issuer: string;
   catalogScope?: "full";
   requestOrigin: string;
 }): Promise<{ token: string; jti: string }> {
@@ -237,7 +239,7 @@ async function mintConnectToken(params: {
         ownerEmail: params.email,
         orgId: params.orgId,
         orgDomain,
-        appUrl: params.appUrl,
+        issuer: params.issuer,
         expiresIn: `${params.ttlDays}d`,
         jti,
         ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
@@ -266,10 +268,11 @@ async function signConnectToken(params: {
   ownerEmail: string;
   orgId: string | null | undefined;
   orgDomain: string | undefined;
-  appUrl: string;
+  issuer: string;
   expiresIn: string;
   jti: string;
   catalogScope?: "full";
+  service?: true;
 }): Promise<string> {
   return signMcpOAuthAccessToken({
     ownerEmail: params.ownerEmail,
@@ -277,11 +280,12 @@ async function signConnectToken(params: {
     orgDomain: params.orgDomain ?? null,
     clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
     scope: MCP_OAUTH_DEFAULT_SCOPE,
-    resource: mcpResourceUrl(params.appUrl),
-    issuer: params.appUrl,
+    resource: mcpResourceUrl(params.issuer),
+    issuer: params.issuer,
     jti: params.jti,
     expiresIn: params.expiresIn,
     ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
+    ...(params.service ? { service: true } : {}),
   });
 }
 
@@ -295,7 +299,7 @@ async function signConnectToken(params: {
  *
  * The token value is returned exactly once and never persisted — only the
  * random `jti` is stored, so the standard revocation path
- * (`isJtiRevoked` in `verifyAuth`) applies to service tokens identically.
+ * (`lookupConnectTokenOrg` in `verifyAuth`) applies to service tokens identically.
  *
  * The `create-org-service-token` action gates on org owner/admin before
  * calling this. Offboarding can remove that admin before the mint, so the
@@ -308,6 +312,7 @@ export async function mintOrgServiceToken(params: {
   /** The human minting the token — stored for audit, never used as identity. */
   createdBy: string;
   ttlDays?: number;
+  /** The caller's request origin. */
   appUrl: string;
 }): Promise<{
   token: string;
@@ -321,6 +326,12 @@ export async function mintOrgServiceToken(params: {
   const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
   const orgDomain = await resolveOrgDomain(params.orgId);
   const ttlDays = clampTtlDays(params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS);
+  const issuer = resolveMcpOAuthIssuer(params.appUrl || undefined);
+  if (!issuer) {
+    throw new Error(
+      "Cannot mint an org service token without this app's public URL.",
+    );
+  }
   await prepareConnectIssuance();
   return withMcpCredentialIssuance(
     {
@@ -335,9 +346,10 @@ export async function mintOrgServiceToken(params: {
         ownerEmail: serviceEmail,
         orgId: params.orgId,
         orgDomain,
-        appUrl: params.appUrl,
+        issuer,
         expiresIn: `${ttlDays}d`,
         jti,
+        service: true,
       });
       const id = await recordMintedToken(
         {
@@ -1267,6 +1279,9 @@ export async function handleMcpConnect(
   const origin = deriveOrigin(event);
   const basePath = configuredBasePath();
   const appUrl = `${origin}${basePath}`;
+  // Tokens bind to the issuer verifyAuth checks. Reached through an alias of a
+  // configured public URL, that differs from the appUrl this page displays.
+  const tokenIssuer = getMcpOAuthIssuer(event) ?? appUrl;
   let requestUrl: URL | null = null;
   try {
     requestUrl = new URL(
@@ -1380,7 +1395,7 @@ export async function handleMcpConnect(
         orgId: defaultOrganizationId,
         label,
         ttlDays,
-        appUrl,
+        issuer: tokenIssuer,
         requestOrigin: origin,
         ...(catalogScope ? { catalogScope } : {}),
       });
@@ -1562,7 +1577,7 @@ export async function handleMcpConnect(
             ownerEmail: claimed.ownerEmail!,
             orgId: claimed.orgId,
             orgDomain,
-            appUrl,
+            issuer: tokenIssuer,
             expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
             jti,
             ...(claimed.catalogScope

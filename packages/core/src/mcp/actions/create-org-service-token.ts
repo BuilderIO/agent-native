@@ -57,7 +57,7 @@ export default defineAction({
     const appUrl = (
       getRequestContext()?.requestOrigin || getAppProductionUrl()
     ).replace(/\/+$/, "");
-    if (!appUrl && !process.env.A2A_SECRET?.trim()) {
+    if (!appUrl) {
       throw new ServiceTokenError(
         "Could not determine the app URL needed to mint a token. Set APP_URL on the deployment.",
         500,

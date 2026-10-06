@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 
-const isJtiRevokedMock = vi.fn();
 const touchTokenUsedMock = vi.fn(async () => {});
 const lookupConnectTokenOrgMock = vi.fn();
 const resolveA2AOrganizationCredentialsByDomainMock = vi.fn();
@@ -15,7 +14,6 @@ const resolveOrgIdForEmailMock = vi.fn();
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
-  isJtiRevoked: (...a: any[]) => isJtiRevokedMock(...a),
   touchTokenUsed: (...a: any[]) => touchTokenUsedMock(...a),
   lookupConnectTokenOrg: (...a: any[]) => lookupConnectTokenOrgMock(...a),
 }));
@@ -85,7 +83,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     const res = await verifyAuth(`Bearer ${token}`);
     expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("a@example.com");
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
@@ -151,7 +149,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       "builder.io",
     );
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
   it("ignores a forged subject on an org-secret token", async () => {
@@ -220,7 +218,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     const res = await verifyAuth(`Bearer ${token}`);
     expect(res.authed).toBe(false);
     expect(res.identity).toBeUndefined();
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
@@ -232,11 +230,10 @@ describe("verifyAuth — connect-token revoke check", () => {
     const res = await verifyAuth(`Bearer ${token}`);
     expect(res.authed).toBe(false);
     expect(res.identity).toBeUndefined();
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
   it("accepts a connect-scoped token whose jti is not revoked", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({
       status: "found",
       kind: "personal",
@@ -257,12 +254,11 @@ describe("verifyAuth — connect-token revoke check", () => {
       orgId: null,
       orgDomain: "builder.io",
     });
-    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-active");
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-active");
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-active");
   });
 
   it("rejects a non-first-party connect token this app has no record of", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
     const token = await sign({
       sub: "a@example.com",
@@ -278,7 +274,6 @@ describe("verifyAuth — connect-token revoke check", () => {
   });
 
   it("restores org scope for a legacy connect JWT from its stored token row", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({
       status: "found",
       kind: "personal",
@@ -302,7 +297,6 @@ describe("verifyAuth — connect-token revoke check", () => {
   });
 
   it("preserves Personal scope for a legacy connect JWT from its stored row", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({
       status: "found",
       kind: "personal",
@@ -326,7 +320,6 @@ describe("verifyAuth — connect-token revoke check", () => {
   });
 
   it("refuses a legacy connect JWT with a retryable failure when its org lookup is unavailable", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
     const token = await sign({
       sub: "ci@example.com",
@@ -352,7 +345,6 @@ describe("verifyAuth — connect-token revoke check", () => {
   );
 
   it("preserves the framework first-party MCP marker from audience-bound connect-scoped tokens", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     resolveA2AOrganizationMetadataByIdMock.mockResolvedValue({
       orgId: "org_123",
       orgDomain: null,
@@ -382,7 +374,6 @@ describe("verifyAuth — connect-token revoke check", () => {
   });
 
   it("rejects a first-party MCP token without an audience", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     const token = await sign({
       sub: "svc-mcp-client@service.org_123",
       scope: "mcp-connect",
@@ -394,11 +385,10 @@ describe("verifyAuth — connect-token revoke check", () => {
       resourceUrl: "https://assets.example.com/_agent-native/mcp",
     });
     expect(res.authed).toBe(false);
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
   it("rejects a first-party MCP token audience-bound to another app", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     const token = await sign(
       {
         sub: "svc-mcp-client@service.org_123",
@@ -416,11 +406,10 @@ describe("verifyAuth — connect-token revoke check", () => {
       resourceUrl: "https://design.example.com/_agent-native/mcp",
     });
     expect(res.authed).toBe(false);
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
   it("resolves an org SERVICE token to a synthetic service identity with orgId", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({
       status: "found",
       kind: "service",
@@ -442,11 +431,11 @@ describe("verifyAuth — connect-token revoke check", () => {
       orgDomain: undefined,
     });
     expect(res.fullSurface).toBe(true);
-    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-svc");
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-svc");
   });
 
   it("rejects a revoked org SERVICE token (same revocation gate as personal)", async () => {
-    isJtiRevokedMock.mockResolvedValue(true);
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "revoked" });
     const token = await sign({
       sub: "svc-ci@service.org_123",
       scope: "mcp-connect",
@@ -454,8 +443,8 @@ describe("verifyAuth — connect-token revoke check", () => {
       org_id: "org_123",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res.authed).toBe(false);
-    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-svc-revoked");
+    expect(res).toEqual({ authed: false, refusal: "revoked" });
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-svc-revoked");
   });
 
   it("accepts an audience-bound standard MCP OAuth access token", async () => {
@@ -482,7 +471,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       oauthScopes: ["mcp:read", "mcp:apps"],
       oauthClientId: "client-123",
     });
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
   it("rejects a standard MCP OAuth access token for another resource", async () => {
@@ -501,7 +490,6 @@ describe("verifyAuth — connect-token revoke check", () => {
   });
 
   it("accepts a connect-minted MCP OAuth token whose jti is not revoked", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({
       status: "found",
       kind: "personal",
@@ -526,12 +514,11 @@ describe("verifyAuth — connect-token revoke check", () => {
       userEmail: "oauth-connect@example.com",
       oauthClientId: "agent-native-connect",
     });
-    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-oauth-active");
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-oauth-active");
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-oauth-active");
   });
 
   it("restores org scope for a legacy connect OAuth token from its stored token row", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({
       status: "found",
       kind: "personal",
@@ -560,7 +547,6 @@ describe("verifyAuth — connect-token revoke check", () => {
   });
 
   it("refuses a legacy connect OAuth token with a retryable failure when its org lookup is unavailable", async () => {
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
     const resource = "https://mail.agent-native.com/_agent-native/mcp";
     const token = await signMcpOAuthAccessToken({
@@ -579,7 +565,7 @@ describe("verifyAuth — connect-token revoke check", () => {
   });
 
   it("rejects a revoked connect-minted MCP OAuth token", async () => {
-    isJtiRevokedMock.mockResolvedValue(true);
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "revoked" });
     const resource = "https://mail.agent-native.com/_agent-native/mcp";
     const token = await signMcpOAuthAccessToken({
       ownerEmail: "oauth-connect@example.com",
@@ -592,14 +578,14 @@ describe("verifyAuth — connect-token revoke check", () => {
     const res = await verifyAuth(`Bearer ${token}`, undefined, {
       resourceUrl: resource,
     });
-    expect(res.authed).toBe(false);
-    expect(isJtiRevokedMock).toHaveBeenCalledWith("jti-oauth-revoked");
+    expect(res).toEqual({ authed: false, refusal: "revoked" });
+    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith("jti-oauth-revoked");
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
   it("answers a retryable outage for a connect-minted MCP OAuth token whose revocation state can't be read", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    isJtiRevokedMock.mockRejectedValue(new Error("db down"));
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
     const resource = "https://mail.agent-native.com/_agent-native/mcp";
     const token = await signMcpOAuthAccessToken({
       ownerEmail: "oauth-connect@example.com",
@@ -624,24 +610,24 @@ describe("verifyAuth — connect-token revoke check", () => {
     const res = await verifyAuth(`Bearer ${token}`);
     expect(res.authed).toBe(false);
     expect(res.identity).toBeUndefined();
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 
   it("rejects a connect-scoped token whose jti has been revoked", async () => {
-    isJtiRevokedMock.mockResolvedValue(true);
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "revoked" });
     const token = await sign({
       sub: "a@example.com",
       scope: "mcp-connect",
       jti: "jti-revoked",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res.authed).toBe(false);
+    expect(res).toEqual({ authed: false, refusal: "revoked" });
     expect(res.identity).toBeUndefined();
   });
 
   it("answers a retryable outage, not admission, when revocation state can't be read", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    isJtiRevokedMock.mockRejectedValue(new Error("db down"));
+    lookupConnectTokenOrgMock.mockResolvedValue({ status: "unavailable" });
     const token = await sign({
       sub: "a@example.com",
       scope: "mcp-connect",
@@ -664,7 +650,32 @@ describe("verifyAuth — connect-token revoke check", () => {
       .sign(new TextEncoder().encode("WRONG-SECRET"));
     const res = await verifyAuth(`Bearer ${forged}`);
     expect(res.authed).toBe(false);
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a token declaring the MCP OAuth type that fails to verify as one, though it would pass as an A2A JWT", async () => {
+    const token = await sign({
+      sub: "a@example.com",
+      typ: "agent-native-mcp-oauth",
+    });
+    expect(await verifyAuth(`Bearer ${token}`)).toEqual({
+      authed: false,
+      refusal: "invalid",
+    });
+  });
+
+  it("still admits a configured static token shaped like a connect token it cannot verify", async () => {
+    const staticToken = await sign(
+      { sub: "a@example.com", scope: "mcp-connect", jti: "jti-static" },
+      "an-earlier-signing-key",
+    );
+    process.env.ACCESS_TOKEN = staticToken;
+    const res = await verifyAuth(`Bearer ${staticToken}`, "owner@example.com");
+    expect(res).toMatchObject({
+      authed: true,
+      identity: { userEmail: "owner@example.com" },
+    });
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
   });
 });
 
@@ -698,7 +709,6 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
 
   it("connect-minted JWT → fullSurface true", async () => {
     process.env.A2A_SECRET = SECRET;
-    isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({
       status: "found",
       kind: "personal",
@@ -825,7 +835,6 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
-    isJtiRevokedMock.mockResolvedValue(false);
     process.env.A2A_SECRET = SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
@@ -1266,7 +1275,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(resolveA2AOrganizationMetadataByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
-    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
   });
@@ -1283,7 +1292,6 @@ describe("verifyAuth — a credential for an address an email change retired", (
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
     resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
-    isJtiRevokedMock.mockResolvedValue(false);
     process.env.A2A_SECRET = SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;

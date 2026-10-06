@@ -82,6 +82,7 @@ import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
   MCP_OAUTH_SCOPES,
+  MCP_OAUTH_TOKEN_TYPE,
   hasMcpOAuthScope,
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
@@ -2844,28 +2845,6 @@ function mcpAudienceList(resource: string | string[] | undefined): string[] {
 }
 
 /**
- * Null while the connect token is active. A revoked or jti-less token is
- * refused, and unreadable revocation state answers a retryable 503.
- */
-async function refuseInactiveConnectToken(
-  jti: string | undefined,
-): Promise<VerifyAuthResult | null> {
-  if (!jti) return { authed: false, refusal: "invalid" };
-  const { isJtiRevoked } = await import("./connect-store.js");
-  try {
-    return (await isJtiRevoked(jti))
-      ? { authed: false, refusal: "revoked" }
-      : null;
-  } catch (error) {
-    console.error(
-      "[mcp] Connect-token revocation check failed; refusing the token:",
-      error,
-    );
-    return { authed: false, unavailable: true };
-  }
-}
-
-/**
  * Records a connect token's use once the request is admitted, so a refused
  * call (revoked, removed member, membership check unavailable) never moves
  * `last_used_at`.
@@ -2887,7 +2866,7 @@ export type VerifyAuthResult = {
   fullCatalog?: boolean;
   /**
    * The token verified, but its standing could not be checked: the
-   * connect-token revocation or org lookup, the retired-address check, or the
+   * connect-token lookup, the retired-address check, or the
    * membership check hit a database or identity-authority error. Answer with
    * a retryable error, not an auth challenge: signing in again would not help.
    */
@@ -2922,39 +2901,26 @@ type IssuedMcpCredential = {
  * A2A-shaped JWT with `scope: "mcp-connect"` and no audience, signed with this
  * deployment's A2A_SECRET. They are this app's own credentials, not cross-app
  * assertions, so organization secrets and organization-principal rules never
- * apply to them: their identity is their stored row. `invalid` claims such a
- * token so it never falls through to the A2A or static-token checks.
+ * apply to them: their identity is their stored row.
  */
 async function verifyLegacyConnectToken(
   token: string,
-): Promise<IssuedMcpCredential | "invalid" | null> {
-  const jose = await import("jose");
-  let claims: Record<string, unknown>;
-  try {
-    claims = jose.decodeJwt(token) as Record<string, unknown>;
-  } catch {
-    // coercion-ok: a token that is not a JWT is not a connect token; the static-token check still runs.
-    return null;
-  }
-  if (
-    claims.scope !== MCP_CONNECT_SCOPE ||
-    claims.agent_native_first_party_mcp === true
-  ) {
-    return null;
-  }
+  claims: Record<string, unknown>,
+): Promise<IssuedMcpCredential | "unverified"> {
   const secret = readDeployCredentialEnv("A2A_SECRET")?.trim();
-  if (!secret || claims.aud !== undefined) return "invalid";
+  if (!secret || claims.aud !== undefined) return "unverified";
+  const jose = await import("jose");
   let payload: Record<string, unknown>;
   try {
     payload = (await jose.jwtVerify(token, new TextEncoder().encode(secret)))
       .payload as Record<string, unknown>;
   } catch {
-    // coercion-ok: a bad signature or an expired token is refused as invalid.
-    return "invalid";
+    // coercion-ok: a bad signature or an expired token is unverified, which verifyAuth refuses unless it is a configured static token.
+    return "unverified";
   }
   const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
   if (typeof payload.sub !== "string" || !payload.sub || !orgIdClaim) {
-    return "invalid";
+    return "unverified";
   }
   return {
     userEmail: payload.sub,
@@ -2969,12 +2935,33 @@ async function verifyLegacyConnectToken(
   };
 }
 
+/**
+ * Classifies a bearer token by the credential it declares itself to be, then
+ * verifies it as that. A token claiming to be one this app issued never
+ * reaches the A2A checks, even when it fails to verify: that is
+ * `unverified`. Null means it makes no such claim.
+ */
 async function verifyIssuedMcpCredential(
   token: string,
   resourceUrl: string | string[] | undefined,
-): Promise<IssuedMcpCredential | "invalid" | null> {
+): Promise<IssuedMcpCredential | "unverified" | null> {
+  const jose = await import("jose");
+  let claims: Record<string, unknown>;
+  try {
+    claims = jose.decodeJwt(token) as Record<string, unknown>;
+  } catch {
+    // coercion-ok: a token that is not a JWT is not an issued credential; the static-token check still runs.
+    return null;
+  }
+  if (
+    claims.scope === MCP_CONNECT_SCOPE &&
+    claims.agent_native_first_party_mcp !== true
+  ) {
+    return verifyLegacyConnectToken(token, claims);
+  }
+  if (claims.typ !== MCP_OAUTH_TOKEN_TYPE) return null;
   const oauth = await verifyMcpOAuthAccessToken(token, resourceUrl);
-  if (!oauth) return verifyLegacyConnectToken(token);
+  if (!oauth) return "unverified";
   return {
     userEmail: oauth.userEmail,
     orgId: oauth.orgId,
@@ -3002,12 +2989,14 @@ async function admitIssuedMcpCredential(
 ): Promise<VerifyAuthResult> {
   let stored: StoredConnectTokenIdentity | undefined;
   if (credential.connect) {
-    const refused = await refuseInactiveConnectToken(credential.connect.jti);
-    if (refused) return refused;
+    if (!credential.connect.jti) return { authed: false, refusal: "invalid" };
     const { lookupConnectTokenOrg } = await import("./connect-store.js");
-    const lookup = await lookupConnectTokenOrg(credential.connect.jti!);
+    const lookup = await lookupConnectTokenOrg(credential.connect.jti);
     if (lookup.status === "unavailable") {
       return { authed: false, unavailable: true };
+    }
+    if (lookup.status === "revoked") {
+      return { authed: false, refusal: "revoked" };
     }
     if (lookup.status === "missing") {
       return { authed: false, refusal: "unknown-connect-token" };
@@ -3135,7 +3124,18 @@ export async function verifyAuth(
   const token = getBearerToken(authHeader);
   if (token) {
     const issued = await verifyIssuedMcpCredential(token, options.resourceUrl);
-    if (issued === "invalid") return { authed: false, refusal: "invalid" };
+    if (issued === "unverified") {
+      return (
+        (await matchStaticAccessToken(
+          token,
+          accessTokens,
+          ownerEmailHeader,
+        )) ?? {
+          authed: false,
+          refusal: "invalid",
+        }
+      );
+    }
     if (issued) return admitIssuedMcpCredential(issued, options.requestOrigin);
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {
@@ -3202,38 +3202,45 @@ export async function verifyAuth(
     };
   }
 
-  if (accessTokens.length === 0) {
-    // A supplied bearer that failed JWT verification must not fall through to
-    // dev-open auth or reuse a forwarded owner-email hint.
-    return { authed: false, refusal: "invalid" };
-  }
-
-  // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no
-  // per-caller claims, so derive identity from the forwarded owner-email
-  // hint (install flow) — otherwise tools would run unscoped. Compare in
-  // constant time (matching the rest of this subsystem's secret-comparison
-  // discipline); node:crypto is imported dynamically because this module is
-  // bundled into the serverless function and avoids static Node-only imports.
-  if (accessTokens.length > 0) {
-    const { timingSafeEqual } = await import("node:crypto");
-    const candidate = Buffer.from(token, "utf8");
-    const matched = accessTokens.some((configured) => {
-      const expected = Buffer.from(configured, "utf8");
-      return (
-        expected.length === candidate.length &&
-        timingSafeEqual(expected, candidate)
-      );
-    });
-    if (matched) {
-      return {
-        authed: true,
-        identity: deriveStaticTokenIdentity(ownerEmailHeader),
-        fullSurface: true,
-      };
+  // A supplied bearer that failed JWT verification must not fall through to
+  // dev-open auth or reuse a forwarded owner-email hint.
+  return (
+    (await matchStaticAccessToken(token, accessTokens, ownerEmailHeader)) ?? {
+      authed: false,
+      refusal: "invalid",
     }
-  }
+  );
+}
 
-  return { authed: false, refusal: "invalid" };
+/**
+ * ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no per-caller
+ * claims, so identity comes from the forwarded owner-email hint (install flow)
+ * — otherwise tools would run unscoped. Compared in constant time, matching
+ * the rest of this subsystem's secret-comparison discipline; node:crypto is
+ * imported dynamically because this module is bundled into the serverless
+ * function and avoids static Node-only imports.
+ */
+async function matchStaticAccessToken(
+  token: string,
+  accessTokens: string[],
+  ownerEmailHeader: string | undefined,
+): Promise<VerifyAuthResult | null> {
+  if (accessTokens.length === 0) return null;
+  const { timingSafeEqual } = await import("node:crypto");
+  const candidate = Buffer.from(token, "utf8");
+  const matched = accessTokens.some((configured) => {
+    const expected = Buffer.from(configured, "utf8");
+    return (
+      expected.length === candidate.length &&
+      timingSafeEqual(expected, candidate)
+    );
+  });
+  if (!matched) return null;
+  return {
+    authed: true,
+    identity: deriveStaticTokenIdentity(ownerEmailHeader),
+    fullSurface: true,
+  };
 }
 
 export async function resolveOrgIdFromDomain(

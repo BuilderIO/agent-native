@@ -38,13 +38,32 @@ export function describeBearerCredentialRefusal(
   }
 }
 
+/** RFC 6750 `error_description` characters: printable ASCII except `"` and `\`. */
+const ERROR_DESCRIPTION_CHARACTERS = /^[\x20\x21\x23-\x5B\x5D-\x7E]*$/;
+
+/**
+ * The connect URL serialized as an ASCII URL, or undefined when it still could
+ * not travel in an `error_description`. Its host comes from request headers
+ * and its base path from configuration, so neither is trusted to be safe.
+ */
+function headerSafeUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  let href: string;
+  try {
+    href = new URL(url).href;
+  } catch {
+    // coercion-ok: an unparseable connect URL is left out of the hint, which then names no URL.
+    return undefined;
+  }
+  return ERROR_DESCRIPTION_CHARACTERS.test(href) ? href : undefined;
+}
+
 export function describeBearerCredentialRefusalWithRecovery(
   refusal: BearerCredentialRefusal,
   connectUrl: string | undefined,
 ): string {
-  const recovery = connectUrl
-    ? `Reconnect at ${connectUrl}.`
-    : "Reconnect this connector.";
+  const url = headerSafeUrl(connectUrl);
+  const recovery = url ? `Reconnect at ${url}.` : "Reconnect this connector.";
   return `${describeBearerCredentialRefusal(refusal)} ${recovery}`;
 }
 

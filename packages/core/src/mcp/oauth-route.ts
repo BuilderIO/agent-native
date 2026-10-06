@@ -185,7 +185,19 @@ function deriveOrigin(event: H3Event): string {
 }
 
 export function getMcpOAuthIssuer(event: H3Event): string | undefined {
-  const baseUrl = configuredPublicBaseUrl() || deriveOrigin(event);
+  return resolveMcpOAuthIssuer(deriveOrigin(event));
+}
+
+/**
+ * The issuer MCP credentials are bound to, given the caller's request origin.
+ * Verification accepts only this issuer's resources, so anything that mints a
+ * bearer for this app must resolve its audience here, not from request headers:
+ * a configured public URL wins over the host a page was reached through.
+ */
+export function resolveMcpOAuthIssuer(
+  requestOrigin: string | undefined,
+): string | undefined {
+  const baseUrl = configuredPublicBaseUrl() || requestOrigin;
   if (!baseUrl) return undefined;
   return appendConfiguredBasePath(baseUrl);
 }

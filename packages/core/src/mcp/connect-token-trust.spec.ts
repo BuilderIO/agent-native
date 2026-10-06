@@ -38,23 +38,26 @@ import { getMcpOAuthAudiences } from "./oauth-route.js";
 import { verifyMcpOAuthAccessToken } from "./oauth-token.js";
 
 const ORIGIN = "https://app.example.test";
+const ALIAS = "https://alias.example.test";
 const ALICE = "alice@example.test";
 const ORG = "org-synthetic-connect-trust";
 const DOMAIN = "example.test";
 const DEPLOY_A2A_SECRET = "synthetic-test-a2a-secret-not-real";
 const ORG_A2A_SECRET = "synthetic-test-org-a2a-secret-not-real";
 const ORIGINAL_ENV = { ...process.env };
+/** The origin every request below reaches the app through. */
+let requestOrigin = ORIGIN;
 
 function appEvent(
   path: string,
   init: { method?: string; body?: unknown } = {},
 ): H3Event {
   const headers: Record<string, string> = {
-    "x-forwarded-host": new URL(ORIGIN).host,
+    "x-forwarded-host": new URL(requestOrigin).host,
     "x-forwarded-proto": "https",
   };
   if (init.body !== undefined) headers["content-type"] = "application/json";
-  return mockEvent(`${ORIGIN}${path}`, {
+  return mockEvent(`${requestOrigin}${path}`, {
     method: init.method ?? "GET",
     headers,
     ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
@@ -106,8 +109,18 @@ const MINT = { static: mintStaticToken, device: mintDeviceToken } as const;
 async function verifyAtMcp(token: string) {
   return verifyAuth(`Bearer ${token}`, undefined, {
     resourceUrl: getMcpOAuthAudiences(appEvent("/mcp", { method: "POST" })),
-    requestOrigin: ORIGIN,
+    requestOrigin,
   });
+}
+
+async function mintServiceToken(): Promise<string> {
+  const { token } = await mintOrgServiceToken({
+    serviceName: `ci-${randomUUID().slice(0, 8)}`,
+    orgId: ORG,
+    createdBy: ALICE,
+    appUrl: requestOrigin,
+  });
+  return token;
 }
 
 async function setOrgTrust(allowedDomain: string | null, a2aSecret: string) {
@@ -221,16 +234,53 @@ describe("connect tokens in an org that shares the deployment's A2A secret", () 
   });
 
   it("admits an org service token as a service, not a person", async () => {
-    const { token } = await mintOrgServiceToken({
-      serviceName: "ci",
-      orgId: ORG,
-      createdBy: ALICE,
-      appUrl: ORIGIN,
-    });
+    const token = await mintServiceToken();
     expect(await verifyAtMcp(token)).toMatchObject({
       authed: true,
       identity: { identityAssurance: "service", orgId: ORG },
     });
+  });
+
+  it("signs org service tokens with a credential version earlier verifiers refuse", async () => {
+    // Verifiers before service assurance admit credential_version 2 only, and
+    // admit it as a verified user.
+    const service = jose.decodeJwt(await mintServiceToken());
+    const personal = jose.decodeJwt((await mintStaticToken()).token);
+    expect(personal.credential_version).toBe(2);
+    expect(service.credential_version).not.toBe(2);
+  });
+});
+
+describe("connect tokens minted where the configured public URL differs from the request", () => {
+  afterEach(() => {
+    requestOrigin = ORIGIN;
+    delete process.env.APP_URL;
+    delete process.env.APP_BASE_PATH;
+  });
+
+  it("admits every mint reached through an alias of the configured URL", async () => {
+    process.env.APP_URL = ORIGIN; // guard:allow-env-mutation — spec-owned public URL
+    requestOrigin = ALIAS;
+    const tokens = [
+      (await mintStaticToken()).token,
+      (await mintDeviceToken()).token,
+      await mintServiceToken(),
+    ];
+    for (const token of tokens) {
+      expect(await verifyAtMcp(token)).toMatchObject({ authed: true });
+    }
+  });
+
+  it("admits every mint under a configured base path", async () => {
+    process.env.APP_BASE_PATH = "/content"; // guard:allow-env-mutation — spec-owned base path
+    const tokens = [
+      (await mintStaticToken()).token,
+      (await mintDeviceToken()).token,
+      await mintServiceToken(),
+    ];
+    for (const token of tokens) {
+      expect(await verifyAtMcp(token)).toMatchObject({ authed: true });
+    }
   });
 });
 

@@ -9076,15 +9076,14 @@ describe("server/auth", () => {
         if (/FROM organizations/.test(sql)) {
           return { rows: [{ identity_authority: null, identity_id: null }] };
         }
-        if (
-          /SELECT org_id, owner_email, kind FROM mcp_connect_tokens/.test(sql)
-        ) {
+        if (/FROM mcp_connect_tokens/.test(sql)) {
           return {
             rows: [
               {
                 org_id: "org-123",
                 owner_email: "owner@plans.test",
                 kind: "personal",
+                revoked_at: null,
               },
             ],
           };
@@ -9222,10 +9221,19 @@ describe("server/auth", () => {
       const mockExecute = vi.fn(
         async ({ sql, args }: { sql: string; args?: unknown[] }) => {
           if (
-            /SELECT revoked_at FROM mcp_connect_tokens/.test(sql) &&
+            /FROM mcp_connect_tokens/.test(sql) &&
             args?.[0] === "jti-connect-revoked-test"
           ) {
-            return { rows: [{ revoked_at: "2026-10-06T00:00:00.000Z" }] };
+            return {
+              rows: [
+                {
+                  org_id: "org-123",
+                  owner_email: "owner@plans.test",
+                  kind: "personal",
+                  revoked_at: "2026-10-06T00:00:00.000Z",
+                },
+              ],
+            };
           }
           return { rows: [] };
         },
