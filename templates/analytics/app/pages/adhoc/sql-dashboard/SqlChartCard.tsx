@@ -16,7 +16,7 @@ import {
   IconBrandGoogle,
   IconArrowUpRight,
 } from "@tabler/icons-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
