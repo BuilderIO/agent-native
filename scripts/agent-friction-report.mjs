@@ -2338,6 +2338,13 @@ const PATTERNS = [
     re: /\b(?:too many|so many|stop asking|spam(?:ming|med)?|carpet|blast(?:ed|ing)?|barrage|flood(?:ed|ing)?)\b[^.!?\n]{0,80}\b(?:questions?|asks?|replies|messages?|threads?)\b|\b(?:questions?|asks?|replies|messages?)\b[^.!?\n]{0,60}\b(?:odd|weird|strange|pointless|useless|low[- ]value|generic|templated|robotic|noisy|annoying)\b|\b(?:don['’]?t|do not|stop|quit)\b[^.!?\n]{0,60}\b(?:ask(?:ing)?|reply(?:ing)?|post(?:ing)?)\b[^.!?\n]{0,60}\b(?:every|each|all)\b[^.!?\n]{0,40}\b(?:thread|report|message|item)\b/i,
   },
   {
+    key: "feedback-channel-coverage",
+    label: "Had to ask for another feedback channel to be scanned",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (default channel coverage, 2026-10-05)",
+    re: /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b/i,
+  },
+  {
     key: "cross-thread-interference",
     label: "Agent acted on other agents' threads or work uninvited",
     fixedBy: ".agents/skills/reporting-progress (2026-08-12)",

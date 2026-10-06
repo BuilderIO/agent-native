@@ -65,7 +65,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
+import type {
+  ClipboardEvent,
+  CSSProperties,
+  MutableRefObject,
+  ReactNode,
+} from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import type { Doc as YDoc } from "yjs";
@@ -1934,14 +1939,25 @@ export function positionAnchoredCommentCard({
       ? below
       : Math.max(boundaryRect.top - containerRect.top + edge, above),
     width,
+    maxHeight: commentCardMaxHeight(boundaryRect, edge),
     placement: fitsBelow ? ("below" as const) : ("above" as const),
   };
+}
+
+// The card scrolls with the page and is re-clamped on every scroll, so any
+// part taller than the visible scroller can never be scrolled into view.
+function commentCardMaxHeight(
+  boundaryRect: Pick<DOMRect, "top" | "bottom">,
+  edge: number,
+) {
+  return Math.max(0, boundaryRect.bottom - boundaryRect.top - edge * 2);
 }
 
 export type AnchoredCommentPosition = {
   left: number;
   top: number;
   width: number;
+  maxHeight: number;
   placement: "above" | "below";
 };
 
@@ -1955,6 +1971,7 @@ export function sameAnchoredCommentPosition(
     left.left === right.left &&
     left.top === right.top &&
     left.width === right.width &&
+    left.maxHeight === right.maxHeight &&
     left.placement === right.placement
   );
 }
@@ -1977,7 +1994,7 @@ export function positionUnanchoredCommentCard({
   edge = 16,
 }: {
   containerRect: Pick<DOMRect, "top" | "width">;
-  boundaryRect: Pick<DOMRect, "top">;
+  boundaryRect: Pick<DOMRect, "top" | "bottom">;
   preferredWidth?: number;
   edge?: number;
 }) {
@@ -1988,6 +2005,7 @@ export function positionUnanchoredCommentCard({
       0,
       Math.min(preferredWidth, containerRect.width - edge * 2),
     ),
+    maxHeight: commentCardMaxHeight(boundaryRect, edge),
     placement: "below" as const,
   };
 }
@@ -8442,11 +8460,12 @@ function PageEditorSessionBody({
                   data-placement={anchoredCommentPosition?.placement}
                   style={
                     anchoredCommentPosition
-                      ? {
+                      ? ({
                           left: anchoredCommentPosition.left,
                           top: anchoredCommentPosition.top,
                           width: anchoredCommentPosition.width,
-                        }
+                          "--comment-popover-max-height": `${anchoredCommentPosition.maxHeight}px`,
+                        } as CSSProperties)
                       : { visibility: "hidden" }
                   }
                 >

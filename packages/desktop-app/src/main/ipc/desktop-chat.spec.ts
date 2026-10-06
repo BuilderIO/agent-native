@@ -12,7 +12,7 @@ vi.mock("electron", () => ({
   session: { fromPartition: vi.fn() },
 }));
 
-vi.mock("@agent-native/core/terminal/server", () => ({
+vi.mock("@agent-native/core/terminal/pty-server", () => ({
   createPtyWebSocketServer: vi.fn(),
 }));
 

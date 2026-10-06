@@ -13,6 +13,7 @@ import {
   prepareTransactionalChange,
   type TransactionalChange,
 } from "@agent-native/core/server";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
 import { drizzle } from "drizzle-orm/pg-proxy";
 
@@ -29,7 +30,8 @@ import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.j
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
   SUPPORTED_SUGGESTION_MARKS,
-  supportsSuggestionNode,
+  suggestionFrameShape,
+  suggestionNodeRole,
 } from "../../app/components/editor/suggestions/model.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
@@ -278,9 +280,20 @@ function unsupportedSuggestionStructure(
     }
     return result;
   }
-  if (!supportsSuggestionNode(node.type ?? "")) {
+  const role = suggestionNodeRole(node.type ?? "");
+  if (role === "frozen") {
     result.push({ path, node });
     return result;
+  }
+  if (role === "frame") {
+    result.push({
+      path,
+      frame: suggestionFrameShape(
+        node.type ?? "",
+        node.attrs,
+        (node.content ?? []).map((child) => child.type ?? ""),
+      ),
+    });
   }
   for (const child of node.content ?? []) {
     unsupportedSuggestionStructure(child, [...path, node.type ?? ""], result);
@@ -308,12 +321,28 @@ function unchangedSurround(before: string, after: string): string {
   return `${before.slice(0, prefix)}${before.slice(before.length - suffix)}`;
 }
 
-function unsupportedStructureKey(markdown: string): string {
+function unsupportedStructureKey(doc: ProseMirrorNode): string {
   return JSON.stringify(
-    unsupportedSuggestionStructure(
-      parseSuggestionMarkdown(markdown).toJSON() as SuggestionDocumentJson,
-    ),
+    unsupportedSuggestionStructure(doc.toJSON() as SuggestionDocumentJson),
   );
+}
+
+// The formatted text each frame holds, split at every frame edge. A change can
+// keep every frame's shape and still move, rewrite, or format text on both
+// sides of a cell or frame edge; it then changes two of these runs.
+function frameTextRuns(doc: ProseMirrorNode): string[] {
+  const runs = [""];
+  const visit = (node: ProseMirrorNode) => {
+    const frame = suggestionNodeRole(node.type.name) === "frame";
+    if (frame) runs.push("");
+    if (node.isText) runs[runs.length - 1] += JSON.stringify(node.toJSON());
+    else if (node.isLeaf) runs[runs.length - 1] += "\n";
+    node.forEach(visit);
+    if (node.isBlock) runs[runs.length - 1] += "\n";
+    if (frame) runs.push("");
+  };
+  visit(doc);
+  return runs;
 }
 
 function validateSuggestionStructure(
@@ -321,13 +350,17 @@ function validateSuggestionStructure(
   afterMarkdown: string,
   refusal: string,
 ) {
+  const before = parseSuggestionMarkdown(beforeMarkdown);
   const after = parseSuggestionMarkdown(afterMarkdown);
   const surround = unsupportedStructureKey(
-    unchangedSurround(beforeMarkdown, afterMarkdown),
+    parseSuggestionMarkdown(unchangedSurround(beforeMarkdown, afterMarkdown)),
   );
+  const afterRuns = frameTextRuns(after);
   if (
-    unsupportedStructureKey(beforeMarkdown) !== surround ||
-    unsupportedStructureKey(afterMarkdown) !== surround ||
+    unsupportedStructureKey(before) !== surround ||
+    unsupportedStructureKey(after) !== surround ||
+    frameTextRuns(before).filter((run, index) => run !== afterRuns[index])
+      .length > 1 ||
     JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
       JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
   ) {
@@ -577,7 +610,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     validateSuggestionStructure(
       before.markdown,
       after.markdown,
-      "Suggestions cannot change tables, images, or other content or formatting they do not support yet. Suggest changes to the surrounding text instead.",
+      "Suggestions can change text inside tables, callouts, toggles, and columns, but not a table's rows or cells, a callout's icon, a toggle's title, the columns themselves, images, or other content or formatting they do not support yet. Suggest a change to the text instead.",
     );
     return operations;
   },
@@ -670,7 +703,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     const nextDocument = validateSuggestionStructure(
       currentContent,
       nextContent,
-      "This suggestion changes a table, image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.",
+      "This suggestion changes a table's rows or cells, a callout's icon, a toggle's title, a column layout, an image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.",
     );
     if (currentContent.includes("<InlineDatabase")) {
       fail("Pages containing inline databases cannot accept suggestions yet.", {
