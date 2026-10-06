@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   expireClientStatusResult,
+  fetchAgentEngineStatus,
   fetchAuthSessionStatus,
   fetchBuilderStatus,
   fetchEnvironmentStatus,
@@ -49,6 +50,40 @@ describe("client status requests", () => {
       state: "available",
       value: { configured: true },
     });
+  });
+
+  it("starts a fresh status read and suppresses the superseded probe", async () => {
+    let resolvePassive!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolvePassive = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ chatEligible: false }));
+    vi.stubGlobal("fetch", fetch);
+
+    const passive = fetchAgentEngineStatus<{ chatEligible: boolean }>();
+    const fresh = fetchAgentEngineStatus<{ chatEligible: boolean }>({
+      fresh: true,
+    });
+    await expect(fresh).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    resolvePassive(jsonResponse({ chatEligible: true }));
+
+    await expect(passive).resolves.toEqual({
+      state: "unavailable",
+      stale: true,
+    });
+    await expect(fetchAgentEngineStatus()).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a failed file-storage status probe unavailable", async () => {

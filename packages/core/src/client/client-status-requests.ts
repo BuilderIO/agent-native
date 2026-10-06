@@ -3,7 +3,7 @@ import { agentNativeApiDisabledReason } from "./api-surface.js";
 
 export type ClientStatusResult<T> =
   | { state: "available"; value: T }
-  | { state: "unavailable"; status?: number };
+  | { state: "unavailable"; status?: number; stale?: boolean };
 
 declare global {
   interface Window {
@@ -30,6 +30,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 const cache = new Map<string, CacheEntry>();
 const requests = new Map<string, Promise<ClientStatusResult<unknown>>>();
+const supersededRequests = new WeakSet<object>();
 const requestControllers = new Map<string, AbortController>();
 const requestGenerations = new Map<string, number>();
 let invalidationListenersInstalled = false;
@@ -83,18 +84,25 @@ function installInvalidationListeners(): void {
 
 async function fetchClientStatus<T>(
   path: string,
+  options?: { fresh?: boolean },
 ): Promise<ClientStatusResult<T>> {
   if (agentNativeApiDisabledReason()) return { state: "unavailable" };
   installInvalidationListeners();
   const url = agentNativePath(path);
   const cached = cache.get(url);
-  if (cached && cached.expiresAt > Date.now()) {
+  if (!options?.fresh && cached && cached.expiresAt > Date.now()) {
     return cached.result as ClientStatusResult<T>;
   }
   cache.delete(url);
 
   const pending = requests.get(url);
-  if (pending) return pending as Promise<ClientStatusResult<T>>;
+  if (pending && !options?.fresh) {
+    return pending as Promise<ClientStatusResult<T>>;
+  }
+  if (options?.fresh) {
+    if (pending) supersededRequests.add(pending);
+    requestGenerations.set(url, (requestGenerations.get(url) ?? 0) + 1);
+  }
 
   const sessionRead = path === SESSION_STATUS_PATH;
   const currentGeneration = () =>
@@ -135,6 +143,9 @@ async function fetchClientStatus<T>(
       .catch((): ClientStatusResult<unknown> => ({ state: "unavailable" }));
   const request = Promise.race([transport, timeout])
     .then((result) => {
+      if (supersededRequests.has(request)) {
+        return { state: "unavailable", stale: true } as const;
+      }
       if (
         currentGeneration() === requestGeneration &&
         (requestGenerations.get(url) ?? 0) === requestUrlGeneration &&
@@ -198,10 +209,10 @@ export function invalidateClientStatusRequests(): void {
   requests.clear();
 }
 
-export function fetchAgentEngineStatus<T = unknown>(): Promise<
-  ClientStatusResult<T>
-> {
-  return fetchClientStatus<T>("/_agent-native/agent-engine/status");
+export function fetchAgentEngineStatus<T = unknown>(options?: {
+  fresh?: boolean;
+}): Promise<ClientStatusResult<T>> {
+  return fetchClientStatus<T>("/_agent-native/agent-engine/status", options);
 }
 
 export function fetchEnvironmentStatus<T = unknown>(): Promise<

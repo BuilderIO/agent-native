@@ -54,7 +54,6 @@ const chatMocks = vi.hoisted(() => ({
   requestComposerFocus: vi.fn(),
   readiness: { canChat: true, missing: false, state: "configured" },
   fetchProviderState: vi.fn(async () => chatMocks.readiness.state),
-  expireProviderStatus: vi.fn(),
   fileUploadStatus: {
     data: { configured: true },
     isError: false,
@@ -497,17 +496,6 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   };
 });
 
-vi.mock("@agent-native/core/client/status-requests", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("@agent-native/core/client/status-requests")
-    >();
-  return {
-    ...actual,
-    expireClientStatusResult: chatMocks.expireProviderStatus,
-  };
-});
-
 vi.mock("./chat/run-recovery.js", async (importOriginal) => ({
   isMissingLlmProviderRunError: (
     await importOriginal<typeof import("./chat/run-recovery.js")>()
@@ -775,7 +763,6 @@ beforeEach(() => {
   chatMocks.fetchProviderState
     .mockReset()
     .mockImplementation(async () => chatMocks.readiness.state);
-  chatMocks.expireProviderStatus.mockReset();
   chatMocks.fileUploadStatus = {
     data: { configured: true },
     isError: false,
@@ -1981,9 +1968,9 @@ describe("AgentKitAssistantChat host behavior", () => {
       await Promise.resolve();
     });
     expect(chatMocks.fetchProviderState).toHaveBeenCalledOnce();
-    expect(chatMocks.expireProviderStatus).toHaveBeenCalledWith(
-      "/_agent-native/agent-engine/status",
-    );
+    expect(chatMocks.fetchProviderState).toHaveBeenCalledWith(true, {
+      fresh: true,
+    });
     expect(
       container.querySelector('[data-testid="provider-preflight-pending"]'),
     ).not.toBeNull();

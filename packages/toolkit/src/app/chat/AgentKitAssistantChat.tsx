@@ -62,7 +62,6 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
-import { expireClientStatusResult } from "@agent-native/core/client/status-requests";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
 import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "@agent-native/core/package-lifecycle/migration-message";
@@ -1900,10 +1899,9 @@ const AgentKitAssistantChatBody = forwardRef<
     if (!request || request.requestId !== readinessRequestIdRef.current) {
       const requestId = ++readinessRequestIdRef.current;
       providerReadinessPassRef.current = null;
-      expireClientStatusResult("/_agent-native/agent-engine/status");
       request = {
         requestId,
-        promise: fetchAgentEngineConfiguredState(true),
+        promise: fetchAgentEngineConfiguredState(true, { fresh: true }),
       };
       providerReadinessRequestRef.current = request;
     }
