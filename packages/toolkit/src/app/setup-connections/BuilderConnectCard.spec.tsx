@@ -62,18 +62,20 @@ vi.mock(
     return {
       ...actual,
       DeferredBuilderConnectChoicePanel: ({
+        canProvisionAccount,
         flow,
         onCreateAndActivate,
         onExistingAccount,
       }: {
         flow: { connecting: boolean };
+        canProvisionAccount: boolean;
         onCreateAndActivate: () => void;
         onExistingAccount: () => void;
       }) => (
         <div>
           <button
             type="button"
-            disabled={flow.connecting}
+            disabled={flow.connecting || !canProvisionAccount}
             onClick={onCreateAndActivate}
           >
             Create and activate
@@ -258,7 +260,7 @@ describe("BuilderConnectCard", () => {
       configured: true,
       statusResolved: true,
       envManaged: false,
-      agentNativeProvisioningEnabled: false,
+      agentNativeProvisioningEnabled: true,
       codeChangeConfigured: false,
       builderEnabled: true,
       orgName: "Acme",

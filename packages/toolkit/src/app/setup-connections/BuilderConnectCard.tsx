@@ -338,6 +338,10 @@ export function BuilderConnectionMenu({
         {showConnectChoices ? (
           <DeferredBuilderConnectChoicePanel
             flow={flow}
+            canProvisionAccount={
+              flow.statusResolved &&
+              flow.agentNativeProvisioningEnabled === true
+            }
             onCreateAndActivate={() => {
               provisionAttemptRef.current = true;
               setShowConnectChoices(false);

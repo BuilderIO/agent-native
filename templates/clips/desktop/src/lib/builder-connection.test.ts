@@ -1,6 +1,44 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { connectBuilderForVoiceCleanup } from "./builder-connection";
+import {
+  connectBuilderForVoiceCleanup,
+  isBuilderProvisioningAvailable,
+} from "./builder-connection";
+
+describe("isBuilderProvisioningAvailable", () => {
+  it("requires the one-click capability and both signed tokens", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          agentNativeProvisioningEnabled: true,
+          agentNativeProvisioningToken: "provision-token",
+          connectUrl:
+            "https://app.example/_agent-native/builder/connect?_an_connect=signed-connect",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(
+      isBuilderProvisioningAvailable("https://app.example", fetchImpl),
+    ).resolves.toBe(true);
+  });
+
+  it("fails closed when status cannot support one-click setup", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ connectUrl: "https://app.example/connect" }),
+        {
+          status: 200,
+        },
+      ),
+    );
+
+    await expect(
+      isBuilderProvisioningAvailable("https://app.example", fetchImpl),
+    ).resolves.toBe(false);
+  });
+});
 
 describe("connectBuilderForVoiceCleanup", () => {
   it("activates directly with the signed token and skips browser OAuth", async () => {

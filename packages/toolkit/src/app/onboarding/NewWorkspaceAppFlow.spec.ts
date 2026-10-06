@@ -47,6 +47,7 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
     connecting: builderConnectFlowState.connecting,
     error: null,
     statusResolved: true,
+    agentNativeProvisioningEnabled: true,
     start: builderConnectFlowState.start,
   }),
 }));

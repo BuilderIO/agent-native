@@ -38,14 +38,20 @@ vi.mock("../settings/deferred-builder-connect-popover.js", () => ({
     onConnect: (provisionAccount: boolean) => void;
   }) => React.cloneElement(children, { onClick: () => onConnect(false) }),
   DeferredBuilderConnectChoicePanel: ({
+    canProvisionAccount,
     onCreateAndActivate,
     onExistingAccount,
   }: {
+    canProvisionAccount: boolean;
     onCreateAndActivate: () => void;
     onExistingAccount: () => void;
   }) => (
     <div>
-      <button type="button" onClick={onCreateAndActivate}>
+      <button
+        type="button"
+        disabled={!canProvisionAccount}
+        onClick={onCreateAndActivate}
+      >
         Create and activate
       </button>
       <button type="button" onClick={onExistingAccount}>
@@ -305,6 +311,7 @@ describe("BuilderIntegrationPage", () => {
         personal: { connectedAt: 1, needsReconnect: false, restricted: false },
       },
       canConnect: { org: true, personal: true },
+      agentNativeProvisioningEnabled: true,
       start,
     });
     await render(admin);

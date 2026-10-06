@@ -148,6 +148,8 @@ describe("CodeAgentsApp credential recovery", () => {
   it("shows the shared chooser before one-click activation or local sign-in", async () => {
     const flow = {
       connecting: false,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
       start: vi.fn(),
     } as unknown as React.ComponentProps<
       typeof CodeProviderNotice

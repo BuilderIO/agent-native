@@ -345,6 +345,10 @@ function ManageMenu({
         {showConnectChoices ? (
           <DeferredBuilderConnectChoicePanel
             flow={flow}
+            canProvisionAccount={
+              flow.statusResolved &&
+              flow.agentNativeProvisioningEnabled === true
+            }
             onCreateAndActivate={() => start(true)}
             onExistingAccount={() => start(false)}
           />

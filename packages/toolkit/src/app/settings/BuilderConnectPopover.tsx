@@ -23,9 +23,12 @@ type BuilderConnectTrigger = React.ReactElement<{
 
 export interface BuilderConnectPopoverProps {
   flow: Pick<BuilderConnectFlow, "connecting" | "start"> & {
+    statusResolved?: boolean;
+    agentNativeProvisioningEnabled?: boolean;
     accountExists?: boolean;
     cancel?: BuilderConnectFlow["cancel"];
   };
+  canProvisionAccount?: boolean;
   children: BuilderConnectTrigger;
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: React.MouseEventHandler<HTMLElement>;
@@ -37,6 +40,7 @@ export interface BuilderConnectPopoverProps {
 
 export interface BuilderConnectChoicePanelProps {
   flow: Pick<BuilderConnectFlow, "connecting">;
+  canProvisionAccount: boolean;
   onCreateAndActivate: () => void;
   onExistingAccount: () => void;
   contentTestId?: string;
@@ -46,6 +50,7 @@ export interface BuilderConnectChoicePanelProps {
 
 export function BuilderConnectChoicePanel({
   flow,
+  canProvisionAccount,
   onCreateAndActivate,
   onExistingAccount,
   contentTestId,
@@ -77,7 +82,7 @@ export function BuilderConnectChoicePanel({
           data-testid={primaryTestId}
           className="w-full"
           onClick={onCreateAndActivate}
-          disabled={flow.connecting}
+          disabled={flow.connecting || !canProvisionAccount}
         >
           {flow.connecting ? <Spinner aria-hidden /> : null}
           {flow.connecting
@@ -136,6 +141,7 @@ export function BuilderConnectChoicePanel({
 
 export function BuilderConnectPopover({
   flow,
+  canProvisionAccount,
   children,
   onConnect,
   onTriggerClick,
@@ -208,6 +214,11 @@ export function BuilderConnectPopover({
       >
         <BuilderConnectChoicePanel
           flow={flow}
+          canProvisionAccount={
+            canProvisionAccount ??
+            (flow.statusResolved === true &&
+              flow.agentNativeProvisioningEnabled === true)
+          }
           onCreateAndActivate={() => start(true)}
           onExistingAccount={() => start(false)}
           contentTestId={contentTestId}

@@ -4,6 +4,34 @@ type BuilderConnectionStatus = {
   connectUrl?: string;
 };
 
+export async function isBuilderProvisioningAvailable(
+  base: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  const response = await fetchImpl(
+    `${base}/_agent-native/connection-status/builder`,
+    { credentials: "include" },
+  );
+  if (!response.ok) return false;
+
+  const status = (await response.json()) as BuilderConnectionStatus | null;
+  if (
+    !status ||
+    status.agentNativeProvisioningEnabled !== true ||
+    !status.agentNativeProvisioningToken ||
+    !status.connectUrl
+  ) {
+    return false;
+  }
+
+  const serverUrl = new URL(base);
+  const connectUrl = new URL(status.connectUrl, serverUrl);
+  return (
+    connectUrl.origin === serverUrl.origin &&
+    Boolean(connectUrl.searchParams.get("_an_connect"))
+  );
+}
+
 export async function connectBuilderForVoiceCleanup(
   base: string,
   dependencies: {

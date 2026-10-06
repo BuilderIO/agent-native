@@ -112,7 +112,10 @@ import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
-import { connectBuilderForVoiceCleanup } from "./lib/builder-connection";
+import {
+  connectBuilderForVoiceCleanup,
+  isBuilderProvisioningAvailable,
+} from "./lib/builder-connection";
 import {
   captureSetupForCamera,
   captureSetupForMode,
@@ -6351,6 +6354,8 @@ function Setup({
   const [providerStatusRefreshVersion, setProviderStatusRefreshVersion] =
     useState(0);
   const [builderConnecting, setBuilderConnecting] = useState(false);
+  const [canProvisionBuilderAccount, setCanProvisionBuilderAccount] =
+    useState(false);
   const [builderAccountExists, setBuilderAccountExists] = useState(false);
   const [builderConnectMessage, setBuilderConnectMessage] = useState<{
     kind: "ok" | "error";
@@ -6362,6 +6367,22 @@ function Setup({
     kind: "ok" | "error";
     text: string;
   } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
+    setCanProvisionBuilderAccount(false);
+    void isBuilderProvisioningAvailable(base)
+      .then((available) => {
+        if (active) setCanProvisionBuilderAccount(available);
+      })
+      .catch(() => {
+        if (active) setCanProvisionBuilderAccount(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [initial, serverUrl]);
 
   function setVoiceEnabled(enabled: boolean) {
     if (!featureConfig) return;
@@ -7904,7 +7925,10 @@ function Setup({
                   </p>
                 ) : null}
                 {selectedMode === "builder" && !providerStatus?.builder ? (
-                  <BuilderConnectPopover flow={builderConnectFlow}>
+                  <BuilderConnectPopover
+                    flow={builderConnectFlow}
+                    canProvisionAccount={canProvisionBuilderAccount}
+                  >
                     <SettingsActionButton
                       className="w-fit"
                       disabled={builderConnecting}
