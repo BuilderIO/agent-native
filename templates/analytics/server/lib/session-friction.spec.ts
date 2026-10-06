@@ -1100,6 +1100,23 @@ describe("session friction on Postgres", () => {
     expect(details.get("r-late")?.replay).toMatchObject({ dead_clicks: 4 });
   });
 
+  it("measures an ended recording again when its final upload loses the row to an overlapping one", async () => {
+    await migrateFriction(client);
+    await addRecording("r1", "s1", at(0), 3);
+    await deadClickBatch("r1", "s1", 0, [0]);
+    // Both uploads read the row at one processed chunk, and the first one
+    // advances it.
+    await Promise.all([
+      deadClickBatch("r1", "s1", 1, [1]),
+      deadClickBatch("r1", "s1", 1, [2], true),
+    ]);
+
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r1", "s1", 3),
+    ]);
+    expect(details.get("r1")?.replay).toMatchObject({ dead_clicks: 3 });
+  });
+
   it("leaves an ended recording unmeasured when a stored chunk cannot be read", async () => {
     await migrateFriction(client);
     await addRecording("r1", "s1", at(0), 3);

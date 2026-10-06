@@ -2232,11 +2232,9 @@ function storedReplayChunkReader(recordingId: string): ReadStoredReplayChunks {
         .where(and(eq(c.recordingId, recordingId), gt(c.seq, afterSeq)))
         .orderBy(asc(c.seq))
         .limit(MAX_REPLAY_CHUNKS_PER_REQUEST);
-      for (const row of rows) {
-        yield {
-          seq: row.seq,
-          inlineData: await readStoredReplayChunkText(row),
-        };
+      const texts = await Promise.all(rows.map(readStoredReplayChunkText));
+      for (const [index, row] of rows.entries()) {
+        yield { seq: row.seq, inlineData: texts[index]! };
       }
       if (rows.length < MAX_REPLAY_CHUNKS_PER_REQUEST) return;
       read += rows.length;

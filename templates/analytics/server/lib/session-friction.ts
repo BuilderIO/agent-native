@@ -344,7 +344,7 @@ async function measureReplayFriction(
       (newChunks.length === 0 || newChunks[0]!.seq > progress.lastSeq));
   const events = continues ? parseReplayChunks(newChunks) : null;
   if (!events) {
-    if (input.recordingEnded) await remeasureReplayFriction(input, existing);
+    if (input.recordingEnded) await remeasureReplayFriction(input);
     return;
   }
   const { state, delta, errorThenLeave } = detectReplayFriction(
@@ -352,7 +352,7 @@ async function measureReplayFriction(
     progress ? progress.state : null,
   );
   const lastChunk = newChunks[newChunks.length - 1];
-  await writeReplayFriction(input, existing, {
+  const written = await writeReplayFriction(input, existing, {
     counts: {
       deadClicks: (existing?.deadClicks ?? 0) + delta.deadClicks,
       errorToasts: (existing?.errorToasts ?? 0) + delta.errorToasts,
@@ -373,6 +373,9 @@ async function measureReplayFriction(
       lastSeq: lastChunk ? lastChunk.seq : progress!.lastSeq,
     },
   });
+  // Another upload advanced the row first. An ended recording may get no
+  // later upload to catch the row up, so it is measured again from storage.
+  if (!written && input.recordingEnded) await remeasureReplayFriction(input);
 }
 
 /**
@@ -382,8 +385,15 @@ async function measureReplayFriction(
  */
 async function remeasureReplayFriction(
   input: ReplayFrictionInput,
-  existing: ReplayFrictionRow | undefined,
 ): Promise<void> {
+  const t = schema.sessionRecordingFriction;
+  const [existing]: Array<ReplayFrictionRow | undefined> = await (
+    getDb() as any
+  )
+    .select()
+    .from(t)
+    .where(eq(t.recordingId, input.recordingId))
+    .limit(1);
   const totals: ReplayFrictionDelta = {
     deadClicks: 0,
     errorToasts: 0,
@@ -427,6 +437,7 @@ async function remeasureReplayFriction(
   });
 }
 
+/** Whether the row was written; false when another upload changed it first. */
 async function writeReplayFriction(
   input: ReplayFrictionInput,
   existing: ReplayFrictionRow | undefined,
@@ -436,7 +447,7 @@ async function writeReplayFriction(
     processedChunks: number;
     progress: ReplayFrictionProgress;
   },
-): Promise<void> {
+): Promise<boolean> {
   const db = getDb() as any;
   const t = schema.sessionRecordingFriction;
   const score = sessionFrictionScore(
@@ -461,7 +472,7 @@ async function writeReplayFriction(
   if (existing) {
     // Conditional on the count read above, so two overlapping uploads can
     // never both advance the same row.
-    await db
+    const updated = await db
       .update(t)
       .set(values)
       .where(
@@ -469,10 +480,11 @@ async function writeReplayFriction(
           eq(t.recordingId, input.recordingId),
           eq(t.processedChunks, existing.processedChunks),
         ),
-      );
-    return;
+      )
+      .returning({ recordingId: t.recordingId });
+    return updated.length > 0;
   }
-  await db
+  const inserted = await db
     .insert(t)
     .values({
       recordingId: input.recordingId,
@@ -482,7 +494,9 @@ async function writeReplayFriction(
       sessionId: input.sessionId,
       ...values,
     })
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ recordingId: t.recordingId });
+  return inserted.length > 0;
 }
 
 function replayCountsBySignal(
