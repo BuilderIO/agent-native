@@ -1007,10 +1007,13 @@ async function dispatchQueuedAutomationEvent(
   // Gateway) the run itself would use, with the same identity-aware check as
   // interactive chat — a raw provider API key is not how most owners are
   // actually authorized to call a model.
+  let classifierEngine: BackgroundAutomationDeps["engine"];
+  let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
       { ownerEmail: identity.userEmail, orgId: identity.orgId },
       deps,
+      meta.model,
     );
     if (!credentialCheck.ok) {
       await recordTriggerExecutionOutcome(
@@ -1020,6 +1023,8 @@ async function dispatchQueuedAutomationEvent(
       );
       return "completed";
     }
+    classifierEngine = credentialCheck.engine;
+    classifierModel = credentialCheck.model;
   }
 
   let matches: boolean;
@@ -1035,7 +1040,11 @@ async function dispatchQueuedAutomationEvent(
             orgId: identity.orgId,
             appId: deps.appId,
           },
-          { deadlineAt: hardDeadlineAt },
+          {
+            deadlineAt: hardDeadlineAt,
+            engine: classifierEngine,
+            resolvedModel: classifierModel,
+          },
         ),
     );
   } catch (error) {
@@ -1109,10 +1118,13 @@ export async function dispatchAutomationWebhookTask(
   );
   if (!resolved.ok) throw new Error(resolved.reason);
   const identity = resolved.identity;
+  let classifierEngine: BackgroundAutomationDeps["engine"];
+  let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
       { ownerEmail: identity.userEmail, orgId: identity.orgId },
       deps,
+      meta.model,
     );
     if (!credentialCheck.ok) {
       throw new BackgroundAutomationRunError(
@@ -1120,6 +1132,8 @@ export async function dispatchAutomationWebhookTask(
         credentialCheck.failure.code,
       );
     }
+    classifierEngine = credentialCheck.engine;
+    classifierModel = credentialCheck.model;
   }
 
   if (isBackgroundAutomationRunActive(meta)) {
@@ -1130,11 +1144,16 @@ export async function dispatchAutomationWebhookTask(
     matches = await runWithRequestContext(
       { userEmail: identity.userEmail, orgId: identity.orgId },
       () =>
-        evaluateCondition(meta.condition, task.payload, {
-          userEmail: identity.userEmail,
-          orgId: identity.orgId,
-          appId: deps.appId,
-        }),
+        evaluateCondition(
+          meta.condition,
+          task.payload,
+          {
+            userEmail: identity.userEmail,
+            orgId: identity.orgId,
+            appId: deps.appId,
+          },
+          { engine: classifierEngine, resolvedModel: classifierModel },
+        ),
     );
   } catch (err) {
     const reason =
