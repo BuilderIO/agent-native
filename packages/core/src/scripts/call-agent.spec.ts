@@ -321,6 +321,7 @@ describe("call-agent action", () => {
       "approvedActions",
     );
     expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("cardUrl");
+    expect(callAgentMock.mock.calls[0]?.[2]).toMatchObject({ orgId: "org-qa" });
   });
 
   it("labels an ordinary peer's rejected A2A credentials clearly", async () => {
@@ -1005,7 +1006,7 @@ describe("call-agent action", () => {
       expect.stringContaining(
         "Source Slack thread: https://example-workspace.slack.com/archives/C123/p123456",
       ),
-      expect.any(Object),
+      expect.objectContaining({ orgId: "org-qa" }),
     );
   });
 

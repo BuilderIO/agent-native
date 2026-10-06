@@ -1004,6 +1004,7 @@ export async function run(
             ? {}
             : {
                 userEmail: callerEmail,
+                orgId,
                 orgDomain: callerOrgDomain,
                 orgSecret: callerOrgSecret,
               }),
@@ -1182,7 +1183,14 @@ export async function run(
       : undefined;
     const response = await callAgent(agent.url, messageWithHint, {
       apiKey: hostedAgentToken,
-      ...(agent.auth ? {} : { userEmail: email, orgDomain: domain, orgSecret }),
+      ...(agent.auth
+        ? {}
+        : {
+            userEmail: email,
+            orgId: currentOrgId,
+            orgDomain: domain,
+            orgSecret,
+          }),
       ...(hostedAgentCardUrl(agent)
         ? { cardUrl: hostedAgentCardUrl(agent) }
         : {}),
