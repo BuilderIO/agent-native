@@ -4363,15 +4363,24 @@ export function TiptapComposer({
       const attachmentScopeGeneration = draftScopeGenerationRef.current;
       submitInFlightRef.current = true;
       onSubmissionPendingChange?.(true);
+      const attachmentSubmissionBarrier = attachmentAddQueueRef.current.then(
+        async () => {
+          const pendingAdds = [
+            ...pendingAttachmentAddsRef.current.values(),
+          ].flatMap((additions) => [...additions]);
+          await Promise.all(pendingAdds);
+          await cleanStaleAttachments();
+          if (staleAttachmentFilesRef.current.size > 0) {
+            throw new Error("Previous draft attachments could not be removed.");
+          }
+        },
+      );
+      attachmentAddQueueRef.current = attachmentSubmissionBarrier.then(
+        () => undefined,
+        () => undefined,
+      );
       try {
-        const priorScopeAdds = [...pendingAttachmentAddsRef.current]
-          .filter(([generation]) => generation !== attachmentScopeGeneration)
-          .flatMap(([, additions]) => [...additions]);
-        await Promise.all(priorScopeAdds);
-        await cleanStaleAttachments();
-        if (staleAttachmentFilesRef.current.size > 0) {
-          throw new Error("Previous draft attachments could not be removed.");
-        }
+        await attachmentSubmissionBarrier;
       } catch (error) {
         if (
           mountedRef.current &&
