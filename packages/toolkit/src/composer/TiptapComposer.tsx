@@ -345,7 +345,13 @@ async function haveSameAttachmentInput(
   second: { file: Blob; name: string; contentType: string },
   budget: AttachmentComparisonBudget,
 ) {
-  if (first.name !== second.name || first.contentType !== second.contentType) {
+  const firstExtension = first.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? "";
+  const secondExtension =
+    second.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? "";
+  if (
+    firstExtension !== secondExtension ||
+    first.contentType !== second.contentType
+  ) {
     return false;
   }
   return haveSameFileContents(first.file, second.file, budget);

@@ -1257,7 +1257,7 @@ describe("createTiptapComposerExtensions", () => {
     ]);
   });
 
-  it("deduplicates only files with matching names, types, and contents", async () => {
+  it("deduplicates repeated content without collapsing distinct file types", async () => {
     let nextAttachmentId = 0;
     const attachmentAdapter: AttachmentAdapter = {
       accept: "*",
@@ -1327,6 +1327,9 @@ describe("createTiptapComposerExtensions", () => {
         focusRef.current!.addAttachment(
           new File(["same bytes"], "renamed.png", { type: "image/png" }),
         ),
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "renamed.jpg", { type: "image/png" }),
+        ),
       ]);
     });
     expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
@@ -1349,7 +1352,7 @@ describe("createTiptapComposerExtensions", () => {
     expect(attachments.map((attachment) => attachment.name)).toEqual([
       "same.png",
       "same.png",
-      "renamed.png",
+      "renamed.jpg",
       "report.txt",
       "report.txt",
     ]);
