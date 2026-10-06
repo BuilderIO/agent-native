@@ -2107,7 +2107,7 @@ export async function resolveSessionReplayLink(
 
 export async function getSessionReplayTokenizedSummary(
   recordingId: string,
-  viewerEmail: string,
+  _viewerEmail?: string,
 ): Promise<SessionRecordingSummary> {
   const db = getDb() as any;
   // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
@@ -2166,7 +2166,7 @@ export async function getSessionReplayManifest(
 
 export async function getSessionReplayTokenizedManifest(
   recordingId: string,
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   chunks: Array<{
@@ -2245,7 +2245,7 @@ export async function readSessionReplayChunkBytes(
 export async function readSessionReplayTokenizedChunkBytes(
   recordingId: string,
   seq: number,
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   seq: number;
@@ -2493,7 +2493,7 @@ export async function readSessionReplayChunkBatch(
 export async function readSessionReplayTokenizedChunkBatch(
   recordingId: string,
   seqs: number[],
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<SessionReplayChunkBatchResult> {
   const recording = await getSessionReplayTokenizedSummary(
     recordingId,
@@ -2526,7 +2526,7 @@ export async function getSessionReplayEvents(
 
 export async function getSessionReplayTokenizedEvents(
   recordingId: string,
-  viewerEmail: string,
+  viewerEmail?: string,
   options: SessionReplayEventReadOptions = {},
 ): Promise<{
   recording: AgentSessionRecordingSummary;

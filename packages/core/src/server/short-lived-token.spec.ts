@@ -127,6 +127,19 @@ describe("short-lived-token", () => {
       });
     });
 
+    it("bounds the display-only agent label by its encoded byte length", () => {
+      const token = signCompactShortLivedToken({
+        resourceId: "rec_abc",
+        agentLabel: "a".repeat(60),
+      });
+
+      expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
+        ok: true,
+        viewerEmail: undefined,
+        agentLabel: "a".repeat(16),
+      });
+    });
+
     it("omits absent claims", () => {
       const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
 

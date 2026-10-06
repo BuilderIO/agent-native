@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
 const DEFAULT_TTL_SECONDS = 600;
+const MAX_COMPACT_AGENT_LABEL_BYTES = 16;
 
 export interface ShortLivedTokenClaims {
   resourceId: string;
@@ -170,7 +171,17 @@ export function signCompactShortLivedToken(
     e: Math.floor(Date.now() / 1000) + ttl,
   };
   if (claims.viewerEmail) payload.v = claims.viewerEmail;
-  if (claims.agentLabel) payload.l = claims.agentLabel;
+  if (claims.agentLabel) {
+    let label = "";
+    let bytes = 0;
+    for (const character of claims.agentLabel) {
+      const characterBytes = Buffer.byteLength(character);
+      if (bytes + characterBytes > MAX_COMPACT_AGENT_LABEL_BYTES) break;
+      label += character;
+      bytes += characterBytes;
+    }
+    if (label) payload.l = label;
+  }
 
   const payloadStr = base64UrlEncode(JSON.stringify(payload));
   return `${payloadStr}.${compactSignature(claims.resourceId, payloadStr)}`;
