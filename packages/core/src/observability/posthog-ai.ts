@@ -17,7 +17,7 @@ export function resolveAiError(
   error: AiErrorDetail | undefined,
 ): AiErrorDetail | undefined {
   if (!isError) return undefined;
-  return toAiErrorDetail(error?.message, {
+  return failedRunErrorDetail(error?.message, {
     state: error?.terminal_state,
     code: error?.terminal_code,
     retryable: error?.retryable,
@@ -378,6 +378,18 @@ export function toAiErrorDetail(
     retryable?: boolean;
   },
 ): AiErrorDetail | undefined {
+  if (!errorMessage && !terminalOutcome?.code) return undefined;
+  return failedRunErrorDetail(errorMessage, terminalOutcome);
+}
+
+function failedRunErrorDetail(
+  errorMessage: string | null | undefined,
+  terminalOutcome?: {
+    state?: string;
+    code?: string;
+    retryable?: boolean;
+  },
+): AiErrorDetail {
   const { error_code, error_cause } = runErrorTelemetryProperties(
     terminalOutcome?.code,
     errorMessage,
