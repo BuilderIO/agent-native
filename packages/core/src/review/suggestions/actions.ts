@@ -23,7 +23,6 @@ import {
   getDecision,
   getSuggestionByCreationKey,
   recordSuggestionCreation,
-  replaceSuggestionStatus,
   updateSuggestionStatus,
   getSuggestionAmendment,
   amendSuggestion,
@@ -479,7 +478,7 @@ function decisionAccessRole(
 
 export const decideResourceSuggestion = defineAction({
   description:
-    "Accept or reject a pending suggestion atomically, which needs edit access. Its author may instead withdraw it with comment access; a withdrawn suggestion was never reviewed and leaves the resource unchanged.",
+    "Accept or reject a pending suggestion atomically, which needs edit access. An accept that can no longer be placed on the current resource fails with 409 `suggestion_stale`, changes nothing, and leaves the suggestion pending. Its author may instead withdraw it with comment access; a withdrawn suggestion was never reviewed and leaves the resource unchanged.",
   schema: z.object({
     id: z.string().min(1),
     decision: z.enum(["accepted", "rejected", "withdrawn"]),
@@ -550,34 +549,16 @@ export const decideResourceSuggestion = defineAction({
           currentAdapter.version !== current.adapterVersion
         )
           throw new Error("Suggestion adapter version is unavailable");
-        // Withdrawing never applies the suggestion, so its base cannot be stale.
+        // Withdrawing never applies the suggestion, so a base that moved on
+        // since the author last saw it is no conflict.
         if (
           args.decision !== "withdrawn" &&
           current.baseRevision !== args.observedBase
         ) {
-          if (
-            !(await updateSuggestionStatus(
-              tx,
-              current.id,
-              "stale",
-              current.revision,
-            ))
-          ) {
-            return replayDecision(tx);
-          }
-          const decision = await recordDecision(tx, {
-            suggestionId: current.id,
-            idempotencyKey: args.idempotencyKey,
-            reviewer: (ctx as any)?.userEmail ?? null,
-            decision: args.decision,
-            observedBase: args.observedBase,
-            outcome: "stale",
-            detail: "Base revision changed",
+          fail("The suggestion changed; refresh before deciding", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
           });
-          return {
-            suggestion: await getSuggestion(current.id, tx),
-            decision: decision.record,
-          };
         }
         const claimed = await updateSuggestionStatus(
           tx,
@@ -612,25 +593,14 @@ export const decideResourceSuggestion = defineAction({
               coordination,
             });
           } catch (error) {
-            if (
-              !(error instanceof Error) ||
-              error.name !== "SuggestionStaleError"
-            ) {
-              throw error;
-            }
-            await replaceSuggestionStatus(tx, current.id, "accepted", "stale");
-            await tx.execute({
-              sql: "UPDATE agent_review_suggestion_decisions SET outcome = ?, detail = ? WHERE id = ?",
-              args: ["stale", error.message, prior.record.id],
-            });
-            return {
-              suggestion: await getSuggestion(current.id, tx),
-              decision: {
-                ...prior.record,
-                outcome: "stale",
-                detail: error.message,
-              },
-            };
+            // Failing inside the transaction also rolls back the claim and
+            // decision above, so the suggestion stays pending and reviewable.
+            if (error instanceof Error && error.name === "SuggestionStaleError")
+              fail(error.message, {
+                statusCode: 409,
+                errorCode: "suggestion_stale",
+              });
+            throw error;
           }
         }
         if (!prior.duplicate) {
@@ -1130,7 +1100,7 @@ export const decideResourceSuggestionProposal = defineAction({
               ) {
                 fail(
                   "A proposal member is stale; no proposal edits were applied",
-                  { statusCode: 409, errorCode: "suggestion_conflict" },
+                  { statusCode: 409, errorCode: "suggestion_stale" },
                 );
               }
               throw error;

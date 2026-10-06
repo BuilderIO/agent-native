@@ -75,7 +75,6 @@ vi.mock("./store.js", () => ({
   getDecision: vi.fn(),
   recordSuggestionCreation: vi.fn(),
   deleteUnclaimedSuggestion: vi.fn(),
-  replaceSuggestionStatus: vi.fn(),
   updateSuggestionStatus,
 }));
 
@@ -143,7 +142,6 @@ const creationReceipt = {
 function expectNoReviewWrites() {
   expect(suggestionStore.insertSuggestion).not.toHaveBeenCalled();
   expect(suggestionStore.recordSuggestionCreation).not.toHaveBeenCalled();
-  expect(suggestionStore.replaceSuggestionStatus).not.toHaveBeenCalled();
   expect(suggestionStore.updateSuggestionStatus).not.toHaveBeenCalled();
   expect(suggestionStore.recordDecision).not.toHaveBeenCalled();
   expect(reviewStore.insertReviewCommentWithClient).not.toHaveBeenCalled();
@@ -480,19 +478,7 @@ describe("suggestion action access", () => {
     expect(applySuggestion).not.toHaveBeenCalled();
   });
 
-  it("returns the recorded same-key stale decision when it loses the status CAS", async () => {
-    const stale = { ...suggestion, status: "stale" as const };
-    const decision = {
-      id: "decision-stale",
-      suggestionId: suggestion.id,
-      idempotencyKey: "decision-stale",
-      reviewer: "editor@example.com",
-      decision: "accepted" as const,
-      observedBase: "revision-before-refresh",
-      outcome: "stale",
-      detail: "Base revision changed",
-      createdAt: "now",
-    };
+  it("rejects an outdated observed base without changing the suggestion", async () => {
     registerReviewableResource({
       type: "doc",
       resolveAccess: () => ({
@@ -501,26 +487,73 @@ describe("suggestion action access", () => {
         visibility: "private",
       }),
     });
-    vi.mocked(suggestionStore.getSuggestion)
-      .mockResolvedValueOnce(suggestion)
-      .mockResolvedValueOnce(suggestion)
-      .mockResolvedValueOnce(stale);
-    updateSuggestionStatus.mockResolvedValueOnce(false);
-    vi.mocked(suggestionStore.getDecision).mockResolvedValueOnce(decision);
 
     await expect(
       decideResourceSuggestion.run(
         {
           id: suggestion.id,
           decision: "accepted",
-          idempotencyKey: decision.idempotencyKey,
-          observedBase: decision.observedBase,
+          idempotencyKey: "decision-outdated-base",
+          observedBase: "revision-before-refresh",
           observedRevision: suggestion.revision,
         },
-        { userEmail: decision.reviewer },
+        { userEmail: "editor@example.com" },
       ),
-    ).resolves.toEqual({ suggestion: stale, decision });
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "suggestion_conflict",
+    });
+    expect(updateSuggestionStatus).not.toHaveBeenCalled();
     expect(suggestionStore.recordDecision).not.toHaveBeenCalled();
     expect(applySuggestion).not.toHaveBeenCalled();
+  });
+
+  it("fails an accept the adapter cannot place instead of reporting success", async () => {
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+      }),
+    });
+    updateSuggestionStatus.mockResolvedValueOnce(true);
+    vi.mocked(suggestionStore.recordDecision).mockResolvedValueOnce({
+      record: {
+        id: "decision-unplaceable",
+        suggestionId: suggestion.id,
+        idempotencyKey: "decision-unplaceable",
+        reviewer: "editor@example.com",
+        decision: "accepted",
+        observedBase: suggestion.baseRevision,
+        outcome: "accepted",
+        detail: null,
+        createdAt: "now",
+      },
+      duplicate: false,
+    });
+    applySuggestion.mockRejectedValueOnce(
+      Object.assign(new Error("The text around it changed"), {
+        name: "SuggestionStaleError",
+      }),
+    );
+
+    await expect(
+      decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "accepted",
+          idempotencyKey: "decision-unplaceable",
+          observedBase: suggestion.baseRevision,
+          observedRevision: suggestion.revision,
+        },
+        { userEmail: "editor@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      message: "The text around it changed",
+      statusCode: 409,
+      errorCode: "suggestion_stale",
+    });
+    expect(reviewStore.resolveReviewThreadWithClient).not.toHaveBeenCalled();
   });
 });
