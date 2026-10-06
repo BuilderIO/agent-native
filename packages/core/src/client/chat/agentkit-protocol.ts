@@ -2712,7 +2712,9 @@ export function createAgentKitProtocolAdapter(
             : { kind: "unreachable", error };
       }
       if (stopped()) return null;
-      if (run.heldInterruption) {
+      // An unreachable server says nothing about a successor; keep holding
+      // through the usual backoff until it answers.
+      if (run.heldInterruption && read.kind !== "unreachable") {
         const successor =
           read.kind === "read" &&
           read.state.status !== "missing" &&

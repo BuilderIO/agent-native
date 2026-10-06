@@ -629,9 +629,25 @@ function reconcileDurableMessages(
     if (typeof runId !== "string") continue;
     durableByRun.set(runId, durableByRun.has(runId) ? null : message);
   }
+  const durableByFoldedRun = new Map<string, AgentMessage | null>();
+  for (const message of durable) {
+    if (message.role !== "assistant") continue;
+    for (const runId of durableRunIds(message)) {
+      durableByFoldedRun.set(
+        runId,
+        durableByFoldedRun.has(runId) ? null : message,
+      );
+    }
+  }
+  const textOf = (parts: AgentMessage["parts"]) =>
+    parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
   // A run that recovered an interrupted turn records only itself on its reply,
-  // while the page streamed it into the run the prompt was submitted to, so
-  // that run joins the reply's folded runs by turn.
+  // while an open page streamed it into the run the prompt was submitted to.
+  // Only when that run's messages already hold the whole reply is it on screen;
+  // anything less keeps the saved reply, so the answer is never dropped.
   const submittedRunByTurn = new Map<string, string | null>();
   for (const stored of submittedUsers) {
     const turnId = asRecord(asRecord(stored.metadata)?.custom)?.submittedTurnId;
@@ -641,39 +657,28 @@ function reconcileDurableMessages(
       submittedRunByTurn.has(turnId) ? null : submittedRunId(stored)!,
     );
   }
-  const foldedRunIdsOf = (message: AgentMessage) => {
-    const runIds = durableRunIds(message);
-    const turnId = asRecord(asRecord(message.metadata)?.custom)?.turnId;
+  const shownByInterruptedRun = (reply: AgentMessage) => {
+    const turnId = asRecord(asRecord(reply.metadata)?.custom)?.turnId;
     const submitted =
       typeof turnId === "string" ? submittedRunByTurn.get(turnId) : undefined;
-    return submitted &&
-      !runIds.includes(submitted) &&
-      !durableByRun.has(submitted)
-      ? [submitted, ...runIds]
-      : runIds;
+    if (
+      !submitted ||
+      durableRunIds(reply).includes(submitted) ||
+      durableByRun.has(submitted)
+    ) {
+      return false;
+    }
+    const ids = assistantIdsByRun.get(submitted);
+    const replyText = textOf(reply.parts);
+    if (!ids || !replyText) return false;
+    return textOf(
+      messages
+        .filter(
+          (message) => message.role === "assistant" && ids.has(message.id),
+        )
+        .flatMap((message) => message.parts),
+    ).includes(replyText);
   };
-  for (const message of durable) {
-    if (message.role !== "assistant") continue;
-    const ownRunIds = durableRunIds(message);
-    for (const runId of foldedRunIdsOf(message)) {
-      if (ownRunIds.includes(runId)) continue;
-      // The recovering run's events open their own message, so the submitted
-      // run holds several; each still belongs to it.
-      for (const id of assistantIdsByRun.get(runId) ?? []) {
-        if (!runByAssistantId.has(id)) runByAssistantId.set(id, runId);
-      }
-    }
-  }
-  const durableByFoldedRun = new Map<string, AgentMessage | null>();
-  for (const message of durable) {
-    if (message.role !== "assistant") continue;
-    for (const runId of foldedRunIdsOf(message)) {
-      durableByFoldedRun.set(
-        runId,
-        durableByFoldedRun.has(runId) ? null : message,
-      );
-    }
-  }
 
   const representedSubmittedUserIds = new Set<string>();
   const storedUserBySnapshotId = new Map<string, AgentMessage>();
@@ -805,12 +810,13 @@ function reconcileDurableMessages(
     // The snapshot holds an earlier run of this folded reply; the final pass
     // completes that message instead of adding a second copy.
     if (
-      foldedRunIdsOf(message).some(
+      durableRunIds(message).some(
         (id) => id !== runId && snapshotAssistantRunIds.has(id),
       )
     ) {
       continue;
     }
+    if (shownByInterruptedRun(message)) continue;
     missingMessages.push(message);
     representedAssistantIds.add(message.id);
   }
@@ -848,11 +854,6 @@ function reconcileDurableMessages(
       (typeof metadataRunId === "string" ? metadataRunId : undefined)
     );
   };
-  const textOf = (parts: AgentMessage["parts"]) =>
-    parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
 
   return projectedMessages.map((message) => {
     if (message.role === "user") {
@@ -901,7 +902,7 @@ function reconcileDurableMessages(
           }
         : message;
     const lastPart = reconciled.parts.at(-1);
-    const foldedRunIds = foldedRunIdsOf(stored);
+    const foldedRunIds = durableRunIds(stored);
     const spansRuns = foldedRunIds.length > 1;
     if (lastPart && lastPart.type !== "text" && !spansRuns) return reconciled;
     // Only the last message the page saved for a folded reply takes the

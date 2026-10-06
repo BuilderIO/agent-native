@@ -1663,8 +1663,8 @@ describe("createAgentNativeAgentKitTransport", () => {
     run1: Record<string, unknown>;
     successorReply: boolean;
     successorFailed?: boolean;
-    /** The open page followed run-2 and saved its reply as run-1's own messages. */
-    followed?: boolean;
+    /** The text of each message the open page saved for run-1, run-2's included. */
+    pageSaw?: string[];
   }) {
     const streamed = (id: string, sequence: number) => ({
       id: `run-1:${sequence}`,
@@ -1722,29 +1722,16 @@ describe("createAgentNativeAgentKitTransport", () => {
               status: "complete",
               parts: [{ type: "text", text: "Handle the refund" }],
             },
-            ...(input.followed
-              ? [
-                  {
-                    id: "assistant-interrupted",
-                    role: "assistant",
-                    status: "complete",
-                    parts: [],
-                  },
-                  {
-                    id: "assistant-recovered",
-                    role: "assistant",
-                    status: "complete",
-                    parts: [{ type: "text", text: "Refund handled." }],
-                  },
-                ]
-              : []),
+            ...(input.pageSaw ?? []).map((text, index) => ({
+              id: `assistant-${index + 1}`,
+              role: "assistant",
+              status: "complete",
+              parts: text ? [{ type: "text", text }] : [],
+            })),
           ],
-          events: input.followed
-            ? [
-                streamed("assistant-interrupted", 1),
-                streamed("assistant-recovered", 2),
-              ]
-            : [],
+          events: (input.pageSaw ?? []).map((_text, index) =>
+            streamed(`assistant-${index + 1}`, index + 1),
+          ),
           runs: [
             {
               id: "run-1",
@@ -1828,7 +1815,7 @@ describe("createAgentNativeAgentKitTransport", () => {
               recoveredTurnThread({
                 run1: { status: "completed" },
                 successorReply: true,
-                followed: true,
+                pageSaw: ["", "Refund handled."],
               }),
             ),
       ) as typeof fetch,
@@ -1841,14 +1828,52 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(
       snapshot?.messages.filter((message) => message.role === "assistant"),
     ).toMatchObject([
-      { id: "assistant-interrupted" },
+      { id: "assistant-1" },
       {
-        id: "assistant-recovered",
+        id: "assistant-2",
         parts: [{ type: "text", text: "Refund handled." }],
       },
     ]);
     await transport.dispose();
   });
+
+  it.each([
+    {
+      label: "the page closed before the recovery",
+      pageSaw: ["Checking the refund…"],
+    },
+    {
+      label: "the page saw part of the recovery",
+      pageSaw: ["Checking the refund…", "Refund"],
+    },
+  ])(
+    "keeps a recovered turn's saved reply the page never fully showed ($label)",
+    async ({ pageSaw }) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "idle" })
+            : json(
+                recoveredTurnThread({
+                  run1: { status: "running" },
+                  successorReply: true,
+                  pageSaw,
+                }),
+              ),
+        ) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-recovered",
+      });
+
+      expect(snapshot?.messages.at(-1)).toMatchObject({
+        id: "server-run-2",
+        parts: [{ type: "text", text: "Refund handled." }],
+      });
+      await transport.dispose();
+    },
+  );
 
   it("follows the successor still running an interrupted run's turn instead of failing the run", async () => {
     const transport = createAgentNativeAgentKitTransport({

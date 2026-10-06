@@ -465,9 +465,19 @@ describe("run lifecycle chaos: a cut stream never decides how a run ended", () =
   for (const point of [
     ...SEVER_POINTS.slice(0, 3),
     { sever: 3, label: "never (the stream delivers the interruption)" },
+    {
+      sever: 3,
+      label: "never, and the server is unreachable right after it",
+      networkDownUntilMs: 30_000,
+    },
   ]) {
     it(`follows the run that recovered an interrupted turn when the first stream is cut ${point.label}`, async () => {
-      const chaos: Chaos = { sever: point.sever };
+      const chaos: Chaos = {
+        sever: point.sever,
+        ...("networkDownUntilMs" in point
+          ? { networkDownUntilMs: point.networkDownUntilMs }
+          : {}),
+      };
       const first = scriptedRun({
         id: "run-1",
         startsAtMs: 0,
