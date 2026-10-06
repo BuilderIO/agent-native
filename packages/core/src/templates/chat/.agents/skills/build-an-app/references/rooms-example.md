@@ -33,7 +33,9 @@ export const rooms = pgTable("rooms", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   capacity: integer("capacity"),
-  createdAt: text("created_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
   ...ownableColumns(), // owner_email, org_id, visibility
 });
 export const roomShares = createSharesTable("room_shares");
@@ -51,7 +53,9 @@ export const bookings = pgTable("bookings", {
     .default("confirmed"),
   ownerEmail: text("owner_email").notNull(), // the booker
   orgId: text("org_id"), // copied from the parent room for tenant scoping
-  createdAt: text("created_at").notNull().default(sql`now()`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`now()`),
 });
 ```
 
@@ -148,7 +152,9 @@ export function toIso(value: string, field: string): string {
   }
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) {
-    fail(`${field} must be an ISO 8601 date-time.`, { errorCode: "invalid_time" });
+    fail(`${field} must be an ISO 8601 date-time.`, {
+      errorCode: "invalid_time",
+    });
   }
   return new Date(ms).toISOString();
 }
@@ -215,10 +221,16 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
-  description: "Create a bookable room. It is visible to the organization when one is active, otherwise only to its creator.",
+  description:
+    "Create a bookable room. It is visible to the organization when one is active, otherwise only to its creator.",
   schema: z.object({
     name: z.string().min(1).describe('Room name, e.g. "Atlas"'),
-    capacity: z.coerce.number().int().min(1).optional().describe("Seats; omit when unknown"),
+    capacity: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe("Seats; omit when unknown"),
   }),
   link: ({ result }) => ({
     url: buildDeepLink({
@@ -229,7 +241,8 @@ export default defineAction({
     label: `Open ${result.name}`,
   }),
   run: async (args, ctx) => {
-    const ownerEmail = ctx?.userEmail ?? fail("Sign in to create rooms.", { statusCode: 401 });
+    const ownerEmail =
+      ctx?.userEmail ?? fail("Sign in to create rooms.", { statusCode: 401 });
     const orgId = ctx?.orgId ?? null;
     const room = {
       id: crypto.randomUUID(),
@@ -258,11 +271,18 @@ import { getDb, schema } from "../server/db/index.js";
 import { overlapping, toIso } from "../server/lib/bookings.js";
 
 export default defineAction({
-  description: "List confirmed bookings for a room that overlap a time range (for example, one week).",
+  description:
+    "List confirmed bookings for a room that overlap a time range (for example, one week).",
   schema: z.object({
     roomId: z.string().describe("Room id from list-rooms"),
-    from: z.string().datetime({ offset: true }).describe("Range start, ISO 8601 with offset"),
-    to: z.string().datetime({ offset: true }).describe("Range end (exclusive), ISO 8601 with offset"),
+    from: z
+      .string()
+      .datetime({ offset: true })
+      .describe("Range start, ISO 8601 with offset"),
+    to: z
+      .string()
+      .datetime({ offset: true })
+      .describe("Range end (exclusive), ISO 8601 with offset"),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -281,10 +301,16 @@ export default defineAction({
       .from(rooms)
       .where(and(eq(rooms.id, args.roomId), accessFilter(rooms, roomShares)))
       .limit(1);
-    if (!room) fail("Room not found.", { errorCode: "not_found", statusCode: 404 });
+    if (!room)
+      fail("Room not found.", { errorCode: "not_found", statusCode: 404 });
     const b = bookings;
     const rows = await getDb()
-      .select({ id: b.id, title: b.title, startsAt: b.startsAt, endsAt: b.endsAt })
+      .select({
+        id: b.id,
+        title: b.title,
+        startsAt: b.startsAt,
+        endsAt: b.endsAt,
+      })
       .from(b)
       .where(
         overlapping(
@@ -319,8 +345,14 @@ export default defineAction({
   schema: z.object({
     roomId: z.string().describe("Room id from list-rooms"),
     title: z.string().min(1).describe("What the booking is for"),
-    startsAt: z.string().datetime({ offset: true }).describe("Start, ISO 8601 with offset, e.g. 2026-10-06T09:00:00-07:00"),
-    endsAt: z.string().datetime({ offset: true }).describe("End, ISO 8601 with offset; must be after startsAt"),
+    startsAt: z
+      .string()
+      .datetime({ offset: true })
+      .describe("Start, ISO 8601 with offset, e.g. 2026-10-06T09:00:00-07:00"),
+    endsAt: z
+      .string()
+      .datetime({ offset: true })
+      .describe("End, ISO 8601 with offset; must be after startsAt"),
   }),
   link: ({ args }) => ({
     url: buildDeepLink({
@@ -331,10 +363,12 @@ export default defineAction({
     label: "Open room schedule",
   }),
   run: async (args, ctx) => {
-    const ownerEmail = ctx?.userEmail ?? fail("Sign in to book a room.", { statusCode: 401 });
+    const ownerEmail =
+      ctx?.userEmail ?? fail("Sign in to book a room.", { statusCode: 401 });
     const startsAt = toIso(args.startsAt, "startsAt");
     const endsAt = toIso(args.endsAt, "endsAt");
-    if (endsAt <= startsAt) fail("endsAt must be after startsAt.", { errorCode: "invalid_range" });
+    if (endsAt <= startsAt)
+      fail("endsAt must be after startsAt.", { errorCode: "invalid_range" });
 
     return getDb().transaction(async (tx) => {
       const { rooms, roomShares, bookings } = schema;
@@ -345,19 +379,28 @@ export default defineAction({
         .from(rooms)
         .where(and(eq(rooms.id, args.roomId), accessFilter(rooms, roomShares)))
         .for("update");
-      if (!room) fail("Room not found.", { errorCode: "not_found", statusCode: 404 });
+      if (!room)
+        fail("Room not found.", { errorCode: "not_found", statusCode: 404 });
 
       const [clash] = await tx
-        .select({ id: bookings.id, title: bookings.title, startsAt: bookings.startsAt, endsAt: bookings.endsAt })
+        .select({
+          id: bookings.id,
+          title: bookings.title,
+          startsAt: bookings.startsAt,
+          endsAt: bookings.endsAt,
+        })
         .from(bookings)
         .where(overlapping(args.roomId, room.orgId, startsAt, endsAt))
         .limit(1);
       if (clash) {
-        fail(`Overlaps "${clash.title}" (${clash.startsAt} to ${clash.endsAt}).`, {
-          errorCode: "booking_conflict",
-          statusCode: 409,
-          details: { conflictId: clash.id },
-        });
+        fail(
+          `Overlaps "${clash.title}" (${clash.startsAt} to ${clash.endsAt}).`,
+          {
+            errorCode: "booking_conflict",
+            statusCode: 409,
+            details: { conflictId: clash.id },
+          },
+        );
       }
 
       const booking = {
@@ -405,11 +448,7 @@ export default defineAction({
       .update(b)
       .set({ status: "cancelled" })
       .where(
-        and(
-          eq(b.id, id),
-          eq(b.ownerEmail, email),
-          eq(b.status, "confirmed"),
-        ),
+        and(eq(b.id, id), eq(b.ownerEmail, email), eq(b.status, "confirmed")),
       )
       .returning({ id: b.id });
     if (!cancelled) {
@@ -872,6 +911,7 @@ The booking mutation reports `booking_conflict` through `fail()`; the route
 shows the localized conflict toast and rolls back its optimistic row. The cancel
 mutation removes the booking optimistically and the query refresh confirms the
 released slot. The mutation hook refetches action queries after success.
+
 ## Shell edits
 
 `app/components/layout/Sidebar.tsx`: add `IconDoor` to the existing
@@ -885,7 +925,9 @@ released slot. The mutation hook refetches action queries after success.
     aria-label={collapsed ? "Rooms" : undefined}
     className={cn(
       "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-      collapsed ? "size-10 justify-center rounded-md" : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+      collapsed
+        ? "size-10 justify-center rounded-md"
+        : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
     )}
   >
     <IconDoor className="size-4 shrink-0" strokeWidth={1.8} />
@@ -958,13 +1000,13 @@ Book meeting rooms without double-booking. `/rooms` lists rooms; `/rooms/:roomId
 - Enter times in the user's timezone and send ISO 8601 with an offset; actions store normalized UTC values.
 - On room pages `navigation` adds `roomId` and `week`.
 
-| Action | Purpose |
-|---|---|
-| list-rooms | Rooms the user can book |
-| create-room | Add an org-visible room, or a private room without an org |
-| list-bookings | Confirmed bookings in a range |
-| create-booking | Book a slot (409 on overlap) |
-| cancel-booking | Cancel a booking made by the current user |
+| Action         | Purpose                                                   |
+| -------------- | --------------------------------------------------------- |
+| list-rooms     | Rooms the user can book                                   |
+| create-room    | Add an org-visible room, or a private room without an org |
+| list-bookings  | Confirmed bookings in a range                             |
+| create-booking | Book a slot (409 on overlap)                              |
+| cancel-booking | Cancel a booking made by the current user                 |
 ```
 
 ## Smoke for this slice

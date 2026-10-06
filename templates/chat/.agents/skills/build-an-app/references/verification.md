@@ -32,24 +32,24 @@ add a production build, new test files, or a second full pass.
 
 ## Triage
 
-| Symptom | Usual cause | Fix |
-|---|---|---|
-| `useActionQuery("x")` type error, or the action is unknown to the agent | `.generated/*` is stale | Make sure the dev server is running, save the action file, and rerun typecheck |
-| `relation "x" does not exist` | The table has no migration entry, or `server/plugins/db.ts` doesn't default-export `runMigrations(...)` | Add the entry and restart dev |
-| Migration ignored after an edit | You changed an entry that had already run | Revert the edit and append a new named entry |
-| 405 from an action | The HTTP method and the hook disagree | Reads use `http: { method: "GET" }` with `useActionQuery`; writes use the default POST with `useActionMutation` |
-| Toast says "Internal server error" | A bare `throw` | Throw with `fail(message, { statusCode })` |
-| A rejected write shows as a success | The action returned `{ error }` | Throw with `fail()` |
-| `view-screen` reports `view: "chat"` on a domain page | `viewForPath` has no case for the route | Add the case |
-| The agent asks "which one?" on a detail page | The id isn't in `navigation` | Add it in `getNavigationState` |
-| The agent doesn't reach for the new actions | They aren't in `INITIAL_TOOL_NAMES` or `AGENTS.md` | Add them to both |
-| Sign-in lands on `/home` | `homePath` is unset, or set somewhere other than a server plugin | Set it with `defineAppConfig` in `server/plugins/` and restart dev |
-| Sign-in page during the smoke | The local DB already has a real user | Sign in with that local test account, or start dev with `AUTH_DISABLED=true` (local only, never committed) |
-| Doctor reports an unscoped query | An ownable table is read without an access helper in that statement or block | Put `accessFilter(...)` in the query's `where`, or call `assertAccess` first in the same block |
-| `Named export 'IconX' not found` | The icon name was guessed | Grep the exact name in `node_modules/@tabler/icons-react/dist/tabler-icons-react.d.ts` |
-| A `@/components/ui/<x>` import fails | The starter doesn't ship that primitive | Add `export * from "@agent-native/toolkit/ui/<x>";` |
-| The UI doesn't update after an agent write | The page uses raw `useQuery`, not the action hooks | Switch to `useActionQuery` |
-| Two quick writes both succeed despite a rule | The check runs outside a transaction or without a lock | Use the lock-then-check pattern in `data-and-access.md` |
+| Symptom                                                                 | Usual cause                                                                                             | Fix                                                                                                             |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `useActionQuery("x")` type error, or the action is unknown to the agent | `.generated/*` is stale                                                                                 | Make sure the dev server is running, save the action file, and rerun typecheck                                  |
+| `relation "x" does not exist`                                           | The table has no migration entry, or `server/plugins/db.ts` doesn't default-export `runMigrations(...)` | Add the entry and restart dev                                                                                   |
+| Migration ignored after an edit                                         | You changed an entry that had already run                                                               | Revert the edit and append a new named entry                                                                    |
+| 405 from an action                                                      | The HTTP method and the hook disagree                                                                   | Reads use `http: { method: "GET" }` with `useActionQuery`; writes use the default POST with `useActionMutation` |
+| Toast says "Internal server error"                                      | A bare `throw`                                                                                          | Throw with `fail(message, { statusCode })`                                                                      |
+| A rejected write shows as a success                                     | The action returned `{ error }`                                                                         | Throw with `fail()`                                                                                             |
+| `view-screen` reports `view: "chat"` on a domain page                   | `viewForPath` has no case for the route                                                                 | Add the case                                                                                                    |
+| The agent asks "which one?" on a detail page                            | The id isn't in `navigation`                                                                            | Add it in `getNavigationState`                                                                                  |
+| The agent doesn't reach for the new actions                             | They aren't in `INITIAL_TOOL_NAMES` or `AGENTS.md`                                                      | Add them to both                                                                                                |
+| Sign-in lands on `/home`                                                | `homePath` is unset, or set somewhere other than a server plugin                                        | Set it with `defineAppConfig` in `server/plugins/` and restart dev                                              |
+| Sign-in page during the smoke                                           | The local DB already has a real user                                                                    | Sign in with that local test account, or start dev with `AUTH_DISABLED=true` (local only, never committed)      |
+| Doctor reports an unscoped query                                        | An ownable table is read without an access helper in that statement or block                            | Put `accessFilter(...)` in the query's `where`, or call `assertAccess` first in the same block                  |
+| `Named export 'IconX' not found`                                        | The icon name was guessed                                                                               | Grep the exact name in `node_modules/@tabler/icons-react/dist/tabler-icons-react.d.ts`                          |
+| A `@/components/ui/<x>` import fails                                    | The starter doesn't ship that primitive                                                                 | Add `export * from "@agent-native/toolkit/ui/<x>";`                                                             |
+| The UI doesn't update after an agent write                              | The page uses raw `useQuery`, not the action hooks                                                      | Switch to `useActionQuery`                                                                                      |
+| Two quick writes both succeed despite a rule                            | The check runs outside a transaction or without a lock                                                  | Use the lock-then-check pattern in `data-and-access.md`                                                         |
 
 If you couldn't run a step (no browser tool, port blocked), say so in the
 report. Don't claim it passed.
