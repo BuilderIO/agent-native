@@ -906,24 +906,31 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
           { "mcp-protocol-version": protocolVersion },
         );
-        const resources = await send(
-          {
-            jsonrpc: "2.0",
-            id: 3,
-            method: "resources/list",
-            params: {},
-          },
-          { "mcp-protocol-version": protocolVersion },
+        const resourcesSupported = Boolean(
+          init.body?.result?.capabilities?.resources,
         );
-        const resourceTemplates = await send(
-          {
-            jsonrpc: "2.0",
-            id: 4,
-            method: "resources/templates/list",
-            params: {},
-          },
-          { "mcp-protocol-version": protocolVersion },
-        );
+        const resources = resourcesSupported
+          ? await send(
+              {
+                jsonrpc: "2.0",
+                id: 3,
+                method: "resources/list",
+                params: {},
+              },
+              { "mcp-protocol-version": protocolVersion },
+            )
+          : { body: { result: { resources: [] } } };
+        const resourceTemplates = resourcesSupported
+          ? await send(
+              {
+                jsonrpc: "2.0",
+                id: 4,
+                method: "resources/templates/list",
+                params: {},
+              },
+              { "mcp-protocol-version": protocolVersion },
+            )
+          : { body: { result: { resourceTemplates: [] } } };
         const listedTools = tools.body?.result?.tools ?? [];
         const linkedUris = [
           ...new Set(
@@ -936,7 +943,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           ),
         ];
         const reads = [];
-        for (const [index, uri] of linkedUris.entries()) {
+        for (const [index, uri] of (resourcesSupported
+          ? linkedUris
+          : []
+        ).entries()) {
           reads.push(
             await send(
               {
@@ -1003,6 +1013,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         const expectedOrigin = `https://${host}`;
         expect(init.body?.result?.protocolVersion).toBe(protocolVersion);
         expect(init.body?.result?.capabilities?.prompts).toBeUndefined();
+        expect(resourcesSupported).toBe(profile.widgets !== false);
         expect(listedTools.map((tool: any) => tool.name).sort()).toEqual(
           [...profile.connectorCatalog].sort(),
         );
@@ -1055,9 +1066,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         for (const response of [
           init,
           tools,
-          resources,
-          resourceTemplates,
-          ...reads,
+          ...(resourcesSupported
+            ? [resources, resourceTemplates, ...reads]
+            : []),
           prompts,
           ping,
           safeRead,
@@ -1078,9 +1089,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           "initialize",
           "notifications/initialized",
           "tools/list",
-          "resources/list",
-          "resources/templates/list",
-          ...linkedUris.map(() => "resources/read"),
+          ...(resourcesSupported
+            ? [
+                "resources/list",
+                "resources/templates/list",
+                ...linkedUris.map(() => "resources/read"),
+              ]
+            : []),
           "prompts/list",
           "ping",
           "tools/call",
@@ -1578,7 +1593,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         routePath: MCP_DIRECTORY_ROUTE_PREFIX,
       },
     );
-    expect(directoryResources.result.resources).toEqual([]);
+    expect(directoryResources.error.code).toBe(-32601);
 
     const directoryTemplates = await callWeb(
       {
@@ -1593,7 +1608,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         routePath: MCP_DIRECTORY_ROUTE_PREFIX,
       },
     );
-    expect(directoryTemplates.result.resourceTemplates).toEqual([]);
+    expect(directoryTemplates.error.code).toBe(-32601);
 
     const hiddenResource = await callWeb(
       {
@@ -1608,9 +1623,27 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         routePath: MCP_DIRECTORY_ROUTE_PREFIX,
       },
     );
-    expect(hiddenResource.error?.message).toContain(
-      "MCP App resource not found",
+    expect(hiddenResource.error.code).toBe(-32601);
+
+    const directoryInitialize = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 166,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "widget-disabled-test", version: "1.0.0" },
+        },
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
     );
+    expect(directoryInitialize.result.capabilities.resources).toBeUndefined();
+    expect(directoryInitialize.result.capabilities.extensions).toBeUndefined();
 
     const directoryCall = await callWeb(
       {

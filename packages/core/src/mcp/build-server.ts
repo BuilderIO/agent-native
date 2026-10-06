@@ -1813,11 +1813,12 @@ export async function createMCPServerForRequest(
     }
   }
   const supportsMcpApps =
-    compactMcpAppCatalog ||
-    directoryCatalog ||
-    Object.values(advertisedActions).some((entry) =>
-      Boolean(entry.mcpApp?.resource),
-    );
+    mcpAppWidgetsEnabled(config) &&
+    (compactMcpAppCatalog ||
+      directoryCatalog ||
+      Object.values(advertisedActions).some((entry) =>
+        Boolean(entry.mcpApp?.resource),
+      ));
   const servedKeyToolNames = config.keyToolNames?.filter(
     (name) => name in advertisedActions,
   );
