@@ -28,7 +28,7 @@ description: "持久的、仅附加的记录，记录谁更改了哪些应用数
 - **操作** — 操作名称（例如 `delete-recording`）。
 - **演员** - `agent`、`human` 或 `system`，加上演员的电子邮件 - 填充**即使是代理呼叫**，因此您会得到“代理，代表 alice@，...”。
 - **运行链接** - 触发调用（工具调用）的代理 `threadId` / `turnId`，因此突变可以追溯到确切的代理回合。
-- **Surface** — `tool`（代理）、`frontend`、`http`、`cli`、`mcp`、`webmcp` 或 `a2a`。通过 `mcp`、`webmcp` 或 `a2a` 发起的调用来自使用你凭据的外部智能体，因此记录为代表你操作的 `agent`，而不是你本人。
+- **Surface** — `tool`（代理）、`frontend`、`http`、`cli`、`mcp`、`webmcp` 或 `a2a`。这些是智能体协议，因此通过 `mcp`、`webmcp` 或 `a2a` 发起的调用记录为代表你操作的 `agent`，而不是你本人。
 - **结果** — `success`、`error`（带有错误代码）或 `denied`（被人工审批门阻止）。
 - **输入** — 调用参数，具有凭证形状的值 [redacted](#privacy)。
 - **目标和所有者** — 操作更改的资源，用于 [scope reads](#reading)。

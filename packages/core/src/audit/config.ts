@@ -43,9 +43,9 @@ export function shouldRecordAudit(
 }
 
 /**
- * Callers that are always an agent: the app's own agent (`tool`) and outside
- * agents reaching the app over MCP, WebMCP, or A2A. Those arrive with the
- * user's own token, so a signed-in email does not make the call a person's.
+ * Agent protocols: the app's own agent (`tool`) and the MCP, WebMCP, and A2A
+ * surfaces outside agents use. A call over one records as the agent acting
+ * for the signed-in user; that user's email does not make it a click.
  */
 export const AGENT_AUDIT_CALLERS: ReadonlySet<string> = new Set([
   "tool",

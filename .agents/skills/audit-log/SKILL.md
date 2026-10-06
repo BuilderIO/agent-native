@@ -73,9 +73,9 @@ minimum useful addition is `target: () => ({ type, id })`.
   its only argument. If it is rejected it records nothing; if it executes, or
   carries any other argument, it records like any call. Do not invent another
   probe shape in a client; the recorder only knows this one.
-- **Outside agents** — a call over `mcp`, `webmcp`, or `a2a` records as
-  `agent` with the user's email, like the app's own agent (`tool`); `caller`
-  names the protocol. Classify a new agent-only caller in
+- **Outside agents** — a call over an agent protocol (`mcp`, `webmcp`, or
+  `a2a`) records as `agent` with the user's email, like the app's own agent
+  (`tool`); `caller` names the protocol. Classify a new agent-only caller in
   `AGENT_AUDIT_CALLERS`, not in a per-action `audit` config.
 - **App** — every event records the app that wrote it (`app.id`, else
   `app.name`, the same key usage uses).

@@ -28,7 +28,7 @@ When any **mutating** action runs (anything that isn't a read-only `GET`), the f
 - **Action** — the action name (e.g. `delete-recording`).
 - **Actor** — `agent`, `human`, or `system`, plus the actor's email — populated **even for agent calls**, so you get "the agent, acting for alice@, …".
 - **Run linkage** — the agent `threadId` / `turnId` that triggered the call (a tool call), so a mutation traces back to the exact agent turn.
-- **Surface** — `tool` (agent), `frontend`, `http`, `cli`, `mcp`, `webmcp`, or `a2a`. A call over `mcp`, `webmcp`, or `a2a` comes from an outside agent using your credentials, so it records as `agent` acting for you, not as you.
+- **Surface** — `tool` (agent), `frontend`, `http`, `cli`, `mcp`, `webmcp`, or `a2a`. These are agent protocols, so a call over `mcp`, `webmcp`, or `a2a` records as `agent` acting for you, not as you.
 - **Outcome** — `success`, `error` (with an error code), or `denied` (blocked by a human-approval gate).
 - **Inputs** — the call arguments, with credential-shaped values [redacted](#privacy).
 - **Target & owner** — the resource the action changed, used to [scope reads](#reading).

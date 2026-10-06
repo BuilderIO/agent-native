@@ -28,7 +28,7 @@ Cuando se ejecuta cualquier acción **mutante** (cualquier cosa que no sea un `G
 - **Acción**: el nombre de la acción (por ejemplo, `delete-recording`).
 - **Actor**: `agent`, `human` o `system`, más el correo electrónico del actor, completado **incluso para llamadas de agentes**, por lo que obtienes "el agente, que actúa para alice@,...".
 - **Ejecutar vínculo**: el agente `threadId` / `turnId` que activó la llamada (una llamada de herramienta), por lo que una mutación se remonta al turno exacto del agente.
-- **Superficie**: `tool` (agente), `frontend`, `http`, `cli`, `mcp`, `webmcp` o `a2a`. Una llamada por `mcp`, `webmcp` o `a2a` viene de un agente externo que usa tus credenciales, así que se registra como `agent` actuando en tu nombre, no como tú.
+- **Superficie**: `tool` (agente), `frontend`, `http`, `cli`, `mcp`, `webmcp` o `a2a`. Son protocolos para agentes, así que una llamada por `mcp`, `webmcp` o `a2a` se registra como `agent` actuando en tu nombre, no como tú.
 - **Resultado**: `success`, `error` (con un código de error) o `denied` (bloqueado por una puerta de aprobación humana).
 - **Entradas**: los argumentos de llamada, con valores en forma de credencial [redacted](#privacy).
 - **Objetivo y propietario**: el recurso que cambió la acción, utilizado para [scope reads](#reading).

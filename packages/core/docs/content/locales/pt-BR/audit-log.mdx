@@ -28,7 +28,7 @@ Quando qualquer ação de **mutação** é executada (qualquer coisa que não se
 - **Ação** — o nome da ação (por exemplo, `delete-recording`).
 - **Ator** — `agent`, `human` ou `system`, além do e-mail do ator — preenchido **mesmo para chamadas de agente**, para que você obtenha "o agente, atuando em nome de alice@, …".
 - **Run linkage** — o agente `threadId` / `turnId` que acionou a chamada (uma chamada de ferramenta), portanto, uma mutação remonta ao turno exato do agente.
-- **Superfície** — `tool` (agente), `frontend`, `http`, `cli`, `mcp`, `webmcp` ou `a2a`. Uma chamada por `mcp`, `webmcp` ou `a2a` vem de um agente externo usando suas credenciais, então é registrada como `agent` agindo em seu nome, não como você.
+- **Superfície** — `tool` (agente), `frontend`, `http`, `cli`, `mcp`, `webmcp` ou `a2a`. São protocolos de agentes, então uma chamada por `mcp`, `webmcp` ou `a2a` é registrada como `agent` agindo em seu nome, não como você.
 - **Resultado** — `success`, `error` (com um código de erro) ou `denied` (bloqueado por um portão de aprovação humana).
 - **Entradas** — os argumentos da chamada, com valores em formato de credencial [redacted](#privacy).
 - **Destino e proprietário** — o recurso que a ação alterou, usado para [scope reads](#reading).

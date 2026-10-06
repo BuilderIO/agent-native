@@ -28,7 +28,7 @@ Lorsqu'une action de **mutation** est exécutée (tout ce qui n'est pas un `GET`
 - **Action** — le nom de l'action (par exemple `delete-recording`).
 - **Acteur** – `agent`, `human` ou `system`, plus l'adresse e-mail de l'acteur – renseignée **même pour les appels d'agent**, vous obtenez donc "l'agent, agissant pour alice@,…".
 - **Exécuter la liaison** — l'agent `threadId` / `turnId` qui a déclenché l'appel (un appel d'outil), donc une mutation remonte au tour exact de l'agent.
-- **Surface** – `tool` (agent), `frontend`, `http`, `cli`, `mcp`, `webmcp` ou `a2a`. Un appel via `mcp`, `webmcp` ou `a2a` vient d'un agent externe qui utilise vos identifiants : il est donc enregistré comme `agent` agissant pour vous, et non comme vous.
+- **Surface** – `tool` (agent), `frontend`, `http`, `cli`, `mcp`, `webmcp` ou `a2a`. Ce sont des protocoles d'agents : un appel via `mcp`, `webmcp` ou `a2a` est donc enregistré comme `agent` agissant pour vous, et non comme vous.
 - **Résultat** — `success`, `error` (avec un code d'erreur) ou `denied` (bloqué par une porte d'approbation humaine).
 - **Inputs** — les arguments d'appel, avec des valeurs en forme d'identifiant [redacted](#privacy).
 - **Cible et propriétaire** : ressource modifiée par l'action, utilisée pour [scope reads](#reading).

@@ -195,24 +195,29 @@ describe("audit store filters + ordering", () => {
     ).toHaveLength(1);
   });
 
-  it("reads rows recorded as human over MCP as the agent", async () => {
-    await insertAuditEvent(
-      makeEvent({ id: "legacy-mcp", caller: "mcp", actorKind: "human" }),
-    );
-    await insertAuditEvent(
-      makeEvent({ id: "click", caller: "frontend", actorKind: "human" }),
-    );
-    const scope = { userEmail: "alice@x.com" };
+  it.each(["mcp", "webmcp", "a2a"])(
+    "reads legacy %s rows as the agent in reads and filters",
+    async (caller) => {
+      await insertAuditEvent(
+        makeEvent({ id: "legacy-human", caller, actorKind: "human" }),
+      );
+      await insertAuditEvent(
+        makeEvent({ id: "legacy-system", caller, actorKind: "system" }),
+      );
+      await insertAuditEvent(
+        makeEvent({ id: "click", caller: "frontend", actorKind: "human" }),
+      );
+      const scope = { userEmail: "alice@x.com" };
+      const ids = async (actorKind: "agent" | "human" | "system") =>
+        (await queryAuditEvents(scope, { actorKind })).map((e) => e.id).sort();
 
-    const legacy = await getAuditEventById("legacy-mcp", scope);
-    expect(legacy?.actorKind).toBe("agent");
-    expect(
-      (await queryAuditEvents(scope, { actorKind: "agent" })).map((e) => e.id),
-    ).toEqual(["legacy-mcp"]);
-    expect(
-      (await queryAuditEvents(scope, { actorKind: "human" })).map((e) => e.id),
-    ).toEqual(["click"]);
-  });
+      const legacy = await getAuditEventById("legacy-human", scope);
+      expect(legacy?.actorKind).toBe("agent");
+      expect(await ids("agent")).toEqual(["legacy-human", "legacy-system"]);
+      expect(await ids("human")).toEqual(["click"]);
+      expect(await ids("system")).toEqual([]);
+    },
+  );
 
   it("returns newest first and respects the limit", async () => {
     await insertAuditEvent(makeEvent({ createdAt: 100 }));
