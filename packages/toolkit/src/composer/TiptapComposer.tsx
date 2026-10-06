@@ -306,7 +306,7 @@ function isSameComposerAttachment(
 }
 
 // Host Add-menu actions listed among "@" suggestions. Picking one runs the
-// action or opens its picker in the + menu instead of inserting a mention.
+// action or opens its picker as a dialog instead of inserting a mention.
 const COMPOSER_CONTEXT_ENTRY_SOURCE = "composer-context";
 
 function composerReferenceFromMentionItem(

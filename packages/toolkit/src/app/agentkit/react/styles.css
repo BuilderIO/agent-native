@@ -485,7 +485,7 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 
 [data-agent-native-composer-popover="true"]
   [data-mention-index]
-  > span:last-child:not(:first-child) {
+  > [data-mention-description] {
   max-inline-size: 60%;
   flex: none;
   margin-inline-start: auto;
