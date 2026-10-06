@@ -657,22 +657,21 @@ describe("readAgentsBundleFromFs", () => {
     expect(promptBlock).toContain("[skill-visual-edit]");
   });
 
-  it("exposes workflow packaging skills to the app runtime skill picker", () => {
+  it("exposes build-an-app to the Chat runtime skill picker", () => {
     const bundle = readAgentsBundleFromFs(repoPath("templates", "chat"));
     const runtimeSkills = getRuntimeSkills(bundle);
 
-    for (const name of ["turn-into-skill"]) {
-      const skill = runtimeSkills.find(
-        (candidate) => candidate.meta.name === name,
-      );
-      expect(skill, `expected runtime skill ${name}`).toBeDefined();
-      expect(skill!.meta.scope).toBe("both");
-      expect(skill!.meta.description).toContain("Use when");
-    }
+    const skill = runtimeSkills.find(
+      (candidate) => candidate.meta.name === "build-an-app",
+    );
+    expect(skill, "expected runtime skill build-an-app").toBeDefined();
+    expect(skill!.meta.scope).toBe("both");
+    expect(skill!.meta.description).toContain("Use when");
 
     const promptBlock = generateSkillsPromptBlock(bundle);
     expect(promptBlock).not.toContain("`turn-into-app`");
-    expect(promptBlock).toContain("`turn-into-skill`");
+    expect(promptBlock).not.toContain("`turn-into-skill`");
+    expect(promptBlock).toContain("`build-an-app`");
   });
 
   it("keeps app-creation skills in Dispatch and Factory", () => {

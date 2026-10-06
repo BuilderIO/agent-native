@@ -38,6 +38,7 @@ import {
 } from "./create.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import { runSkills } from "./skills.js";
+import { CHAT_STARTER_SKILLS } from "./workspace-skill-policy.js";
 import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
@@ -250,11 +251,46 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(pkg.description).toBe("Workspace app for Test App.");
   });
 
+  it("keeps the Chat shell anchors used by build-an-app", async () => {
+    await createApp("test-app", { template: "chat" });
+    const generatedRoot = path.join(tmpDir, "test-app");
+    expect(
+      fs.readFileSync(
+        path.join(generatedRoot, "app/components/layout/Sidebar.tsx"),
+        "utf-8",
+      ),
+    ).toMatch(/<nav\b/);
+    expect(
+      fs.readFileSync(
+        path.join(generatedRoot, "app/hooks/use-navigation-state.ts"),
+        "utf-8",
+      ),
+    ).toContain("viewForPath");
+    expect(
+      fs.readFileSync(
+        path.join(generatedRoot, "server/plugins/agent-chat.ts"),
+        "utf-8",
+      ),
+    ).toContain("INITIAL_TOOL_NAMES");
+    const brandingPlugin = fs.readFileSync(
+      path.join(generatedRoot, "server/plugins/agent-native-email-branding.ts"),
+      "utf-8",
+    );
+    expect(brandingPlugin).toContain('homePath: "/home"');
+  });
+
   it("teaches generated chat apps to discover and customize Toolkit features", async () => {
     await createApp("test-app", { template: "chat" });
     const root = path.join(tmpDir, "test-app");
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
     const pkg = readPkg(root);
+    const skillNames = fs
+      .readdirSync(path.join(root, ".agents", "skills"), {
+        withFileTypes: true,
+      })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
     const toolkitSkill = path.join(
       root,
       ".agents",
@@ -265,6 +301,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
 
     expect(agents).toContain("agent-native-toolkit");
     expect(agents).toContain("customizing-agent-native");
+    expect(skillNames).toEqual([...CHAT_STARTER_SKILLS].sort());
     expect(pkg["agent-native"]?.scaffold).toEqual({
       template: "chat",
       frameworkSkills: "default",
@@ -460,8 +497,11 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
       coreVersion: expect.any(String),
       shape: "standalone",
     });
-    expect(agents).toContain("This is a headless Agent-Native app");
-    expect(agents).toContain("This app is not stateless");
+    expect(agents).toContain(
+      "This headless app starts with callable actions, not a browser UI.",
+    );
+    expect(agents).toContain("Runtime state");
+    expect(agents).toMatch(/hosted deployments need persistent\s+PostgreSQL/);
     expect(agents).toContain("Chat template");
     expect(agents).toContain("integration blueprints");
     expect(agents).toContain("agent-native-toolkit");
