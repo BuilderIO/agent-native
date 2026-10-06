@@ -534,6 +534,7 @@ async function findQueryJobLocation(
   token: string,
   createdAfter: number,
 ): Promise<string | undefined> {
+  const signal = AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS);
   let pageToken: string | undefined;
   do {
     const params = new URLSearchParams({
@@ -545,7 +546,7 @@ async function findQueryJobLocation(
     const response = await fetch(
       `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs?${params}`,
       {
-        signal: AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS),
+        signal,
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
