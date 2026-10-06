@@ -25,7 +25,6 @@ export { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
 export function DeferredBuilderConnectPopover(
   props: BuilderConnectPopoverProps,
 ) {
-  const t = useT();
   const [openAfterLoad, setOpenAfterLoad] = useState(false);
 
   return (
