@@ -4213,6 +4213,19 @@ describe("AgentEngine registry", () => {
       await expect(
         isDeploymentEngineUsableForRequest(ollamaEntry),
       ).resolves.toBe(false);
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        ollamaEndpoint = "not-a-url";
+        await expect(
+          isDeploymentEngineUsableForRequest(ollamaEntry),
+        ).resolves.toBe(false);
+        expect(warning).toHaveBeenCalledWith(
+          expect.stringContaining("Invalid deployment Ollama endpoint"),
+          { error: expect.any(String) },
+        );
+      } finally {
+        warning.mockRestore();
+      }
       authFailed = false;
       fallbackAllowed = false;
       await expect(isDeploymentEngineUsableForRequest(entry)).resolves.toBe(

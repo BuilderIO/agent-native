@@ -1867,13 +1867,16 @@ function getAppOriginClientConfigScript() {
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
     ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
   };
-  const serializedConfig = JSON.stringify(config).replace(
-    /[<>&\\u2028\\u2029]/g,
-    (character) =>
-      String.fromCharCode(92) +
-      "u" +
-      character.charCodeAt(0).toString(16).padStart(4, "0"),
-  );
+  const toUnicodeEscape = (character) =>
+    String.fromCharCode(92) +
+    "u" +
+    character.charCodeAt(0).toString(16).padStart(4, "0");
+  let serializedConfig = JSON.stringify(config).replace(/[<>&]/g, toUnicodeEscape);
+  for (const character of [String.fromCharCode(0x2028), String.fromCharCode(0x2029)]) {
+    serializedConfig = serializedConfig
+      .split(character)
+      .join(toUnicodeEscape(character));
+  }
   if (Object.keys(config).length === 0) return null;
   return (
     '<script data-agent-native-app-origin-config>' +

@@ -495,10 +495,18 @@ export async function isDeploymentEngineUsableForRequest(
       ? readDeployCredentialEnv(OLLAMA_BASE_URL_ENV_VAR)
       : undefined;
     if (!endpoint) return false;
-    await validateProviderBaseUrl(endpoint, {
-      allowPrivate: true,
-      isOllama: true,
-    });
+    try {
+      await validateProviderBaseUrl(endpoint, {
+        allowPrivate: true,
+        isOllama: true,
+      });
+    } catch (error) {
+      console.warn(
+        "[agent-engine] Invalid deployment Ollama endpoint; provider unavailable.",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return false;
+    }
     return true;
   }
   for (const set of envCredentialSetsForEntry(entry)) {

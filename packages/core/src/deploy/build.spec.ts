@@ -1680,11 +1680,12 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
   it("includes configured app identity in the generated worker shell config", async () => {
     const dir = makeTempDir();
     const configPath = path.join(dir, "identity-config.mjs");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     fs.writeFileSync(
       configPath,
       `import { defineAppConfig } from "@agent-native/core/server";
 
-export default defineAppConfig({ app: { id: "calendar</script>&", workspaceId: "workspace-calendar" } });
+export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCharCode(0x2028), workspaceId: "workspace-calendar" } });
 `,
     );
 
@@ -1694,8 +1695,11 @@ export default defineAppConfig({ app: { id: "calendar</script>&", workspaceId: "
     const response = await worker.fetch(new Request("https://app.test/"));
     const html = await response.text();
 
-    expect(html).toContain('"appId":"calendar\\u003c/script\\u003e\\u0026"');
+    expect(html).toContain(
+      '"appId":"calendar\\u003c/script\\u003e\\u0026\\u2028"',
+    );
     expect(html).toContain('"workspaceAppId":"workspace-calendar"');
+    expect(html).toContain('"workspaceRuntime":true');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
