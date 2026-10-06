@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import {
   toPublicFormSettings,
   type FormField,
@@ -120,7 +121,7 @@ export default defineAction({
   description: "See what the user is currently looking at on screen.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_args, ctx) => {
     const navigation = await readAppStateForCurrentTab("navigation", {
       fallbackToGlobal: false,
     });
@@ -130,6 +131,17 @@ export default defineAction({
 
     const nav = navigation as any;
     const activeTab = nav?.activeTab ?? nav?.tab;
+    const viewingResponses =
+      (nav?.view === "responses" ||
+        (nav?.view === "form" &&
+          (activeTab === "responses" || activeTab === "results"))) &&
+      nav?.formId;
+    if (viewingResponses) {
+      await requireFormsPermission("forms.review", "formId")(
+        { formId: nav.formId },
+        ctx,
+      );
+    }
 
     if (nav?.formId) {
       try {
@@ -242,12 +254,7 @@ export default defineAction({
       };
     }
 
-    if (
-      (nav?.view === "responses" ||
-        (nav?.view === "form" &&
-          (activeTab === "responses" || activeTab === "results"))) &&
-      nav?.formId
-    ) {
+    if (viewingResponses) {
       try {
         const db = getDb();
         const access = await resolveAccess("form", nav.formId);

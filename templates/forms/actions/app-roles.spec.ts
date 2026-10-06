@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   orgRoles: {} as Record<string, string[]>,
   lookupOrgs: [] as string[],
   selectCount: 0,
+  navigation: null as { view: string; formId: string } | null,
   overrides: [] as { permission: string; roles_json: string }[],
   write: vi.fn(),
   assertAccess: vi.fn(),
@@ -60,6 +61,8 @@ const formDb = vi.hoisted(() => ({
       return {
         from: () => ({
           where: () => ({
+            then: (resolve: (rows: unknown[]) => unknown) =>
+              resolve([{ count: 1 }]),
             orderBy: () => ({
               limit: async () => [
                 { id: "shared-form", fields: "[]", settings: "{}" },
@@ -97,6 +100,9 @@ vi.mock("../server/lib/public-form-ssr.js", () => ({
   invalidatePublicFormCache: vi.fn(),
 }));
 vi.mock("@agent-native/core/tracking", () => ({ track: vi.fn() }));
+vi.mock("./_tab-state.js", () => ({
+  readAppStateForCurrentTab: async () => state.navigation,
+}));
 
 const { registerActionAccessChecker } =
   await import("../../../packages/core/src/authorization/action-access-runtime.js");
@@ -105,6 +111,7 @@ const { default: deleteForm } = await import("./delete-form.js");
 const { default: restoreForm } = await import("./restore-form.js");
 const { default: patchFields } = await import("./patch-form-fields.js");
 const { default: responseInsights } = await import("./response-insights.js");
+const { default: viewScreen } = await import("./view-screen.js");
 const { requireFormsPermission } = await import("../server/lib/app-roles.js");
 const caller: ActionRunContext = {
   caller: "frontend",
@@ -127,6 +134,7 @@ beforeEach(() => {
   state.orgRoles = {};
   state.lookupOrgs = [];
   state.selectCount = 0;
+  state.navigation = null;
   state.overrides = [];
   state.write.mockClear();
   state.assertAccess.mockReset();
@@ -134,6 +142,26 @@ beforeEach(() => {
 });
 
 describe("Forms app-role enforcement", () => {
+  it.each(["denied-override", "removed-member", "retired-role"])(
+    "denies submission screen context to a %s before querying responses",
+    async (kind) => {
+      state.navigation = { view: "responses", formId: "shared-form" };
+      if (kind === "denied-override")
+        state.overrides = [{ permission: "forms.review", roles_json: "[]" }];
+      else if (kind === "removed-member") state.member = false;
+      else state.roles = ["retired"];
+      await expect(viewScreen.run({}, caller)).rejects.toThrow("forms.review");
+      expect(state.lookupOrgs).toEqual(["org-example"]);
+      expect(state.selectCount).toBe(0);
+    },
+  );
+  it("allows a Reviewer to read submission screen context", async () => {
+    state.navigation = { view: "responses", formId: "shared-form" };
+    await expect(viewScreen.run({}, caller)).resolves.toMatchObject({
+      responses: { formId: "shared-form", showing: 1 },
+    });
+    expect(state.lookupOrgs).toEqual(["org-example"]);
+  });
   it("denies a Reviewer editing a form even with an editor share", async () => {
     await expect(
       updateForm.run({ id: "shared-form", title: "Changed" }, caller),
