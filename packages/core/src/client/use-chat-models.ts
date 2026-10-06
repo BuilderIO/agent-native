@@ -431,12 +431,15 @@ export function useChatModels({
           }
 
           const selectableGroups =
-            unavailableSelectionPolicy === "require-explicit"
+            unavailableSelectionPolicy === "require-explicit" ||
+            !selection.selectedEngine
               ? configuredGroups
               : groups;
           const exactSelectedGroup = selectableGroups.find(
             (group) =>
-              group.models.includes(selection.selectedModel) &&
+              (group.models.includes(selection.selectedModel) ||
+                (selection.selectedEngine === group.engine &&
+                  group.preserveCustomModels)) &&
               (!selection.selectedEngine ||
                 group.engine === selection.selectedEngine),
           );
@@ -459,12 +462,15 @@ export function useChatModels({
           const selectedGroup = exactSelectedGroup ?? upgradedSelection?.group;
           if (selectedGroup) {
             const selectedModel =
-              upgradedSelection?.model ??
-              upgradeModelToLatestSupportedVersion(
-                selection.selectedModel,
-                selectedGroup.models,
-              ) ??
-              selection.selectedModel;
+              selectedGroup.preserveCustomModels &&
+              selection.selectedEngine === selectedGroup.engine
+                ? selection.selectedModel
+                : (upgradedSelection?.model ??
+                  upgradeModelToLatestSupportedVersion(
+                    selection.selectedModel,
+                    selectedGroup.models,
+                  ) ??
+                  selection.selectedModel);
             const nextSelection = {
               ...selection,
               selectedModel,

@@ -3,6 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const orgStore = new Map<string, Record<string, unknown>>();
 const userStore = new Map<string, Record<string, unknown>>();
 let settingsReadThrows = false;
+const endpointState = vi.hoisted(() => ({ preserveCustomModels: false }));
+
+vi.mock("./engine/registry.js", () => ({
+  resolveEnginePreservesCustomModels: vi.fn(
+    async () => endpointState.preserveCustomModels,
+  ),
+}));
 
 vi.mock("../settings/index.js", () => ({
   getOrgSetting: vi.fn(async (orgId: string, key: string) => {
@@ -87,6 +94,7 @@ beforeEach(() => {
   roles.clear();
   keySources.clear();
   settingsReadThrows = false;
+  endpointState.preserveCustomModels = false;
   keyLookupFails = false;
   builderSource = undefined;
   requestUserEmail = undefined;
@@ -148,6 +156,33 @@ describe("selection scopes", () => {
     );
 
     expect(row.models).toEqual(["gpt-6-luna", "gpt-6.1-sol"]);
+  });
+
+  it("preserves saved OpenAI models for a custom gateway", async () => {
+    endpointState.preserveCustomModels = true;
+    orgStore.set(`${ORG}::agent-provider-models:openai`, {
+      models: ["gpt-5.6-luna"],
+    });
+
+    expect(
+      (
+        await readProviderModelSelection(
+          { userEmail: OWNER, orgId: ORG },
+          "openai",
+          "org",
+        )
+      ).models,
+    ).toEqual(["gpt-5.6-luna"]);
+
+    await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+    expect(
+      orgStore.get(`${ORG}::agent-provider-models:openai`)?.models,
+    ).toEqual(["gpt-5.6-luna"]);
   });
 
   it("lets an owner set the organization's models", async () => {

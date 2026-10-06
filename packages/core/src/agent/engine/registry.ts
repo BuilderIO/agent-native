@@ -238,15 +238,15 @@ export function normalizeModelForEngine(
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
+  if (engine.preserveCustomModels || options.preserveCustomModels) {
+    return candidate;
+  }
+
   const upgradedModel = upgradeModelToLatestSupportedVersion(
     candidate,
     engine.supportedModels,
   );
   if (upgradedModel) return upgradedModel;
-
-  if (engine.preserveCustomModels || options.preserveCustomModels) {
-    return candidate;
-  }
 
   const versionMatch = findLatestSupportedVersionMatch(
     candidate,

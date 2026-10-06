@@ -649,7 +649,6 @@ describe("AgentEngine registry", () => {
           "openai/gpt-5.6-sol",
           "openai/gpt-6.1-sol",
         ],
-        preserveCustomModels: true,
       } as any;
 
       expect(normalizeModelForEngine(engine, "gpt-5.6-luna")).toBe(
@@ -663,7 +662,7 @@ describe("AgentEngine registry", () => {
         normalizeModelForEngine(engine, "openai/gpt-5.6-sol", {
           preserveCustomModels: true,
         }),
-      ).toBe("openai/gpt-6.1-sol");
+      ).toBe("openai/gpt-5.6-sol");
       expect(
         normalizeModelForEngine(
           {
@@ -673,7 +672,13 @@ describe("AgentEngine registry", () => {
           "gpt-6-luna",
           { preserveCustomModels: true },
         ),
-      ).toBe("gpt-7-luna");
+      ).toBe("gpt-6-luna");
+      expect(
+        normalizeModelForEngine(
+          { ...engine, preserveCustomModels: true },
+          "gpt-5.6-luna",
+        ),
+      ).toBe("gpt-5.6-luna");
     });
 
     it("normalizes removed non-Builder models when the engine declares supported models", async () => {

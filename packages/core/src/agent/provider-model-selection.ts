@@ -34,6 +34,7 @@ import {
 } from "../settings/index.js";
 import { OLLAMA_BASE_URL_ENV_VAR } from "./engine/openai-compatible-endpoint.js";
 import { PROVIDER_ENV_META } from "./engine/provider-env-vars.js";
+import { resolveEnginePreservesCustomModels } from "./engine/registry.js";
 import { BUILDER_MODEL_CONFIG } from "./model-config.js";
 import { upgradeModelToLatestSupportedVersion } from "./model-version.js";
 
@@ -154,6 +155,7 @@ function providerCredentialEnvVar(
 export function normalizeSelectedModels(
   provider: ProviderModelSelectionProvider,
   models: readonly unknown[],
+  options: { preserveCustomModels?: boolean } = {},
 ): string[] {
   if (models.length > MAX_SELECTED_MODELS) {
     throw new ProviderModelSelectionError(
@@ -176,8 +178,10 @@ export function normalizeSelectedModels(
   const supportedModels = recommendedProviderModels(provider);
   const normalized = [
     ...new Set(
-      [...seen].map(
-        (id) => upgradeModelToLatestSupportedVersion(id, supportedModels) ?? id,
+      [...seen].map((id) =>
+        options.preserveCustomModels
+          ? id
+          : (upgradeModelToLatestSupportedVersion(id, supportedModels) ?? id),
       ),
     ),
   ];
@@ -198,6 +202,7 @@ function parseRow(
   provider: ProviderModelSelectionProvider,
   scope: ProviderModelSelectionScope,
   stored: Record<string, unknown> | null,
+  preserveCustomModels = false,
 ): ProviderModelSelectionRow {
   if (!stored || !Array.isArray(stored.models)) {
     return { provider, scope, models: null };
@@ -207,12 +212,13 @@ function parseRow(
   );
   const currentModels = [
     ...new Set(
-      models.map(
-        (model) =>
-          upgradeModelToLatestSupportedVersion(
-            model,
-            recommendedProviderModels(provider),
-          ) ?? model,
+      models.map((model) =>
+        preserveCustomModels
+          ? model
+          : (upgradeModelToLatestSupportedVersion(
+              model,
+              recommendedProviderModels(provider),
+            ) ?? model),
       ),
     ),
   ];
@@ -268,7 +274,10 @@ export async function readProviderModelSelection(
     scope === "org"
       ? await getOrgSetting(scopeId, key)
       : await getUserSetting(scopeId, key);
-  return parseRow(provider, scope, stored);
+  const preserveCustomModels =
+    provider === "openai" &&
+    (await resolveEnginePreservesCustomModels({ name: "ai-sdk:openai" }));
+  return parseRow(provider, scope, stored, preserveCustomModels);
 }
 
 /**
@@ -299,7 +308,12 @@ export async function writeProviderModelSelection(
   models: readonly unknown[],
 ): Promise<ProviderModelSelectionRow> {
   await assertMayWriteProviderModelSelection(ctx, scope);
-  const normalized = normalizeSelectedModels(provider, models);
+  const preserveCustomModels =
+    provider === "openai" &&
+    (await resolveEnginePreservesCustomModels({ name: "ai-sdk:openai" }));
+  const normalized = normalizeSelectedModels(provider, models, {
+    preserveCustomModels,
+  });
   const scopeId = scopeIdFor(ctx, scope);
   const key = providerModelSelectionSettingsKey(provider);
   const value: Record<string, unknown> = {

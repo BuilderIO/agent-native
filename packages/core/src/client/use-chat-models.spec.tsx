@@ -15,6 +15,7 @@ function stubCatalog(options: {
   engines: unknown[];
   configuredKeys?: string[];
   current?: { engine: string; model: string };
+  builderConnected?: boolean;
 }) {
   actionMocks.callAction.mockResolvedValue({
     engines: options.engines,
@@ -33,7 +34,7 @@ function stubCatalog(options: {
         );
       }
       if (url.includes("builder/status")) {
-        return Response.json({ configured: false });
+        return Response.json({ configured: options.builderConnected === true });
       }
       return new Response("{}");
     }),
@@ -218,6 +219,89 @@ describe("useChatModels", () => {
     expect(
       JSON.parse(window.localStorage.getItem(storageKey) ?? "{}").model,
     ).toBe("gpt-6-luna");
+  });
+
+  it("preserves a persisted model for an OpenAI-compatible custom endpoint", async () => {
+    const storageKey = "custom-gateway-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "ai-sdk:openai",
+        model: "gpt-5.6-luna",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-6-luna"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENAI_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("gpt-5.6-luna");
+    expect(
+      JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
+    ).toMatchObject({
+      engine: "ai-sdk:openai",
+      model: "gpt-5.6-luna",
+    });
+  });
+
+  it("upgrades an unscoped legacy model only through a configured engine", async () => {
+    const storageKey = "legacy-gpt-model-without-engine";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ model: "gpt-5.6-luna", effort: "high" }),
+    );
+    stubCatalog({
+      builderConnected: true,
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-6-luna"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-6-luna"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("gpt-6-luna");
+    expect(
+      JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
+    ).toMatchObject({
+      engine: "builder",
+      model: "gpt-6-luna",
+    });
   });
 
   it("replaces an unroutable default with a model the catalog can serve", async () => {
