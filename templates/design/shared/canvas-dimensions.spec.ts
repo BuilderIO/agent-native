@@ -87,6 +87,16 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         "Create a responsive landing page with a hero image at 1200x600 pixels",
       ),
     ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a dashboard featuring a large 300x250 ad",
+      ),
+    ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a website with a 300x250 hero image and a 728x90 banner",
+      ),
+    ).toBeUndefined();
   });
 
   it("prefers explicit screen dimensions over nested asset dimensions", () => {
@@ -120,6 +130,11 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         "Create a 1200x800 canvas with a 300x250 ad",
       ),
     ).toEqual({ width: 1200, height: 800 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 1200x800 screen with a 300x250 ad and a 728x90 banner",
+      ),
+    ).toEqual({ width: 1200, height: 800 });
   });
 
   it("prefers output-format dimensions over nested image dimensions", () => {
@@ -146,6 +161,11 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     expect(
       explicitCanvasDimensionsFromPrompt(
         "Create a 300x250 ad with the image exactly 1080x1080",
+      ),
+    ).toEqual({ width: 300, height: 250 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 300x250 ad and include a 1080x1080 image",
       ),
     ).toEqual({ width: 300, height: 250 });
   });

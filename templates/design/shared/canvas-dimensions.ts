@@ -28,17 +28,30 @@ const OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE =
 const IMAGE_OUTPUT_CONTEXT_BEFORE =
   /\bimage\s+(?:(?:at|of)\s*|with\s+(?:exact(?:ly)?\s+)?(?:dimensions?|size)\s*)?$/i;
 const ASSET_CONTEXT_AFTER =
-  /^\s*(?:(?:hero|background|header|main|featured|product|profile|thumbnail|preview)\s+)*(?:image|asset|icon|logo|favicon|avatar|illustration)\b/i;
+  /^\s*(?:[a-z-]+\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration)\b/i;
+const PIXEL_ASSET_CONTEXT_AFTER =
+  /^\s*(?:image|asset|icon|logo|favicon|avatar|illustration)\b/i;
+const SCREEN_CONTAINER_CONTEXT = "(?:screen|canvas|artboard|frame)";
+const PAGE_CONTAINER_CONTEXT =
+  "(?:(?:responsive\\s+)?(?:landing\\s+)?page|web\\s+app|website|web\\s+site|dashboard)";
 const OUTPUT_CONTAINER_CONTEXT =
   "(?:screen|canvas|artboard|frame|(?:responsive\\s+)?(?:landing\\s+)?page|web\\s+app|website|web\\s+site|dashboard|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|social\\s+post|post|story|email\\s+header|email|newsletter|print|flyer|poster|screenshot)";
 const NESTED_OUTPUT_ASSET_AFTER =
-  /^\s*(?:(?:hero|background|header|main|featured|product|profile|thumbnail|preview)\s+)*(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\b/i;
+  /^\s*(?:[a-z-]+\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\b/i;
 const NESTED_OUTPUT_RELATIONSHIP_BEFORE = new RegExp(
-  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring)\\s+(?:an?|the)?\\s*|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*|[.!?;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*)$`,
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
+  "i",
+);
+const NESTED_PAGE_RELATIONSHIP_BEFORE = new RegExp(
+  `\\b${PAGE_CONTAINER_CONTEXT}\\b[\\s\\S]{0,96}(?:\\b(?:with|including|containing|inside|featuring|and)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
+  "i",
+);
+const NESTED_SCREEN_SIBLING_RELATIONSHIP_BEFORE = new RegExp(
+  `\\b${SCREEN_CONTAINER_CONTEXT}\\b[\\s\\S]{0,96}\\b(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\b[\\s\\S]{0,24}\\band\\s+(?:an?|the)?\\s*$`,
   "i",
 );
 const NESTED_OUTPUT_ASSET_CONTEXT_BEFORE = new RegExp(
-  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring|(?:that|which)\\s+(?:includes|contains|features|has))\\s+(?:an?|the)?\\s*(?:(?:embedded|nested|hero|background|header|main|featured|product|profile|thumbnail|preview)\\s+)*(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at|exact(?:ly)?)?\\s*$`,
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring|(?:that|which)\\s+(?:includes|contains|features|has)|and\\s+(?:include|add|insert|place|put|use))\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at|of|exact(?:ly)?)?\\s*$`,
   "i",
 );
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
@@ -97,19 +110,21 @@ export function explicitCanvasDimensionsFromPrompt(
       DIMENSION_CONTEXT_AFTER.test(suffix ?? "") ||
       OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE.test(prefix ?? "");
     const hasPixelImageContext =
-      Boolean(match[2] || match[4]) && ASSET_CONTEXT_AFTER.test(suffix ?? "");
+      Boolean(match[2] || match[4]) &&
+      PIXEL_ASSET_CONTEXT_AFTER.test(suffix ?? "");
     const hasFormatContext =
       FORMAT_CONTEXT_BEFORE.test(prefix ?? "") ||
       FORMAT_CONTEXT_BEFORE.test(nearbyPrefix) ||
       FORMAT_CONTEXT_AFTER.test(suffix ?? "");
     const hasNestedAssetContext =
       NESTED_OUTPUT_ASSET_CONTEXT_BEFORE.test(nearbyPrefix) ||
-      (NESTED_OUTPUT_RELATIONSHIP_BEFORE.test(nearbyPrefix) &&
+      ((NESTED_OUTPUT_RELATIONSHIP_BEFORE.test(nearbyPrefix) ||
+        NESTED_PAGE_RELATIONSHIP_BEFORE.test(nearbyPrefix) ||
+        NESTED_SCREEN_SIBLING_RELATIONSHIP_BEFORE.test(nearbyPrefix)) &&
         NESTED_OUTPUT_ASSET_AFTER.test(suffix ?? ""));
     const hasImageOutputContext =
       IMAGE_OUTPUT_CONTEXT_BEFORE.test(prefix ?? "") ||
-      (ASSET_CONTEXT_AFTER.test(suffix ?? "") &&
-        (Boolean(match[2] || match[4]) || (width >= 100 && height >= 100)));
+      (ASSET_CONTEXT_AFTER.test(suffix ?? "") && width >= 100 && height >= 100);
 
     if (hasNestedAssetContext) continue;
     if (
