@@ -79,7 +79,12 @@ const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/global-teardown.ts",
   "templates/design/e2e/helpers.ts",
   "templates/design/e2e/parity-drag-reparent.spec.ts",
+  "templates/design/e2e/parity-report-interactions.spec.ts",
+  "templates/design/e2e/parity-oversized-nested.spec.ts",
+  "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
+  "templates/design/e2e/z-order-parity.spec.ts",
   "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/e2e/responsive-overview-regressions.spec.ts",
   "templates/design/playwright.config.ts",
 ]);
 
@@ -91,11 +96,28 @@ const DESIGN_CANVAS_CONFIG_FILES = new Set([
   "templates/design/vite.config.ts",
 ]);
 
+// The two-tab convergence lane also covers its own harness and the build it
+// serves; other Content e2e specs and unit tests cannot move it.
+const CONTENT_CONVERGENCE_FILES = new Set([
+  "templates/content/agent-native.config.ts",
+  "templates/content/agent-native.json",
+  "templates/content/package.json",
+  "templates/content/react-router.config.ts",
+  "templates/content/ssr-entry.ts",
+  "templates/content/vite.config.ts",
+  "templates/content/e2e/convergence-summary.ts",
+  "templates/content/e2e/global-setup.ts",
+  "templates/content/e2e/helpers.ts",
+  "templates/content/e2e/playwright.config.ts",
+  "templates/content/e2e/two-tab-convergence.spec.ts",
+]);
+
 const CHECK_NAMES = [
   "lint",
   "typecheck",
   "fast_tests",
   "content",
+  "content_convergence",
   "core_integration",
   "plan_e2e",
   "brain_evals",
@@ -413,6 +435,30 @@ function isDesignDndRuntimePath(path: string): boolean {
   return designAppSource || designSharedRuntimeSource;
 }
 
+function isContentConvergenceRuntimePath(path: string): boolean {
+  if (CONTENT_CONVERGENCE_FILES.has(path)) return true;
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+
+  // Most Toolkit changes are chat and shell UI that cannot lose page text.
+  const toolkitEditorSource =
+    path.startsWith("packages/toolkit/src/editor/") ||
+    path.startsWith("packages/toolkit/src/collab-ui/") ||
+    path === "packages/toolkit/package.json";
+
+  const contentAppSource =
+    path.startsWith("templates/content/app/") &&
+    !path.startsWith("templates/content/app/i18n/") &&
+    !/\/i18n-[^/]+\.ts$/u.test(path) &&
+    /\.(?:[cm]?[jt]sx?|css)$/u.test(path);
+  const contentSharedRuntimeSource =
+    (path.startsWith("templates/content/actions/") ||
+      path.startsWith("templates/content/server/") ||
+      path.startsWith("templates/content/shared/")) &&
+    /\.(?:[cm]?[jt]sx?|json)$/u.test(path);
+
+  return toolkitEditorSource || contentAppSource || contentSharedRuntimeSource;
+}
+
 function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   return (
@@ -468,9 +514,11 @@ export function shardQueryBudgetApps(
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
   return [
     "packages/core/",
+    "packages/otel/",
     "packages/toolkit/",
     "packages/recap-cli/",
     "packages/creative-context/",
+    "packages/otel/",
   ].some((prefix) => hasPath(paths, prefix));
 }
 
@@ -542,12 +590,15 @@ function buildChecks(
     coreChanged ||
     toolkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
+  const contentConvergenceChanged =
+    changedPaths.some(isContentConvergenceRuntimePath) || coreChanged;
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
     fast_tests: workspaceChanged || instructionsChanged,
     content: contentChanged || coreChanged || schedulingChanged,
+    content_convergence: contentConvergenceChanged,
     core_integration: coreChanged || toolkitChanged,
     plan_e2e: coreChanged || planChanged,
     brain_evals: coreChanged || brainChanged,

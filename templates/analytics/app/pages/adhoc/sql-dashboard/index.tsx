@@ -140,6 +140,16 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
+  canPersistDashboardFilterPreference,
+  dashboardFilterParams,
+  dashboardFilterPreferenceSaveState,
+  matchesDashboardFilterRestoreState,
+  resolveDashboardFilterRestoreStep,
+  sameDashboardFilterMap,
+  type DashboardFilterPreferenceSaveGuard,
+  type DashboardFilterRestoreProgress,
+} from "./dashboard-filter-restore";
+import {
   availableDropSlotIdsForPanel,
   buildDashboardPanelGroups,
   columnExpansionForDropSlot,
@@ -177,6 +187,7 @@ import {
   clampDashboardColumns,
   DEFAULT_DASHBOARD_COLUMNS,
   type DashboardCertification,
+  type DashboardFilter,
   type SqlDashboardConfig,
   type SqlPanel,
 } from "./types";
@@ -188,15 +199,6 @@ type DashboardTabGroup = {
   name: string;
   tabs: Array<{ value: string; label: string }>;
 };
-
-function sameFilterMap(
-  a: Record<string, string> | undefined,
-  b: Record<string, string>,
-): boolean {
-  const aKeys = Object.keys(a ?? {});
-  if (aKeys.length !== Object.keys(b).length) return false;
-  return aKeys.every((key) => a![key] === b[key]);
-}
 
 function groupDashboardTabs(tabs: string[]): {
   groups: DashboardTabGroup[];
@@ -265,6 +267,7 @@ function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
 const PanelCell = memo(function PanelCell({
   panel,
   vars,
+  timeRangeFilter,
   remoteEditor,
   editable,
   eagerLoad,
@@ -279,6 +282,7 @@ const PanelCell = memo(function PanelCell({
 }: {
   panel: SqlPanel;
   vars: Record<string, string>;
+  timeRangeFilter: DashboardFilter | undefined;
   remoteEditor: { color: string; name: string } | undefined;
   editable: boolean;
   eagerLoad: boolean;
@@ -294,6 +298,14 @@ const PanelCell = memo(function PanelCell({
   onSavePanel: (panel: SqlPanel) => Promise<void>;
   dashboardExtensionContext: Record<string, unknown>;
 }) {
+  const [timeRangeOverride, setTimeRangeOverride] = useState<string | null>(
+    null,
+  );
+  const effectiveVars = useMemo(
+    () =>
+      timeRangeOverride ? { ...vars, timeRange: timeRangeOverride } : vars,
+    [vars, timeRangeOverride],
+  );
   const resolved = useMemo(
     () =>
       panel.config?.description
@@ -301,16 +313,20 @@ const PanelCell = memo(function PanelCell({
             ...panel,
             config: {
               ...panel.config,
-              description: interpolate(panel.config.description, vars),
+              description: interpolate(panel.config.description, effectiveVars),
             },
           }
         : panel,
-    [panel, vars],
+    [panel, effectiveVars],
   );
   const resolvedSql = useMemo(
     () =>
-      interpolateDashboardPanelSql(serializePanelSql(panel.sql), vars, panel),
-    [panel.sql, vars],
+      interpolateDashboardPanelSql(
+        serializePanelSql(panel.sql),
+        effectiveVars,
+        panel,
+      ),
+    [panel.sql, effectiveVars],
   );
   const handleSelectForChat = useCallback(
     (options?: SelectDashboardPanelOptions) => {
@@ -377,7 +393,10 @@ const PanelCell = memo(function PanelCell({
             ? dashboardExtensionContext.dashboardId
             : ""
         }
-        filters={vars}
+        filters={effectiveVars}
+        timeRangeFilter={timeRangeFilter}
+        timeRangeOverride={timeRangeOverride}
+        onTimeRangeOverrideChange={setTimeRangeOverride}
         extensionContext={
           panel.chartType === "extension"
             ? {
@@ -905,17 +924,28 @@ function SqlDashboardPageContent({
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
   const {
     data: savedFilters,
-    isLoading: filtersLoading,
     isSuccess: filtersLoaded,
+    isError: filtersError,
     save: saveFilterPref,
   } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
 
-  const { saveView } = useDashboardViews(dashboardId ?? undefined);
+  const {
+    views,
+    isSuccess: dashboardViewsLoaded,
+    isSettled: dashboardViewsSettled,
+    saveView,
+  } = useDashboardViews(dashboardId ?? undefined);
+  const defaultView = views.find((view) => view.isDefault);
 
-  const appliedSaved = useRef(false);
+  const filterRestoreProgress = useRef<DashboardFilterRestoreProgress>({
+    status: "pending",
+  });
+  const skipFilterPreferenceSave =
+    useRef<DashboardFilterPreferenceSaveGuard | null>(null);
 
   useEffect(() => {
-    appliedSaved.current = false;
+    filterRestoreProgress.current = { status: "pending" };
+    skipFilterPreferenceSave.current = null;
     setLoaded(false);
     setDashboard(null);
     setArchivedAt(null);
@@ -1018,49 +1048,98 @@ function SqlDashboardPageContent({
   useEffect(() => {
     if (
       reportScreenshot ||
-      appliedSaved.current ||
-      filtersLoading ||
-      !filtersLoaded ||
+      filterRestoreProgress.current.status === "complete" ||
       !loaded ||
       !dashboard
     )
       return;
-    appliedSaved.current = true;
 
-    const viewId = searchParams.get("view");
-    if (viewId) return;
-
-    const hasUrlFilters = Array.from(searchParams.keys()).some((k) =>
-      k.startsWith(FILTER_PARAM_PREFIX),
-    );
-    if (hasUrlFilters) return;
+    const previousProgress = filterRestoreProgress.current;
+    const restoreStep = resolveDashboardFilterRestoreStep({
+      searchParams,
+      defaultView,
+      savedFilters: savedFilters?.filters,
+      viewsState: dashboardViewsLoaded
+        ? "success"
+        : dashboardViewsSettled
+          ? "error"
+          : "loading",
+      savedFiltersState: filtersLoaded
+        ? "success"
+        : filtersError
+          ? "error"
+          : "loading",
+      progress: previousProgress,
+    });
+    filterRestoreProgress.current = restoreStep.progress;
+    const filterRestore = restoreStep.restore;
+    if (!filterRestore) return;
 
     try {
       const appliedAt = Number(
         sessionStorage.getItem("__agentUrlAppliedAt__") || 0,
       );
-      if (appliedAt && Date.now() - appliedAt < 5000) return;
+      if (appliedAt && Date.now() - appliedAt < 5000) {
+        filterRestoreProgress.current = { status: "complete" };
+        return;
+      }
     } catch {
       // sessionStorage unavailable — fall through.
     }
 
-    if (savedFilters?.filters && Object.keys(savedFilters.filters).length > 0) {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          for (const [key, value] of Object.entries(savedFilters.filters)) {
-            if (value) next.set(key, value);
-          }
-          return next;
-        },
-        { replace: true },
-      );
+    if (filterRestore.source === "dashboard-default") {
+      skipFilterPreferenceSave.current = {
+        filters: filterRestore.filters,
+        viewId: filterRestore.viewId,
+        previousFilters: dashboardFilterParams(searchParams),
+        previousViewId: searchParams.get("view") ?? undefined,
+      };
     }
+
+    setSearchParams(
+      (prev) => {
+        if (previousProgress.status === "fallback-applied") {
+          if (
+            !matchesDashboardFilterRestoreState(
+              prev,
+              previousProgress.filters,
+              previousProgress.viewId,
+            )
+          ) {
+            return prev;
+          }
+        } else if (
+          prev.has("view") ||
+          Array.from(prev.keys()).some((key) =>
+            key.startsWith(FILTER_PARAM_PREFIX),
+          )
+        ) {
+          return prev;
+        }
+        const next = new URLSearchParams(prev);
+        for (const key of Array.from(next.keys())) {
+          if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
+        }
+        for (const [key, value] of Object.entries(filterRestore.filters)) {
+          if (value) next.set(key, value);
+        }
+        if (filterRestore.viewId) {
+          next.set("view", filterRestore.viewId);
+        } else {
+          next.delete("view");
+        }
+        return next;
+      },
+      { replace: true },
+    );
   }, [
-    filtersLoading,
     filtersLoaded,
+    filtersError,
+    dashboardViewsLoaded,
+    dashboardViewsSettled,
     loaded,
     dashboard,
+    defaultView,
     savedFilters,
     reportScreenshot,
     searchParams,
@@ -1073,7 +1152,12 @@ function SqlDashboardPageContent({
       reportScreenshot ||
       !loaded ||
       !dashboard?.filters?.length ||
-      !dashboardId
+      !dashboardId ||
+      !canPersistDashboardFilterPreference(
+        filterRestoreProgress.current,
+        dashboardFilterParams(searchParams),
+        searchParams.get("view") ?? undefined,
+      )
     )
       return;
     clearTimeout(saveTimer.current);
@@ -1084,7 +1168,20 @@ function SqlDashboardPageContent({
           currentFilters[k] = v;
         }
       });
-      if (sameFilterMap(savedFilters?.filters, currentFilters)) return;
+      const filterPreferenceSaveState = dashboardFilterPreferenceSaveState(
+        skipFilterPreferenceSave.current,
+        currentFilters,
+        searchParams.get("view") ?? undefined,
+      );
+      if (filterPreferenceSaveState === "applied") {
+        skipFilterPreferenceSave.current = null;
+        return;
+      }
+      if (filterPreferenceSaveState === "pending") return;
+      if (filterPreferenceSaveState === "changed") {
+        skipFilterPreferenceSave.current = null;
+      }
+      if (sameDashboardFilterMap(savedFilters?.filters, currentFilters)) return;
       saveFilterPref({ filters: currentFilters });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
@@ -1096,6 +1193,10 @@ function SqlDashboardPageContent({
     savedFilters,
     saveFilterPref,
     reportScreenshot,
+    filtersLoaded,
+    filtersError,
+    dashboardViewsLoaded,
+    dashboardViewsSettled,
   ]);
 
   const enqueueDashboardSave = useCallback(
@@ -1509,6 +1610,11 @@ function SqlDashboardPageContent({
     return { ...(dashboard?.variables ?? {}), ...filterValues };
   }, [dashboard?.variables, dashboard?.filters, searchParams]);
 
+  const timeRangeFilter = useMemo<DashboardFilter | undefined>(
+    () => dashboard?.filters?.find((f) => f.id === "timeRange"),
+    [dashboard?.filters],
+  );
+
   const dashboardExtensionContext = useMemo<Record<string, unknown>>(
     () => ({
       dashboardId,
@@ -1839,13 +1945,17 @@ function SqlDashboardPageContent({
   ]);
 
   const handleSaveView = useCallback(
-    async (name: string, filters: Record<string, string>) => {
+    async (
+      name: string,
+      filters: Record<string, string>,
+      isDefault: boolean,
+    ) => {
       const id = name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 60);
-      await saveView({ id, name, filters });
+      await saveView({ id, name, filters, isDefault });
     },
     [saveView],
   );
@@ -2547,6 +2657,7 @@ function SqlDashboardPageContent({
                               <PanelCell
                                 panel={panel}
                                 vars={vars}
+                                timeRangeFilter={timeRangeFilter}
                                 remoteEditor={
                                   reportScreenshot
                                     ? undefined

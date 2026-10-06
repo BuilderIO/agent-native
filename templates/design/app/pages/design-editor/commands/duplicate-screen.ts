@@ -3,6 +3,7 @@ import type {
   CanvasFrameGeometry,
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
@@ -11,6 +12,7 @@ import {
   getCanonicalScreenStack,
   getInitialFrameGeometry,
 } from "@/components/design/multi-screen/frame-geometry";
+import { requestPreviewParses } from "@/components/design/multi-screen/preview-parse-warmer";
 import type {
   DuplicateMode,
   FrameGeometry,
@@ -669,6 +671,11 @@ export function runDuplicateScreen(
       return Promise.reject(error);
     }
   };
+  // The copy's markup is known before the server answers, so its annotation and
+  // parse run during the round trip instead of in the frame that inserts it.
+  setTimeout(() => {
+    requestPreviewParses([annotateScreenHtmlForPersist(content, fileType)]);
+  }, 0);
   const createPromise = !recoveryEntry
     ? callCreateFile()
     : Promise.resolve().then(() => {

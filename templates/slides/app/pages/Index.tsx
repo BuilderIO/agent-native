@@ -17,6 +17,7 @@ import {
   isFirstRunOnboardingEnabled,
 } from "@agent-native/core/client/onboarding";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { invalidateClientStatusRequest } from "@agent-native/core/client/status-requests";
 import {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -495,6 +496,34 @@ async function loadReferenceDeckGenerationContext(
   ].join("\n");
 }
 
+const HOME_LIBRARY_TAB_STORAGE_KEY = "slides-home-library-tab";
+
+function readHomeLibraryTabPreference():
+  | { status: "available"; value: SlidesHomeLibraryTab | null }
+  | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
+  try {
+    const value = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
+    return {
+      status: "available",
+      value: value === "templates" || value === "recent" ? value : null,
+    };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+function writeHomeLibraryTabPreference(
+  value: SlidesHomeLibraryTab,
+): { status: "available" } | { status: "unavailable" } {
+  try {
+    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, value);
+    return { status: "available" };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
 export default function Index({ active = true }: { active?: boolean }) {
   const t = useT();
   const openMobileSidebar = useOpenMobileSidebar();
@@ -516,6 +545,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     reloadDecks,
     catchUpStaleDeckList,
   } = useDecks();
+  const viewState = deckListViewState({
+    loading,
+    loadError,
+    deckCount: decks.length,
+  });
   const systemsFlag = useDesignSystemWorkflowsState();
   const systemsEnabled = systemsFlag.enabled;
   const {
@@ -540,6 +574,8 @@ export default function Index({ active = true }: { active?: boolean }) {
   const agentEngine = useAgentEngineConfigured();
   const [preflightAgentEngineState, setPreflightAgentEngineState] =
     useState<AgentEngineConfiguredState | null>(null);
+  const [agentEnginePreflightPending, setAgentEnginePreflightPending] =
+    useState(false);
   const preflightRequestIdRef = useRef(0);
   const effectiveAgentEngineState =
     preflightAgentEngineState ?? agentEngine.state;
@@ -553,6 +589,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     if (agentEngine.state === "configured" || agentEngine.state === "missing") {
       preflightRequestIdRef.current += 1;
       setPreflightAgentEngineState(null);
+      setAgentEnginePreflightPending(false);
     }
   }, [agentEngine.state]);
   // The draft a send held back for missing AI setup is sent once, as soon as
@@ -561,13 +598,19 @@ export default function Index({ active = true }: { active?: boolean }) {
   const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
   const ensureAgentEngineConfigured = useCallback(
     async (draft?: ComposerDraftSnapshot) => {
-      if (agentEngineConfigured) return true;
       const requestId = ++preflightRequestIdRef.current;
+      setAgentEnginePreflightPending(true);
       let nextState: AgentEngineConfiguredState;
       try {
+        invalidateClientStatusRequest("/_agent-native/agent-engine/status");
+        window.dispatchEvent(new Event("agent-engine:configured-changed"));
         nextState = await fetchAgentEngineConfiguredState();
       } catch {
         nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
+      } finally {
+        if (requestId === preflightRequestIdRef.current) {
+          setAgentEnginePreflightPending(false);
+        }
       }
       if (requestId !== preflightRequestIdRef.current) {
         return canChatRef.current;
@@ -596,6 +639,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const retryAgentEngineStatus = useCallback(() => {
     preflightRequestIdRef.current += 1;
     setPreflightAgentEngineState(null);
+    setAgentEnginePreflightPending(false);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
@@ -683,20 +727,42 @@ export default function Index({ active = true }: { active?: boolean }) {
     string | null
   >(null);
   const [deckSearch, setDeckSearch] = useState("");
-  const [homeSection, setHomeSection] =
-    useState<SlidesHomeLibraryTab>("templates");
-  const homeLibraryTabWasSelectedRef = useRef(false);
+  const [storedHomeLibraryTab] = useState(readHomeLibraryTabPreference);
+  const homeLibraryTabPreferenceRef = useRef(
+    storedHomeLibraryTab.status === "available"
+      ? storedHomeLibraryTab.value
+      : null,
+  );
+  const homeLibraryTabStorageAvailableRef = useRef(
+    storedHomeLibraryTab.status === "available",
+  );
+  const [homeSection, setHomeSection] = useState<SlidesHomeLibraryTab>(
+    homeLibraryTabPreferenceRef.current ??
+      (viewState === "decks" ? "recent" : "templates"),
+  );
+  const persistHomeLibraryTab = useCallback((value: SlidesHomeLibraryTab) => {
+    if (!homeLibraryTabStorageAvailableRef.current) return;
+    homeLibraryTabStorageAvailableRef.current =
+      writeHomeLibraryTabPreference(value).status === "available";
+  }, []);
+  const selectHomeLibraryTab = useCallback(
+    (value: SlidesHomeLibraryTab) => {
+      homeLibraryTabPreferenceRef.current = value;
+      setHomeSection(value);
+      persistHomeLibraryTab(value);
+    },
+    [persistHomeLibraryTab],
+  );
   const deckFilterWasSelectedRef = useRef(false);
   const revealRecentSearch = useCallback(() => {
     if (decks.length === 0) return false;
-    homeLibraryTabWasSelectedRef.current = true;
-    setHomeSection("recent");
+    selectHomeLibraryTab("recent");
     return true;
-  }, [decks.length]);
+  }, [decks.length, selectHomeLibraryTab]);
   useHomeSearchShortcut(isHome, revealRecentSearch);
   useEffect(() => {
-    if (deckSearch.trim()) setHomeSection("recent");
-  }, [deckSearch]);
+    if (deckSearch.trim()) selectHomeLibraryTab("recent");
+  }, [deckSearch, selectHomeLibraryTab]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
@@ -1106,6 +1172,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         noDefaultSlides: true,
         designSystemId: selectedDesignSystem?.id ?? null,
         deferPersistence: true,
+        undoableCreation: false,
       });
     });
     if (!deck) {
@@ -2342,24 +2409,23 @@ export default function Index({ active = true }: { active?: boolean }) {
 
   const homeTitle = t("home.decksTitle");
   const deckImport = usePromptImport({ onImport: handleDirectImport });
-  const viewState = deckListViewState({
-    loading,
-    loadError,
-    deckCount: decks.length,
-  });
-  const hasDecks = viewState === "decks";
   useEffect(() => {
     if (viewState === "loading") return;
-    if (!hasDecks) {
+    if (viewState === "empty") {
       setHomeSection("templates");
-      homeLibraryTabWasSelectedRef.current = false;
+      homeLibraryTabPreferenceRef.current = "templates";
+      persistHomeLibraryTab("templates");
       return;
     }
-    if (homeLibraryTabWasSelectedRef.current) return;
-
-    setHomeSection("recent");
-    homeLibraryTabWasSelectedRef.current = true;
-  }, [hasDecks, viewState]);
+    if (viewState === "error") {
+      setHomeSection("templates");
+      return;
+    }
+    const preferredTab = homeLibraryTabPreferenceRef.current ?? "recent";
+    homeLibraryTabPreferenceRef.current = preferredTab;
+    setHomeSection(preferredTab);
+    persistHomeLibraryTab(preferredTab);
+  }, [persistHomeLibraryTab, viewState]);
   const homeHeaderActions = useMemo(
     () => (
       <HomeHeaderActions>
@@ -2473,6 +2539,10 @@ export default function Index({ active = true }: { active?: boolean }) {
               context={composerContext}
               controllerRef={homeComposerRef}
               disabled={!isHome}
+              preflightPending={agentEnginePreflightPending}
+              // The composer re-reads this right after onBeforeSubmit resolves,
+              // before React re-renders, so a preflight flag here drops the send.
+              submissionDisabled={agentEngineMissing ? true : undefined}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
               open={showNewDeckPrompt}
@@ -2542,7 +2612,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome && quickActionsEnabled ? (
+        isHome && showNewDeckPrompt ? (
           <AgentSuggestionBar
             suggestions={homeSuggestions.map((suggestion, index) => ({
               ...suggestion,
@@ -2585,16 +2655,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       ) : null}
       <ClientOnly>
         <SlidesHomeLibrary
-          recentVisible={hasDecks}
-          value={
-            hasDecks && !homeLibraryTabWasSelectedRef.current
-              ? "recent"
-              : homeSection
-          }
-          onValueChange={(value) => {
-            homeLibraryTabWasSelectedRef.current = true;
-            setHomeSection(value);
-          }}
+          value={homeSection}
+          onValueChange={selectHomeLibraryTab}
           labels={{
             templates: t("templatesPage.title"),
             recent: t("home.recent"),
@@ -2608,46 +2670,46 @@ export default function Index({ active = true }: { active?: boolean }) {
             </Button>
           }
           search={
-            hasDecks ? (
-              <DeckSearchInput
-                value={deckSearch}
-                onChange={setDeckSearch}
-                className="w-full sm:w-64 sm:shrink-0"
-              />
-            ) : null
+            <DeckSearchInput
+              value={deckSearch}
+              onChange={setDeckSearch}
+              className="w-full sm:w-64 sm:shrink-0"
+            />
           }
           recentActions={
-            hasDecks ? (
-              <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
-            ) : null
+            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           }
           templates={<DeckTemplateLibrary enabled={isHome} />}
           recent={
-            <div className="agent-template-library-grid">
-              {visibleDecks.map((deck) => (
-                <DeckCard
-                  key={deck.id}
-                  deck={deck}
-                  onDelete={(id) => setDeckToDelete(id)}
-                  onRename={handleRename}
-                  onDuplicate={handleDuplicate}
-                  onToggleStar={handleToggleStar}
-                  isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
-                  canSetWorkspaceDefault={canManageWorkspaceDefaults}
-                  onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
-                />
-              ))}
-              {visibleDecks.length === 0 &&
-                (normalizedDeckSearch ? (
-                  <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                    {t("home.noDecksMatchSearch")}
-                  </div>
-                ) : (
-                  <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                    {t("home.noDecksMatchFilter")}
-                  </div>
+            viewState === "loading" ? (
+              <DeckListLoadingSkeleton />
+            ) : viewState === "error" ? null : (
+              <div className="agent-template-library-grid">
+                {visibleDecks.map((deck) => (
+                  <DeckCard
+                    key={deck.id}
+                    deck={deck}
+                    onDelete={(id) => setDeckToDelete(id)}
+                    onRename={handleRename}
+                    onDuplicate={handleDuplicate}
+                    onToggleStar={handleToggleStar}
+                    isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
+                    canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                    onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
+                  />
                 ))}
-            </div>
+                {visibleDecks.length === 0 &&
+                  (normalizedDeckSearch ? (
+                    <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                      {t("home.noDecksMatchSearch")}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                      {t("home.noDecksMatchFilter")}
+                    </div>
+                  ))}
+              </div>
+            )
           }
         />
       </ClientOnly>
@@ -2811,6 +2873,29 @@ export default function Index({ active = true }: { active?: boolean }) {
         </AlertDialogContent>
       </AlertDialog>
     </PromptHome>
+  );
+}
+
+function DeckListLoadingSkeleton() {
+  return (
+    <div className="agent-template-library-grid" aria-busy="true">
+      {Array.from({ length: 8 }, (_, index) => (
+        <div
+          key={index}
+          className="agent-template-library-card group relative min-w-0"
+          aria-hidden="true"
+        >
+          <div className="agent-template-library-primary overflow-hidden rounded-xl border border-border bg-card">
+            <div className="agent-template-library-preview bg-muted/30">
+              <Skeleton className="size-full rounded-none" />
+            </div>
+            <div className="agent-template-library-caption">
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

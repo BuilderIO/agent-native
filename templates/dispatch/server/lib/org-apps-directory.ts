@@ -26,7 +26,9 @@
  *
  * Tokens are produced by core's `signA2AToken` (`a2a/client.ts`): a standard
  * **HS256** JWT (`alg: "HS256"`, HMAC-SHA256 over the UTF-8 secret bytes)
- * with `sub` (caller email), `org_domain`, `iss`, `iat`, `exp`. We verify
+ * with optional caller-supplied identity claims and standard JWT metadata.
+ * The shared org secret proves only organization identity: ignore `sub`,
+ * email, and user claims. We verify
  * that exact shape with Node's built-in `crypto.createHmac` — the SAME
  * cryptographic operation jose performs for HS256. We do NOT invent an auth
  * scheme or a cipher; we reuse the A2A peer model and core's org/secret
@@ -51,7 +53,6 @@ export const ORG_APPS_PATH = "/_agent-native/org/apps";
 const A2A_JWT_ALG = "HS256";
 
 export interface VerifiedA2APayload {
-  email: string;
   orgDomain: string;
 }
 
@@ -140,6 +141,7 @@ function verifyWithSecret(
 
 export async function verifyA2ABearerToken(input: {
   token: string;
+  expectedAudience?: string;
   resolveOrgSecretByDomain: (domain: string) => Promise<string | null>;
   resolveSoleOrgGlobalSecretByDomain?: (
     domain: string,
@@ -180,6 +182,21 @@ export async function verifyA2ABearerToken(input: {
     .map((secret) => verifyWithSecret(decoded, secret, now))
     .find((candidate) => candidate !== null);
   if (payload) {
+    if (input.expectedAudience || typeof payload.aud !== "undefined") {
+      const audiences =
+        typeof payload.aud === "string"
+          ? [payload.aud]
+          : Array.isArray(payload.aud) &&
+              payload.aud.every((audience) => typeof audience === "string")
+            ? payload.aud
+            : [];
+      if (
+        !input.expectedAudience ||
+        !audiences.includes(input.expectedAudience)
+      ) {
+        return null;
+      }
+    }
     // The org directory is a general A2A-peer endpoint. Reject tokens
     // minted for a different single purpose — SSO identity assertions
     // (`scope: "identity"`) or MCP-connect personal tokens
@@ -191,15 +208,13 @@ export async function verifyA2ABearerToken(input: {
         ? ((payload as { scope: string }).scope as string)
         : "";
     if (scope === "identity" || scope === "mcp-connect") return null;
-    const sub = payload.sub;
-    const email =
-      typeof sub === "string" && sub.trim() ? sub.trim() : undefined;
-    if (!email) return null;
     // The verified token MUST carry an org_domain — the directory is
     // strictly org-scoped, and the same-org check needs it. A token with
     // no org_domain (e.g. a personal/no-org caller) cannot be tied to an
-    // org and is rejected.
-    return { email, orgDomain: assertedDomain };
+    // org and is rejected. The organization secret proves only org-level
+    // access; the JWT subject is caller-controlled and is intentionally
+    // ignored.
+    return { orgDomain: assertedDomain };
   }
   return null;
 }

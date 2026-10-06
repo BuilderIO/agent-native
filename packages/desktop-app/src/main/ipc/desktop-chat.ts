@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import {
   createServer,
+  type Server,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
@@ -10,32 +11,48 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
-import { createPtyWebSocketServer } from "@agent-native/core/terminal/server";
+import { createPtyWebSocketServer } from "@agent-native/core/terminal/pty-server";
 import {
   getDesktopVisibleApps,
   getDesktopTemplateGatewayAppUrl,
   isDefaultDesktopTemplateDevTarget,
   type AppConfig,
 } from "@shared/app-registry";
-import { IPC, type DesktopTerminalContext } from "@shared/ipc-channels";
+import {
+  IPC,
+  type CodeAgentBuilderActivationRequest,
+  type CodeAgentBuilderActivationResult,
+  type CodeAgentBuilderConnectOpenRequest,
+  type CodeAgentBuilderConnectOpenResult,
+  type CodeAgentBuilderConnectionResult,
+  type CodeAgentBuilderConnectionStatus,
+  type DesktopTerminalContext,
+} from "@shared/ipc-channels";
 import {
   app,
   BrowserWindow,
   ipcMain,
   net,
   session,
+  shell,
   type IpcMainInvokeEvent,
 } from "electron";
 
 import * as AppStore from "../app-store";
 import { readCookieHeaderForUrl } from "../cookie-header";
 import type { CaptureActiveDesktopBrowserScreenshot } from "../desktop-browser-screenshot";
+import type { DesktopIdentityApp } from "../desktop-identity";
 import {
   DesktopSurfaceMcpBridge,
   type DesktopSurfaceMcpRegistration,
 } from "../desktop-surface-mcp";
 
 const RELAY_ROOT = "/desktop-chat";
+const BUILDER_GATEWAY_RELAY_ROOT = "/desktop-builder";
+const BUILDER_GATEWAY_RELAY_PUBLIC_KEY = "desktop-relay";
+const BUILDER_MESSAGES_PATH = "/_agent-native/builder/desktop/messages";
+const BUILDER_STATUS_PATH = "/_agent-native/connection-status/builder";
+const BUILDER_PROVISION_PATH = "/_agent-native/builder/provision";
 const DESKTOP_TERMINAL_INFO_ROOT = "/desktop-terminal-info";
 const RELAY_ALLOWED_PREFIX = "/_agent-native/";
 const HOP_BY_HOP_HEADERS = new Set([
@@ -65,6 +82,7 @@ const DESKTOP_APP_MCP_AUTH_TIMEOUT_MS = 10_000;
 interface RelayState {
   port: number;
   secret: string;
+  builderSecret: string;
 }
 
 interface RelayPath {
@@ -73,6 +91,8 @@ interface RelayPath {
 }
 
 let relayPromise: Promise<RelayState> | null = null;
+let relayServer: Server | null = null;
+let resolveBuilderDispatchApp: (() => DesktopIdentityApp | null) | undefined;
 let desktopTerminalPromise: ReturnType<typeof createDesktopTerminal> | null =
   null;
 let ipcRegistered = false;
@@ -1199,11 +1219,42 @@ async function proxyRequest(
     targetUrl.toString(),
   );
 
+  await proxyRequestToTarget(request, response, {
+    appId: appConfig.id,
+    targetUrl,
+    appSession,
+    cookieHeader,
+  });
+}
+
+interface ProxyRequestTarget {
+  appId: string;
+  targetUrl: URL;
+  appSession: Electron.Session;
+  cookieHeader: string;
+  allowedHeaders?: ReadonlySet<string>;
+  redirect?: "follow" | "error" | "manual";
+}
+
+async function proxyRequestToTarget(
+  request: IncomingMessage,
+  response: ServerResponse,
+  target: ProxyRequestTarget,
+): Promise<void> {
+  const {
+    appId,
+    targetUrl,
+    appSession,
+    cookieHeader,
+    allowedHeaders,
+    redirect = "follow",
+  } = target;
+
   const upstream = net.request({
     url: targetUrl.toString(),
     method: request.method ?? "GET",
     session: appSession,
-    redirect: "follow",
+    redirect,
   });
   upstream.setHeader("Origin", targetUrl.origin);
   upstream.setHeader("Referer", `${targetUrl.origin}/`);
@@ -1225,6 +1276,7 @@ async function proxyRequest(
   }
 
   for (const [name, value] of Object.entries(request.headers)) {
+    if (allowedHeaders && !allowedHeaders.has(name.toLowerCase())) continue;
     if (!shouldForwardRequestHeader(name, value, blockedHeaders)) continue;
     const headerValue = requestHeaderValue(value);
     if (headerValue !== undefined) upstream.setHeader(name, headerValue);
@@ -1253,7 +1305,7 @@ async function proxyRequest(
   });
   upstream.on("error", (error) => {
     console.warn("[desktop-chat] upstream relay request failed", {
-      appId: relayPath.appId,
+      appId,
       method: request.method ?? "GET",
       targetOrigin: targetUrl.origin,
       targetPath: targetUrl.pathname,
@@ -1271,10 +1323,459 @@ async function proxyRequest(
   });
 }
 
+function isTrustedBuilderDispatchApp(
+  identityApp: DesktopIdentityApp | null | undefined,
+): identityApp is DesktopIdentityApp {
+  if (
+    !identityApp ||
+    identityApp.id !== "dispatch" ||
+    identityApp.identityAuthority !== true
+  ) {
+    return false;
+  }
+  try {
+    const origin = new URL(identityApp.origin);
+    return origin.protocol === "https:" && origin.origin === identityApp.origin;
+  } catch {
+    // coercion-ok: an invalid app origin never becomes a relay target.
+    return false;
+  }
+}
+
+function isBuilderConnectionStatus(
+  value: unknown,
+): value is CodeAgentBuilderConnectionStatus {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const status = value as Record<string, unknown>;
+  return (
+    typeof status.configured === "boolean" &&
+    typeof status.builderEnabled === "boolean" &&
+    typeof status.connectUrl === "string" &&
+    typeof status.appHost === "string" &&
+    typeof status.apiHost === "string" &&
+    typeof status.publicKeyConfigured === "boolean" &&
+    typeof status.privateKeyConfigured === "boolean"
+  );
+}
+
+function hasManagedBuilderConnection(
+  status: CodeAgentBuilderConnectionStatus,
+): boolean {
+  return (
+    status.configured &&
+    status.credentialSource !== "env" &&
+    (!status.envManaged || status.credentialSource != null)
+  );
+}
+
+function builderUnavailable(error: string): CodeAgentBuilderConnectionResult {
+  return { state: "unavailable", error };
+}
+
+export async function getDesktopBuilderConnectionStatus(
+  connectAttemptId?: string,
+): Promise<CodeAgentBuilderConnectionResult> {
+  const identityApp = resolveBuilderDispatchApp?.();
+  if (!isTrustedBuilderDispatchApp(identityApp)) {
+    return builderUnavailable("The signed-in Dispatch session is unavailable.");
+  }
+
+  const statusUrl = new URL(BUILDER_STATUS_PATH, identityApp.origin);
+  if (connectAttemptId) {
+    statusUrl.searchParams.set("_an_connect_attempt", connectAttemptId);
+  }
+  let cookieHeader: string;
+  try {
+    cookieHeader = await readCookieHeaderForUrl(
+      identityApp.session,
+      statusUrl.toString(),
+    );
+  } catch {
+    return builderUnavailable("Could not read the signed-in Dispatch session.");
+  }
+  if (!cookieHeader) {
+    return builderUnavailable(
+      "Sign in to Agent-Native Desktop to use Builder.io.",
+    );
+  }
+
+  try {
+    const statusResponse = await fetch(statusUrl, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Cookie: cookieHeader,
+        Origin: identityApp.origin,
+        Referer: `${identityApp.origin}/`,
+        "x-agent-native-preview-origin": identityApp.origin,
+      },
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.timeout(DESKTOP_APP_MCP_AUTH_TIMEOUT_MS),
+    });
+    if (!statusResponse.ok) {
+      return builderUnavailable(
+        statusResponse.status === 401 || statusResponse.status === 403
+          ? "Sign in to Agent-Native Desktop to use Builder.io."
+          : `Could not check Builder.io connection status (HTTP ${statusResponse.status}).`,
+      );
+    }
+    const body: unknown = await statusResponse.json();
+    if (!isBuilderConnectionStatus(body)) {
+      return builderUnavailable("Dispatch returned an invalid Builder status.");
+    }
+    let connectUrl: URL;
+    try {
+      connectUrl = new URL(body.connectUrl);
+    } catch {
+      return builderUnavailable(
+        "Dispatch returned an invalid Builder connect URL.",
+      );
+    }
+    if (
+      connectUrl.protocol !== "https:" ||
+      connectUrl.origin !== identityApp.origin ||
+      !connectUrl.pathname.endsWith("/_agent-native/builder/connect")
+    ) {
+      return builderUnavailable(
+        "Dispatch returned an untrusted Builder connect URL.",
+      );
+    }
+    return {
+      state: hasManagedBuilderConnection(body) ? "connected" : "disconnected",
+      status: body,
+    };
+  } catch (error) {
+    return builderUnavailable(
+      error instanceof Error && error.name === "TimeoutError"
+        ? "Builder connection status timed out."
+        : "Could not reach Builder connection status.",
+    );
+  }
+}
+
+export async function activateDesktopBuilderAccount(
+  input: CodeAgentBuilderActivationRequest,
+): Promise<CodeAgentBuilderActivationResult> {
+  const identityApp = resolveBuilderDispatchApp?.();
+  if (!isTrustedBuilderDispatchApp(identityApp)) {
+    return {
+      ok: false,
+      code: "session_unavailable",
+      message: "The signed-in Dispatch session is unavailable.",
+    };
+  }
+  if (
+    !input ||
+    typeof input.provisioningToken !== "string" ||
+    !input.provisioningToken.trim() ||
+    (input.scope !== undefined &&
+      input.scope !== "org" &&
+      input.scope !== "personal") ||
+    (input.connectToken !== undefined &&
+      input.connectToken !== null &&
+      typeof input.connectToken !== "string")
+  ) {
+    return {
+      ok: false,
+      code: "invalid_request",
+      message: "Builder account activation could not be started.",
+    };
+  }
+  const targetUrl = new URL(BUILDER_PROVISION_PATH, identityApp.origin);
+  for (const [key, value] of [
+    ["signupSource", "agent-native"],
+    ["agentNativeFlow", input.flow],
+    ["agentNativeConnectSource", input.source],
+  ] as const) {
+    if (typeof value === "string" && value.trim()) {
+      targetUrl.searchParams.set(key, value.trim().slice(0, 120));
+    }
+  }
+  let cookieHeader: string;
+  try {
+    cookieHeader = await readCookieHeaderForUrl(
+      identityApp.session,
+      targetUrl.toString(),
+    );
+  } catch {
+    cookieHeader = "";
+  }
+  if (!cookieHeader) {
+    return {
+      ok: false,
+      code: "unauthorized",
+      message: "Sign in to Agent-Native Desktop to use Builder.io.",
+    };
+  }
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Cookie: cookieHeader,
+        Origin: identityApp.origin,
+        Referer: `${identityApp.origin}/`,
+        "x-agent-native-preview-origin": identityApp.origin,
+      },
+      body: JSON.stringify({
+        provisioningToken: input.provisioningToken,
+        ...(input.scope ? { scope: input.scope } : {}),
+        ...(input.connectToken ? { connectToken: input.connectToken } : {}),
+      }),
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.timeout(DESKTOP_APP_MCP_AUTH_TIMEOUT_MS),
+    });
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      return { ok: false, code: "invalid_response", message: null };
+    }
+    if (
+      response.ok &&
+      body &&
+      typeof body === "object" &&
+      !Array.isArray(body) &&
+      (body as Record<string, unknown>).ok === true
+    ) {
+      return {
+        ok: true,
+        ...((body as Record<string, unknown>).scope === "org" ||
+        (body as Record<string, unknown>).scope === "personal"
+          ? {
+              scope: (body as Record<string, unknown>).scope as
+                | "org"
+                | "personal",
+            }
+          : {}),
+      };
+    }
+    const result =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? (body as Record<string, unknown>)
+        : {};
+    return {
+      ok: false,
+      code:
+        typeof result.code === "string"
+          ? result.code
+          : `http_${response.status}`,
+      message: typeof result.message === "string" ? result.message : null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code:
+        error instanceof Error && error.name === "TimeoutError"
+          ? "timeout"
+          : "network_error",
+      message: null,
+    };
+  }
+}
+
+export async function openDesktopBuilderConnect(
+  input: CodeAgentBuilderConnectOpenRequest,
+): Promise<CodeAgentBuilderConnectOpenResult> {
+  if (
+    !input ||
+    typeof input.connectAttemptId !== "string" ||
+    !/^[A-Za-z0-9-]{16,80}$/.test(input.connectAttemptId) ||
+    (input.scope !== undefined &&
+      input.scope !== "org" &&
+      input.scope !== "personal")
+  ) {
+    return { ok: false, error: "Builder sign-in could not be opened." };
+  }
+  const connection = await getDesktopBuilderConnectionStatus(
+    input.connectAttemptId,
+  );
+  if (connection.state === "unavailable") {
+    return { ok: false, error: connection.error };
+  }
+
+  const identityApp = resolveBuilderDispatchApp?.();
+  if (!isTrustedBuilderDispatchApp(identityApp)) {
+    return {
+      ok: false,
+      error: "The signed-in Dispatch session is unavailable.",
+    };
+  }
+  try {
+    const connectUrl = new URL(connection.status.connectUrl);
+    if (
+      connectUrl.protocol !== "https:" ||
+      connectUrl.origin !== identityApp.origin ||
+      !connectUrl.pathname.endsWith("/_agent-native/builder/connect") ||
+      !connectUrl.searchParams.has("_an_connect")
+    ) {
+      return {
+        ok: false,
+        error: "Dispatch returned an untrusted Builder connect URL.",
+      };
+    }
+    connectUrl.searchParams.set("_an_connect_attempt", input.connectAttemptId);
+    if (input.scope) connectUrl.searchParams.set("scope", input.scope);
+    connectUrl.searchParams.set("signupSource", "agent-native");
+    for (const [key, value] of [
+      ["agentNativeFlow", input.flow],
+      ["agentNativeConnectSource", input.source],
+    ] as const) {
+      if (typeof value === "string" && value.trim()) {
+        connectUrl.searchParams.set(key, value.trim().slice(0, 120));
+      }
+    }
+    await shell.openExternal(connectUrl.toString());
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? `Couldn't open Builder sign-in: ${error.message}`
+          : "Couldn't open Builder sign-in.",
+    };
+  }
+}
+
+export async function getDesktopBuilderGatewayRunnerEnvironment(): Promise<{
+  status: CodeAgentBuilderConnectionResult;
+  env?: NodeJS.ProcessEnv;
+  error?: string;
+}> {
+  const connection = await getDesktopBuilderConnectionStatus();
+  if (
+    connection.state === "unavailable" ||
+    connection.state === "disconnected"
+  ) {
+    return { status: connection };
+  }
+
+  let relay: RelayState;
+  try {
+    relay = await ensureRelay();
+  } catch (error) {
+    return {
+      status: connection,
+      error:
+        error instanceof Error
+          ? `Could not start the Desktop Builder relay: ${error.message}`
+          : "Could not start the Desktop Builder relay.",
+    };
+  }
+  const relayBaseUrl = new URL(
+    `${BUILDER_GATEWAY_RELAY_ROOT}/${relay.builderSecret}`,
+    `http://127.0.0.1:${relay.port}`,
+  );
+  return {
+    status: connection,
+    env: {
+      BUILDER_GATEWAY_BASE_URL: relayBaseUrl.toString(),
+      // BuilderEngine uses these only to pass its local credential preflight.
+      // The private value is a per-process loopback bearer, and the relay strips
+      // both fields before forwarding to Dispatch.
+      BUILDER_PRIVATE_KEY: relay.builderSecret,
+      BUILDER_PUBLIC_KEY: BUILDER_GATEWAY_RELAY_PUBLIC_KEY,
+    },
+  };
+}
+
+export async function closeDesktopChatRelay(): Promise<void> {
+  const server = relayServer;
+  relayServer = null;
+  relayPromise = null;
+  if (!server?.listening) return;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+async function proxyBuilderGatewayRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  pathname: string,
+  searchParams: URLSearchParams,
+  builderSecret: string,
+): Promise<void> {
+  if (
+    !isLoopbackAddress(request.socket.remoteAddress) ||
+    pathname !== `${BUILDER_GATEWAY_RELAY_ROOT}/${builderSecret}/messages`
+  ) {
+    sendError(request, response, 404, "Builder relay route not found");
+    return;
+  }
+  if (request.method !== "POST") {
+    response.writeHead(405, { ...corsHeaders(request), Allow: "POST" });
+    response.end("Method not allowed");
+    return;
+  }
+  if (request.headers.authorization !== `Bearer ${builderSecret}`) {
+    sendError(request, response, 401, "Unauthorized");
+    return;
+  }
+  if (
+    searchParams.size !== 1 ||
+    searchParams.get("apiKey") !== BUILDER_GATEWAY_RELAY_PUBLIC_KEY
+  ) {
+    sendError(request, response, 400, "Invalid Builder relay request");
+    return;
+  }
+  if (
+    !/^application\/json\s*(;|$)/i.test(request.headers["content-type"] ?? "")
+  ) {
+    sendError(request, response, 415, "Send a JSON body.");
+    return;
+  }
+
+  const identityApp = resolveBuilderDispatchApp?.();
+  if (!isTrustedBuilderDispatchApp(identityApp)) {
+    sendError(
+      request,
+      response,
+      503,
+      "The signed-in Dispatch session is unavailable.",
+    );
+    return;
+  }
+  const targetUrl = new URL(BUILDER_MESSAGES_PATH, identityApp.origin);
+  const cookieHeader = await readCookieHeaderForUrl(
+    identityApp.session,
+    targetUrl.toString(),
+  );
+  if (!cookieHeader) {
+    sendError(
+      request,
+      response,
+      401,
+      "Sign in to Agent-Native Desktop to use Builder.io.",
+    );
+    return;
+  }
+
+  await proxyRequestToTarget(request, response, {
+    appId: identityApp.id,
+    targetUrl,
+    appSession: identityApp.session,
+    cookieHeader,
+    redirect: "error",
+    allowedHeaders: new Set([
+      "accept",
+      "content-type",
+      "x-client-name",
+      "x-client-version",
+    ]),
+  });
+}
+
 function ensureRelay(): Promise<RelayState> {
   if (relayPromise) return relayPromise;
 
   const secret = randomUUID().replaceAll("-", "");
+  const builderSecret = randomBytes(32).toString("base64url");
   relayPromise = new Promise<RelayState>((resolve, reject) => {
     const server = createServer((request, response) => {
       let parsed: URL;
@@ -1309,6 +1810,19 @@ function ensureRelay(): Promise<RelayState> {
           });
         return;
       }
+      if (parsed.pathname.startsWith(`${BUILDER_GATEWAY_RELAY_ROOT}/`)) {
+        void proxyBuilderGatewayRequest(
+          request,
+          response,
+          parsed.pathname,
+          parsed.searchParams,
+          builderSecret,
+        ).catch((error) => {
+          console.warn("[desktop-builder] relay request failed:", error);
+          sendError(request, response, 502, RELAY_FAILURE_MESSAGE);
+        });
+        return;
+      }
       const relayPath = parseRelayPath(parsed.pathname, secret);
       if (!relayPath) {
         sendError(request, response, 404, "Desktop chat relay route not found");
@@ -1328,7 +1842,13 @@ function ensureRelay(): Promise<RelayState> {
         reject(new Error("Desktop chat relay did not receive a TCP address"));
         return;
       }
-      resolve({ port: address.port, secret });
+      relayServer = server;
+      app.once("before-quit", () => {
+        void closeDesktopChatRelay().catch((error) => {
+          console.warn("[desktop-chat] could not close the relay", error);
+        });
+      });
+      resolve({ port: address.port, secret, builderSecret });
     });
   }).catch((error) => {
     relayPromise = null;
@@ -1341,10 +1861,12 @@ function ensureRelay(): Promise<RelayState> {
 export function registerDesktopChatIpc(
   options: {
     captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot;
+    resolveBuilderDispatchApp?: () => DesktopIdentityApp | null;
   } = {},
 ): void {
   if (ipcRegistered) return;
   captureActiveBrowserScreenshot = options.captureActiveBrowserScreenshot;
+  resolveBuilderDispatchApp = options.resolveBuilderDispatchApp;
   ipcRegistered = true;
   ipcMain.handle(
     IPC.DESKTOP_CHAT_GET_API_URL,

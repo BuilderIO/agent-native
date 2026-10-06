@@ -26,6 +26,12 @@ export interface RunStuckBannerProps {
 const AUTO_RETRY_CLAIM_TTL_MS = 5 * 60 * 1000;
 const BACKGROUND_WORKER_FRESH_HEARTBEAT_MS = 30_000;
 
+/**
+ * Per page, not per banner: a chat view that remounts while the same run is
+ * still stuck has not found a new stuck chat.
+ */
+const reportedStuckRunIds = new Set<string>();
+
 type BusyState = { type: "none" } | { type: "cancel" | "retry"; runId: string };
 
 type MaybeLockManager = {
@@ -143,6 +149,12 @@ export function RunStuckBanner({
   const inFlightWork =
     state.hasInFlightWork === true || (hasInFlightWork?.() ?? false);
   const awaitingResponse = isAwaitingResponse?.() ?? true;
+  const showsStuckBanner =
+    state.isStuck &&
+    !!state.runId &&
+    !backgroundWorkerStillAlive &&
+    !inFlightWork &&
+    awaitingResponse;
   const isServerContinuedDispatch =
     state.dispatchMode === "foreground-self-chain" ||
     state.dispatchMode?.startsWith("background") === true;
@@ -156,19 +168,25 @@ export function RunStuckBanner({
     if (last.isStuck === state.isStuck && last.runId === state.runId) return;
     lastReportedRef.current = { isStuck: state.isStuck, runId: state.runId };
     onStuckStateChange?.(state);
-    if (state.isStuck && state.runId) {
-      trackEvent("agent_chat_stuck_detected", {
-        runId: state.runId,
-        threadId: threadId ?? null,
-        stuckSinceMs: state.stuckSinceMs ?? null,
-        stuckSinceSec:
-          state.stuckSinceMs != null
-            ? Math.floor(state.stuckSinceMs / 1000)
-            : null,
-        runStatus: state.status,
-      });
-    }
-  }, [state, onStuckStateChange, threadId]);
+  }, [state, onStuckStateChange]);
+
+  // Analytics counts this event as a stuck chat, so it fires only when the
+  // banner shows, once per run: a quiet tool call or live worker is not one.
+  useEffect(() => {
+    if (!showsStuckBanner || !state.runId) return;
+    if (reportedStuckRunIds.has(state.runId)) return;
+    reportedStuckRunIds.add(state.runId);
+    trackEvent("agent_chat_stuck_detected", {
+      runId: state.runId,
+      threadId: threadId ?? null,
+      stuckSinceMs: state.stuckSinceMs ?? null,
+      stuckSinceSec:
+        state.stuckSinceMs != null
+          ? Math.floor(state.stuckSinceMs / 1000)
+          : null,
+      runStatus: state.status,
+    });
+  }, [showsStuckBanner, state, threadId]);
 
   useEffect(() => {
     setBusy((current) => {
@@ -230,13 +248,7 @@ export function RunStuckBanner({
     awaitingResponse,
   ]);
 
-  if (
-    !state.isStuck ||
-    !state.runId ||
-    backgroundWorkerStillAlive ||
-    inFlightWork ||
-    !awaitingResponse
-  ) {
+  if (!showsStuckBanner) {
     return null;
   }
 

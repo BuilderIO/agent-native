@@ -47,10 +47,6 @@ function renderBreadcrumb(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
   });
-  queryClient.setQueryData(
-    ["action", "get-content-database-personal-view", { databaseId: "files" }],
-    { databaseId: "files", overrides: null },
-  );
   for (const { cursor, page } of pages) {
     queryClient.setQueryData(
       [
@@ -59,8 +55,6 @@ function renderBreadcrumb(
         filesNavigationPageParams({
           databaseId: "files",
           parentId: "parent",
-          sort: "custom",
-          viewId: "default",
           cursor,
         }),
       ],

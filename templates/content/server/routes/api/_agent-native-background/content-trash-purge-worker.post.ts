@@ -1,6 +1,7 @@
 import {
   runWithRequestContext,
-  verifyScopedAgentAccessToken,
+  scopedAgentAccessResourceId,
+  verifyShortLivedToken,
 } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
@@ -31,10 +32,10 @@ export default defineEventHandler(async (event) => {
     return { ok: false, error: "Invalid Trash purge job" };
   }
   const { operationId, token } = parsed.data;
-  const verified = verifyScopedAgentAccessToken(token, {
-    resourceKind: CONTENT_TRASH_PURGE_TOKEN_KIND,
-    resourceId: operationId,
-  });
+  const verified = verifyShortLivedToken(
+    token,
+    scopedAgentAccessResourceId(CONTENT_TRASH_PURGE_TOKEN_KIND, operationId),
+  );
   if (!verified.ok) {
     setResponseStatus(event, 401);
     return { ok: false, error: "Invalid or expired Trash purge token" };

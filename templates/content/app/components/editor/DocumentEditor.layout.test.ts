@@ -34,6 +34,7 @@ import {
   enqueueDocumentSave,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
+  isSuggestionStaleActionError,
   lifecycleKeepaliveDisposition,
   loadedUpdatedAtForSave,
   metadataUpdatesWithPendingTitle,
@@ -514,9 +515,15 @@ describe("document editor layout", () => {
       source.indexOf("const handleSuggestionAnchorsChange"),
       source.indexOf("const [selectedSuggestionId"),
     );
+    const visualEditor = readFileSync(
+      new URL("./VisualEditor.tsx", import.meta.url),
+      "utf8",
+    );
 
-    expect(handler).toContain("if (isSuggesting) return");
     expect(handler).toContain("sameSuggestionAnchorIds(current, next)");
+    expect(visualEditor).toContain(
+      "applySuggestionsRef.current?.(!suggestingRef.current)",
+    );
   });
 
   it("keeps suggestion history notifications out of the parent render loop", () => {
@@ -550,9 +557,15 @@ describe("document editor layout", () => {
     expect(
       positionUnanchoredCommentCard({
         containerRect: { top: -100, width: 280 },
-        boundaryRect: { top: 0 },
+        boundaryRect: { top: 0, bottom: 600 },
       }),
-    ).toEqual({ left: 16, top: 116, width: 248, placement: "below" });
+    ).toEqual({
+      left: 16,
+      top: 116,
+      width: 248,
+      maxHeight: 568,
+      placement: "below",
+    });
   });
   it("re-validates the pending comment target on selection changes only", () => {
     const source = readFileSync(
@@ -572,6 +585,7 @@ describe("document editor layout", () => {
       left: 16,
       top: 120,
       width: 248,
+      maxHeight: 568,
       placement: "below" as const,
     };
     expect(sameAnchoredCommentPosition(position, { ...position })).toBe(true);
@@ -579,6 +593,9 @@ describe("document editor layout", () => {
     expect(sameAnchoredCommentPosition(null, position)).toBe(false);
     expect(
       sameAnchoredCommentPosition(position, { ...position, top: 121 }),
+    ).toBe(false);
+    expect(
+      sameAnchoredCommentPosition(position, { ...position, maxHeight: 400 }),
     ).toBe(false);
     expect(
       sameAnchoredCommentPosition(position, {
@@ -640,6 +657,101 @@ describe("document editor layout", () => {
     );
   });
 
+  // editor-isolation.mounted.test.tsx mounts the editor with this wiring.
+  it("keeps the canonical reconcile path away from the Suggesting draft", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /contentRevision=\{\s*isLocalFileDocument \|\|\s*!suggestionEditorIsolation\.reconcileCanonical\s*\?\s*null\s*:/,
+    );
+    expect(source).toMatch(
+      /onBaseAwareReconcile=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleBaseAwareReconcile\s*:\s*undefined\s*\}/,
+    );
+    expect(source).toMatch(
+      /onRemoteSnapshotChange=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleRemoteSnapshotChange\s*:\s*undefined\s*\}/,
+    );
+    expect(source).toMatch(
+      /contentUpdatedAt=\{[^}]*:\s*suggestionEditorIsolation\.contentUpdatedAt\s*\}/,
+    );
+    expect(source).toMatch(
+      /visualEditorInstanceKey\(\{\s*documentId,\s*documentUpdatedAt:\s*suggestionEditorIsolation\.contentUpdatedAt,/,
+    );
+    expect(source).not.toMatch(/documentUpdatedAt:\s*document\.updatedAt/);
+  });
+
+  // After unmount no timer can run a follow-up save, so a final flush that
+  // finds a save in flight must wait for it and then save the newer draft.
+  it("saves the newer draft after an in-flight save when no timer can follow", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /if \(\s*autosave &&\s*queueSuggestionAutosave\([^)]*\)\s*\)\s*return null;\s*await inFlight;/,
+    );
+  });
+
+  // A commenter cannot reject, so before withdrawal an author who edited their
+  // suggestion back to the Page could not leave Suggesting at all.
+  it("withdraws an edited suggestion reverted to the Page when Suggesting ends", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const persist = source.slice(
+      source.indexOf("const persistSuggestionDraft"),
+      source.indexOf("const flushSuggestionDraft = "),
+    );
+    const amendmentGate =
+      "if (suggestionAmendmentConflict || amendmentTargetIsResolved) {";
+    const empty = persist.slice(
+      persist.indexOf("if (base.existingSuggestion) {"),
+      persist.indexOf(amendmentGate),
+    );
+    // A rejection this tab already saw must not keep a reverted suggestion
+    // from ending: only the amendment after the withdrawal waits on it.
+    expect(persist.indexOf(amendmentGate)).toBeGreaterThan(
+      persist.indexOf("const withdrawn = await saveUnlessSuggestionChanged("),
+    );
+    expect(persist.slice(0, persist.indexOf("try {"))).not.toContain(
+      "amendmentTargetIsResolved",
+    );
+    expect(empty).toMatch(
+      /if \(operations\.length === 0\) \{[\s\S]*?if \(keepMode\) \{[\s\S]*?return null;\s*\}\s*const withdrawn = await saveUnlessSuggestionChanged\(\s*existing,/,
+    );
+    expect(empty).toMatch(
+      /decision: "withdrawn",[\s\S]*?observedBase: existing\.baseRevision,\s*observedRevision: existing\.revision,/,
+    );
+    expect(empty).toMatch(
+      /withdrawn\.status === "changed"\) \{\s*setSuggestionAmendmentConflict\(true\);\s*return null;/,
+    );
+    expect(empty).toContain(
+      "return saved(new Map<string, ResourceSuggestion>());",
+    );
+    expect(persist).not.toMatch(
+      /base\.existingSuggestion && draft === base\.baseContent/,
+    );
+  });
+
+  it("keys every suggestion amendment by the revision it observed", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const persist = source.slice(
+      source.indexOf("const persistSuggestionDraft"),
+      source.indexOf("const flushSuggestionDraft = "),
+    );
+    expect(
+      persist.match(
+        /idempotencyKey(?:: | = )suggestionAmendmentIdempotencyKey\(/g,
+      ),
+    ).toHaveLength(2);
+    expect(persist).not.toContain("suggestionAmendmentKeysRef.current.get(");
+  });
+
   it("recognizes resolved amendment targets and action conflicts", () => {
     expect(
       suggestionAmendmentTargetIsResolved("suggestion-1", [
@@ -664,17 +776,22 @@ describe("document editor layout", () => {
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     ).replace(/\r\n/g, "\n");
-    const flush = source.slice(
-      source.indexOf("const flushSuggestionDraft"),
-      source.indexOf("const startSuggestionDraft"),
+    const persist = source.slice(
+      source.indexOf("const persistSuggestionDraft"),
+      source.indexOf("const flushSuggestionDraft = "),
     );
-    expect(
-      flush.indexOf("suggestionDraft === base.initialContent"),
-    ).toBeLessThan(
-      flush.indexOf("suggestionAmendmentConflict || amendmentTargetIsResolved"),
+    const unchangedAmendment = persist.indexOf("draft === base.initialContent");
+    expect(unchangedAmendment).toBeGreaterThan(-1);
+    expect(unchangedAmendment).toBeLessThan(
+      persist.search(
+        /suggestionAmendmentConflict \|\|\s*amendmentTargetIsResolved/,
+      ),
     );
-    expect(source).toContain(
-      "amendmentDraftIsDirty && suggestionAmendmentConflict",
+    expect(source).toMatch(
+      /suggestionDraftConflicted =\s*suggestionAmendmentConflict &&\s*\(amendmentDraftIsDirty \|\| !suggestionBaseRef\.current\?\.existingSuggestion\)/,
+    );
+    expect(source).toMatch(
+      /suggestionDraftSaveFailed \|\|\s*suggestionDraftConflicted\) \? \(/,
     );
   });
 
@@ -1061,14 +1178,30 @@ describe("document editor layout", () => {
     expect(source).toContain("activeThreadId={selectedThreadId}");
     expect(source).toContain("hoveredThreadId={hoveredThreadId}");
   });
-  it("surfaces unsuccessful suggestion decisions instead of treating HTTP success as acceptance", () => {
+  it("opens an accept that can't be placed instead of treating it as accepted", () => {
+    expect(
+      isSuggestionStaleActionError(
+        Object.assign(new Error("moved"), { errorCode: "suggestion_stale" }),
+      ),
+    ).toBe(true);
+    expect(
+      isSuggestionStaleActionError(
+        Object.assign(new Error("changed"), {
+          errorCode: "suggestion_conflict",
+        }),
+      ),
+    ).toBe(false);
+    expect(isSuggestionStaleActionError(new Error("network"))).toBe(false);
     const source = readFileSync(
       "app/components/editor/DocumentEditor.tsx",
       "utf8",
     );
-    expect(source).toContain('result.suggestion.status === "stale"');
+    expect(source).not.toContain('result.suggestion.status === "stale"');
     expect(source).toMatch(
-      /result\.suggestion\.status === "stale"[\s\S]*?toast\.error[\s\S]*?setCommentsBrowseOpen\(true\)/,
+      /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
+    );
+    expect(source).toMatch(
+      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?decideSuggestion\.mutateAsync/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
@@ -1225,9 +1358,15 @@ describe("document editor layout", () => {
     expect(
       positionUnanchoredCommentCard({
         containerRect: { top: -240, width: 390 },
-        boundaryRect: { top: 0 },
+        boundaryRect: { top: 0, bottom: 720 },
       }),
-    ).toEqual({ left: 16, top: 256, width: 320, placement: "below" });
+    ).toEqual({
+      left: 16,
+      top: 256,
+      width: 320,
+      maxHeight: 688,
+      placement: "below",
+    });
   });
 
   it("ignores delayed additional-field cleanup from the previous document", () => {
@@ -1256,7 +1395,13 @@ describe("document editor layout", () => {
         },
         cardHeight: 180,
       }),
-    ).toEqual({ left: 140, top: 164, width: 320, placement: "below" });
+    ).toEqual({
+      left: 140,
+      top: 164,
+      width: 320,
+      maxHeight: 768,
+      placement: "below",
+    });
   });
 
   it("flips a compact comment card above and clamps it within the viewport", () => {
@@ -1272,7 +1417,13 @@ describe("document editor layout", () => {
         },
         cardHeight: 220,
       }),
-    ).toEqual({ left: 16, top: 396, width: 320, placement: "above" });
+    ).toEqual({
+      left: 16,
+      top: 396,
+      width: 320,
+      maxHeight: 688,
+      placement: "above",
+    });
   });
 
   it("uses the visible scroller as the compact card boundary", () => {
@@ -1289,7 +1440,36 @@ describe("document editor layout", () => {
         boundaryRect: { top: 0, bottom: 720 },
         cardHeight: 220,
       }),
-    ).toEqual({ left: 140, top: 696, width: 320, placement: "above" });
+    ).toEqual({
+      left: 140,
+      top: 696,
+      width: 320,
+      maxHeight: 688,
+      placement: "above",
+    });
+  });
+
+  it("caps a long comment card to the visible scroller", () => {
+    expect(
+      positionAnchoredCommentCard({
+        anchorRect: { top: 300, bottom: 340, left: 100, right: 500 },
+        containerRect: {
+          top: -900,
+          bottom: 3000,
+          left: 0,
+          right: 700,
+          width: 700,
+        },
+        boundaryRect: { top: 0, bottom: 500 },
+        cardHeight: 1600,
+      }),
+    ).toEqual({
+      left: 140,
+      top: 916,
+      width: 320,
+      maxHeight: 468,
+      placement: "above",
+    });
   });
   it("keeps a local-file editor mounted when its saved timestamp advances", () => {
     const key = (documentUpdatedAt: string) =>
@@ -1674,6 +1854,51 @@ describe("document editor layout", () => {
     ).toEqual({ view: "error", admittedDocumentId: null });
   });
 
+  it("keeps the access screen mounted through a retry it started", () => {
+    const retry = {
+      documentId: "document-a",
+      admittedDocumentId: null,
+      isDocumentCreationPending: false,
+      isManualRetrying: true,
+      isAccessRetrying: true,
+      hasLoadFailure: false,
+    };
+    // In flight: React Query clears the error while a query without data
+    // refetches.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: false,
+        isFetchedAfterMount: false,
+        isFetching: true,
+        isError: false,
+        error: null,
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    // Succeeded, but the retry hasn't finished yet.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: true,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: false,
+        error: null,
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    // Failed for a reason other than access.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        error: { status: 500 },
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
   it("shows a retryable error when a seeded document's first fetch times out", () => {
     expect(
       documentEditorLoadState({
@@ -1824,7 +2049,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("queryKey: documentQueryKey(documentId, {");
     expect(source).toContain("await documentQuery.refetch()");
-    expect(source).toContain("retrying={manualRetryDocumentId === documentId}");
+    expect(source).toContain("retrying={isManualRetrying}");
   });
 
   it("resizes the title to its content and reacts only to width changes", () => {
@@ -2902,9 +3127,7 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "const readyDocument = await prepareSuggestionDraftDocument()",
     );
-    expect(source).toContain(
-      "suggestionDraftOperations(base, suggestionDraft)",
-    );
+    expect(source).toContain("suggestionDraftOperations(base, draft)");
     expect(source).toContain("createSuggestionProposal.mutateAsync(request)");
     expect(source).toContain("suggestions: pending.map((operation) => ({");
     expect(source).toContain("operations: [operation]");
@@ -2952,12 +3175,16 @@ describe("document editor layout", () => {
       "utf8",
     );
 
-    expect(source).toContain("if (isSubmittingSuggestions) return");
-    expect(source).toContain("setIsSubmittingSuggestions(true)");
+    expect(source).toContain(
+      "if (!autosave && isSubmittingSuggestions) return",
+    );
+    expect(source).toContain("if (!autosave) setIsSubmittingSuggestions(true)");
     expect(source).toMatch(
       /suggestionEditorIsolation\.editable &&\s+!isStartingSuggestion &&\s+!isSubmittingSuggestions/,
     );
-    expect(source).toContain("setIsSubmittingSuggestions(false)");
+    expect(source).toContain(
+      "if (!autosave) setIsSubmittingSuggestions(false)",
+    );
   });
 
   it("keeps Suggesting enabled while accept and reject reconcile", () => {

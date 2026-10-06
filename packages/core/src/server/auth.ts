@@ -94,6 +94,7 @@ import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
 import {
+  MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
   isMcpProtocolPath,
@@ -162,7 +163,6 @@ import { getAppProductionUrl } from "./app-url.js";
 import {
   addSignupAttributionHeader,
   readAnalyticsAnonymousId,
-  readFirstTouchAttribution,
   signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
   type SignupAttributionContext,
@@ -198,6 +198,11 @@ import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import {
+  isCredentialMembershipUnavailable,
+  markCredentialMembershipUnavailable,
+  respondCredentialMembershipUnavailable,
+} from "./credential-membership-unavailable.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import { getSignInBlockingSettingKeys } from "./deploy-settings.js";
 import {
@@ -1154,7 +1159,12 @@ export async function getMcpOAuthBearerSession(
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
+      requestOrigin: getOrigin(event),
     });
+    if (!result.authed && result.unavailable) {
+      markCredentialMembershipUnavailable(event);
+      return null;
+    }
     const identity = result.authed ? result.identity : undefined;
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
@@ -2936,6 +2946,16 @@ export async function runAuthGuard(
   return _authGuardFn(event);
 }
 
+const MCP_DIRECTORY_CORS_ORIGINS = new Set([
+  "https://chatgpt.com",
+  "https://chat.openai.com",
+  "https://platform.openai.com",
+]);
+
+const MCP_DIRECTORY_CORS_METHODS = "POST, GET, DELETE, OPTIONS";
+const MCP_DIRECTORY_CORS_HEADERS =
+  "Authorization, Content-Type, Accept, MCP-Protocol-Version, MCP-Session-Id, Last-Event-Id";
+
 function applyCorsHeaders(
   event: H3Event,
   publicCorsPaths: string[] = [],
@@ -3754,6 +3774,52 @@ function createAuthGuardFn(
     const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
     if (callbackRelay) return callbackRelay;
 
+    const isDirectoryMcpPath =
+      p === MCP_DIRECTORY_ROUTE_PREFIX ||
+      p === `${MCP_DIRECTORY_ROUTE_PREFIX}/`;
+    const directoryPreflightOrigin =
+      getMethod(event) === "OPTIONS" && isDirectoryMcpPath
+        ? getHeader(event, "origin")
+        : undefined;
+    if (directoryPreflightOrigin) {
+      if (!MCP_DIRECTORY_CORS_ORIGINS.has(directoryPreflightOrigin)) {
+        setResponseStatus(event, 403);
+        return "";
+      }
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Origin",
+        directoryPreflightOrigin,
+      );
+      setResponseHeader(event, "Vary", "Origin");
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Methods",
+        MCP_DIRECTORY_CORS_METHODS,
+      );
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Headers",
+        MCP_DIRECTORY_CORS_HEADERS,
+      );
+      setResponseStatus(event, 204);
+      return "";
+    }
+
+    const directoryResponseOrigin =
+      isDirectoryMcpPath && getHeader(event, "origin");
+    if (
+      directoryResponseOrigin &&
+      MCP_DIRECTORY_CORS_ORIGINS.has(directoryResponseOrigin)
+    ) {
+      setResponseHeader(
+        event,
+        "Access-Control-Allow-Origin",
+        directoryResponseOrigin,
+      );
+      setResponseHeader(event, "Vary", "Origin");
+    }
+
     const cors = applyCorsHeaders(event, config.publicCorsPaths, p);
     if (getMethod(event) === "OPTIONS") {
       if (cors.hasOrigin && !cors.allowed) {
@@ -4122,6 +4188,10 @@ function createAuthGuardFn(
         }
       }
       return;
+    }
+
+    if (isCredentialMembershipUnavailable(event)) {
+      return respondCredentialMembershipUnavailable(event);
     }
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
@@ -6503,20 +6573,11 @@ async function mountBetterAuthRoutes(
           callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
         const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
-        const cookieHeader = getHeader(event, "cookie") ?? null;
-        const signupAttribution =
-          signupAttributionFromCookieHeader(cookieHeader);
-        const signupAnonymousId = readAnalyticsAnonymousId(cookieHeader);
-        const hasSignupAttribution =
-          !!readFirstTouchAttribution(cookieHeader) || !!signupAnonymousId;
-        const attributionToken = hasSignupAttribution
-          ? encodeMagicLinkSignupAttribution(
-              {
-                attribution: signupAttribution,
-                anonymousId: signupAnonymousId,
-              },
-              getAuthSecret(),
-            )
+        const signupContext = signupAttributionContextFromCookieHeader(
+          getHeader(event, "cookie") ?? null,
+        );
+        const attributionToken = signupContext
+          ? encodeMagicLinkSignupAttribution(signupContext, getAuthSecret())
           : undefined;
         const newUserCallbackUrl = new URL(
           `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/magic-link/new-user")}?return=${encodeURIComponent(callbackPath)}`,

@@ -47,6 +47,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -57,8 +64,10 @@ import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
 import { timeRangeDays } from "./pivot";
-import type { SqlPanel } from "./types";
+import type { DashboardFilter, SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
+
+const INHERIT_TIME_RANGE = "__inherit__";
 
 interface SqlChartCardProps {
   panel: SqlPanel;
@@ -75,6 +84,9 @@ interface SqlChartCardProps {
   extensionContext?: Record<string, unknown> | null;
   dashboardId?: string;
   filters?: Record<string, string>;
+  timeRangeFilter?: DashboardFilter;
+  timeRangeOverride?: string | null;
+  onTimeRangeOverrideChange?: (value: string | null) => void;
 }
 
 const PanelDragHandle = memo(function PanelDragHandle({
@@ -134,6 +146,9 @@ export function SqlChartCard({
   extensionContext,
   dashboardId,
   filters,
+  timeRangeFilter,
+  timeRangeOverride,
+  onTimeRangeOverrideChange,
 }: SqlChartCardProps) {
   const t = useT();
   const timeRange = timeRangeDays(filters?.timeRange);
@@ -605,6 +620,45 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
+          {timeRangeFilter?.options?.length ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Select
+                  value={timeRangeOverride ?? INHERIT_TIME_RANGE}
+                  onValueChange={(value) =>
+                    onTimeRangeOverrideChange?.(
+                      value === INHERIT_TIME_RANGE ? null : value,
+                    )
+                  }
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="h-6 w-[100px] text-xs"
+                    aria-label={t("sqlDashboard.chartTimeRangeOverride")}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value={INHERIT_TIME_RANGE} className="text-xs">
+                      {t("sqlDashboard.chartTimeRangeInherit")}
+                    </SelectItem>
+                    {timeRangeFilter.options.map((opt) => (
+                      <SelectItem
+                        key={opt.value}
+                        value={opt.value}
+                        className="text-xs"
+                      >
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("sqlDashboard.chartTimeRangeOverride")}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {!editable || onSaveSql ? (
               <ViewSqlPopover

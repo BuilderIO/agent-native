@@ -2,6 +2,7 @@ import {
   DEFAULT_SSR_CACHE_HEADERS,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  resolveSsrNetlifyQueryVary,
 } from "@agent-native/core/server/ssr-handler";
 
 export const COMMUNITY_APP_SSR_CACHE_HEADERS = {
@@ -18,7 +19,7 @@ export function applyDocsSsrCacheKeyHeaders(
   options: { varyByQuery?: boolean } = {},
 ): void {
   if (options.varyByQuery) {
-    headers.set("netlify-vary", "query");
+    headers.set("netlify-vary", resolveSsrNetlifyQueryVary(true));
     return;
   }
   if (headers.get("netlify-vary")?.trim().toLowerCase() === "query") return;

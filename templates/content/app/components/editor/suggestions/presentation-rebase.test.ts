@@ -7,6 +7,7 @@ import {
   createCommittedSuggestionPresentationTransition,
   createObservedSuggestionPresentationTransition,
   hydrateSuggestionPresentationTransitions,
+  preciseSuggestionPresentationOperations,
   pruneSuggestionPresentationTransitions,
   retainCommittedSuggestionPresentationTransitions,
   resolveSuggestionPresentationRange,
@@ -61,6 +62,19 @@ const pending = {
   ],
 };
 
+describe("precise suggestion presentation", () => {
+  it("draws a rewritten phrase as one change instead of shared letters", () => {
+    const source = "Each edit marks a decision. So I save them:";
+    const from = source.indexOf("So I save them:");
+    const spans = preciseSuggestionPresentationOperations(
+      edit(source, from, source.length, "With your own edits, I recommend:"),
+    );
+    expect(
+      spans?.map((span) => [span.before.changedText, span.after.changedText]),
+    ).toEqual([["So I save them", "With your own edits, I recommend"]]);
+  });
+});
+
 describe("committed suggestion presentation proof", () => {
   it("combines retained and observed disjoint proof only at the verified rendered result", () => {
     const source = "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.";
@@ -72,9 +86,11 @@ describe("committed suggestion presentation proof", () => {
     const second = {
       id: "second",
       status: "pending" as const,
-      operations: [edit(source, 14, 14, " accepted")],
+      operations: [
+        edit(source, source.length - 1, source.length - 1, " accepted"),
+      ],
     };
-    const remaining = ["Third", "Fourth", "Fifth"].map((word) => ({
+    const remaining = ["Second", "Third", "Fourth"].map((word) => ({
       id: word,
       status: "pending" as const,
       operations: [
@@ -108,6 +124,9 @@ describe("committed suggestion presentation proof", () => {
       )!;
       const operation = suggestion.operations[0]!;
       const from = current.indexOf(suggestion.id) + suggestion.id.length;
+      // The accepted edits surround this suggestion, so only the proof can
+      // place it.
+      expect(resolveMarkdownSuggestionRange(current, operation)).toBeNull();
       expect(
         resolveSuggestionPresentationRange(current, operation, known, observed),
       ).toEqual({ from, to: from });
@@ -128,10 +147,9 @@ describe("committed suggestion presentation proof", () => {
           confirmed.get(suggestionPresentationTransitionKey(suggestion)),
         ),
       ).toEqual({ from: partialFrom, to: partialFrom });
-      if (suggestion.id === "Fifth") continue;
       expect(
         resolveSuggestionPresentationRange(
-          `${current} Peer.`,
+          `Peer. ${current}`,
           operation,
           known,
           observed,

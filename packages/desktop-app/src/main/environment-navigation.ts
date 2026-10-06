@@ -1,4 +1,4 @@
-import { ENVIRONMENT_BETA_HOSTS } from "@agent-native/core/shared";
+import { ENVIRONMENT_BETA_HOSTS } from "@agent-native/core/shared/environment-lanes";
 
 function productionEnvironmentHost(hostname: string): string | null {
   const normalized = hostname.trim().toLowerCase().replace(/\.$/, "");

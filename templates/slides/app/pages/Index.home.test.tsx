@@ -397,12 +397,17 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     }));
     if (!props.open) return null;
     return (
-      <textarea
-        aria-label="Presentation prompt"
-        value={props.initialText ?? ""}
-        readOnly
-        disabled={props.disabled}
-      />
+      <>
+        <textarea
+          aria-label="Presentation prompt"
+          value={props.initialText ?? ""}
+          readOnly
+          disabled={props.disabled}
+        />
+        {props.preflightPending ? (
+          <div role="status">Preflight pending</div>
+        ) : null}
+      </>
     );
   },
 }));
@@ -1146,7 +1151,7 @@ describe("Slides prompt-led home", () => {
       prompt,
     );
     expect(promptProps.mock.lastCall![0].disabled).toBe(false);
-    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
     expect(createDeck).not.toHaveBeenCalled();
   });
   it("uses the shared Builder setup card and keeps the composer interactive", async () => {
@@ -1318,11 +1323,35 @@ describe("Slides prompt-led home", () => {
     expect(promptProps.mock.lastCall![0].onBeforeSubmit).toEqual(
       expect.any(Function),
     );
+    let resolveStatus: (state: "unavailable") => void = () => {};
+    fetchAgentEngineConfiguredState.mockReturnValueOnce(
+      new Promise<"unavailable">((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
     let canSubmit = true;
+    let preflight = Promise.resolve(false);
     await act(async () => {
-      canSubmit = await promptProps.mock.lastCall![0].onBeforeSubmit();
+      preflight = promptProps.mock.lastCall![0].onBeforeSubmit();
+    });
+    expect(promptProps.mock.lastCall![0].preflightPending).toBe(true);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+    expect(screen.getByRole("status").textContent).toBe("Preflight pending");
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).disabled,
+    ).toBe(false);
+
+    await act(async () => resolveStatus("unavailable"));
+    await act(async () => {
+      canSubmit = await preflight;
     });
     expect(canSubmit).toBe(false);
+    expect(promptProps.mock.lastCall![0].preflightPending).toBe(false);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
     expect(screen.getByRole("status").textContent).toContain(
       "providerStatusUnavailable",
     );
@@ -1379,9 +1408,58 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByTestId("builder-setup-card")).toBeNull();
   });
 
-  it("shows Templates while loading, then defaults to Recent when decks are available", async () => {
+  it("rechecks readiness before sending and holds the draft if AI was disconnected", async () => {
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    getDraftSnapshot.mockReturnValue({ ...submittedDraft });
+    submitDraft.mockClear();
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    let resolveStatus: (state: "missing") => void = () => {};
+    fetchAgentEngineConfiguredState.mockReturnValueOnce(
+      new Promise<"missing">((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+
+    let preflight = Promise.resolve(false);
+    await act(async () => {
+      preflight = promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+
+    expect(fetchAgentEngineConfiguredState).toHaveBeenCalledOnce();
+    expect(promptProps.mock.lastCall![0].preflightPending).toBe(true);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).disabled,
+    ).toBe(false);
+
+    await act(async () => resolveStatus("missing"));
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = await preflight;
+    });
+
+    expect(canSubmit).toBe(false);
+    expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
+    expect(submitDraft).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use Builder.io" }));
+    await act(async () => home.rerenderHome());
+
+    expect(screen.queryByTestId("builder-setup-card")).toBeNull();
+    expect(getDraftSnapshot).toHaveBeenCalled();
+    expect(submitDraft).toHaveBeenCalledOnce();
+  });
+
+  it("shows both tabs while loading, then defaults to Recent when decks are available", async () => {
     const home = renderHome({ loading: true });
-    expect(screen.queryByRole("tab", { name: "Recent" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
     expect(
       screen
         .getByRole("tab", { name: "Templates" })
@@ -1402,12 +1480,51 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
     ).toBe("true");
+    expect(window.localStorage.getItem("slides-home-library-tab")).toBe(
+      "recent",
+    );
 
     home.unmount();
     renderHome({ decks: [ownDeck] });
     expect(
       screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
     ).toBe("true");
+  });
+
+  it("restores a saved Templates choice before the deck list finishes loading", async () => {
+    window.localStorage.setItem("slides-home-library-tab", "templates");
+    const home = renderHome({ loading: true });
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
+
+    useDecks.mockReturnValue({
+      decks: [ownDeck],
+      loading: false,
+      loadError: false,
+      deckListRefreshing: false,
+      reloadDecks,
+      createDeck,
+      catchUpStaleDeckList: vi.fn(),
+    });
+    await act(async () => home.rerenderHome());
+
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("keeps the Recent skeleton available when its tab opens during loading", () => {
+    window.localStorage.setItem("slides-home-library-tab", "recent");
+    renderHome({ loading: true });
+
+    const recentPanel = screen.getByRole("tabpanel", { name: "Recent" });
+    expect(recentPanel.querySelector('[aria-busy="true"]')).toBeTruthy();
   });
 
   it("does not server-render the home library", () => {
@@ -1422,7 +1539,7 @@ describe("Slides prompt-led home", () => {
     expect(markup).not.toContain("agent-prompt-home-library");
   });
 
-  it("hides Recent without accessible decks and defaults to it when decks exist", () => {
+  it("shows both tabs and defaults to Templates without accessible decks", () => {
     const home = renderHome({ decks: [ownDeck] });
     expect(
       screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
@@ -1430,7 +1547,8 @@ describe("Slides prompt-led home", () => {
 
     home.unmount();
     renderHome({ decks: [] });
-    expect(screen.queryByRole("tab", { name: "Recent" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
     expect(
       screen
         .getByRole("tab", { name: "Templates" })
@@ -1438,7 +1556,7 @@ describe("Slides prompt-led home", () => {
     ).toBe("true");
   });
 
-  it("keeps the composer as the focal point and hides Recent without accessible work", async () => {
+  it("keeps the composer as the focal point and shows both tabs without accessible work", async () => {
     renderHome({ decks: [] });
     expect(
       screen.getByRole("heading", {
@@ -1450,7 +1568,7 @@ describe("Slides prompt-led home", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
     expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
-    expect(screen.queryByRole("tab", { name: "Recent" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
     const mountedHeader = render(
       <MemoryRouter initialEntries={["/home"]}>
         <Header />
@@ -1652,7 +1770,7 @@ describe("Slides prompt-led home", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "gates model controls and suggestions while keeping the prompt path available for $state (missing=$missing)",
+    "shows fallback suggestions while gating model controls for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       agentEngine.state = state;
       agentEngine.missing = missing;
@@ -1664,16 +1782,18 @@ describe("Slides prompt-led home", () => {
         modelStatusChecksEnabled: ready,
         onBeforeSubmit: expect.any(Function),
       });
-      expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
-      expect(Boolean(screen.queryByLabelText("home.suggestedPrompts"))).toBe(
-        ready,
+      expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(
+        state === "missing" || missing ? true : undefined,
       );
+      expect(screen.queryByLabelText("home.suggestedPrompts")).toBeTruthy();
       expect(
         Boolean(screen.queryByRole("button", { name: "Build a pitch" })),
       ).toBe(ready);
       expect(
-        screen.queryByRole("button", { name: "Create a product pitch deck" }),
-      ).toBeNull();
+        screen.getByRole<HTMLButtonElement>("button", {
+          name: ready ? "Build a pitch" : "Create a product pitch deck",
+        }).disabled,
+      ).toBe(!ready);
       expect(suggestionQuery.enabled).toBe(ready);
     },
   );

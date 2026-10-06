@@ -37,10 +37,6 @@ export function preloadCodeWorkbench() {
   });
 }
 
-if (typeof window !== "undefined" && import.meta.env.MODE !== "test") {
-  preloadCodeWorkbench();
-}
-
 export function CodeWorkbenchLoader(props: CodeWorkbenchProps) {
   return (
     <RetryableCodeWorkbenchLoader

@@ -88,6 +88,7 @@ import {
   BuilderConnectPopover,
   SETTINGS_SECTION_STATE_KEY,
   useBuilderConnectFlow,
+  type BuilderConnectTransport,
 } from "../settings/index.js";
 import { RouterSidebarLink } from "../shared/index.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
@@ -570,6 +571,7 @@ export interface AgentPanelProps extends Omit<
   chatOnly?: boolean;
   agentPageHref?: string;
   codeAccess?: AgentPanelCodeAccess;
+  builderConnectTransport?: BuilderConnectTransport;
 }
 
 function useClientOnly() {
@@ -629,6 +631,7 @@ function CodeAccessUnavailablePanel({
   secondaryCtaLabel,
   secondaryCtaHref,
   compact = false,
+  builderConnectTransport,
 }: {
   title: string;
   description: string;
@@ -637,11 +640,13 @@ function CodeAccessUnavailablePanel({
   secondaryCtaLabel: string;
   secondaryCtaHref?: string;
   compact?: boolean;
+  builderConnectTransport?: BuilderConnectTransport;
 }) {
   const builderFlow = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "code_access_unavailable_panel",
     trackingFlow: "background_agent",
+    transport: builderConnectTransport,
   });
   const secondaryHref = secondaryCtaHref
     ? withBuilderUtmTrackingParams(secondaryCtaHref, {
@@ -756,6 +761,7 @@ function AgentPanelInner({
   chatOnly = false,
   agentPageHref,
   codeAccess,
+  builderConnectTransport,
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
@@ -2467,6 +2473,7 @@ function AgentPanelInner({
               ctaHref={codeAccessEnabled ? undefined : codeUnavailableCtaHref}
               secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
               secondaryCtaHref={codeUnavailableSecondaryCtaHref}
+              builderConnectTransport={builderConnectTransport}
             />
           </div>
         )}

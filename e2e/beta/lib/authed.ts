@@ -29,7 +29,7 @@ export function skipUnlessAuthed(): void {
 export async function signedInContext(
   browser: Browser,
   site: BetaSite,
-  { seedModel = true }: { seedModel?: boolean } = {},
+  { seedModel = true, baseURL }: { seedModel?: boolean; baseURL?: string } = {},
 ): Promise<BrowserContext> {
   const statePath = authStatePath(site.id);
   if (!existsSync(statePath)) {
@@ -40,6 +40,7 @@ export async function signedInContext(
   const context = await browser.newContext({
     storageState: statePath,
     extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+    ...(baseURL ? { baseURL } : {}),
   });
   await installBetaE2ETrafficMarker(context);
   if (seedModel) {

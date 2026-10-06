@@ -12,6 +12,7 @@ import {
 
 import "../authorization/check-action.js";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
+import { isA2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import {
   actionCallEmitsChange,
   actionChangeResource,
@@ -35,7 +36,6 @@ import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import {
   isFederationMembershipValidatedForEvent,
-  resolveOrgByDomain,
   resolveOrgIdForEmail,
 } from "../org/context.js";
 import {
@@ -146,8 +146,8 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   const claims = await verifyA2ATokenWithClaims(token, event);
   if (!claims || !claims.scope.includes(required))
     throw new Error("Invalid feature flag delegation");
-  const localOrg = await resolveOrgByDomain(claims.orgDomain);
-  if (!localOrg && !isFeatureFlagAdminEmail(claims.email))
+  const orgId = claims.orgId?.trim() || null;
+  if (!orgId && !isFeatureFlagAdminEmail(claims.email))
     throw new Error("Invalid feature flag delegation");
   if (
     actionName === "set-feature-flag" &&
@@ -157,7 +157,7 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   }
   return {
     owner: claims.email,
-    orgId: localOrg?.orgId ?? null,
+    orgId,
     anonymous: false,
     delegationJti: claims.jti,
     delegationIssuer: claims.issuer,
@@ -660,7 +660,13 @@ function mountActionRoutesInternal(
               : null;
             if (!caller)
               caller = await resolveFeatureFlagA2ACaller(event, name);
-          } catch {
+          } catch (error) {
+            if (isA2AIdentityVerificationUnavailableError(error)) {
+              throw createError({
+                statusCode: 503,
+                statusMessage: "Identity verification temporarily unavailable",
+              });
+            }
             throw createError({
               statusCode: 401,
               statusMessage: "Unauthorized",

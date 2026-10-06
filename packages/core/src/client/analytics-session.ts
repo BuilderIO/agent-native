@@ -61,6 +61,14 @@ function syncAnalyticsAnonymousIdCookie(id: string): void {
   }
 }
 
+let pageLoadId: string | undefined;
+
+/** One id for this page load, shared by every pageview until it reloads. */
+export function getAnalyticsPageLoadId(): string {
+  pageLoadId ??= generateVisitorId();
+  return pageLoadId;
+}
+
 export function getOrCreateAnalyticsAnonymousId(): string | undefined {
   if (typeof window === "undefined") return undefined;
   let id = safeStorageGet(ANONYMOUS_ID_STORAGE_KEY);
