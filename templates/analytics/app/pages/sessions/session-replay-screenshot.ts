@@ -33,7 +33,17 @@ function replayDocuments(document: Document): Document[] {
 function imageUrlsInDocuments(documents: Document[]): string[] {
   const urls = new Set<string>();
   const addUrl = (value: string, baseURI: string) => {
-    const url = new URL(value, baseURI);
+    const normalizedValue = value.trim();
+    const baseUrl = new URL(baseURI);
+    const url = new URL(normalizedValue, baseURI);
+    if (
+      url.hash &&
+      url.origin === baseUrl.origin &&
+      url.pathname === baseUrl.pathname &&
+      url.search === baseUrl.search
+    ) {
+      return;
+    }
     if (url.protocol === "https:" || url.protocol === "http:") {
       urls.add(url.href);
     }
@@ -187,9 +197,8 @@ export async function assertRemoteImagesCapturable(
           !response.ok ||
           !response.headers.get("content-type")?.startsWith("image/") ||
           (sameOrigin &&
-            (response.redirected ||
-              (response.url &&
-                new URL(response.url).origin !== window.location.origin)))
+            response.url &&
+            new URL(response.url).origin !== window.location.origin)
         ) {
           fail();
         }

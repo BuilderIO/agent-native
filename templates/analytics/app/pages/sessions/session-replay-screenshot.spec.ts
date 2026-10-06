@@ -348,6 +348,25 @@ describe("session replay screenshot asset checks", () => {
     image.remove();
   });
 
+  it("skips same-document SVG fragment references", async () => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svgUse = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "use",
+    );
+    svgUse.setAttribute("href", "#icon");
+    svg.appendChild(svgUse);
+    document.body.appendChild(svg);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      assertRemoteImagesCapturable(document),
+    ).resolves.toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    svg.remove();
+  });
+
   it("rejects same-origin image URLs that redirect off-origin", async () => {
     const image = document.createElement("img");
     image.src = "/redirected-image.png";
@@ -370,6 +389,27 @@ describe("session replay screenshot asset checks", () => {
         mode: "cors",
       }),
     );
+    expect(cancelBody).toHaveBeenCalledOnce();
+
+    image.remove();
+  });
+
+  it("allows same-origin image redirects", async () => {
+    const image = document.createElement("img");
+    image.src = "/redirected-image.png";
+    document.body.appendChild(image);
+    const cancelBody = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      body: { cancel: cancelBody },
+      headers: { get: () => "image/png" },
+      ok: true,
+      redirected: true,
+      url: `${window.location.origin}/final-image.png`,
+    } as unknown as Response);
+
+    await expect(
+      assertRemoteImagesCapturable(document),
+    ).resolves.toBeUndefined();
     expect(cancelBody).toHaveBeenCalledOnce();
 
     image.remove();
