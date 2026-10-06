@@ -9,6 +9,50 @@ const REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS = 8_000;
 const REMOTE_IMAGE_PREFLIGHT_CONCURRENCY = 4;
 const REPLAY_FONT_TIMEOUT_MS = 8_000;
 
+type ReplayImageResource = { document: Document; url: string };
+
+function isElementRendered(element: Element, document: Document): boolean {
+  const view = document.defaultView;
+  if (!view) return true;
+
+  for (
+    let current: Element | null = element;
+    current;
+    current = current.parentElement
+  ) {
+    const styles = view.getComputedStyle(current);
+    if (
+      styles.display === "none" ||
+      styles.visibility === "hidden" ||
+      styles.visibility === "collapse" ||
+      styles.contentVisibility === "hidden" ||
+      (styles.opacity !== "" && Number(styles.opacity) === 0)
+    ) {
+      return false;
+    }
+  }
+
+  if (typeof element.getBoundingClientRect !== "function") return true;
+  const bounds = element.getBoundingClientRect();
+  const viewportWidth = view.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight =
+    view.innerHeight || document.documentElement.clientHeight;
+  if (
+    bounds.width > 0 &&
+    bounds.height > 0 &&
+    viewportWidth > 0 &&
+    viewportHeight > 0 &&
+    (bounds.right <= 0 ||
+      bounds.bottom <= 0 ||
+      bounds.left >= viewportWidth ||
+      bounds.top >= viewportHeight)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function replayDocuments(document: Document): Document[] {
   const documents: Document[] = [];
   const visited = new Set<Document>();
@@ -18,6 +62,7 @@ function replayDocuments(document: Document): Document[] {
     documents.push(current);
 
     for (const frame of current.querySelectorAll<HTMLIFrameElement>("iframe")) {
+      if (!isElementRendered(frame, current)) continue;
       const child = frame.contentDocument;
       if (!child?.documentElement) {
         throw new ReplayScreenshotAssetError();
@@ -30,9 +75,11 @@ function replayDocuments(document: Document): Document[] {
   return documents;
 }
 
-function imageUrlsInDocuments(documents: Document[]): string[] {
-  const urls = new Set<string>();
-  const addUrl = (value: string, baseURI: string) => {
+function imageResourcesInDocuments(
+  documents: Document[],
+): ReplayImageResource[] {
+  const urlsByDocument = new Map<Document, Set<string>>();
+  const addUrl = (value: string, baseURI: string, document: Document) => {
     const normalizedValue = value.trim();
     const baseUrl = new URL(baseURI);
     const url = new URL(normalizedValue, baseURI);
@@ -45,13 +92,15 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
       return;
     }
     if (url.protocol === "https:" || url.protocol === "http:") {
+      const urls = urlsByDocument.get(document) ?? new Set<string>();
       urls.add(url.href);
+      urlsByDocument.set(document, urls);
     }
   };
-  const addCssUrls = (value: string, baseURI: string) => {
+  const addCssUrls = (value: string, baseURI: string, document: Document) => {
     if (!value) return;
     for (const match of value.matchAll(/url\(["']?([^"')]+)["']?\)/gi)) {
-      addUrl(match[1], baseURI);
+      addUrl(match[1], baseURI, document);
     }
 
     const imageSetFunction = /(?:-webkit-)?image-set\s*\(/gi;
@@ -84,37 +133,53 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
       const candidateStart = /^\s*(["'])(.*?)\1/s;
       for (const candidate of candidates.split(/,(?![^()]*\))/)) {
         const quotedUrl = candidate.match(candidateStart)?.[2];
-        if (quotedUrl) addUrl(quotedUrl.replace(/\\(.)/g, "$1"), baseURI);
+        if (quotedUrl) {
+          addUrl(quotedUrl.replace(/\\(.)/g, "$1"), baseURI, document);
+        }
       }
     }
   };
 
   for (const current of documents) {
-    if (current.querySelector("object, embed")) {
+    if (
+      [...current.querySelectorAll("object, embed")].some((element) =>
+        isElementRendered(element, current),
+      )
+    ) {
       throw new ReplayScreenshotAssetError();
     }
 
     for (const image of current.querySelectorAll<HTMLImageElement>("img")) {
+      if (!isElementRendered(image, current)) continue;
       const source = image.currentSrc || image.src;
-      if (source) addUrl(source, current.baseURI);
+      if (source) addUrl(source, current.baseURI, current);
     }
 
     for (const image of current.querySelectorAll<HTMLInputElement>(
       'input[type="image"]',
     )) {
-      if (image.src) addUrl(image.src, current.baseURI);
+      if (!isElementRendered(image, current)) continue;
+      if (image.src) addUrl(image.src, current.baseURI, current);
     }
 
-    for (const image of current.querySelectorAll<SVGImageElement>(
+    for (const image of current.querySelectorAll<SVGElement>(
       "svg image, svg use, svg feImage",
     )) {
+      if (!isElementRendered(image, current)) continue;
       const source =
         image.getAttribute("href") ||
         image.getAttributeNS("http://www.w3.org/1999/xlink", "href");
-      if (source) addUrl(source, current.baseURI);
+      if (
+        source &&
+        !source.trim().startsWith("#") &&
+        !source.trim().startsWith("data:")
+      ) {
+        throw new ReplayScreenshotAssetError();
+      }
     }
 
     for (const video of current.querySelectorAll<HTMLVideoElement>("video")) {
+      if (!isElementRendered(video, current)) continue;
       if (
         video.poster ||
         video.currentSrc ||
@@ -131,21 +196,31 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
       ...current.querySelectorAll<Element>("*"),
     ];
     for (const element of styledElements) {
+      if (!isElementRendered(element, current)) continue;
       const view = current.defaultView ?? window;
       const styles = view.getComputedStyle(element);
-      addCssUrls(styles.backgroundImage, current.baseURI);
-      addCssUrls(styles.listStyleImage, current.baseURI);
-      addCssUrls(styles.maskImage, current.baseURI);
+      addCssUrls(styles.backgroundImage, current.baseURI, current);
+      addCssUrls(styles.listStyleImage, current.baseURI, current);
+      addCssUrls(styles.maskImage, current.baseURI, current);
       if (styles.borderImageSource && styles.borderImageSource !== "none") {
         throw new ReplayScreenshotAssetError();
       }
 
       for (const pseudo of ["::before", "::after"]) {
         const pseudoStyles = view.getComputedStyle(element, pseudo);
-        addCssUrls(pseudoStyles.content, current.baseURI);
-        addCssUrls(pseudoStyles.backgroundImage, current.baseURI);
-        addCssUrls(pseudoStyles.listStyleImage, current.baseURI);
-        addCssUrls(pseudoStyles.maskImage, current.baseURI);
+        if (
+          pseudoStyles.display === "none" ||
+          pseudoStyles.visibility === "hidden" ||
+          pseudoStyles.visibility === "collapse" ||
+          pseudoStyles.content === "none" ||
+          pseudoStyles.content === "normal"
+        ) {
+          continue;
+        }
+        addCssUrls(pseudoStyles.content, current.baseURI, current);
+        addCssUrls(pseudoStyles.backgroundImage, current.baseURI, current);
+        addCssUrls(pseudoStyles.listStyleImage, current.baseURI, current);
+        addCssUrls(pseudoStyles.maskImage, current.baseURI, current);
         if (
           pseudoStyles.borderImageSource &&
           pseudoStyles.borderImageSource !== "none"
@@ -156,7 +231,15 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
     }
   }
 
-  return [...urls];
+  return [...urlsByDocument].flatMap(([document, urls]) =>
+    [...urls].map((url) => ({ document, url })),
+  );
+}
+
+function imageUrlsInDocuments(documents: Document[]): string[] {
+  return [
+    ...new Set(imageResourcesInDocuments(documents).map(({ url }) => url)),
+  ];
 }
 
 export function crossOriginImageUrls(document: Document): string[] {
@@ -169,7 +252,7 @@ export async function assertRemoteImagesCapturable(
   document: Document,
 ): Promise<void> {
   const documents = replayDocuments(document);
-  const urls = imageUrlsInDocuments(documents);
+  const resources = imageResourcesInDocuments(documents);
   const controller = new AbortController();
   const timeoutId = window.setTimeout(
     () => controller.abort(),
@@ -182,41 +265,68 @@ export async function assertRemoteImagesCapturable(
     controller.abort();
   };
   const checkNextUrl = async () => {
-    while (allCapturable && nextUrlIndex < urls.length) {
-      const url = urls[nextUrlIndex++];
-      let response: Response | undefined;
+    while (
+      allCapturable &&
+      !controller.signal.aborted &&
+      nextUrlIndex < resources.length
+    ) {
+      const resource = resources[nextUrlIndex++];
+      const image = resource.document.createElement("img");
       try {
-        const sameOrigin = new URL(url).origin === window.location.origin;
-        response = await fetch(url, {
-          cache: "force-cache",
-          credentials: sameOrigin ? "same-origin" : "omit",
-          mode: "cors",
-          signal: controller.signal,
+        await new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const cleanup = () => {
+            image.onload = null;
+            image.onerror = null;
+            controller.signal.removeEventListener("abort", abort);
+          };
+          const succeed = () => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve();
+          };
+          const failImage = () => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(new ReplayScreenshotAssetError());
+          };
+          const abort = () => {
+            image.removeAttribute("src");
+            failImage();
+          };
+
+          image.crossOrigin = "anonymous";
+          image.onload = () => {
+            if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+              succeed();
+            } else {
+              failImage();
+            }
+          };
+          image.onerror = failImage;
+          controller.signal.addEventListener("abort", abort, { once: true });
+          if (controller.signal.aborted) {
+            abort();
+            return;
+          }
+          image.src = resource.url;
         });
-        if (
-          !response.ok ||
-          !response.headers.get("content-type")?.startsWith("image/") ||
-          (sameOrigin &&
-            response.url &&
-            new URL(response.url).origin !== window.location.origin)
-        ) {
-          fail();
-        }
       } catch {
         fail();
-      } finally {
-        try {
-          await response?.body?.cancel();
-        } catch {
-          fail();
-        }
       }
     }
   };
   try {
     await Promise.all(
       Array.from(
-        { length: Math.min(REMOTE_IMAGE_PREFLIGHT_CONCURRENCY, urls.length) },
+        {
+          length: Math.min(
+            REMOTE_IMAGE_PREFLIGHT_CONCURRENCY,
+            resources.length,
+          ),
+        },
         () => checkNextUrl(),
       ),
     );
@@ -224,7 +334,7 @@ export async function assertRemoteImagesCapturable(
     window.clearTimeout(timeoutId);
   }
 
-  if (!allCapturable) {
+  if (!allCapturable || controller.signal.aborted) {
     throw new ReplayScreenshotAssetError();
   }
 }
