@@ -39,6 +39,8 @@ import {
   nextZoomCursorFrom,
   normalizeZoomRecording,
   zoomExternalId,
+  zoomMeetingFilterFromConfig,
+  zoomMeetingMatchesFilter,
 } from "./zoom.js";
 
 export interface ConnectorSyncResult {
@@ -3114,12 +3116,15 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       : utcDate(runStartedAt - lookbackDays * dayMs);
   const from = requestedFrom < earliest ? earliest : requestedFrom;
 
+  const meetingFilter = zoomMeetingFilterFromConfig(objectValue(config.zoom));
+
   const captures = [];
   const stats: Record<string, unknown> = {
     from,
     to,
     recordingListsScanned: 0,
     meetingsSeen: 0,
+    meetingsSkippedByFilter: 0,
     transcriptsDownloaded: 0,
     emptyTranscripts: 0,
     alreadyImported: 0,
@@ -3168,18 +3173,20 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         ];
 
     for (const recordingList of recordingLists) {
-      const meetings = await zoomCall(
-        recordingList.endpoint,
-        recordingList.list,
-      );
+      const listed = await zoomCall(recordingList.endpoint, recordingList.list);
       await renewRunLease(run);
       stats.recordingListsScanned = Number(stats.recordingListsScanned) + 1;
+      stats.meetingsSeen = Number(stats.meetingsSeen) + listed.length;
+      const meetings = listed.filter((meeting) =>
+        zoomMeetingMatchesFilter(meeting, meetingFilter),
+      );
+      stats.meetingsSkippedByFilter =
+        Number(stats.meetingsSkippedByFilter) + listed.length - meetings.length;
       const imported = await importedZoomExternalIds(
         source.id,
         meetings.map(zoomExternalId),
       );
       for (const meeting of meetings) {
-        stats.meetingsSeen = Number(stats.meetingsSeen) + 1;
         if (hasProcessingTranscript(meeting)) {
           pendingMeetingStarts.push(meeting.start_time);
           stats.pendingTranscripts = Number(stats.pendingTranscripts) + 1;

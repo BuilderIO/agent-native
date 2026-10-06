@@ -4285,6 +4285,76 @@ describe("Brain connector smoke coverage", () => {
     );
   });
 
+  it("imports only Zoom meetings matching the source meeting filter", async () => {
+    const downloads: string[] = [];
+    const recording = (uuid: string, id: number, topic: string) => ({
+      uuid,
+      id,
+      topic,
+      start_time: "2026-05-14T15:00:00Z",
+      recording_files: [
+        {
+          id: uuid,
+          file_type: "TRANSCRIPT",
+          status: "completed",
+          download_url: "https://zoom.us/rec/download/" + uuid,
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/test-token/recordings") {
+          return Response.json({
+            meetings: [
+              recording("by-id", 12345678901, "Pod 2 Monday Sync"),
+              recording("by-topic", 222, "marketing standup"),
+              recording("other", 333, "Unrelated 1:1"),
+            ],
+          });
+        }
+        if (url.pathname.startsWith("/rec/download/")) {
+          downloads.push(url.pathname);
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Atlas moves to Thursday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-filtered-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: {
+          meetingIds: ["123 4567 8901"],
+          meetingTopics: ["Marketing Standup"],
+        },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 2,
+      stats: { meetingsSeen: 3, meetingsSkippedByFilter: 1 },
+    });
+    expect(downloads.sort()).toEqual([
+      "/rec/download/by-id",
+      "/rec/download/by-topic",
+    ]);
+  });
+
   it("dedupes account-wide Zoom recordings across query chunks", async () => {
     const meetings = Array.from({ length: 1_001 }, (_, index) => ({
       uuid: `meeting-${index}`,
