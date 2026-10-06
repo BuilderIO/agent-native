@@ -690,6 +690,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/api-path",
+        "@agent-native/core/client/attribution",
         "@agent-native/core/client/auth/auth-page-helpers",
         "@agent-native/core/client/oauth-popup",
         "@agent-native/core/client/sign-in-return",

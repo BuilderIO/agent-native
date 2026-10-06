@@ -1,6 +1,7 @@
 /** @jsxRuntime classic */
 
 import { frameworkRoutePrefix } from "@agent-native/core/client/api-path";
+import { captureAttribution } from "@agent-native/core/client/attribution";
 import {
   isAgentNativeDesktop,
   isBuilderDesktop,
@@ -61,8 +62,6 @@ const TAB_STORAGE_KEY = "an.onboarding.tab";
 const PENDING_SIGNUP_EMAIL_STORAGE_KEY = "an.onboarding.pendingSignupEmail";
 const ANALYTICS_ANONYMOUS_ID_KEY = "agent-native.anonymous_id";
 const ANALYTICS_SESSION_ID_KEY = "agent-native.session_id";
-const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
-const FIRST_TOUCH_COOKIE = "an_ft";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
 const useIsomorphicLayoutEffect =
@@ -229,10 +228,6 @@ function generateAnonymousId(): string {
     // coercion-ok: the browser fallback remains usable when crypto is unavailable.
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-function safeAttributionValue(value: string | null): string {
-  return typeof value === "string" ? value.trim().slice(0, 120) : "";
 }
 
 function trackAuth(
@@ -1011,53 +1006,17 @@ export function AuthPage(props: AuthPageProps) {
     } catch {
       // coercion-ok: attribution cookies are optional for authentication.
     }
-    try {
-      const existing = readStorage(FIRST_TOUCH_STORAGE_KEY);
-      if (
-        !existing &&
-        !document.cookie
-          .split(";")
-          .some((part) => part.trim().startsWith(`${FIRST_TOUCH_COOKIE}=`))
-      ) {
-        const params = new URLSearchParams(window.location.search);
-        const attribution: Record<string, string> = {};
-        for (const key of [
-          "ref",
-          "via",
-          "utm_source",
-          "utm_medium",
-          "utm_campaign",
-          "utm_content",
-          "utm_term",
-        ]) {
-          const value = safeAttributionValue(params.get(key));
-          if (value) attribution[key] = value;
-        }
-        const returnPath = signInJourney({
-          at: window.location.pathname,
-          continuation: params.get("c"),
-          legacyReturn: params.get("return"),
-          basePath: runtimeAppBasePath,
-          homePath,
-        }).resumeHref;
-        const landingPath = safeAttributionValue(returnPath);
-        if (landingPath) attribution.landing_path = landingPath;
-        try {
-          const referrer = new URL(document.referrer);
-          if (referrer.host !== window.location.host) {
-            attribution.landing_referrer = safeAttributionValue(referrer.host);
-          }
-        } catch {
-          // coercion-ok: a non-URL referrer is not useful attribution.
-        }
-        attribution.landed_at = new Date().toISOString();
-        const json = JSON.stringify(attribution);
-        writeStorage(FIRST_TOUCH_STORAGE_KEY, json);
-        document.cookie = `${FIRST_TOUCH_COOKIE}=${encodeURIComponent(json)}; path=/; max-age=2592000; SameSite=Lax`;
-      }
-    } catch {
-      // coercion-ok: attribution is best effort and never blocks authentication.
-    }
+    const params = new URLSearchParams(window.location.search);
+    const resumeHref = signInJourney({
+      at: window.location.pathname,
+      continuation: params.get("c"),
+      legacyReturn: params.get("return"),
+      basePath: runtimeAppBasePath,
+      homePath,
+    }).resumeHref;
+    captureAttribution({
+      landingPath: new URL(resumeHref, window.location.origin).pathname,
+    });
     const identity = normalizeEmail(signupEmail);
     if (
       view !== "signup" ||

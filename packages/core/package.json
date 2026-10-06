@@ -158,6 +158,7 @@
     "./client/agentkit-chat/transport": "./dist/client/agentkit-chat/transport.js",
     "./client/chat-first": "./dist/client/tombstone/chat-first.js",
     "./client/analytics": "./dist/client/analytics/index.js",
+    "./client/attribution": "./dist/client/attribution.js",
     "./client/automation": "./dist/client/automation/index.js",
     "./client/changelog": "./dist/client/changelog/index.js",
     "./client/markdown": "./dist/client/tombstone/markdown.js",
