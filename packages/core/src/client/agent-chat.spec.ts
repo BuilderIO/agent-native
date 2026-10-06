@@ -912,6 +912,29 @@ describe("sendToAgentChat", () => {
     expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 
+  it("keeps ChatGPT prompts that reuse an empty app tab in the embedded app", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+
+    sendToAgentChat({
+      message: "Try a different hero direction",
+      submit: true,
+      chatTarget: "local",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+    vi.runOnlyPendingTimers();
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data).toMatchObject({
+      message: "Try a different hero direction",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+  });
+
   it("keeps code-targeted requests out of the ChatGPT follow-up route", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
@@ -971,6 +994,79 @@ describe("sendToAgentChat", () => {
         { type: "image", data: "AQID", mimeType: "image/png" },
       ],
     });
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("omits display-only attachments from ChatGPT handoff content", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "Review the attached references",
+      submit: true,
+      chatTarget: "local",
+      attachments: [
+        {
+          type: "text",
+          name: "preview.txt",
+          text: "Visible in the app only",
+          displayOnly: true,
+        },
+        {
+          type: "text",
+          name: "requirements.txt",
+          text: "Keep the header compact",
+        },
+        {
+          type: "file",
+          name: "reference.pdf",
+          displayOnly: true,
+        },
+      ],
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Review the attached references",
+      content: [
+        {
+          type: "text",
+          text: "Review the attached references",
+        },
+        {
+          type: "text",
+          text: "Attachment: requirements.txt\nKeep the header compact",
+        },
+      ],
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("routes ChatGPT handoffs with only display-only attachments without content", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    isOpenAiMcpAppHostMock.mockReturnValue(true);
+    sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+    sendToAgentChat({
+      message: "Summarize the selected page",
+      submit: true,
+      chatTarget: "local",
+      attachments: [
+        {
+          type: "file",
+          name: "page-preview.pdf",
+          displayOnly: true,
+        },
+      ],
+    });
+
+    expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
+      message: "Summarize the selected page",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
     expect(selfPostMessageSpy).not.toHaveBeenCalled();
   });
 

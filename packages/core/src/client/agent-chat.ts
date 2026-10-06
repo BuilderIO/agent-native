@@ -909,6 +909,7 @@ function mcpAppHostContent(
     content.push(imageContent);
   }
   for (const attachment of opts.attachments ?? []) {
+    if (attachment.displayOnly) continue;
     if (attachment.type === "image" && attachment.data) {
       const imageContent = attachment.data.startsWith("data:")
         ? imageContentFromDataUrl(attachment.data)
@@ -944,6 +945,7 @@ function hasMcpAppLocalOnlySemantics(
     opts.model ||
     opts.engine ||
     opts.effort ||
+    opts.reuseEmptyTab ||
     opts.tabId ||
     opts.targetTabId ||
     opts.preset ||
