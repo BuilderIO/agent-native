@@ -21032,11 +21032,11 @@ function DesignEditor() {
   );
   const projectionPinOwner = useId();
   useEffect(() => {
+    // Only the screens in use: a layer search builds every model, and pinning
+    // all of them would hold each screen's parse outside the cache budget.
     pinCodeLayerDocuments(projectionPinOwner, [
       activeContent,
-      ...codeLayerModelsByFile.map((model) =>
-        getProjectionContentForScreen(model.fileId),
-      ),
+      ...recentLayerModelFileIdsRef.current.map(getProjectionContentForScreen),
     ]);
     return () => pinCodeLayerDocuments(projectionPinOwner, []);
   }, [

@@ -108,3 +108,64 @@ it("answers color counts with null when the worker fails", async () => {
 
   expect(await counted).toEqual([null]);
 });
+
+const reply = (worker: FakeWorker, request: PreviewParseRequest) =>
+  worker.onmessage!({
+    data:
+      request.kind === "colors"
+        ? { kind: "colors", id: request.id, counts: [] }
+        : {
+            kind: "preview",
+            id: request.id,
+            provenance: { versionHash: "", uniqueNodeIds: [] },
+            runtimeSpans: [],
+          },
+  } as MessageEvent);
+
+it("gives each worker one parse at a time and drops screens the canvas stopped wanting", async () => {
+  const warmer = await loadWarmer();
+  const screens = Array.from(
+    { length: FakeWorker.instances.length + 8 },
+    (_, index) => `<p>${index}</p>`,
+  );
+  warmer.wantPreviewParses(screens.slice(0, 6));
+  const pool = FakeWorker.instances;
+  expect(pool.every((worker) => worker.posted.length === 1)).toBe(true);
+  const queued = screens.slice(pool.length, 6);
+  expect(queued.every(warmer.isPreviewParsePending)).toBe(true);
+
+  warmer.wantPreviewParses([screens[7]!]);
+  expect(queued.some(warmer.isPreviewParsePending)).toBe(false);
+
+  reply(pool[0]!, pool[0]!.posted[0]!);
+  expect(pool[0]!.posted[pool[0]!.posted.length - 1]).toMatchObject({
+    content: screens[7],
+  });
+});
+
+it("keeps only a screen's newest queued color count", async () => {
+  const warmer = await loadWarmer();
+  warmer.wantPreviewParses(
+    Array.from({ length: 8 }, (_, index) => `<p>${index}</p>`),
+  );
+  const pool = FakeWorker.instances;
+  const stale = warmer.requestDocumentColorCounts([
+    { id: "screen-1", content: "<p>old</p>" },
+  ]);
+  const fresh = warmer.requestDocumentColorCounts([
+    { id: "screen-1", content: "<p>new</p>" },
+  ]);
+  expect(await stale).toEqual([null]);
+
+  warmer.wantPreviewParses([]);
+  for (const worker of pool) reply(worker, worker.posted[0]!);
+  const colorJobs = pool.flatMap((worker) =>
+    worker.posted.filter((request) => request.kind === "colors"),
+  );
+  expect(colorJobs).toEqual([
+    expect.objectContaining({ fileId: "screen-1", content: "<p>new</p>" }),
+  ]);
+  const owner = pool.find((worker) => worker.posted.includes(colorJobs[0]!))!;
+  reply(owner, colorJobs[0]!);
+  expect(await fresh).toEqual([new Map()]);
+});

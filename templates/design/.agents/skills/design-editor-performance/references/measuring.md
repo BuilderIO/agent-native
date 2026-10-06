@@ -93,7 +93,7 @@ by itself when you want to drive it by hand.
    ```
 
 4. **Retainer paths.** `memlab find-leaks --baseline s1 --target s2 --final
-   s3 --trace-all-objects` lists objects allocated between the first two
+s3 --trace-all-objects` lists objects allocated between the first two
    snapshots that are still alive in the third, grouped by the path that keeps
    them. Without `--trace-all-objects` it reports only detached DOM and
    unmounted React nodes, which a closure-held leak is not. The traced paths

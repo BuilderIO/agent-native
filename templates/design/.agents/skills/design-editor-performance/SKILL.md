@@ -42,9 +42,11 @@ warm count are constants at the top of `MultiScreenCanvas.tsx`.
 - **A screen already seen keeps its preview** (`retainedIds`). Unmounting one
   rebuilds it from blank when the camera returns, which users read as the
   board "rebuilding itself".
-- **Previews are parsed off the main thread before they mount.**
-  `requestPreviewParses` feeds the worker pool and admission waits for its
-  result, a few screens per frame. Don't parse a screen on mount.
+- **Previews are parsed off the main thread before they mount.** The canvas
+  hands the workers the screens it is about to mount with `wantPreviewParses`,
+  which replaces its last list, and admission waits for each result. Workers
+  take one job at a time, so a pan never buries the screens now in view.
+  Don't parse a screen on mount.
 - **In `DesignEditor.tsx`, never capture a heavy value in a hook.** A
   `useCallback` or `useMemo` that closes over a projection, tree, layer model or
   file content pins that render, and every render chained behind it. Take

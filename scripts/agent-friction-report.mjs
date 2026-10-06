@@ -2115,7 +2115,8 @@ if (process.argv.includes("--self-test")) {
   );
   failures.push(
     ...SLOW_EDITOR_RUNTIME_REGEX_CASES.filter(
-      ([expected, message]) => SLOW_EDITOR_RUNTIME_RE.test(message) !== expected,
+      ([expected, message]) =>
+        SLOW_EDITOR_RUNTIME_RE.test(message) !== expected,
     ),
   );
   if (failures.length > 0) {
@@ -2222,7 +2223,8 @@ const PATTERNS = [
   },
   {
     key: "slow-editor-runtime",
-    label: "Reported an editor or canvas that lags, flashes, or uses too much memory",
+    label:
+      "Reported an editor or canvas that lags, flashes, or uses too much memory",
     fixedBy:
       "performance skill client-runtime section + templates/design/.agents/skills/design-editor-performance + design perf budget (2026-10-02)",
     re: SLOW_EDITOR_RUNTIME_RE,

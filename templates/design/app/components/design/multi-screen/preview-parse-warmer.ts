@@ -9,51 +9,97 @@ import type {
 // Building a static preview's srcdoc parses its whole screen, which stalls the
 // page on large screens; workers parse ahead of mount, nearest screens first.
 const MAX_PREVIEW_PARSE_WORKERS = 3;
+type ColorCountsResolve = (counts: Map<string, number> | null) => void;
 let workers: Worker[] | null | undefined;
-let nextWorker = 0;
+// One job per worker: a posted message cannot be withdrawn, so a fast pan
+// would bury the screens now in view behind ones that scrolled away.
+let idleWorkers: Worker[] = [];
 let nextRequestId = 0;
-const pendingContentById = new Map<number, string>();
-const pendingContents = new Set<string>();
-const pendingColorCountsById = new Map<
-  number,
-  (counts: Map<string, number> | null) => void
+let requestedPreviews: string[] = [];
+let wantedPreviews: string[] = [];
+let queuedPreviews = new Set<string>();
+const inFlightPreviews = new Map<number, string>();
+const queuedColorCounts = new Map<
+  string,
+  { content: string; resolve: ColorCountsResolve }
 >();
+const inFlightColorCounts = new Map<number, ColorCountsResolve>();
 const listeners = new Set<() => void>();
 
 function notify() {
   listeners.forEach((listener) => listener());
 }
 
+function isParsed(content: string): boolean {
+  return (
+    createSourceDocumentProvenance.has(content) && runtimeSrcSpans.has(content)
+  );
+}
+
+function isInFlight(content: string): boolean {
+  for (const inFlight of inFlightPreviews.values()) {
+    if (inFlight === content) return true;
+  }
+  return false;
+}
+
 function stopWorkers() {
   workers?.forEach((worker) => worker.terminate());
   workers = null;
-  pendingContentById.clear();
-  pendingContents.clear();
-  pendingColorCountsById.forEach((resolve) => resolve(null));
-  pendingColorCountsById.clear();
+  idleWorkers = [];
+  requestedPreviews = [];
+  wantedPreviews = [];
+  queuedPreviews = new Set();
+  inFlightPreviews.clear();
+  queuedColorCounts.forEach(({ resolve }) => resolve(null));
+  queuedColorCounts.clear();
+  inFlightColorCounts.forEach((resolve) => resolve(null));
+  inFlightColorCounts.clear();
   notify();
 }
 
-function receive(event: MessageEvent<PreviewParseResponse>) {
-  const response = event.data;
-  if (response.kind === "colors") {
-    const resolve = pendingColorCountsById.get(response.id);
-    pendingColorCountsById.delete(response.id);
-    resolve?.(new Map(response.counts));
-    return;
+function nextJob(): PreviewParseRequest | null {
+  while (requestedPreviews.length > 0 || wantedPreviews.length > 0) {
+    const content = requestedPreviews.shift() ?? wantedPreviews.shift()!;
+    if (isParsed(content) || isInFlight(content)) continue;
+    const id = nextRequestId++;
+    inFlightPreviews.set(id, content);
+    return { kind: "preview", id, content };
   }
-  const content = pendingContentById.get(response.id);
-  if (content === undefined) return;
-  pendingContentById.delete(response.id);
-  pendingContents.delete(content);
-  createSourceDocumentProvenance.prime(content, response.provenance);
-  runtimeSrcSpans.prime(content, response.runtimeSpans);
-  notify();
+  const [fileId, job] = queuedColorCounts.entries().next().value ?? [];
+  if (!fileId || !job) return null;
+  queuedColorCounts.delete(fileId);
+  const id = nextRequestId++;
+  inFlightColorCounts.set(id, job.resolve);
+  return { kind: "colors", id, fileId, content: job.content };
 }
 
-function postToPool(pool: Worker[], request: PreviewParseRequest) {
-  pool[nextWorker % pool.length]!.postMessage(request);
-  nextWorker += 1;
+function dispatch() {
+  while (idleWorkers.length > 0) {
+    const job = nextJob();
+    if (!job) break;
+    idleWorkers.shift()!.postMessage(job);
+  }
+  queuedPreviews = new Set([...requestedPreviews, ...wantedPreviews]);
+}
+
+function receive(worker: Worker, event: MessageEvent<PreviewParseResponse>) {
+  const response = event.data;
+  idleWorkers.push(worker);
+  if (response.kind === "colors") {
+    const resolve = inFlightColorCounts.get(response.id);
+    inFlightColorCounts.delete(response.id);
+    resolve?.(new Map(response.counts));
+  } else {
+    const content = inFlightPreviews.get(response.id);
+    inFlightPreviews.delete(response.id);
+    if (content !== undefined) {
+      createSourceDocumentProvenance.prime(content, response.provenance);
+      runtimeSrcSpans.prime(content, response.runtimeSpans);
+    }
+  }
+  dispatch();
+  if (response.kind === "preview") notify();
 }
 
 function previewParseWorkers(): Worker[] | null {
@@ -74,7 +120,7 @@ function previewParseWorkers(): Worker[] | null {
       new URL("./preview-parse.worker.ts", import.meta.url),
       { type: "module" },
     );
-    worker.onmessage = receive;
+    worker.onmessage = (event) => receive(worker, event);
     // Previews then parse on the main thread; nothing may wait on a result
     // that will never arrive.
     worker.onerror = (event) => {
@@ -84,54 +130,59 @@ function previewParseWorkers(): Worker[] | null {
     worker.onmessageerror = stopWorkers;
     return worker;
   });
+  idleWorkers = [...workers];
   return workers;
 }
 
+/** Parses these screens ahead of everything the canvas wants; never dropped. */
 export function requestPreviewParses(contents: readonly string[]): void {
-  const pool = previewParseWorkers();
-  if (!pool) return;
+  if (!previewParseWorkers()) return;
   for (const content of contents) {
-    if (
-      pendingContents.has(content) ||
-      (createSourceDocumentProvenance.has(content) &&
-        runtimeSrcSpans.has(content))
-    ) {
-      continue;
-    }
-    const id = nextRequestId;
-    nextRequestId += 1;
-    pendingContentById.set(id, content);
-    pendingContents.add(content);
-    postToPool(pool, { kind: "preview", id, content });
+    if (isParsed(content) || isPreviewParsePending(content)) continue;
+    requestedPreviews.push(content);
   }
+  dispatch();
 }
 
-/** Each content's document color counts, or null where no worker answered. */
+/**
+ * The screens the canvas is about to mount, nearest first. Replaces the last
+ * list, so a queued screen that is no longer wanted is never parsed.
+ */
+export function wantPreviewParses(contents: readonly string[]): void {
+  if (!previewParseWorkers()) return;
+  wantedPreviews = [...new Set(contents)].filter(
+    (content) =>
+      !isParsed(content) &&
+      !isInFlight(content) &&
+      !requestedPreviews.includes(content),
+  );
+  dispatch();
+}
+
+/**
+ * Each content's document color counts, or null where no worker answered. A
+ * newer request for the same screen answers a still-queued older one with null.
+ */
 export function requestDocumentColorCounts(
   files: readonly { id: string; content: string }[],
 ): Promise<(Map<string, number> | null)[]> {
-  const pool = previewParseWorkers();
-  if (!pool) return Promise.resolve(files.map(() => null));
-  return Promise.all(
+  if (!previewParseWorkers()) return Promise.resolve(files.map(() => null));
+  const counted = Promise.all(
     files.map(
       (file) =>
         new Promise<Map<string, number> | null>((resolve) => {
-          const id = nextRequestId;
-          nextRequestId += 1;
-          pendingColorCountsById.set(id, resolve);
-          postToPool(pool, {
-            kind: "colors",
-            id,
-            fileId: file.id,
-            content: file.content,
-          });
+          queuedColorCounts.get(file.id)?.resolve(null);
+          queuedColorCounts.delete(file.id);
+          queuedColorCounts.set(file.id, { content: file.content, resolve });
         }),
     ),
   );
+  dispatch();
+  return counted;
 }
 
 export function isPreviewParsePending(content: string): boolean {
-  return pendingContents.has(content);
+  return queuedPreviews.has(content) || isInFlight(content);
 }
 
 export function subscribePreviewParses(listener: () => void): () => void {

@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OVERVIEW_LIVE_SCREEN_BUDGET } from "./multi-screen/culling";
-import { requestPreviewParses } from "./multi-screen/preview-parse-warmer";
+import { wantPreviewParses } from "./multi-screen/preview-parse-warmer";
 import { MultiScreenCanvas } from "./MultiScreenCanvas";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -16,7 +16,7 @@ vi.mock("./multi-screen/preview-parse-warmer", async (importOriginal) => {
     await importOriginal<
       typeof import("./multi-screen/preview-parse-warmer")
     >();
-  return { ...actual, requestPreviewParses: vi.fn() };
+  return { ...actual, wantPreviewParses: vi.fn() };
 });
 
 (
@@ -89,9 +89,7 @@ describe("MultiScreenCanvas preview warming", () => {
     });
 
     const requested = new Set(
-      vi
-        .mocked(requestPreviewParses)
-        .mock.calls.flatMap(([contents]) => contents),
+      vi.mocked(wantPreviewParses).mock.calls.flatMap(([contents]) => contents),
     );
     // The camera opens on the middle of the board.
     expect(requested).toContain(screens[screens.length / 2]!.content);

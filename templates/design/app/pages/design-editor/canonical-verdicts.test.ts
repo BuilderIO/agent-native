@@ -60,3 +60,24 @@ it("gives different content of the same length a different key", async () => {
   expect(canonicalContentKey("abcd")).toBe(canonicalContentKey("abcd"));
   expect(canonicalContentKey("abcd")).not.toBe(canonicalContentKey("abce"));
 });
+
+it("holds only the newest unsaved content per screen until the idle flush", async () => {
+  const idle: Array<() => void> = [];
+  vi.stubGlobal("requestIdleCallback", (callback: () => void) => {
+    idle.push(callback);
+    return 0;
+  });
+  vi.resetModules();
+  const verdicts = await import("./canonical-verdicts");
+
+  for (const version of ["one", "two", "three"]) {
+    verdicts.rememberCanonical("screen-1", `<html>${version}</html>`);
+  }
+  expect(verdicts._pendingCanonicalCountForTests()).toBe(1);
+
+  idle.forEach((flush) => flush());
+  expect(verdicts.isKnownCanonical("screen-1", "<html>three</html>")).toBe(
+    true,
+  );
+  expect(verdicts.isKnownCanonical("screen-1", "<html>two</html>")).toBe(false);
+});

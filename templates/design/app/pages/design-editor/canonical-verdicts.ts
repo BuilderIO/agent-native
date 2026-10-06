@@ -2,7 +2,9 @@ const STORAGE_KEY = "agent-native:design:canonical-node-ids";
 const MAX_REMEMBERED_FILES = 2_000;
 
 let verdicts: Map<string, string> | undefined;
-let pending: { fileId: string; content: string }[] = [];
+// Keyed by screen: an older version needs no verdict, and queuing it would
+// keep that whole document alive until the idle flush.
+let pending = new Map<string, string>();
 
 // The key stands in for the content, so a collision would skip a check that a
 // changed screen needs: two independent FNV-1a lanes plus the length.
@@ -49,11 +51,11 @@ export function isKnownCanonical(fileId: string, content: string): boolean {
 
 function flushPending() {
   const remembered = storedVerdicts();
-  for (const { fileId, content } of pending) {
+  for (const [fileId, content] of pending) {
     remembered.delete(fileId);
     remembered.set(fileId, canonicalContentKey(content));
   }
-  pending = [];
+  pending = new Map();
   for (const fileId of remembered.keys()) {
     if (remembered.size <= MAX_REMEMBERED_FILES) break;
     remembered.delete(fileId);
@@ -67,11 +69,17 @@ function flushPending() {
 
 /** Records a canonical verdict while idle, so hashing stays off the load path. */
 export function rememberCanonical(fileId: string, content: string): void {
-  pending.push({ fileId, content });
-  if (pending.length > 1) return;
+  const flushScheduled = pending.size > 0;
+  pending.delete(fileId);
+  pending.set(fileId, content);
+  if (flushScheduled) return;
   if (typeof requestIdleCallback === "function") {
     requestIdleCallback(flushPending, { timeout: 10_000 });
   } else {
     setTimeout(flushPending, 0);
   }
+}
+
+export function _pendingCanonicalCountForTests(): number {
+  return pending.size;
 }

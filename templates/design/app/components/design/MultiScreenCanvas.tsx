@@ -151,7 +151,7 @@ import {
 import { sendLinkedScreenPreviewCancelPendingDelete } from "./multi-screen/linked-screen-preview";
 import {
   isPreviewParsePending,
-  requestPreviewParses,
+  wantPreviewParses,
   subscribePreviewParses,
 } from "./multi-screen/preview-parse-warmer";
 import type {
@@ -10837,7 +10837,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     );
     // Only screens about to mount: the parse caches are bounded, so warming the
     // whole board evicts earlier results and re-parses them on every camera move.
-    requestPreviewParses(
+    wantPreviewParses(
       iframeAdmissionOrder.flatMap((id) => inlineContentById.get(id) ?? []),
     );
   }, [canvasFrames, iframeAdmissionOrder]);
