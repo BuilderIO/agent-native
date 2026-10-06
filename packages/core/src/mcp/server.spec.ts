@@ -1902,7 +1902,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(wrongAudience).toMatchObject({ error: "Unauthorized" });
   });
 
-  it("does not mint an embed ticket for a read-only directory widget link", async () => {
+  it("mints a directory widget ticket scoped to its read-only actions", async () => {
     const readArtifact = defineAction({
       description: "Read one workspace document.",
       parameters: {},
@@ -1926,13 +1926,41 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         view: "editor",
       }),
     });
+    const listDocuments = defineAction({
+      description: "List workspace documents.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => [],
+    });
+    const unlistedRead = defineAction({
+      description: "Read a private workspace index.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => [],
+    });
     const directoryConfig = {
       ...config,
       catalogMode: "directory" as const,
-      connectorCatalog: ["get-document"],
-      directoryProfile: { connectorCatalog: ["get-document"] },
+      connectorCatalog: ["get-document", "list-documents"],
+      directoryProfile: {
+        connectorCatalog: ["get-document", "list-documents"],
+      },
       widgetDomain: "https://mail.agent-native.com",
-      actions: { "get-document": readArtifact },
+      actions: {
+        "get-document": readArtifact,
+        "list-documents": listDocuments,
+        "private-index": unlistedRead,
+      },
     };
     const headers = await mcpAppsAuthHeaders({
       scope: "mcp:read mcp:apps",
@@ -1954,8 +1982,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(called.result.isError).not.toBe(true);
-    expect(called.result._meta).not.toHaveProperty("agent-native/embedStart");
-    expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    expect(called.result._meta["agent-native/embedStart"]).toMatchObject({
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-picker-ticket&__an_mcp_chat_bridge=1",
+      expiresAt: 1735689600000,
+    });
+    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledWith({
+      ownerEmail: "oauth@example.com",
+      orgId: undefined,
+      targetPath: "/documents/doc-1?__an_mcp_chat_bridge=1",
+      scope: "capability:mcp-directory-widget-read:get-document,list-documents",
+    });
   });
 
   it("handles `initialize` without a 501", async () => {

@@ -57,7 +57,10 @@ import {
   agentNativeToolTitle,
 } from "../shared/agent-mcp-metadata.js";
 import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
-import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  createMcpDirectoryWidgetReadCapability,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   type McpAnalyticsContext,
   describeMcpError,
@@ -957,27 +960,35 @@ async function withServerMintedMcpAppEmbedStart(
   result: unknown,
   meta: MCPRequestMeta | undefined,
   directoryLinkUrl?: string,
-  suppressDirectoryReadOnlyEmbed = false,
+  directoryReadOnlyActionNames?: readonly string[],
 ): Promise<unknown> {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return result;
   }
 
   const out = result as Record<string, unknown>;
-  if (suppressDirectoryReadOnlyEmbed) {
-    const resultWithoutEmbedSession = { ...out };
-    delete resultWithoutEmbedSession.embedStartUrl;
-    delete resultWithoutEmbedSession.embedTargetPath;
-    delete resultWithoutEmbedSession.embedExpiresAt;
-    return resultWithoutEmbedSession;
+  const restrictDirectoryWidgetRead =
+    directoryReadOnlyActionNames !== undefined;
+  const resultWithoutExistingEmbedTicket = { ...out };
+  if (restrictDirectoryWidgetRead) {
+    delete resultWithoutExistingEmbedTicket.embedStartUrl;
+    delete resultWithoutExistingEmbedTicket.embedTargetPath;
+    delete resultWithoutExistingEmbedTicket.embedExpiresAt;
   }
   if (out.embed === false || (out.embed !== true && !directoryLinkUrl)) {
-    return result;
+    return restrictDirectoryWidgetRead
+      ? resultWithoutExistingEmbedTicket
+      : result;
   }
-  if (typeof out.embedStartUrl === "string" && out.embedStartUrl.trim()) {
+  if (
+    !restrictDirectoryWidgetRead &&
+    typeof out.embedStartUrl === "string" &&
+    out.embedStartUrl.trim()
+  ) {
     return result;
   }
   if (
+    !restrictDirectoryWidgetRead &&
     typeof out.url === "string" &&
     out.url.trim() &&
     isEmbedStartUrl(out.url)
@@ -985,25 +996,48 @@ async function withServerMintedMcpAppEmbedStart(
     return result;
   }
 
-  const candidates =
-    out.embed === true
+  const candidates = restrictDirectoryWidgetRead
+    ? [
+        out.embedTargetPath,
+        out.url,
+        out.path,
+        out.deepLinkUrl,
+        directoryLinkUrl,
+      ]
+    : out.embed === true
       ? [out.url, out.path, out.deepLinkUrl, directoryLinkUrl]
       : [directoryLinkUrl];
-  const candidate = candidates.find(
-    (value): value is string =>
-      typeof value === "string" && value.trim().length > 0,
-  );
-  if (!candidate) return result;
+  const candidate = candidates.find((value): value is string => {
+    if (typeof value !== "string" || value.trim().length === 0) return false;
+    return !restrictDirectoryWidgetRead || !isEmbedStartUrl(value);
+  });
+  if (!candidate) {
+    return restrictDirectoryWidgetRead
+      ? resultWithoutExistingEmbedTicket
+      : result;
+  }
 
   const trimmed = candidate.trim();
   const isPath = trimmed.startsWith("/") && !trimmed.startsWith("//");
   const isAbsoluteHttp = /^https?:\/\//i.test(trimmed);
-  if (!isPath && !isAbsoluteHttp) return result;
-  if (isAbsoluteHttp && !meta?.origin) return result;
+  if (!isPath && !isAbsoluteHttp) {
+    return restrictDirectoryWidgetRead
+      ? resultWithoutExistingEmbedTicket
+      : result;
+  }
+  if (isAbsoluteHttp && !meta?.origin) {
+    return restrictDirectoryWidgetRead
+      ? resultWithoutExistingEmbedTicket
+      : result;
+  }
 
   const ctx = getRequestContext();
   const ownerEmail = ctx?.userEmail?.trim();
-  if (!ownerEmail) return result;
+  if (!ownerEmail) {
+    return restrictDirectoryWidgetRead
+      ? resultWithoutExistingEmbedTicket
+      : result;
+  }
 
   const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
     await import("../server/embed-session.js");
@@ -1012,13 +1046,28 @@ async function withServerMintedMcpAppEmbedStart(
     withMcpChatBridgeParam(trimmed),
     meta?.origin,
   );
-  if (!targetPath) return result;
+  if (!targetPath) {
+    return restrictDirectoryWidgetRead
+      ? resultWithoutExistingEmbedTicket
+      : result;
+  }
+
+  const scope = restrictDirectoryWidgetRead
+    ? createMcpDirectoryWidgetReadCapability(directoryReadOnlyActionNames)
+    : typeof out.chrome === "string"
+      ? out.chrome
+      : null;
+  if (restrictDirectoryWidgetRead && !scope) {
+    throw new Error(
+      "Could not create a valid read-only capability for this MCP directory widget.",
+    );
+  }
 
   const ticket = await createEmbedSessionTicket({
     ownerEmail,
     orgId: ctx?.orgId,
     targetPath,
-    scope: typeof out.chrome === "string" ? out.chrome : null,
+    scope,
   });
   const startPath = buildEmbedStartPath(ticket.ticket);
   const embedStartUrl = meta?.origin
@@ -1026,7 +1075,7 @@ async function withServerMintedMcpAppEmbedStart(
     : startPath;
 
   return {
-    ...out,
+    ...(restrictDirectoryWidgetRead ? resultWithoutExistingEmbedTicket : out),
     embedStartUrl,
     embedTargetPath: targetPath,
     embedExpiresAt: ticket.expiresAt,
@@ -2467,7 +2516,14 @@ export async function createMCPServerForRequest(
                 projectedRawResult,
                 requestMeta,
                 directoryLinkUrl,
-                directoryCatalog && entry.readOnly === true,
+                directoryCatalog && entry.readOnly === true
+                  ? Object.entries(advertisedActions)
+                      .filter(
+                        ([, advertisedEntry]) =>
+                          advertisedEntry.readOnly === true,
+                      )
+                      .map(([advertisedName]) => advertisedName)
+                  : undefined,
               )
             : projectedRawResult;
           const {

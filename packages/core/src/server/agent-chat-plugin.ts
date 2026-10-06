@@ -3443,6 +3443,7 @@ export function createAgentChatPlugin(
         }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
+          getOwnerContextFromEvent: resolveOwnerContext,
           getAuthUserIdFromEvent: async (event) =>
             (await resolveOwnerContext(event)).authUserId,
           getUserNameFromEvent,
@@ -3450,6 +3451,12 @@ export function createAgentChatPlugin(
           clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
+          mcpDirectoryWidgetReadActionNames:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? mcpOptions.directoryProfile.connectorCatalog.filter(
+                  (name) => httpActions[name]?.readOnly === true,
+                )
+              : undefined,
         });
       }
       // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't

@@ -50,6 +50,8 @@ import {
   EMBED_TARGET_HEADER,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
+  allowsMcpDirectoryWidgetReadAction,
+  isMcpDirectoryWidgetReadCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
   isMcpEmbedCorsOrigin,
@@ -79,6 +81,7 @@ import {
 import {
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
+  type ResolvedEmbedSession,
 } from "./embed-session.js";
 import { readBodyWithSizeLimit } from "./h3-helpers.js";
 import {
@@ -333,6 +336,10 @@ export interface ActionRouteAuthAdapter {
 
 export interface MountActionRoutesOptions {
   clientCompatibilityVersion?: string;
+  mcpDirectoryWidgetReadActionNames?: readonly string[];
+  getOwnerContextFromEvent?: (
+    event: any,
+  ) => AgentRunOwnerContext | Promise<AgentRunOwnerContext>;
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
   getAuthUserIdFromEvent?: (
     event: any,
@@ -527,6 +534,12 @@ async function resolveRequestAuthCapability(
   }
 }
 
+function resolveRequestEmbedSession(
+  event: any,
+): Promise<ResolvedEmbedSession | null> {
+  return resolveEmbedSessionFromRequest(event);
+}
+
 function mountActionRoutesInternal(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
@@ -554,7 +567,11 @@ function mountActionRoutesInternal(
 
     if (
       (entry.requiresAuth === false && !options?.caller) ||
-      (Array.isArray(entry.capabilityScopes) && entry.capabilityScopes.length)
+      (Array.isArray(entry.capabilityScopes) &&
+        entry.capabilityScopes.length) ||
+      (!options?.caller &&
+        entry.readOnly === true &&
+        options?.mcpDirectoryWidgetReadActionNames?.includes(name) === true)
     ) {
       registerAuthPublicPaths([routePath], app);
     }
@@ -635,6 +652,30 @@ function mountActionRoutesInternal(
         let userName: string | undefined;
         let authUserId: string | undefined;
         const authCapability = await resolveRequestAuthCapability(event);
+        const directoryWidgetReadCapability =
+          isMcpDirectoryWidgetReadCapabilityScope(authCapability);
+        const embedSession = directoryWidgetReadCapability
+          ? await resolveRequestEmbedSession(event)
+          : null;
+        const directoryWidgetReadAllowed =
+          directoryWidgetReadCapability &&
+          embedSession !== null &&
+          isFrontendActionRequest(event) &&
+          entry.readOnly === true &&
+          allowsMcpDirectoryWidgetReadAction(authCapability, name);
+        const directoryWidgetReadRoute =
+          options?.mcpDirectoryWidgetReadActionNames?.includes(name) === true;
+        if (directoryWidgetReadCapability && !directoryWidgetReadAllowed) {
+          setResponseStatus(event, 403);
+          return {
+            error:
+              "This widget capability only permits its listed read-only actions.",
+          };
+        }
+        if (directoryWidgetReadAllowed && embedSession) {
+          userEmail = embedSession.email;
+          if (embedSession.orgId == null) markExplicitPersonalOrgScope(event);
+        }
         // An app-supplied auth adapter runs first: it can accept caller
         // identities the framework's getSession chain doesn't understand (e.g.
         // an A2A JWT). A resolved caller is seeded onto the event context so any
@@ -649,10 +690,16 @@ function mountActionRoutesInternal(
         // through, so a live same-origin session cookie can't silently execute
         // the request as the logged-in user.
         let resolvedCaller: ActionRouteResolvedCaller | null = null;
+        let ownerContextResolved = false;
+        let directoryWidgetReadAuthenticatedFallback = false;
         const capabilityAllowed =
           (options?.caller === "webmcp" || isFrontendActionRequest(event)) &&
-          allowsWebMcpCapability(entry, authCapability);
-        if (options?.allowDelegatedCaller !== false) {
+          (allowsWebMcpCapability(entry, authCapability) ||
+            directoryWidgetReadAllowed);
+        if (
+          options?.allowDelegatedCaller !== false &&
+          !directoryWidgetReadAllowed
+        ) {
           let caller: ActionRouteResolvedCaller | null;
           try {
             caller = options?.actionRouteAuth?.resolveCaller
@@ -684,9 +731,43 @@ function mountActionRoutesInternal(
             resolvedCaller = caller;
           }
         }
-        let ownerContextResolved = false;
+        if (
+          directoryWidgetReadRoute &&
+          entry.requiresAuth !== false &&
+          !directoryWidgetReadAllowed
+        ) {
+          if (resolvedCaller?.anonymous) {
+            setResponseStatus(event, 401);
+            return { error: "Unauthorized" };
+          }
+          if (!resolvedCaller) {
+            if (!options?.getOwnerContextFromEvent) {
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+            try {
+              const ownerContext =
+                await options.getOwnerContextFromEvent(event);
+              if (ownerContext.anonymous) {
+                setResponseStatus(event, 401);
+                return { error: "Unauthorized" };
+              }
+              userEmail = ownerContext.owner;
+              userName = ownerContext.name;
+              authUserId = ownerContext.authUserId;
+              ownerContextResolved = true;
+              directoryWidgetReadAuthenticatedFallback = true;
+            } catch (error) {
+              if (!isAuthResolutionFailure(error)) throw error;
+              setResponseStatus(event, 401);
+              return { error: "Unauthorized" };
+            }
+          }
+        }
         if (
           !resolvedCaller &&
+          !ownerContextResolved &&
+          !directoryWidgetReadAllowed &&
           options?.caller === "webmcp" &&
           options?.getOwnerContextFromEvent
         ) {
@@ -724,6 +805,7 @@ function mountActionRoutesInternal(
         if (
           !resolvedCaller &&
           !ownerContextResolved &&
+          !directoryWidgetReadAllowed &&
           options?.getOwnerFromEvent
         ) {
           try {
@@ -746,7 +828,13 @@ function mountActionRoutesInternal(
             }
           }
         }
-        if (userEmail && !resolvedCaller && options?.getAuthUserIdFromEvent) {
+        if (
+          userEmail &&
+          !resolvedCaller &&
+          !directoryWidgetReadAuthenticatedFallback &&
+          !directoryWidgetReadAllowed &&
+          options?.getAuthUserIdFromEvent
+        ) {
           try {
             authUserId = await options.getAuthUserIdFromEvent(event);
           } catch {
@@ -766,7 +854,9 @@ function mountActionRoutesInternal(
         // token caller's actions execute under. Non-adapter callers keep the
         // original resolveOrgId-only behavior.
         let orgId: string | undefined;
-        if (resolvedCaller) {
+        if (directoryWidgetReadAllowed && embedSession) {
+          orgId = normalizeOrgId(embedSession.orgId);
+        } else if (resolvedCaller) {
           orgId = normalizeOrgId(resolvedCaller.orgId);
           if (
             resolvedCaller.orgId !== null &&

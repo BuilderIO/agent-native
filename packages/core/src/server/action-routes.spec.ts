@@ -1521,6 +1521,192 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("limits directory widget embed tickets to their listed read-only actions", async () => {
+    const {
+      allowsMcpDirectoryWidgetReadAction,
+      createMcpDirectoryWidgetReadCapability,
+    } = await import("../shared/embed-auth.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestAuthCapability, getRequestUserEmail } =
+      await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const runRead = vi.fn(async (_args, context) => ({
+      actionUser: context?.userEmail,
+      requestUser: getRequestUserEmail(),
+      orgId: context?.orgId,
+      authCapability: getRequestAuthCapability(),
+    }));
+    const runWrite = vi.fn(async () => ({ ok: true }));
+    const capability = createMcpDirectoryWidgetReadCapability([
+      "list-documents",
+    ])!;
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      orgId: "org-widget",
+      token: "signed-directory-capability",
+      targetPath: "/documents",
+      scope: capability,
+    });
+
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mountActionRoutes(
+      nitroApp,
+      {
+        "list-documents": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run: runRead,
+        } as any,
+        "mutate-document": {
+          http: { method: "POST" },
+          readOnly: false,
+          requiresAuth: true,
+          run: runWrite,
+        } as any,
+        "private-read": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run: vi.fn(async () => ({ ok: true })),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw Object.assign(new Error("Unauthenticated"), {
+            statusCode: 401,
+          });
+        },
+        mcpDirectoryWidgetReadActionNames: ["list-documents"],
+      },
+    );
+
+    expect(
+      allowsMcpDirectoryWidgetReadAction(capability, "list-documents"),
+    ).toBe(true);
+    expect(allowsMcpDirectoryWidgetReadAction(capability, "private-read")).toBe(
+      false,
+    );
+    expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
+      ["/_agent-native/actions/list-documents"],
+      nitroApp,
+    );
+    expect(mockRegisterAuthPublicPaths).not.toHaveBeenCalledWith(
+      ["/_agent-native/actions/private-read"],
+      nitroApp,
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { url: "http://app.test/_agent-native/actions/list-documents" },
+      }),
+    ).resolves.toEqual({
+      actionUser: "ticket-owner@example.com",
+      requestUser: "ticket-owner@example.com",
+      orgId: "org-widget",
+      authCapability: capability,
+    });
+
+    await expect(
+      mounted[1]!.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/mutate-document",
+          json: async () => ({}),
+        },
+      }),
+    ).resolves.toEqual({
+      error:
+        "This widget capability only permits its listed read-only actions.",
+    });
+    await expect(
+      mounted[2]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { url: "http://app.test/_agent-native/actions/private-read" },
+      }),
+    ).resolves.toEqual({
+      error:
+        "This widget capability only permits its listed read-only actions.",
+    });
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        req: { url: "http://app.test/_agent-native/actions/list-documents" },
+      }),
+    ).resolves.toEqual({
+      error:
+        "This widget capability only permits its listed read-only actions.",
+    });
+    expect(runRead).toHaveBeenCalledOnce();
+    expect(runWrite).not.toHaveBeenCalled();
+  });
+
+  it("does not let anonymous owners call directory read routes without a scoped ticket", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({
+      userEmail: context?.userEmail,
+    }));
+    mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
+
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mountActionRoutes(
+      nitroApp,
+      {
+        "list-documents": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "anonymous@example.com",
+        getOwnerContextFromEvent: async (event) => ({
+          owner: event._headers?.["x-test-owner"] ?? "anonymous@example.com",
+          anonymous:
+            event._headers?.["x-test-owner"] !== "signed-in@example.com",
+        }),
+        mcpDirectoryWidgetReadActionNames: ["list-documents"],
+      },
+    );
+
+    const anonymousRequest: any = {
+      _method: "GET",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { url: "http://app.test/_agent-native/actions/list-documents" },
+    };
+    await expect(mounted[0]!.handler(anonymousRequest)).resolves.toEqual({
+      error: "Unauthorized",
+    });
+    expect(anonymousRequest._status).toBe(401);
+    expect(run).not.toHaveBeenCalled();
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: {
+          "x-agent-native-frontend": "1",
+          "x-test-owner": "signed-in@example.com",
+        },
+        req: { url: "http://app.test/_agent-native/actions/list-documents" },
+      }),
+    ).resolves.toEqual({ userEmail: "signed-in@example.com" });
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("rejects a capability request for a different design", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
