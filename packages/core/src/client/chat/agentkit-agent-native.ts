@@ -1895,13 +1895,14 @@ export function createAgentNativeAgentKitTransport(
     const discoveredTurnId =
       typeof activeStatus.turnId === "string" ? activeStatus.turnId : undefined;
     // The stale-run reaper hands an interrupted turn to a successor run, which
-    // then owns the turn's outcome: the server reports it, or it left a reply.
+    // then owns the turn's outcome: the server reports it, or it completed a
+    // reply. A successor that failed or was stopped leaves the failure showing.
     const carriedOnByNewerRun = (runId: string) => {
       const turnId = submittedTurns.get(runId);
       if (!turnId) return false;
       if (discoveredRun && discoveredTurnId === turnId) return true;
       return [...(replyRunsByTurn.get(turnId) ?? [])].some(
-        (id) => id !== runId,
+        (id) => id !== runId && completedRunIds.has(id),
       );
     };
     const runs = (thread.runs ?? [])

@@ -1601,6 +1601,7 @@ describe("createAgentNativeAgentKitTransport", () => {
   function recoveredTurnThread(input: {
     run1: Record<string, unknown>;
     successorReply: boolean;
+    successorFailed?: boolean;
     /** The open page followed run-2 and saved its reply as run-1's own messages. */
     followed?: boolean;
   }) {
@@ -1638,7 +1639,9 @@ describe("createAgentNativeAgentKitTransport", () => {
                   message: {
                     id: "server-run-2",
                     role: "assistant",
-                    status: { type: "complete", reason: "stop" },
+                    status: input.successorFailed
+                      ? { type: "incomplete", reason: "error" }
+                      : { type: "complete", reason: "stop" },
                     content: [{ type: "text", text: "Refund handled." }],
                     metadata: {
                       runId: "run-2",
@@ -1813,6 +1816,32 @@ describe("createAgentNativeAgentKitTransport", () => {
       snapshot?.runs?.find((run) => run.id === "run-1"),
     ).not.toHaveProperty("error");
     expect(snapshot?.activeRunIds).toEqual(["run-2"]);
+    await transport.dispose();
+  });
+
+  it("keeps an interrupted run's failure when the run that carried its turn on failed too", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "idle" })
+          : json(
+              recoveredTurnThread({
+                run1: staleRunFailure,
+                successorReply: true,
+                successorFailed: true,
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    expect(snapshot?.runs?.find((run) => run.id === "run-1")).toMatchObject({
+      status: "failed",
+      error: { code: "stale_run" },
+    });
     await transport.dispose();
   });
 
