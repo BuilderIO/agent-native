@@ -4271,8 +4271,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               ...(crossScreenDragMsgRef.current ?? fallbackPayload).modifiers,
             },
           };
+          const isInPlaceBoardMove =
+            sourceScreenId === boardFileId &&
+            (!candidate || candidate.id === boardFileId) &&
+            payload.duplicate !== true;
           crossScreenEndSeenRef.current = true;
-          crossScreenHostCommittedRef.current = true;
+          crossScreenHostCommittedRef.current = !isInPlaceBoardMove;
           stopParentCrossScreenDrag();
           crossScreenCommittedDropSeqsRef.current.add(dropSeq);
 
@@ -4317,13 +4321,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               dropSeq,
               pathRequestSnapshot,
             );
-            sourcePreviewIframe.contentWindow?.postMessage(
-              {
-                type: "agent-native:cancel-active-drag",
-                pressedAt: releasedAt,
-              },
-              "*",
-            );
+            if (!isInPlaceBoardMove) {
+              sourcePreviewIframe.contentWindow?.postMessage(
+                {
+                  type: "agent-native:cancel-active-drag",
+                  pressedAt: releasedAt,
+                },
+                "*",
+              );
+            }
           };
 
           if (!hostUsesSForIgnoreAutoLayout()) {
