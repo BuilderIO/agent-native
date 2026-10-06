@@ -47,6 +47,7 @@ import {
   isJtiReplayed,
   SSO_STATE_TTL_MS,
 } from "./identity-sso-store.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
@@ -106,7 +107,11 @@ function redirect(event: H3Event, location: string): Response {
   });
   const staged = (event as any).res?.headers?.getSetCookie?.() ?? [];
   for (const cookie of staged) headers.append("set-cookie", cookie);
-  return new Response("", { status: 302, headers });
+  return queryEchoSafeRedirect(
+    event,
+    new Response("", { status: 302, headers }),
+    getOrigin(event),
+  );
 }
 
 function errorPage(message: string, loginPath: string): Response {

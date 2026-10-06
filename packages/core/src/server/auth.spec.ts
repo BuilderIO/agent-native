@@ -8003,6 +8003,57 @@ describe("server/auth", () => {
       );
     });
 
+    it("lands a verified magic link without the sign-in query and keeps a failed one's error", async () => {
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async (request: Request) => {
+            const valid =
+              new URL(request.url).searchParams.get("token") === "valid-token";
+            return new Response(null, {
+              status: 302,
+              headers: {
+                location: valid
+                  ? "http://localhost/page/doc_1"
+                  : "http://localhost/page/doc_1?error=INVALID_TOKEN",
+              },
+            });
+          },
+          api: { getSession: vi.fn(async () => null) },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      const openLink = (token: string) => {
+        const event = createMockEvent({
+          path: "/_agent-native/auth/ba/magic-link/verify",
+          query: { token, callbackURL: "%2Fpage%2Fdoc_1" },
+          headers: { "sec-fetch-mode": "navigate" },
+        });
+        event.req = new Request(event.req.url, { headers: event.headers });
+        return baHandler(event);
+      };
+
+      // Netlify copies the request query onto a 302 whose Location has none,
+      // so a verified link must not answer with a bare 302.
+      const verified = await openLink("valid-token");
+      expect(verified.status).toBe(200);
+      const page = await verified.text();
+      expect(page).toContain('content="0;url=http://localhost/page/doc_1"');
+      expect(page).not.toContain("valid-token");
+
+      const failed = await openLink("used-token");
+      expect(failed.status).toBe(302);
+      expect(failed.headers.get("location")).toBe(
+        "http://localhost/page/doc_1?error=INVALID_TOKEN",
+      );
+    });
+
     it("persists the unsigned session token and framework cookie on magic-link verify", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
