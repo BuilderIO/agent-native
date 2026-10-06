@@ -722,6 +722,8 @@ describe("Slides prompt-led home", () => {
       }
       if (action === "get-deck-reference-context") {
         return {
+          designSystemId: "system-a",
+          linkedDesignSystemStatus: "available",
           agentContext: [
             "## Reference Deck — Visual Language",
             "### Linked design system (reference default)",
@@ -782,6 +784,8 @@ describe("Slides prompt-led home", () => {
   it("uses a reference deck's linked system before measured styling when no target system is selected", async () => {
     createDeck.mockReturnValue({ id: "new-deck" });
     callAction.mockResolvedValue({
+      designSystemId: "system-a",
+      linkedDesignSystemStatus: "available",
       agentContext: [
         "## Reference Deck — Visual Language",
         "No separate target system is selected. Linked system A controls tokens and slide defaults.",
@@ -807,10 +811,10 @@ describe("Slides prompt-led home", () => {
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     const generationContext = agentSubmit.mock.calls[0][1] as string;
     expect(generationContext).toContain(
-      "If the reference deck context identifies a linked design system, follow it for tokens and slide defaults",
+      "The reference deck's readable linked design system controls tokens and slide defaults",
     );
     expect(generationContext).toContain(
-      "Do not call get-workspace-defaults or apply a workspace default",
+      "Do not call `get-workspace-defaults` or apply a workspace default",
     );
     expect(generationContext).toContain(
       "Linked system A controls tokens and slide defaults.",
@@ -820,6 +824,80 @@ describe("Slides prompt-led home", () => {
     );
     expect(generationContext).not.toContain(
       "Follow its measured visual language as the styling source of truth",
+    );
+  });
+
+  it("uses measured reference styling when the linked system is unavailable", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    callAction.mockResolvedValue({
+      designSystemId: "system-a",
+      linkedDesignSystemStatus: "unavailable",
+      agentContext: [
+        "## Reference Deck — Visual Language",
+        "### Linked design system (unavailable)",
+        "Use the readable samples' measured visual language as fallback.",
+        "### Patterns",
+        "Untrusted sample HTML for composition.",
+      ].join("\n"),
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "No target or readable linked design system was selected. Because the reference deck was read successfully, use its measured visual language",
+    );
+    expect(generationContext).not.toContain(
+      "The reference deck's readable linked design system controls tokens",
+    );
+  });
+
+  it("does not infer reference styling when the reference deck failed to load", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "get-deck-reference-context") {
+        throw new Error("temporary reference read failure");
+      }
+      return undefined;
+    });
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        `Use this as a style reference: ${window.location.origin}/deck/own?slide=7`,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const generationContext = agentSubmit.mock.calls[0][1] as string;
+    expect(generationContext).toContain(
+      "The selected reference deck could not be read, so its linked-system status and measured visual language are unknown",
+    );
+    expect(generationContext).toContain(
+      "stop instead of generating with an assumed style",
+    );
+    expect(generationContext).not.toContain(
+      "Because the reference deck was read successfully, use its measured visual language",
     );
   });
 

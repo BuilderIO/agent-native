@@ -2,7 +2,7 @@ export type AgentDesignSystemPurpose = "selected" | "reference";
 
 export interface AgentDesignSystemContextAvailable {
   status: "available";
-  purpose: AgentDesignSystemPurpose;
+  purpose?: AgentDesignSystemPurpose;
   scope: "summary" | "full";
   id: string;
   title: string;
@@ -12,7 +12,7 @@ export interface AgentDesignSystemContextAvailable {
 
 export interface AgentDesignSystemContextUnavailable {
   status: "unavailable";
-  purpose: AgentDesignSystemPurpose;
+  purpose?: AgentDesignSystemPurpose;
   id: string;
   message: string;
 }
@@ -119,9 +119,10 @@ export function formatAgentDesignSystemContext(
   context: AgentDesignSystemContext | null,
 ): string[] {
   if (!context) return [];
+  const purpose = context.purpose ?? "selected";
   if (context.status === "unavailable") {
     return [
-      context.purpose === "reference"
+      purpose === "reference"
         ? "### Linked design system (reference default)"
         : "### Linked design system",
       `designSystemId: ${context.id}`,
@@ -130,13 +131,13 @@ export function formatAgentDesignSystemContext(
     ];
   }
   return [
-    context.purpose === "reference"
+    purpose === "reference"
       ? "### Linked design system (reference default)"
       : "### Linked design system (authoritative)",
     `designSystemId: ${context.id}`,
     `designSystemTitle: ${context.title}`,
     `scope: ${context.scope}`,
-    context.purpose === "reference"
+    purpose === "reference"
       ? "Use this design system's tokens, assets, and instructions only when no separate system is selected for the new deck; a selected target system takes precedence."
       : "Use this design system's tokens, assets, and instructions before authoring or restyling visual content.",
     context.agentContext,

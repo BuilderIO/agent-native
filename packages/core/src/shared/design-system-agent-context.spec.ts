@@ -6,6 +6,24 @@ import {
 } from "./design-system-agent-context.js";
 
 describe("agent design-system context", () => {
+  it("defaults an omitted purpose to selected for existing consumers", () => {
+    const available = formatAgentDesignSystemContext({
+      status: "available",
+      scope: "summary",
+      id: "ds-legacy",
+      title: "Legacy",
+      agentContext: "Legacy tokens.",
+    });
+    const unavailable = formatAgentDesignSystemContext({
+      status: "unavailable",
+      id: "ds-legacy",
+      message: "The design system is unavailable.",
+    });
+
+    expect(available[0]).toBe("### Linked design system (authoritative)");
+    expect(unavailable[0]).toBe("### Linked design system");
+  });
+
   it("reads the bounded summary by default, calling run once with compact true", async () => {
     const run = vi.fn(async () => ({
       title: "Acme",
