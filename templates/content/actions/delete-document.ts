@@ -16,6 +16,16 @@ import {
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
+import { setupError } from "./_database-setup-mutation.js";
+import {
+  assertPageLifecycleTarget,
+  claimDocumentLifecycleIntent,
+  finishDocumentLifecycleIntent,
+  lockLifecycleDocument,
+  parseDocumentLifecycleInput,
+  refreshAfterDocumentLifecycle,
+  usesDocumentLifecycleProtocol,
+} from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 
 const DELETE_BATCH_SIZE = 90;
@@ -1153,10 +1163,25 @@ export async function deleteTrashedDocumentSubtree(
   );
 }
 
-export default defineAction({
-  description:
-    "Move a document and all its children to Trash. Use permanently-delete-document to destroy an item already in Trash.",
-  schema: z.object({
+const guardedTrashSchema = z
+  .object({
+    id: z.string().min(1).describe("Page ID to move to Trash"),
+    expectedUpdatedAt: z
+      .string()
+      .min(1)
+      .describe(
+        "The page's exact updatedAt from your latest get-document, list-documents, search-documents, or view-screen read",
+      ),
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Unique intent key; reuse unchanged after a lost response"),
+  })
+  .strict();
+
+const legacyTrashSchema = z
+  .object({
     id: z.string().optional().describe("Document ID (required)"),
     databaseDocumentId: z
       .string()
@@ -1168,8 +1193,83 @@ export default defineAction({
       .describe(
         "Currently open document, used only to return an explicit navigation outcome.",
       ),
-  }),
-  run: async (args, ctx) => {
+  })
+  .strict();
+
+async function trashDocumentWithReceipt(
+  input: z.infer<typeof guardedTrashSchema>,
+  origin: string | undefined,
+) {
+  const access = await assertDocumentMutationAccess(input.id, "admin", "id");
+  const ownerEmail = access.resource.ownerEmail as string;
+  const result = await getDb().transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    const lockedDatabaseIds = await lockDatabasesForTrash(
+      tx,
+      input.id,
+      ownerEmail,
+    );
+    const before = await lockLifecycleDocument(tx, input.id, ownerEmail);
+    const { claim, replay } = await claimDocumentLifecycleIntent(
+      tx,
+      "delete-document",
+      input.id,
+      input.idempotencyKey,
+      input,
+    );
+    if (replay) return replay;
+    await assertPageLifecycleTarget(tx, input.id, "delete-document");
+    if (before.trashedAt)
+      return finishDocumentLifecycleIntent(tx, claim, "unchanged", before, []);
+    if (before.updatedAt !== input.expectedUpdatedAt)
+      setupError(
+        "DOCUMENT_REVISION_CONFLICT",
+        "The page changed after you read it. Read it again, confirm it should still be trashed, and retry with its current updatedAt.",
+      );
+    const affected = await trashDocumentSubtree(
+      tx,
+      input.id,
+      ownerEmail,
+      undefined,
+      lockedDatabaseIds,
+      origin,
+    );
+    const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
+    if (!after.trashedAt || after.trashRootId !== input.id)
+      setupError(
+        "READBACK_UNAVAILABLE",
+        "The page could not be verified in Trash, so the change was rolled back.",
+      );
+    return finishDocumentLifecycleIntent(tx, claim, "trashed", after, affected);
+  });
+  await refreshAfterDocumentLifecycle(result.receipt);
+  return { success: true, ...result.value, receipt: result.receipt };
+}
+
+export default defineAction({
+  description:
+    "Move one page and all its sub-pages to recoverable Trash, guarded by the page's exact updatedAt and an idempotency key. Returns a receipt with the affected page ids and the Trash root to restore. Collections use delete-content-database.",
+  mcpTool: true,
+  mcpApp: { structuredContent: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  agentInputSchema: guardedTrashSchema,
+  schema: z.union([guardedTrashSchema, legacyTrashSchema]),
+  run: async (input, ctx) => {
+    if (usesDocumentLifecycleProtocol(input, ctx))
+      return trashDocumentWithReceipt(
+        parseDocumentLifecycleInput(
+          guardedTrashSchema,
+          input,
+          "Agent page deletes require id, the page's exact updatedAt as expectedUpdatedAt, and idempotencyKey.",
+        ),
+        ctx?.caller,
+      );
+    const args = input as z.infer<typeof legacyTrashSchema>;
     const id = args.id;
     if (!id) throw new Error("--id is required");
 

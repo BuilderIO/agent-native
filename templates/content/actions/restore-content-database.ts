@@ -47,6 +47,12 @@ export default defineAction({
     "Restore one exact ordinary collection from recoverable Trash using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   agentInputSchema: setupLifecycleSchema,
   schema: z.union([
     setupLifecycleSchema,
