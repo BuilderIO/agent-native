@@ -3049,6 +3049,9 @@ export function TiptapComposer({
   const draftScopeGenerationRef = useRef(0);
   const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
   const attachmentAddQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const attachmentSubmissionBarrierRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
   const submittingAttachmentIdsRef = useRef(new Set<string>());
   const pendingAttachmentAddsRef = useRef(
     new Map<number, Set<Promise<void>>>(),
@@ -3075,7 +3078,9 @@ export function TiptapComposer({
   const addAttachmentForCurrentScope = useCallback(
     async (file: File) => {
       const scopeGeneration = draftScopeGenerationRef.current;
+      const submissionBarrier = attachmentSubmissionBarrierRef.current;
       const reservation = attachmentAddQueueRef.current.then(async () => {
+        await submissionBarrier;
         const priorScopeAdds = [...pendingAttachmentAddsRef.current]
           .filter(([generation]) => generation !== scopeGeneration)
           .flatMap(([, additions]) => [...additions]);
@@ -4866,12 +4871,117 @@ export function TiptapComposer({
       if (currentOnSubmit) {
         if (submitInFlightRef.current) return false;
         const submittedAttachments = [...attachments];
+        const submittedScopeGeneration = draftScopeGenerationRef.current;
         submittingAttachmentIdsRef.current = new Set(
           submittedAttachments.map((attachment) => attachment.id),
         );
         submitInFlightRef.current = true;
         let locallySubmitted = false;
         let settled = false;
+        let submittedAttachmentCleanup = Promise.resolve();
+        const clearSubmittedAttachmentIds = () => {
+          submittingAttachmentIdsRef.current = new Set();
+        };
+        const reconcileFailedSubmissionAttachments = async () => {
+          let releaseBarrier!: () => void;
+          const submissionBarrier = new Promise<void>((resolve) => {
+            releaseBarrier = resolve;
+          });
+          attachmentSubmissionBarrierRef.current = submissionBarrier;
+          const pendingAddQueue = attachmentAddQueueRef.current;
+          try {
+            await pendingAddQueue;
+            await Promise.all([
+              ...(pendingAttachmentAddsRef.current.get(
+                submittedScopeGeneration,
+              ) ?? []),
+            ]);
+            if (
+              !mountedRef.current ||
+              !isCurrentDraftScope() ||
+              draftScopeGenerationRef.current !== submittedScopeGeneration
+            )
+              return;
+
+            const submittedFileInputs = submittedAttachments.flatMap(
+              (attachment) =>
+                isBlob(attachment.file)
+                  ? [
+                      {
+                        file: attachment.file,
+                        name: attachment.name,
+                        contentType: normalizeAttachmentContentType(
+                          attachment.contentType,
+                        ),
+                      },
+                    ]
+                  : [],
+            );
+            const comparisonBudget = {
+              remainingBytes: MAX_ATTACHMENT_COMPARISON_BYTES,
+              remainingComparisons: MAX_ATTACHMENT_COMPARISONS,
+            };
+            let cleanupFailed = false;
+            let cleanupError: unknown;
+            for (const attachment of composerRuntime.getState().attachments) {
+              if (
+                submittingAttachmentIdsRef.current.has(attachment.id) ||
+                !isBlob(attachment.file)
+              )
+                continue;
+              const candidate = {
+                file: attachment.file,
+                name: attachment.name,
+                contentType: normalizeAttachmentContentType(
+                  attachment.contentType,
+                ),
+              };
+              let duplicatesSubmittedAttachment = false;
+              for (const submittedFile of submittedFileInputs) {
+                if (comparisonBudget.remainingComparisons === 0) break;
+                if (
+                  await haveSameAttachmentInput(
+                    candidate,
+                    submittedFile,
+                    comparisonBudget,
+                  )
+                ) {
+                  duplicatesSubmittedAttachment = true;
+                  break;
+                }
+              }
+              if (!duplicatesSubmittedAttachment) continue;
+              try {
+                const index = composerRuntime
+                  .getState()
+                  .attachments.findIndex((item) => item.id === attachment.id);
+                if (index >= 0) {
+                  await composerRuntime.getAttachmentByIndex(index).remove();
+                }
+              } catch (error) {
+                cleanupFailed = true;
+                cleanupError ??= error;
+              }
+            }
+            if (cleanupFailed) throw cleanupError;
+          } catch (error) {
+            if (mountedRef.current && isCurrentDraftScope()) {
+              onAttachmentErrorRef.current?.(
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+            console.error(
+              "Could not reconcile submitted composer attachments",
+              error,
+            );
+          } finally {
+            clearSubmittedAttachmentIds();
+            if (attachmentSubmissionBarrierRef.current === submissionBarrier) {
+              attachmentSubmissionBarrierRef.current = Promise.resolve();
+            }
+            releaseBarrier();
+          }
+        };
         onSubmissionPendingChange?.(true);
         const clearSubmittedComposer = () => {
           if (clearOnSubmit) {
@@ -4879,21 +4989,37 @@ export function TiptapComposer({
           }
           if (!mountedRef.current || !isCurrentDraftScope()) return;
           // Remove by captured identity; later uploads belong to the next draft.
-          void Promise.all(
-            attachments.map(async (attachment) => {
-              const index = composerRuntime
-                .getState()
-                .attachments.findIndex((item) => item.id === attachment.id);
-              return index < 0
-                ? undefined
-                : composerRuntime.getAttachmentByIndex(index).remove();
-            }),
-          ).catch((error) => {
-            if (mountedRef.current && isCurrentDraftScope()) {
-              onAttachmentErrorRef.current?.(error);
+          attachmentCleanupPendingRef.current += 1;
+          const cleanup = attachmentCleanupRef.current.then(async () => {
+            const results = await Promise.allSettled(
+              submittedAttachments.map(async (attachment) => {
+                const index = composerRuntime
+                  .getState()
+                  .attachments.findIndex((item) => item.id === attachment.id);
+                return index < 0
+                  ? undefined
+                  : composerRuntime.getAttachmentByIndex(index).remove();
+              }),
+            );
+            const failedRemoval = results.find(
+              (result) => result.status === "rejected",
+            );
+            if (failedRemoval?.status === "rejected") {
+              throw failedRemoval.reason;
             }
-            console.error("Could not clear submitted attachments", error);
           });
+          submittedAttachmentCleanup = cleanup
+            .catch((error) => {
+              if (mountedRef.current && isCurrentDraftScope()) {
+                onAttachmentErrorRef.current?.(
+                  error instanceof Error ? error.message : String(error),
+                );
+              }
+              console.error("Could not clear submitted attachments", error);
+            })
+            .finally(() => {
+              attachmentCleanupPendingRef.current -= 1;
+            });
           if (!isComposerEditorUsable(ed)) return;
           if (!clearOnSubmit) {
             closePopover();
@@ -4952,6 +5078,8 @@ export function TiptapComposer({
         } catch (error) {
           if (locallySubmitted) {
             restoreSubmittedDraft(true);
+            await submittedAttachmentCleanup;
+            clearSubmittedAttachmentIds();
             return true;
           }
           restoreSubmittedDraft(true);
@@ -4965,16 +5093,18 @@ export function TiptapComposer({
               ),
             );
           }
+          await reconcileFailedSubmissionAttachments();
           return false;
         } finally {
           settled = true;
-          submittingAttachmentIdsRef.current = new Set();
           submitInFlightRef.current = false;
           onSubmissionPendingChange?.(false);
         }
 
         if (!isCurrentDraftScope()) {
           clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
+          if (locallySubmitted) await submittedAttachmentCleanup;
+          clearSubmittedAttachmentIds();
           return true;
         }
         if (!locallySubmitted) {
@@ -4989,14 +5119,6 @@ export function TiptapComposer({
                 if (index === -1) continue;
                 await composerRuntime.getAttachmentByIndex(index).remove();
               }
-            },
-          );
-          attachmentCleanupRef.current = clearSubmittedAttachments.catch(
-            (error) => {
-              console.error(
-                "Could not clear submitted composer attachments",
-                error,
-              );
             },
           );
           if (clearOnSubmit && !clearOnSubmitImmediately) {
@@ -5031,8 +5153,11 @@ export function TiptapComposer({
             return true;
           } finally {
             attachmentCleanupPendingRef.current -= 1;
+            clearSubmittedAttachmentIds();
           }
         }
+        await submittedAttachmentCleanup;
+        clearSubmittedAttachmentIds();
         if (!clearOnSubmit) {
           closePopover();
           return true;

@@ -969,6 +969,142 @@ describe("createTiptapComposerExtensions", () => {
     );
   });
 
+  it("waits for submitted attachment removal before accepting a same-file follow-up", async () => {
+    let resolveSubmit!: () => void;
+    const submission = new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    let resolveRemoval!: () => void;
+    const removal = new Promise<void>((resolve) => {
+      resolveRemoval = resolve;
+    });
+    let resolveSubmissionSettled!: () => void;
+    const submissionSettled = new Promise<void>((resolve) => {
+      resolveSubmissionSettled = resolve;
+    });
+    let submissionStarted = false;
+    let nextAttachmentId = 0;
+    const removeAttachment = vi.fn(() => removal);
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: `${file.name}-${++nextAttachmentId}`,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn<NonNullable<TiptapComposerProps["onSubmit"]>>(
+      (_text, _references, _attachments, options) => {
+        submissionStarted = true;
+        options?.onLocalSubmit?.();
+        return submission;
+      },
+    );
+    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      localRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            onSubmissionPendingChange: (pending) => {
+              if (!pending && submissionStarted) resolveSubmissionSettled();
+            },
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("send this once"));
+    const fileInput =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const selectFile = async () => {
+      const file = new File(["same file"], "same.pdf", {
+        type: "application/pdf",
+      });
+      Object.defineProperty(fileInput, "files", {
+        configurable: true,
+        value: [file],
+      });
+      await act(async () => {
+        fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      return file;
+    };
+    await selectFile();
+
+    try {
+      const editor = container.querySelector(
+        ".agent-composer-prosemirror",
+      ) as HTMLElement;
+      await act(async () => {
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "Enter",
+          }),
+        );
+        await vi.waitFor(() => {
+          expect(onSubmit).toHaveBeenCalledOnce();
+          expect(removeAttachment).toHaveBeenCalledOnce();
+        });
+      });
+
+      resolveSubmit();
+      await act(async () => {
+        await submission;
+        await submissionSettled;
+      });
+      const followUpFile = await selectFile();
+      expect(localRuntime!.thread.composer.getState().attachments).toHaveLength(
+        2,
+      );
+      resolveRemoval();
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(
+            localRuntime!.thread.composer.getState().attachments,
+          ).toHaveLength(1),
+        );
+      });
+
+      expect(localRuntime!.thread.composer.getState().attachments[0].file).toBe(
+        followUpFile,
+      );
+    } finally {
+      resolveSubmit();
+      resolveRemoval();
+    }
+  });
+
   it("removes an attachment whose upload settles after its draft scope changes", async () => {
     let releaseOldAdd!: () => void;
     let notifyOldAddStarted!: () => void;
