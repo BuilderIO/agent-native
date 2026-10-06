@@ -540,3 +540,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **COLOR-14** · decided
   - Change: Image (`ImageFillControls`): the square, sliders, values, and document colors give way to a 248 × 160 preview, Choose image… (an image file panel), and Fit (Fill, Fit, Crop, Tile) on the same two columns. Choosing Image with no image opens the file panel straight away.
   - Prototype: In a Fill, choose Image: the file panel opens; pick an image, then change Fit.
+- **COLOR-15** · proposed
+  - Today: The Fill field's label is `triggerLabel`: a hex, since the picker works in sRGB only.
+  - Change: With wide-gamut modes (COLOR-03, COLOR-04), the picker's Mode stays inside the picker. Everywhere else a color reads as one short line whatever notation it's written in: its hex while it fits sRGB (most colors, and what code and Figma show); past sRGB, the Display P3 hex after a muted P3; past P3, L C H after a muted OKLCH. The opacity beside it comes from the color's alpha. The CSS keeps its own notation (color(display-p3 …), oklch(…)), and the field's tooltip shows it in full. The same rule applies to the Tokens panel's color values and the Fill ▾'s token list. Reading `color()` takes alpha only after the slash: the fourth word is the blue channel, not an opacity.
+  - Prototype: Open a Fill, switch Mode to Display P3, and close it: the field still reads 171717. Pick a vivid P3 green: it reads P3 00FF00.

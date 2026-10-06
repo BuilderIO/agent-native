@@ -570,6 +570,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .fillrow .inp .hex { flex: 1; min-width: 0; text-align: left; text-transform: uppercase; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Only a hex reads in capitals; a gradient's type, Image, or a CSS color keeps its own case. */
 .fillrow .inp .hex.name { text-transform: none; }
+/* The color space, when a color is past sRGB: muted, like a field prefix. */
+.cpre { margin-right: 4px; color: var(--muted-fg); font-weight: 500; }
 .fillrow .inp .pct { color: var(--muted-fg); font-size: 11px; padding-right: 8px; }
 .wide-btn { height: 24px; border-radius: 6px; background: var(--muted); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11px; font-weight: 500; width: 100%; }
 .wide-btn:hover { background: var(--border); }
@@ -1799,7 +1801,7 @@ function renderInspector() {
       <div class="g5">${field("Line height", inp(ic("line-height", "s12"), p.lh))}${field("Letter spacing", inp(ic("letter-spacing", "s12"), p.ls), "c3")}</div>
       <div class="g5">${field("Align", segc(["align-left", "align-center", "align-right"], 1))}${field("&nbsp;", segc(["layout-align-top", "layout-align-middle", "layout-align-bottom"], 0), "c3")}<div class="c5" style="align-self:end">${act("adjustments-horizontal", "More type options")}</div></div>`) : ""}
     ${sec("fill", "Fill", act("layout-grid", "Styles") + act("plus", "Add fill"), `
-      <div class="fillrow"><div class="inp fillfield"><button class="fill-main" data-fill aria-haspopup="dialog" title="Edit fill"><span class="swatch" style="background:${fillSwatch(p)}"></span>${p.fillToken ? `<span class="tok-chip">${fillLabel(p)}</span>` : `<span class="hex${/^[0-9A-F]{6}$/i.test(fillLabel(p)) ? "" : " name"}">${fillLabel(p)}</span>`}<span class="pct">100%</span></button><button class="post" data-fill-menu aria-haspopup="menu" title="Color tokens">${ic("chevron-down", "s12")}</button></div>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
+      <div class="fillrow"><div class="inp fillfield"><button class="fill-main" data-fill aria-haspopup="dialog" title="Edit fill"><span class="swatch" style="background:${fillSwatch(p)}"></span>${(ct => p.fillToken ? `<span class="tok-chip">${fillLabel(p)}</span><span class="pct">100%</span>` : ct ? `<span class="hex" title="${fillCss(p)}">${colorHTML(ct)}</span><span class="pct">${Math.round(ct.a * 100)}%</span>` : `<span class="hex name">${fillLabel(p)}</span><span class="pct">100%</span>`)(!p.fillToken && !isPaintCss(fillCss(p)) && colorText(fillCss(p)))}</button><button class="post" data-fill-menu aria-haspopup="menu" title="Color tokens">${ic("chevron-down", "s12")}</button></div>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
     ${sec("stroke", "Stroke", act("layout-grid", "Styles") + act("plus", "Add stroke"), "", { empty: true })}
     ${sec("effects", "Effects", act("layout-grid", "Styles") + act("plus", "Add effect"), "", { empty: true })}
     ${responsiveSection(id)}
@@ -2143,7 +2145,8 @@ function parseColor(v) {
   const hx = parseHex(v); if (hx) return { lin: [hx.r, hx.g, hx.b].map(c => toLin(c / 255)), a: hx.a, mode: "hex" };
   const fn = v.match(/^(rgba?|hsla?|color|oklch)\((.*)\)$/i); if (!fn) return null;
   const [body, alpha] = fn[2].split("/"), p = body.trim().split(/[\s,]+/);
-  const a = alpha !== undefined ? num(alpha) : p[3] !== undefined ? num(p[3]) : 1, kind = fn[1].toLowerCase();
+  // Only legacy rgba() and hsla() take a fourth number as alpha; in color(), the fourth word is the blue channel.
+  const kind = fn[1].toLowerCase(), a = alpha !== undefined ? num(alpha) : /^(rgb|hsl)/.test(kind) && p[3] !== undefined ? num(p[3]) : 1;
   if (kind.startsWith("rgb")) return { lin: p.slice(0, 3).map(s => toLin(num(s, 255) / 255)), a, mode: "rgb" };
   if (kind.startsWith("hsl")) { const c = hslToRgb({ h: parseFloat(p[0]), s: num(p[1]), l: num(p[2]) }); return { lin: [c.r, c.g, c.b].map(x => toLin(x / 255)), a, mode: "hsl", hue: parseFloat(p[0]) }; }
   if (kind === "color" && p[0] === "display-p3") return { lin: p3ToLin(p.slice(1, 4).map(s => num(s))), a, mode: "p3" };
@@ -3387,6 +3390,18 @@ const isColor = v => /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim()
 // A token whose files define it with different values gets a mark naming them (index-design-tokens returns sourceValues).
 const tokenConflict = t => { const e = Object.entries(t.sourceValues || {}); return new Set(e.map(([, v]) => v.toLowerCase())).size > 1 ? `Defined differently in ${e.map(([f, v]) => `${f} (${v})`).join(" and ")}` : ""; };
 // A fill is a hex (stored without #, as the inspector shows it), any CSS color the picker wrote, or a token.
+// Outside the picker a color reads as one short line whatever mode wrote it: its hex while it fits sRGB (most colors,
+// and what code and Figma show), the Display P3 hex past sRGB, and L C H past P3, with the space as a muted prefix.
+// The CSS keeps the notation it was written in; tooltips show it in full. Opacity reads separately, as a percent.
+function colorText(v) {
+  const c = parseColor(v); if (!c) return null;
+  const hex = ch => ch.map(x => Math.round(clamp01(x) * 255).toString(16).padStart(2, "0")).join("");
+  if (inSrgb(c.lin)) return { pre: "", text: hex(c.lin.map(toGam)), a: c.a };
+  if (inP3(c.lin)) return { pre: "P3", text: hex(linToP3(c.lin)), a: c.a };
+  const [L, C, H] = c.auth ? [c.auth[0], c.auth[1], c.auth[2]] : (o => [o[0] * 100, o[1], o[2]])(linToOklch(c.lin));
+  return { pre: "OKLCH", text: `${+L.toFixed(1)} ${+C.toFixed(3)} ${Math.round(H) % 360}`, a: c.a };
+}
+const colorHTML = (ct, hash = false) => `${ct.pre ? `<span class="cpre">${ct.pre}</span>` : hash ? "#" : ""}${ct.text}`;
 const fillCss = p => p.fillToken ? `var(${p.fillToken})` : parseHex(p.fill) && !String(p.fill).startsWith("#") ? "#" + p.fill : p.fill;
 // Token variables live on the page, not in the inspector, so the inspector's swatch shows the token's own value.
 const fillSwatch = p => p.fillToken ? (TOKENS.find(t => t.cssVar === p.fillToken)?.value || "transparent") : fillCss(p);
@@ -3430,7 +3445,7 @@ function fillTokenMenu(anchor) {
   openMenu(anchor.closest(".inp") || anchor, [
     ...(bound ? [{ t: "Detach token", k: "⌫", keys: ["Backspace", "Delete"], run: () => { set({ fill: parseHex(bound.value) ? bound.value.replace(/^#/, "") : bound.value, fillToken: null }); toast(`Detached ${bound.name}`); } }, "-"] : []),
     { label: "Color tokens" },
-    ...colors.map(t => ({ t: t.name, k: t.value, radio: true, on: t === bound, run: () => { set({ fillToken: t.cssVar }); toast(bound ? `Swapped ${bound.name} for ${t.name}` : `Fill uses ${t.name}`); } })),
+    ...colors.map(t => ({ t: t.name, k: (ct => ct ? `${ct.pre ? ct.pre + " " : "#"}${ct.text}` : t.value)(colorText(t.value)), radio: true, on: t === bound, run: () => { set({ fillToken: t.cssVar }); toast(bound ? `Swapped ${bound.name} for ${t.name}` : `Fill uses ${t.name}`); } })),
   ], { align: "right" });
 }
 /* ───────── curve editor ───────── */
@@ -3625,7 +3640,7 @@ function springToBezier(sp) {
 function pickTokenColor(t, row) {
   const before = t.value; TK.picking = t.cssVar; row.setAttribute("aria-expanded", "true");
   colorPicker(row, t.value, {
-    onInput: v => { t.value = v; applyTokens(); row.querySelector(".tk-sw").style.background = v; row.querySelector(".tk-val").textContent = v; },
+    onInput: v => { t.value = v; applyTokens(); row.querySelector(".tk-sw").style.background = v; const tv = row.querySelector(".tk-val"), ct = colorText(v); tv.innerHTML = ct ? colorHTML(ct, true) : v; tv.title = v; },
     onClose: cancelled => { TK.picking = null; row.setAttribute("aria-expanded", "false"); if (cancelled) { t.value = before; applyTokens(); renderTokens(); } else if (t.value !== before) toast(`${t.cssVar} updated`); },
   });
 }
@@ -3659,7 +3674,7 @@ function renderTokens() {
         const lead = t.type === "color" && isColor(t.value) ? `<span class="tk-sw" style="background:${t.value}"></span>` : curve ? `<span class="tk-ease">${curveGlyph(t.value)}</span>` : `<span class="tk-glyph">${ic(icon, "s14")}</span>`;
         const clash = tokenConflict(t);
         const picker = t.type === "color" || curve ? ` aria-haspopup="dialog" aria-expanded="${TK.picking === t.cssVar}"` : "";
-        return `<div class="row tk" data-tk="${t.cssVar}" title="${t.cssVar} · ${t.source}"${picker}><span class="slot ico">${lead}</span><span class="gap"></span><span class="label">${t.name}</span>${editing ? `<input class="tk-edit" id="tk-edit" value="${t.value}" spellcheck="false" aria-label="Value for ${t.name}">` : `${clash ? `<span class="tk-warn" title="${clash}">${ic("alert-triangle", "s14")}</span>` : ""}<span class="tk-val${curve && parseEase(t.value) && curvePreset(t.value) ? " word" : ""}">${curve ? curveLabel(t.value) : t.value}</span>`}</div>`;
+        return `<div class="row tk" data-tk="${t.cssVar}" title="${t.cssVar} · ${t.source}"${picker}><span class="slot ico">${lead}</span><span class="gap"></span><span class="label">${t.name}</span>${editing ? `<input class="tk-edit" id="tk-edit" value="${t.value}" spellcheck="false" aria-label="Value for ${t.name}">` : `${clash ? `<span class="tk-warn" title="${clash}">${ic("alert-triangle", "s14")}</span>` : ""}<span class="tk-val${curve && curvePreset(t.value) && parseEase(t.value) ? " word" : ""}"${t.type === "color" && colorText(t.value) ? ` title="${t.value}"` : ""}>${curve ? curveLabel(t.value) : t.type === "color" && colorText(t.value) ? colorHTML(colorText(t.value), true) : t.value}</span>`}</div>`;
       }).join("")}${TK.draft?.kind === kind ? draftRow(TK.draft) : ""}</div>` : ""}`;
   }).join("") : (q ? `<div class="tk-empty">No tokens match “${TK.q}”.</div>` : `<div class="tk-empty"><b>No tokens yet</b><span class="acts"><button class="btn secondary" data-tk-open-import>Import</button><button class="btn secondary" data-tk-gen>${ic("sparkles", "s14")}Generate from design</button></span></div>`);
   el.innerHTML = head + `<div class="ag-body">${body}</div>`;
