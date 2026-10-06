@@ -7,6 +7,7 @@ import {
   createCommittedSuggestionPresentationTransition,
   createObservedSuggestionPresentationTransition,
   hydrateSuggestionPresentationTransitions,
+  preciseSuggestionPresentationOperations,
   pruneSuggestionPresentationTransitions,
   retainCommittedSuggestionPresentationTransitions,
   resolveSuggestionPresentationRange,
@@ -60,6 +61,19 @@ const pending = {
     ),
   ],
 };
+
+describe("precise suggestion presentation", () => {
+  it("draws a rewritten phrase as one change instead of shared letters", () => {
+    const source = "Each edit marks a decision. So I save them:";
+    const from = source.indexOf("So I save them:");
+    const spans = preciseSuggestionPresentationOperations(
+      edit(source, from, source.length, "With your own edits, I recommend:"),
+    );
+    expect(
+      spans?.map((span) => [span.before.changedText, span.after.changedText]),
+    ).toEqual([["So I save them", "With your own edits, I recommend"]]);
+  });
+});
 
 describe("committed suggestion presentation proof", () => {
   it("combines retained and observed disjoint proof only at the verified rendered result", () => {

@@ -353,6 +353,8 @@ export interface AssistantChatProps {
   providerStatusChecksEnabled?: boolean;
   /** Replace the built-in transport with an AgentKit-native BYO transport. */
   createTransport?: (context: AssistantChatAdapterContext) => AgentTransport;
+  /** Hide the default guided-question card when another host owns its flow. */
+  showGuidedQuestions?: boolean;
   /**
    * Bring-your-own agent runtime. When supplied, AssistantChat keeps the
    * standard composer/transcript/tool rendering shell but sends turns through

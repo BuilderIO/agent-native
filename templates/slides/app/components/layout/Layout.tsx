@@ -441,6 +441,7 @@ export function Layout({ children }: LayoutProps) {
             agentPageHref="/settings/agent"
             suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
             showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
+            showGuidedQuestions={!isSlidesEditorRoute(location.pathname)}
             onComposerTextChange={setComposerText}
             composerSlot={
               <>

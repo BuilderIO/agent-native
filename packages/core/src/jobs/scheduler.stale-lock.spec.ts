@@ -273,4 +273,224 @@ describe("stale automation run-lock recovery across trigger types", () => {
     expect(resourcePutMock).not.toHaveBeenCalled();
     expect(listAutomationRunsSpy).not.toHaveBeenCalled();
   });
+
+  function staleHistoryJob() {
+    const stuckLastRun = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    return {
+      id: "resource-stale-history",
+      owner: "alice+jobs@agent-native.test",
+      path: "jobs/slack-support.md",
+      content: [
+        "---",
+        'schedule: "* * * * *"',
+        'nextRun: "1970-01-01T00:00:00.000Z"',
+        "enabled: true",
+        "createdBy: alice+jobs@agent-native.test",
+        "lastStatus: running",
+        "lastRun: " + stuckLastRun,
+        "---",
+        "",
+        "Summarize the new order and post it to Slack.",
+      ].join("\n"),
+    };
+  }
+
+  function historyRow(
+    id: string,
+    startedAt: number,
+    options: { claimedAt?: number | null; dispatchPending?: boolean } = {},
+  ) {
+    return {
+      id,
+      owner: "alice+jobs@agent-native.test",
+      automation: "slack-support",
+      path: "jobs/slack-support.md",
+      scope: "personal",
+      org_id: null,
+      app_id: null,
+      run_id: null,
+      thread_id: null,
+      status: "running",
+      started_at: startedAt,
+      finished_at: null,
+      error: null,
+      error_code: null,
+      notification_email: null,
+      dispatch_pending: options.dispatchPending === true ? 1 : 0,
+      claimed_at: options.claimedAt ?? null,
+    };
+  }
+
+  /** The terminal writes `finishAutomationRun` issues, keyed by run id. */
+  function routeHistoryDb(
+    rows: Array<Record<string, unknown>>,
+    options: { failFirstFinish?: boolean } = {},
+  ): Array<{
+    id: string;
+    status: string;
+    errorCode: string | null;
+  }> {
+    const finishes: Array<{
+      id: string;
+      status: string;
+      errorCode: string | null;
+    }> = [];
+    let finishAttempts = 0;
+    dbExecuteMock.mockImplementation(
+      async (query: { sql?: string; args?: unknown[] }) => {
+        const sql = query.sql ?? "";
+        if (sql.includes("SELECT * FROM automation_runs WHERE owner IN")) {
+          const limit = Number(/LIMIT\s+(\d+)/i.exec(sql)?.[1] ?? rows.length);
+          return { rows: rows.slice(0, limit), rowsAffected: 0 };
+        }
+        if (sql.includes("FROM automation_runs WHERE id = ?")) {
+          const id = String(query.args?.[0] ?? "");
+          return { rows: rows.filter((row) => row.id === id), rowsAffected: 0 };
+        }
+        if (
+          sql.startsWith("UPDATE automation_runs") &&
+          sql.includes("SET status = ?")
+        ) {
+          finishAttempts += 1;
+          if (options.failFirstFinish && finishAttempts === 1) {
+            throw new Error("history write failed");
+          }
+          const [status, , , errorCode, , , id] = query.args ?? [];
+          finishes.push({
+            id: String(id),
+            status: String(status),
+            errorCode: errorCode == null ? null : String(errorCode),
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [{ "1": 1 }], rowsAffected: 1 };
+      },
+    );
+    return finishes;
+  }
+
+  it("still records the stopped run itself when the stale-lock resets", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([staleHistoryJob()]);
+    const finishes = routeHistoryDb([
+      historyRow("run-stopped", Date.now() - 11 * 60 * 1000),
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    } as any);
+
+    expect(finishes).toEqual([
+      {
+        id: "run-stopped",
+        status: "error",
+        errorCode: "background_automation_interrupted",
+      },
+    ]);
+  });
+
+  it("settles the stopped run without touching a newer queued run", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([staleHistoryJob()]);
+    const finishes = routeHistoryDb([
+      historyRow("run-queued-now", Date.now() - 30_000, {
+        dispatchPending: true,
+      }),
+      historyRow("run-stopped", Date.now() - 11 * 60 * 1000),
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    } as any);
+
+    expect(finishes).toEqual([
+      {
+        id: "run-stopped",
+        status: "error",
+        errorCode: "background_automation_interrupted",
+      },
+    ]);
+    expect(resourcePutMock).toHaveBeenCalledOnce();
+    expect(resourcePutMock.mock.calls[0][2]).toContain("lastStatus: error");
+  });
+
+  it("keeps a queued dispatch inside its claim lease and closes one past it", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([staleHistoryJob()]);
+    const finishes = routeHistoryDb([
+      // Started 20 minutes ago, so it lists as `interrupted`, but claimed a
+      // minute ago: the stored claim, not the derived status, must protect it.
+      historyRow("run-claimed-recently", Date.now() - 20 * 60 * 1000, {
+        dispatchPending: true,
+        claimedAt: Date.now() - 60_000,
+      }),
+      // Never claimed, older than the 15-minute claim lease: stuck queue entry.
+      historyRow("run-queued-too-long", Date.now() - 16 * 60 * 1000, {
+        dispatchPending: true,
+      }),
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    } as any);
+
+    expect(finishes).toEqual([
+      {
+        id: "run-queued-too-long",
+        status: "error",
+        errorCode: "background_automation_interrupted",
+      },
+    ]);
+  });
+
+  it("settles every stopped run, not just the first batch", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([staleHistoryJob()]);
+    const stoppedAt = Date.now() - 11 * 60 * 1000;
+    const finishes = routeHistoryDb([
+      historyRow("run-queued-now", Date.now() - 30_000, {
+        dispatchPending: true,
+      }),
+      ...Array.from({ length: 21 }, (_, index) =>
+        historyRow(`run-stopped-${index}`, stoppedAt),
+      ),
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    } as any);
+
+    expect(finishes.map((finish) => finish.id)).toEqual(
+      Array.from({ length: 21 }, (_, index) => `run-stopped-${index}`),
+    );
+  });
+
+  it("keeps settling later runs when one history write fails", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([staleHistoryJob()]);
+    const stoppedAt = Date.now() - 11 * 60 * 1000;
+    const finishes = routeHistoryDb(
+      [
+        historyRow("run-stopped-1", stoppedAt),
+        historyRow("run-stopped-2", stoppedAt),
+      ],
+      { failFirstFinish: true },
+    );
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    } as any);
+
+    expect(finishes.map((finish) => finish.id)).toEqual(["run-stopped-2"]);
+  });
 });

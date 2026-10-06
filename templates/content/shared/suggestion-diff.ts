@@ -172,6 +172,124 @@ function coalesce(parts: DiffPart[]): DiffPart[] {
   return result;
 }
 
+const WORD_CHARACTER = /[\p{L}\p{M}\p{N}]/u;
+
+// Source offsets count UTF-16 code units. Read whole code points so a letter
+// outside the Basic Multilingual Plane is not taken for two non-word halves.
+function characterBefore(text: string, at: number): string {
+  return /.$/su.exec(text.slice(Math.max(0, at - 2), at))?.[0] ?? "";
+}
+
+function characterAt(text: string, at: number): string {
+  const point = text.codePointAt(at);
+  return point === undefined ? "" : String.fromCodePoint(point);
+}
+
+const isWordBefore = (text: string, at: number) =>
+  WORD_CHARACTER.test(characterBefore(text, at));
+const isWordAt = (text: string, at: number) =>
+  WORD_CHARACTER.test(characterAt(text, at));
+
+/**
+ * A character diff keeps every letter two phrasings share, which splits one
+ * rewritten phrase into letter-sized hunks. Shared letters or spacing join the
+ * word edits on both sides when shorter than each edit's longer side: a pure
+ * insertion or deletion has an empty side, so measuring the shorter one would
+ * never join it and the phrase would stay split. A shared whole word keeps its
+ * edits apart, and nothing joins across a line break, so word choices with an
+ * unchanged word between them and edits in different blocks stay separately
+ * reviewable. Adjacent rewritten words separated only by spacing shorter than
+ * their edits become one edit on purpose: no spacing rule tells a rewritten
+ * phrase from two independent word swaps, and one edit can never leave a
+ * half-accepted phrase.
+ */
+function absorbIncidentalEqualities(parts: DiffPart[]): DiffPart[] {
+  type Change = { type: "change"; removed: string; inserted: string };
+  type Equal = {
+    type: "equal";
+    text: string;
+    beforeFrom: number;
+    afterFrom: number;
+  };
+  const before = parts
+    .map((part) => (part.type === "insert" ? "" : part.text))
+    .join("");
+  const after = parts
+    .map((part) => (part.type === "delete" ? "" : part.text))
+    .join("");
+  const holdsWholeWord = ({ text, beforeFrom, afterFrom }: Equal) =>
+    [...text.matchAll(/[\p{L}\p{M}\p{N}]+/gu)].some(
+      ({ index, 0: word }) =>
+        !isWordBefore(before, beforeFrom + index) &&
+        !isWordBefore(after, afterFrom + index) &&
+        !isWordAt(before, beforeFrom + index + word.length) &&
+        !isWordAt(after, afterFrom + index + word.length),
+    );
+  const segments: Array<Equal | Change> = [];
+  let beforeOffset = 0;
+  let afterOffset = 0;
+  for (const part of parts) {
+    const previous = segments[segments.length - 1];
+    if (part.type === "equal")
+      segments.push({
+        type: "equal",
+        text: part.text,
+        beforeFrom: beforeOffset,
+        afterFrom: afterOffset,
+      });
+    if (part.type !== "insert") beforeOffset += part.text.length;
+    if (part.type !== "delete") afterOffset += part.text.length;
+    if (part.type === "equal") continue;
+    if (previous?.type === "change") {
+      if (part.type === "delete") previous.removed += part.text;
+      else previous.inserted += part.text;
+    } else
+      segments.push({
+        type: "change",
+        removed: part.type === "delete" ? part.text : "",
+        inserted: part.type === "insert" ? part.text : "",
+      });
+  }
+  const absorbs = (change: Change, equal: Equal) =>
+    WORD_CHARACTER.test(change.removed + change.inserted) &&
+    !/\n/.test(change.removed + change.inserted) &&
+    equal.text.length < Math.max(change.removed.length, change.inserted.length);
+  let absorbed: boolean;
+  do {
+    absorbed = false;
+    for (let index = 1; index < segments.length - 1; index += 1) {
+      const left = segments[index - 1]!;
+      const equal = segments[index]!;
+      const right = segments[index + 1]!;
+      if (
+        equal.type !== "equal" ||
+        left.type !== "change" ||
+        right.type !== "change" ||
+        equal.text.includes("\n") ||
+        holdsWholeWord(equal) ||
+        !absorbs(left, equal) ||
+        !absorbs(right, equal)
+      )
+        continue;
+      left.removed += equal.text + right.removed;
+      left.inserted += equal.text + right.inserted;
+      segments.splice(index, 2);
+      absorbed = true;
+      index -= 1;
+    }
+  } while (absorbed);
+  return segments.flatMap((segment): DiffPart[] => {
+    if (segment.type === "equal")
+      return [{ type: "equal", text: segment.text }];
+    const changed: DiffPart[] = [];
+    if (segment.removed)
+      changed.push({ type: "delete", text: segment.removed });
+    if (segment.inserted)
+      changed.push({ type: "insert", text: segment.inserted });
+    return changed;
+  });
+}
+
 function changeBoundaryRank(text: string, position: number): number {
   if (
     position === 0 ||
@@ -487,7 +605,7 @@ export function markdownSuggestionOperations(
       })),
     );
   }
-  const markedParts = diffParts(before, after);
+  const markedParts = suggestionDiffParts(before, after);
   if (!markedParts && (beforeMarked.length || afterMarked.length))
     throw new SuggestionFormattingMappingError();
   const marked =
@@ -567,8 +685,9 @@ function plainDiffOperations(
 export function suggestionDiffParts(
   before: string,
   after: string,
-): ReadonlyArray<DiffPart> | null {
-  return diffParts(before, after);
+): DiffPart[] | null {
+  const parts = diffParts(before, after);
+  return parts && absorbIncidentalEqualities(parts);
 }
 
 function wholeWordReplacements(
@@ -577,59 +696,51 @@ function wholeWordReplacements(
   beforeMarked: MarkedSourceRanges,
   afterMarked: MarkedSourceRanges,
 ): MarkdownSuggestionOperation[] {
-  const isWord = (character: string | undefined) =>
-    Boolean(character && /[\p{L}\p{M}\p{N}]/u.test(character));
-  const expanded = operations.map((operation) => {
+  const groups: Array<{
+    from: number;
+    to: number;
+    members: MarkdownSuggestionOperation[];
+  }> = [];
+  for (const operation of operations) {
     const { from, to } = operation.anchor;
     const removed = operation.before.changedText;
     const inserted = operation.after.changedText;
     const lexicalChange = /[\p{L}\p{M}\p{N}]/u.test(removed + inserted);
+    let group = { from, to, members: [operation] };
     if (
-      !lexicalChange ||
-      /<br\/?\s*>/u.test(removed + inserted) ||
-      (!removed && /\s/u.test(inserted)) ||
-      (!isWord(before[from - 1]) && !isWord(before[to]))
-    )
-      return { from, to, inserted };
-    let wordFrom = from;
-    let wordTo = to;
-    while (wordFrom > 0 && isWord(before[wordFrom - 1])) wordFrom -= 1;
-    while (wordTo < before.length && isWord(before[wordTo])) wordTo += 1;
-    return {
-      from: wordFrom,
-      to: wordTo,
-      inserted:
-        before.slice(wordFrom, from) + inserted + before.slice(to, wordTo),
-    };
-  });
-  const groups: typeof expanded = [];
-  for (const change of expanded) {
-    const previous = groups[groups.length - 1];
-    if (previous && change.from < previous.to) {
-      // Two edits inside one word are one review decision.
-      const mergedAfter = operations
-        .filter(
-          (operation) =>
-            operation.anchor.from >= previous.from &&
-            operation.anchor.from < change.to,
-        )
-        .reduceRight(
-          (text, operation) =>
-            text.slice(0, operation.anchor.from - previous.from) +
-            operation.after.changedText +
-            text.slice(operation.anchor.to - previous.from),
-          before.slice(previous.from, Math.max(previous.to, change.to)),
-        );
-      previous.to = Math.max(previous.to, change.to);
-      previous.inserted = mergedAfter;
-    } else groups.push({ ...change });
+      lexicalChange &&
+      !/<br\/?\s*>/u.test(removed + inserted) &&
+      (removed || !/\s/u.test(inserted)) &&
+      (isWordBefore(before, from) || isWordAt(before, to))
+    ) {
+      while (isWordBefore(before, group.from))
+        group.from -= characterBefore(before, group.from).length;
+      while (isWordAt(before, group.to))
+        group.to += characterAt(before, group.to).length;
+    }
+    // Two edits inside one word are one review decision.
+    while (groups.length && group.from < groups[groups.length - 1]!.to) {
+      const previous = groups.pop()!;
+      group = {
+        from: Math.min(previous.from, group.from),
+        to: Math.max(previous.to, group.to),
+        members: [...previous.members, ...group.members],
+      };
+    }
+    groups.push(group);
   }
-  const result = groups.map((change, ordinal) =>
+  const result = groups.map((group, ordinal) =>
     operationForChange(
       before,
-      change.from,
-      change.to,
-      change.inserted,
+      group.from,
+      group.to,
+      group.members.reduceRight(
+        (text, operation) =>
+          text.slice(0, operation.anchor.from - group.from) +
+          operation.after.changedText +
+          text.slice(operation.anchor.to - group.from),
+        before.slice(group.from, group.to),
+      ),
       ordinal,
     ),
   );
@@ -665,7 +776,11 @@ function wholeWordReplacements(
           text.slice(change.anchor.to),
         before,
       );
-  return reconstruct(result) === reconstruct(operations) ? result : operations;
+  if (reconstruct(result) !== reconstruct(operations))
+    throw new Error(
+      "Whole-word edit ranges do not reconstruct the proposed source",
+    );
+  return result;
 }
 
 export function markdownSuggestionOperation(
