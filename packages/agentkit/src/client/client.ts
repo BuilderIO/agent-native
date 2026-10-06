@@ -18,9 +18,11 @@ import type {
   AgentThread,
   AgentThreadSnapshot,
   AgentTransport,
+  AgentToolCall,
   AgentUploadDescriptor,
   AgentUploadTarget,
   CreateThreadInput,
+  DataPart,
   FilePart,
   ForkThreadInput,
   ListThreadsInput,
@@ -32,6 +34,8 @@ import type {
   UploadId,
 } from "../protocol/index.js";
 import {
+  AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+  AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   AgentProtocolValidationError,
   AgentKitProtocolError,
   createRequestAbortedError,
@@ -560,6 +564,122 @@ async function defaultUploadDriver(
   if (!response.ok) {
     throw new Error(`Upload failed with ${response.status}.`);
   }
+}
+
+const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
+
+function toolHistoryValueOmission(value: unknown): string | undefined {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) return "it could not be serialized";
+    if (
+      new TextEncoder().encode(serialized).byteLength >
+      MAX_TOOL_HISTORY_VALUE_BYTES
+    ) {
+      return "it exceeds 64 KiB";
+    }
+    return undefined;
+  } catch {
+    return "it could not be serialized";
+  }
+}
+
+function orderedThreadToolCalls(thread: AgentThreadState): AgentToolCall[] {
+  const seen = new Set<string>();
+  const ordered: AgentToolCall[] = [];
+  for (const event of thread.events) {
+    if (event.type !== "tool.started" || seen.has(event.toolCall.id)) continue;
+    const toolCall = thread.tools[event.toolCall.id];
+    if (!toolCall) continue;
+    seen.add(toolCall.id);
+    ordered.push(toolCall);
+  }
+  return [
+    ...ordered,
+    ...Object.values(thread.tools).filter((toolCall) => !seen.has(toolCall.id)),
+  ];
+}
+
+function messagesWithToolCallHistory(
+  messages: AgentMessage[],
+  toolCalls: AgentToolCall[],
+): AgentMessage[] {
+  const assistantMessageIds = new Set(
+    messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.id),
+  );
+  const callsByMessageId = new Map<string, AgentToolCall[]>();
+  for (const toolCall of toolCalls) {
+    if (
+      toolCall.status === "running" ||
+      (toolCall.status === "completed" &&
+        toolCall.output === undefined &&
+        !toolCall.error) ||
+      !toolCall.messageId ||
+      !assistantMessageIds.has(toolCall.messageId)
+    ) {
+      continue;
+    }
+    const calls = callsByMessageId.get(toolCall.messageId) ?? [];
+    calls.push(toolCall);
+    callsByMessageId.set(toolCall.messageId, calls);
+  }
+
+  if (callsByMessageId.size === 0) return messages;
+  return messages.map((message) => {
+    const calls = callsByMessageId.get(message.id);
+    if (!calls) return message;
+    const historyParts: DataPart[] = calls.flatMap((toolCall) => {
+      const inputOmission =
+        toolCall.input === undefined
+          ? undefined
+          : toolHistoryValueOmission(toolCall.input);
+      const outputOmission =
+        toolCall.output === undefined
+          ? undefined
+          : toolHistoryValueOmission(toolCall.output);
+      const resultText =
+        outputOmission === undefined
+          ? toolCall.output === undefined
+            ? (toolCall.error?.message ??
+              `Tool call ${toolCall.status} without a recorded result.`)
+            : undefined
+          : `Tool output omitted from history because ${outputOmission}.`;
+      return [
+        {
+          type: "data",
+          mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+          data: {
+            id: toolCall.id,
+            name: toolCall.name,
+            ...(toolCall.input === undefined || inputOmission !== undefined
+              ? {}
+              : { input: toolCall.input }),
+            ...(inputOmission !== undefined
+              ? {
+                  inputText: `Tool input omitted from history because ${inputOmission}.`,
+                }
+              : {}),
+          },
+        },
+        {
+          type: "data",
+          mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
+          data: {
+            id: toolCall.id,
+            name: toolCall.name,
+            ...(toolCall.output === undefined || outputOmission !== undefined
+              ? {}
+              : { result: toolCall.output }),
+            ...(resultText === undefined ? {} : { resultText }),
+            ...(toolCall.status === "completed" ? {} : { isError: true }),
+          },
+        },
+      ];
+    });
+    return { ...message, parts: [...message.parts, ...historyParts] };
+  });
 }
 
 export class AgentKitClient implements AgentKitController {
@@ -1099,11 +1219,15 @@ export class AgentKitClient implements AgentKitController {
 
     try {
       input.onLocalSubmit?.();
+      const messages = messagesWithToolCallHistory(
+        [...current.messages, message],
+        orderedThreadToolCalls(current),
+      );
       const result = await this.invokeRequest(requestContext, (context) =>
         this.transport.startRun(
           {
             threadId: input.threadId,
-            messages: [...current.messages, message],
+            messages,
             options: input.options,
             metadata: input.metadata,
           },

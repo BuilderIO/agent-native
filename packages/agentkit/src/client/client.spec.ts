@@ -228,6 +228,221 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("sends completed tool activity with its assistant message on the next turn", async () => {
+    let runNumber = 0;
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: `run-${++runNumber}`,
+    }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      startRun,
+      async *subscribeToRun({ runId }) {
+        const event = (
+          sequence: number,
+          body: Omit<
+            AgentEvent,
+            "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+          >,
+        ) =>
+          ({
+            ...body,
+            id: `${runId}-event-${sequence}`,
+            threadId: "thread-1",
+            runId,
+            sequence,
+            occurredAt: "2026-08-29T00:00:00.000Z",
+          }) as AgentEvent;
+        if (runId !== "run-1") {
+          yield event(1, { type: "run.started" });
+          yield event(2, { type: "run.completed" });
+          return;
+        }
+
+        let sequence = 0;
+        const events: AgentEvent[] = [];
+        const push = (
+          body: Omit<
+            AgentEvent,
+            "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+          >,
+        ) => events.push(event(++sequence, body));
+        push({ type: "run.started" });
+        push({
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [{ type: "text", text: "I checked the document." }],
+          },
+        });
+        const calls = [
+          {
+            id: "call-document",
+            name: "get_document",
+            input: { documentId: "doc-1" },
+            output: { found: true },
+            status: "completed" as const,
+          },
+          {
+            id: "call-search-1",
+            name: "docs-search",
+            input: { query: "brief" },
+            output: { found: true },
+            status: "completed" as const,
+          },
+          {
+            id: "call-search-2",
+            name: "docs-search",
+            input: { query: "roadmap" },
+            error: { code: "tool_error", message: "Provider timed out." },
+            status: "failed" as const,
+          },
+          {
+            id: "call-large-input",
+            name: "docs-search",
+            input: "x".repeat(65 * 1024),
+            output: "Search completed.",
+            status: "completed" as const,
+          },
+          {
+            id: "call-pending",
+            name: "docs-search",
+            input: { query: "not finished" },
+            status: "running" as const,
+          },
+        ];
+        for (const call of calls) {
+          const { output, error, status, ...toolCall } = call;
+          push({
+            type: "tool.started",
+            toolCall: {
+              ...toolCall,
+              status: "running",
+              messageId: "assistant-1",
+            },
+          });
+          if (status !== "running") {
+            push({
+              type: "tool.updated",
+              toolCall: {
+                ...toolCall,
+                ...(output === undefined ? {} : { output }),
+                ...(error === undefined ? {} : { error }),
+                status,
+                messageId: "assistant-1",
+              },
+            });
+          }
+        }
+        push({
+          type: "message.completed",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "I checked the document." }],
+          },
+        });
+        push({ type: "run.completed" });
+        yield* events;
+      },
+    };
+    const client = new AgentKitClient({ transport });
+
+    const firstRun = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Check the document",
+    });
+    await firstRun.completed;
+    const secondRun = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Which tools did you call?",
+    });
+    await secondRun.completed;
+
+    const secondRequest = startRun.mock.calls[1]![0];
+    const assistantMessage = secondRequest.messages.find(
+      (message) => message.id === "assistant-1",
+    );
+    expect(assistantMessage?.parts).toEqual(
+      expect.arrayContaining([
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-call",
+          data: {
+            id: "call-document",
+            name: "get_document",
+            input: { documentId: "doc-1" },
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-result",
+          data: {
+            id: "call-document",
+            name: "get_document",
+            result: { found: true },
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-call",
+          data: {
+            id: "call-search-1",
+            name: "docs-search",
+            input: { query: "brief" },
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-call",
+          data: {
+            id: "call-search-2",
+            name: "docs-search",
+            input: { query: "roadmap" },
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-call",
+          data: {
+            id: "call-large-input",
+            name: "docs-search",
+            inputText:
+              "Tool input omitted from history because it exceeds 64 KiB.",
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-result",
+          data: {
+            id: "call-search-2",
+            name: "docs-search",
+            resultText: "Provider timed out.",
+            isError: true,
+          },
+        },
+      ]),
+    );
+    expect(assistantMessage?.parts).not.toContainEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({ id: "call-pending" }),
+      }),
+    );
+    expect(secondRequest.messages.at(-1)).toMatchObject({
+      role: "user",
+      parts: [{ type: "text", text: "Which tools did you call?" }],
+    });
+    expect(client.getThread("thread-1").messages).toContainEqual(
+      expect.objectContaining({
+        id: "assistant-1",
+        parts: [{ type: "text", text: "I checked the document." }],
+      }),
+    );
+    await client.shutdown();
+  });
+
   it("marks the local message failed if its acknowledgement callback throws", async () => {
     const startRun = vi.fn<AgentTransport["startRun"]>();
     const client = new AgentKitClient({

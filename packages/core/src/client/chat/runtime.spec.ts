@@ -407,6 +407,149 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
+  it("sends prior tool activity as structured history without duplicating the current prompt", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const messages: AgentChatRuntimeMessage[] = [
+      {
+        id: "user-old",
+        role: "user",
+        content: [{ type: "text", text: "Search the project brief" }],
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: [
+          { type: "text", text: "I retrieved the document." },
+          {
+            type: "tool-call",
+            toolCallId: "call-document",
+            toolName: "get_document",
+            input: { documentId: "doc-1" },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-document",
+            toolName: "get_document",
+            result: "Document title: Project Brief",
+          },
+          {
+            type: "tool-call",
+            toolCallId: "call-search",
+            toolName: "docs-search",
+            input: { query: "project brief" },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-search",
+            toolName: "docs-search",
+            resultText: "Provider timed out.",
+            isError: true,
+          },
+          {
+            type: "tool-call",
+            toolCallId: "call-large-input",
+            toolName: "docs-search",
+            inputText:
+              "Tool input omitted from history because it exceeds 64 KiB.",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-large-input",
+            toolName: "docs-search",
+            result: "Search completed.",
+          },
+        ],
+      },
+      {
+        id: "user-current",
+        role: "user",
+        content: [{ type: "text", text: "Which tools did you call?" }],
+      },
+    ];
+
+    const turn = await session.startTurn({
+      prompt: "Which tools did you call?",
+      messages,
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.structuredHistory).toEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "Search the project brief" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "I retrieved the document." },
+          {
+            type: "tool-call",
+            id: "call-document",
+            name: "get_document",
+            input: { documentId: "doc-1" },
+          },
+          {
+            type: "tool-call",
+            id: "call-search",
+            name: "docs-search",
+            input: { query: "project brief" },
+          },
+          {
+            type: "text",
+            text: "Tool input omitted from history because it exceeds 64 KiB.",
+          },
+          {
+            type: "tool-call",
+            id: "call-large-input",
+            name: "docs-search",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-document",
+            toolName: "get_document",
+            content: "Document title: Project Brief",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-search",
+            toolName: "docs-search",
+            content: "Provider timed out.",
+            isError: true,
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-large-input",
+            toolName: "docs-search",
+            content: "Search completed.",
+          },
+        ],
+      },
+    ]);
+    expect(body.structuredHistory).not.toContainEqual(
+      expect.objectContaining({
+        content: expect.arrayContaining([
+          expect.objectContaining({
+            text: "Which tools did you call?",
+          }),
+        ]),
+      }),
+    );
+  });
+
   it("wraps the existing Agent-Native chat endpoint and normalizes SSE events", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([

@@ -29,6 +29,8 @@ import type {
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import {
+  AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+  AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   AGENTKIT_PROTOCOL_VERSION,
   AgentProtocolValidationError,
   approvalResponseFromResume,
@@ -191,8 +193,6 @@ function isTerminalRunStatus(
   );
 }
 
-const TOOL_RESULT_MEDIA_TYPE = "application/x-agent-native-tool-result";
-const TOOL_CALL_MEDIA_TYPE = "application/x-agent-native-tool-call";
 const RUNTIME_PART_MEDIA_TYPE = "application/x-agent-native-runtime-part";
 const RUNTIME_EVENT_TYPE = "x-core.runtime-event";
 const RUNTIME_USAGE_EVENT_TYPE = "x-core.usage";
@@ -746,7 +746,7 @@ function runtimePartToProtocolPart(
     case "tool-call":
       return {
         type: "data",
-        mediaType: TOOL_CALL_MEDIA_TYPE,
+        mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
         data: {
           id: part.toolCallId,
           name: part.toolName,
@@ -757,7 +757,7 @@ function runtimePartToProtocolPart(
     case "tool-result":
       return {
         type: "data",
-        mediaType: TOOL_RESULT_MEDIA_TYPE,
+        mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
         data: {
           id: part.toolCallId,
           name: part.toolName,
@@ -818,6 +818,49 @@ function protocolPartToRuntimePart(
         mediaType: part.mediaType,
         url: part.url,
       };
+    case "data": {
+      const data = asRecord(part.data);
+      if (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE) {
+        if (typeof data?.id !== "string" || typeof data.name !== "string") {
+          throw new AgentProtocolValidationError(
+            "message.parts.data",
+            "tool call history requires a call id and name",
+          );
+        }
+        return {
+          type: "tool-call",
+          toolCallId: data.id,
+          toolName: data.name,
+          ...(data.input === undefined ? {} : { input: data.input }),
+          ...(typeof data.inputText === "string"
+            ? { inputText: data.inputText }
+            : {}),
+        };
+      }
+      if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
+        if (typeof data?.id !== "string") {
+          throw new AgentProtocolValidationError(
+            "message.parts.data",
+            "tool result history requires a call id",
+          );
+        }
+        return {
+          type: "tool-result",
+          toolCallId: data.id,
+          ...(typeof data.name === "string" ? { toolName: data.name } : {}),
+          ...(data.result === undefined ? {} : { result: data.result }),
+          ...(typeof data.resultText === "string"
+            ? { resultText: data.resultText }
+            : {}),
+          ...(data.isError === true ? { isError: true } : {}),
+        };
+      }
+      return {
+        type: "data",
+        data: part,
+        mediaType: "application/x-agentkit-protocol-part",
+      };
+    }
     default:
       return {
         type: "data",
@@ -983,6 +1026,7 @@ function runtimeToolToProtocolTool(
   status: AgentToolCall["status"] = "running",
   result?: unknown,
   error?: AgentError,
+  messageId?: string,
 ): AgentToolCall {
   return {
     id: tool.id,
@@ -991,6 +1035,7 @@ function runtimeToolToProtocolTool(
     status,
     output: result,
     error,
+    ...(messageId ? { messageId } : {}),
     ...(tool.metadata ? { metadata: tool.metadata } : {}),
   };
 }
@@ -1903,7 +1948,13 @@ export function createAgentKitProtocolAdapter(
             type: "tool.started",
             ...base,
             metadata,
-            toolCall: runtimeToolToProtocolTool(event.toolCall),
+            toolCall: runtimeToolToProtocolTool(
+              event.toolCall,
+              "running",
+              undefined,
+              undefined,
+              run.activeMessageId,
+            ),
           },
           ...(invocation
             ? [
@@ -1985,6 +2036,9 @@ export function createAgentKitProtocolAdapter(
               output:
                 event.result !== undefined ? event.result : event.resultText,
               error,
+              ...(activeTool?.messageId || run.activeMessageId
+                ? { messageId: activeTool?.messageId ?? run.activeMessageId }
+                : {}),
               ...(metadata ? { metadata } : {}),
             },
           },

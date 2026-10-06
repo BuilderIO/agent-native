@@ -250,6 +250,156 @@ describe("createAgentKitProtocolAdapter", () => {
     });
   });
 
+  it("forwards prior tool activity as structured history on the next turn", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async (_input: AgentChatRuntimeTurnInput) => ({
+      id: "turn-history",
+      runId: "run-history",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        userMessage("Expand the document"),
+        {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "I retrieved the document." },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-call",
+              data: {
+                id: "call-get-document",
+                name: "get_document",
+                input: { documentId: "doc-1" },
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-result",
+              data: {
+                id: "call-get-document",
+                name: "get_document",
+                resultText: "Document title: Project Brief",
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-call",
+              data: {
+                id: "call-search-1",
+                name: "docs-search",
+                input: { query: "project brief" },
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-result",
+              data: {
+                id: "call-search-1",
+                name: "docs-search",
+                result: [{ title: "Project Brief" }],
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-call",
+              data: {
+                id: "call-search-2",
+                name: "docs-search",
+                input: { query: "roadmap" },
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-result",
+              data: {
+                id: "call-search-2",
+                name: "docs-search",
+                resultText: "Provider timed out.",
+                isError: true,
+              },
+            },
+          ],
+        },
+        userMessage("Which tools did you call?"),
+      ],
+    });
+
+    expect(startTurn.mock.calls[0]?.[0]).toMatchObject({
+      prompt: "Which tools did you call?",
+      messages: [
+        expect.objectContaining({
+          role: "user",
+          content: [{ type: "text", text: "Expand the document" }],
+        }),
+        expect.objectContaining({
+          id: "assistant-1",
+          role: "assistant",
+          content: [
+            { type: "text", text: "I retrieved the document." },
+            {
+              type: "tool-call",
+              toolCallId: "call-get-document",
+              toolName: "get_document",
+              input: { documentId: "doc-1" },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-get-document",
+              toolName: "get_document",
+              resultText: "Document title: Project Brief",
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-search-1",
+              toolName: "docs-search",
+              input: { query: "project brief" },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-search-1",
+              toolName: "docs-search",
+              result: [{ title: "Project Brief" }],
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-search-2",
+              toolName: "docs-search",
+              input: { query: "roadmap" },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-search-2",
+              toolName: "docs-search",
+              resultText: "Provider timed out.",
+              isError: true,
+            },
+          ],
+        }),
+        expect.objectContaining({
+          role: "user",
+          content: [{ type: "text", text: "Which tools did you call?" }],
+        }),
+      ],
+    });
+  });
+
   it("forwards the after-setup resume marker to the turn the server claims it from", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield { type: "done", reason: "complete" };
@@ -867,9 +1017,17 @@ describe("createAgentKitProtocolAdapter", () => {
       toolCallId: "tool-1",
       outputTextDelta: "1 passed",
     });
+    expect(result[4]).toMatchObject({
+      type: "tool.started",
+      toolCall: { id: "tool-1", messageId: "assistant-1" },
+    });
     expect(result[7]).toMatchObject({
       type: "tool.updated",
-      toolCall: { name: "run_checks", output: { passed: 1 } },
+      toolCall: {
+        name: "run_checks",
+        output: { passed: 1 },
+        messageId: "assistant-1",
+      },
     });
     expect(result[5]).toMatchObject({
       type: "activity.started",

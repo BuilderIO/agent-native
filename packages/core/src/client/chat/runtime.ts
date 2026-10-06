@@ -1607,11 +1607,25 @@ function runtimeMessageText(message: AgentChatRuntimeMessage): string {
     .join("\n");
 }
 
+function priorNativeHistoryMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+) {
+  const history = (messages ?? []).filter(
+    (message) => message.role === "user" || message.role === "assistant",
+  );
+  if (!currentPrompt.trim()) return history;
+  const last = history[history.length - 1];
+  return last?.role === "user" && runtimeMessageText(last) === currentPrompt
+    ? history.slice(0, -1)
+    : history;
+}
+
 function nativeHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
 ) {
-  const history = (messages ?? [])
+  return priorNativeHistoryMessages(messages, currentPrompt)
     .filter(
       (message) => message.role === "user" || message.role === "assistant",
     )
@@ -1620,11 +1634,60 @@ function nativeHistoryFromMessages(
       content: runtimeMessageText(message),
     }))
     .filter((message) => message.content.trim());
-  if (!currentPrompt.trim()) return history;
-  const last = history[history.length - 1];
-  return last?.role === "user" && last.content === currentPrompt
-    ? history.slice(0, -1)
-    : history;
+}
+
+function nativeStructuredHistoryFromMessages(
+  messages: readonly AgentChatRuntimeMessage[] | undefined,
+  currentPrompt: string,
+): AgentChatStructuredMessage[] | undefined {
+  const structuredHistory: AgentChatStructuredMessage[] = [];
+  let hasToolHistory = false;
+
+  for (const message of priorNativeHistoryMessages(messages, currentPrompt)) {
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    const content: AgentChatStructuredMessage["content"] = [];
+    const results: AgentChatStructuredMessage["content"] = [];
+    for (const part of message.content) {
+      if (part.type === "text" || part.type === "reasoning") {
+        if (part.text.trim()) content.push({ type: "text", text: part.text });
+      } else if (part.type === "tool-call" && message.role === "assistant") {
+        hasToolHistory = true;
+        if (part.inputText?.trim()) {
+          content.push({ type: "text", text: part.inputText });
+        }
+        content.push({
+          type: "tool-call",
+          id: part.toolCallId,
+          name: part.toolName,
+          ...(part.input === undefined ? {} : { input: part.input }),
+        });
+      } else if (part.type === "tool-result") {
+        hasToolHistory = true;
+        const result =
+          part.resultText ??
+          (typeof part.result === "string"
+            ? part.result
+            : part.result === undefined
+              ? "No tool result was recorded."
+              : (JSON.stringify(part.result) ??
+                "Tool result could not be serialized for history."));
+        results.push({
+          type: "tool-result",
+          toolCallId: part.toolCallId,
+          ...(part.toolName ? { toolName: part.toolName } : {}),
+          content: result,
+          ...(part.isError ? { isError: true } : {}),
+        });
+      }
+    }
+    if (content.length) {
+      structuredHistory.push({ role: message.role, content });
+    }
+    if (results.length)
+      structuredHistory.push({ role: "user", content: results });
+  }
+
+  return hasToolHistory ? structuredHistory : undefined;
 }
 
 type AgentNativeMessageContentState =
@@ -2705,6 +2768,20 @@ export function createAgentNativeChatRuntime(
         approvedToolCalls && continuationMessageState
           ? pendingApprovalStructuredHistory(continuationMessageState)
           : [];
+      const structuredHistoryFromMessages = nativeStructuredHistoryFromMessages(
+        turn.messages,
+        prompt,
+      );
+      const structuredHistory = pendingApprovalHistory.length
+        ? [
+            ...(structuredHistoryFromMessages ??
+              history.map(({ role, content }) => ({
+                role,
+                content: [{ type: "text" as const, text: content }],
+              }))),
+            ...pendingApprovalHistory,
+          ]
+        : structuredHistoryFromMessages;
       return {
         message: prompt,
         ...(latestUserMessage?.id
@@ -2712,17 +2789,7 @@ export function createAgentNativeChatRuntime(
           : {}),
         displayMessage: prompt,
         history,
-        ...(pendingApprovalHistory.length
-          ? {
-              structuredHistory: [
-                ...history.map(({ role, content }) => ({
-                  role,
-                  content: [{ type: "text" as const, text: content }],
-                })),
-                ...pendingApprovalHistory,
-              ],
-            }
-          : {}),
+        ...(structuredHistory?.length ? { structuredHistory } : {}),
         turnId: continuationTurnId ?? turn.queuePromotion?.turnId ?? turnId,
         threadId: session.threadId ?? options.threadId,
         ...(turn.queuePromotion
