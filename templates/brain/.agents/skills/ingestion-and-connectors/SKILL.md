@@ -47,10 +47,13 @@ specific access. Do not use `sync-source` for a manual source.
 Zoom sources import cloud-recording transcripts through a Server-to-Server
 OAuth app. Credentials are the vault secrets `ZOOM_ACCOUNT_ID`,
 `ZOOM_CLIENT_ID`, and `ZOOM_CLIENT_SECRET`; the app needs scopes
-`user:read:list_users:admin` and
-`cloud_recording:read:list_user_recordings:admin`. Config is
-`{"zoom":{"userIds":[...],"lookbackDays":7}}` — `userIds` is optional (up to
-50; omitted means every account user) and `lookbackDays` is 1-30, default 7.
+`cloud_recording:read:list_account_recordings:admin` and
+`cloud_recording:read:recording:admin`. Config is
+`{"zoom":{"userIds":[...],"lookbackDays":7}}`. Without `userIds`, one
+account-wide recording list (`/accounts/me/recordings`) covers every user.
+`userIds` (up to 50, user ID or email) narrows the import to those users and
+additionally needs `cloud_recording:read:list_user_recordings:admin`.
+`lookbackDays` is 1-30, default 7.
 Sources auto-sync hourly; each run overlaps the previous one by one day to
 catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
 Captures use the organization audience. There are no Zoom webhooks.

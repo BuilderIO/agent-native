@@ -4225,6 +4225,66 @@ describe("Brain connector smoke coverage", () => {
     expect(retryAt - before).toBeLessThan(11 * 60 * 1000);
   });
 
+  it("imports Zoom transcripts from the account-wide recording list", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        requestedPaths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              {
+                uuid: "meeting-uuid-1",
+                id: 123,
+                topic: "Atlas planning",
+                start_time: "2026-05-14T15:00:00Z",
+                share_url: "https://zoom.us/rec/share/abc",
+                recording_files: [
+                  {
+                    id: "file-1",
+                    file_type: "TRANSCRIPT",
+                    status: "completed",
+                    download_url: "https://zoom.us/rec/download/file-1",
+                  },
+                ],
+              },
+            ],
+          });
+        }
+        if (url.pathname === "/rec/download/file-1") {
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "1",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Atlas moves to Thursday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-account-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { lookbackDays: 7 } }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
+    expect(requestedPaths).toContain("/v2/accounts/me/recordings");
+    expect(requestedPaths.some((path) => path.startsWith("/v2/users"))).toBe(
+      false,
+    );
+  });
+
   it("still rejects a private channel configured by name instead of ID", async () => {
     const historyCalls: string[] = [];
     vi.stubGlobal(

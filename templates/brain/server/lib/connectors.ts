@@ -35,7 +35,7 @@ import {
   fetchZoomAccessToken,
   listZoomRecordings,
   hasProcessingTranscript,
-  listZoomUserIds,
+  listZoomAccountRecordings,
   nextZoomCursorFrom,
   normalizeZoomRecording,
   zoomExternalId,
@@ -3110,7 +3110,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const stats: Record<string, unknown> = {
     from,
     to,
-    usersScanned: 0,
+    recordingListsScanned: 0,
     meetingsSeen: 0,
     transcriptsDownloaded: 0,
     emptyTranscripts: 0,
@@ -3145,16 +3145,25 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       fetchZoomAccessToken({ accountId, clientId, clientSecret }),
     );
     const configuredUserIds = zoomUserIdsFromConfig(config);
-    const userIds =
-      configuredUserIds ??
-      (await zoomCall("/users", () => listZoomUserIds(token)));
+    const recordingLists = configuredUserIds
+      ? configuredUserIds.map((userId) => ({
+          endpoint: "/users/{userId}/recordings",
+          list: () => listZoomRecordings(token, userId, from, to),
+        }))
+      : [
+          {
+            endpoint: "/accounts/me/recordings",
+            list: () => listZoomAccountRecordings(token, from, to),
+          },
+        ];
 
-    for (const userId of userIds) {
-      const meetings = await zoomCall("/users/{userId}/recordings", () =>
-        listZoomRecordings(token, userId, from, to),
+    for (const recordingList of recordingLists) {
+      const meetings = await zoomCall(
+        recordingList.endpoint,
+        recordingList.list,
       );
       await renewRunLease(run);
-      stats.usersScanned = Number(stats.usersScanned) + 1;
+      stats.recordingListsScanned = Number(stats.recordingListsScanned) + 1;
       const imported = await importedZoomExternalIds(
         source.id,
         meetings.map(zoomExternalId),

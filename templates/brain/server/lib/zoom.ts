@@ -56,11 +56,6 @@ export interface ZoomMeeting {
   recording_files?: ZoomRecordingFile[];
 }
 
-interface ZoomUsersPage {
-  users?: Array<{ id?: string }>;
-  next_page_token?: string;
-}
-
 interface ZoomRecordingsPage {
   meetings?: ZoomMeeting[];
   next_page_token?: string;
@@ -150,31 +145,27 @@ export async function fetchZoomAccessToken(
   return body.access_token;
 }
 
-export async function listZoomUserIds(token: string): Promise<string[]> {
-  const ids: string[] = [];
-  let nextPageToken: string | undefined;
-  do {
-    const params = new URLSearchParams({
-      status: "active",
-      page_size: String(ZOOM_PAGE_SIZE),
-    });
-    if (nextPageToken) params.set("next_page_token", nextPageToken);
-    const page = await zoomApiJson<ZoomUsersPage>(
-      token,
-      `${ZOOM_API_BASE}/users?${params.toString()}`,
-      "user list",
-    );
-    for (const user of page.users ?? []) {
-      if (user.id) ids.push(user.id);
-    }
-    nextPageToken = page.next_page_token || undefined;
-  } while (nextPageToken);
-  return ids;
+export function listZoomAccountRecordings(
+  token: string,
+  from: string,
+  to: string,
+) {
+  return listZoomRecordingPages(token, "/accounts/me/recordings", from, to);
 }
 
-export async function listZoomRecordings(
+export function listZoomRecordings(
   token: string,
   userId: string,
+  from: string,
+  to: string,
+) {
+  const path = "/users/" + encodeURIComponent(userId) + "/recordings";
+  return listZoomRecordingPages(token, path, from, to);
+}
+
+async function listZoomRecordingPages(
+  token: string,
+  path: string,
   from: string,
   to: string,
 ): Promise<ZoomMeeting[]> {
@@ -189,7 +180,7 @@ export async function listZoomRecordings(
     if (nextPageToken) params.set("next_page_token", nextPageToken);
     const page = await zoomApiJson<ZoomRecordingsPage>(
       token,
-      `${ZOOM_API_BASE}/users/${encodeURIComponent(userId)}/recordings?${params.toString()}`,
+      `${ZOOM_API_BASE}${path}?${params.toString()}`,
       "recording list",
     );
     meetings.push(...(page.meetings ?? []));

@@ -66,7 +66,7 @@ registerRequiredSecret({
   key: "ZOOM_ACCOUNT_ID",
   label: "Zoom Account ID",
   description:
-    "Optional Zoom Server-to-Server OAuth account ID for cloud-recording transcript imports. The app needs scopes user:read:list_users:admin and cloud_recording:read:list_user_recordings:admin.",
+    "Optional Zoom Server-to-Server OAuth account ID for cloud-recording transcript imports. The app needs scopes cloud_recording:read:list_account_recordings:admin and cloud_recording:read:recording:admin.",
   docsUrl: "https://developers.zoom.us/docs/internal-apps/s2s-oauth/",
   scope: "workspace",
   kind: "api-key",
@@ -84,7 +84,7 @@ registerRequiredSecret({
   key: "ZOOM_CLIENT_ID",
   label: "Zoom Client ID",
   description:
-    "Optional Zoom Server-to-Server OAuth client ID for cloud-recording transcript imports. The app needs scopes user:read:list_users:admin and cloud_recording:read:list_user_recordings:admin.",
+    "Optional Zoom Server-to-Server OAuth client ID for cloud-recording transcript imports. The app needs scopes cloud_recording:read:list_account_recordings:admin and cloud_recording:read:recording:admin.",
   docsUrl: "https://developers.zoom.us/docs/internal-apps/s2s-oauth/",
   scope: "workspace",
   kind: "api-key",
@@ -102,7 +102,7 @@ registerRequiredSecret({
   key: "ZOOM_CLIENT_SECRET",
   label: "Zoom Client Secret",
   description:
-    "Optional Zoom Server-to-Server OAuth client secret for cloud-recording transcript imports. The app needs scopes user:read:list_users:admin and cloud_recording:read:list_user_recordings:admin.",
+    "Optional Zoom Server-to-Server OAuth client secret for cloud-recording transcript imports. The app needs scopes cloud_recording:read:list_account_recordings:admin and cloud_recording:read:recording:admin.",
   docsUrl: "https://developers.zoom.us/docs/internal-apps/s2s-oauth/",
   scope: "workspace",
   kind: "api-key",

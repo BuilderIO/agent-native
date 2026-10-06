@@ -5,8 +5,8 @@ import {
   downloadZoomTranscript,
   fetchZoomAccessToken,
   hasProcessingTranscript,
+  listZoomAccountRecordings,
   listZoomRecordings,
-  listZoomUserIds,
   nextZoomCursorFrom,
   normalizeZoomRecording,
   parseZoomVtt,
@@ -144,6 +144,37 @@ describe("downloadZoomTranscript", () => {
       "https://cdn.example.test/file.vtt",
     );
     expect(fetchMock.mock.calls[1][1].headers).toEqual({});
+  });
+});
+
+describe("listZoomAccountRecordings", () => {
+  it("lists every account recording from the account endpoint", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          meetings: [{ ...meeting, uuid: "first" }],
+          next_page_token: "page-2",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ meetings: [{ ...meeting, uuid: "second" }] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const meetings = await listZoomAccountRecordings(
+      "token",
+      "2026-09-01",
+      "2026-09-08",
+    );
+
+    expect(meetings.map((item) => item.uuid)).toEqual(["first", "second"]);
+    const firstUrl = new URL(fetchMock.mock.calls[0][0]);
+    expect(firstUrl.pathname).toBe("/v2/accounts/me/recordings");
+    expect(firstUrl.searchParams.get("from")).toBe("2026-09-01");
+    expect(firstUrl.searchParams.get("to")).toBe("2026-09-08");
+    const secondUrl = new URL(fetchMock.mock.calls[1][0]);
+    expect(secondUrl.searchParams.get("next_page_token")).toBe("page-2");
   });
 });
 
@@ -329,24 +360,28 @@ describe("Zoom error detail", () => {
     expect(error.message).toContain("ZOOM_CLIENT_SECRET");
   });
 
-  it("names the user-list step and the missing scope", async () => {
+  it("names the recording-list step and the missing scope", async () => {
+    const scope = "cloud_recording:read:list_account_recordings:admin";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
             code: 4711,
-            message:
-              "Invalid access token, does not contain scopes:[user:read:list_users:admin].",
+            message: `Invalid access token, does not contain scopes:[${scope}].`,
           }),
           { status: 400 },
         ),
       ),
     );
-    const error = await listZoomUserIds("token").catch((err: unknown) => err);
+    const error = await listZoomAccountRecordings(
+      "token",
+      "2026-09-01",
+      "2026-09-08",
+    ).catch((err: unknown) => err);
     expect((error as Error).message).toContain(
-      "Zoom user list failed with status 400 (code 4711)",
+      "Zoom recording list failed with status 400 (code 4711)",
     );
-    expect((error as Error).message).toContain("user:read:list_users:admin");
+    expect((error as Error).message).toContain(scope);
   });
 });
