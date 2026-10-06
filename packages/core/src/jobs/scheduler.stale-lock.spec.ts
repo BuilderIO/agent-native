@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as runStore from "../agent/run-store.js";
 import { getThread } from "../chat-threads/store.js";
+import {
+  RUNTIME_PAUSE_AFTER,
+  runtimeFailureNextRun,
+} from "./automation-outcome.js";
+import { parseJobResource } from "./frontmatter.js";
 import * as runHistory from "./run-history.js";
+import { recordAutomationSchedulerHealth } from "./scheduler-health.js";
 import { processRecurringJobs, runJobNow } from "./scheduler.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
@@ -270,6 +276,137 @@ describe("stale automation run-lock recovery across trigger types", () => {
       } as any);
       await processRecurringJobs(recoveryDeps);
       expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
+  it.each(["missing worker", "mismatched turn", "failed history write"])(
+    "dispatches unrelated jobs when recovery has a %s",
+    async (problem) => {
+      const fixture = interruptedScheduledJob(
+        problem === "failed history write" ? 4 : 1,
+      );
+      const healthy = {
+        id: "healthy-resource",
+        owner: "owner@example.com",
+        path: "jobs/healthy.md",
+        content:
+          '---\nschedule: "* * * * *"\nenabled: true\nnextRun: 2026-01-01T00:00:00Z\n---\nRun healthy work.',
+      };
+      resourceListAllOwnersMock.mockResolvedValue([fixture.resource, healthy]);
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockResolvedValue(undefined);
+      if (problem === "missing worker")
+        vi.mocked(runStore.getRunById).mockResolvedValueOnce(null);
+      if (problem === "mismatched turn")
+        vi.mocked(runStore.getRunTurnRef).mockResolvedValueOnce({
+          threadId: "wrong-thread",
+          turnId: "killed-worker",
+        });
+      if (problem === "failed history write")
+        finish.mockRejectedValueOnce(new Error("history unavailable"));
+      try {
+        await processRecurringJobs(recoveryDeps);
+        expect(runAgentLoopMock).toHaveBeenCalledOnce();
+        expect(
+          resourcePutMock.mock.calls.every((call) => call[1] === healthy.path),
+        ).toBe(true);
+        expect(recordAutomationSchedulerHealth).toHaveBeenLastCalledWith(
+          expect.objectContaining({ error: expect.any(String) }),
+        );
+        expect(parseJobResource(fixture.resource.content).meta.lastStatus).toBe(
+          "running",
+        );
+      } finally {
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
+
+  it("counts exhausted recovery as one failed firing and applies runtime backoff", async () => {
+    const fixture = interruptedScheduledJob(4);
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      const before = new Date();
+      await processRecurringJobs(recoveryDeps);
+      const meta = parseJobResource(resourcePutMock.mock.calls.at(-1)![2]).meta;
+      expect(meta).toMatchObject({
+        lastStatus: "error",
+        lastErrorCode: "stale_run",
+        consecutiveFailures: 1,
+        lastFailedEventId: fixture.history.id,
+      });
+      expect(meta.lastError).toContain("send-test-email");
+      expect(meta.lastError).not.toContain("No delivery was confirmed");
+      expect(Date.parse(meta.nextRun!)).toBeGreaterThanOrEqual(
+        runtimeFailureNextRun(before, before, 1).getTime(),
+      );
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
+  it("pauses once after exhausted recovery even when settlement loses its first resource write", async () => {
+    const fixture = interruptedScheduledJob(4);
+    fixture.resource.content = fixture.resource.content.replace(
+      "lastStatus: running",
+      `lastStatus: running\nlastErrorCode: stale_run\nconsecutiveFailures: ${RUNTIME_PAUSE_AFTER - 1}`,
+    );
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockImplementation(async (_id, status, error, errorCode) => {
+        Object.assign(fixture.history, {
+          finishedAt: Date.now(),
+          status,
+          error,
+          errorCode,
+        });
+      });
+    resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledOnce();
+      const meta = parseJobResource(resourcePutMock.mock.calls.at(-1)![2]).meta;
+      expect(meta).toMatchObject({
+        lastStatus: "paused",
+        enabled: false,
+        consecutiveFailures: RUNTIME_PAUSE_AFTER,
+        lastFailedEventId: fixture.history.id,
+        pausedReason: "stale_run",
+      });
+      expect(meta.lastError).toContain("send-test-email");
+      expect(meta.lastError).not.toContain("No delivery was confirmed");
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
+  it("does not apply a recovered failure to a newer firing read during settlement", async () => {
+    const fixture = interruptedScheduledJob(4);
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    resourceGetByPathMock.mockResolvedValueOnce({
+      ...fixture.resource,
+      content: fixture.resource.content.replace(
+        new Date(fixture.history.startedAt).toISOString(),
+        new Date().toISOString(),
+      ),
+    });
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledOnce();
+      expect(resourcePutMock).not.toHaveBeenCalled();
     } finally {
       finish.mockRestore();
       fixture.restore();

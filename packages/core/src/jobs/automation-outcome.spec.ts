@@ -54,6 +54,12 @@ it("keeps confirmed delivery evidence when a long runtime error is truncated", (
   );
 });
 
+it("does not duplicate a persisted delivery note when recovery reapplies a failure", () => {
+  const note = "Completed steps confirmed by the run journal: send-test-email.";
+  const recorded = withDeliveryNote("Worker stopped", note);
+  expect(withDeliveryNote(recorded, note)).toBe(recorded);
+});
+
 function codedError(message: string, errorCode: string): Error {
   return Object.assign(new Error(message), { errorCode });
 }

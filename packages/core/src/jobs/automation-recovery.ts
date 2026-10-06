@@ -50,6 +50,7 @@ export type AutomationRecovery =
       history: AutomationRun;
       error?: string;
       errorCode?: string;
+      deliveryNote?: string;
     };
 
 export function deliveryNoteForEvents(
@@ -116,22 +117,27 @@ export async function inspectAutomationRecovery(
       run.startedAt >= lastRun,
   );
   if (!history?.runId || !history.threadId) return null;
-  if (history.finishedAt !== null)
+  if (history.finishedAt !== null && history.status === "success")
     return {
       state: "settle",
-      status: history.status === "success" ? "success" : "error",
+      status: "success",
       history,
       ...(history.error ? { error: history.error } : {}),
       ...(history.errorCode ? { errorCode: history.errorCode } : {}),
     };
-  await reapIfStale(history.runId);
+  if (history.finishedAt === null) await reapIfStale(history.runId);
   const run = await getRunById(history.runId);
   if (!run)
     throw new Error(
       `Automation worker ${history.runId} has no durable run record`,
     );
-  if (run.status === "running") return { state: "active" };
-  if (run.status === "completed" && !meta.deliveryDestination)
+  if (history.finishedAt === null && run.status === "running")
+    return { state: "active" };
+  if (
+    history.finishedAt === null &&
+    run.status === "completed" &&
+    !meta.deliveryDestination
+  )
     return { state: "settle", status: "success", history };
   const ref = await getRunTurnRef(run.id);
   if (!ref || ref.threadId !== history.threadId)
@@ -139,6 +145,7 @@ export async function inspectAutomationRecovery(
   const hardDeadlineAt =
     history.startedAt + resolveBackgroundRunHardTimeoutMs();
   if (
+    history.finishedAt === null &&
     run.errorCode === "stale_run" &&
     now.getTime() < hardDeadlineAt &&
     (await countRunsForTurn(ref.threadId, ref.turnId)) <=
@@ -161,9 +168,13 @@ export async function inspectAutomationRecovery(
     status: "error",
     history,
     error: automationDeliveryNote(
-      run.errorDetail || automationRecoveryMessagesForLocale().stopped,
+      history.error ||
+        run.errorDetail ||
+        automationRecoveryMessagesForLocale().stopped,
       events,
     ),
-    errorCode: run.errorCode || "background_automation_interrupted",
+    errorCode:
+      history.errorCode || run.errorCode || "background_automation_interrupted",
+    deliveryNote: deliveryNoteForEvents(events),
   };
 }

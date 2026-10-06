@@ -318,45 +318,59 @@ async function processRecurringJobsWithLease(
       }
 
       if (meta.lastStatus === "running") {
-        const recovery = meta.schedule
-          ? await inspectAutomationRecovery(resource, meta, now)
-          : null;
-        if (recovery?.state === "active") continue;
-        if (recovery?.state === "resume") {
-          dueJobCandidates.push({
-            key: `${resource.owner}:${resource.path}`,
-            resource,
-            meta,
-            body,
-            resume: recovery.resume,
-          });
-          continue;
-        }
-        if (recovery?.state === "settle") {
-          // Keep the recovery marker until history is durable; a restart can
-          // reconcile frontmatter from finished history, but not the reverse.
-          if (recovery.history.finishedAt === null)
-            await finishAutomationRun(
-              recovery.history.id,
-              recovery.status,
-              recovery.error,
-              recovery.errorCode,
+        try {
+          const recovery = meta.schedule
+            ? await inspectAutomationRecovery(resource, meta, now)
+            : null;
+          if (recovery?.state === "active") continue;
+          if (recovery?.state === "resume") {
+            dueJobCandidates.push({
+              key: `${resource.owner}:${resource.path}`,
+              resource,
+              meta,
+              body,
+              resume: recovery.resume,
+            });
+            continue;
+          }
+          if (recovery?.state === "settle") {
+            // Keep the recovery marker until history is durable; a restart can
+            // reconcile frontmatter from finished history, but not the reverse.
+            if (recovery.history.finishedAt === null)
+              await finishAutomationRun(
+                recovery.history.id,
+                recovery.status,
+                recovery.error,
+                recovery.errorCode,
+              );
+            await recordExecutionOutcome(
+              resource,
+              {
+                lastRun: meta.lastRun,
+                lastStatus: recovery.status,
+                lastError: recovery.error,
+                expectedLastRun: meta.lastRun,
+              },
+              recovery.status === "error"
+                ? {
+                    failure: classifyAutomationFailure(
+                      Object.assign(new Error(recovery.error), {
+                        errorCode: recovery.errorCode,
+                        deliveryNote: recovery.deliveryNote,
+                      }),
+                    ),
+                    countTowardPause: true,
+                    eventId: recovery.history.id,
+                  }
+                : undefined,
             );
-          meta.lastStatus = recovery.status;
-          meta.lastError = recovery.error;
-          if (meta.schedule && isValidCron(meta.schedule))
-            meta.nextRun = nextOccurrence(
-              meta.schedule,
-              now,
-              meta.timezone,
-            ).toISOString();
-          await updateResource(
-            resource,
-            meta,
-            body,
-            recovery.status === "success"
-              ? CLEAR_FAILURE_STATE
-              : { lastErrorCode: recovery.errorCode },
+            continue;
+          }
+        } catch (error) {
+          healthError = error instanceof Error ? error.message : String(error);
+          console.error(
+            `[recurring-jobs] Could not recover "${resource.path}":`,
+            error,
           );
           continue;
         }
@@ -1222,12 +1236,13 @@ type ExecutionOutcome = Pick<
   | "remoteRunId"
   | "remoteAutomationRunId"
   | "remoteAdvanceSchedule"
-> & { advanceSchedule?: boolean };
+> & { advanceSchedule?: boolean; expectedLastRun?: string };
 
 interface ExecutionFailure {
   failure: AutomationFailure;
   /** A manual run records its cause but never pauses the automation. */
   countTowardPause: boolean;
+  eventId?: string;
 }
 
 async function recordExecutionOutcome(
@@ -1250,7 +1265,13 @@ async function recordExecutionOutcome(
   }
   const current = parseJobResource(latest.content);
 
-  const { advanceSchedule, ...execution } = outcome;
+  const { advanceSchedule, expectedLastRun, ...execution } = outcome;
+  if (
+    expectedLastRun !== undefined &&
+    (current.meta.lastRun !== expectedLastRun ||
+      current.meta.lastStatus !== "running")
+  )
+    return;
   const meta: JobFrontmatter = { ...current.meta, ...execution };
   const now = new Date();
   let extra: JobFrontmatterPatch = {};
@@ -1261,7 +1282,7 @@ async function recordExecutionOutcome(
       current.meta,
       failed.failure,
       now,
-      { countTowardPause: failed.countTowardPause },
+      { countTowardPause: failed.countTowardPause, eventId: failed.eventId },
     );
     extra = transition.patch;
     if (transition.pause) {

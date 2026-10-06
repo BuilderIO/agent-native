@@ -247,8 +247,12 @@ export function withDeliveryNote(
   deliveryNote = "No delivery was confirmed.",
 ): string {
   const note = truncate(deliveryNote, 300);
+  const detail = message.trim();
   const cause = truncate(
-    message.trim().replace(/\.$/, ""),
+    (detail.endsWith(note) && note
+      ? detail.slice(0, -note.length).trim()
+      : detail
+    ).replace(/\.$/, ""),
     MAX_RECORDED_ERROR_CHARS - note.length - 2,
   );
   return `${cause}. ${note}`;
