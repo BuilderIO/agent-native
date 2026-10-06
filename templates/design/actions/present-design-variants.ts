@@ -29,6 +29,7 @@ import {
   getResponsiveBreakpointWidths,
   getResponsiveGroupHeight,
   getResponsiveGroupWidth,
+  MAX_SANE_FRAME_DIMENSION_PX,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
@@ -494,18 +495,16 @@ function inferVariantSize(
   const promptDimensions = explicitCanvasDimensionsFromPrompt(prompt);
   if (promptDimensions) return promptDimensions;
 
-  const explicitWidth =
-    typeof variant.width === "number" &&
-    Number.isFinite(variant.width) &&
-    variant.width > 0
-      ? variant.width
-      : undefined;
-  const explicitHeight =
-    typeof variant.height === "number" &&
-    Number.isFinite(variant.height) &&
-    variant.height > 0
-      ? variant.height
-      : undefined;
+  const explicitWidth = boundedDimension(
+    variant.width,
+    1,
+    MAX_SANE_FRAME_DIMENSION_PX,
+  );
+  const explicitHeight = boundedDimension(
+    variant.height,
+    1,
+    MAX_SANE_FRAME_DIMENSION_PX,
+  );
   if (explicitWidth && explicitHeight) {
     return { width: explicitWidth, height: explicitHeight };
   }

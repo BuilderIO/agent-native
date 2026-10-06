@@ -10,6 +10,7 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     ["Use exact dimensions: 96 by 96", { width: 96, height: 96 }],
     ["Create a 1,200 x 675 pixel email banner", { width: 1200, height: 675 }],
     ["Create a 1080px × 1080px image", { width: 1080, height: 1080 }],
+    ["Create a 300 pixels by 250 pixels image", { width: 300, height: 250 }],
     ["Create a 1080 px by 1080 px image", { width: 1080, height: 1080 }],
     ["Create a 2x2 card grid at 1200x800 pixels", { width: 1200, height: 800 }],
     [
@@ -39,6 +40,15 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     ).toBeUndefined();
     expect(
       explicitCanvasDimensionsFromPrompt("Use aspect ratio: 1920x1080"),
+    ).toBeUndefined();
+  });
+
+  it("does not interpret physical units as pixel dimensions", () => {
+    expect(
+      explicitCanvasDimensionsFromPrompt("Create a 210 x 297 mm poster"),
+    ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt("Create a 210 by 297 inches poster"),
     ).toBeUndefined();
   });
 

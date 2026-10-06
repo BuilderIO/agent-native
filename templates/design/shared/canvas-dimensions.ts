@@ -4,7 +4,7 @@ export interface CanvasDimensions {
 }
 
 const DIMENSION_PAIR =
-  /(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d{1,5})\s*(px\b)?\s*(?:x|×|by)\s*(\d{1,3}(?:,\d{3})+|\d{1,5})\s*(px|pixels?)?(?!\w)/gi;
+  /(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d{1,5})\s*(px|pixels?)?\s*(?:x|×|by)\s*(\d{1,3}(?:,\d{3})+|\d{1,5})\s*(px|pixels?)?(?!\w)/gi;
 const DIMENSION_CONTEXT_BEFORE =
   /\b(?:exact(?:ly)?|fixed[- ]size|dimensions?|size|canvas|artboard|frame|screen|pixels?)\s*(?:[:=]\s*)?$/i;
 const DIMENSION_CONTEXT_AFTER =
@@ -22,6 +22,8 @@ const LAYOUT_COUNT_CONTEXT_AFTER =
 const ASPECT_RATIO_CONTEXT_AFTER = /^\s*(?:aspect\s+ratio|ratio)\b/i;
 const ASPECT_RATIO_CONTEXT_BEFORE =
   /\b(?:aspect\s+)?ratio\b(?:\s+(?:of|is|to))?\s*[:=]?\s*$/i;
+const NON_PIXEL_UNIT_CONTEXT_AFTER =
+  /^\s*(?:mm|millimeters?|cm|centimeters?|inch(?:es)?|ft|feet|pt|points?|pc|picas?|em|rem)\b/i;
 
 export function explicitCanvasDimensionsFromPrompt(
   prompt?: string,
@@ -56,7 +58,8 @@ export function explicitCanvasDimensionsFromPrompt(
     if (
       LAYOUT_COUNT_CONTEXT_AFTER.test(suffix ?? "") ||
       ASPECT_RATIO_CONTEXT_BEFORE.test(prefix ?? "") ||
-      ASPECT_RATIO_CONTEXT_AFTER.test(suffix ?? "")
+      ASPECT_RATIO_CONTEXT_AFTER.test(suffix ?? "") ||
+      NON_PIXEL_UNIT_CONTEXT_AFTER.test(suffix ?? "")
     ) {
       continue;
     }

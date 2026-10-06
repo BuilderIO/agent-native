@@ -151,6 +151,7 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
 }));
 
 import { DESIGN_HTML_INTEGRITY_ERROR_CODE } from "../shared/html-integrity.js";
+import { MAX_SANE_FRAME_DIMENSION_PX } from "../shared/responsive-frame-layout.js";
 import action from "./present-design-variants.js";
 
 function guidedQuestionsPayload<T>(): T {
@@ -444,8 +445,8 @@ describe("present-design-variants", () => {
         {
           id: "a",
           label: "Warm",
-          width: 1200,
-          height: 1600,
+          width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: MAX_SANE_FRAME_DIMENSION_PX + 1,
           content: "<!doctype html><html><body>Warm</body></html>",
         },
         {
@@ -478,6 +479,47 @@ describe("present-design-variants", () => {
       heightMode: "fixed",
     });
     expect(mocks.designData.breakpointSet).toMatchObject({ id: "existing" });
+  });
+
+  it("bounds variant-supplied dimensions to supported frame geometry", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      variants: [
+        {
+          id: "a",
+          label: "Wide",
+          width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          content: "<!doctype html><html><body>Wide</body></html>",
+        },
+        {
+          id: "b",
+          label: "Tall",
+          width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          content: "<!doctype html><html><body>Tall</body></html>",
+        },
+      ],
+    });
+
+    expect(result.screens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          width: MAX_SANE_FRAME_DIMENSION_PX,
+          height: MAX_SANE_FRAME_DIMENSION_PX,
+        }),
+      ]),
+    );
+    expect(mocks.designData.canvasFrames).toMatchObject({
+      "file-a": {
+        width: MAX_SANE_FRAME_DIMENSION_PX,
+        height: MAX_SANE_FRAME_DIMENSION_PX,
+      },
+      "file-b": {
+        width: MAX_SANE_FRAME_DIMENSION_PX,
+        height: MAX_SANE_FRAME_DIMENSION_PX,
+      },
+    });
   });
 
   it("requires complete variant content for an exact-size prompt", async () => {
