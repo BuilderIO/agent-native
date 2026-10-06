@@ -1061,10 +1061,13 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .nudge-in { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-fg); }
 .nudge-in input { width: 64px; height: 32px; border: 1px solid var(--border); border-radius: 8px; padding: 0 8px; background: var(--bg); color: var(--fg); font: inherit; text-align: right; }
 .nudge-in input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.src-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.src { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; text-align: left; }
-.src:hover { background: var(--hover); }
-.src small { color: var(--muted-fg); font-size: 12px; line-height: 16px; }
+/* An empty design: the canvas offers the three ways to start, centered, with no heading. Dropped files import. */
+.canvas.empty .canvas-scroll { display: none; }
+.empty-canvas { display: none; }
+.canvas.empty .empty-canvas { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.btn.ghost { background: none; }
+.btn.ghost:hover { background: var(--hover); }
+.canvas.drop { box-shadow: inset 0 0 0 2px var(--accent); }
 
 .chip select { border: 0; background: none; font: inherit; color: inherit; outline: none; }
 .labs-tag { font-size: 10px; font-weight: 600; color: hsl(270 60% 55%); }
@@ -1110,7 +1113,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   <button class="chip" id="labs-tokens" aria-pressed="true" title="Tokens ships behind a Labs flag">Labs: Tokens</button>
   <button class="chip" id="labs-code" aria-pressed="true" title="Code mode ships behind a Labs flag">Labs: Code</button>
   <label class="chip" title="Compare history as a mode (timeline in the inspector) or today's sheet">History <select id="hist-style"><option value="mode">Mode</option><option value="sheet">Sheet (today)</option></select></label>
-  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option><option value="local-off">Local app stopped</option><option value="local-unsaved">Local app, unsaved changes</option></select></label>
+  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option><option value="local-off">Local app stopped</option><option value="local-unsaved">Local app, unsaved changes</option><option value="empty">Empty design</option></select></label>
   <button class="chip" id="spec-grid-btn" aria-pressed="false" title="Show the indent spacers and the inspector's 88 / 8 / 88 / 8 / 32 grid">Spacing <span class="k">G</span></button>
   <button class="chip" id="theme-btn">Theme</button>
   <button class="chip" id="spec-btn" aria-pressed="false">Spec</button>
@@ -1151,6 +1154,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   <header class="topbar" id="topbar"></header>
 
   <main class="canvas" id="canvas-wrap">
+    <div class="empty-canvas"><button class="btn secondary" data-empty-import>Import…</button><button class="btn secondary" data-empty-app>From your app…</button><button class="btn ghost" data-empty-blank>Blank screen</button></div>
     <div class="canvas-scroll" id="canvas">
     <div class="canvas-inner"><div style="position:relative">
       <div class="frame-label" id="frame-label"></div>
@@ -1546,14 +1550,14 @@ function renderTree() {
   let h = `<div class="sec-head"><button class="sec-toggle" data-sec="screens" aria-expanded="${S.screens}"><span class="chev">${ic("chevron-down", "s12")}</span>Screens</button><div class="sec-actions"><button class="icon-btn sm" title="Add screen" data-add-screen aria-haspopup="menu">${ic("plus", "s12")}</button></div></div>`;
   if (S.screens) {
     h += `<div class="sec-block" role="tree" aria-label="Screens">`;
-    h += screenRow("all", ic("layout-grid"), "All screens", S.route === "*");
-    ROUTES.forEach(r => h += screenRow(r.path, ic("device-desktop"), `${r.screen} <span class="muted">${r.path}</span>`, S.route === r.path));
+    if (!emptyDesign()) h += screenRow("all", ic("layout-grid"), "All screens", S.route === "*");
+    (emptyDesign() ? [] : ROUTES).forEach(r => h += screenRow(r.path, ic("device-desktop"), `${r.screen} <span class="muted">${r.path}</span>`, S.route === r.path));
     h += `</div>`;
   }
   const lq = LY.q.toLowerCase();
   h += LY.searching || lq ? `<div class="sec-head rule searching">${searchField("layer-q", "Search layers", LY.q)}</div>`
     : `<div class="sec-head rule"><button class="sec-toggle" data-sec="layers" aria-expanded="${S.layers}"><span class="chev">${ic("chevron-down", "s12")}</span>Layers</button><div class="sec-actions"><button class="icon-btn sm" id="layer-search" title="Search layers  ⌘F">${ic("search", "s12")}</button><button class="icon-btn sm" title="Filter layers" data-toast="Filters by type: frames, text, components">${ic("filter-2", "s12")}</button></div></div>`;
-  if (S.layers || lq) {
+  if ((S.layers || lq) && !emptyDesign()) {
     h += `<div role="tree" aria-label="Layers">`;
     // While searching, a layer shows when it or a descendant matches, with its ancestors expanded.
     const hit = n => n.name.toLowerCase().includes(lq) || (n.children || []).some(hit);
@@ -1615,7 +1619,6 @@ function renderTopbar() {
     <div class="tb-insp">
       <span class="avatars" title="Shawn, Vee, and Ana are here"><span style="background:#7c6cf2">S</span><span style="background:#e0864a">V</span><span style="background:#3aa17e">A</span></span>
       <span class="btns">
-        <span class="bsplit"><button class="btn secondary" id="import-btn" aria-haspopup="dialog">Import</button><button class="btn secondary" id="import-more" aria-haspopup="menu" aria-expanded="false" aria-label="Import options">${ic("chevron-down")}</button></span>
         <span class="bsplit"><button class="btn primary" id="share-btn" aria-haspopup="dialog">Share</button><button class="btn primary" id="share-more" aria-haspopup="menu" aria-expanded="false" aria-label="Export options">${ic("chevron-down")}</button></span>
       </span>
     </div>`;
@@ -1679,7 +1682,10 @@ function openSkillsMenu(anchor, opts) {
 function N(id, inner, attrs = "", tagName = "div") { return `<${tagName} data-node="${id}" ${attrs}>${inner}</${tagName}>`; }
 // The design's content. Versions snapshot this; restoring replaces it.
 let DESIGN = { headline: 76, cta: "Start building free", title: "The app framework your agent can actually use." };
+const emptyDesign = () => S.scenario === "empty";
 function renderPage() {
+  $("#canvas-wrap").classList.toggle("empty", emptyDesign());
+  if (emptyDesign()) return;
   const p = $("#page");
   const dev = DEVICES.find(d => d.name === S.device);
   $("#frame-label").innerHTML = `${S.route === "/docs" ? "Screen 2" : "Screen 1"} <span>${dev.w}</span>`;
@@ -1750,7 +1756,7 @@ function renderInspector() {
   const el = $("#insp");
   if (H.active) { app.classList.remove("no-inspector"); return renderTimeline(); }
   app.classList.toggle("no-inspector", S.mode !== "design");
-  if (S.mode !== "design") { el.innerHTML = ""; return; }
+  if (S.mode !== "design" || emptyDesign()) { el.innerHTML = ""; return; }
   if (frameToolArmed()) return renderFramePresets(el);
   if (S.screenSel) return renderScreenInspector(el);
   const id = S.selected, f = FLAT[id], p = propsFor(id);
@@ -2578,6 +2584,9 @@ document.addEventListener("click", e => {
   const tool = t.closest("[data-tool]"); if (tool) { const def = TOOLS[S.mode].find(x => x.id === tool.dataset.tool); if (def.agent) { setPanel("agents"); $("#ask")?.focus(); return; } S.tool = def.id; renderDock(); app.classList.toggle("comment-tool", S.tool === "comment"); return; }
   const more = t.closest("[data-more]"); if (more) { const def = TOOLS[S.mode].find(x => x.id === more.dataset.more); if (def.agent) openSkillsMenu(more, { aboveOf: $("#dock") }); else openToolMenu(more, def); return; }
   const tk = t.closest("[data-toast]"); if (tk) { toast(tk.dataset.toast); return; }
+  if (t.closest("[data-empty-import]")) return pickImportFiles();
+  if (t.closest("[data-empty-app]")) return appDialog();
+  if (t.closest("[data-empty-blank]")) { S.scenario = "none"; $("#scenario-sel").value = "none"; render(); return toast("Added a blank screen; press F for device sizes"); }
   if (t.closest("[data-tk-open-import]")) { openMenu(t.closest("button"), TOKEN_IMPORT_MENU()); return; }
   if (t.closest("[data-tk-gen]")) { startSkill("Generate tokens"); return; }
   const tks = t.closest("[data-tk-sec]"); if (tks) { const k = tks.dataset.tkSec; TK.collapsed.has(k) ? TK.collapsed.delete(k) : TK.collapsed.add(k); renderTokens(); return; }
@@ -2665,13 +2674,11 @@ document.addEventListener("click", e => {
   if (id === "cm-new") { S.tool = "comment"; renderDock(); app.classList.add("comment-tool"); toast("Click anything on the canvas to comment on it"); return; }
   if (id === "apply-feedback") { startSkillText("Apply all open design review feedback", "Apply feedback"); return; }
   if (id === "review-changes") return openMenu(t.closest("button"), [{ label: "Changes ready to review" }, { t: "Screen 1 · 3 variants", toast: "Opens the screen with the variant picker" }, { t: "Screen 2 · 2 variants", toast: "Opens the screen with the variant picker" }], { align: "right" });
-  if (id === "import-btn") return importDialog();
-  if (id === "import-more") return openMenu(t.closest("button"), IMPORT_MENU(), { align: "right" });
   if (id === "share-btn") return shareDialog();
   if (id === "share-more") return openMenu(t.closest("button"), EXPORT_MENU(), { align: "right" });
   if (id === "file-menu-btn") return openMenu(t.closest("button"), [
     { t: "Rename", run: rename }, { t: "Duplicate" }, "-",
-    { t: "Version history", run: openHistory }, { t: "Save as template…" }, { t: "Export", sub: EXPORT_MENU().slice(1) }, "-",
+    { t: "Version history", run: openHistory }, { t: "Save as template…" }, { t: "Import…", run: pickImportFiles }, { t: "Export", sub: EXPORT_MENU().slice(1) }, "-",
     { t: "Move to trash", danger: true, toast: "Opens a confirm that names who loses access" },
   ]);
   if (id === "folder-btn") { toast("Goes to Designs (/home)"); return; }
@@ -3696,7 +3703,7 @@ function openNudge() {
     sc => { sc.querySelector(".dlg").style.width = "320px"; sc.addEventListener("change", e => { const k = e.target.id?.replace("nudge-", ""); if (k in nudge) { nudge[k] = clamp(e.target.value); e.target.value = nudge[k]; } }); });
 }
 const APP_MENU = () => [{ search: "Actions…", k: "⌘K" },
-  { t: "File", sub: [{ t: "New design" }, "-", { t: "Save local copy…" }, { t: "Save as template…" }, { t: "Version history", run: openHistory }, "-", { t: "Export", sub: EXPORT_MENU().slice(1) }, { t: "Copy agent prompt" }, { t: "Make an app" }] },
+  { t: "File", sub: [{ t: "New design" }, "-", { t: "Save local copy…" }, { t: "Save as template…" }, { t: "Version history", run: openHistory }, "-", { t: "Import…", run: pickImportFiles }, { t: "Export", sub: EXPORT_MENU().slice(1) }, { t: "Copy agent prompt" }, { t: "Make an app" }] },
   { t: "Edit", sub: [{ t: "Undo", k: "⌘Z" }, { t: "Redo", k: "⇧⌘Z" }, { t: "Duplicate selection", k: "⌘D" }, { t: "Delete selection", k: "⌫" }, { t: "Pin comment", k: "C" }] },
   { t: "View", sub: [{ t: "Current screen" }, { t: "Zoom out", k: "⌘-" }, { t: "Zoom in", k: "⌘=" }, { t: "Pin comment", k: "C" }] },
   { t: "Preferences", sub: [{ t: "Theme", sub: THEME_MENU() }, { t: "Keyboard shortcuts", k: "⌃⇧?", run: openShortcuts }, { t: "Nudge amount…", run: openNudge }] },
@@ -3709,15 +3716,6 @@ const EXPORT_MENU = () => [{ label: "Export" },
   { t: "Download PDF (all screens)", disabled: true },
   "-", { t: "Copy agent prompt", toast: "Agent prompt copied" },
   "-", { t: "Publish app", toast: "Opens the Publish app waitlist (today's Play popover)" }];
-const IMPORT_SOURCES = [
-  ["frame", "Figma frame URL", "Paste a frame link. A token is optional."],
-  ["upload", "Upload .fig", "Pick frames from a .fig file."],
-  ["copy", "Paste from Figma", "Copy frames in Figma, then paste on the canvas."],
-  ["code", "HTML", "Paste markup or choose an HTML file."],
-  ["world", "Local app", "Connect a running local app with /visual-edit."],
-  ["box-multiple", "GitHub", "Coming soon"],
-];
-const IMPORT_MENU = () => IMPORT_SOURCES.map(([, t]) => ({ t: t + (t === "GitHub" ? "" : "…"), disabled: t === "GitHub", k: t === "GitHub" ? "Soon" : "", run: () => t === "Local app" ? appDialog() : importDialog(t) }));
 function dialog(html, onMount) {
   const sc = document.createElement("div"); sc.className = "dlg-scrim";
   sc.innerHTML = `<div class="dlg" role="dialog" aria-modal="true">${html}</div>`;
@@ -3804,20 +3802,29 @@ function shareDialog() {
     if (e.target.closest("#sp-mcp")) { close(); return openSettings("mcp"); }
   });
 }
-function importDialog(focus) {
-  dialog(`<div class="dlg-h">Import<span class="grow"></span><button class="icon-btn xs" data-close aria-label="Close">${ic("x")}</button></div>
-    <div class="dlg-b">
-      <div class="dlg-row"><input id="figma-url" placeholder="Figma frame URL" aria-label="Figma frame URL"><button class="btn primary" style="height:32px;border-radius:8px" data-import>Import</button></div>
-      <div class="src-grid">${IMPORT_SOURCES.slice(1).map(([icon, t, d]) => `<button class="src" ${t === "GitHub" ? "disabled style=\"opacity:.55;cursor:default\"" : `data-src="${t}"`}><span style="display:flex;gap:8px;align-items:center;font-weight:500">${ic(icon, "s14")}${t}</span><small>${d}</small></button>`).join("")}</div>
-    </div>`,
-  (sc, close) => {
-    if (focus && focus !== "Figma frame URL") sc.querySelector(`[data-src="${focus}"]`)?.focus();
-    sc.addEventListener("click", e => {
-      if (e.target.closest("[data-import]")) { close(); toast("Importing frame… it lands as a new screen"); }
-      const s = e.target.closest("[data-src]"); if (s) { close(); if (s.dataset.src === "Local app") return appDialog(); toast(`${s.dataset.src}: opens that source's flow from today's Import panel`); }
-    });
-  });
+// Import is the system file panel, scoped to the files that become screens: .fig decodes in the browser (no Figma API
+// or token) and HTML goes through import-design-source. Figma links stay an agent-only action (import-figma-frame
+// needs a Figma token), pasting Figma frames is ⌘V on the canvas, a local app is Screens' + › From your app…, and
+// GitHub was token import, which lives in Design System setup. Dropping the same files on the canvas does the same.
+const IMPORT_ACCEPT = ".fig,.html,.htm";
+const importable = f => /\.(fig|html?)$/i.test(f.name);
+function pickImportFiles() {
+  const inp = document.createElement("input"); inp.type = "file"; inp.multiple = true; inp.accept = IMPORT_ACCEPT;
+  inp.onchange = () => importFiles(inp.files); inp.click();
 }
+// A .fig converts, then saves its frames as screens; a large one asks which frames first, as DesignImportPanel does today.
+function importFiles(files) {
+  const list = [...files], ok = list.filter(importable), skipped = list.length - ok.length;
+  if (!ok.length) return toast(list.length ? "Import takes .fig and HTML files" : "Nothing to import");
+  const figs = ok.filter(f => /\.fig$/i.test(f.name)), html = ok.length - figs.length;
+  const what = [figs.length ? (figs.length === 1 ? figs[0].name : `${figs.length} .fig files`) : "", html ? `${html} HTML file${html === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
+  toast(figs.length ? `Converting ${what}…` : `Importing ${what}…`);
+  setTimeout(() => toast(`Imported ${what} as new screens${skipped ? ` · skipped ${skipped} other file${skipped === 1 ? "" : "s"}` : ""}`), 900);
+}
+const canvasWrap = $("#canvas-wrap");
+canvasWrap.addEventListener("dragover", e => { if ([...(e.dataTransfer?.items || [])].some(i => i.kind === "file")) { e.preventDefault(); canvasWrap.classList.add("drop"); } });
+canvasWrap.addEventListener("dragleave", e => { if (!canvasWrap.contains(e.relatedTarget)) canvasWrap.classList.remove("drop"); });
+canvasWrap.addEventListener("drop", e => { canvasWrap.classList.remove("drop"); if (!e.dataTransfer?.files?.length) return; e.preventDefault(); importFiles(e.dataTransfer.files); });
 
 /* ───────── Add a screen from your app (AddLocalhostScreenDialog, with a connect step: INSP-09) ───────── */
 // Add a screen from your app (AddLocalhostScreenDialog), with a connect step in front of it. `design connect`

@@ -104,12 +104,14 @@ mode-aware tool sets, the Insert menu on Frame, and the Agent skills menu, and
 show the toolbar in Interact. Update `mode-change.test.ts` and
 `tool-state.spec.ts`.
 
-### 5. Share and Import split buttons
+### 5. Share split button and File › Import
 
-Not started · TOP-09, TOP-10 · PR —
+Not started · TOP-09, TOP-10, FILE-04 to FILE-07 · PR —
 
-Share's chevron holds Export and Publish app; the Import dialog reuses
-`DesignImportPanel`'s flows. The share popover itself is step 17. Touches the
+Share's chevron holds Export and Publish app. Import leaves the top bar for
+File › Import…, the system file panel scoped to `.fig` and HTML, reusing
+`DesignImportPanel`'s `.fig` and HTML flows; home's Import opens the same panel,
+and an empty design's canvas offers Import…, From your app…, and Blank screen. The share popover itself is step 17. Touches the
 toolkit share surface, so check every template that renders it.
 
 ### 6. Rail, App menu, Agents panel, Settings entry points
@@ -294,6 +296,7 @@ where it names Annotate or the old toolbar.
 - 2026-10-05: The color picker's eyedropper is an app-owned icon on Tabler's grid, since Tabler's only pipette reads as a pen. COLOR-06.
 - 2026-10-05: Springs are their own token kind beside Easing, set by duration and bounce or by mass, stiffness, damping, and velocity, and kept in the form authored; Fluid Functionalism's Fast, Moderate, and Slow are the spring presets and Material 3's curves the easing presets. TOK-24.
 - 2026-10-05: The color picker sits on the 8pt grid (272px, columns 64 · 64 · 64 · 32), and slider knobs stay inside their tracks, filled with their value. COLOR-09.
+- 2026-10-06: Import leaves the top bar for File › Import…, the system file panel scoped to .fig and HTML, the inputs that become screens; home's Import opens the same panel; an empty canvas offers Import…, From your app…, and Blank screen. Figma links become agent-only, Paste from Figma is ⌘V, Local app stays in Screens' +, and GitHub goes. TOP-09, FILE-01, FILE-04, FILE-05, FILE-06, FILE-07.
 
 ## Open questions
 

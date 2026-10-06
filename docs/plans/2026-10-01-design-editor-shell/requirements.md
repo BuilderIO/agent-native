@@ -11,9 +11,9 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: One 48px bar across the canvas and inspector.
 - **TOP-02** · decided
   - Today: Top-right controls mix 28px Figma selects with 32px toolkit `sm` buttons; 28 isn't on the 16/20/24/32 ramp.
-  - Change: Every top-bar control is 24px with 12/16 text and a 6px radius; edge padding is 8px beside text and 4px beside a 16px glyph. The mode switch is a 24px segmented control (20px segments); Import and Share are 24px split buttons with a 20px chevron half. The bar stays 48px.
+  - Change: Every top-bar control is 24px with 12/16 text and a 6px radius; edge padding is 8px beside text and 4px beside a 16px glyph. The mode switch is a 24px segmented control (20px segments); Share is a 24px split button with a 20px chevron half. The bar stays 48px.
 - **TOP-03** · decided
-  - Change: Three columns with the route centred: left holds the mode switch (then device and Appearance in Interact); centre holds back, forward, the route picker, and reload in Interact; right holds zoom, presence, Import, and Share.
+  - Change: Three columns with the route centred: left holds the mode switch (then device and Appearance in Interact); centre holds back, forward, the route picker, and reload in Interact; right holds zoom, presence, and Share.
 - **TOP-04** · proposed
   - Today: Inline screen iframes are pinned to `colorScheme: "light"` in the editor (`DesignCanvas.tsx:7323`, `MultiScreenCanvas.tsx:12205`, `:12564`, `:13254`), so no design previews dark.
   - Change: Interact › Appearance (Light / Dark / System) beside the device picker sets that value instead. In Chromium an iframe's `color-scheme` drives `prefers-color-scheme` inside it, so designs with dark CSS follow with no changes. Design mode keeps the light pin.
@@ -26,15 +26,16 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: Local app screens: one route control (status dot, route ▾) in the top bar's center in Interact and Design, Interact's address bar and Design's screen control (INSP-07). In Design, Reload screen and Open in browser sit beside it, with Apply to source until SAVE-02.
   - Prototype: Scenario: Local app screen.
 - **TOP-08** · decided
-  - Change: Right zone in both modes: Review changes when pending, presence, then Import and Share as split buttons.
+  - Change: Right zone in both modes: Review changes when pending, presence, then Share as a split button.
 - **TOP-09** · decided
   - Today: Import is a rail panel (`DesignImportPanel`).
-  - Change: Import is a split button: the button opens the Import dialog with the same sources; the chevron jumps straight to one source.
+  - Change: Import leaves the top bar: something you do at a file's start and seldom after doesn't earn a permanent control beside Share, and it pairs with Export in the file menu. It's File › Import… (FILE-04).
+  - Prototype: The top bar's right side is presence and Share only; Import… is in the file name's menu.
 - **TOP-10** · decided
   - Today: Share is the toolkit `ShareButton` with tabs Share link, Export, Send to agent, and Live collaboration.
   - Change: Share is a split button: the button opens the share popover (AGT-03); the chevron holds Export: Download HTML, PNG, SVG, Figma SVG, ZIP, PDF, Copy agent prompt, Publish app, and Download tokens (DTCG) while the Tokens lab is on.
 - **TOP-11** · decided
-  - Change: With the inspector showing, the bar's last column starts at the inspector's left edge: zoom ends 8px before it, and presence, Import, and Share sit over the inspector, leaving room for more people and agents. Without the inspector (Interact, narrow windows) the cluster sits together at the right.
+  - Change: With the inspector showing, the bar's last column starts at the inspector's left edge: zoom ends 8px before it, and presence and Share sit over the inspector, leaving room for more people and agents. Without the inspector (Interact, narrow windows) the cluster sits together at the right.
 
 ## Where today's extra controls go (MOVE, step 1)
 
@@ -140,7 +141,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **MENU-08** · proposed
   - Change: The Agents composer + is Figma's “MVP Add context menu (prompt bar)” (2261:2104): Search…, Upload file, Attach Figma, Reference a design.
 - **MENU-09** · decided
-  - Change: Menus are text: no leading icons on rows, following the macOS HIG. They keep the toolkit's shadcn DropdownMenu structure (inset content, rounded row highlights, inset separators) at the editor's density from `CanvasContextMenu.tsx`: 3px inset, 28px rows of 12px text with 4px corners, 11px muted shortcuts, 11px labels. Popovers like Share use the toolkit's Popover, Tabs, Input, and Button. A row shows a check or radio for state, a shortcut, or a submenu chevron, and nothing else. An ellipsis (…) ends a label only when the row opens a dialog or a system file panel (Save as template…, Nudge amount…, From your app…, Import's sources, DTCG file…); rows that open a menu, a popover, or the composer don't get one (Export ›, Publish app, Edit with Agent ›). The toolbar's tool pickers keep their glyphs, since the picked tool's glyph becomes the button, and the shared account menu is the toolkit's.
+  - Change: Menus are text: no leading icons on rows, following the macOS HIG. They keep the toolkit's shadcn DropdownMenu structure (inset content, rounded row highlights, inset separators) at the editor's density from `CanvasContextMenu.tsx`: 3px inset, 28px rows of 12px text with 4px corners, 11px muted shortcuts, 11px labels. Popovers like Share use the toolkit's Popover, Tabs, Input, and Button. A row shows a check or radio for state, a shortcut, or a submenu chevron, and nothing else. An ellipsis (…) ends a label only when the row opens a dialog or a system file panel (Save as template…, Nudge amount…, From your app…, Import…, DTCG file…); rows that open a menu, a popover, or the composer don't get one (Export ›, Publish app, Edit with Agent ›). The toolbar's tool pickers keep their glyphs, since the picked tool's glyph becomes the button, and the shared account menu is the toolkit's.
 
 ## Version history (HIST, step 14)
 
@@ -308,16 +309,28 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Today: The Figma Navigation page notes on the collapsed rails (646:5188, 1850:8474) still say 72px.
   - Change: Update them to 56px and the Figma rail button.
 
-## File header (FILE, step 7)
+## File header (FILE, step 5, 7)
 
 - **FILE-01** · decided
   - Today: The title is click-to-rename, beside a minimal-UI toggle; the project menu holds Back to designs, Save as template, Version history, Export, Edit, View.
-  - Change: The file name opens the Design file menu from Figma: Rename, Duplicate, Version history, Save as template…, Export ›, Move to trash.
+  - Change: The file name opens the Design file menu from Figma: Rename, Duplicate, Version history, Save as template…, Import…, Export ›, Move to trash. App menu › File gets the same Import… (FILE-04).
 - **FILE-02** · decided
   - Change: Under the name, a ghost button reads “Designs” and goes to /home. No arrow: the label sits flush with the file name, the hover fill extends 4px past it on each side, and the button is its own 16px line 2px below the name, so the fill never covers the name.
 - **FILE-03** · decided
   - Today: Designs have no folders.
   - Change: Move to folder… stays hidden until designs have folders.
+- **FILE-04** · decided
+  - Today: Import is a rail panel (`DesignImportPanel`) with six sources: Figma frame URL, Upload .fig, Paste from Figma, HTML, Local app, and a disabled GitHub card. The `.fig` file input accepts `.fig`, and the HTML one `.html` and `.htm`.
+  - Change: Import… is the system file panel, not a menu or a dialog: multiple files, scoped to `.fig`, `.html`, and `.htm`, the two inputs that become editable screens. A `.fig` decodes in the browser (no Figma API or token) and keeps today's flow: Uploading, Converting…, Saving n of m frames, and the Large .fig import frame chooser for big files. HTML imports through `import-design-source`. Imported screens land in the current design; other files in the pick are skipped, and the toast says how many. Dropping the same files on the canvas imports them too, with an accent ring while dragging. PDF and other documents stay out: `import-document` only extracts design cues for the agent, so making screens from a PDF belongs in the composer.
+  - Prototype: File name › Import…: the file panel takes .fig and HTML. Or drop a .fig on the canvas.
+- **FILE-05** · decided
+  - Today: Home's Import is a dropdown with Figma link (a popover asking for a frame URL, with a link to add a Figma token in agent settings) and Figma file (.fig).
+  - Change: Home's Import is a plain button that opens the same file panel (FILE-04). Each file creates a design (`create-design`) and opens it with the import pending, as the `.fig` path does today. The Figma link popover and its token prompt go.
+- **FILE-06** · decided
+  - Change: An empty design's canvas offers the three ways to start, centered with no heading: Import… and From your app… (secondary), then Blank screen (ghost). Screens and Layers are empty and the inspector is blank until a screen exists.
+  - Prototype: Review strip › Scenario › Empty design.
+- **FILE-07** · decided
+  - Change: Sources that aren't files leave Import. Figma frame links stay an agent-only action: `import-figma-frame` goes through Figma's REST API with a personal access token, one frame at a time, under Figma's rate limits, and loses what HTML can't represent, while a `.fig` is the whole file decoded locally; outside agents that arrive with a Figma URL still use it over MCP. Paste from Figma is ⌘V on the canvas (it needs no API). A local app is Screens' + › From your app… (INSP-09). The GitHub card goes: a GitHub repo is a design-system source in Design System setup, not a screen import.
 
 ## Screens and layers (LAYER, step 8)
 
@@ -361,8 +374,8 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Prototype: Select the screen, then the device icon on Position.
 - **INSP-09** · proposed
   - Today: Connecting a local app lives in the Import panel's visual-edit row: two commands to copy (install the visual-edit skill, then `design connect --url 'http://localhost:<port>' --root . --daemon`) and a note to replace `<port>`. Adding routes is a separate dialog, Add a screen from your app (search routes, Desktop | Mobile, custom path), that assumes a connection already exists.
-  - Change: Make connecting the first step of the same dialog. Screens' + › From your app… and Import › Local app… both open Add a screen from your app. With no app connected it shows Connect your app: one line (Start its dev server, then run this in the app's folder), the command `npx @agent-native/core@latest design connect --daemon` with a copy button (no port: `design connect` finds the dev server when `--url` is left off), and Or ask your coding agent, with Claude Code and Codex (the Send to deep links) and Copy prompt. The footer shows a grey pulsing dot, Waiting for your app…, and the dialog switches to the route list as soon as the connection registers (`connect-localhost`, read back with `list-localhost-connections`), so nobody has to close and reopen it. Connected, it shows Search routes… (the app is already named by the top bar's status dot, so the dialog doesn't repeat it), the routes with their page names (routes already on the canvas also name their screen), Add "/path" for a typed path, and Desktop | Mobile in the footer.
-  - Prototype: Default scenario: Screens' + › From your app…, then copy the command or pick an agent; the app connects a moment later. Import › Local app… opens the same dialog.
+  - Change: Make connecting the first step of the same dialog. Screens' + › From your app… and the empty design's From your app… (FILE-06) both open Add a screen from your app. With no app connected it shows Connect your app: one line (Start its dev server, then run this in the app's folder), the command `npx @agent-native/core@latest design connect --daemon` with a copy button (no port: `design connect` finds the dev server when `--url` is left off), and Or ask your coding agent, with Claude Code and Codex (the Send to deep links) and Copy prompt. The footer shows a grey pulsing dot, Waiting for your app…, and the dialog switches to the route list as soon as the connection registers (`connect-localhost`, read back with `list-localhost-connections`), so nobody has to close and reopen it. Connected, it shows Search routes… (the app is already named by the top bar's status dot, so the dialog doesn't repeat it), the routes with their page names (routes already on the canvas also name their screen), Add "/path" for a typed path, and Desktop | Mobile in the footer.
+  - Prototype: Default scenario: Screens' + › From your app…, then copy the command or pick an agent; the app connects a moment later. Scenario › Empty design › From your app… opens the same dialog.
 
 ## Outside agents (AGT, step 17)
 
