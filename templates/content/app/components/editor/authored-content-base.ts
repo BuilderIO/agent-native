@@ -59,11 +59,8 @@ export function createAuthoredContentBase() {
       seenWhileSaving.push(content);
       if (seenWhileSaving.length > MAX_SEEN_WHILE_SAVING)
         seenWhileSaving.shift();
-      if (
-        unheld?.revision === saved.revision &&
-        holds(content, saved, unheld.base)
-      )
-        unheld = null;
+      if (!unheld || unheld.revision !== saved.revision) return;
+      if (holds(content, saved, unheld.base)) unheld = null;
     },
     base(saved: AuthoredContentBase): AuthoredContentBase {
       return unheld && unheld.revision === saved.revision
