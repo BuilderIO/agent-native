@@ -32,7 +32,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
-import { StarfieldBackground } from "../shared/StarfieldBackground.js";
+import { WaveBackground } from "../shared/WaveBackground.js";
 
 export type {
   AuthLegalNotice,
@@ -592,16 +592,6 @@ export function shouldStartWithLocalDev(
     !isVerificationLinkInvalid(params.get("error")) &&
     !path.endsWith("/login") &&
     !path.endsWith("/signup")
-  );
-}
-
-function AuthMarketingBackground() {
-  return (
-    <div
-      aria-hidden="true"
-      className="auth-marketing-screenshot"
-      data-agent-native-marketing-background
-    />
   );
 }
 
@@ -2349,15 +2339,6 @@ export function AuthPage(props: AuthPageProps) {
       </span>
     </p>
   ) : null;
-  const signupWave =
-    usesMarketingWelcome && view === "signup" ? (
-      <div className="auth-marketing-signup-wave">
-        <StarfieldBackground
-          className="auth-marketing-signup-wave-canvas"
-          transparent
-        />
-      </div>
-    ) : null;
   const signupForm = (
     <AuthForm
       id="signup-form"
@@ -2423,7 +2404,6 @@ export function AuthPage(props: AuthPageProps) {
       footer={
         <>
           {legalNote}
-          {signupWave}
           {localModeNote}
         </>
       }
@@ -3052,12 +3032,7 @@ export function AuthPage(props: AuthPageProps) {
             {authCard}
           </aside>
           <section className="marketing-panel">
-            <div className="auth-marketing-visual">
-              <div className="auth-marketing-screenshot-wrap">
-                <AuthMarketingBackground />
-              </div>
-              {marketingContent}
-            </div>
+            <div className="auth-marketing-visual">{marketingContent}</div>
           </section>
         </div>
       </div>
@@ -3129,13 +3104,19 @@ export function AuthPage(props: AuthPageProps) {
     </div>
   );
   return (
-    <>
-      {localePicker}
-      {initialPrompt ? (
-        <div className="auth-centered">{authCard}</div>
-      ) : (
-        marketingSurface
-      )}
-    </>
+    <div
+      className="auth-page"
+      data-auth-marketing={marketingCopy && !initialPrompt ? "true" : undefined}
+    >
+      <WaveBackground className="auth-wave-background" />
+      <div className="auth-page-content">
+        {localePicker}
+        {initialPrompt ? (
+          <div className="auth-centered">{authCard}</div>
+        ) : (
+          marketingSurface
+        )}
+      </div>
+    </div>
   );
 }
