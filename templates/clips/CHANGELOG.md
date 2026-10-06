@@ -5,6 +5,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-05
 
+### Improved
+
+- Shared recording pages give the agent composer its own background.
+
 ### Fixed
 
 - Confirming Discard recording now returns you to your library.
