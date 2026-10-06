@@ -1895,12 +1895,36 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(false);
   });
 
-  it("shows a model catalog retry instead of missing-provider setup", async () => {
+  it("shows missing-provider setup when the model catalog is unavailable", async () => {
     const onRetryModelList = vi.fn();
     chatMocks.readiness = {
       canChat: false,
       missing: true,
       state: "missing",
+    };
+    await mount(
+      baseProps({
+        providerStatusChecksEnabled: true,
+        modelListError: true,
+        onRetryModelList,
+      }),
+    );
+
+    expect(chatMocks.setupCardProps).toMatchObject({ attached: true });
+    expect(chatMocks.providerGateProps).toBeNull();
+    expect(container.textContent).not.toContain(
+      "agentChat.setup.modelListUnavailable",
+    );
+
+    expect(onRetryModelList).not.toHaveBeenCalled();
+  });
+
+  it("offers a model catalog retry when AI is configured", async () => {
+    const onRetryModelList = vi.fn();
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
     };
     await mount(
       baseProps({

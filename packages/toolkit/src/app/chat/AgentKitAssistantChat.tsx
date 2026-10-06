@@ -1205,17 +1205,16 @@ const AgentKitAssistantChatBody = forwardRef<
   const effectiveReadiness = submissionReadiness ?? readiness.state;
   const canChat = !providerChecksEnabled || effectiveReadiness === "configured";
   const setupMissing =
-    providerChecksEnabled &&
-    effectiveReadiness === "missing" &&
-    !modelCatalogPending &&
-    !modelListUnavailable;
-  const providerStatus: AgentEngineConfiguredState = modelListUnavailable
-    ? "unavailable"
-    : modelCatalogPending
-      ? "unknown"
-      : providerChecksEnabled
-        ? effectiveReadiness
-        : "configured";
+    providerChecksEnabled && effectiveReadiness === "missing";
+  const providerStatus: AgentEngineConfiguredState = setupMissing
+    ? "missing"
+    : modelListUnavailable
+      ? "unavailable"
+      : modelCatalogPending
+        ? "unknown"
+        : providerChecksEnabled
+          ? effectiveReadiness
+          : "configured";
   const composerPreflightRunActiveRef = useRef<boolean | null>(null);
   const retryProviderStatus = useCallback(() => {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -3881,8 +3880,9 @@ function AgentKitComposerSurface({
           }
         />
       ) : null}
-      {modelListUnavailable ||
-      (!canChat && !setupMissing && providerStatus !== "configured") ? (
+      {!setupMissing &&
+      (modelListUnavailable ||
+        (!canChat && providerStatus !== "configured")) ? (
         <GuidedQuestionProviderGate
           providerStatus={providerStatus}
           modelListUnavailable={modelListUnavailable}
