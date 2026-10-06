@@ -220,7 +220,7 @@ async function mintConnectToken(params: {
   orgId: string | undefined;
   label: string | null;
   ttlDays: number;
-  /** From `getMcpOAuthIssuer`, the issuer `verifyAuth` checks. */
+  /** From `getMcpOAuthIssuer`; its resources are what `verifyAuth` accepts. */
   issuer: string;
   catalogScope?: "full";
   requestOrigin: string;
@@ -291,7 +291,7 @@ async function signConnectToken(params: {
 
 /**
  * Neither the request nor configuration names this app's public URL, so no
- * issuer `verifyAuth` would accept can be resolved. Guessing one would mint a
+ * audience `verifyAuth` would accept can be resolved. Guessing one would mint a
  * token the app then refuses.
  */
 export class OrgServiceTokenAppUrlError extends Error {
@@ -1289,8 +1289,8 @@ export async function handleMcpConnect(
   const origin = deriveOrigin(event);
   const basePath = configuredBasePath();
   const appUrl = `${origin}${basePath}`;
-  // Tokens bind to the issuer verifyAuth checks. Reached through an alias of a
-  // configured public URL, that differs from the appUrl this page displays.
+  // Tokens bind to an audience verifyAuth accepts. Reached through an alias of
+  // a configured public URL, that differs from the appUrl this page displays.
   const tokenIssuer = getMcpOAuthIssuer(event) ?? appUrl;
   let requestUrl: URL | null = null;
   try {

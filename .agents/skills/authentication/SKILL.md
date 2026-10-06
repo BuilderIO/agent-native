@@ -79,9 +79,10 @@ the org chosen when they were issued, so `verifyAuth` and the token endpoint
 re-check live org membership on every use. A removed member gets a 401 or
 `invalid_grant`; a failed check answers a retryable 503. Offboarding revokes
 their MCP refresh and connect tokens instead of transferring them.
-Connect mints MCP OAuth access tokens too, whatever `A2A_SECRET` holds. Bind
-every bearer this app mints to `getMcpOAuthIssuer` / `resolveMcpOAuthIssuer`,
-the issuer `verifyAuth` checks, never to a URL built from request headers. Org
+Connect mints MCP OAuth access tokens too, whatever `A2A_SECRET` holds. Resolve
+the audience of every bearer this app mints through `getMcpOAuthIssuer` /
+`resolveMcpOAuthIssuer`, whose resources are the audiences `verifyAuth`
+accepts, never from a URL built from request headers. Org
 service tokens carry a credential version earlier verifiers reject, because
 those admit any MCP OAuth token as a verified user. `verifyAuth` classifies a
 bearer by the credential it claims to be: OAuth access tokens and both connect
