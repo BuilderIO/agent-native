@@ -155,7 +155,6 @@ import {
 } from "../../shared/recording-link";
 import {
   buildShareContinuationQuery,
-  buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
 import { resolveDashboardRedirect } from "../../shared/share-dashboard-redirect";
