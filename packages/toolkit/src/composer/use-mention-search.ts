@@ -35,6 +35,7 @@ export function useMentionSearch(
 
     setItems([]);
     setIsLoading(true);
+    setSettledQuery(null);
 
     const debounceMs = query.length === 0 ? 0 : 150;
 
@@ -103,6 +104,10 @@ export function useMentionSearch(
             receive(line);
           }
         }
+        // Only a completed search settles its query: a failed one is unknown,
+        // not empty, and must not read as "nothing matches".
+        if (id === requestIdRef.current && !abort.signal.aborted)
+          setSettledQuery(query);
       } catch (err: unknown) {
         if (abort.signal.aborted) return;
         if (id === requestIdRef.current)
@@ -110,10 +115,8 @@ export function useMentionSearch(
             err instanceof Error ? err : new Error("Mention search failed"),
           );
       } finally {
-        if (id === requestIdRef.current && !abort.signal.aborted) {
+        if (id === requestIdRef.current && !abort.signal.aborted)
           setIsLoading(false);
-          setSettledQuery(query);
-        }
       }
     }, debounceMs);
 

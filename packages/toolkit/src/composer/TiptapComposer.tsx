@@ -2918,8 +2918,17 @@ export function TiptapComposer({
   // Keep refs in sync with state
   const mentionItemsRef = useRef(filteredMentionItems);
   mentionItemsRef.current = filteredMentionItems;
-  const mentionsLoadingRef = useRef(mentionsLoading);
-  mentionsLoadingRef.current = mentionsLoading;
+  // Results for an earlier query are stale until the search for this one
+  // settles, so neither auto-close nor Enter may treat them as final.
+  const mentionSearchSettled =
+    !includeDefaultMentionSearch ||
+    (!mentionsLoading && settledMentionQuery === mentionQuery);
+  // A failed search is unknown, not empty: it keeps the popover open, but
+  // Enter still sends because there is nothing to pick.
+  const mentionSearchFinished =
+    mentionSearchSettled || (!mentionsLoading && mentionsError !== null);
+  const mentionSearchFinishedRef = useRef(mentionSearchFinished);
+  mentionSearchFinishedRef.current = mentionSearchFinished;
   const filteredCommandsRef = useRef(filteredCommands);
   filteredCommandsRef.current = filteredCommands;
   const filteredSkillsRef = useRef(filteredSkills);
@@ -2975,11 +2984,7 @@ export function TiptapComposer({
   }, []);
 
   // A query nothing matches is plain text ("@builder.io", "@3pm"), so end the
-  // mention there instead of holding later keys. Results for an earlier
-  // query are stale until the search for this one settles.
-  const mentionSearchSettled =
-    !includeDefaultMentionSearch ||
-    (!mentionsLoading && settledMentionQuery === mentionQuery);
+  // mention there instead of holding later keys.
   useEffect(() => {
     if (
       mentionQuery &&
@@ -3268,7 +3273,7 @@ export function TiptapComposer({
           if (
             event.key === "Enter" &&
             pop.type === "@" &&
-            !mentionsLoadingRef.current &&
+            mentionSearchFinishedRef.current &&
             !popoverRef.current?.getSelectedMention()
           ) {
             // Nothing to pick, so the "@" is plain text and Enter submits.

@@ -193,6 +193,34 @@ describe("controlled composer context", () => {
     expect(onSubmit).toHaveBeenCalledOnce();
     expect(onSubmit.mock.calls[0]![0]).toBe("Reply @x");
   });
+  it.each([
+    ["finds nothing", '{"items":[]}\n', 200, null],
+    ["fails", "", 500, "open"],
+  ] as const)(
+    "ends a typed @ query only when the mention search %s",
+    async (_case, body, status, popoverAfterSearch) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(body, { status })),
+      );
+      const { onSubmit } = await mount({ initialText: "" });
+      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+      await act(async () => editor.focus());
+
+      await typeInto(editor, "Reply @x");
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 250)));
+
+      // A failed search is unknown, not empty, so the popover stays open.
+      expect(
+        document.querySelector('[data-agent-native-mention-popover="true"]')
+          ? "open"
+          : null,
+      ).toBe(popoverAfterSearch);
+      await pressEnter(editor);
+      expect(onSubmit).toHaveBeenCalledOnce();
+      expect(onSubmit.mock.calls[0]![0]).toBe("Reply @x");
+    },
+  );
   it("turns a typed @ query into a mention when one is picked", async () => {
     const onReferencesChange = vi.fn();
     const { onSubmit } = await mount({
