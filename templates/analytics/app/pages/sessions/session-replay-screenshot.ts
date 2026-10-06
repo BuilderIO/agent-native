@@ -5,7 +5,7 @@ export class ReplayScreenshotAssetError extends Error {
   }
 }
 
-function crossOriginImageUrls(document: Document): string[] {
+export function crossOriginImageUrls(document: Document): string[] {
   const urls = new Set<string>();
   const addUrl = (value: string) => {
     const url = new URL(value, document.baseURI);
@@ -17,12 +17,12 @@ function crossOriginImageUrls(document: Document): string[] {
     }
   };
   const addCssUrls = (value: string) => {
-    for (const match of value.matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
+    for (const match of value.matchAll(/url\(["']?([^"')]+)["']?\)/gi)) {
       addUrl(match[1]);
     }
   };
 
-  for (const image of document.images) {
+  for (const image of document.querySelectorAll<HTMLImageElement>("img")) {
     const source = image.currentSrc || image.src;
     if (source) addUrl(source);
   }
@@ -37,6 +37,13 @@ function crossOriginImageUrls(document: Document): string[] {
     const styles = window.getComputedStyle(element);
     addCssUrls(styles.backgroundImage);
     addCssUrls(styles.maskImage);
+
+    for (const pseudo of ["::before", "::after"]) {
+      const pseudoStyles = window.getComputedStyle(element, pseudo);
+      addCssUrls(pseudoStyles.content);
+      addCssUrls(pseudoStyles.backgroundImage);
+      addCssUrls(pseudoStyles.maskImage);
+    }
   }
 
   return [...urls];

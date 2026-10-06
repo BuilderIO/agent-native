@@ -1306,7 +1306,10 @@ function ReplayPlayer({
                 height={Math.min(devToolsHeight, maxDevToolsHeight)}
                 maxHeight={maxDevToolsHeight}
                 onHeightChange={setDevToolsHeight}
-                onSeek={(ms) => seek(ms, true)}
+                jumpDisabled={savingScreenshot}
+                onSeek={(ms) => {
+                  if (!savingScreenshot) seek(ms, true);
+                }}
                 issueMatches={issueMatches}
                 issueMatching={issueMatchQuery.isFetching}
                 friction={
