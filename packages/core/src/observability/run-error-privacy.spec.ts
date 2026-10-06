@@ -150,10 +150,10 @@ describe("run failure telemetry privacy", () => {
       },
     }).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(statuses.get("tool.call")).toMatchObject({
+    expect(statuses.get("execute_tool read-notes")).toMatchObject({
       message: "Tool call failed",
     });
-    expect(statuses.get("llm.call")).toMatchObject({
+    expect(statuses.get("chat gpt-test")).toMatchObject({
       message: "Agent run failed (provider_config_error)",
     });
   });
