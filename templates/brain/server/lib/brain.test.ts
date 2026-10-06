@@ -4235,7 +4235,7 @@ describe("Brain connector smoke coverage", () => {
         if (url.pathname === "/oauth/token") {
           return Response.json({ access_token: "zoom-token" });
         }
-        if (url.pathname === "/v2/accounts/test-token/recordings") {
+        if (url.pathname === "/v2/accounts/me/recordings") {
           return Response.json({
             meetings: [
               {
@@ -4279,7 +4279,7 @@ describe("Brain connector smoke coverage", () => {
     const result = await runConnectorSync(source as never);
 
     expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
-    expect(requestedPaths).toContain("/v2/accounts/test-token/recordings");
+    expect(requestedPaths).toContain("/v2/accounts/me/recordings");
     expect(requestedPaths.some((path) => path.startsWith("/v2/users"))).toBe(
       false,
     );
@@ -4308,7 +4308,7 @@ describe("Brain connector smoke coverage", () => {
         if (url.pathname === "/oauth/token") {
           return Response.json({ access_token: "zoom-token" });
         }
-        if (url.pathname === "/v2/accounts/test-token/recordings") {
+        if (url.pathname === "/v2/accounts/me/recordings") {
           return Response.json({
             meetings: [
               recording("by-id", 12345678901, "Pod 2 Monday Sync"),
@@ -4364,7 +4364,7 @@ describe("Brain connector smoke coverage", () => {
         if (url.pathname === "/oauth/token") {
           return Response.json({ access_token: "zoom-token" });
         }
-        if (url.pathname === "/v2/accounts/test-token/recordings") {
+        if (url.pathname === "/v2/accounts/me/recordings") {
           listFromDates.push(url.searchParams.get("from") ?? "");
           return Response.json({ meetings: [] });
         }
@@ -4411,7 +4411,7 @@ describe("Brain connector smoke coverage", () => {
         if (url.pathname === "/oauth/token") {
           return Response.json({ access_token: "zoom-token" });
         }
-        if (url.pathname === "/v2/accounts/test-token/recordings") {
+        if (url.pathname === "/v2/accounts/me/recordings") {
           return Response.json({ meetings });
         }
         return Response.json({ message: "unexpected" }, { status: 404 });

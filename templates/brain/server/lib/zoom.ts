@@ -147,15 +147,21 @@ export async function fetchZoomAccessToken(
 
 type ZoomPageCallback = () => Promise<void>;
 
+// "me" is the token's own account and needs only the :admin scope; a literal
+// account ID is a master-account call that requires the :master scope.
 export function listZoomAccountRecordings(
   token: string,
-  accountId: string,
   from: string,
   to: string,
   onPage?: ZoomPageCallback,
 ) {
-  const path = "/accounts/" + encodeURIComponent(accountId) + "/recordings";
-  return listZoomRecordingPages(token, path, from, to, onPage);
+  return listZoomRecordingPages(
+    token,
+    "/accounts/me/recordings",
+    from,
+    to,
+    onPage,
+  );
 }
 
 export function listZoomRecordings(
