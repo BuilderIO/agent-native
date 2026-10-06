@@ -5,17 +5,21 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_EXTENSION_DISPLAY_SOURCES,
   defineAppConfig,
+  getAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import {
   buildExtensionHtml,
-  buildExtensionIframeCsp,
-  buildExtensionIframeMetaCsp,
   EXTENSION_FRAME_ANCESTORS,
   EXTENSION_IFRAME_CSP,
   EXTENSION_IFRAME_META_CSP,
 } from "./html-shell.js";
+import {
+  buildExtensionIframeCsp,
+  buildExtensionIframeMetaCsp,
+} from "./iframe-csp.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXTENSION_HOST_DIR = join(
@@ -311,10 +315,62 @@ describe("extension iframe display-only media sources", () => {
       "blob:",
     ]);
     expect(
-      buildExtensionHtml("<div/>", ":root{}", false, "extension-1"),
+      buildExtensionHtml(
+        "<div/>",
+        ":root{}",
+        false,
+        "extension-1",
+        undefined,
+        csp,
+      ),
     ).toContain(
       `<meta http-equiv="Content-Security-Policy" content="${csp}" />`,
     );
+  });
+
+  it("keeps the client-built shell on the default CSP unless one is passed", () => {
+    defineAppConfig({
+      extensions: { iframeImageSources: ["'self'", "https:"] },
+    });
+
+    expect(
+      buildExtensionHtml("<div/>", ":root{}", false, "extension-1"),
+    ).toContain(
+      `<meta http-equiv="Content-Security-Policy" content="${EXTENSION_IFRAME_META_CSP}" />`,
+    );
+  });
+
+  // ExtensionViewer and InlineExtensionFrame build this shell in the browser,
+  // so it must not pull the app-config store (top-level process.env reads)
+  // into client bundles.
+  it("does not import app config into the client-rendered shell", () => {
+    const shell = readFileSync(join(HERE, "html-shell.ts"), "utf8");
+    const imports = shell
+      .split("\n")
+      .filter(
+        (line) =>
+          /^\s*(import|export) .* from /.test(line) || /^} from /.test(line),
+      );
+    for (const line of imports) {
+      expect(line).not.toMatch(/app-config\/(index|store)/);
+    }
+    expect(shell).not.toContain("getAppConfig");
+  });
+
+  it("hands out a fresh default so a mutated config cannot reach the next parse", () => {
+    expect(Object.isFrozen(DEFAULT_EXTENSION_DISPLAY_SOURCES)).toBe(true);
+    defineAppConfig({});
+    const first = getAppConfig().extensions.iframeImageSources;
+    expect(first).not.toBe(DEFAULT_EXTENSION_DISPLAY_SOURCES);
+    first.push("'self'; script-src *");
+    resetAppConfigForTests();
+    defineAppConfig({});
+    expect(getAppConfig().extensions.iframeImageSources).toEqual([
+      "'self'",
+      "data:",
+      "blob:",
+    ]);
+    expect(buildExtensionIframeMetaCsp()).toBe(EXTENSION_IFRAME_META_CSP);
   });
 
   it("applies each directive's own list rather than one shared list", () => {

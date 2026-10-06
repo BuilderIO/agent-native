@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { DEFAULT_EXTENSION_DISPLAY_SOURCES } from "./extension-display-sources.js";
+
 /**
  * SECURITY — these values are interpolated into the sandboxed extension
  * iframe's Content-Security-Policy. A source expression is validated as a
@@ -18,13 +20,11 @@ const cspSource = z
     "must be one CSP source expression: 'self', 'none', a scheme such as https: or blob:, or an http(s) origin such as https://cdn.example.com",
   );
 
-/**
- * What the extension iframe loads when a deployment has not narrowed or
- * widened img-src / media-src. The iframe shell builds its default CSP
- * from this same list, so the declared default and the shipped policy
- * cannot drift apart.
- */
-export const DEFAULT_EXTENSION_DISPLAY_SOURCES = ["'self'", "data:", "blob:"];
+// The iframe shell builds its default CSP from this same list, so the declared
+// default and the shipped policy cannot drift apart. It lives in an
+// import-free module so the client-rendered shell can use it without pulling
+// the app-config store into browser bundles.
+export { DEFAULT_EXTENSION_DISPLAY_SOURCES };
 
 function displaySources(doc: string) {
   return (
@@ -41,7 +41,9 @@ function displaySources(doc: string) {
           error: "'none' must be the only source in the list",
         },
       )
-      .default(DEFAULT_EXTENSION_DISPLAY_SOURCES)
+      // A fresh copy per parse: the shared default is frozen, and a caller
+      // mutating its resolved config must not reach the next parse.
+      .default(() => [...DEFAULT_EXTENSION_DISPLAY_SOURCES])
       .meta({ doc })
   );
 }

@@ -1,10 +1,11 @@
-import {
-  DEFAULT_EXTENSION_DISPLAY_SOURCES,
-  getAppConfig,
-} from "../app-config/index.js";
+// Import-free on purpose: this shell is also built in the browser
+// (ExtensionViewer, InlineExtensionFrame), so it must not import the
+// app-config store. Configured sources are resolved server-side in
+// ./iframe-csp.ts and passed in by the render route.
+import { DEFAULT_EXTENSION_DISPLAY_SOURCES } from "../app-config/extension-display-sources.js";
 import { buildSessionReplayIframeBootstrap } from "./session-replay-iframe.js";
 
-function extensionIframeCspBase(
+export function extensionIframeCspBase(
   imageSources: readonly string[],
   mediaSources: readonly string[],
 ): string {
@@ -23,7 +24,7 @@ export const EXTENSION_FRAME_ANCESTORS = [
 ].join(" ");
 
 // The two constants below are the policy an app gets before it configures
-// anything. `buildExtensionIframeCsp()` resolves `extensions.iframeImageSources`
+// anything. `buildExtensionIframeCsp()` (server-only, ./iframe-csp.ts) resolves `extensions.iframeImageSources`
 // and `extensions.iframeMediaSources` and is what the render route sets, so a
 // deployment that widens img-src / media-src still gets the same
 // `connect-src 'self'` as one that does not. A remote image or media
@@ -34,15 +35,6 @@ export const EXTENSION_IFRAME_META_CSP = extensionIframeCspBase(
   DEFAULT_EXTENSION_DISPLAY_SOURCES,
   DEFAULT_EXTENSION_DISPLAY_SOURCES,
 );
-
-export function buildExtensionIframeMetaCsp(): string {
-  const { iframeImageSources, iframeMediaSources } = getAppConfig().extensions;
-  return extensionIframeCspBase(iframeImageSources, iframeMediaSources);
-}
-
-export function buildExtensionIframeCsp(): string {
-  return `${buildExtensionIframeMetaCsp()} frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`;
-}
 
 /**
  * SECURITY — EXTENSION CONTENT IS UNTRUSTED.
@@ -117,6 +109,7 @@ export function buildExtensionHtml(
   isDark: boolean,
   extensionId?: string,
   binding?: ExtensionRenderBinding,
+  metaCsp: string = EXTENSION_IFRAME_META_CSP,
 ): string {
   const extensionIdJson = JSON.stringify(extensionId ?? "");
   const extensionIdAttr = escapeHtmlAttribute(extensionId ?? "");
@@ -134,7 +127,7 @@ export function buildExtensionHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="${buildExtensionIframeMetaCsp()}" />
+  <meta http-equiv="Content-Security-Policy" content="${metaCsp}" />
   ${binding && !binding.isAuthor ? `<meta name="agent-native-extension-author" content="${escapeHtmlAttribute(binding.authorEmail)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

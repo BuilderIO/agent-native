@@ -25,7 +25,11 @@ import {
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
 import { ExtensionContentEditError } from "./content-patch.js";
-import { buildExtensionHtml, buildExtensionIframeCsp } from "./html-shell.js";
+import { buildExtensionHtml } from "./html-shell.js";
+import {
+  buildExtensionIframeCsp,
+  buildExtensionIframeMetaCsp,
+} from "./iframe-csp.js";
 import {
   getLocalExtension,
   isLocalExtensionRow,
@@ -225,6 +229,7 @@ async function dispatch(
           source: "local-files",
           permissions: localExtension.source.permissions,
         },
+        buildExtensionIframeMetaCsp(),
       );
       setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
       setResponseHeader(
@@ -260,6 +265,7 @@ async function dispatch(
         isAuthor,
         role: renderRole,
       },
+      buildExtensionIframeMetaCsp(),
     );
     // Security headers per render. `frame-ancestors` in the CSP must be set as
     // an HTTP header to be enforced; meta-CSP can't set it per spec.
