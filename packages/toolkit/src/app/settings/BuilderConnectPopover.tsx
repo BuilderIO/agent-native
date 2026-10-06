@@ -300,7 +300,7 @@ export function BuilderConnectPopover({
 function BuilderConnectIncludedServices({ appId }: { appId?: string }) {
   const t = useT();
   const profile = getOnboardingAppProfileForId(
-    appId ?? currentTemplateId() ?? injectedAgentNativeAppId() ?? undefined,
+    appId ?? injectedAgentNativeAppId() ?? currentTemplateId() ?? undefined,
   );
   const capabilities = getBuilderIncludedBenefitCapabilities(
     profile.capabilities,

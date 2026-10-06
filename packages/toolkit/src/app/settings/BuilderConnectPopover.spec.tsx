@@ -20,10 +20,17 @@ import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import { getBuilderIncludedBenefitCapabilities } from "./BuilderIncludedBenefitsDisclosure.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 
+const appIdentity = vi.hoisted(() => ({ templateId: null as string | null }));
+
+vi.mock("./shell/app-identity.js", () => ({
+  currentTemplateId: () => appIdentity.templateId,
+}));
+
 let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  appIdentity.templateId = null;
   (
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -36,6 +43,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 it("shows all eight included services when an app profile omits design intelligence", () => {
@@ -438,7 +446,8 @@ describe("BuilderConnectPopover", () => {
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("uses the configured app profile outside template builds", () => {
+  it("prefers the assigned workspace profile over the template profile", () => {
+    appIdentity.templateId = "calendar";
     vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "assets");
     const flow = {
       connecting: false,

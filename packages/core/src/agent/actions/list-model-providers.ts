@@ -58,7 +58,7 @@ export interface ModelProviderKey {
 export interface ModelProviderEntry {
   provider: AgentProviderId;
   label: string;
-  /** A usable deployment-level credential for this request, without a saved key. */
+  /** A usable deployment fallback when no accessible saved key takes precedence. */
   deploymentConfigured: boolean;
   /** The organization's key, or null when it has none. */
   org: ModelProviderKey | null;
@@ -257,7 +257,18 @@ export default defineAction({
         }),
       ),
     ]);
-    const deploymentConfigured = new Map(deploymentStates);
+    const deploymentConfigured = new Map(
+      deploymentStates.map(([provider, configured]) => {
+        const personalKey = personal.get(provider);
+        const orgKey = org.get(provider);
+        const activeKey = !orgId
+          ? personalKey
+          : manages
+            ? (orgKey ?? (restricted ? null : personalKey))
+            : ((restricted ? null : personalKey) ?? orgKey);
+        return [provider, configured && !activeKey] as const;
+      }),
+    );
 
     const stored = defaultRead.value;
     const engine =

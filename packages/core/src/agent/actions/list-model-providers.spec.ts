@@ -156,6 +156,20 @@ describe("list-model-providers", () => {
     expect(JSON.stringify(listing)).not.toContain("API_KEY");
   });
 
+  it("does not report a deployment fallback when a rejected saved key takes precedence", async () => {
+    mocks.deploymentEngines.add("anthropic");
+    setSecret("org", "org-1", "ANTHROPIC_API_KEY", "sk-ant-test-rejected");
+    mocks.rejected.set(
+      "ANTHROPIC_API_KEY=sk-ant-test-rejected",
+      1_700_000_900_000,
+    );
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").org?.rejectedAt).toBe(1_700_000_900_000);
+    expect(entry(listing, "anthropic").deploymentConfigured).toBe(false);
+  });
+
   it("shows admins the organization key's mask and gateway", async () => {
     setSecret("org", "org-1", "OPENAI_API_KEY", "sk-test-fake-1111");
     setSecret("org", "org-1", "OPENAI_BASE_URL", "https://gateway.example/v1");
