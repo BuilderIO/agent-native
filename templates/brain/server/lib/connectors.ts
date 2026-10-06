@@ -3171,9 +3171,8 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         }))
       : [
           {
-            endpoint: "/accounts/{accountId}/recordings",
-            list: () =>
-              listZoomAccountRecordings(token, accountId, from, to, renewLease),
+            endpoint: "/accounts/me/recordings",
+            list: () => listZoomAccountRecordings(token, from, to, renewLease),
           },
         ];
 

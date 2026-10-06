@@ -50,7 +50,7 @@ OAuth app. Credentials are the vault secrets `ZOOM_ACCOUNT_ID`,
 `cloud_recording:read:list_account_recordings:admin` and
 `cloud_recording:read:recording:admin`. Config is
 `{"zoom":{"userIds":[...],"lookbackDays":7}}`. Without `userIds`, one
-account-wide recording list (`/accounts/{ZOOM_ACCOUNT_ID}/recordings`) covers every user.
+account-wide recording list (`/accounts/me/recordings`, which needs only the `:admin` scope) covers every user.
 `userIds` (up to 50, user ID or email) narrows the import to those users and
 additionally needs `cloud_recording:read:list_user_recordings:admin`.
 `lookbackDays` is 1-30, default 7.
@@ -171,7 +171,10 @@ connection, not creating a new one.
 ## Editing And Removing Sources
 
 - `update-source` edits title, config, cursor, status, or answer policy on an
-  existing source.
+  existing source. From chat, pass config as `configJson`, a JSON object
+  encoded as a string (`create-source` accepts it too); model gateways strip
+  the keys of the free-form `config` object. Top-level keys are merged into the
+  stored config, and a call with no changes is rejected.
 - `delete-source` is a hard delete — there's no soft-archive alternative
   exposed as an action; setting `status: "paused"` via `update-source` is the
   reversible way to stop a source without losing its captures.

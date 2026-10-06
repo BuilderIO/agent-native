@@ -165,7 +165,6 @@ describe("listZoomAccountRecordings", () => {
     const onPage = vi.fn(async () => undefined);
     const meetings = await listZoomAccountRecordings(
       "token",
-      "acct-123",
       "2026-09-01",
       "2026-09-08",
       onPage,
@@ -173,7 +172,7 @@ describe("listZoomAccountRecordings", () => {
 
     expect(meetings.map((item) => item.uuid)).toEqual(["first", "second"]);
     const firstUrl = new URL(fetchMock.mock.calls[0][0]);
-    expect(firstUrl.pathname).toBe("/v2/accounts/acct-123/recordings");
+    expect(firstUrl.pathname).toBe("/v2/accounts/me/recordings");
     expect(onPage).toHaveBeenCalledTimes(2);
     expect(firstUrl.searchParams.get("from")).toBe("2026-09-01");
     expect(firstUrl.searchParams.get("to")).toBe("2026-09-08");
@@ -380,7 +379,6 @@ describe("Zoom error detail", () => {
     );
     const error = await listZoomAccountRecordings(
       "token",
-      "acct-123",
       "2026-09-01",
       "2026-09-08",
     ).catch((err: unknown) => err);

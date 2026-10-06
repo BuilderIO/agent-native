@@ -58,6 +58,34 @@ function assertValidZoomConfig(config: Record<string, unknown>) {
   );
 }
 
+// Model gateways drop the keys of free-form object parameters, so agents send
+// source config as a JSON string instead.
+export const sourceConfigJsonSchema = z
+  .string()
+  .optional()
+  .describe(
+    'Provider configuration as a JSON object encoded in a string, for example "{\\"zoom\\":{\\"lookbackDays\\":7}}". Agents must use this instead of config.',
+  );
+
+export function mergeSourceConfigJson(
+  config: Record<string, unknown> | undefined,
+  configJson: string | undefined,
+): Record<string, unknown> | undefined {
+  if (configJson === undefined || !configJson.trim()) return config;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configJson);
+  } catch {
+    parsed = undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    fail("configJson must be a JSON object encoded as a string.", {
+      errorCode: "invalid_source_config",
+    });
+  }
+  return { ...config, ...(parsed as Record<string, unknown>) };
+}
+
 export function assertValidSourceConfig(
   provider: string,
   config: Record<string, unknown>,
