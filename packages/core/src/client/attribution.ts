@@ -156,6 +156,7 @@ function safeStorageGet(key: string): string | null {
   try {
     return window.localStorage.getItem(key);
   } catch {
+    // coercion-ok: unreadable storage means no stored touch, which capture treats as a first visit.
     return null;
   }
 }
@@ -164,7 +165,7 @@ function safeStorageSet(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value);
   } catch {
-    // private browsing / storage disabled — best-effort
+    // coercion-ok: private browsing or disabled storage; the cookie still carries the touch.
   }
 }
 
@@ -189,6 +190,7 @@ function scrubReferrerHost(referrer: string | undefined): string {
     }
     return truncateFirstTouchField(host);
   } catch {
+    // coercion-ok: a non-URL referrer says nothing about where the visitor came from.
     return "";
   }
 }
@@ -231,7 +233,7 @@ function readAttributionCookie(cookieName: string): string | null {
       }
     }
   } catch {
-    // document.cookie can throw in sandboxed iframes — best-effort.
+    // coercion-ok: document.cookie can throw in sandboxed iframes; no cookie means backfill from storage.
   }
   return null;
 }
@@ -296,7 +298,7 @@ function writeAttributionCookie(
   try {
     document.cookie = attributionCookieAssignment(spec.name, encodedValue);
   } catch {
-    // best-effort
+    // coercion-ok: localStorage already holds the touch; only this cookie write is lost.
   }
 }
 
@@ -361,7 +363,7 @@ function captureFirstTouchAttribution(
     }
     captureLastTouchAttribution(current);
   } catch {
-    // Attribution is best-effort telemetry; never let it break boot.
+    // coercion-ok: attribution is best-effort telemetry and must never break boot.
   }
 }
 
@@ -433,6 +435,7 @@ function readStoredAttribution<T>(storageKey: string): T | null {
     }
     return parsed as T;
   } catch {
+    // coercion-ok: a malformed stored touch is treated as none, so the next visit rewrites it.
     return null;
   }
 }
