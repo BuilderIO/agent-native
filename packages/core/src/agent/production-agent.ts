@@ -6730,6 +6730,7 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
+        let toolErrorCode: string | undefined;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
           | undefined;
@@ -6945,6 +6946,9 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
+          toolErrorCode = isActionContractError(err)
+            ? err.errorCode
+            : undefined;
           if (signal.aborted) {
             result = INTERRUPTED_TOOL_RESULT_MARKER;
           } else if (isAgentConnectionRequiredError(err)) {
@@ -7064,6 +7068,7 @@ export async function runAgentLoop(opts: {
           input: toolCall.input as Record<string, unknown>,
           result,
           ...(isError ? { isError: true } : {}),
+          ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
             ? { completedSideEffect: false }
             : !actionIsReadOnly

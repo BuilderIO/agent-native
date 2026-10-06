@@ -398,6 +398,7 @@ export type AgentChatEvent =
       input?: AgentToolInput;
       result: string;
       isError?: boolean;
+      errorCode?: string;
       completedSideEffect?: boolean;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;

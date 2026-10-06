@@ -48,11 +48,7 @@ import {
   updateThreadData,
   withThreadDataLock,
 } from "../chat-threads/store.js";
-import { automationOutcomeMessagesForLocale } from "../localization/automation-outcome-messages.js";
-import {
-  LOCALIZATION_SETTING_KEY,
-  normalizeLocalizationPreference,
-} from "../localization/shared.js";
+import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -68,7 +64,6 @@ import {
   runWithRequestContext,
   type RequestContext,
 } from "../server/request-context.js";
-import { getUserSetting } from "../settings/user-settings.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import {
   applyAutomationFailure,
@@ -778,10 +773,7 @@ async function confirmAutomationWork(
   }
   if (hasConfirmedAction) return;
 
-  const preference = normalizeLocalizationPreference(
-    await getUserSetting(ownerEmail, LOCALIZATION_SETTING_KEY),
-  );
-  const messages = automationOutcomeMessagesForLocale(preference.locale);
+  const messages = await automationOutcomeMessagesForUser(ownerEmail);
   const lastFailedTool = [...events]
     .reverse()
     .find(({ event }) => event.type === "tool_done" && event.isError);
@@ -791,7 +783,9 @@ async function confirmAutomationWork(
       : undefined;
   throw new BackgroundAutomationRunError(
     `${deliveryPlatform && deliveryDestination ? messages.emptyDelivery : messages.noWork}${detail ? ` ${detail}` : ""}`,
-    "automation_no_confirmed_work",
+    lastFailedTool?.event.type === "tool_done"
+      ? (lastFailedTool.event.errorCode ?? "automation_no_confirmed_work")
+      : "automation_no_confirmed_work",
   );
 }
 
@@ -1075,6 +1069,11 @@ async function executeBackgroundAutomation(
             }
             if (hardTimedOut) return;
             if (persistFailure) {
+              run.continuationTerminalEvent = {
+                type: "error",
+                error: persistFailure.message,
+                errorCode: persistFailure.errorCode,
+              };
               reject(
                 new BackgroundAutomationRunError(
                   persistFailure.message,

@@ -130,9 +130,13 @@ describe("runBackgroundAutomation — confirmed work", () => {
     model: "test-model",
   };
 
-  it.each([false, true])(
-    "rejects a real failed HTTP send (progress bookkeeping: %s)",
-    async (trackProgress) => {
+  it.each([
+    { trackProgress: false, status: 429 },
+    { trackProgress: false, status: 503 },
+    { trackProgress: true, status: 503 },
+  ])(
+    "rejects a real HTTP $status send failure (progress bookkeeping: $trackProgress)",
+    async ({ trackProgress, status }) => {
       const { runAgentLoopDirectWithSoftTimeout } =
         await import("../agent/run-loop-with-resume.js");
       const { runAgentLoop: actualLoop } = await vi.importActual<
@@ -191,7 +195,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
       };
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
         new Response("Delivery unavailable", {
-          status: 503,
+          status,
           statusText: "Unavailable",
         }),
       );
@@ -212,8 +216,8 @@ describe("runBackgroundAutomation — confirmed work", () => {
             },
           ),
         ).rejects.toMatchObject({
-          errorCode: "automation_no_confirmed_work",
-          message: expect.stringContaining("HTTP 503"),
+          errorCode: `http_${status}`,
+          message: expect.stringContaining(`HTTP ${status}`),
         });
         expect(requests).toBe(2);
         expect(assistantContent()).toContainEqual(
@@ -383,11 +387,11 @@ describe("runBackgroundAutomation — confirmed work", () => {
         errorCode: "automation_no_confirmed_work",
         message: expect.stringContaining("Slack connection is unavailable"),
       });
-      const row = await pglite
+      const row = (await pglite
         .prepare(
-          "SELECT status, error_code FROM automation_runs WHERE automation = ?",
+          "SELECT status, error_code, run_id FROM automation_runs WHERE automation = ?",
         )
-        .get(name);
+        .get(name)) as { status: string; error_code: string; run_id: string };
       expect(row).toMatchObject({
         status: "error",
         error_code: "automation_no_confirmed_work",
@@ -395,6 +399,22 @@ describe("runBackgroundAutomation — confirmed work", () => {
       expect(assistantMessage().status).toMatchObject({
         type: "incomplete",
         reason: "error",
+      });
+      const { getRun } = await import("../agent/run-manager.js");
+      const coreRun = getRun(row.run_id)!;
+      await coreRun.finalized;
+      expect(coreRun.status).toBe("errored");
+      expect(coreRun.events.at(-1)?.event).toMatchObject({
+        type: "error",
+        errorCode: "automation_no_confirmed_work",
+      });
+      expect(
+        await pglite
+          .prepare("SELECT status, error_code FROM agent_runs WHERE id = ?")
+          .get(row.run_id),
+      ).toMatchObject({
+        status: "errored",
+        error_code: "automation_no_confirmed_work",
       });
     },
   );
