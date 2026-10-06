@@ -25,8 +25,29 @@ const ASPECT_RATIO_CONTEXT_BEFORE =
   /\b(?:aspect\s+)?ratio\b(?:\s+(?:of|is|to))?\s*[:=]?\s*$/i;
 const OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE =
   /\b(?:card\s+)?(?:grid|matrix|layout)\s+at\s*$/i;
+const IMAGE_OUTPUT_CONTEXT_BEFORE =
+  /\bimage\s+(?:(?:at|with\s+(?:exact(?:ly)?\s+)?(?:dimensions?|size))\s*)$/i;
+const ASSET_CONTEXT_AFTER =
+  /^\s*(?:image|asset|icon|logo|favicon|avatar|illustration)\b/i;
+const OUTPUT_CONTAINER_CONTEXT =
+  "(?:screen|canvas|artboard|frame|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|social\\s+post|post|story|email\\s+header|email|newsletter|print|flyer|poster|screenshot)";
+const NESTED_ASSET_RELATIONSHIP_BEFORE = new RegExp(
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring)\\s+(?:an?\\s+)?$`,
+  "i",
+);
+const NESTED_ASSET_CONTEXT_BEFORE = new RegExp(
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring)\\s+(?:an?\\s+)?(?:embedded\\s+|nested\\s+)?(?:image|asset|icon|logo|favicon|avatar|illustration)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at)\\s*$`,
+  "i",
+);
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
   /^\s*(?:(?:mm|millimeters?|cm|centimeters?|inch(?:es)?|ft|feet|pt|points?|pc|picas?|em|rem)\b|in\b(?=\s*(?:[.;,!?)]|$))|["″'′])/i;
+
+interface CanvasDimensionCandidate {
+  rawWidth: string;
+  rawHeight: string;
+  width: number;
+  height: number;
+}
 
 export function explicitCanvasDimensionsFromPrompt(
   prompt?: string,
@@ -34,9 +55,9 @@ export function explicitCanvasDimensionsFromPrompt(
   if (!prompt) return undefined;
 
   const matches = Array.from(prompt.matchAll(DIMENSION_PAIR));
-  const explicitDimensionsByKey = new Map<string, CanvasDimensions>();
-  const pixelImageDimensionsByKey = new Map<string, CanvasDimensions>();
-  const formatDimensionsByKey = new Map<string, CanvasDimensions>();
+  const explicitDimensionsByKey = new Map<string, CanvasDimensionCandidate>();
+  const formatDimensionsByKey = new Map<string, CanvasDimensionCandidate>();
+  const imageDimensionsByKey = new Map<string, CanvasDimensionCandidate>();
 
   for (let index = 0; index < matches.length; index += 1) {
     const match = matches[index]!;
@@ -56,6 +77,7 @@ export function explicitCanvasDimensionsFromPrompt(
       .slice(Math.max(previousEnd, start - 48), start)
       .split(/[,;.!?\n]/);
     const prefix = prefixParts[prefixParts.length - 1];
+    const nearbyPrefix = prompt.slice(Math.max(0, start - 96), start);
     const suffix = prompt
       .slice(end, Math.min(nextStart, end + 48))
       .split(/[,;.!?\n]/)[0];
@@ -72,14 +94,46 @@ export function explicitCanvasDimensionsFromPrompt(
       DIMENSION_CONTEXT_AFTER.test(suffix ?? "") ||
       OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE.test(prefix ?? "");
     const hasPixelImageContext =
-      Boolean(match[2] || match[4]) && /^\s*image\b/i.test(suffix ?? "");
+      Boolean(match[2] || match[4]) && ASSET_CONTEXT_AFTER.test(suffix ?? "");
     const hasFormatContext =
       FORMAT_CONTEXT_BEFORE.test(prefix ?? "") ||
       FORMAT_CONTEXT_AFTER.test(suffix ?? "");
-    if (!hasDimensionContext && !hasPixelImageContext && !hasFormatContext) {
+    const hasNestedAssetContext =
+      NESTED_ASSET_CONTEXT_BEFORE.test(nearbyPrefix) ||
+      (NESTED_ASSET_RELATIONSHIP_BEFORE.test(nearbyPrefix) &&
+        ASSET_CONTEXT_AFTER.test(suffix ?? ""));
+    const hasImageOutputContext =
+      IMAGE_OUTPUT_CONTEXT_BEFORE.test(prefix ?? "") ||
+      (ASSET_CONTEXT_AFTER.test(suffix ?? "") &&
+        (Boolean(match[2] || match[4]) || (width >= 100 && height >= 100)));
+
+    if (hasNestedAssetContext) continue;
+    if (
+      !hasDimensionContext &&
+      !hasImageOutputContext &&
+      !hasPixelImageContext &&
+      !hasFormatContext
+    ) {
       continue;
     }
 
+    const candidate = { rawWidth, rawHeight, width, height };
+    const target = hasDimensionContext
+      ? explicitDimensionsByKey
+      : hasFormatContext && !hasImageOutputContext
+        ? formatDimensionsByKey
+        : imageDimensionsByKey;
+    target.set(`${width}x${height}`, candidate);
+  }
+
+  const dimensionsByKey =
+    explicitDimensionsByKey.size > 0
+      ? explicitDimensionsByKey
+      : formatDimensionsByKey.size > 0
+        ? formatDimensionsByKey
+        : imageDimensionsByKey;
+  for (const candidate of dimensionsByKey.values()) {
+    const { rawWidth, rawHeight, width, height } = candidate;
     if (
       !Number.isFinite(width) ||
       !Number.isFinite(height) ||
@@ -101,21 +155,7 @@ export function explicitCanvasDimensionsFromPrompt(
         `Exact canvas dimensions ${rawWidth}×${rawHeight} exceed the Design editor limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1. Choose supported exact dimensions.`,
       );
     }
-
-    const target = hasDimensionContext
-      ? explicitDimensionsByKey
-      : hasPixelImageContext
-        ? pixelImageDimensionsByKey
-        : formatDimensionsByKey;
-    target.set(`${width}x${height}`, { width, height });
   }
-
-  const dimensionsByKey =
-    explicitDimensionsByKey.size > 0
-      ? explicitDimensionsByKey
-      : pixelImageDimensionsByKey.size > 0
-        ? pixelImageDimensionsByKey
-        : formatDimensionsByKey;
   if (dimensionsByKey.size > 1) {
     const requested = [...dimensionsByKey.values()]
       .map(({ width, height }) => `${width}×${height}`)
@@ -125,5 +165,8 @@ export function explicitCanvasDimensionsFromPrompt(
     );
   }
 
-  return dimensionsByKey.values().next().value;
+  const selected = dimensionsByKey.values().next().value;
+  return selected
+    ? { width: selected.width, height: selected.height }
+    : undefined;
 }

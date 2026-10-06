@@ -14,6 +14,8 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     ["Use exact dimensions: 96 by 96", { width: 96, height: 96 }],
     ["Create a 1,200 x 675 pixel email banner", { width: 1200, height: 675 }],
     ["Create an email header at 1200x400", { width: 1200, height: 400 }],
+    ["Create an image at 1080x1080", { width: 1080, height: 1080 }],
+    ["Create a 1080x1080 image", { width: 1080, height: 1080 }],
     ["Create a screen at 1080px × 1080px", { width: 1080, height: 1080 }],
     [
       "Create a 300 pixels by 250 pixels email banner",
@@ -66,6 +68,11 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         "Create a 16px × 16px notification icon",
       ),
     ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a screen with an image at 300x250",
+      ),
+    ).toBeUndefined();
   });
 
   it("prefers explicit screen dimensions over nested asset dimensions", () => {
@@ -79,6 +86,40 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         "Create a 1200x800 screen with a 300x250px image",
       ),
     ).toEqual({ width: 1200, height: 800 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 1200x800 screen with image dimensions 300x250",
+      ),
+    ).toEqual({ width: 1200, height: 800 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a screen at 1200x800 with image dimensions 300x250",
+      ),
+    ).toEqual({ width: 1200, height: 800 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 1200x800 screen with a 1,000,000x1000px image",
+      ),
+    ).toEqual({ width: 1200, height: 800 });
+  });
+
+  it("prefers output-format dimensions over nested image dimensions", () => {
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 300x250 ad with a 1080px × 1080px image",
+      ),
+    ).toEqual({ width: 300, height: 250 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create an Instagram post at 1080x1080 with a 300x250px image",
+      ),
+    ).toEqual({ width: 1080, height: 1080 });
+  });
+
+  it("rejects invalid dimensions when they describe the requested output", () => {
+    expect(() =>
+      explicitCanvasDimensionsFromPrompt("Create an image at 100001x2000"),
+    ).toThrow(`limit of ${MAX_SANE_FRAME_DIMENSION_PX} px per dimension`);
   });
 
   it("does not interpret physical units as pixel dimensions", () => {
