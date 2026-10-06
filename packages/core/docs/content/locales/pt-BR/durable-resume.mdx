@@ -98,11 +98,11 @@ Principais propriedades:
 
 O bloco rígido impede apenas uma **repetição exata**: a mesma ferramenta de gravação com a mesma entrada, depois que uma tentativa anterior no mesmo turno terminou e registrou seu resultado. Ele não descarta todo e-mail, cobrança ou ticket duplicado:
 
-- **Uma nova tentativa reformulada é executada.** Se o modelo alterar qualquer argumento, como o corpo do e-mail, a chamada deixa de corresponder e é executada novamente.
-- **Uma falha no meio do envio pode causar repetição.** Se o processo morrer depois que o efeito colateral acontecer, mas antes de seu resultado ser registrado, a chamada conta como interrompida, e o bloco rígido só se aplica a chamadas concluídas.
-- **Após uma falha, uma execução só é retomada se for uma execução durável em segundo plano.** Caso contrário, a execução termina com um erro, e **Continuar** inicia um novo turno com um diário vazio, então nenhuma das camadas se aplica. Veja [Execuções duráveis em segundo plano](/docs/durable-background-runs).
+- **Uma nova tentativa reformulada não corresponde.** Se o modelo alterar qualquer argumento, como o corpo do e-mail, a chamada deixa de corresponder a uma chamada concluída, então o bloco rígido não a impede.
+- **Uma falha no meio do envio pode causar repetição.** Se o processo morrer depois que o efeito colateral acontecer, mas antes de seu resultado ser registrado, a chamada conta como interrompida, e o bloco rígido só cobre chamadas concluídas. Uma proteção separada recusa uma nova tentativa idêntica de uma escrita interrompida, mas só quando o histórico da execução retomada mostra a interrupção.
+- **Após uma falha, uma execução só pode ser retomada no mesmo turno se tiver sido despachada como execução em segundo plano.** Ou seja, uma [execução durável em segundo plano](/docs/durable-background-runs) ou um trecho posterior de um turno que usa o [autoencadeamento em primeiro plano](/docs/durable-background-runs#foreground-self-chain). Qualquer outra execução que falhe termina com um erro, e **Continuar** inicia um novo turno com um diário vazio, então nenhuma das camadas se aplica.
 
-Uma ação cujo efeito colateral nunca deve se repetir precisa de sua própria verificação de idempotência. Ações somente leitura nunca são bloqueadas; reler é sempre seguro.
+Uma ação cujo efeito colateral nunca deve se repetir precisa de sua própria verificação de idempotência. O bloco rígido nunca se aplica a ações somente leitura.
 
 </Callout>
 

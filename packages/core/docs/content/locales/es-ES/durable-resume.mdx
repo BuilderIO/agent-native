@@ -98,11 +98,11 @@ Propiedades clave:
 
 El bloque duro solo detiene una **repetición exacta**: la misma herramienta de escritura con la misma entrada, después de que un intento anterior en el mismo turno terminara y registrara su resultado. No descarta que se dupliquen correos electrónicos, cargos o tickets:
 
-- **Un reintento reformulado se ejecuta.** Si el modelo cambia cualquier argumento, como el cuerpo del correo electrónico, la llamada deja de coincidir y se ejecuta de nuevo.
-- **Un fallo a mitad del envío puede provocar una repetición.** Si el proceso se cae después de que el efecto secundario se produzca, pero antes de que se registre su resultado, la llamada cuenta como interrumpida, y el bloque duro solo se aplica a las llamadas completadas.
-- **Tras un fallo, una ejecución solo se reanuda si es una ejecución duradera en segundo plano.** De lo contrario, la ejecución termina con un error y **Continuar** inicia un nuevo turno con un diario vacío, por lo que no se aplica ninguna de las dos capas. Consulta [Ejecuciones duraderas en segundo plano](/docs/durable-background-runs).
+- **Un reintento reformulado no coincide.** Si el modelo cambia cualquier argumento, como el cuerpo del correo electrónico, la llamada deja de coincidir con una llamada completada, así que el bloque duro no la detiene.
+- **Un fallo a mitad del envío puede provocar una repetición.** Si el proceso se cae después de que el efecto secundario se produzca, pero antes de que se registre su resultado, la llamada cuenta como interrumpida, y el bloque duro solo cubre las llamadas completadas. Otra protección rechaza un reintento idéntico de una escritura interrumpida, pero solo cuando el historial de la ejecución reanudada muestra la interrupción.
+- **Tras un fallo, una ejecución solo puede reanudarse en el mismo turno si se despachó como ejecución en segundo plano.** Es decir, una [ejecución duradera en segundo plano](/docs/durable-background-runs) o un fragmento posterior de un turno que usa el [autoencadenamiento en primer plano](/docs/durable-background-runs#foreground-self-chain). Cualquier otra ejecución que falle termina con un error, y **Continuar** inicia un nuevo turno con un diario vacío, por lo que no se aplica ninguna de las dos capas.
 
-Una acción cuyo efecto secundario nunca deba repetirse necesita su propia comprobación de idempotencia. Las acciones de solo lectura nunca se bloquean; volver a leer siempre es seguro.
+Una acción cuyo efecto secundario nunca deba repetirse necesita su propia comprobación de idempotencia. El bloque duro nunca se aplica a las acciones de solo lectura.
 
 </Callout>
 

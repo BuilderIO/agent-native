@@ -102,11 +102,11 @@ Key properties:
 
 The hard-block stops only an **exact repeat**: the same write tool with the same input, after an earlier attempt in the same turn finished and recorded its result. It does not rule out every duplicate email, charge, or ticket:
 
-- **A reworded retry runs.** If the model changes any argument, such as the email body, the call no longer matches and runs again.
-- **A crash mid-send can repeat.** If the process dies after the side effect lands but before its result is recorded, the call counts as interrupted, and the hard-block applies only to completed calls.
-- **A crashed run resumes only as a durable background run.** Otherwise the run ends with an error, and **Continue** starts a new turn with an empty journal, so neither layer applies. See [Durable Background Runs](/docs/durable-background-runs).
+- **A reworded retry isn't matched.** If the model changes any argument, such as the email body, the call no longer matches a completed call, so the hard-block doesn't stop it.
+- **A crash mid-send can repeat.** If the process dies after the side effect lands but before its result is recorded, the call counts as interrupted, and the hard-block covers only completed calls. A separate guard refuses an identical retry of an interrupted write, but only when the resumed run's history shows the interruption.
+- **A crashed run can resume in the same turn only if it was dispatched as a background run.** That means a [durable background run](/docs/durable-background-runs), or a later chunk of a turn using the [foreground self-chain](/docs/durable-background-runs#foreground-self-chain). Any other crashed run ends with an error, and **Continue** starts a new turn with an empty journal, so neither layer applies.
 
-An action whose side effect must never repeat needs its own idempotency check. Read-only actions are never blocked; re-reading is always safe.
+An action whose side effect must never repeat needs its own idempotency check. The hard-block never applies to read-only actions.
 
 </Callout>
 

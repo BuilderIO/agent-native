@@ -98,11 +98,11 @@ Propriétés clés :
 
 Le bloc dur n'arrête qu'une **répétition exacte** : le même outil d'écriture avec la même entrée, après qu'une tentative antérieure dans le même tour s'est terminée et a enregistré son résultat. Il n'exclut pas tous les e-mails, débits ou tickets en double :
 
-- **Une nouvelle tentative reformulée s'exécute.** Si le modèle modifie n'importe quel argument, comme le corps de l'e-mail, l'appel ne correspond plus et s'exécute à nouveau.
-- **Un plantage en plein envoi peut entraîner une répétition.** Si le processus s'arrête brutalement après que l'effet secondaire s'est produit, mais avant que son résultat ne soit enregistré, l'appel est considéré comme interrompu, et le bloc dur ne s'applique qu'aux appels terminés.
-- **Une exécution plantée ne reprend que s'il s'agit d'une exécution durable en arrière-plan.** Sinon, l'exécution se termine par une erreur, et **Continuer** démarre un nouveau tour avec un journal vide, si bien qu'aucune des deux couches ne s'applique. Voir [Exécutions durables en arrière-plan](/docs/durable-background-runs).
+- **Une nouvelle tentative reformulée n'est pas reconnue.** Si le modèle modifie n'importe quel argument, comme le corps de l'e-mail, l'appel ne correspond plus à un appel terminé, et le bloc dur ne l'arrête donc pas.
+- **Un plantage en plein envoi peut entraîner une répétition.** Si le processus s'arrête brutalement après que l'effet secondaire s'est produit, mais avant que son résultat ne soit enregistré, l'appel est considéré comme interrompu, et le bloc dur ne couvre que les appels terminés. Une protection distincte refuse une nouvelle tentative identique d'une écriture interrompue, mais seulement quand l'historique de l'exécution reprise montre l'interruption.
+- **Une exécution plantée ne peut reprendre dans le même tour que si elle a été lancée comme exécution en arrière-plan.** Il s'agit d'une [exécution durable en arrière-plan](/docs/durable-background-runs), ou d'un segment ultérieur d'un tour qui utilise l'[auto-chaînage au premier plan](/docs/durable-background-runs#foreground-self-chain). Toute autre exécution plantée se termine par une erreur, et **Continuer** démarre un nouveau tour avec un journal vide, si bien qu'aucune des deux couches ne s'applique.
 
-Une action dont l'effet secondaire ne doit jamais se répéter a besoin de sa propre vérification d'idempotence. Les actions en lecture seule ne sont jamais bloquées ; relire est toujours sans risque.
+Une action dont l'effet secondaire ne doit jamais se répéter a besoin de sa propre vérification d'idempotence. Le bloc dur ne s'applique jamais aux actions en lecture seule.
 
 </Callout>
 
