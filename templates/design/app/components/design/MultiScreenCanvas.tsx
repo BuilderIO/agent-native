@@ -3747,6 +3747,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             }
             return;
           }
+          if (!isCurrentDrop()) {
+            finishCommittedDrop();
+            cancelPendingSourceDelete();
+            return;
+          }
           finishCommittedDrop();
           const resolvedHit = applyCrossScreenPathFrameDropTarget({
             hit: commitHit,
