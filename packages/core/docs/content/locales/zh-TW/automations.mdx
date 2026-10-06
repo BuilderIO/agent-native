@@ -63,13 +63,13 @@ description: "具有自然語言條件的事件觸發和計畫自動化"
 | `event`    | 框架事件總線上發出匹配的事件                  | `event`（姓名）    |
 | `webhook`  | 一個 HTTP `POST` 抵達自動化的秘密 webhook URL | 建立時回傳的 URL   |
 
-事件和 webhook 觸發器可以包含 `condition`：由模型在調度之前根據酬載檢查的自然語言字串。如果條件不匹配，則跳過自動化，並記錄 `skipped` 狀態。如果無法評估條件，自動化不會執行。請參閱 [條件](#conditions)。
+事件和 webhook 觸發器可以包含 `condition`：由模型在調度之前根據負載檢查的自然語言字串。如果條件不匹配，則跳過自動化，並記錄 `skipped` 狀態。如果無法評估條件，自動化不會執行。請參閱 [條件](#conditions)。
 
 ### Webhook 觸發器 {#webhook-triggers}
 
-建立 webhook 自動化會回傳形如 `/_agent-native/automations/webhook/<token>` 的 URL 路徑。權杖就是秘密，因此只能把該 URL 提供給要呼叫它的服務。向該 URL 傳送的每個 `POST` 都會成為自動化的酬載，上限 64 KB。使用 JSON 內容型別傳送的內文會被解析，其他內文則以文字傳遞。該端點回應 `202`，並在背景執行自動化。
+建立 webhook 自動化會回傳形如 `/_agent-native/automations/webhook/<token>` 的 URL 路徑。權杖就是秘密，因此只能把該 URL 提供給要呼叫它的服務。向該 URL 傳送的每個 `POST` 都會成為自動化的負載，上限 64 KB。使用 JSON 內容型別傳送的內文會被解析，其他內文則以文字傳遞。該端點回應 `202`，並在背景執行自動化。
 
-在 `X-Webhook-Event-Id`、`X-Event-Id` 或 `X-GitHub-Delivery` 標頭中，或在 JSON 內文的頂層字串 `id` 中傳送穩定的事件 ID。使用相同 ID 重試的遞送只會執行一次自動化，並收到標示為重複的 `200` 回應。
+在 `X-Webhook-Event-Id`、`X-Event-Id` 或 `X-GitHub-Delivery` 標頭中，或在 JSON 內文的頂層字串 `id` 中傳送穩定的事件 ID。使用相同 ID 重試遞送時，自動化只會執行一次，重試的遞送會收到標示為重複的 `200` 回應。
 
 ## 建立自動化 {#creating}
 
@@ -137,7 +137,7 @@ description: "具有自然語言條件的事件觸發和計畫自動化"
 | `mode`        | `"agentic"`                              | `"agentic"`  | 完整的代理迴圈（唯一受支援的模式）。`"deterministic"` 已被移除——它從未被實作過，設定該模式的自動化從未被觸發。 |
 | `domain`      | 字串                                     | _（可選）_   | 分組標籤（郵件、行事曆、剪輯等）                                                                               |
 
-對於事件或 webhook 觸發器，`schedule` 為 `""`（空）；對於計畫觸發器，它帶有 cron 表達式。調度程式還寫入與調度程式相同的託管 `lastRun` / `lastStatus` / `lastError` 欄位，以及當條件評估為 false 時的 `"skipped"` 狀態和無法評估條件時的 `"error"` 狀態。
+對於事件或 webhook 觸發器，`schedule` 為 `""`（空）；對於計畫觸發器，它帶有 cron 表達式。分派程式還會寫入與調度程式相同的託管 `lastRun` / `lastStatus` / `lastError` 欄位，以及當條件評估為 false 時的 `"skipped"` 狀態和無法評估條件時的 `"error"` 狀態。
 
 ## 事件總線 {#event-bus}
 
@@ -195,10 +195,10 @@ emit(
 
 ## 條件 {#conditions}
 
-條件是由模型針對事件或 webhook 酬載檢查的自然語言字串。這是一個是/否分類，而不是生成工作。
+條件是由模型針對事件或 webhook 負載檢查的自然語言字串。這是一個是/否分類，而不是生成工作。
 
 - **空或缺失條件** = 無條件（始終觸發）。
-- 結果會快取 5 分鐘，快取鍵是條件加酬載的 SHA-256 雜湊，最多保留 500 個條目。
+- 結果會快取 5 分鐘，快取鍵是條件加負載的 SHA-256 雜湊，最多保留 500 個條目。
 - 有效負載在傳送給模型之前被截斷為 4000 個字元。
 
 <Callout tone="info">

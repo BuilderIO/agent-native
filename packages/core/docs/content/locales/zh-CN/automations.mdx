@@ -69,7 +69,7 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 创建 webhook 自动化会返回形如 `/_agent-native/automations/webhook/<token>` 的 URL 路径。令牌就是秘密，因此只能把该 URL 提供给要调用它的服务。向该 URL 发送的每个 `POST` 都会成为自动化的负载，最大 64 KB。使用 JSON 内容类型发送的正文会被解析，其他正文则按文本传递。该端点返回 `202`，并在后台运行自动化。
 
-在 `X-Webhook-Event-Id`、`X-Event-Id` 或 `X-GitHub-Delivery` 标头中，或在 JSON 正文的顶层字符串 `id` 中发送稳定的事件 ID。使用相同 ID 重试的投递只会运行一次自动化，并收到标记为重复的 `200` 响应。
+在 `X-Webhook-Event-Id`、`X-Event-Id` 或 `X-GitHub-Delivery` 标头中，或在 JSON 正文的顶层字符串 `id` 中发送稳定的事件 ID。使用相同 ID 重试投递时，自动化只会运行一次，重试的投递会收到标记为重复的 `200` 响应。
 
 ## 创建自动化 {#creating}
 
@@ -137,7 +137,7 @@ description: "具有自然语言条件的事件触发和计划自动化"
 | `mode`        | `"agentic"`                              | `"agentic"`  | 完整的代理循环（唯一受支持的模式）。`"deterministic"` 已被移除——它从未被实现过，设置该模式的自动化从未被触发。 |
 | `domain`      | 字符串                                   | _（可选）_   | 分组标签（邮件、日历、剪辑等）                                                                                 |
 
-对于事件或 webhook 触发器，`schedule` 为 `""`（空）；对于计划触发器，它带有 cron 表达式。调度程序还写入与调度程序相同的托管 `lastRun` / `lastStatus` / `lastError` 字段，以及当条件评估为 false 时的 `"skipped"` 状态和无法评估条件时的 `"error"` 状态。
+对于事件或 webhook 触发器，`schedule` 为 `""`（空）；对于计划触发器，它带有 cron 表达式。分派程序还会写入与调度程序相同的托管 `lastRun` / `lastStatus` / `lastError` 字段，以及当条件评估为 false 时的 `"skipped"` 状态和无法评估条件时的 `"error"` 状态。
 
 ## 事件总线 {#event-bus}
 

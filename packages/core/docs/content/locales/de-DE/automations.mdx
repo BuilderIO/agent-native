@@ -81,7 +81,7 @@ Der Agent erkennt verfügbare Ereignisse, bestätigt den Plan und schreibt die A
 
 ### Über die Automations-Oberfläche
 
-Öffnen Sie **Settings › Automations**. Dort sehen Sie geplante, ereignisgesteuerte und Webhook-Automatisierungen, prüfen den Status, führen eine Automatisierung sofort aus, pausieren oder setzen sie fort und löschen sie. Alte `/agent#jobs`-Links leiten dorthin weiter.
+Öffnen Sie **Settings › Automations**. Das ist der zentrale Ort, um geplante, ereignisgesteuerte und Webhook-Automatisierungen anzuzeigen, ihren Status zu prüfen, eine davon sofort auszuführen, sie zu pausieren oder fortzusetzen und sie zu löschen. Alte `/agent#jobs`-Links leiten dorthin weiter.
 
 **Run now** ist der schnellste Weg, eine Automatisierung zu testen. Es führt die Anweisungen der Automatisierung sofort aus, mit ihren echten Nebenwirkungen. Auslöser und Bedingung werden übersprungen, und der nächste geplante Lauf ändert sich nicht. Der Agent kann dasselbe mit `manage-automations` und `action=run-now` tun.
 
@@ -283,7 +283,7 @@ Zusätzliches Tool: `web-request` – ausgehender HTTP mit `${keys.NAME}`-Ersetz
   }
 ]}>
 
-Prüft den Ereignispfad (Zuordnung, Besitzerbereich und Bedingung) für eine Automatisierung, die `test.event.fired` abonniert hat. Es gibt nur dieses Ereignis aus und kann daher keine Automatisierung auslösen, die auf ein echtes Ereignis wie `calendar.booking.created` lauscht. Um eine echte Automatisierung auszuprobieren, verwenden Sie **Run now**. Entspricht der `manage-automations`-Aktion `fire-test`.
+Prüft den Ereignispfad (Abgleich, Besitzerbereich und Bedingung) für eine Automatisierung, die `test.event.fired` abonniert hat. Es gibt nur dieses Ereignis aus und kann daher keine Automatisierung auslösen, die auf ein echtes Ereignis wie `calendar.booking.created` lauscht. Um eine echte Automatisierung auszuprobieren, verwenden Sie **Run now**. Entspricht der `manage-automations`-Aktion `fire-test`.
 
 </Endpoint>
 

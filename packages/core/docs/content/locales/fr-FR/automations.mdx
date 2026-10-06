@@ -203,7 +203,7 @@ Les conditions sont des chaînes en langage naturel qu'un modèle vérifie par r
 
 <Callout tone="info">
 
-Une condition qui ne peut pas être évaluée ne compte ni comme une correspondance ni comme une non-correspondance, et l'automatisation ne s'exécute pas. Une erreur du fournisseur enregistre `lastStatus: error` avec la raison dans `lastError`, et l'événement est retenté. Si aucune clé API n'est disponible pour évaluer la condition, une automatisation d'événement enregistre une erreur pour chaque événement correspondant et se met en pause d'elle-même après trois erreurs consécutives. Réactivez-la dans **Settings › Automations** dès qu'une clé est disponible. Une automatisation webhook dans le même état ne se met pas en pause. Sa livraison échoue et est retentée.
+Une condition qui ne peut pas être évaluée ne compte ni comme une correspondance ni comme une non-correspondance, et l'automatisation ne s'exécute pas. Une erreur du fournisseur enregistre `lastStatus: error` avec la raison dans `lastError`, et l'événement fait l'objet d'une nouvelle tentative. Si aucune clé API n'est disponible pour évaluer la condition, une automatisation d'événement enregistre une erreur pour chaque événement correspondant et se met en pause d'elle-même après trois erreurs consécutives. Réactivez-la dans **Settings › Automations** dès qu'une clé est disponible. Une automatisation webhook dans le même état ne se met pas en pause. Sa livraison échoue et fait l'objet d'une nouvelle tentative.
 
 </Callout>
 

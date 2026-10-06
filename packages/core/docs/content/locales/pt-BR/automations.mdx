@@ -76,7 +76,7 @@ a carga útil da automação, até 64 KB. Um corpo enviado com tipo de conteúdo
 
 Envie um ID de evento estável em um cabeçalho `X-Webhook-Event-Id`,
 `X-Event-Id` ou `X-GitHub-Delivery`, ou como `id` de string de nível superior em um corpo
-JSON. Uma entrega repetida com o mesmo ID executa a automação apenas uma vez e recebe uma resposta `200` marcada como duplicada.
+JSON. Uma nova tentativa de entrega com o mesmo ID executa a automação apenas uma vez e recebe uma resposta `200` marcada como duplicada.
 
 ## Criando automações {#creating}
 
@@ -210,7 +210,7 @@ As condições são strings de linguagem natural que um modelo verifica em rela�
 
 <Callout tone="info">
 
-Uma condição que não pode ser avaliada nunca conta como correspondência nem como não correspondência, e a automação não é executada. Um erro do provedor registra `lastStatus: error` com o motivo em `lastError`, e o evento é repetido. Se nenhuma chave de API estiver disponível para avaliar a condição, uma automação de evento registra um erro para cada evento correspondente e se pausa sozinha após três seguidos. Ative-a novamente em **Settings › Automations** quando uma chave estiver disponível. Uma automação de webhook no mesmo estado não se pausa. Sua entrega falha e é repetida.
+Uma condição que não pode ser avaliada nunca conta como correspondência nem como não correspondência, e a automação não é executada. Um erro do provedor registra `lastStatus: error` com o motivo em `lastError`, e o evento é tentado novamente. Se nenhuma chave de API estiver disponível para avaliar a condição, uma automação de evento registra um erro para cada evento correspondente e se pausa sozinha após três seguidos. Ative-a novamente em **Settings › Automations** quando uma chave estiver disponível. Uma automação de webhook no mesmo estado não se pausa. Sua entrega falha e é tentada novamente.
 
 </Callout>
 
@@ -266,7 +266,7 @@ Automações pessoais e da organização usam `manage-automations` com um parâm
 | `update`      | Atualizar uma automação existente (habilitado, condição, corpo)                                    |
 | `delete`      | Excluir uma automação (sempre confirme primeiro com o usuário)                                     |
 | `run-now`     | Executar uma automação imediatamente, com efeitos colaterais reais. Ignora o gatilho e a condição. |
-| `fire-test`   | Emitir um evento `test.event.fired`. Apenas as automações inscritas nesse evento respondem.        |
+| `fire-test`   | Emitir um evento `test.event.fired`. Apenas as automações que assinam esse evento respondem.       |
 
 Ferramenta adicional: `web-request` — saída HTTP com substituição `${keys.NAME}`.
 
@@ -283,14 +283,14 @@ Ferramenta adicional: `web-request` — saída HTTP com substituição `${keys.N
 | `/_agent-native/secrets/adhoc`              | POST   | Criar ou atualizar uma chave ad hoc     |
 | `/_agent-native/secrets/adhoc/:name`        | DELETE | Excluir uma chave ad hoc                |
 
-<Endpoint id="doc-block-152waku" title="Disparar um evento de teste" method="POST" path="/_agent-native/automations/fire-test" summary={"Emita um evento test.event.fired para exercitar as automações inscritas nele"} responses={[
+<Endpoint id="doc-block-152waku" title="Disparar um evento de teste" method="POST" path="/_agent-native/automations/fire-test" summary={"Emita um evento test.event.fired para testar as automações que o assinam"} responses={[
   {
     "status": "200",
     "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path."
   }
 ]}>
 
-Verifica o caminho de eventos (correspondência, escopo do proprietário e condição) de uma automação inscrita em `test.event.fired`. Ele emite apenas esse evento, então não pode acionar uma automação que escuta um evento real como `calendar.booking.created`. Para testar uma automação real, use **Run now**. Equivalente à ação `fire-test` de `manage-automations`.
+Verifica o caminho de eventos (correspondência, escopo do proprietário e condição) de uma automação que assina `test.event.fired`. Ele emite apenas esse evento, então não pode acionar uma automação que escuta um evento real como `calendar.booking.created`. Para testar uma automação real, use **Run now**. Equivalente à ação `fire-test` de `manage-automations`.
 
 </Endpoint>
 
