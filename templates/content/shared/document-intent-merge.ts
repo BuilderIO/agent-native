@@ -39,6 +39,15 @@ function parseStableBlocks(content: string): PMNode[] | null {
   }
 }
 
+function parsedForm(content: string): string | null {
+  try {
+    return docToNfm(nfmToDoc(content));
+  } catch {
+    // coercion-ok: null is a typed preservation-required parse result, never a successful merge.
+    return null;
+  }
+}
+
 function hasAmbiguousIdentity(
   base: readonly string[],
   candidate: readonly string[],
@@ -184,12 +193,16 @@ export function bodyHoldsChanges(
   holder: string,
   other: string,
 ): boolean {
-  const [baseText, holderText, otherText] = [base, holder, other].map(
-    (content) => {
-      const blocks = parseStableBlocks(content);
-      return blocks ? comparableText(content, blocks) : null;
-    },
-  );
+  // The base compares in the form an editor holds it, as in the merge.
+  const [baseText, holderText, otherText] = [
+    parsedForm(base),
+    holder,
+    other,
+  ].map((content) => {
+    if (content === null) return null;
+    const blocks = parseStableBlocks(content);
+    return blocks ? comparableText(content, blocks) : null;
+  });
   return (
     baseText !== null &&
     holderText !== null &&
@@ -310,16 +323,21 @@ export function mergeDocumentBodyIntents(args: {
       displaced: false,
     };
   }
-  const base = parseStableBlocks(args.authoredBaseContent);
+  // The merge keeps blocks only from the candidate and the current body, so
+  // those must serialize exactly. The base just tells which blocks each side
+  // changed, and an editor holds a body in the form it parses to: an agent's
+  // blank-line Markdown would otherwise divert every save authored on it.
+  const baseContent = parsedForm(args.authoredBaseContent);
+  const base = baseContent === null ? null : parseStableBlocks(baseContent);
   const candidate = parseStableBlocks(args.authoredCandidateContent);
   const current = parseStableBlocks(args.currentContent);
-  if (!base || !candidate || !current) {
+  if (baseContent === null || !base || !candidate || !current) {
     return { status: "preservation-required", reason: "structure" };
   }
   const baseKeys = base.map(stableBlock);
   const candidateKeys = candidate.map(stableBlock);
   const currentKeys = current.map(stableBlock);
-  const baseText = comparableText(args.authoredBaseContent, base);
+  const baseText = comparableText(baseContent, base);
   const candidateText = comparableText(
     args.authoredCandidateContent,
     candidate,

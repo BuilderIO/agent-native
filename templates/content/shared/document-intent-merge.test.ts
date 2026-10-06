@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeDocumentBodyIntents } from "./document-intent-merge.js";
+import {
+  bodyHoldsChanges,
+  mergeDocumentBodyIntents,
+} from "./document-intent-merge.js";
 
 const base = "Paragraph one\nParagraph two\nParagraph three";
 const browser = "Browser edit\nParagraph two\nParagraph three";
@@ -558,5 +561,71 @@ describe("document body intent merge", () => {
         ],
       }),
     ).toEqual({ status: "preservation-required", reason: "structure" });
+  });
+
+  it("merges a save authored on the blank-line body an agent stored", () => {
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha.\n\nBravo.\n\nCharlie.",
+        authoredCandidateContent: "Alpha.\nBravo.\nCharlie. two",
+        currentContent: "Alpha. one\nBravo.\nCharlie.",
+        currentRevision: 2,
+        incoming: {
+          writerId: "browser:b",
+          operationId: "b:1",
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [
+          {
+            writerId: "browser:a",
+            operationId: "a:1",
+            authoredBaseRevision: 1,
+            committedRevision: 2,
+            affectedBlockIndexes: [0],
+            canonicalChanged: true,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      status: "resolved",
+      content: "Alpha. one\nBravo.\nCharlie. two",
+      displaced: false,
+    });
+  });
+
+  it("still preserves a save onto a body that does not serialize as stored", () => {
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha.\n\nBravo.\n\nCharlie.",
+        authoredCandidateContent: "Alpha.\nBravo.\nCharlie. two",
+        currentContent: "Alpha. one\n\nBravo.\n\nCharlie.",
+        currentRevision: 2,
+        incoming: {
+          writerId: "browser:b",
+          operationId: "b:1",
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [
+          {
+            writerId: "mcp:z",
+            operationId: "z:1",
+            authoredBaseRevision: 1,
+            committedRevision: 2,
+            affectedBlockIndexes: [0],
+            canonicalChanged: true,
+          },
+        ],
+      }),
+    ).toEqual({ status: "preservation-required", reason: "structure" });
+  });
+
+  it("compares a held body against the blank-line body an agent stored", () => {
+    expect(
+      bodyHoldsChanges(
+        "Alpha.\n\nBravo.",
+        "Alpha. peer\nBravo. mine more",
+        "Alpha. peer\nBravo. mine",
+      ),
+    ).toBe(true);
   });
 });

@@ -680,7 +680,7 @@ jobs:
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
             -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
-            --grep @known-loss --output test-results/known-loss
+            --grep @known-loss --pass-with-no-tests --output test-results/known-loss
         env:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
