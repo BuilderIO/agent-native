@@ -146,8 +146,6 @@ export interface MCPConfig {
     instructions?: string;
     widgets?: boolean;
     widgetDomain?: string;
-    // TEMPORARY: remove this field and both configured values after the OpenAI widget scan A/B.
-    widgetDiagnostic?: "tiny-html" | "no-frame-domains";
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;
@@ -1353,7 +1351,6 @@ function mcpAppUiMeta(
   description?: string,
   widgetDomain?: string,
   directoryMode = false,
-  widgetDiagnostic?: "tiny-html" | "no-frame-domains",
 ): Record<string, unknown> | undefined {
   const base =
     resource._meta && typeof resource._meta === "object"
@@ -1365,8 +1362,6 @@ function mcpAppUiMeta(
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
   delete ui.domain;
-  const omitFrameDomains =
-    directoryMode && widgetDiagnostic === "no-frame-domains";
   if (
     directoryMode &&
     ui.csp &&
@@ -1375,13 +1370,11 @@ function mcpAppUiMeta(
   ) {
     const csp = { ...(ui.csp as Record<string, unknown>) };
     delete csp.baseUriDomains;
-    if (omitFrameDomains) delete csp.frameDomains;
     ui.csp = csp;
   }
   if (resolvedCsp) {
     const csp = { ...resolvedCsp };
     if (directoryMode) delete csp.baseUriDomains;
-    if (omitFrameDomains) delete csp.frameDomains;
     ui.csp = {
       ...csp,
       connectDomains: expandRequestOriginSources(
@@ -1392,14 +1385,10 @@ function mcpAppUiMeta(
         resolvedCsp.resourceDomains,
         requestMeta,
       ),
-      ...(!omitFrameDomains
-        ? {
-            frameDomains: expandRequestOriginSources(
-              resolvedCsp.frameDomains,
-              requestMeta,
-            ),
-          }
-        : {}),
+      frameDomains: expandRequestOriginSources(
+        resolvedCsp.frameDomains,
+        requestMeta,
+      ),
       ...(!directoryMode
         ? {
             baseUriDomains: expandRequestOriginSources(
@@ -1414,18 +1403,14 @@ function mcpAppUiMeta(
   const hostSpecificDomain =
     hostSpecificDomainString(resource.domain) ??
     hostSpecificDomainString(existingUi.domain);
-  if (omitFrameDomains) {
-    delete ui.domain;
-    delete base["openai/widgetDomain"];
-  } else if (widgetDomain) ui.domain = widgetDomain;
+  if (widgetDomain) ui.domain = widgetDomain;
   else if (hostSpecificDomain) ui.domain = hostSpecificDomain;
-  const openAiWidgetDomain = omitFrameDomains
-    ? undefined
-    : (originString(widgetDomain) ??
-      originString(resource.domain) ??
-      originString(ui.domain) ??
-      originString(existingUi.domain) ??
-      originString(requestMeta?.origin));
+  const openAiWidgetDomain =
+    originString(widgetDomain) ??
+    originString(resource.domain) ??
+    originString(ui.domain) ??
+    originString(existingUi.domain) ??
+    originString(requestMeta?.origin);
   if (typeof resource.prefersBorder === "boolean") {
     ui.prefersBorder = resource.prefersBorder;
   }
@@ -1442,7 +1427,6 @@ function mcpAppUiMeta(
   const openAiCsp = openAiWidgetCsp(resolvedCsp, requestMeta);
   if (directoryMode) {
     const directoryCsp = { ...(openAiCsp ?? {}) };
-    if (omitFrameDomains) delete directoryCsp.frame_domains;
     const redirectDomain = originString(widgetDomain);
     if (redirectDomain) directoryCsp.redirect_domains = [redirectDomain];
     if (Object.keys(directoryCsp).length > 0) {
@@ -1459,7 +1443,6 @@ function mcpAppUiMeta(
     base["openai/widgetCSP"] = openAiCsp;
   }
   if (
-    !omitFrameDomains &&
     openAiWidgetDomain &&
     (widgetDomain || base["openai/widgetDomain"] == null)
   ) {
@@ -1502,9 +1485,6 @@ async function resolveMcpAppResource(
     description,
     config.catalogMode === "directory" ? config.widgetDomain : undefined,
     config.catalogMode === "directory",
-    config.catalogMode === "directory"
-      ? config.directoryProfile?.widgetDiagnostic
-      : undefined,
   );
   return {
     uri: resolvedUri.uri,
@@ -1586,44 +1566,12 @@ async function getMcpAppResources(
   });
 }
 
-const DIRECTORY_TINY_WIDGET_HTML = [
-  "<!doctype html>",
-  '<html lang="en">',
-  "<head>",
-  '  <meta charset="utf-8">',
-  '  <meta name="viewport" content="width=device-width, initial-scale=1">',
-  "  <title>Widget resource size diagnostic</title>",
-  "  <style>",
-  "    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }",
-  "    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: Canvas; color: CanvasText; }",
-  "    main { width: min(42rem, calc(100% - 3rem)); padding: 2rem; border: 1px solid color-mix(in srgb, CanvasText 20%, Canvas); border-radius: 1rem; }",
-  "    h1 { margin: 0 0 1rem; font-size: 1.4rem; }",
-  "    p { line-height: 1.6; }",
-  "  </style>",
-  "</head>",
-  "<body>",
-  '  <main role="status">',
-  "    <h1>Widget resource size diagnostic</h1>",
-  "    <p>This temporary resource replaces the full Agent-Native Slides widget shell while the ChatGPT plugin scan is being diagnosed.</p>",
-  "    <p>The Slides app and its MCP tools remain available. This page measures whether the review scan completes when the linked HTML resource is small.</p>",
-  "    <p>After the scan experiment, remove this diagnostic lane and restore the production widget resource.</p>",
-  "  </main>",
-  "</body>",
-  "</html>",
-].join("\n");
-
 function renderMcpAppHtml(
   resource: ResolvedMcpAppResource,
   actionName: string,
   config: MCPConfig,
   requestMeta?: MCPRequestMeta,
 ): string {
-  if (
-    config.catalogMode === "directory" &&
-    config.directoryProfile?.widgetDiagnostic === "tiny-html"
-  ) {
-    return DIRECTORY_TINY_WIDGET_HTML;
-  }
   if (typeof resource.html === "function") {
     return resource.html({
       actionName,

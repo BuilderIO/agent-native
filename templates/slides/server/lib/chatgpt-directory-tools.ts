@@ -15,8 +15,6 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://slides.agent-native.com",
-  // TEMPORARY: replace the app shell only to isolate resource-size scan failures.
-  widgetDiagnostic: "tiny-html",
   keyToolNames: [
     "list-decks",
     "get-deck",
