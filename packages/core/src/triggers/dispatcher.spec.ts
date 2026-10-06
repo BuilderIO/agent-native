@@ -410,6 +410,56 @@ describe("trigger dispatcher", () => {
     await expect(refreshEventSubscriptions()).resolves.toBe(false);
   });
 
+  it("serializes subscription refreshes so an older snapshot cannot drop a newer automation", async () => {
+    const deferred = <T>() => {
+      let resolve!: (value: T) => void;
+      const promise = new Promise<T>((settle) => {
+        resolve = settle;
+      });
+      return { promise, resolve };
+    };
+    const firstSnapshot = deferred<unknown[]>();
+    const secondSnapshot = deferred<unknown[]>();
+    let listCall = 0;
+    resourceListAllOwnersMock.mockImplementation(async () => {
+      listCall += 1;
+      return listCall === 1 ? firstSnapshot.promise : secondSnapshot.promise;
+    });
+
+    const first = refreshEventSubscriptions();
+    const second = refreshEventSubscriptions();
+    await Promise.resolve();
+    // The second refresh sees the automation; the first took its snapshot
+    // before it existed and must not act on it after the fact.
+    secondSnapshot.resolve([
+      {
+        id: "resource-concurrent-refresh",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/concurrent-refresh.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.concurrent.refresh
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Respond to the concurrent event.`,
+      },
+    ]);
+    firstSnapshot.resolve([]);
+    await Promise.all([first, second]);
+
+    expect(subscribeMock).toHaveBeenCalledWith(
+      "test.concurrent.refresh",
+      expect.any(Function),
+    );
+    expect(unsubscribeMock).not.toHaveBeenCalledWith(
+      "sub-test.concurrent.refresh",
+    );
+  });
+
   it("rejects delegated policy ids that could inject trigger frontmatter", () => {
     expect(() =>
       buildTriggerContent(
