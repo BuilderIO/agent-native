@@ -5,18 +5,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { builderConnectFlow, connectBuilderProvider } = vi.hoisted(() => ({
+const { builderConnectFlow } = vi.hoisted(() => ({
   builderConnectFlow: {
     connecting: false,
     statusResolved: true,
     agentNativeProvisioningEnabled: true,
     start: vi.fn(),
   },
-  connectBuilderProvider: vi.fn(async () => ({
-    ok: true,
-    settings: { providers: [] },
-    message: "Builder.io connected for Code.",
-  })),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -62,7 +57,6 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   builderConnectFlow.start.mockClear();
-  connectBuilderProvider.mockClear();
 });
 
 afterEach(() => {
@@ -84,11 +78,15 @@ function click(element: HTMLElement) {
 }
 
 describe("CodeProviderSettings Builder setup", () => {
-  it("opens the shared chooser; only the existing-account choice starts local sign-in", async () => {
+  it("opens the shared chooser; each choice starts its matching Builder flow", async () => {
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
-        codeAgents: { connectBuilderProvider },
+        codeAgents: {
+          getBuilderConnectionStatus: vi.fn(),
+          activateBuilderAccount: vi.fn(),
+          getProviderSettings: vi.fn(async () => ({ providers: [] })),
+        },
       },
     });
     const openBuilder = vi.spyOn(window, "open");
@@ -122,7 +120,6 @@ describe("CodeProviderSettings Builder setup", () => {
       { timeout: 5_000 },
     );
     expect(builderConnectFlow.start).not.toHaveBeenCalled();
-    expect(connectBuilderProvider).not.toHaveBeenCalled();
     expect(openBuilder).not.toHaveBeenCalled();
 
     const createAndActivate = Array.from(
@@ -133,7 +130,6 @@ describe("CodeProviderSettings Builder setup", () => {
     expect(builderConnectFlow.start).toHaveBeenCalledWith({
       provisionAccount: true,
     });
-    expect(connectBuilderProvider).not.toHaveBeenCalled();
     expect(openBuilder).not.toHaveBeenCalled();
 
     click(getTrigger()!);
@@ -142,11 +138,10 @@ describe("CodeProviderSettings Builder setup", () => {
     );
     expect(signIn).toBeDefined();
     click(signIn!);
-    await act(async () => {
-      await Promise.resolve();
+    expect(builderConnectFlow.start).toHaveBeenCalledWith({
+      provisionAccount: false,
     });
-    expect(connectBuilderProvider).toHaveBeenCalledOnce();
-    expect(builderConnectFlow.start).toHaveBeenCalledTimes(1);
+    expect(builderConnectFlow.start).toHaveBeenCalledTimes(2);
     expect(openBuilder).not.toHaveBeenCalled();
   });
 });

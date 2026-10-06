@@ -1,15 +1,20 @@
+import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 
 import type { AppConfig } from "@shared/app-registry";
+import { net, shell } from "electron";
 import { describe, expect, it, vi } from "vitest";
+
+import { readCookieHeaderForUrl } from "../cookie-header";
 
 vi.mock("electron", () => ({
   app: { getPath: vi.fn(() => "/tmp"), once: vi.fn() },
   ipcMain: { handle: vi.fn() },
   net: { request: vi.fn() },
   session: { fromPartition: vi.fn() },
+  shell: { openExternal: vi.fn(async () => {}) },
 }));
 
 vi.mock("@agent-native/core/terminal/server", () => ({
@@ -25,12 +30,17 @@ vi.mock("../cookie-header", () => ({
 }));
 
 import {
+  activateDesktopBuilderAccount,
   desktopTerminalMcpArgs,
   desktopTerminalInfo,
   desktopTerminalWorkspacePath,
   DesktopTerminalMcpRelay,
   desktopTerminalOpenCodeEnvironment,
+  closeDesktopChatRelay,
+  getDesktopBuilderGatewayRunnerEnvironment,
   getDesktopAppMcpAuthorization,
+  openDesktopBuilderConnect,
+  registerDesktopChatIpc,
   resolveDesktopTerminalCwd,
   resolveTargetUrl,
   shouldForwardRequestHeader,
@@ -378,5 +388,204 @@ describe("desktop chat relay target URLs", () => {
       false,
     );
     expect(shouldForwardResponseHeader("cache-control", "no-store")).toBe(true);
+  });
+});
+
+describe("managed Builder Desktop relay", () => {
+  it("authenticates the loopback path and streams Dispatch SSE without Builder credentials", async () => {
+    const originalFetch = globalThis.fetch;
+    const targetHeaders = new Map<string, string>();
+    let targetUrl = "";
+    let requestBody = "";
+    let provisionRequest: { url: string; init?: RequestInit } | undefined;
+    const upstreamRequest = new EventEmitter() as EventEmitter & {
+      abort: ReturnType<typeof vi.fn>;
+      chunkedEncoding?: boolean;
+      end: ReturnType<typeof vi.fn>;
+      setHeader: ReturnType<typeof vi.fn>;
+      write: ReturnType<typeof vi.fn>;
+    };
+    upstreamRequest.abort = vi.fn();
+    upstreamRequest.setHeader = vi.fn((name: string, value: string) => {
+      targetHeaders.set(name.toLowerCase(), value);
+    });
+    upstreamRequest.write = vi.fn((chunk: Buffer | string) => {
+      requestBody += chunk.toString();
+      return true;
+    });
+    upstreamRequest.end = vi.fn(() => {
+      const upstreamResponse = new EventEmitter() as EventEmitter & {
+        headers: Record<string, string>;
+        statusCode: number;
+      };
+      upstreamResponse.headers = {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+      };
+      upstreamResponse.statusCode = 206;
+      upstreamRequest.emit("response", upstreamResponse);
+      queueMicrotask(() => {
+        upstreamResponse.emit(
+          "data",
+          Buffer.from('event: message\ndata: {"type":"message_stop"}\n\n'),
+        );
+        upstreamResponse.emit("end");
+      });
+    });
+    (net.request as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (options: { url: string }) => {
+        targetUrl = options.url;
+        return upstreamRequest;
+      },
+    );
+    vi.mocked(readCookieHeaderForUrl).mockResolvedValue(
+      "session=desktop-session",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const requestUrl = String(input);
+        if (requestUrl.includes("/_agent-native/builder/provision")) {
+          provisionRequest = { url: requestUrl, init };
+          return new Response(JSON.stringify({ ok: true, scope: "org" }), {
+            status: 200,
+          });
+        }
+        if (requestUrl.includes("/_agent-native/connection-status/builder")) {
+          return new Response(
+            JSON.stringify({
+              configured: true,
+              builderEnabled: true,
+              connectUrl:
+                "https://dispatch.example.test/_agent-native/builder/connect?_an_connect=connect-token",
+              appHost: "dispatch.example.test",
+              apiHost: "dispatch.example.test",
+              publicKeyConfigured: true,
+              privateKeyConfigured: true,
+              credentialSource: "org",
+            }),
+            { status: 200 },
+          );
+        }
+        return originalFetch(input, init);
+      }),
+    );
+    registerDesktopChatIpc({
+      resolveBuilderDispatchApp: () =>
+        ({
+          id: "dispatch",
+          origin: "https://dispatch.example.test",
+          identityAuthority: true,
+          session: {} as never,
+        }) as never,
+    });
+
+    try {
+      const environment = await getDesktopBuilderGatewayRunnerEnvironment();
+      expect(environment.status.state).toBe("connected");
+      expect(environment.env?.BUILDER_PUBLIC_KEY).toBe("desktop-relay");
+      const relayUrl = environment.env?.BUILDER_GATEWAY_BASE_URL;
+      const relaySecret = environment.env?.BUILDER_PRIVATE_KEY;
+      expect(relayUrl).toMatch(/^http:\/\/127\.0\.0\.1:/);
+      expect(relaySecret).toBeTruthy();
+
+      const opened = await openDesktopBuilderConnect({
+        connectAttemptId: "attempt-123456789012",
+        scope: "org",
+        source: "desktop_code_agents",
+        flow: "code_provider_setup",
+      });
+      expect(opened).toEqual({ ok: true });
+      const openedUrl = new URL(
+        vi.mocked(shell.openExternal).mock.calls[0]?.[0] ?? "",
+      );
+      expect(openedUrl.origin).toBe("https://dispatch.example.test");
+      expect(openedUrl.pathname).toBe("/_agent-native/builder/connect");
+      expect(openedUrl.searchParams.get("_an_connect_attempt")).toBe(
+        "attempt-123456789012",
+      );
+      expect(openedUrl.searchParams.get("scope")).toBe("org");
+
+      const activation = await activateDesktopBuilderAccount({
+        provisioningToken: "server-provisioning-token",
+        connectToken: "server-connect-token",
+        scope: "org",
+      });
+      expect(activation).toEqual({ ok: true, scope: "org" });
+      expect(provisionRequest?.url).toBe(
+        "https://dispatch.example.test/_agent-native/builder/provision?signupSource=agent-native",
+      );
+      expect(provisionRequest?.init?.headers).toMatchObject({
+        Cookie: "session=desktop-session",
+        Origin: "https://dispatch.example.test",
+      });
+      expect(String(provisionRequest?.init?.body)).toContain(
+        "server-provisioning-token",
+      );
+      expect(String(provisionRequest?.init?.body)).not.toContain(
+        "BUILDER_PRIVATE_KEY",
+      );
+
+      const base = relayUrl!;
+      const denied = await originalFetch(
+        `${base}/messages?apiKey=desktop-relay`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        },
+      );
+      expect(denied.status).toBe(401);
+
+      const wrongPath = await originalFetch(
+        `${base}/other?apiKey=desktop-relay`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${relaySecret}` },
+          body: "{}",
+        },
+      );
+      expect(wrongPath.status).toBe(404);
+
+      const badQuery = await originalFetch(
+        `${base}/messages?apiKey=not-the-relay`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${relaySecret}` },
+          body: "{}",
+        },
+      );
+      expect(badQuery.status).toBe(400);
+
+      const streamBody = '{"model":"builder-model","messages":[]}';
+      const response = await originalFetch(
+        `${base}/messages?apiKey=desktop-relay`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${relaySecret}`,
+            "x-builder-api-key": "must-not-forward",
+            "content-type": "application/json",
+          },
+          body: streamBody,
+        },
+      );
+      expect(response.status).toBe(206);
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      await expect(response.text()).resolves.toBe(
+        'event: message\ndata: {"type":"message_stop"}\n\n',
+      );
+      expect(targetUrl).toBe(
+        "https://dispatch.example.test/_agent-native/builder/desktop/messages",
+      );
+      expect(requestBody).toBe(streamBody);
+      expect(targetHeaders.get("cookie")).toBe("session=desktop-session");
+      expect(targetHeaders.get("authorization")).toBeUndefined();
+      expect(targetHeaders.get("x-builder-api-key")).toBeUndefined();
+      expect(targetHeaders.get("origin")).toBe("https://dispatch.example.test");
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+      await closeDesktopChatRelay();
+    }
   });
 });

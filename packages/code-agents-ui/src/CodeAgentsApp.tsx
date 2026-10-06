@@ -55,6 +55,7 @@ import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
   type BuilderConnectFlow,
+  type BuilderConnectTransport,
 } from "@agent-native/toolkit/app/settings";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
@@ -155,7 +156,6 @@ import type {
   CodeAgentPortalTransferAllResult,
   CodeAgentPortalTransferRequest,
   CodeAgentPortalTransferResult,
-  CodeAgentProviderConnectResult,
   CodeAgentPromptAttachment,
   CodeAgentProjectFolder,
   CodeAgentProjectListResult,
@@ -287,7 +287,7 @@ export interface CodeAgentsHost {
   pairRemoteConnector?: (
     request?: CodeAgentRemoteConnectorPairRequest,
   ) => Promise<CodeAgentRemoteConnectorPairResult>;
-  connectBuilderProvider?: () => Promise<CodeAgentProviderConnectResult>;
+  builderConnectTransport?: BuilderConnectTransport;
 }
 
 export type CodeAgentsRenderAppSurface = (input: {
@@ -1057,10 +1057,9 @@ export default function CodeAgentsApp({
     useState(false);
   const [accessibilityPrompted, setAccessibilityPrompted] = useState(false);
   const [screenRecordingPrompted, setScreenRecordingPrompted] = useState(false);
-  const [builderConnecting, setBuilderConnecting] = useState(false);
-  const [builderConnectMessage, setBuilderConnectMessage] = useState<
-    string | null
-  >(null);
+  const builderConnectedHandlerRef = useRef<
+    (state: { orgName: string | null }) => void | Promise<void>
+  >(async () => {});
   const selectedModelSelection = useMemo(
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
@@ -1404,6 +1403,8 @@ export default function CodeAgentsApp({
     provisionAccount: true,
     trackingSource: "desktop_code_agents",
     trackingFlow: "code_provider_setup",
+    transport: host.builderConnectTransport,
+    onConnected: (state) => builderConnectedHandlerRef.current(state),
   });
 
   const runComputerSetupAction = useCallback(
@@ -1453,75 +1454,50 @@ export default function CodeAgentsApp({
     if (isActive) pollHostMetadataNow();
   }, [isActive, pollHostMetadataNow, refreshKey]);
 
-  const connectBuilderProvider = useCallback(async () => {
-    setBuilderConnectMessage(null);
-    if (!host.connectBuilderProvider) {
-      onOpenSettings?.();
-      return;
-    }
-
-    setBuilderConnecting(true);
-    try {
-      const result = await host.connectBuilderProvider();
-      const message = result.error ?? result.message;
-      setBuilderConnectMessage(result.ok ? null : message);
-      if (result.ok) {
-        toast("Builder.io connected", {
-          description: "Agent can now use Builder credits.",
-        });
-      } else {
-        toast("Builder.io sign-in did not finish", {
-          description: message,
-        });
-      }
-      await loadHostMetadata();
-      const modelResult = await host.listModels?.({ refresh: true });
-      let retrySelection = selectedModelSelection;
-      if (modelResult?.status === "ok") {
-        setModelOptions(modelResult.models);
-        if (
-          modelResult.selected &&
-          (!modelSelection.model || modelSelection.model === "auto")
-        ) {
-          setModelSelection(modelResult.selected);
-          retrySelection = {
-            ...modelResult.selected,
-            effort: selectedModelSelection.effort,
-          };
-        }
-      }
+  const handleBuilderConnected = useCallback(async () => {
+    toast("Builder.io connected", {
+      description: "Agent can now use Builder credits.",
+    });
+    await loadHostMetadata();
+    const modelResult = await host.listModels?.({ refresh: true });
+    let retrySelection = selectedModelSelection;
+    if (modelResult?.status === "ok") {
+      setModelOptions(modelResult.models);
       if (
-        result.ok &&
-        selectedRun &&
-        hasMissingCredentialSignal(selectedRun, transcriptEvents) &&
-        host.retryRun
+        modelResult.selected &&
+        (!modelSelection.model || modelSelection.model === "auto")
       ) {
-        const retryResult = await host.retryRun({
-          goalId: selectedGoal.id,
-          runId: selectedRun.id,
-          permissionMode: selectedPermissionMode,
-          engine: retrySelection.engine,
-          model: retrySelection.model,
-          effort: retrySelection.effort,
-        });
-        if (retryResult.run) {
-          setRuns((current) => [
-            retryResult.run!,
-            ...current.filter((run) => run.id !== retryResult.run!.id),
-          ]);
-          setSelectedExtensionDetailId(null);
-          selectRun(retryResult.run.id);
-          await loadTranscript(retryResult.run.id, true);
-        }
+        setModelSelection(modelResult.selected);
+        retrySelection = {
+          ...modelResult.selected,
+          effort: selectedModelSelection.effort,
+        };
       }
-      await loadRuns(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setBuilderConnectMessage(message);
-      toast("Builder.io sign-in did not finish", { description: message });
-    } finally {
-      setBuilderConnecting(false);
     }
+    if (
+      selectedRun &&
+      hasMissingCredentialSignal(selectedRun, transcriptEvents) &&
+      host.retryRun
+    ) {
+      const retryResult = await host.retryRun({
+        goalId: selectedGoal.id,
+        runId: selectedRun.id,
+        permissionMode: selectedPermissionMode,
+        engine: retrySelection.engine,
+        model: retrySelection.model,
+        effort: retrySelection.effort,
+      });
+      if (retryResult.run) {
+        setRuns((current) => [
+          retryResult.run!,
+          ...current.filter((run) => run.id !== retryResult.run!.id),
+        ]);
+        setSelectedExtensionDetailId(null);
+        selectRun(retryResult.run.id);
+        await loadTranscript(retryResult.run.id, true);
+      }
+    }
+    await loadRuns(true);
   }, [
     host,
     loadHostMetadata,
@@ -1529,13 +1505,17 @@ export default function CodeAgentsApp({
     loadTranscript,
     modelSelection.model,
     selectRun,
-    onOpenSettings,
     selectedGoal.id,
     selectedModelSelection,
     selectedPermissionMode,
     selectedRun,
     transcriptEvents,
   ]);
+  builderConnectedHandlerRef.current = handleBuilderConnected;
+
+  const connectBuilderProvider = useCallback(() => {
+    builderConnectFlow.start({ provisionAccount: false });
+  }, [builderConnectFlow.start]);
 
   const connectLocalRuntime = useCallback(
     async (engine: string) => {
@@ -3065,8 +3045,8 @@ export default function CodeAgentsApp({
                               !isPortalCodeAgentRun(selectedRun)
                             }
                             builderConnectFlow={builderConnectFlow}
-                            builderConnecting={builderConnecting}
-                            builderConnectMessage={builderConnectMessage}
+                            builderConnecting={builderConnectFlow.connecting}
+                            builderConnectMessage={builderConnectFlow.error}
                             onConnectBuilder={connectBuilderProvider}
                             onOpenSettings={onOpenSettings}
                             onConnectProvider={connectBuilderProvider}
@@ -3097,8 +3077,8 @@ export default function CodeAgentsApp({
                                 <ProviderGateNotice
                                   description={providerGate.description}
                                   builderConnectFlow={builderConnectFlow}
-                                  connecting={builderConnecting}
-                                  message={builderConnectMessage}
+                                  connecting={builderConnectFlow.connecting}
+                                  message={builderConnectFlow.error}
                                   bouncePulse={providerGateBouncePulse}
                                   onConnectBuilder={connectBuilderProvider}
                                   onOpenSettings={onOpenSettings}
