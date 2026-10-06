@@ -1846,6 +1846,10 @@ describe("createAgentNativeAgentKitTransport", () => {
       label: "the page saw part of the recovery",
       pageSaw: ["Checking the refund…", "Refund"],
     },
+    {
+      label: "the interrupted attempt only quoted the answer",
+      pageSaw: ["Still pending. Expected confirmation: Refund handled."],
+    },
   ])(
     "keeps a recovered turn's saved reply the page never fully showed ($label)",
     async ({ pageSaw }) => {

@@ -646,8 +646,9 @@ function reconcileDurableMessages(
       .join("");
   // A run that recovered an interrupted turn records only itself on its reply,
   // while an open page streamed it into the run the prompt was submitted to.
-  // Only when that run's messages already hold the whole reply is it on screen;
-  // anything less keeps the saved reply, so the answer is never dropped.
+  // The recovering run's events open their own message, so the reply is on
+  // screen only when one of that run's messages is exactly it; anything less
+  // keeps the saved reply, so the answer is never dropped.
   const submittedRunByTurn = new Map<string, string | null>();
   for (const stored of submittedUsers) {
     const turnId = asRecord(asRecord(stored.metadata)?.custom)?.submittedTurnId;
@@ -671,13 +672,12 @@ function reconcileDurableMessages(
     const ids = assistantIdsByRun.get(submitted);
     const replyText = textOf(reply.parts);
     if (!ids || !replyText) return false;
-    return textOf(
-      messages
-        .filter(
-          (message) => message.role === "assistant" && ids.has(message.id),
-        )
-        .flatMap((message) => message.parts),
-    ).includes(replyText);
+    return messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        ids.has(message.id) &&
+        textOf(message.parts) === replyText,
+    );
   };
 
   const representedSubmittedUserIds = new Set<string>();
