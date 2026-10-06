@@ -122,6 +122,33 @@ export function absolutePlacePointForDrop(args: {
   return absoluteDropPoint(args.targetLocalPoint, args.targetAnchorRect);
 }
 
+export function authoredTargetPointForDrop(args: {
+  boardFileId?: string;
+  targetScreenId: string;
+  targetOutsideBoardRenderGeometry?: boolean;
+  targetAnchorNodeId?: string;
+  targetAnchorPendingNodeId?: string;
+  targetAnchorSelector?: string;
+  targetCanvasPoint?: { x: number; y: number };
+  targetLocalPoint?: { x: number; y: number };
+}): { x: number; y: number } | undefined {
+  const hasAnchor = Boolean(
+    args.targetAnchorNodeId ||
+    args.targetAnchorPendingNodeId ||
+    args.targetAnchorSelector,
+  );
+  if (
+    !hasAnchor &&
+    args.boardFileId &&
+    args.targetScreenId === args.boardFileId &&
+    args.targetOutsideBoardRenderGeometry === true &&
+    args.targetCanvasPoint
+  ) {
+    return args.targetCanvasPoint;
+  }
+  return args.targetLocalPoint;
+}
+
 export function releaseCrossScreenDropAdmission(
   pendingTransactionRef: RefObject<string | null> | undefined,
   transactionId: string | undefined,
@@ -245,7 +272,7 @@ export interface CrossScreenElementDropArgs {
   canEditLiveBoard?: boolean;
   clearPendingOverviewLayerSelectionTimer: () => void;
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;
@@ -348,6 +375,8 @@ export function runCrossScreenElementDrop(
     targetDropMode,
     targetGridPlacement,
     targetAnchorRect,
+    targetCanvasPoint,
+    targetOutsideBoardRenderGeometry,
     targetLocalPoint,
     sourcePointerOffset,
     sourceComputedSize,
@@ -382,6 +411,7 @@ export function runCrossScreenElementDrop(
       height: number;
     };
     targetCanvasPoint?: { x: number; y: number };
+    targetOutsideBoardRenderGeometry?: boolean;
     targetLocalPoint?: { x: number; y: number };
     sourcePointerOffset?: { x: number; y: number };
     sourceComputedSize?: { width?: number; height?: number };
@@ -399,6 +429,16 @@ export function runCrossScreenElementDrop(
     targetScreenId,
     targetAnchorPlacement,
     targetDropMode,
+  });
+  const targetPositionPoint = authoredTargetPointForDrop({
+    boardFileId,
+    targetScreenId,
+    targetAnchorNodeId,
+    targetAnchorPendingNodeId,
+    targetAnchorSelector,
+    targetCanvasPoint,
+    targetOutsideBoardRenderGeometry,
+    targetLocalPoint,
   });
   if (styleSnapshotCaptureFailed) {
     trace("drop", "refused", {
@@ -575,14 +615,14 @@ export function runCrossScreenElementDrop(
       targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
     );
     const placeAbsolute =
-      Boolean(targetLocalPoint) &&
+      Boolean(targetPositionPoint) &&
       (!hasAnchor || targetDropMode === "absolute-container");
     const absolutePosition =
-      placeAbsolute && targetLocalPoint
+      placeAbsolute && targetPositionPoint
         ? absolutePlacePointForDrop({
             placeAbsoluteOnEmptyScreen: false,
             targetAnchorRect,
-            targetLocalPoint,
+            targetLocalPoint: targetPositionPoint,
           })
         : undefined;
     const prepared = prepareClonedHtmlLayersForLiveInsert(
@@ -666,14 +706,14 @@ export function runCrossScreenElementDrop(
         targetAnchorNodeId || targetAnchorPendingNodeId || targetAnchorSelector,
       );
       const placeAbsolute =
-        Boolean(targetLocalPoint) &&
+        Boolean(targetPositionPoint) &&
         (!hasAnchor || targetDropMode === "absolute-container");
       const absolutePosition =
-        placeAbsolute && targetLocalPoint
+        placeAbsolute && targetPositionPoint
           ? absolutePlacePointForDrop({
               placeAbsoluteOnEmptyScreen: false,
               targetAnchorRect,
-              targetLocalPoint,
+              targetLocalPoint: targetPositionPoint,
             })
           : undefined;
       const prepared = prepareClonedHtmlLayersForLiveInsert(
@@ -784,14 +824,14 @@ export function runCrossScreenElementDrop(
     ];
     const hasAnchor = anchorSelectors.length > 0;
     const placeAbsolute =
-      Boolean(targetLocalPoint) &&
+      Boolean(targetPositionPoint) &&
       (!hasAnchor || targetDropMode === "absolute-container");
     const absolutePosition =
-      placeAbsolute && targetLocalPoint
+      placeAbsolute && targetPositionPoint
         ? absolutePlacePointForDrop({
             placeAbsoluteOnEmptyScreen: false,
             targetAnchorRect,
-            targetLocalPoint,
+            targetLocalPoint: targetPositionPoint,
           })
         : undefined;
     const nextContent = insertClonedHtmlLayers(
@@ -942,10 +982,10 @@ export function runCrossScreenElementDrop(
           const destHtml = getScreenContent(targetScreenId);
           const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
             destHtml,
-            targetLocalPoint,
+            targetLocalPoint: targetPositionPoint,
           });
           const positioned =
-            targetLocalPoint &&
+            targetPositionPoint &&
             (placeAbsoluteOnEmptyScreen ||
               (targetDropMode === "absolute-container" && targetAnchorRect))
               ? setAbsolutePositioningForNodeInHtml(
@@ -954,7 +994,7 @@ export function runCrossScreenElementDrop(
                   absolutePlacePointForDrop({
                     placeAbsoluteOnEmptyScreen,
                     targetAnchorRect,
-                    targetLocalPoint,
+                    targetLocalPoint: targetPositionPoint,
                   }),
                   sourcePointerOffset,
                   sourceComputedSize,
@@ -1179,7 +1219,7 @@ export function runCrossScreenElementDrop(
   );
   const placeAbsoluteOnEmptyScreen = shouldAbsolutePlaceOnEmptyScreen({
     destHtml: destContent,
-    targetLocalPoint,
+    targetLocalPoint: targetPositionPoint,
   });
   const placed = ((): { content: string; branch: string } => {
     const absolute = (point: { x: number; y: number }, branch: string) => ({
@@ -1199,17 +1239,17 @@ export function runCrossScreenElementDrop(
       ),
       branch: "anchored-flow-insert",
     };
-    if (!targetLocalPoint) {
+    if (!targetPositionPoint) {
       if (targetAnchorAttrId && targetDropMode !== "absolute-container") {
         return flowInsert;
       }
       return { content: stylePreservedDest, branch: "rooted-no-point" };
     }
     if (placeAbsoluteOnEmptyScreen) {
-      return absolute(targetLocalPoint, "empty-screen-absolute");
+      return absolute(targetPositionPoint, "empty-screen-absolute");
     }
     if (!targetAnchorAttrId) {
-      return absolute(targetLocalPoint, "rooted-absolute");
+      return absolute(targetPositionPoint, "rooted-absolute");
     }
     if (targetDropMode === "absolute-container") {
       if (!targetAnchorRect) {
@@ -1222,7 +1262,7 @@ export function runCrossScreenElementDrop(
         absolutePlacePointForDrop({
           placeAbsoluteOnEmptyScreen,
           targetAnchorRect,
-          targetLocalPoint,
+          targetLocalPoint: targetPositionPoint,
         }),
         "anchored-absolute",
       );
@@ -1237,6 +1277,7 @@ export function runCrossScreenElementDrop(
     `${placed.branch} node=${destNodeAttrId} target=${targetScreenId}` +
       ` anchor=${targetAnchorAttrId ?? "none"} mode=${targetDropMode ?? "none"}` +
       ` local=${point(targetLocalPoint)}` +
+      ` authored=${point(targetPositionPoint)}` +
       ` anchorRect=${targetAnchorRect ? `${Math.round(targetAnchorRect.left)},${Math.round(targetAnchorRect.top)}` : "none"}` +
       ` grab=${point(sourcePointerOffset)}`,
   );

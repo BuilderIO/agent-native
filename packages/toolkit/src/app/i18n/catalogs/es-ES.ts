@@ -137,12 +137,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "Incluido gratis con una cuenta de Builder.io",
   "onboarding.builderMonthlyCredits": "60 Agent Credits al mes",
+  "onboarding.builderIncludedFree": "Incluido gratis",
+  "onboarding.builderMoreServices": "+ {{count}} servicios más",
+  "onboarding.builderIncludedServices": "Servicios incluidos",
   "onboarding.builderActivateTitle": "Activar créditos gratuitos",
   "onboarding.builderAccountExistsTitle": "Ya tienes una cuenta de Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Inicia sesión para usar tu cuenta.",
   "onboarding.builderActivationDescription":
-    "Crearemos automáticamente tu cuenta de Builder.io con un solo clic.",
+    "Crea o conecta una cuenta de Builder.io con un solo clic para obtener créditos gratis.",
   "onboarding.builderOrgActivationDescription":
     "Crearemos tu cuenta de Builder.io con un solo clic para que tu organización pueda usarla.",
   "onboarding.builderCreateAndActivate": "Crear y activar",
@@ -169,6 +172,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Conecta tu propio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
     "Carga y almacenamiento de archivos",
+  "onboarding.capability.llm.why":
+    "El agente usa un modelo de lenguaje para entender solicitudes y generar respuestas.",
+  "onboarding.capability.fileStorage.why":
+    "Guarda imágenes y archivos subidos para que el agente vuelva a usarlos en el hilo.",
   "onboarding.fileStorage.title": "Conecta almacenamiento para subir archivos",
   "onboarding.fileStorage.statusUnavailable":
     "No se pudo comprobar el almacenamiento",
@@ -186,6 +193,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Vectores semánticos",
   "onboarding.capability.embeddings.why":
     "Los vectores semánticos mejoran la búsqueda semántica. La búsqueda por palabras clave sigue funcionando sin ellos.",
+  "onboarding.capability.systemOne.why":
+    "Jev es un modelo de decisión opcional que ayuda a elegir herramientas y habilidades relevantes antes de la primera solicitud al modelo del agente.",
   "onboarding.capability.assetsImageGeneration.label": "Generación de imágenes",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Créditos de Builder o una clave de proveedor de imágenes",
@@ -780,11 +789,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{count}} en cola — enviar un mensaje de seguimiento...",
   "queue.remove": "Quitar de la cola",
   "queue.sendNow": "Enviar ahora",
-  "queue.sendNowHint": "Enviar ahora (detiene la respuesta actual)",
-  "queue.steer": "Dirigir",
-  "queue.steerHint": "Enviar este mensaje a continuación",
+  "queue.sendNowHint": "Detiene la respuesta actual y luego envía este mensaje",
+  "queue.sendNext": "Enviar a continuación",
+  "queue.sendNextHint": "Enviar después de que termine la respuesta actual",
   "queue.moreActions": "Más acciones",
-  "queue.moveToTop": "Mover arriba",
   "recovery.connectingBuilder": "Configurando Builder.io",
   "recovery.copyDebug": "Copiar información de depuración",
   "recovery.copyFailed": "Error al copiar",
@@ -907,6 +915,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "No hay detalles de error disponibles.",
   "tool.input": "Entrada",
   "tool.inputWithLabel": "Entrada - {{label}}",
+  "tool.identifierHidden": "[Identificador oculto]",
+  "tool.contentOmitted": "[Contenido omitido]",
+  "tool.circularReference": "[Referencia circular]",
   "tool.interrupted":
     "Se interrumpió antes de informar de la finalización; puede que haya terminado o no. Compruébalo antes de reintentarlo.",
   "tool.longRunning":
@@ -1106,6 +1117,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Subir archivo de habilidad",
   "composer.upload": "Subir",
   "composer.uploadFailed": "No se pudo cargar el archivo seleccionado.",
+  "composer.unsupportedFileType": "Este tipo de archivo no es compatible.",
   "composer.useAttachedContext": "Usa el contexto adjunto.",
   "mentions.commands": "Comandos",
   "mentions.learnMore": "Más información",
@@ -1354,6 +1366,56 @@ const messages: ToolkitAgentChatTranslation = {
   "contextXray.tokensShare": "tokens · {{share}} %",
   "contextXray.unpin": "Desfijar",
   "contextXray.unpinSegment": "Desanclar segmento",
+  "accessGate.deniedTitle": "No tienes acceso",
+  "accessGate.deniedDescription":
+    "Pide al propietario que lo comparta contigo.",
+  "accessGate.missingTitle": "Esto no existe",
+  "accessGate.missingDescription":
+    "Puede que el enlace sea incorrecto o que se haya eliminado.",
+  "accessGate.trashedTitle": "Esto está en la papelera",
+  "accessGate.trashedDescription": "Restáuralo para volver a abrirlo.",
+  "accessGate.signedOutTitle": "Inicia sesión para continuar",
+  "accessGate.signedOutDescription":
+    "Inicia sesión con una cuenta que tenga acceso.",
+  "accessGate.signIn": "Iniciar sesión",
+  "accessGate.signedInAs": "Has iniciado sesión como {{email}}",
+  "accessGate.switchAccount": "Cambiar de cuenta",
+  "accessGate.requestDescription":
+    "Solicita acceso y se avisará al propietario.",
+  "accessGate.requestSent": "Solicitud enviada. Se ha avisado al propietario.",
+  "accessGate.requestAccess": "Solicitar acceso",
+  "accessGate.requestNoteLabel": "Nota (opcional)",
+  "accessGate.requestNotePlaceholder": "Añade una nota para el propietario",
+  "accessGate.sendRequest": "Enviar solicitud",
+  "accessGate.cancel": "Cancelar",
+  "accessGate.requestRateLimited":
+    "Demasiadas solicitudes en este momento. Inténtalo de nuevo más tarde.",
+  "accessGate.requestFailed":
+    "No se pudo enviar tu solicitud. Inténtalo de nuevo.",
+  "accessGate.signedOutRequestDescription":
+    "Inicia sesión para solicitar acceso.",
+  "accessRequest.title": "{{name}} solicita acceso",
+  "accessRequest.approvedTitle": "Acceso permitido",
+  "accessRequest.declinedTitle": "Solicitud rechazada",
+  "accessRequest.allow": "Permitir",
+  "accessRequest.decline": "Rechazar",
+  "accessRequest.unavailableTitle": "No puedes revisar esta solicitud",
+  "accessRequest.unavailableDescription":
+    "Puede que se haya retirado o que esta cuenta no pueda gestionar el acceso.",
+  "accessRequest.loadFailed": "No se pudo cargar esta solicitud.",
+  "accessRequest.retry": "Reintentar",
+  "accessRequest.decisionFailed":
+    "No se pudo guardar tu decisión. Inténtalo de nuevo.",
+  "accessRequest.stale": "Alguien ya gestionó esta solicitud, o ha cambiado.",
+  "share.accessRequests": "Solicitudes de acceso",
+  "share.accessRequestsLoadFailed":
+    "No se pudieron cargar las solicitudes de acceso.",
+  "share.accessRequestsNewest":
+    "Se muestran las {{count}} solicitudes más recientes.",
+  "accessRequest.emailFailed":
+    "{{name}} ya tiene acceso, pero no pudimos enviarle un correo.",
+  "share.allowRequestFrom": "Permitir a {{name}}",
+  "share.declineRequestFrom": "Rechazar a {{name}}",
   "share.add": "Añadir",
   "share.addPeopleEmail": "Añadir personas por correo electrónico",
   "share.addPeopleOrganization": "Añade personas de tu organización",

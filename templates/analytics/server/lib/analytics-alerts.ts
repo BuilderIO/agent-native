@@ -1007,6 +1007,8 @@ export function buildBigQueryAlertQuery(
   return `SELECT * FROM (${candidateSql}) AS analytics_alert_page${cursorPredicate ? ` WHERE ${cursorPredicate}` : ""} ORDER BY timestamp DESC, id DESC`;
 }
 
+// PostgreSQL quoting on purpose: queryFirstPartyAnalytics lexes this SQL as
+// PostgreSQL, and its binder re-quotes every literal for GoogleSQL.
 function bigQuerySqlLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }

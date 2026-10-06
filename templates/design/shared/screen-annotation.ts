@@ -4,6 +4,7 @@ import {
   ensureCodeLayerNodeIdsInHtml,
   wrapBareTextLeavesInHtml,
 } from "./code-layer.js";
+import { memoizeByContent } from "./memoize-by-content.js";
 
 export function normalizeScreenHtml(
   html: string,
@@ -20,6 +21,11 @@ export function normalizeScreenHtml(
   };
 }
 
+const annotatedScreenHtml = memoizeByContent(
+  4,
+  (content) => normalizeScreenHtml(content).content,
+);
+
 export function annotateScreenHtmlForPersist(
   content: string,
   fileType: string | null | undefined,
@@ -27,7 +33,7 @@ export function annotateScreenHtmlForPersist(
   if ((fileType ?? "html") !== "html") return content;
   if (typeof content !== "string" || !content.trim()) return content;
   try {
-    return normalizeScreenHtml(content).content;
+    return annotatedScreenHtml(content);
   } catch {
     return content;
   }

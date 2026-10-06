@@ -1,10 +1,11 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Assets",
-    learnMoreUrl: "https://agent-native.com/apps/assets",
+    learnMoreUrl:
+      "https://agent-native.com/apps/assets?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent creates, refines, and organizes on-brand assets alongside you.",
     features: [

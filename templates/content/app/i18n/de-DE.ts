@@ -980,8 +980,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
-  requestedPageUnavailable:
-    "Diese Seite ist für dein Konto nicht verfügbar. Daher wurde die Willkommensseite geöffnet.",
   saveFailed: "Deine Position konnte nicht gespeichert werden",
   workspaceWelcomeUnavailableTitle: "Hier ist noch nichts geöffnet",
   workspaceWelcomeUnavailableDescription:
@@ -1101,6 +1099,10 @@ const exactEnglish = {
     iconPickerUploading: "Wird hochgeladen…",
     suggestionAmendmentEmpty:
       "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
+    suggestionUnplaceable:
+      "Der Text um diesen Vorschlag hat sich geändert, daher kann er nicht übernommen werden. Er bleibt offen: Lehnen Sie ihn ab oder schlagen Sie die Änderung erneut vor.",
+    proposalUnplaceable:
+      "Einer dieser Vorschläge kann nicht übernommen werden, weil sich der Text um ihn herum geändert hat. Daher wurde keiner übernommen. Alle bleiben offen: Nehmen Sie sie einzeln an oder lehnen Sie sie einzeln ab.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
     suggestionAmendmentResolved:
       "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
@@ -1388,6 +1390,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Keine Seite ausgewählt",
+    pageNoAccess: "Du hast keinen Zugriff auf diese Seite",
+    pageMissing: "Diese Seite gibt es nicht",
+    pageInTrash: "Diese Seite liegt im Papierkorb",
+    pageInTrashAskOwner: "Bitte den Eigentümer, sie wiederherzustellen.",
+    openTrash: "Papierkorb öffnen",
+    goToMyPages: "Zu meinen Seiten",
     noPageDescription:
       "Wähle eine Seite in der Seitenleiste oder erstelle eine neue.",
     newPage: "Neue Seite",

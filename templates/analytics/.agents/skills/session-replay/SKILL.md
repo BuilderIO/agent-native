@@ -26,6 +26,11 @@ agent answers about browser recordings in the Analytics template.
   browser or agent.
 - Playback bytes must go through scoped server helpers that check
   `session-recording` access before reading private blob refs.
+- First-party SQL (`query-agent-native-analytics`, dashboard panels) reads
+  `session_recordings` through the same `session-recording` access rule as
+  the UI: the caller's own recordings, plus recordings in the active org that
+  are org-visible or shared with the caller or that org. Any new SQL path over
+  recordings must use that rule, not an `org_id` match.
 - SQL inline chunks are a local/dev fallback only; production should use
   private or encrypted blob storage.
 - A local Analytics app pointed at a production database must also use the key
@@ -88,10 +93,20 @@ agent answers about browser recordings in the Analytics template.
   The catalog keeps the 1,000 most recently seen events, sorted by volume, and
   sets `truncated` when it cut the list; its app flags still count every event
   in the range.
-- Unique indexes hold caller text raw, so it must stay short enough for an
-  index entry: index rows use hashed ids, event names and apps are cut to 200
-  and 100 characters, and a session id over 256 characters skips the index.
-  Bound any new caller value before it reaches a key.
+- Indexes hold caller text raw, and one entry over Postgres's limit fails the
+  whole batch. Ingest cuts every indexed value with
+  `server/lib/indexed-text.ts` (event name, app, template, path) before any
+  table sees it. A long user key keeps a prefix plus a hash of the whole value
+  (`boundedIdentity`), so two users never merge into one. Row ids built from
+  caller text go through `indexedRowId`, which hashes an id that
+  percent-encoding made too long. Session and recording ids are never cut,
+  because a cut id could merge two sessions: replay ingest rejects session and
+  recording ids over 256 characters, and an event's longer session id skips the
+  session index. Bound any new indexed caller value there.
+- Public ingest (`/track`, `/api/analytics/replay`) returns a thrown message
+  only for an error built with `requestError` (a numeric `statusCode`). Any
+  other failure is logged and answered with a generic 500, because its message
+  can quote internal database details.
 - Event filters exclude a session if any of its recordings started before the
   tenant's coverage start, because one analytics session can span tabs.
   Coverage starts only after a session write succeeds, and the reported start

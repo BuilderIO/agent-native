@@ -61,6 +61,7 @@ import {
 
 /** Migration DDL comes straight from db.ts so the tests track it. */
 function migrationSql(name: string): string[] {
+  // source-read-ok: runs the migration's SQL against PGlite; nothing asserts on the text.
   const source = readFileSync(
     new URL("../plugins/db.ts", import.meta.url),
     "utf8",

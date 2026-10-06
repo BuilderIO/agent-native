@@ -18,6 +18,8 @@ import { CHAT_STOP_DEBOUNCE_MS } from "./use-agent-generating";
 
 export const NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT =
   "agentNative.chatSubmitTarget";
+const NEW_DECK_GENERATION_RUN_CLEARED_EVENT =
+  "slides:new-deck-generation:cleared";
 
 type NewDeckGenerationLifecycle = {
   deckId: string;
@@ -133,9 +135,17 @@ type NewDeckGenerationRun = {
   submitMessageId: string | null;
   isNewDeckRoute: boolean;
   tabId: string | null;
+  conversationThreadId: string | null;
+};
+
+type NewDeckGenerationRunReference = {
+  submitMessageId: string;
+  tabId: string;
+  conversationThreadId?: string;
 };
 
 const runTabIds = new Map<string, string>();
+const runConversationThreadIds = new Map<string, string>();
 
 export function clearNewDeckGenerationRun(
   deckId: string,
@@ -143,7 +153,20 @@ export function clearNewDeckGenerationRun(
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
   runTabIds.delete(key);
+  runConversationThreadIds.delete(key);
   window.sessionStorage.removeItem(key);
+  window.sessionStorage.removeItem(
+    getRunConversationThreadStorageKey(deckId, submitMessageId),
+  );
+  const activeRun = getActiveRun(deckId);
+  if (activeRun?.submitMessageId === submitMessageId) {
+    window.sessionStorage.removeItem(getActiveRunStorageKey(deckId));
+  }
+  window.dispatchEvent(
+    new CustomEvent(NEW_DECK_GENERATION_RUN_CLEARED_EVENT, {
+      detail: { deckId, submitMessageId },
+    }),
+  );
 }
 
 export function useNewDeckGenerationRun(
@@ -152,7 +175,9 @@ export function useNewDeckGenerationRun(
   submitMessageId: string | null,
 ): {
   generating: boolean;
+  submitMessageId: string | null;
   tabId: string | null;
+  conversationThreadId: string | null;
   questionContinuationPending: boolean;
   expectQuestionContinuation: (submitMessageId: string) => void;
   submitQuestionContinuation: (input: {
@@ -165,8 +190,15 @@ export function useNewDeckGenerationRun(
   );
   const startsNewRoute = isNewDeckRoute && !run.isNewDeckRoute;
   const newSubmit = submitMessageId && submitMessageId !== run.submitMessageId;
+  const storedActiveRun = getActiveRun(deckId);
+  const restoresActiveRun =
+    run.submitMessageId !== null &&
+    storedActiveRun?.submitMessageId === run.submitMessageId;
   const clearsFinishedSubmit =
-    !isNewDeckRoute && !submitMessageId && run.submitMessageId !== null;
+    !isNewDeckRoute &&
+    !submitMessageId &&
+    run.submitMessageId !== null &&
+    !restoresActiveRun;
   let currentRun = run;
   if (
     run.deckId !== deckId ||
@@ -189,10 +221,46 @@ export function useNewDeckGenerationRun(
       (previous.deckId !== currentRun.deckId ||
         previous.submitMessageId !== currentRun.submitMessageId)
     ) {
-      clearNewDeckGenerationRun(previous.deckId, previous.submitMessageId);
+      const hasRecoverableRun =
+        previous.deckId !== currentRun.deckId &&
+        hasStoredNewDeckGenerationRun(
+          previous.deckId,
+          previous.submitMessageId,
+        );
+      if (!hasRecoverableRun) {
+        clearNewDeckGenerationRun(previous.deckId, previous.submitMessageId);
+      }
     }
     previousRunRef.current = currentRun;
   }, [currentRun.deckId, currentRun.submitMessageId]);
+
+  useEffect(() => {
+    const handleRunCleared = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (
+        detail?.deckId !== currentRunRef.current.deckId ||
+        detail?.submitMessageId !== currentRunRef.current.submitMessageId
+      ) {
+        return;
+      }
+      setRun({
+        deckId: detail.deckId,
+        submitMessageId: null,
+        isNewDeckRoute: false,
+        tabId: null,
+        conversationThreadId: null,
+      });
+    };
+    window.addEventListener(
+      NEW_DECK_GENERATION_RUN_CLEARED_EVENT,
+      handleRunCleared,
+    );
+    return () =>
+      window.removeEventListener(
+        NEW_DECK_GENERATION_RUN_CLEARED_EVENT,
+        handleRunCleared,
+      );
+  }, []);
 
   const currentRunRef = useRef(currentRun);
   currentRunRef.current = currentRun;
@@ -206,7 +274,11 @@ export function useNewDeckGenerationRun(
         if (
           routeCleanupTokenRef.current === token &&
           runAtExit.submitMessageId &&
-          !runAtExit.tabId
+          !runAtExit.tabId &&
+          !hasStoredNewDeckGenerationRun(
+            runAtExit.deckId,
+            runAtExit.submitMessageId,
+          )
         ) {
           clearNewDeckGenerationRun(
             runAtExit.deckId,
@@ -357,8 +429,32 @@ export function useNewDeckGenerationRun(
       const tabId = tabIdRef.current;
       if (!tabId) return;
       const detail = (event as CustomEvent).detail;
-      if (detail?.threadId !== tabId && detail?.tabId !== tabId) {
+      const eventTabId =
+        typeof detail?.tabId === "string" ? detail.tabId : null;
+      const eventThreadId =
+        typeof detail?.threadId === "string" ? detail.threadId : null;
+      if (
+        eventTabId !== tabId &&
+        !(eventTabId === null && eventThreadId === tabId)
+      ) {
         return;
+      }
+      const runAtEvent = currentRunRef.current;
+      if (
+        eventThreadId &&
+        runAtEvent.submitMessageId === submitId &&
+        runAtEvent.conversationThreadId !== eventThreadId
+      ) {
+        setRun((previous) =>
+          previous.deckId === deckId && previous.submitMessageId === submitId
+            ? { ...previous, conversationThreadId: eventThreadId }
+            : previous,
+        );
+        rememberNewDeckGenerationRunConversationThread(
+          deckId,
+          submitId,
+          eventThreadId,
+        );
       }
       if (detail.isRunning === true) {
         clearStopDebounce();
@@ -412,7 +508,9 @@ export function useNewDeckGenerationRun(
 
   return {
     generating: activeRun.runKey === runKey && activeRun.generating,
+    submitMessageId: currentRun.submitMessageId,
     tabId: currentRun.tabId,
+    conversationThreadId: currentRun.conversationThreadId,
     questionContinuationPending: currentContinuation.submitMessageId !== null,
     expectQuestionContinuation,
     submitQuestionContinuation,
@@ -424,16 +522,93 @@ function createRun(
   isNewDeckRoute: boolean,
   submitMessageId: string | null,
 ): NewDeckGenerationRun {
+  const activeRun = submitMessageId ? null : getActiveRun(deckId);
+  const currentSubmitMessageId =
+    submitMessageId ?? activeRun?.submitMessageId ?? null;
   return {
     deckId,
-    submitMessageId,
-    isNewDeckRoute,
-    tabId: submitMessageId ? getRunTabId(deckId, submitMessageId) : null,
+    submitMessageId: currentSubmitMessageId,
+    isNewDeckRoute: isNewDeckRoute || currentSubmitMessageId !== null,
+    tabId: currentSubmitMessageId
+      ? (getRunTabId(deckId, currentSubmitMessageId) ??
+        (activeRun?.submitMessageId === currentSubmitMessageId
+          ? activeRun.tabId
+          : null))
+      : null,
+    conversationThreadId: currentSubmitMessageId
+      ? (getRunConversationThreadId(deckId, currentSubmitMessageId) ??
+        (activeRun?.submitMessageId === currentSubmitMessageId
+          ? (activeRun.conversationThreadId ?? null)
+          : null))
+      : null,
   };
 }
 
 function getRunTabStorageKey(deckId: string, submitMessageId: string): string {
   return `slides:new-deck-generation:${deckId}:${submitMessageId}`;
+}
+
+function getRunConversationThreadStorageKey(
+  deckId: string,
+  submitMessageId: string,
+): string {
+  return `slides:new-deck-generation-thread:${deckId}:${submitMessageId}`;
+}
+
+function getActiveRunStorageKey(deckId: string): string {
+  return `slides:new-deck-generation-active:${deckId}`;
+}
+
+function getActiveRun(deckId: string): NewDeckGenerationRunReference | null {
+  if (typeof window === "undefined") return null;
+  const serialized = window.sessionStorage.getItem(
+    getActiveRunStorageKey(deckId),
+  );
+  if (!serialized) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized);
+  } catch (error) {
+    throw new Error(
+      `Cannot restore Slides generation ownership for deck ${deckId}: invalid session data.`,
+      { cause: error },
+    );
+  }
+  const run =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : null;
+  if (
+    !run ||
+    typeof run.submitMessageId !== "string" ||
+    typeof run.tabId !== "string"
+  ) {
+    throw new Error(
+      `Cannot restore Slides generation ownership for deck ${deckId}: invalid session data.`,
+    );
+  }
+  if (
+    "conversationThreadId" in run &&
+    typeof run.conversationThreadId !== "string"
+  ) {
+    throw new Error(
+      `Cannot restore Slides generation ownership for deck ${deckId}: invalid session data.`,
+    );
+  }
+  return {
+    submitMessageId: run.submitMessageId,
+    tabId: run.tabId,
+    ...(typeof run.conversationThreadId === "string"
+      ? { conversationThreadId: run.conversationThreadId }
+      : {}),
+  };
+}
+
+function hasStoredNewDeckGenerationRun(
+  deckId: string,
+  submitMessageId: string,
+): boolean {
+  return getActiveRun(deckId)?.submitMessageId === submitMessageId;
 }
 
 function getRunTabId(deckId: string, submitMessageId: string): string | null {
@@ -446,6 +621,27 @@ function getRunTabId(deckId: string, submitMessageId: string): string | null {
   return stored;
 }
 
+function getRunConversationThreadId(
+  deckId: string,
+  submitMessageId: string,
+): string | null {
+  if (typeof window === "undefined") return null;
+  const key = getRunTabStorageKey(deckId, submitMessageId);
+  const inMemory = runConversationThreadIds.get(key);
+  if (inMemory) return inMemory;
+  const stored = window.sessionStorage.getItem(
+    getRunConversationThreadStorageKey(deckId, submitMessageId),
+  );
+  if (stored === null) return null;
+  if (!stored.trim()) {
+    throw new Error(
+      `Cannot restore Slides generation ownership for deck ${deckId}: invalid session data.`,
+    );
+  }
+  runConversationThreadIds.set(key, stored);
+  return stored;
+}
+
 export function rememberNewDeckGenerationRunTab(
   deckId: string,
   submitMessageId: string,
@@ -454,6 +650,44 @@ export function rememberNewDeckGenerationRunTab(
   const key = getRunTabStorageKey(deckId, submitMessageId);
   runTabIds.set(key, tabId);
   window.sessionStorage.setItem(key, tabId);
+  const conversationThreadId = getRunConversationThreadId(
+    deckId,
+    submitMessageId,
+  );
+  window.sessionStorage.setItem(
+    getActiveRunStorageKey(deckId),
+    JSON.stringify({
+      submitMessageId,
+      tabId,
+      ...(conversationThreadId ? { conversationThreadId } : {}),
+    } satisfies NewDeckGenerationRunReference),
+  );
+}
+
+export function rememberNewDeckGenerationRunConversationThread(
+  deckId: string,
+  submitMessageId: string,
+  conversationThreadId: string,
+): void {
+  const normalizedThreadId = conversationThreadId.trim();
+  if (!normalizedThreadId) return;
+  const key = getRunTabStorageKey(deckId, submitMessageId);
+  const tabId = getRunTabId(deckId, submitMessageId);
+  if (!tabId) return;
+  runConversationThreadIds.set(key, normalizedThreadId);
+  window.sessionStorage.setItem(
+    getRunConversationThreadStorageKey(deckId, submitMessageId),
+    normalizedThreadId,
+  );
+  const activeRun = getActiveRun(deckId);
+  if (activeRun?.submitMessageId !== submitMessageId) return;
+  window.sessionStorage.setItem(
+    getActiveRunStorageKey(deckId),
+    JSON.stringify({
+      ...activeRun,
+      conversationThreadId: normalizedThreadId,
+    } satisfies NewDeckGenerationRunReference),
+  );
 }
 
 function createLifecycle(

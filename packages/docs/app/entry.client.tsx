@@ -4,8 +4,12 @@ import { hydrateRoot } from "react-dom/client";
 import { HydratedRouter } from "react-router/dom";
 
 import { preloadDocBlocksContent } from "./components/doc-block-renderer";
+import { installAppLinkAttribution } from "./components/marketing-attribution";
 
 installRouteChunkRecovery();
+// Before hydration, so an app link followed while the page loads still
+// carries the visitor's source.
+installAppLinkAttribution();
 
 const basePath = appBasePath();
 if (basePath) {

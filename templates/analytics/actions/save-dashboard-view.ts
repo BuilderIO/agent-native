@@ -14,6 +14,10 @@ export default defineAction({
     dashboardId: z.string().min(1).describe("The dashboard ID"),
     id: z.string().optional().describe("Existing view ID when updating"),
     name: z.string().min(1).describe("View name"),
+    isDefault: z
+      .boolean()
+      .optional()
+      .describe("Whether this view becomes the dashboard's default view"),
     filters: z
       .record(z.string(), z.string())
       .optional()
@@ -25,7 +29,12 @@ export default defineAction({
     const orgId = getRequestOrgId() || null;
     const view = await saveDashboardView(
       args.dashboardId,
-      { id: args.id, name: args.name, filters: args.filters ?? {} },
+      {
+        id: args.id,
+        name: args.name,
+        filters: args.filters ?? {},
+        isDefault: args.isDefault,
+      },
       { email, orgId },
     );
     return { success: true, view };

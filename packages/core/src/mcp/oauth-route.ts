@@ -3,10 +3,17 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
+import type { DbExec } from "../db/client.js";
 import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  McpCredentialIssuanceError,
+  withMcpCredentialIssuance,
+} from "./credential-issuance.js";
 import {
   applicationTypeForRedirectUris,
   isAllowedOAuthRedirectUri,
@@ -18,11 +25,13 @@ import {
   createOAuthCode,
   createOAuthRefreshToken,
   consumeOAuthCode,
+  ensureOAuthTables,
   generateOpaqueToken,
   getOAuthClient,
   getOAuthCode,
   getOAuthRefreshToken,
   registerOAuthClient,
+  revokeOAuthRefreshToken,
   touchOAuthRefreshToken,
 } from "./oauth-store.js";
 import {
@@ -963,17 +972,45 @@ async function handleAuthorize(
   const orgDomain = selectedOrganization
     ? await resolveOrgDomain(selectedOrganization.id)
     : undefined;
-  const code = await createOAuthCode({
-    clientId,
-    redirectUri,
-    codeChallenge: params.code_challenge,
-    codeChallengeMethod: "S256",
-    ownerEmail: session.email,
-    orgId: selectedOrganization?.id ?? null,
-    orgDomain: orgDomain ?? null,
-    scope,
-    resource,
-  });
+  let code;
+  try {
+    await ensureOAuthTables();
+    code = await withMcpCredentialIssuance(
+      {
+        email: session.email,
+        orgId: selectedOrganization?.id ?? null,
+        requestOrigin: getOrigin(event),
+      },
+      (tx) =>
+        createOAuthCode(
+          {
+            clientId,
+            redirectUri,
+            codeChallenge: params.code_challenge,
+            codeChallengeMethod: "S256",
+            ownerEmail: session.email,
+            orgId: selectedOrganization?.id ?? null,
+            orgDomain: orgDomain ?? null,
+            scope,
+            resource,
+          },
+          tx,
+        ),
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      return redirectWithOAuthError({
+        redirectUri,
+        issuer,
+        state,
+        error: "access_denied",
+      });
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 
   let isDeepLinkRedirect = false;
   try {
@@ -1007,25 +1044,31 @@ async function handleAuthorize(
   });
 }
 
-async function issueTokenSet(params: {
-  ownerEmail: string;
-  orgId?: string | null;
-  orgDomain?: string | null;
-  clientId: string;
-  scope: string;
-  resource: string;
-  issuer: string;
-}): Promise<Record<string, unknown>> {
+async function issueTokenSet(
+  params: {
+    ownerEmail: string;
+    orgId?: string | null;
+    orgDomain?: string | null;
+    clientId: string;
+    scope: string;
+    resource: string;
+    issuer: string;
+  },
+  tx: DbExec,
+): Promise<Record<string, unknown>> {
   const refreshToken = generateOpaqueToken();
-  await createOAuthRefreshToken({
-    refreshToken,
-    clientId: params.clientId,
-    ownerEmail: params.ownerEmail,
-    orgId: params.orgId ?? null,
-    orgDomain: params.orgDomain ?? null,
-    scope: params.scope,
-    resource: params.resource,
-  });
+  await createOAuthRefreshToken(
+    {
+      refreshToken,
+      clientId: params.clientId,
+      ownerEmail: params.ownerEmail,
+      orgId: params.orgId ?? null,
+      orgDomain: params.orgDomain ?? null,
+      scope: params.scope,
+      resource: params.resource,
+    },
+    tx,
+  );
   const accessToken = await signMcpOAuthAccessToken(params);
   return {
     access_token: accessToken,
@@ -1034,6 +1077,16 @@ async function issueTokenSet(params: {
     refresh_token: refreshToken,
     scope: params.scope,
   };
+}
+
+const NOT_A_MEMBER_DESCRIPTION =
+  "The user is no longer a member of the organization this grant was issued for";
+
+/** Retryable: the client must keep its refresh token, not start over. */
+function grantUnavailableError(description: string): Response {
+  const response = oauthError("temporarily_unavailable", description, 503);
+  response.headers.set("Retry-After", "5");
+  return response;
 }
 
 async function handleAuthorizationCodeGrant(
@@ -1047,7 +1100,13 @@ async function handleAuthorizationCodeGrant(
   if (!code || !clientId || !redirectUri || !isValidCodeVerifier(verifier)) {
     return oauthError("invalid_request", "Missing authorization-code fields");
   }
-  const row = await getOAuthCode(code);
+  let row;
+  try {
+    await ensureOAuthTables();
+    row = await getOAuthCode(code);
+  } catch {
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
   if (!row) return oauthError("invalid_grant", "Invalid or expired code");
   if (row.clientId !== clientId || row.redirectUri !== redirectUri) {
     return oauthError("invalid_grant", "Code was issued to another client");
@@ -1056,22 +1115,50 @@ async function handleAuthorizationCodeGrant(
   if (!safeEqual(expectedChallenge, row.codeChallenge)) {
     return oauthError("invalid_grant", "PKCE verification failed");
   }
-  const consumed = await consumeOAuthCode(code);
-  if (!consumed) return oauthError("invalid_grant", "Invalid or expired code");
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
-  return json(
-    await issueTokenSet({
-      ownerEmail: row.ownerEmail,
-      orgId: row.orgId,
-      orgDomain: row.orgDomain,
-      clientId,
-      scope: row.scope,
-      resource: row.resource,
-      issuer,
-    }),
-  );
+  try {
+    return await withMcpCredentialIssuance(
+      {
+        email: row.ownerEmail,
+        orgId: row.orgId,
+        requestOrigin: getOrigin(event),
+      },
+      async (tx) => {
+        const consumed = await consumeOAuthCode(code, row.ownerEmail, tx);
+        if (!consumed)
+          return oauthError("invalid_grant", "Invalid or expired code");
+        return json(
+          await issueTokenSet(
+            {
+              ownerEmail: consumed.ownerEmail,
+              orgId: consumed.orgId,
+              orgDomain: consumed.orgDomain,
+              clientId,
+              scope: consumed.scope,
+              resource: consumed.resource,
+              issuer,
+            },
+            tx,
+          ),
+        );
+      },
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      try {
+        await consumeOAuthCode(code, row.ownerEmail);
+      } catch {
+        return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+      }
+      return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 }
 
 async function handleRefreshTokenGrant(
@@ -1086,7 +1173,13 @@ async function handleRefreshTokenGrant(
   if (!clientId) {
     return oauthError("invalid_request", "client_id is required");
   }
-  const existing = await getOAuthRefreshToken(refreshToken);
+  let existing;
+  try {
+    await ensureOAuthTables();
+    existing = await getOAuthRefreshToken(refreshToken);
+  } catch {
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
   if (!existing) return oauthError("invalid_grant", "Invalid refresh token");
   if (existing.clientId !== clientId) {
     return oauthError(
@@ -1094,26 +1187,56 @@ async function handleRefreshTokenGrant(
       "Refresh token belongs to another client",
     );
   }
-  await touchOAuthRefreshToken(refreshToken).catch(() => undefined);
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
-  const accessToken = await signMcpOAuthAccessToken({
-    ownerEmail: existing.ownerEmail,
-    orgId: existing.orgId,
-    orgDomain: existing.orgDomain,
-    clientId: existing.clientId,
-    scope: existing.scope,
-    resource: existing.resource,
-    issuer,
-  });
-  return json({
-    access_token: accessToken,
-    token_type: "Bearer",
-    expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
-    refresh_token: refreshToken,
-    scope: existing.scope,
-  });
+  try {
+    return await withMcpCredentialIssuance(
+      {
+        email: existing.ownerEmail,
+        orgId: existing.orgId,
+        requestOrigin: getOrigin(event),
+      },
+      async (tx) => {
+        const renewal = await touchOAuthRefreshToken(
+          refreshToken,
+          existing.ownerEmail,
+          tx,
+        );
+        if (renewal !== "renewed")
+          return oauthError("invalid_grant", "Invalid refresh token");
+        const accessToken = await signMcpOAuthAccessToken({
+          ownerEmail: existing.ownerEmail,
+          orgId: existing.orgId,
+          orgDomain: existing.orgDomain,
+          clientId: existing.clientId,
+          scope: existing.scope,
+          resource: existing.resource,
+          issuer,
+        });
+        return json({
+          access_token: accessToken,
+          token_type: "Bearer",
+          expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+          refresh_token: refreshToken,
+          scope: existing.scope,
+        });
+      },
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      try {
+        await revokeOAuthRefreshToken(refreshToken, existing.ownerEmail);
+      } catch {
+        return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+      }
+      return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 }
 
 async function handleToken(event: H3Event): Promise<Response> {

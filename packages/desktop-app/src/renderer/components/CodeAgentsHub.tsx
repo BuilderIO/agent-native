@@ -60,6 +60,7 @@ import {
   type ChatFirstPrimaryTab,
 } from "@agent-native/toolkit/app/chat/chat-first";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import type { BuilderConnectTransport } from "@agent-native/toolkit/app/settings";
 import {
   Tooltip,
   TooltipContent,
@@ -1273,16 +1274,12 @@ export default function CodeAgentsHub({
     void window.electronAPI.shell.openExternal(url);
   }, []);
   const renderChatFirstAppIcon = useCallback(
-    (
-      app: ChatFirstAppItem,
-      { isInactive }: { isInactive: boolean } = { isInactive: false },
-    ) => (
+    (app: ChatFirstAppItem) => (
       <CodeAgentsAppIcon
         id={app.id}
         name={app.name}
         icon={app.icon}
         color={app.color}
-        monochrome={isInactive}
       />
     ),
     [],
@@ -1317,6 +1314,7 @@ export default function CodeAgentsHub({
           }
           activeTab={activeChatFirstPrimaryTab}
           collapsed={chatFirstRailCollapsed}
+          grayscaleInactiveIcons={false}
           layout={chatFirstAppLayout}
           createAppTrigger={
             onChatFirstAppCreated ? (
@@ -2552,17 +2550,38 @@ export default function CodeAgentsHub({
         }
         return api.pairRemoteConnector(request);
       },
-      async connectBuilderProvider() {
-        const api = window.electronAPI?.codeAgents;
-        if (!api?.connectBuilderProvider) {
-          return {
-            ok: false,
-            message: "Desktop bridge is not available.",
-            error: "Desktop bridge is not available.",
-          };
-        }
-        return api.connectBuilderProvider();
-      },
+      builderConnectTransport: {
+        async readStatus({ connectAttemptId }) {
+          const api = window.electronAPI?.codeAgents;
+          if (!api) return null;
+          const result = await api.getBuilderConnectionStatus(connectAttemptId);
+          return result.state === "unavailable" ? null : result.status;
+        },
+        async activateAccount(request) {
+          const api = window.electronAPI?.codeAgents;
+          if (!api) {
+            return {
+              ok: false,
+              code: "desktop_bridge_unavailable",
+              message: "Restart Agent-Native Desktop to continue.",
+            };
+          }
+          return api.activateBuilderAccount({
+            ...request,
+            scope: request.scope ?? undefined,
+          });
+        },
+        async openConnectUrl(request) {
+          const api = window.electronAPI?.codeAgents;
+          if (!api) {
+            return {
+              ok: false,
+              error: "Restart Agent-Native Desktop to continue.",
+            };
+          }
+          return api.openBuilderConnectUrl(request);
+        },
+      } satisfies BuilderConnectTransport,
     }),
     [],
   );

@@ -1,11 +1,9 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import type { LEGACY_TRACKING_EVENT_NAME_ALIASES } from "@agent-native/core/shared";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { sitePathForLocale } from "../components/docs-locale";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { ChatLandingMock } from "../components/template-landing/ChatLandingMock";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -137,8 +135,7 @@ export default function ChatTemplate() {
               rel="noopener noreferrer"
               className="primary-button"
               style={{ gap: "4px" }}
-              onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-                applyFirstTouchAttributionToLink(event.currentTarget);
+              onClick={() => {
                 trackEvent(HOSTED_DEMO_EVENT, {
                   template: template.slug,
                   location: "landing_page_hero",
