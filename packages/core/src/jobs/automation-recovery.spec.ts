@@ -181,6 +181,20 @@ describe("automation worker recovery", () => {
     ).toMatchObject({ state: "settle" });
   });
 
+  it("keeps confirmed steps inside the persisted terminal error budget", async () => {
+    mocks.count.mockResolvedValue(4);
+    mocks.get.mockResolvedValue({
+      id: "job-1",
+      status: "errored",
+      errorCode: "stale_run",
+      errorDetail: "Long interruption detail ".repeat(40),
+    });
+    const result = await inspectAutomationRecovery(resource, meta, now);
+    expect(result?.state === "settle" && result.error?.slice(0, 500)).toContain(
+      "send-test-email",
+    );
+  });
+
   it("fails closed when the durable worker record or journal is unreadable", async () => {
     mocks.get.mockResolvedValue(null);
     await expect(

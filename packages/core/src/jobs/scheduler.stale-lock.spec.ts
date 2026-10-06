@@ -115,6 +115,73 @@ const testEngine = {
   supportedModels: ["test-model"],
 } as any;
 
+function interruptedScheduledJob(runCount = 1) {
+  const startedAt = Date.now() - 120_000;
+  const lastRun = new Date(startedAt).toISOString();
+  const resource = {
+    id: "recoverable-resource",
+    owner: "alice+jobs@agent-native.test",
+    path: "jobs/recoverable.md",
+    content: `---\nschedule: "*/2 * * * *"\nenabled: true\nlastStatus: running\nlastRun: ${lastRun}\n---\nSend an email, then open a ticket.`,
+  };
+  const history = {
+    id: "recoverable-history",
+    path: resource.path,
+    runId: "killed-worker",
+    threadId: "thread-1",
+    startedAt,
+    finishedAt: null as number | null,
+    status: "running",
+  };
+  resourceListAllOwnersMock.mockResolvedValue([resource]);
+  const spies = [
+    vi
+      .spyOn(runHistory, "listAutomationRuns")
+      .mockResolvedValue([history] as any),
+    vi.spyOn(runStore, "reapIfStale").mockResolvedValue(true),
+    vi
+      .spyOn(runStore, "getRunById")
+      .mockResolvedValue({
+        id: "killed-worker",
+        status: "errored",
+        errorCode: "stale_run",
+      } as any),
+    vi
+      .spyOn(runStore, "getRunTurnRef")
+      .mockResolvedValue({ threadId: "thread-1", turnId: "killed-worker" }),
+    vi.spyOn(runStore, "countRunsForTurn").mockResolvedValue(runCount),
+    vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([
+        {
+          type: "tool_done",
+          id: "email-1",
+          tool: "send-test-email",
+          result: "Delivered",
+          completedSideEffect: true,
+        },
+      ]),
+    vi
+      .spyOn(runStore, "getCurrentTurnRunEventsForThread")
+      .mockResolvedValue([]),
+    vi
+      .spyOn(runStore, "tryClaimRunSlot")
+      .mockResolvedValue({ claimed: true, activeRunId: null }),
+  ];
+  return {
+    resource,
+    history,
+    restore: () => spies.forEach((spy) => spy.mockRestore()),
+  };
+}
+
+const recoveryDeps = {
+  getActions: () => ({}),
+  getSystemPrompt: async () => "system",
+  engine: testEngine,
+  model: "test-model",
+};
+
 describe("stale automation run-lock recovery across trigger types", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -181,6 +248,84 @@ describe("stale automation run-lock recovery across trigger types", () => {
       },
     );
     recordUsageMock.mockResolvedValue(undefined);
+  });
+
+  it("keeps a firing recoverable after losing the resume resource write", async () => {
+    const fixture = interruptedScheduledJob();
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).not.toHaveBeenCalled();
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      vi.mocked(getThread).mockResolvedValueOnce({
+        id: "thread-1",
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Original request" }],
+              metadata: { custom: { submittedTurnId: "killed-worker" } },
+            },
+          ],
+        }),
+      } as any);
+      await processRecurringJobs(recoveryDeps);
+      expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
+  it("retries terminal history persistence before clearing the resource recovery marker", async () => {
+    const fixture = interruptedScheduledJob(4);
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockRejectedValueOnce(new Error("history database unavailable"))
+      .mockResolvedValue(undefined);
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledTimes(2);
+      expect(resourcePutMock).toHaveBeenCalledOnce();
+      expect(resourcePutMock.mock.calls[0]![2]).toContain("send-test-email");
+      expect(finish.mock.invocationCallOrder[1]).toBeLessThan(
+        resourcePutMock.mock.invocationCallOrder[0]!,
+      );
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
+  it("reconciles the resource after history settles and its resource write loses the race", async () => {
+    const fixture = interruptedScheduledJob(4);
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockImplementation(async () => {
+        fixture.history.finishedAt = Date.now();
+        fixture.history.status = "error";
+        Object.assign(fixture.history, {
+          error:
+            "Stopped. Completed steps confirmed by the run journal: send-test-email.",
+        });
+      });
+    resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledOnce();
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      await processRecurringJobs(recoveryDeps);
+      expect(finish).toHaveBeenCalledOnce();
+      expect(resourcePutMock.mock.calls[0]![2]).toContain("send-test-email");
+    } finally {
+      finish.mockRestore();
+      fixture.restore();
+    }
   });
 
   it("resets a stuck event automation with no cron schedule, not just cron jobs", async () => {

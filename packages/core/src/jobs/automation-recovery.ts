@@ -14,6 +14,7 @@ import {
   organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
+import { withDeliveryNote } from "./automation-outcome.js";
 import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
@@ -80,7 +81,7 @@ export function automationDeliveryNote(
   message: string,
   events: readonly AgentChatEvent[],
 ): string {
-  return `${message.trim().replace(/\.$/, "")}. ${deliveryNoteForEvents(events)}`;
+  return withDeliveryNote(message, deliveryNoteForEvents(events));
 }
 
 export async function inspectAutomationRecovery(

@@ -330,6 +330,15 @@ async function processRecurringJobsWithLease(
           continue;
         }
         if (recovery?.state === "settle") {
+          // Keep the recovery marker until history is durable; a restart can
+          // reconcile frontmatter from finished history, but not the reverse.
+          if (recovery.history.finishedAt === null)
+            await finishAutomationRun(
+              recovery.history.id,
+              recovery.status,
+              recovery.error,
+              recovery.errorCode,
+            );
           meta.lastStatus = recovery.status;
           meta.lastError = recovery.error;
           if (meta.schedule && isValidCron(meta.schedule))
@@ -338,22 +347,14 @@ async function processRecurringJobsWithLease(
               now,
               meta.timezone,
             ).toISOString();
-          if (
-            await updateResource(
-              resource,
-              meta,
-              body,
-              recovery.status === "success"
-                ? CLEAR_FAILURE_STATE
-                : { lastErrorCode: recovery.errorCode },
-            )
-          )
-            await finishAutomationRun(
-              recovery.history.id,
-              recovery.status,
-              recovery.error,
-              recovery.errorCode,
-            );
+          await updateResource(
+            resource,
+            meta,
+            body,
+            recovery.status === "success"
+              ? CLEAR_FAILURE_STATE
+              : { lastErrorCode: recovery.errorCode },
+          );
           continue;
         }
         if (isBackgroundAutomationRunActive(meta, now)) continue;
@@ -925,7 +926,7 @@ async function executeJob(
     console.log(
       `[recurring-jobs] "${resource.path}" changed before it could start; dropping this tick.`,
     );
-    if (options.historyId) {
+    if (options.historyId && !options.resume) {
       await finishAutomationRun(
         options.historyId,
         "error",

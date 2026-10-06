@@ -230,13 +230,15 @@ export function pausedMessage(
   code: string,
   count: number,
   message: string,
+  deliveryNote?: string,
 ): string {
   const next = isTransientAutomationFailureCode(code)
     ? "It retries on its own and resumes once this clears."
     : "Fix the cause, then enable the automation again.";
-  return truncate(
-    `Paused after ${count} consecutive ${code} failures: ${message} ${next}`,
-  );
+  const detail = `Paused after ${count} consecutive ${code} failures: ${message} ${next}`;
+  return deliveryNote
+    ? withDeliveryNote(detail, deliveryNote)
+    : truncate(detail);
 }
 
 /** The cause first, then the delivery note owners already know. */
@@ -307,7 +309,8 @@ export function applyAutomationFailure(
         ? pausedMessage(
             failure.code,
             count,
-            failure.deliveryNote ? recordedMessage : failure.message,
+            failure.message,
+            failure.deliveryNote,
           )
         : recordedMessage,
       lastErrorCode: failure.code,

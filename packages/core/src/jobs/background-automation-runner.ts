@@ -524,7 +524,6 @@ export async function runBackgroundAutomation(
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation } = options;
-  assertHardDeadline(options.hardDeadlineAt);
   let historyId: string | null = null;
   if (options.historyId) {
     historyId = options.historyId;
@@ -630,9 +629,8 @@ export async function runBackgroundAutomation(
         ? pausedMessage(
             failure.code,
             transition.consecutiveFailures,
-            failure.deliveryNote
-              ? withDeliveryNote(failure.message, failure.deliveryNote)
-              : failure.message,
+            failure.message,
+            failure.deliveryNote,
           )
         : withDeliveryNote(failure.message, failure.deliveryNote),
       failure.code,

@@ -1143,6 +1143,60 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
 });
 
 describe("runBackgroundAutomation — a failed run reports its own cause", () => {
+  it("settles an expired recovery deadline with its previous worker's journal evidence", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const finish = vi
+      .spyOn(history, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    const ref = vi
+      .spyOn(runStore, "getRunTurnRef")
+      .mockResolvedValue({ threadId: "thread-1", turnId: "expired-turn" });
+    const events = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([
+        {
+          type: "tool_done",
+          tool: "send-test-email",
+          id: "sent",
+          result: "Delivered",
+          completedSideEffect: true,
+        },
+      ]);
+    try {
+      await expect(
+        runBackgroundAutomation(
+          runOptions(precondition("expired-recovery"), {
+            historyId: "expired-history",
+            hardDeadlineAt: Date.now() - 1,
+            resume: {
+              historyId: "expired-history",
+              threadId: "thread-1",
+              turnId: "expired-turn",
+              previousRunId: "expired-worker",
+              hardDeadlineAt: Date.now() - 1,
+            },
+          }),
+          standardDeps,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "background_automation_hard_timeout",
+        deliveryNote: expect.stringContaining("send-test-email"),
+      });
+      expect(finish).toHaveBeenCalledWith(
+        "expired-history",
+        "error",
+        expect.stringContaining("send-test-email"),
+        "background_automation_hard_timeout",
+      );
+      expect(await countRowsWithPrefix("job-expired-recovery")).toBe(0);
+    } finally {
+      finish.mockRestore();
+      ref.mockRestore();
+      events.mockRestore();
+    }
+  });
+
   it.each(["{}", "unreadable JSON"])(
     "does not replay the edited job when original recovery context is missing or unreadable (%s)",
     async (threadData) => {

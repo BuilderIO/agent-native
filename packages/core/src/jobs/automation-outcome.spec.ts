@@ -18,6 +18,7 @@ import {
   PRECONDITION_PAUSE_AFTER,
   RUNTIME_PAUSE_AFTER,
   runtimeFailureNextRun,
+  pausedMessage,
   withDeliveryNote,
   type AutomationFailure,
 } from "./automation-outcome.js";
@@ -36,6 +37,21 @@ it("keeps confirmed delivery evidence when a long runtime error is truncated", (
   expect(transition.patch.lastError).toContain(deliveryNote);
   expect(transition.patch.lastError!.length).toBeLessThanOrEqual(500);
   expect(transition.patch.lastError).not.toContain("No delivery was confirmed");
+  const paused = applyAutomationFailure(
+    {
+      enabled: true,
+      lastErrorCode: "http_502",
+      consecutiveFailures: RUNTIME_PAUSE_AFTER - 1,
+    },
+    failure,
+    NOW,
+  );
+  expect(paused.pause).toBe(true);
+  expect(paused.patch.lastError).toContain(deliveryNote);
+  expect(paused.patch.lastError!.length).toBeLessThanOrEqual(500);
+  expect(pausedMessage("http_502", 3, failure.message, deliveryNote)).toContain(
+    deliveryNote,
+  );
 });
 
 function codedError(message: string, errorCode: string): Error {
