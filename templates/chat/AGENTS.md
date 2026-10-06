@@ -41,9 +41,9 @@ the matching skill only when this app actually uses that workflow. The
 - Use `view-screen` or application state when the active page/selection is
   unclear.
 
-For a custom app, keep `server/plugins/config.ts` aligned with the product
-brand. Its `app.name` is used in transactional emails, and its optional
-`app.logoUrl` can point to an absolute HTTPS logo URL.
+For a custom app, keep `server/plugins/agent-native-email-branding.ts` aligned
+with the product brand. Its `app.name` is used in transactional emails, and
+its optional `app.logoUrl` can point to an absolute HTTPS logo URL.
 
 ## Application State
 
@@ -61,3 +61,30 @@ brand. Its `app.name` is used in transactional emails, and its optional
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; read
 `customizing-agent-native` before adapting shared UI.
+
+## Building a Domain App
+
+Choose the primary workflow and destination route before editing. Use bundled
+docs and source instead of web research:
+
+- `pnpm action docs-search --query "<feature>"`
+- `pnpm action docs-search --slug <slug>`
+- `pnpm action docs-search --list`
+- `pnpm action source-search --query "<pattern>"`
+- `pnpm action source-search --path <path>`
+- `pnpm action source-search --list`
+
+Follow `adding-a-feature` for functional parity and `frontend-design` before
+building a user-facing surface.
+
+Add a domain route under `app/routes/` and set `app.homePath` to it in
+`server/plugins/agent-native-email-branding.ts` via `defineAppConfig`. Keep
+`/home` as Chat. Add a static link in `app/components/layout/Sidebar.tsx`
+before `ChatThreadsSection`; `Header.tsx` maps `/home` to Chat and uses
+`APP_TITLE` on other routes. The shared sidebar and AgentInspector remain.
+
+Keep feature-specific guidance here; do not rewrite `README.md` or `DESIGN.md`.
+After all edits, run one `pnpm typecheck`, one `pnpm agent-native:doctor`, and
+one browser smoke of the primary workflow, including overlapping-booking
+rejection, cancellation freeing the slot, and authenticated landing. Do not run
+a production build or app test suites unless asked.
