@@ -16,12 +16,16 @@ function isDocumentNavigation(event: H3Event): boolean {
   return (getHeader(event, "accept") ?? "").includes("text/html");
 }
 
+const PATH_BASE = "http://an.invalid";
+
 // A path Location is same-origin whatever host the request named, so it must
-// not depend on `origin` parsing; only absolute Locations are compared.
+// not depend on `origin` parsing. It is resolved rather than pattern-matched:
+// the URL parser drops tabs and newlines, so `/\t/evil.test` names another host.
 function isSameOriginBareLocation(location: string, origin: string): boolean {
   try {
-    if (/^\/(?![/\\])/.test(location)) {
-      return !new URL(location, "http://an.invalid").search;
+    if (location.startsWith("/")) {
+      const target = new URL(location, PATH_BASE);
+      return target.origin === PATH_BASE && !target.search;
     }
     const target = new URL(location);
     return target.origin === new URL(origin).origin && !target.search;
@@ -52,7 +56,9 @@ export function queryEchoSafeRedirect(
   response: Response,
   origin: string,
 ): Response {
-  if (response.status < 300 || response.status >= 400) return response;
+  // 307 and 308 replay the request method; a page that navigates would turn a
+  // POST into a GET.
+  if (![301, 302, 303].includes(response.status)) return response;
   const location = response.headers.get("location");
   if (
     !location ||

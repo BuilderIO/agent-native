@@ -84,4 +84,23 @@ describe("queryEchoSafeRedirect", () => {
     ];
     for (const response of unchanged) expect(response.status).toBe(302);
   });
+
+  it("does not take a path the URL parser reads as another host for a same-origin one", () => {
+    // The parser drops the tab, leaving a scheme-relative URL.
+    const response = queryEchoSafeRedirect(
+      eventFor(VERIFY),
+      redirect("/\t/evil.test"),
+      ORIGIN,
+    );
+    expect(response.status).toBe(302);
+  });
+
+  it("keeps a method-preserving redirect, which a navigating page would turn into a GET", () => {
+    const response = queryEchoSafeRedirect(
+      eventFor(VERIFY),
+      new Response(null, { status: 307, headers: { location: "/" } }),
+      ORIGIN,
+    );
+    expect(response.status).toBe(307);
+  });
 });
