@@ -8,7 +8,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 
 import { PROVIDER_PACKAGES } from "../agent/engine/ai-sdk-engine.js";
-import { addAppToWorkspace, createApp } from "./create.js";
+import {
+  _addConfiguredFeatureDependencies,
+  addAppToWorkspace,
+  createApp,
+} from "./create.js";
 import {
   _scaffoldWorkspaceRoot,
   _scaffoldAppTemplate,
@@ -119,10 +123,17 @@ function readAllTextFiles(dir: string): string {
 }
 
 describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
-  it("adds optional peers for features configured in the scaffold environment", async () => {
+  it("ignores shell feature settings but reads scaffold project env files", async () => {
+    vi.stubEnv("SENTRY_SERVER_DSN", "https://server@example.test/123");
+    vi.stubEnv("SENTRY_CLIENT_DSN", "https://browser@example.test/123");
     vi.stubEnv("SENTRY_AUTH_TOKEN", "dummy-upload-token");
     vi.stubEnv("SENTRY_ORG", "dummy-org");
     vi.stubEnv("SENTRY_PROJECT", "dummy-project");
+    vi.stubEnv("AUTH_SSO", "true");
+    vi.stubEnv("AUTH_SCIM", "true");
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "dummy-amplitude-key");
+    vi.stubEnv("MICROSOFT_TEAMS_APP_ID", "dummy-teams-app-id");
+    vi.stubEnv("MICROSOFT_TEAMS_APP_PASSWORD", "dummy-teams-password");
 
     await createApp("configured-chat", { template: "chat" });
     await createApp("configured-workspace", {
@@ -130,16 +141,49 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
       forceWorkspace: true,
     });
 
-    for (const appDir of [
-      path.join(tmpDir, "configured-chat"),
-      path.join(tmpDir, "configured-workspace", "apps", "chat"),
+    const standaloneDir = path.join(tmpDir, "configured-chat");
+    const workspaceChatDir = path.join(
+      tmpDir,
+      "configured-workspace",
+      "apps",
+      "chat",
+    );
+    const appDirs = [
+      standaloneDir,
+      workspaceChatDir,
       path.join(tmpDir, "configured-workspace", "apps", "dispatch"),
-    ]) {
-      const dependencies = readPkg(appDir).dependencies;
-      expect(dependencies["@sentry/vite-plugin"]).toBe("^5.4.0");
-      expect(dependencies["@sentry/browser"]).toBeUndefined();
-      expect(dependencies["@sentry/node"]).toBeUndefined();
+    ];
+    const optionalFeatureDependencies = [
+      "@sentry/node",
+      "@sentry/browser",
+      "@sentry/vite-plugin",
+      "@better-auth/sso",
+      "@better-auth/scim",
+      "@amplitude/analytics-browser",
+      "botframework-connector",
+    ];
+
+    for (const appDir of appDirs) {
+      const dependencies = allDeps(readPkg(appDir));
+      for (const optionalDependency of optionalFeatureDependencies) {
+        expect(dependencies[optionalDependency]).toBeUndefined();
+      }
     }
+
+    expect(allDeps(readPkg(standaloneDir))["@electric-sql/pglite"]).toBe(
+      "^0.5.8",
+    );
+    expect(allDeps(readPkg(workspaceChatDir))["@electric-sql/pglite"]).toBe(
+      "^0.5.8",
+    );
+
+    fs.writeFileSync(path.join(standaloneDir, ".env"), "AUTH_SSO=true\n");
+    vi.stubEnv("AUTH_SSO", "false");
+    _addConfiguredFeatureDependencies(standaloneDir);
+
+    const envConfiguredDependencies = allDeps(readPkg(standaloneDir));
+    expect(envConfiguredDependencies["@better-auth/sso"]).toBe("1.7.6");
+    expect(envConfiguredDependencies["@sentry/vite-plugin"]).toBeUndefined();
   });
 
   it("rewrites the copied chat tracking app id to the generated app id", async () => {
