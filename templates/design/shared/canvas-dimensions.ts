@@ -23,7 +23,7 @@ const ASPECT_RATIO_CONTEXT_AFTER = /^\s*(?:aspect\s+ratio|ratio)\b/i;
 const ASPECT_RATIO_CONTEXT_BEFORE =
   /\b(?:aspect\s+)?ratio\b(?:\s+(?:of|is|to))?\s*[:=]?\s*$/i;
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
-  /^\s*(?:mm|millimeters?|cm|centimeters?|inch(?:es)?|ft|feet|pt|points?|pc|picas?|em|rem)\b/i;
+  /^\s*(?:(?:mm|millimeters?|cm|centimeters?|inch(?:es)?|ft|feet|pt|points?|pc|picas?|em|rem)\b|in\b(?=\s*(?:[.;,!?)]|$))|["″'′])/i;
 
 export function explicitCanvasDimensionsFromPrompt(
   prompt?: string,

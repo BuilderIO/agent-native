@@ -50,6 +50,9 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     expect(
       explicitCanvasDimensionsFromPrompt("Create a 210 by 297 inches poster"),
     ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt("Create a 210 by 297 in"),
+    ).toBeUndefined();
   });
 
   it("rejects distinct explicit canvas sizes in one prompt", () => {
