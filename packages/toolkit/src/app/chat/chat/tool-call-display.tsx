@@ -10,7 +10,10 @@ import type {
 } from "@agent-native/core/client/agent-chat";
 import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
-import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
+import {
+  SESSION_REPLAY_BLOCK_PROPS,
+  SESSION_REPLAY_MASK_PROPS,
+} from "@agent-native/core/client/session-replay-privacy";
 import {
   isCallAgentToolCallShadowed,
   isToolCallActive,
@@ -981,9 +984,13 @@ function ToolCallDisplayGeneric({
 
   return (
     <div className="group/tool my-0.5 w-full overflow-hidden">
-      {mcpApp && !(suppressInlineOpenApp && toolName === "open_app") && (
-        <McpAppRenderer app={mcpApp} className="mb-1.5" />
-      )}
+      {mcpApp &&
+        !(suppressInlineOpenApp && toolName === "open_app") && (
+          // The recorder keeps iframe attributes, and a snapshot's srcdoc can show the failure.
+          <div {...(isError ? SESSION_REPLAY_BLOCK_PROPS : {})}>
+            <McpAppRenderer app={mcpApp} className="mb-1.5" />
+          </div>
+        )}
       <button
         type="button"
         onClick={() => canExpand && setExpanded(!isExpanded)}

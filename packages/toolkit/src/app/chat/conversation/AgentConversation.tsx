@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
+import {
+  SESSION_REPLAY_BLOCK_PROPS,
+  SESSION_REPLAY_MASK_PROPS,
+} from "@agent-native/core/client/session-replay-privacy";
 import { toolLabel } from "@agent-native/core/client/tool-display";
 import { cn } from "@agent-native/toolkit/utils";
 import {
@@ -476,7 +479,14 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
         />
       </summary>
       <div className="agent-conversation-tool__details">
-        {tool.mcpApp && <McpAppRenderer app={tool.mcpApp} />}
+        {tool.mcpApp && (
+          // The recorder keeps iframe attributes, and a snapshot's srcdoc can show the failure.
+          <div
+            {...(tool.state === "errored" ? SESSION_REPLAY_BLOCK_PROPS : {})}
+          >
+            <McpAppRenderer app={tool.mcpApp} />
+          </div>
+        )}
         {tool.input && (
           <pre>
             <strong>input</strong>

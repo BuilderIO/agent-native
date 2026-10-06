@@ -5,6 +5,7 @@ import {
   AgentNativeI18nProvider as CoreAgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
 } from "@agent-native/core/client/i18n";
+import { SESSION_REPLAY_BLOCK_ATTRIBUTE } from "@agent-native/core/client/session-replay-privacy";
 import type { AgentMcpAppPayload } from "@agent-native/core/mcp-client";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -1742,6 +1743,34 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Ada");
     expect(container.textContent).not.toContain("MCP APP");
   });
+
+  it.each([true, false])(
+    "blocks only an errored MCP App from replays (isError %s)",
+    (isError) => {
+      act(() => {
+        root.render(
+          <ToolCallDisplay
+            toolName="external-widget"
+            args={{}}
+            result={
+              isError
+                ? "Error running external-widget: Example Document failed."
+                : JSON.stringify({ ok: true })
+            }
+            mcpApp={mcpApp}
+            isRunning={false}
+            isError={isError}
+          />,
+        );
+      });
+
+      const app = container.querySelector('[data-testid="mcp-app"]');
+      expect(app).not.toBeNull();
+      expect(app?.closest(`[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`) !== null).toBe(
+        isError,
+      );
+    },
+  );
 
   it("renders MCP Apps when there is no native widget payload", () => {
     act(() => {

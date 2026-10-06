@@ -17,7 +17,10 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
-import { SESSION_REPLAY_MASK_ATTRIBUTE } from "./session-replay-privacy.js";
+import {
+  SESSION_REPLAY_BLOCK_ATTRIBUTE,
+  SESSION_REPLAY_MASK_ATTRIBUTE,
+} from "./session-replay-privacy.js";
 import {
   decideReplayQuotaResponse,
   parseRetryAfterSeconds,
@@ -300,7 +303,7 @@ const SESSION_REPLAY_IFRAME_BLOCK_SELECTOR = `iframe[${SESSION_REPLAY_IFRAME_ATT
 const DEFAULT_BLOCK_SELECTOR = [
   SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
   "[data-sensitive]",
-  "[data-an-block]",
+  `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
   "[data-an-private]",
   "[data-private]",
   ".an-block",

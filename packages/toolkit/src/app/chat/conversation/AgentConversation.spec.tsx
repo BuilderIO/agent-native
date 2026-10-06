@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { SESSION_REPLAY_BLOCK_ATTRIBUTE } from "@agent-native/core/client/session-replay-privacy";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +14,10 @@ import {
   AgentConversation,
   AgentConversationMessageView,
 } from "./AgentConversation.js";
+
+vi.mock("../mcp-apps/McpAppRenderer.js", () => ({
+  McpAppRenderer: () => <div data-testid="conversation-mcp-app" />,
+}));
 
 vi.mock("../../extensions/index.js", () => ({
   InlineExtensionFrame: ({ extensionId, extension }: any) => (
@@ -143,6 +148,49 @@ describe("AgentConversationMessageView", () => {
       container.querySelector("pre span")?.hasAttribute("data-an-mask"),
     ).toBe(true);
   });
+
+  it.each(["errored", "completed"] as const)(
+    "blocks only an errored tool's MCP App from replays (%s)",
+    (state) => {
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-example",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-example",
+                  type: "tool",
+                  tool: {
+                    id: "tool-example",
+                    name: "example-tool",
+                    state,
+                    result: "Example Document failed.",
+                    mcpApp: {
+                      serverId: "server",
+                      toolName: "example-tool",
+                      originalToolName: "example-tool",
+                      resourceUri: "ui://example-tool",
+                      toolInput: {},
+                      toolResult: {},
+                    },
+                  },
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+      const app = container.querySelector(
+        '[data-testid="conversation-mcp-app"]',
+      );
+      expect(app).not.toBeNull();
+      expect(app?.closest(`[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`) !== null).toBe(
+        state === "errored",
+      );
+    },
+  );
 
   it.each(["error", "info"] as const)(
     "masks only error notice text (%s)",
