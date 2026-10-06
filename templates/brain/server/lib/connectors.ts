@@ -39,6 +39,9 @@ import {
   nextZoomCursorFrom,
   normalizeZoomRecording,
   zoomExternalId,
+  zoomMeetingFilterFromConfig,
+  zoomMeetingFilterKey,
+  zoomMeetingMatchesFilter,
 } from "./zoom.js";
 
 export interface ConnectorSyncResult {
@@ -198,6 +201,7 @@ interface GranolaSyncCursor {
 
 interface ZoomSyncCursor {
   from?: string;
+  filterKey?: string | null;
   retry?: RetryCursor;
   transientRetryAt?: string;
   lastRunAt?: string;
@@ -3108,8 +3112,12 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const dayMs = 24 * 60 * 60 * 1000;
   const to = utcDate(runStartedAt);
   const earliest = utcDate(runStartedAt - ZOOM_MAX_LOOKBACK_DAYS * dayMs);
+  const meetingFilter = zoomMeetingFilterFromConfig(objectValue(config.zoom));
+  const filterKey = zoomMeetingFilterKey(meetingFilter);
+  // A changed filter can include meetings the cursor has already moved past.
+  const filterChanged = (cursor.filterKey ?? null) !== filterKey;
   const requestedFrom =
-    cursor.from && ZOOM_DATE.test(cursor.from)
+    !filterChanged && cursor.from && ZOOM_DATE.test(cursor.from)
       ? cursor.from
       : utcDate(runStartedAt - lookbackDays * dayMs);
   const from = requestedFrom < earliest ? earliest : requestedFrom;
@@ -3120,6 +3128,8 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     to,
     recordingListsScanned: 0,
     meetingsSeen: 0,
+    meetingsSkippedByFilter: 0,
+    filterChanged,
     transcriptsDownloaded: 0,
     emptyTranscripts: 0,
     alreadyImported: 0,
@@ -3168,18 +3178,20 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         ];
 
     for (const recordingList of recordingLists) {
-      const meetings = await zoomCall(
-        recordingList.endpoint,
-        recordingList.list,
-      );
+      const listed = await zoomCall(recordingList.endpoint, recordingList.list);
       await renewRunLease(run);
       stats.recordingListsScanned = Number(stats.recordingListsScanned) + 1;
+      stats.meetingsSeen = Number(stats.meetingsSeen) + listed.length;
+      const meetings = listed.filter((meeting) =>
+        zoomMeetingMatchesFilter(meeting, meetingFilter),
+      );
+      stats.meetingsSkippedByFilter =
+        Number(stats.meetingsSkippedByFilter) + listed.length - meetings.length;
       const imported = await importedZoomExternalIds(
         source.id,
         meetings.map(zoomExternalId),
       );
       for (const meeting of meetings) {
-        stats.meetingsSeen = Number(stats.meetingsSeen) + 1;
         if (hasProcessingTranscript(meeting)) {
           pendingMeetingStarts.push(meeting.start_time);
           stats.pendingTranscripts = Number(stats.pendingTranscripts) + 1;
@@ -3232,6 +3244,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         pendingMeetingStarts,
         earliest,
       }),
+      filterKey,
       retry: undefined,
       lastRunAt: nowIso(),
     };

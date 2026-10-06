@@ -54,6 +54,16 @@ account-wide recording list (`/accounts/{ZOOM_ACCOUNT_ID}/recordings`) covers ev
 `userIds` (up to 50, user ID or email) narrows the import to those users and
 additionally needs `cloud_recording:read:list_user_recordings:admin`.
 `lookbackDays` is 1-30, default 7.
+`meetingIds` and `meetingTopics` (up to 100 each) limit the import to matching
+meetings; a meeting is kept if either matches. Prefer meeting IDs (spaces
+allowed, as Zoom displays them): recurring meetings keep one ID across
+occurrences. Topics match the whole title, case-insensitively, so a renamed
+meeting stops matching. With neither set, every cloud-recorded meeting in the
+account is imported. `update-source` replaces the whole `zoom` object, so send
+every Zoom field you want to keep. Changing the filter rewinds the next sync to
+the `lookbackDays` window, so newly included meetings are backfilled (raise
+`lookbackDays`, up to 30, to reach further back). Run stats report
+`meetingsSkippedByFilter` and `filterChanged`.
 Sources auto-sync hourly; each run overlaps the previous one by one day to
 catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
 Captures use the organization audience. There are no Zoom webhooks.

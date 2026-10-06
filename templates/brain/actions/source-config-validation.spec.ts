@@ -156,6 +156,42 @@ describe("create-source config validation", () => {
 
     expect(mocks.createSource).toHaveBeenCalledTimes(1);
   });
+
+  it("refuses a Zoom meeting filter entry that is not an ID or title", async () => {
+    for (const zoom of [
+      { meetingIds: ["GTM Weekly Sync"] },
+      { meetingIds: ["123"] },
+      { meetingTopics: ["   "] },
+    ]) {
+      await expect(
+        createSource.run({
+          title: "Zoom meetings",
+          provider: "zoom",
+          visibility: "org",
+          config: { zoom },
+        }),
+        JSON.stringify(zoom),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("creates a Zoom source filtered to meeting IDs and titles", async () => {
+    await expect(
+      createSource.run({
+        title: "Zoom meetings",
+        provider: "zoom",
+        visibility: "org",
+        config: {
+          zoom: {
+            meetingIds: ["123 4567 8901", 98765432101],
+            meetingTopics: ["Marketing Standup"],
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ source: { id: "source-1" } });
+  });
 });
 
 describe("update-source config validation", () => {

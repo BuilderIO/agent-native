@@ -289,6 +289,68 @@ export function hasProcessingTranscript(meeting: ZoomMeeting): boolean {
   );
 }
 
+export interface ZoomMeetingFilter {
+  meetingIds: Set<string>;
+  meetingTopics: Set<string>;
+}
+
+// Zoom shows meeting IDs as "123 4567 8901"; the API returns 12345678901.
+export function normalizeZoomMeetingId(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const id = String(value).replace(/[\s-]/g, "");
+  return /^\d{6,15}$/.test(id) ? id : null;
+}
+
+export function normalizeZoomMeetingTopic(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const topic = value.trim().replace(/\s+/g, " ").toLowerCase();
+  return topic || null;
+}
+
+function normalizedSet(
+  raw: unknown,
+  normalize: (value: unknown) => string | null,
+): Set<string> {
+  if (!Array.isArray(raw)) return new Set();
+  return new Set(
+    raw.map(normalize).filter((value): value is string => Boolean(value)),
+  );
+}
+
+export function zoomMeetingFilterFromConfig(
+  zoomConfig: Record<string, unknown>,
+): ZoomMeetingFilter | null {
+  const filter = {
+    meetingIds: normalizedSet(zoomConfig.meetingIds, normalizeZoomMeetingId),
+    meetingTopics: normalizedSet(
+      zoomConfig.meetingTopics,
+      normalizeZoomMeetingTopic,
+    ),
+  };
+  return filter.meetingIds.size || filter.meetingTopics.size ? filter : null;
+}
+
+export function zoomMeetingFilterKey(
+  filter: ZoomMeetingFilter | null,
+): string | null {
+  if (!filter) return null;
+  return JSON.stringify({
+    meetingIds: [...filter.meetingIds].sort(),
+    meetingTopics: [...filter.meetingTopics].sort(),
+  });
+}
+
+export function zoomMeetingMatchesFilter(
+  meeting: Pick<ZoomMeeting, "id" | "topic">,
+  filter: ZoomMeetingFilter | null,
+): boolean {
+  if (!filter) return true;
+  const id = normalizeZoomMeetingId(meeting.id);
+  if (id && filter.meetingIds.has(id)) return true;
+  const topic = normalizeZoomMeetingTopic(meeting.topic);
+  return Boolean(topic && filter.meetingTopics.has(topic));
+}
+
 // The window must stay open until every pending transcript finishes, or a
 // transcript that takes longer than the overlap is never scanned again.
 export function nextZoomCursorFrom(input: {
