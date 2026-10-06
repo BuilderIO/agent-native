@@ -2326,6 +2326,7 @@ async function readStoredReplayChunkText(row: any): Promise<string | null> {
   } catch (error) {
     console.warn(
       "[session-replay] Could not read a stored replay chunk; its recording reads as unmeasured:",
+      { recordingId: row.recordingId, seq: row.seq },
       error,
     );
     // coercion-ok: null is "unreadable"; friction leaves the recording unmeasured.

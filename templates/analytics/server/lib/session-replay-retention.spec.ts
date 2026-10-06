@@ -272,6 +272,7 @@ describe("session replay retention", () => {
     ]);
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("Could not read a stored replay chunk"),
+      expect.objectContaining({ seq: 22 }),
       expect.any(Error),
     );
     expect(warn).toHaveBeenCalledWith(
