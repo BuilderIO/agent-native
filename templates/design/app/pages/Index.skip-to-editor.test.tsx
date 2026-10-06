@@ -643,6 +643,9 @@ describe("Index skip to editor", () => {
       canSubmit = await mocks.promptProps?.onBeforeSubmit?.();
     });
     expect(canSubmit).toBe(false);
+    expect(mocks.fetchAgentEngineConfiguredState).toHaveBeenCalledWith(true, {
+      fresh: true,
+    });
     expect(container.textContent).toContain(
       "agentChat.setup.providerStatusUnavailable",
     );
@@ -659,6 +662,23 @@ describe("Index skip to editor", () => {
       expect.objectContaining({ type: "agent-engine:configured-changed" }),
     );
     dispatch.mockRestore();
+  });
+
+  it("rechecks provider readiness before submit when a prior status said configured", async () => {
+    mocks.agentEngine = { state: "configured", missing: false };
+    await act(async () => root.render(<Index />));
+    mocks.fetchAgentEngineConfiguredState.mockResolvedValueOnce("missing");
+
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = await mocks.promptProps?.onBeforeSubmit?.();
+    });
+
+    expect(canSubmit).toBe(false);
+    expect(mocks.fetchAgentEngineConfiguredState).toHaveBeenCalledWith(true, {
+      fresh: true,
+    });
+    expect(container.textContent).toContain("Connect AI");
   });
 
   it("ignores a stale readiness check after the provider hook reports configured", async () => {

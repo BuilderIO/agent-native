@@ -336,13 +336,28 @@ Wenn Sie OTel nicht verkabelt haben, betragen die Kosten also ein paar zwischeng
 
 Die Agentenschleife gibt drei Span-Typen aus:
 
-| Spanne      | Wann                     | Attribute                                                         |
-| ----------- | ------------------------ | ----------------------------------------------------------------- |
-| `agent.run` | einmal pro Agentenlauf   | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | einmal pro Aktionsaufruf | `tool.name`, plus Erfolgs-/Fehlerstatus                           |
-| `llm.call`  | pro Modellaufruf         | Timing + OK/Fehlerstatus                                          |
+| Spanne                | Wann                     | Attribute                                                                                                 |
+| --------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | einmal pro Agentenlauf   | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | einmal pro Aktionsaufruf | `gen_ai.tool.name`, plus Erfolgs-/Fehlerstatus                                                            |
+| `chat {model}`        | pro Modellaufruf         | `gen_ai.provider.name`, Timing + OK/Fehlerstatus                                                          |
 
 Spans werden mit dem Status „OK/ERROR“ abgeschlossen und bei einem Fehler wird eine Fehlermeldung aufgezeichnet. Null-/Sentinel-Attributwerte werden bereinigt, damit Spannen nicht mit Rauschen überfrachtet werden. Diese OTel-Schicht ist eine reine Ergänzung zu den hauseigenen `agent_trace_spans`-/`agent_trace_summaries`-Tabellen, die das obige Dashboard unterstützen – beide werden aus den gleichen Laufereignissen erstellt.
+
+### Metriken {#otel-metrics}
+
+Core erfasst zusätzlich Metriken, sobald der Host mit `registerObservabilityProvider()` aus `@agent-native/core/server` einen Meter-Provider registriert. Metriken werden für jede Anfrage und jeden Lauf ohne Sampling erfasst:
+
+| Instrument                              | Attribute                                                                                    |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+Bei Metriken ist `gen_ai.tool.name` der Name einer Framework-Aktion oder `other`, und `gen_ai.request.model` ist die Modell-ID nur, wenn die Engine sie als unterstützt führt, andernfalls `_OTHER`. App-definierte Tools und vom Aufrufer übergebene Modell-IDs können daher keine unbegrenzte Anzahl von Serien erzeugen; Spans behalten die exakten Werte.
 
 ## Fehlerberichterstattung (Sentry) {#sentry}
 

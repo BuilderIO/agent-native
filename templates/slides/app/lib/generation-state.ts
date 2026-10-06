@@ -60,9 +60,10 @@ export function isNewDeckGenerationFailed({
   waitingOnQuestions: boolean;
 }): boolean {
   if (slideCount !== 0 || !hasGenerationContext) return false;
+  if (generating || waitingOnQuestions) return false;
   if (typeof failureCode === "string") return true;
   if (isNewDeckCreation && phase === "abandoned") return true;
-  return phase === "started" && !generating && !waitingOnQuestions;
+  return phase === "started";
 }
 
 export function shouldShowNewDeckGeneratingProgress({

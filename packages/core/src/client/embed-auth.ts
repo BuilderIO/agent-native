@@ -399,6 +399,10 @@ function isAuthFailureStatus(status: number): boolean {
 }
 
 function shouldGuardAuthFailure(method: string, url: URL): boolean {
+  // Only an embed replays refusals, so a missing or expired embed token can't
+  // set off a retry storm. Elsewhere a refusal can lift mid-session, as when
+  // someone shares the page, and a replayed one would hide that for a minute.
+  if (!isEmbedAuthActive()) return false;
   if (!GUARDED_METHODS.has(method)) return false;
   if (url.pathname === EMBED_START_PATH) return false;
   if (
@@ -477,6 +481,15 @@ async function recordAuthFailure(
 
 function clearAuthFailure(key: string): void {
   authFailureCache.delete(key);
+}
+
+/**
+ * Forgets every replayed refusal. Call it when access is known to have
+ * changed, such as a link's status turning `allowed`: a refusal recorded
+ * before then would otherwise fail the next read for up to a minute.
+ */
+export function forgetAuthFailures(): void {
+  authFailureCache.clear();
 }
 
 function withEmbedAuthHeaders(

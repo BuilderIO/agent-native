@@ -1215,6 +1215,7 @@ export function PropertyManagementPopover({
   databaseId,
   icon: Icon,
   triggerClassName,
+  iconClassName,
   triggerTrailing,
   sourceField,
   sourceAttached = false,
@@ -1235,6 +1236,7 @@ export function PropertyManagementPopover({
   databaseId: string;
   icon: Icon;
   triggerClassName?: string;
+  iconClassName?: string;
   triggerTrailing?: ReactNode;
   sourceField?: ContentDatabaseSource["fields"][number] | null;
   sourceAttached?: boolean;
@@ -1562,9 +1564,11 @@ export function PropertyManagementPopover({
           >
             <PropertyDefinitionIcon
               property={property}
-              className="size-4 shrink-0"
+              className={cn("size-4 shrink-0", iconClassName)}
             />
-            <span className="truncate">{property.definition.name}</span>
+            <span className="truncate" data-property-label="">
+              {property.definition.name}
+            </span>
             {triggerTrailing}
           </button>
         </DropdownMenuTrigger>

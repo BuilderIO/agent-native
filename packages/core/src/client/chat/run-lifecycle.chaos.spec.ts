@@ -817,6 +817,7 @@ describe("run outcome telemetry: one report per run, saying how the outcome was 
         threadId: THREAD,
         outcome: "failed",
         code: "provider_auth_failed",
+        message: "The provider rejected the API key.",
         terminalSource: "stream",
         verifiedAfterPipeClosed: false,
         resumeAttempts: 0,

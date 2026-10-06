@@ -26,6 +26,11 @@ agent answers about browser recordings in the Analytics template.
   browser or agent.
 - Playback bytes must go through scoped server helpers that check
   `session-recording` access before reading private blob refs.
+- First-party SQL (`query-agent-native-analytics`, dashboard panels) reads
+  `session_recordings` through the same `session-recording` access rule as
+  the UI: the caller's own recordings, plus recordings in the active org that
+  are org-visible or shared with the caller or that org. Any new SQL path over
+  recordings must use that rule, not an `org_id` match.
 - SQL inline chunks are a local/dev fallback only; production should use
   private or encrypted blob storage.
 - A local Analytics app pointed at a production database must also use the key
@@ -123,6 +128,184 @@ agent answers about browser recordings in the Analytics template.
   them are two days past replay retention, and its gap marker after that. The
   BigQuery-cutover purge leaves these tables alone.
 
+## Friction Signals
+
+- Friction is derived at ingest into Analytics' own tables and read only
+  from them, in every sink mode. Replay signals (dead clicks, Sonner error
+  toasts, retry loops, leaving within 30 seconds of an error, stalled
+  requests over `STALLED_REQUEST_THRESHOLD_MS`, 4xx and 5xx responses) come from the
+  rrweb chunks in `recordSessionReplayChunks`, one row per recording in
+  `session_recording_friction`. Event signals (failed actions, agent
+  failures, stuck chats, thumbs-down, quick backs, cancelled runs) and their
+  trouble groups come from tracked events in a savepoint nested inside the
+  event index savepoint, one row per session in `analytics_session_friction`
+  plus `analytics_session_trouble`.
+- A request the page aborted itself (status 0 with an error `isBenignAbort`
+  in core recognizes, or the recorder's `XMLHttpRequest aborted`) is not a
+  failure: it never feeds retry loops or leaving after an error. Neither is
+  one the recorder marked `pageLeaving`: the browser cancels in-flight
+  requests when the page navigates or reloads, with the same "Failed to
+  fetch" as a network failure, so only the recorder can tell them apart. It
+  still counts as a stalled request. Any other status-0 failure counts.
+- Never store page text or URLs: detector state keeps timestamps, rrweb node
+  ids, and hashed request keys; quick backs compare hashed paths.
+- One session id spans every tab, so a quick back compares pages only within
+  one page load (`page_load_id` on each pageview). Pageviews from older
+  clients send no id and are skipped: followed together, two tabs would look
+  like one tab going back.
+- A replay row counts only while `processed_chunks` equals the recording's
+  `chunk_count`. Each batch must continue from the stored detector state and
+  its chunk seqs must start exactly at `processed_chunks`, so a batch that
+  cannot be measured, or arrives out of order, leaves the row behind and the
+  recording reads as unmeasured; never restart from fresh state. An event row
+  counts only when the tenant's friction coverage began before every
+  recording of the session and the session has neither an event index gap
+  nor a friction gap (`analytics_session_friction_gaps`). A friction write
+  failure rolls back only friction and records a friction gap; the index
+  write stays. Only a failed friction gap insert fails the index savepoint.
+- Thumbs-down, cancelled runs, and quick backs are measured only for
+  sessions whose pageviews carried `agent_signals`
+  (`AGENT_SIGNALS_PAGEVIEW_PROPERTY` in core): older clients sampled stops,
+  sent no ratings, and sent no `page_load_id`. One session id
+  spans every tab, so an old tab can share a session with a new one: any
+  unmarked pageview or sampled stop sets `agent_signals_missing`, and both
+  flags are OR-merged. Unless `agent_signals_measured` is set and
+  `agent_signals_missing` is not, these counts read as null, stay out of the
+  score, never match a filter, and sort last. A stop counts only when sent
+  unsampled (`sample_rate` absent or 1).
+- Reads must keep "unmeasured" (null) apart from "measured, no friction" (0).
+  Until the migration creates `analytics_session_friction_coverage` (created
+  last), ingest skips friction, filters match nothing, friction sorts fall
+  back to newest, and details report every part as null. A friction filter or
+  sort always returns the paginated shape with `frictionCoverageStartedAt`,
+  and `view-screen` passes it on, so an empty match is read against coverage,
+  never as zero. It covers the viewer's own org and personal tenants: the
+  latest start among those with coverage, or null when one without coverage
+  has recordings the viewer sees in the range. Recordings shared from other
+  tenants read unmeasured on their own rows.
+- `errorIssues` links occurrences in `error_events`, which keeps only each
+  issue's newest ones, then falls back to issues whose
+  `last_session_recording_id` is the recording, with a null count. A
+  recording with errors Monitoring could capture and still no issue reads
+  null (unknown), never [], unless its owner scope has no issues at all: it
+  does not capture errors as issues, so [] is the truth there. Only captured
+  exceptions can become issues, and a plain `console.error` never does: the
+  recorder marks console errors `exception: false` or `true`, and the replay
+  row counts the others in `issue_errors`, so a recording whose only errors
+  were plain console errors reads []. A row measured before that column, or
+  not measured from its start, falls back to the recording's `errorCount`.
+- Agent failures group by a named cause from `AGENT_TROUBLE_CAUSES` in core
+  (`no_model_connected`, `rate_limit`, `context_overflow`, `provider_error`),
+  else by error code, never by message text. Failed actions group by action
+  and status.
+  New causes need product approval; add them to that one list.
+- The score is a weighted sum with each signal capped at
+  `SESSION_FRICTION_SIGNAL_CAP`, computed per part at ingest and summed at
+  read. Change weights only in `SESSION_FRICTION_WEIGHTS`.
+- Every friction surface is behind the Sessions triage Lab, in the UI and in
+  `list-session-recordings`, `list-session-friction`, `view-screen`, and
+  `get-session-replay-summary`; a 403 names what the Lab gates
+  (`assertSessionsTriageLabEnabled` takes every feature the request used).
+  With the Lab off, Sessions looks and behaves exactly as before; ingest
+  still records friction. Waiting on the Lab state is shared with the speed
+  filter; see "Performance In Sessions".
+- Without a friction filter or sort, the list loads without friction and its
+  rows read friction from `list-session-friction`, one page of ids at most,
+  through the recordings' access filter. A failed friction read then leaves
+  the list in place with a retry. With a friction filter or sort, friction
+  comes with the list and a failure is a list error.
+- The replay's dev tools show a Friction tab with every signal's count, its
+  trouble groups, and its issue links. `get-session-replay-summary` returns
+  the same `friction` for the agent. A failed Lab state or friction read is
+  reported as `labStateError` or `frictionError`, never as no friction. Each
+  is a fixed message, because the cause can quote database details; the
+  server log keeps it. On
+  the list, `view-screen` reports them beside the base list, and its
+  `activeFilters` echo the filters it applied, not the URL's. Its row excerpt
+  drops trailing rows to stay under the agent's 50,000-character tool-result
+  limit, so the page metadata after the rows always arrives; a cut sets
+  `truncated`, and `fullPageAction` reads the whole page. Keep it that way
+  when adding per-row fields: a bigger row means fewer rows, not a lost page.
+
+## Performance In Sessions
+
+- Core's tracker sends one `web_vitals` event per page view (`route`,
+  `navigation_type`, and whichever of `ttfb_ms`, `lcp_ms`, `inp_ms`, `cls` were
+  measured; an unmeasured metric is absent, never 0) and an
+  `agent-native.vitals` replay marker with the same numbers. `action.response`
+  carries the `route` its request started on. `route` is a React Router
+  template such as `/sessions/:id`; when no manifest route matches it is
+  omitted, never a raw path, which can hold slugs and emails.
+- Requests under `SLOW_REQUEST_THRESHOLD_MS` (`shared/slow-request.ts`, 1 s)
+  are sampled at 10% with `sample_weight: 10`; slow, failed, and 4xx responses
+  always send with weight 1, so slow-request counts are exact. Use that
+  constant for every "slow request" rule. Requests made while the page was
+  hidden or cancelled are not counted. Slow requests (the app's own actions,
+  1 s, counted from events) are not friction's stalled requests (any captured
+  replay request, `STALLED_REQUEST_THRESHOLD_MS`, 3 s): keep their names,
+  fields, columns, and copy apart, and never show one number under the
+  other's label.
+- Ingest strips NUL and replaces lone surrogates in `route`, `app`, and the
+  session id before hashing, as Postgres would store them; otherwise two
+  values that store alike collide in one upsert and fail the batch.
+  Measurements above `performanceCeiling` (the open top bucket's floor: 64 s,
+  CLS 5) are capped there rather than dropped, and `sample_weight` at 10,000.
+  A session value at the ceiling is a floor: summaries list it in `atLeast`
+  and the row hint shows it with ≥.
+- `recordSessionPerformance` keeps each session's worst vitals and its slow
+  requests in `analytics_session_performance`, inside the ingest transaction
+  under a savepoint, with the same gap and coverage rules as the event index.
+  `recordRoutePerformance` adds weights to fixed histogram buckets in
+  `analytics_route_performance_daily` after commit, in its own short
+  transaction. A failed write records a gap: `session_id = ''` marks a
+  route day, read as `incompleteDates`; a session id marks that session,
+  read as `performance.incomplete` and kept by `slow: any` only, since
+  missing data cannot rule it out; `vitals` and `requests` need a measured
+  slow value. The slow filter correlates on each recording's own tenant. As
+  with event friction, a share grants the recording, not its tenant's
+  events: a recording shared from another tenant has no speed summary (null)
+  and never matches a slow filter. A summary's `slowRequests` is null when the session made no
+  measured request. A null summary is a session never measured: its row says
+  "Speed not measured", and a slow match or a range from before coverage
+  shows when speed coverage began, so it never reads as fast. On
+  `list-session-recordings`, `slow` and `includePerformance` always return
+  the paginated shape with `performanceCoverageStartedAt`, as friction does.
+  Bucket edges are positional, so changing them needs a new
+  `PERFORMANCE_HISTOGRAM_VERSION`.
+- Percentiles interpolate inside one bucket. Past the first bucket each edge
+  is at most 28% above the last, so they are within about 28% of the exact
+  value; in the first bucket, within 1 ms (CLS 0.001). Keep that step when
+  adding edges, and keep every rating threshold an edge. A value in the open
+  top bucket is reported as `atLeast`.
+  A metric with no samples is null: no data, never fast. Before the migration
+  creates `analytics_performance_coverage`, ingest stores events without these
+  aggregates and warns, the slow filter matches nothing, and reads report no
+  coverage.
+- The replay's slow-request markers come from the `agent-native.slow_request`
+  events core records beside each slow `action.response` someone waited for,
+  with that event's own duration, status, and outcome. Core and the timeline
+  both apply the count's rule (`isWaitedActionResponse`, from core), so a
+  marker matches exactly what the row counts and background requests never
+  spend the replay's marker budget. Never derive them from replay network events: those stop timing at
+  the response headers. Replays from clients without these events show no
+  slow-request markers.
+- `slow` and `includePerformance` on `list-session-recordings`,
+  `list-session-performance`, `list-route-performance`, the replay's vitals
+  and slow-request markers, and `performance` on `get-session-replay-summary`
+  exist only while the Sessions triage Lab is on.
+- Lab state never holds up the base list. The page waits for it only when the
+  URL carries Lab-only conditions (did/didn't events, friction signals or
+  sorts, `slow`), with one wait for all of them, and for at most 5 s; a
+  failed or hung read lists sessions without them and says so once, with a
+  retry, rather than telling the user to turn on a Lab that may be on.
+  Row speed hints load beside the list through `list-session-performance`,
+  like row friction, keyed on the visible recording ids; when they fail the
+  page says speed data could not load instead of showing no hints, apart
+  from any friction failure. `view-screen` reads Lab state in its own `try`
+  and reads row friction and speed hints beside the base list, reporting
+  `labStateError`, `frictionError`, and `performanceError` separately; its
+  `fullPageAction` asks for both.
+
 ## Agent Diagnostics Surface
 
 - `buildSessionReplayAgentContext` includes a `diagnostics` section: up to 50
@@ -130,7 +313,9 @@ agent answers about browser recordings in the Analytics template.
   and truncated flags. Agent-context instructions steer agents to diagnostics
   as the primary debugging signal.
 - The agent timeline includes `console-error` / `network-error` markers; error
-  markers are kept preferentially under the 200-marker cap.
+  markers are kept preferentially under the 200-marker cap. App event, Web
+  Vitals and slow-request markers belong to the Sessions triage Lab and stay
+  off it (`SESSIONS_TRIAGE_MARKER_TAGS`); add any new Lab marker tag there.
 - `apis.diagnostics` advertises the fuller bounded list:
   `GET /api/session-replay/agent-diagnostics.json?id=<recordingId>&agent_access=<token>&kind=console|network|all&level=<level>&limit=<n>&offset=<n>&fromMs=<n>&toMs=<n>`
   (limit defaults to 200, max 500). It uses the same recording-scoped
@@ -192,7 +377,7 @@ agent answers about browser recordings in the Analytics template.
   widths >= 3,000px. The 2026-07 "ultra-wide replay" bugs (stages rendered
   3,000–9,500px wide, frozen/teleporting cursors, giant icons) were caused
   entirely by demo mode's fetch interceptor: its number redactor faked any
-  integer >= 1000 inside raw replay JSON at *view* time, corrupting Meta /
+  integer >= 1000 inside raw replay JSON at _view_ time, corrupting Meta /
   ViewportResize widths, pointer x/y coordinates, and numeric values inside
   `_cssText` and SVG attributes before rrweb ever saw the payload (heights
   below 1000 stayed real, which is why the symptom looked like a viewport

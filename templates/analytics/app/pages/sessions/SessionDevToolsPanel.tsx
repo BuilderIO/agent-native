@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconAlertTriangle,
   IconArrowUpRight,
   IconChevronRight,
   IconCloudDataConnection,
@@ -38,6 +39,8 @@ import {
 } from "./session-replay-devtools";
 
 export type SessionIssueMatch = { issueId: string; status: string };
+
+type DevToolsTab = "console" | "network" | "friction";
 
 export function issueDetailPath(issueId: string): string {
   return `/monitoring?view=errors&issue=${encodeURIComponent(issueId)}`;
@@ -83,6 +86,7 @@ export function SessionDevToolsPanel({
   onSeek,
   issueMatches,
   issueMatching = false,
+  friction,
 }: {
   diagnostics: ReplayDevToolsDiagnostics;
   currentTime: number;
@@ -92,9 +96,11 @@ export function SessionDevToolsPanel({
   onSeek: (ms: number) => void;
   issueMatches?: ReadonlyMap<string, SessionIssueMatch>;
   issueMatching?: boolean;
+  /** The Lab's friction tab; there is no tab without it. */
+  friction?: ReactNode;
 }) {
   const t = useT();
-  const [tab, setTab] = useState<"console" | "network">("console");
+  const [tab, setTab] = useState<DevToolsTab>("console");
   const [consoleLevel, setConsoleLevel] = useState<ConsoleLevelFilter>("all");
   const [consoleQuery, setConsoleQuery] = useState("");
   const [networkKind, setNetworkKind] = useState<NetworkKindFilter>("all");
@@ -173,7 +179,7 @@ export function SessionDevToolsPanel({
       />
       <Tabs
         value={tab}
-        onValueChange={(value) => setTab(value as "console" | "network")}
+        onValueChange={(value) => setTab(value as DevToolsTab)}
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="flex shrink-0 items-center gap-2 px-3 pt-2">
@@ -196,6 +202,15 @@ export function SessionDevToolsPanel({
                 <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
               ) : null}
             </TabsTrigger>
+            {friction ? (
+              <TabsTrigger
+                value="friction"
+                className="h-7 gap-1.5 px-2.5 text-xs"
+              >
+                <IconAlertTriangle className="h-3.5 w-3.5" />
+                {t("sessions.friction")}
+              </TabsTrigger>
+            ) : null}
           </TabsList>
         </div>
 
@@ -338,6 +353,15 @@ export function SessionDevToolsPanel({
             )}
           />
         </TabsContent>
+
+        {friction ? (
+          <TabsContent
+            value="friction"
+            className="mt-0 min-h-0 flex-1 overflow-y-auto"
+          >
+            {friction}
+          </TabsContent>
+        ) : null}
       </Tabs>
     </div>
   );

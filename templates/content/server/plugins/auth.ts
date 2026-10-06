@@ -1,8 +1,8 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DOCUMENT_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Content",

@@ -39,6 +39,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { AgentCompletionSound } from "../AgentCompletionSound";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
+import { isSessionReplayRoute } from "./layout-route-policy";
 import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
 
@@ -160,7 +161,7 @@ function InteractiveLayout({ children }: LayoutProps) {
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
-  const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
+  const isSessionDetailRoute = isSessionReplayRoute(location.pathname);
   const isMonitoringRoute =
     location.pathname === "/monitoring" ||
     location.pathname.startsWith("/monitoring/");

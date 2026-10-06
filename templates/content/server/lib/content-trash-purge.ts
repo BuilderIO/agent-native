@@ -8,7 +8,8 @@ import {
   fireInternalDispatch,
   getConfiguredAppBasePath,
   resolveDurableBackgroundDispatchPath,
-  signScopedAgentAccessToken,
+  scopedAgentAccessResourceId,
+  signShortLivedToken,
 } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
@@ -84,9 +85,14 @@ export async function dispatchContentTrashPurge(
     CONTENT_TRASH_PURGE_WORKER_PATH,
   );
   const durable = dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath);
-  const token = signScopedAgentAccessToken({
-    resourceKind: CONTENT_TRASH_PURGE_TOKEN_KIND,
-    resourceId: operationId,
+  // Legacy token format on purpose: this only travels in the dispatch body to
+  // another build of this app, so a rolling deploy must verify what an older
+  // build minted, and an older build must verify what this one mints.
+  const token = signShortLivedToken({
+    resourceId: scopedAgentAccessResourceId(
+      CONTENT_TRASH_PURGE_TOKEN_KIND,
+      operationId,
+    ),
     ttlSeconds: 15 * 60,
   });
   await fireInternalDispatch({
