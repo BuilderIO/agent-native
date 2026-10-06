@@ -41,11 +41,11 @@ const OUTPUT_CONTAINER_CONTEXT =
 const NESTED_OUTPUT_ASSET_AFTER =
   /^\s*(?:[a-z-]+\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\b/i;
 const NESTED_OUTPUT_RELATIONSHIP_BEFORE = new RegExp(
-  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring|using)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring|using|for)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
   "i",
 );
 const NESTED_PAGE_RELATIONSHIP_BEFORE = new RegExp(
-  `\\b${PAGE_CONTAINER_CONTEXT}\\b[\\s\\S]{0,96}(?:\\b(?:with|including|containing|inside|featuring|using|and)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
+  `\\b${PAGE_CONTAINER_CONTEXT}\\b[\\s\\S]{0,96}(?:\\b(?:with|including|containing|inside|featuring|using|for|and)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})$`,
   "i",
 );
 const NESTED_SCREEN_SIBLING_RELATIONSHIP_BEFORE = new RegExp(
@@ -53,7 +53,7 @@ const NESTED_SCREEN_SIBLING_RELATIONSHIP_BEFORE = new RegExp(
   "i",
 );
 const NESTED_OUTPUT_ASSET_CONTEXT_BEFORE = new RegExp(
-  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring|using)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})(?:[a-z-]+\\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at|of|exact(?:ly)?)?\\s*$`,
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring|using|for)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})(?:[a-z-]+\\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at|of|exact(?:ly)?)?\\s*$`,
   "i",
 );
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
