@@ -39,9 +39,8 @@ turns a hopeful ✓ into a fact.
    over it with a loop.
 3. **Verify the end state after writing.** Re-read the data (a list/read action,
    a count query) and confirm the result matches intent — the right number of
-   rows, the expected ids/fields. Do this before you tell the user it worked.
-   This is the per-write form of the anti-fabrication rule in
-   `writing-agent-instructions` (Bake in anti-fabrication and verify-before-done).
+   rows, the expected ids/fields. Do this before you tell the user it worked,
+   and include the relevant verification expectation in the app's `AGENTS.md`.
 4. **Report proof-of-done, not vibes.** State concrete evidence: "saved 12 of 12
    panels (ids …)" or "updated 5 rows". Do not infer success from the presence
    of a tool ✓ on an individual call.

@@ -1,461 +1,79 @@
 ---
 name: performance
 description: >-
-  Keep apps fast to load and use. Read when adding a data model, list/read
-  action, data-loading page, server-bundle dependency, or long-lived editor, or
-  when something loads slowly, jumps, lags, or grows memory. Covers queries,
-  cold start, stable placeholders, and client runtime memory.
-scope: dev
-metadata:
-  internal: true
+  Keep app loads and interactions responsive as data grows. Use when a page
+  feels slow, jumps, or lags, or when changing a data read, list, polling path,
+  startup path, or performance-sensitive UI.
+scope: both
 ---
 
-# Performance — Keep Loads Fast
-
-## Rule
-
-Treat every list, every read, and every page load as a latency budget. Two
-things dominate it: **how much data crosses the wire**, and **how many
-round-trips and table scans it takes**. On a hosted/serverless SQL backend each
-query is a network round-trip, and an unindexed filter scans the whole — often
-shared and growing — table. So default to **projected columns**, **indexed
-hot-path queries**, and **parallel/batched** fetches. These rules hold on local
-PGlite or hosted Postgres.
-
-This skill is about the data and load path. See the `storing-data` skill for the schema
-and migration mechanics it references, and the `real-time-sync` skill for how updates
-already reach the UI without polling.
-
-## 1. Project columns — never `SELECT *` on a list
-
-A list/index query should select only the columns the list actually renders.
-
-- **Never return heavy columns in a list**: large JSON/text blobs such as
-  document bodies, rendered HTML, `config`/`layout`/`spec`/`data`/`tracks`,
-  tool results, or base64 attachments. Pulling them for every row is the single
-  most common cause of a slow list.
-- Heavy/full columns belong on the **single-item GET/detail** path only.
-- Need a preview from a big column? Select a **truncated substring at the DB**,
-  not the whole column — and it stays portable:
-
-  ```ts
-  // Drizzle — project, and truncate the heavy column for the preview
-  const rows = await db
-    .select({
-      id: docs.id,
-      title: docs.title,
-      updatedAt: docs.updatedAt,
-      preview: sql<string>`substr(${docs.content}, 1, 400)`,
-    })
-    .from(docs)
-    .where(accessFilter(docs, docShares))
-    .orderBy(desc(docs.updatedAt));
-  ```
-
-- After narrowing the projection, update the row mapper and its return type so a
-  dropped column is provably unused on the list path. If the list genuinely
-  renders a heavy column (a thumbnail, an inline preview the UI shows), keep it —
-  don't break behavior to chase a payload win.
-
-## 1b. Never put a heavy column in a `WHERE`
-
-Projecting a blob out of the `SELECT` is only half the job. A **predicate** on a
-large text/JSON column is worse, because Postgres must fetch and detoast that
-value for every row the scan touches — **before `LIMIT` applies**. The column
-does not even have to be selected.
-
-Measured in production on the agent chat sidebar list (~20 rows of title +
-timestamp), from one predicate on the message-history blob:
-
-| request | with the predicate | without |
-| --- | --- | --- |
-| `limit=20` | 2207ms | 222ms |
-| `limit=5` | 3166ms | 220ms |
-
-**`limit=5` costing more than `limit=20` is the fingerprint.** If asking for
-less data costs more, something in the `WHERE` is scanning what `LIMIT` cannot
-bound. Diagnose it from the browser console on the live page — fetch the
-endpoint with and without the suspect filter — rather than reading the plan.
-
-A marker you match with a hardcoded string belongs in its own indexed column:
-add it, backfill once in a migration, then filter on the column. **A legacy
-compensator on a read path is a backfill you have not done yet, and you pay for
-it on every request until you do.**
-
-Searching a blob against a user-supplied term is different and legitimate —
-full-text search over message history has no cheaper form. `guard:no-blob-column-predicate`
-draws exactly that line: it flags a hardcoded literal and ignores a bound
-parameter.
-
-Related: a `LOWER(col) = ?` access predicate cannot use a plain btree on `col`.
-Add the matching expression index — see `org/migrations.ts` for the pattern —
-or the list scans the whole shared table.
-
-## 2. Index the hot paths
-
-Indexes are added through the **versioned migration array** in
-`server/plugins/db.ts` as `CREATE INDEX IF NOT EXISTS …` — not through a
-schema-level `index()` helper (the framework applies indexes via migrations; see
-the `storing-data` skill). Add an index for any column a hot query **filters or sorts**
-on. The recurring ones:
-
-- **Ownable tables** → `(owner_email, org_id, <the list's ORDER BY column>)`.
-  Access scoping filters by owner/org and lists sort by `updated_at`/`created_at`.
-- **Shares tables** (`{resource}_shares`) → `(resource_id, principal_type, principal_id)`.
-  Access checks run correlated `EXISTS` subqueries against these on every list.
-- **Child / foreign-key columns** used to load children (e.g. `responses.form_id`,
-  `comments.parent_id`, an events log's `*_id`) → index the FK, plus its sort
-  column when the children are ordered. An unindexed FK means a full scan of the
-  child table on every parent open. **A foreign-key reference does not create an
-  index automatically** — add it explicitly.
-- **Status-filtered lists** → match the real `WHERE`, e.g. `(owner_email, status)`
-  or `(status, <sort>)`.
-
-Keep index DDL **PostgreSQL-compatible and idempotent**:
-
-```sql
-CREATE INDEX IF NOT EXISTS forms_owner_org_updated_idx ON forms (owner_email, org_id, updated_at)
-```
-
-No `DESC` or partial `WHERE`; keep the index DDL idempotent and apply it through
-the migration path.
-Indexes mostly bite **as data grows** and on **unbounded child tables** (a
-seq-scan of 10 rows is instant; of a shared, ever-growing log it is not), so
-index the growing tables first.
-
-## 3. Don't fan out queries — batch and parallelize
-
-- **No N+1.** Never loop issuing one query per item. Load children for many
-  parents in one `inArray(child.parentId, ids)` query, then group in memory.
-- **Count in SQL** (`count()`), never "select all rows then `.length`".
-- **Parallelize independent queries** with `Promise.all` rather than sequential
-  `await`s — each `await` is another round-trip.
-- Prefer **one composed endpoint** over several dependent calls.
-
-For provider wrappers, inspect the upstream API before building a list-then-
-enrich flow. Prefer the richest endpoint that can apply the real filters and
-return the needed associations or participants in one paginated operation.
-Cursor pagination is already serial; adding a serial detail/enrichment request
-to every page doubles its critical path. Exhaustive records belong in corpus
-recipes or data programs with explicit coverage, not one agent tool call per
-page or item.
-
-First-class provider actions should represent one stable conceptual operation.
-Keep arbitrary endpoint, filter, and pagination access in the provider API
-substrate; do not turn a convenience action into a capability ceiling or
-duplicate the provider transport, auth, quota, and cache implementation.
-
-## 4. Avoid client-side waterfalls
-
-- Don't gate query B on query A's result unless B truly needs it. Fire
-  independent `useActionQuery` / `useQuery` hooks **in parallel**; never make the
-  loading skeleton wait on a serial chain.
-- Load the visible page from one read where possible, and **lazy-load**
-  secondary / below-the-fold data after first paint.
-- When a read needs an id that another read returns, keep this browser's last
-  copy of that id in localStorage and start the read from it as the app
-  hydrates. The server's answer still decides where the page goes, and a read
-  it doesn't use is dropped. Content's `last-location-hint.ts` names the page
-  `/home` will reopen, so that page's read starts before application state
-  answers.
-
-## 5. Poll cheaply; compute once
-
-- Updates already reach the UI through the `real-time-sync` skill (`useDbSync` / SSE).
-  Don't add an aggressive `refetchInterval` that re-runs a heavy list/read every
-  couple of seconds. If you must poll, use a **wide interval** and a **cheap**
-  endpoint.
-- **Never do expensive per-request work on a read that runs on every load/poll**:
-  re-rendering HTML/markdown, pretty-printing, re-parsing / migrating /
-  normalizing / sanitizing stored JSON. Do that work at **write time** (store the
-  result) or compute it **lazily only for the caller that needs it**. Reads on
-  the hot path must be cheap.
-- Data the UI doesn't display (export formats, alternate renderings) belongs in a
-  separate on-demand action, not baked into the hot read.
-
-## 6. SSR shell caching — load-bearing, do not undo
-
-Every SSR HTML page and React Router `.data` response is one impersonal,
-public shell, hard-cached at the CDN and served identically to every visitor —
-logged in or not. This is the single biggest lever on first-response latency:
-one shared cache entry serves the whole site instead of a per-user render on
-every request. Adding `private`, `no-store`, `Vary: Cookie`, a session read, or
-an auth branch to the SSR path defeats the cache for **every visitor**, not
-just one.
-
-If you're debugging a slow first response, check whether something
-re-personalized the shell before concluding the render itself is slow — the
-fix is client-side data loading after the shell paints, never per-user SSR. If
-the shell is clean and a cold miss is still seconds long, the cost is upstream
-of the render: see §9.
-See the `authentication` skill for the full model and `guard:ssr-cache-shell`
-plus `ssr-handler.spec.ts` (`packages/core/src/server/ssr-handler.ts`) for the
-enforced contract.
-
-Netlify prerendered HTML/`.data` bypasses the SSR handler, so its build must
-emit the same public SWR policy in `_headers`; run `guard:ssr-cache-artifact`
-against Netlify-mode output. Styling-only work must not alter this cache,
-prerender, or deploy seam without explicit scope expansion.
-
-**Never route mutation-fresh reads through SSR loader data.** Data that changes
-when a user acts belongs in an action, read from the client with
-`useActionQuery` / `useActionMutation` and kept live by `useDbSync()` polling —
-that path never touches the SSR shell cache. A `useRevalidator()` after a
-mutation re-fetches `.data` with a plain GET and can legitimately be served the
-cached copy. SSR loaders render the public shell; the client resolves anything
-that must be fresh.
-
-The one supported knob is the deployment-wide `AGENT_NATIVE_SSR_CACHE` env var:
-unset/`on` keeps the default, `off` sends `no-store`, and a duration such as
-`30s` / `5m` shortens freshness. It is for deployments whose host does not purge
-its CDN on deploy, or whose loaders genuinely serve mutable public data. It
-changes cache duration only — cookies are still stripped before render, so
-turning it off does not make SSR personalized. There is deliberately no
-per-route or per-request override; that is how one visitor's payload lands in
-another visitor's shared CDN entry.
-
-## 7. Big payloads and long lists
-
-- **Paginate or window** unbounded lists (messages, responses, events, activity).
-  Don't load the entire history on open; load a recent window and fetch older on
-  demand.
-- Don't store **unbounded blobs inline** in a row that a list/load pulls.
-  Reference large content separately so opening the parent stays cheap.
-- Never inline binary payloads in columns a list, poll, or `view-screen` summary
-  reads. Images, PDFs, audio/video, archives, screenshots, and base64
-  attachments belong in file/blob storage; SQL rows should hold URLs, asset ids,
-  storage keys, or opaque blob refs.
-- **Virtualize** very long rendered lists on the client so off-screen rows aren't
-  parsed/rendered every update.
-
-## 8. Don't do data work at startup
-
-A server plugin's body is not "once per deploy." These apps run as serverless
-functions, so it runs **once per cold start** — on the critical path of whichever
-user's request woke the process, and again on the next cold start. An in-process
-`let done = false` memo does not help: the new isolate starts with `false`.
-
-This has already cost real outages and sustained slowness here, not hypothetical
-ones — Slides startup slowness, Analytics paying startup cost on API calls, and a
-production incident. The shape that did it:
-
-```ts
-// templates/<app>/server/plugins/db.ts — every cold start pays all of this
-export default async (nitroApp) => {
-  await migrations(nitroApp);
-  await retypeBooleanColumnsOnPostgres();   // rewrites tables on Postgres
-  await backfillLegacyTables();
-  await syncWorkspacesToOrganizations();
-  await backfillRecordingOrgId();
-};
-```
-
-Schema DDL is **not** exempt, though it reads like it should be. Measured on a
-180-table production database: the migration "fast path" (`SELECT MAX(version)`)
-took **5.5s** and the `information_schema` probe **8.3s** — paid on every cold
-start, until health checks timed out and the app was down. Bounded is not the
-same as fast, and "it short-circuits cheaply" is an assumption until someone
-measures it on the largest database you have.
-
-The same applies doubly to **work whose cost grows with the data** — backfills, retypes, aggregations, recomputes, re-syncs,
-sweeps, cache warming, index rebuilds. Those have three better homes, all of
-which already exist:
-
-- a **scheduled job** (`recurring-jobs`, `automations` skills),
-- a **one-off CLI or release-time script**, run deliberately, once,
-- **lazily behind the first caller that needs it**, memoized — accepting that
-  the memo is per-isolate, so the work must be small enough to repeat.
-
-If it truly must complete before the app can serve a correct response, it is a
-migration, not a backfill — say so on the line and keep it bounded:
-
-```ts
-await backfillOneRow(); // guard:allow-boot-data-work — single row, bounded
-```
-
-`guard:no-boot-data-work` fails on new boot-time data work, scoped to lines this
-branch adds. It cannot see everything — a helper that hides the work one call
-deeper reads as innocent — so the rule matters more than the check.
-
-## 9. Cold start is the artifact, not just the work it does
-
-§8 covers what the process does at boot. This covers how much there is to boot.
-Measured in production: a cold cache miss on `www.agent-native.com` returned in
-**4.5–6.0s** while the in-handler `server-timing: app;dur` was only **~2100ms** —
-the other ~2900ms is platform init, spent before any of our code evaluates. A
-different app with a healthy database measured **13.4s** TTFB on its first cold
-request with `app;dur=1338`, so ~12s of init. Platform init scales with the size
-of the deployed artifact. Every app pays it, and no query tuning can reach it.
-
-- **The `/*` page function is the one every visitor's cache miss wakes.** Nothing
-  belongs in it that a page render cannot call. Headless browsers, ffmpeg, image
-  rasterizers, and other heavy runtimes belong in the function that actually
-  invokes them, or behind a job — not in the default handler. PR #2684, titled
-  "Harden auth and cold-start data paths", put 78MB of headless Chromium into
-  every page function; nothing in the diff looked like a performance change.
-- **Each extra emitted function is a full second copy of the bundle.** Netlify
-  copies the whole server directory per function, so splitting out a
-  `-background` or per-route function multiplies existing weight rather than
-  dividing it. Trim the artifact before you split it.
-- **Already-compressed binaries do not shrink again in the deploy zip.** A
-  Brotli-packed browser or a static ffmpeg build costs close to its full size in
-  upload and in cold-start extraction. Budget from bytes on disk, never from an
-  assumption that compression will absorb it.
-- **Never resolve a copied dependency by walking ancestor `node_modules`.** In a
-  monorepo that walk does not fail — it finds a sibling app's copy and ships
-  that. Resolve from the app's own dependency root and throw when it is missing;
-  a silently-found wrong package is precisely the indistinguishable-from-success
-  failure this repo bans.
-
-`packages/core/src/deploy/build.ts` is what decides all of this: the
-platform/arch filter at `:2384-2410` and the per-preset copy list at
-`:4499-4504`. Adding a package there adds it to every page function.
-
-**Measure a built bundle by timing the import and forcing exit.** Never measure
-by waiting for the process to exit — module scope starts timers and opens
-handles, so process lifetime measures those, not boot cost. That exact mistake
-produced a wrong number during the investigation behind this section.
-
-```sh
-node -e 'const t=Date.now();import(process.argv[1]).then(()=>{console.log(`${Date.now()-t}ms`);process.exit(0)})' \
-  ./.netlify/functions-internal/server/main.mjs
-```
-
-## 10. Placeholders hold the final layout
-
-A load that moves things feels slower than it is. When a placeholder gives way
-to the real element and the element starts somewhere else, the reader loses
-their place, even if the data arrived quickly. On Content this jank, more than
-latency, was what made fast loads feel slow: the sidebar's Files rows jumped
-316px, the page title 60px, and the old score never noticed, because the
-layout-shift score ignores placeholders that are removed and replaced.
-
-- **A placeholder occupies the final element's box.** Same container classes,
-  padding, line height, and row heights. Share the class names from one module
-  instead of copying values. Content's `document-editor-layout.ts` is used by
-  both the editor and `DocumentEditorSkeleton`.
-- **Draw nothing below an element whose height is still unknown.** A title
-  that may wrap, or a list whose length is not known yet, moves everything
-  under it when it resolves. Leave the content below out until the height is
-  known: something that appears is fine, something that moves is not.
-- **Restore the last layout before the data arrives.** Keep the shape the user
-  last saw in local storage, as counts and ids only: rows per section, section
-  order, sidebar width, collapsed state. Then draw that shape at once. Content's
-  `sidebar-layout-hint.ts` holds the sidebar's. When the shape depends on the
-  item itself, such as a page's icon, whether this person can edit it, whether
-  it is a collection, or whether its open comments hold the review margin
-  open, remember it per id. Content's `page-startup-hints.ts` holds these.
-- **Start every read the first layout depends on together.** A box that opens
-  when a second read answers (the review margin after comments and
-  suggestions) moves the page if that read starts only after the first one
-  lands. Start it with the page read.
-- **Never draw rows in an order the view is about to change.** A collection
-  whose saved view sorts or filters must not show the unsorted rows of a base
-  read first. Resolve the view from what the page read already carries, and
-  keep the placeholder until that view's own rows arrive.
-- **A box whose content loads late keeps its final size.** A library icon
-  draws only once its glyph loads, so a wrapper sized by its content is 8px
-  tall and then 56px. Give the box the size it ends at.
-- **The server-rendered first paint counts.** An app's `clientOnlyFallback`
-  must draw the app's own shell, with the same sidebar width, header heights,
-  and title position. It must not use a generic skeleton. Anything only the
-  browser knows (saved width, collapsed state, the page's icon row) is applied
-  by an inline `<head>` script before the first paint (`ContentStartupShell`).
-- **Read layout preferences before the first paint.** Use a synchronous read
-  or a layout effect. A passive `useEffect` paints the default for a frame
-  first, and that frame is a visible jump.
-- **`cn()` drops `leading-*` when a later `text-*` size class sets a line
-  height.** tailwind-merge treats them as conflicting, so measure computed
-  styles rather than trusting the class list.
-
-Check it with the Content startup trace. It follows every `data-startup-anchor`
-element (placeholders and real elements share a name) on every frame, and
-fails a run when any anchor moves more than 2px. It exits 1 when a run fails
-and 2 when a run found no anchors:
-
-```sh
-node templates/content/scripts/trace-startup.mjs --base-url <url>   --email <fixture> --password <fixture password>   --state cached --path /page/<id> --runs 5 --stability   --latency-ms 150 --jitter-ms 150 --frames .tmp/frames --out .tmp/trace.json
-```
-
-Run it on a production build, since a dev server can reload mid-run. Cover a
-hard refresh (`--state hard`), a phone (`--viewport 390x844`), saved sidebar
-layouts (`--local-storage '{"content.sidebar.collapsed":"true"}'`), a page
-with an icon, a page the fixture account can only view, a page with open
-comments and a pending suggestion, and a collection page whose saved view
-sorts and filters.
-Then look at the saved frames: the check proves nothing moved, and the frames
-show whether what appeared looked right. The report's `documentAfterSession`
-is how long the page's read waited after the session arrived.
-
-## 11. Client runtime: interactions and memory
-
-Sections 1–10 are the load path. A long-lived editor fails differently: every
-interaction leaves something behind, and a session that opened at 140 MB sits
-at 2 GB an hour later. Measured on Design's 48-screen stress board, `main` grew
-~320 MB per edit cycle; the rules below took it to ~40 MB.
-
-- **Measure a production build, heap after a forced GC, per repeated action.**
-  Dev builds are dominated by `jsxDEV`, and the DevTools heap figure is taken
-  before GC. Repeat one action N times and read the slope after the first
-  repetition: a plateau is a cache, a slope is a leak. Assert the action took
-  effect before trusting its number; a selection that never selected costs
-  nothing.
-- **A large component's closures keep its old renders alive.** V8 gives every
-  closure created in one call a single shared context, so one memoized
-  callback from render *k* pins everything render *k* computed, and callbacks
-  memoized at different times chain renders together. Don't rebuild big
-  derived values (trees, `Map`s of nodes, parsed documents) per render: cache
-  them in a `WeakMap` keyed by their immutable source so every render shares
-  one copy, and read heavy values through refs at call time instead of
-  capturing them.
-- **Cache by content with a size budget, not a count.** Each edit makes a new
-  multi-megabyte document, so "keep 100 entries" held 170 MB of stale copies.
-  Evict a derived entry with the entry it derives from, and drop entries for
-  deleted records.
-- **Library defaults retain too.** A settled TanStack mutation keeps its
-  options, and with them the render scope that started it, for five minutes;
-  core's query client sets `mutations.gcTime: 0`. Don't raise it for
-  mutations whose variables are documents.
-- **Keep whole-document work out of the interaction frame.** Parsing,
-  serializing, or annotating a whole document inside a click or a commit is a
-  long frame. Do it in a worker ahead of need, during the network round trip
-  the action already waits on, or lazily for the one item that needs it.
-  Mount expensive children a few per frame, and hold new ones while a gesture
-  is still moving.
-- **Never let a swap show a blank.** Replacing one view of an item with
-  another (preview and editor, placeholder and content) keeps the outgoing
-  view until the incoming one has painted, and `load` fires before the first
-  frame reaches the screen. Re-inserting or reordering an iframe reloads it,
-  so keep its element in the same slot.
-- **Scope compositor hints to the gesture.** `will-change: transform` on a
-  moving heavy subtree removes its per-frame repaint, but the layer keeps its
-  raster scale: left on, it blurs after the next zoom.
-- **Turn a budget into a count a unit test can fail.** "Documents retained
-  after eight edits ≤ 5", "the preview element survives a promotion", "the
-  three most recent editors stay warm" run in the fast lanes in milliseconds
-  and fail the PR before any browser would. Revert the fix and watch each one
-  fail; when the fix lives in a memo, revert its dependency array with it.
-
-## Checklist — run before shipping a list/read or a new table
-
-- [ ] List selects only displayed columns; heavy blobs excluded or `substr`-truncated.
-- [ ] Every hot-path `WHERE` / `ORDER BY` column is indexed (owner/org/sort,
-      shares `resource_id`, child FKs, status filters) via a `db.ts` migration.
-- [ ] No N+1; independent queries parallelized; counts via SQL `count()`.
-- [ ] Client fires independent queries in parallel, not a waterfall.
-- [ ] No heavy recompute on every read; no aggressive polling of heavy endpoints.
-- [ ] Unbounded lists are paginated/windowed; large blobs aren't inlined on the hot path.
-- [ ] SSR HTML/`.data` path stays session-blind and cacheable — no `private`,
-      `no-store`, `Vary: Cookie`, or auth branch added to it.
-- [ ] No data work added to a server plugin body / module scope — backfills,
-      aggregations and re-syncs run on every cold start there (see §8).
-- [ ] Mutation-fresh reads go through actions + `useActionQuery`, not SSR loader
-      data.
-- [ ] Every loading placeholder occupies the final element's box, and nothing
-      below an element of unknown height is drawn early (see §10).
-- [ ] No heavy runtime (browser, ffmpeg, rasterizer) added to what the `/*` page
-      function ships, and no new copied dependency resolved by walking ancestor
-      `node_modules` (see §9).
-- [ ] Repeating an interaction on a large document plateaus in heap after GC
-      instead of growing per action, and derived values are shared through a
-      source-keyed cache rather than rebuilt per render (see §11).
+# Performance
+
+Find the cost that users actually wait on, then reduce it without weakening
+the result. A slow screen may be waiting on the server, moving too much data,
+serial reads, repeated computation, or browser rendering; measure before adding
+caches or extra complexity.
+
+## Load only what the current view needs
+
+- Shape list reads around the fields the list displays. Keep large document
+  bodies, histories, rendered output, and other rarely viewed data on a detail
+  or on-demand path. Return a small preview when the list needs one.
+- Paginate or window unbounded histories and activity feeds. Start with the
+  recent or visible range and load more as the user asks for it.
+- Batch related reads instead of issuing one query per row. Compute counts and
+  other aggregates in the database when the result can be much smaller than
+  the source rows.
+- Start independent reads together. Do not make the first useful content wait
+  for unrelated settings, below-the-fold panels, or secondary details.
+- Index fields used by frequent filters, joins, and sorts when the data and
+  observed query cost justify it. Keep indexes aligned with real query shapes.
+
+For action-backed screens, shape the action response for the screen's current
+need and keep the UI on the app's existing action and query hooks. Do not add a
+second fetch path that duplicates the same read.
+
+## Keep repeated work cheap
+
+- Keep list and frequently refreshed reads inexpensive. Avoid parsing,
+  reformatting, or rebuilding large values on every read when the result can be
+  prepared once or computed only for the view that needs it.
+- Use the app's existing live-update path when fresh data must reach an open
+  screen. Poll only when needed, and keep polled reads bounded and cheap.
+- Keep large file contents and long records out of list responses. Load them
+  when the user opens the relevant item rather than sending them on every list
+  refresh.
+- Defer nonessential data and expensive child views until after the main
+  content is usable. Window a rendered list when rendering all rows makes
+  scrolling or updates slow.
+
+## Protect startup and the first paint
+
+- Keep migrations, backfills, data scans, aggregations, provider handshakes,
+  and cache warming out of module evaluation and application startup. Hosted
+  serverless instances can restart, so startup work can repeat on user
+  requests. Use the app's deliberate migration, job, or on-demand path.
+- Keep optional heavy runtimes out of modules loaded by ordinary page requests.
+  Load a browser, media processor, or other large dependency only in the
+  feature or job that needs it, and inspect the deployed bundle when adding
+  one.
+- Keep the server-rendered shell public and independent of a visitor's session.
+  Resolve user-specific state after the shell loads through the app's
+  authenticated client data path. Reads that must reflect a recent mutation
+  should not depend on cached server-rendered loader data.
+- Give loading placeholders the final content's basic geometry. Reserve space
+  for content whose size is known; avoid showing a temporary layout that shifts
+  the user's reading position when data arrives.
+
+## Keep interactions responsive
+
+Show that an interaction registered as soon as it happens, aiming for 100 ms.
+If the work needs the network or takes longer, acknowledge it before waiting
+and show a focused pending state within 400 ms. Use an optimistic update when
+it is safe, then confirm or roll back on failure.
+
+When investigating a slow experience, separate server response time, data
+transfer, serial waits, rendering, layout movement, and long interaction work.
+Use representative data and the production build when development tooling
+changes the cost. Verify that the user-visible action completed before
+comparing timings or memory.
