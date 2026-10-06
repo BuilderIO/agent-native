@@ -245,9 +245,10 @@ describe("runBackgroundAutomation — confirmed work", () => {
     { trackProgress: false, status: 503 },
     { trackProgress: true, status: 503 },
     { trackProgress: false, status: 200 },
+    { trackProgress: false, status: 200, tool: "provider-api-request" },
   ])(
     "rejects a real HTTP $status send failure (progress bookkeeping: $trackProgress)",
-    async ({ trackProgress, status }) => {
+    async ({ trackProgress, status, tool = "web-request" }) => {
       const { runAgentLoopDirectWithSoftTimeout } =
         await import("../agent/run-loop-with-resume.js");
       const { runAgentLoop: actualLoop } = await vi.importActual<
@@ -257,6 +258,8 @@ describe("runBackgroundAutomation — confirmed work", () => {
         await import("../extensions/fetch-tool.js");
       const { createProgressToolEntries } =
         await import("../progress/actions.js");
+      const { createProviderApiRequestAction } =
+        await import("../provider-api/actions/provider-api.js");
       let requests = 0;
       const engine: AgentEngine = {
         ...testEngine,
@@ -285,16 +288,34 @@ describe("runBackgroundAutomation — confirmed work", () => {
                 {
                   type: "tool-call",
                   id: "send-1",
-                  name: "web-request",
-                  input: {
-                    url:
-                      status === 200
-                        ? "https://slack.com/api/chat.postMessage"
-                        : "https://93.184.216.34/digest",
-                    method: "POST",
-                    body: '{"text":"Digest"}',
-                  },
+                  name: tool,
+                  input:
+                    tool === "provider-api-request"
+                      ? {
+                          provider: "slack",
+                          path: "/chat.postMessage",
+                          method: "POST",
+                          body: { text: "Digest" },
+                        }
+                      : {
+                          url:
+                            status === 200
+                              ? "https://slack.com/api/chat.postMessage"
+                              : "https://93.184.216.34/digest",
+                          method: "POST",
+                          body: '{"text":"Digest"}',
+                        },
                 },
+                ...(tool === "provider-api-request"
+                  ? [
+                      {
+                        type: "tool-call" as const,
+                        id: "no-op-1",
+                        name: "automation-no-op",
+                        input: { reason: "No notification was needed." },
+                      },
+                    ]
+                  : []),
               ],
             };
             yield { type: "stop", reason: "tool_use" };
@@ -331,19 +352,32 @@ describe("runBackgroundAutomation — confirmed work", () => {
               getActions: () => ({
                 ...createFetchToolEntry(),
                 ...createProgressToolEntries(() => "alice@agent-native.test"),
+                "provider-api-request": createProviderApiRequestAction({
+                  executeRequest: async () => ({
+                    response: {
+                      ok: false,
+                      status: 200,
+                      json: { ok: false, error: "invalid_auth" },
+                    },
+                  }),
+                }),
               }),
             },
           ),
         ).rejects.toMatchObject({
           errorCode:
-            status === 200 ? "web_request_provider_failed" : `http_${status}`,
+            tool === "provider-api-request"
+              ? "provider_api_rejected"
+              : status === 200
+                ? "web_request_provider_failed"
+                : `http_${status}`,
           message: expect.stringContaining(`HTTP ${status}`),
         });
         expect(requests).toBe(2);
         expect(assistantContent()).toContainEqual(
           expect.objectContaining({
             type: "tool-call",
-            toolName: "web-request",
+            toolName: tool,
           }),
         );
       } finally {
