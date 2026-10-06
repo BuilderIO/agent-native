@@ -310,9 +310,6 @@ async function haveSameFileContents(
 ) {
   if (first === second) return true;
   if (first.size !== second.size) return false;
-  const comparisonBytes = first.size * 2;
-  if (comparisonBytes > budget.remainingBytes) return false;
-  budget.remainingBytes -= comparisonBytes;
 
   for (
     let offset = 0;
@@ -320,10 +317,15 @@ async function haveSameFileContents(
     offset += FILE_COMPARISON_CHUNK_BYTES
   ) {
     const end = Math.min(offset + FILE_COMPARISON_CHUNK_BYTES, first.size);
+    const comparisonBytes = (end - offset) * 2;
+    if (comparisonBytes > budget.remainingBytes) return false;
+    budget.remainingBytes -= comparisonBytes;
     const [firstChunk, secondChunk] = await Promise.all([
       first.slice(offset, end).arrayBuffer(),
       second.slice(offset, end).arrayBuffer(),
     ]);
+    budget.remainingBytes +=
+      comparisonBytes - firstChunk.byteLength - secondChunk.byteLength;
     const firstBytes = new Uint8Array(firstChunk);
     const secondBytes = new Uint8Array(secondChunk);
     if (firstBytes.some((byte, index) => byte !== secondBytes[index])) {
@@ -3075,96 +3077,34 @@ export function TiptapComposer({
       staleAttachmentFilesRef.current.delete(file);
     }
   }, [composerRuntime]);
+  const createAttachmentSubmissionBarrier = useCallback(() => {
+    const pendingAdds = [...pendingAttachmentAddsRef.current.values()].flatMap(
+      (additions) => [...additions],
+    );
+    const barrier = attachmentAddQueueRef.current.then(async () => {
+      await Promise.all(pendingAdds);
+      await cleanStaleAttachments();
+      if (staleAttachmentFilesRef.current.size > 0) {
+        throw new Error("Previous draft attachments could not be removed.");
+      }
+    });
+    attachmentAddQueueRef.current = barrier.then(
+      () => undefined,
+      () => undefined,
+    );
+    return barrier;
+  }, [cleanStaleAttachments]);
   const addAttachmentForCurrentScope = useCallback(
-    async (file: File) => {
+    (file: File) => {
       const scopeGeneration = draftScopeGenerationRef.current;
       const submissionBarrier = attachmentSubmissionBarrierRef.current;
-      const reservation = attachmentAddQueueRef.current.then(async () => {
-        await submissionBarrier;
-        const priorScopeAdds = [...pendingAttachmentAddsRef.current]
-          .filter(([generation]) => generation !== scopeGeneration)
-          .flatMap(([, additions]) => [...additions]);
-        await Promise.all(priorScopeAdds);
-        await cleanStaleAttachments();
-        if (draftScopeGenerationRef.current !== scopeGeneration) return false;
-
-        const existingFiles = composerRuntime
-          .getState()
-          .attachments.flatMap((attachment) => {
-            if (submittingAttachmentIdsRef.current.has(attachment.id))
-              return [];
-            return isBlob(attachment.file)
-              ? [
-                  {
-                    file: attachment.file,
-                    name: attachment.name,
-                    contentType: normalizeAttachmentContentType(
-                      attachment.contentType,
-                    ),
-                  },
-                ]
-              : [];
-          });
-        const pendingFiles = [...pendingAttachmentFilesRef.current].flatMap(
-          ([pendingFile, pendingGeneration]) =>
-            pendingGeneration === scopeGeneration
-              ? [
-                  {
-                    file: pendingFile,
-                    name: pendingFile.name,
-                    contentType: normalizeAttachmentContentType(
-                      pendingFile.type,
-                    ),
-                  },
-                ]
-              : [],
-        );
-        const filesToCompare = [...existingFiles, ...pendingFiles];
-        const candidate = {
-          file,
-          name: file.name,
-          contentType: normalizeAttachmentContentType(file.type),
-        };
-        const comparisonBudget = {
-          remainingBytes: MAX_ATTACHMENT_COMPARISON_BYTES,
-          remainingComparisons: MAX_ATTACHMENT_COMPARISONS,
-        };
-        for (const existingFile of filesToCompare) {
-          if (comparisonBudget.remainingComparisons === 0) break;
-          if (
-            await haveSameAttachmentInput(
-              candidate,
-              existingFile,
-              comparisonBudget,
-            )
-          ) {
-            return false;
-          }
-        }
-
-        pendingAttachmentFilesRef.current.set(file, scopeGeneration);
-        return true;
+      let resolveOperation!: () => void;
+      let rejectOperation!: (error: unknown) => void;
+      const operation = new Promise<void>((resolve, reject) => {
+        resolveOperation = resolve;
+        rejectOperation = reject;
       });
-      attachmentAddQueueRef.current = reservation.then(
-        () => undefined,
-        () => undefined,
-      );
-
-      if (!(await reservation)) return;
-      if (draftScopeGenerationRef.current !== scopeGeneration) {
-        if (pendingAttachmentFilesRef.current.get(file) === scopeGeneration) {
-          pendingAttachmentFilesRef.current.delete(file);
-        }
-        return;
-      }
-      const addition = composerRuntime.addAttachment(file);
-      const removeIfStale = async () => {
-        if (draftScopeGenerationRef.current === scopeGeneration) return;
-        staleAttachmentFilesRef.current.add(file);
-        await cleanStaleAttachments();
-      };
-      const settledAddition = addition.then(removeIfStale, removeIfStale);
-      const scopeBarrier = settledAddition.then(
+      const scopeBarrier = operation.then(
         () => undefined,
         () => undefined,
       );
@@ -3172,21 +3112,123 @@ export function TiptapComposer({
         pendingAttachmentAddsRef.current.get(scopeGeneration) ?? new Set();
       scopeAdds.add(scopeBarrier);
       pendingAttachmentAddsRef.current.set(scopeGeneration, scopeAdds);
-      try {
-        return await addition;
-      } finally {
-        try {
-          await settledAddition;
-        } finally {
-          scopeAdds.delete(scopeBarrier);
-          if (scopeAdds.size === 0) {
-            pendingAttachmentAddsRef.current.delete(scopeGeneration);
+
+      const run = async () => {
+        const reservation = attachmentAddQueueRef.current.then(async () => {
+          await submissionBarrier;
+          const priorScopeAdds = [...pendingAttachmentAddsRef.current]
+            .filter(([generation]) => generation !== scopeGeneration)
+            .flatMap(([, additions]) => [...additions]);
+          await Promise.all(priorScopeAdds);
+          await cleanStaleAttachments();
+          if (draftScopeGenerationRef.current !== scopeGeneration) return false;
+
+          const existingFiles = composerRuntime
+            .getState()
+            .attachments.flatMap((attachment) => {
+              if (submittingAttachmentIdsRef.current.has(attachment.id))
+                return [];
+              return isBlob(attachment.file)
+                ? [
+                    {
+                      file: attachment.file,
+                      name: attachment.name,
+                      contentType: normalizeAttachmentContentType(
+                        attachment.contentType,
+                      ),
+                    },
+                  ]
+                : [];
+            });
+          const pendingFiles = [...pendingAttachmentFilesRef.current].flatMap(
+            ([pendingFile, pendingGeneration]) =>
+              pendingGeneration === scopeGeneration
+                ? [
+                    {
+                      file: pendingFile,
+                      name: pendingFile.name,
+                      contentType: normalizeAttachmentContentType(
+                        pendingFile.type,
+                      ),
+                    },
+                  ]
+                : [],
+          );
+          const filesToCompare = [...existingFiles, ...pendingFiles];
+          const candidate = {
+            file,
+            name: file.name,
+            contentType: normalizeAttachmentContentType(file.type),
+          };
+          const comparisonBudget = {
+            remainingBytes: MAX_ATTACHMENT_COMPARISON_BYTES,
+            remainingComparisons: MAX_ATTACHMENT_COMPARISONS,
+          };
+          for (const existingFile of filesToCompare) {
+            if (comparisonBudget.remainingComparisons === 0) break;
+            if (
+              await haveSameAttachmentInput(
+                candidate,
+                existingFile,
+                comparisonBudget,
+              )
+            ) {
+              return false;
+            }
           }
+
+          pendingAttachmentFilesRef.current.set(file, scopeGeneration);
+          return true;
+        });
+        attachmentAddQueueRef.current = reservation.then(
+          () => undefined,
+          () => undefined,
+        );
+
+        try {
+          if (!(await reservation)) return;
+          if (draftScopeGenerationRef.current !== scopeGeneration) {
+            if (
+              pendingAttachmentFilesRef.current.get(file) === scopeGeneration
+            ) {
+              pendingAttachmentFilesRef.current.delete(file);
+            }
+            return;
+          }
+          const addition = composerRuntime.addAttachment(file);
+          const removeIfStale = async () => {
+            if (draftScopeGenerationRef.current === scopeGeneration) return;
+            staleAttachmentFilesRef.current.add(file);
+            await cleanStaleAttachments();
+          };
+          const settledAddition = addition.then(removeIfStale, removeIfStale);
+          try {
+            return await addition;
+          } finally {
+            await settledAddition;
+          }
+        } finally {
           if (pendingAttachmentFilesRef.current.get(file) === scopeGeneration) {
             pendingAttachmentFilesRef.current.delete(file);
           }
         }
-      }
+      };
+      void run().then(resolveOperation, rejectOperation);
+      void operation.then(
+        () => {
+          scopeAdds.delete(scopeBarrier);
+          if (scopeAdds.size === 0) {
+            pendingAttachmentAddsRef.current.delete(scopeGeneration);
+          }
+        },
+        () => {
+          scopeAdds.delete(scopeBarrier);
+          if (scopeAdds.size === 0) {
+            pendingAttachmentAddsRef.current.delete(scopeGeneration);
+          }
+        },
+      );
+      return operation;
     },
     [cleanStaleAttachments, composerRuntime],
   );
@@ -4373,22 +4415,7 @@ export function TiptapComposer({
       const attachmentScopeGeneration = draftScopeGenerationRef.current;
       submitInFlightRef.current = true;
       onSubmissionPendingChange?.(true);
-      const attachmentSubmissionBarrier = attachmentAddQueueRef.current.then(
-        async () => {
-          const pendingAdds = [
-            ...pendingAttachmentAddsRef.current.values(),
-          ].flatMap((additions) => [...additions]);
-          await Promise.all(pendingAdds);
-          await cleanStaleAttachments();
-          if (staleAttachmentFilesRef.current.size > 0) {
-            throw new Error("Previous draft attachments could not be removed.");
-          }
-        },
-      );
-      attachmentAddQueueRef.current = attachmentSubmissionBarrier.then(
-        () => undefined,
-        () => undefined,
-      );
+      const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
       try {
         await attachmentSubmissionBarrier;
       } catch (error) {
@@ -4740,6 +4767,28 @@ export function TiptapComposer({
       }
 
       if (onBeforeSubmit && !clearedBeforePreflight) {
+        submitInFlightRef.current = true;
+        onSubmissionPendingChange?.(true);
+        try {
+          await createAttachmentSubmissionBarrier();
+        } catch (error) {
+          restoreSubmittedDraft(true);
+          if (mountedRef.current && isCurrentDraftScope()) {
+            setContextSubmissionError(
+              formatAttachmentError(
+                error,
+                t("agentChat.composer.submitFailed", {
+                  defaultValue: "Could not submit. Try again.",
+                }),
+              ),
+            );
+          }
+          return false;
+        } finally {
+          submitInFlightRef.current = false;
+          onSubmissionPendingChange?.(false);
+        }
+
         const current = syncComposerState();
         if (textOverride === undefined) {
           text = current.text;
@@ -4882,6 +4931,23 @@ export function TiptapComposer({
         const clearSubmittedAttachmentIds = () => {
           submittingAttachmentIdsRef.current = new Set();
         };
+        const recordFailedAttachmentCleanup = () => {
+          const remainingAttachments = composerRuntime.getState().attachments;
+          setFailedAttachmentCleanupSnapshots((failed) => [
+            ...failed,
+            ...submittedAttachments.filter((submitted) =>
+              remainingAttachments.some((current) =>
+                isSameComposerAttachment(current, submitted),
+              ),
+            ),
+          ]);
+          setContextSubmissionError(
+            t("agentChat.composer.attachmentsRemainAfterSubmit", {
+              defaultValue:
+                "The message was sent, but some attachments remain. Remove them before sending again.",
+            }),
+          );
+        };
         const reconcileFailedSubmissionAttachments = async () => {
           let releaseBarrier!: () => void;
           const submissionBarrier = new Promise<void>((resolve) => {
@@ -4903,7 +4969,15 @@ export function TiptapComposer({
             )
               return;
 
-            const submittedFileInputs = submittedAttachments.flatMap(
+            const retainedSubmittedAttachments = submittedAttachments.filter(
+              (submitted) =>
+                composerRuntime
+                  .getState()
+                  .attachments.some((current) =>
+                    isSameComposerAttachment(current, submitted),
+                  ),
+            );
+            const submittedFileInputs = retainedSubmittedAttachments.flatMap(
               (attachment) =>
                 isBlob(attachment.file)
                   ? [
@@ -4925,7 +4999,9 @@ export function TiptapComposer({
             let cleanupError: unknown;
             for (const attachment of composerRuntime.getState().attachments) {
               if (
-                submittingAttachmentIdsRef.current.has(attachment.id) ||
+                submittedAttachments.some((submitted) =>
+                  isSameComposerAttachment(attachment, submitted),
+                ) ||
                 !isBlob(attachment.file)
               )
                 continue;
@@ -4954,7 +5030,9 @@ export function TiptapComposer({
               try {
                 const index = composerRuntime
                   .getState()
-                  .attachments.findIndex((item) => item.id === attachment.id);
+                  .attachments.findIndex((item) =>
+                    isSameComposerAttachment(item, attachment),
+                  );
                 if (index >= 0) {
                   await composerRuntime.getAttachmentByIndex(index).remove();
                 }
@@ -4995,7 +5073,9 @@ export function TiptapComposer({
               submittedAttachments.map(async (attachment) => {
                 const index = composerRuntime
                   .getState()
-                  .attachments.findIndex((item) => item.id === attachment.id);
+                  .attachments.findIndex((item) =>
+                    isSameComposerAttachment(item, attachment),
+                  );
                 return index < 0
                   ? undefined
                   : composerRuntime.getAttachmentByIndex(index).remove();
@@ -5014,6 +5094,7 @@ export function TiptapComposer({
                 onAttachmentErrorRef.current?.(
                   error instanceof Error ? error.message : String(error),
                 );
+                recordFailedAttachmentCleanup();
               }
               console.error("Could not clear submitted attachments", error);
             })
@@ -5135,21 +5216,7 @@ export function TiptapComposer({
           try {
             await clearSubmittedAttachments;
           } catch {
-            const remainingAttachments = composerRuntime.getState().attachments;
-            setFailedAttachmentCleanupSnapshots((failed) => [
-              ...failed,
-              ...submittedAttachments.filter((submitted) =>
-                remainingAttachments.some((current) =>
-                  isSameComposerAttachment(current, submitted),
-                ),
-              ),
-            ]);
-            setContextSubmissionError(
-              t("agentChat.composer.attachmentsRemainAfterSubmit", {
-                defaultValue:
-                  "The message was sent, but some attachments remain. Remove them before sending again.",
-              }),
-            );
+            recordFailedAttachmentCleanup();
             return true;
           } finally {
             attachmentCleanupPendingRef.current -= 1;
@@ -5183,6 +5250,7 @@ export function TiptapComposer({
       editor,
       failedAttachmentCleanupSnapshots,
       cleanStaleAttachments,
+      createAttachmentSubmissionBarrier,
       flushComposerDraft,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
