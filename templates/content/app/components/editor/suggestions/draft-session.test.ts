@@ -1064,6 +1064,8 @@ describe("suggestion draft session", () => {
       ["a reviewer accepted", saved(1, "accepted"), "changed"],
       ["a reviewer rejected", saved(1, "rejected"), "closed"],
       ["its author withdrew", saved(1, "withdrawn"), "closed"],
+      ["an outdated accept marked stale", saved(1, "stale"), "closed"],
+      ["a newer suggestion superseded", saved(1, "superseded"), "closed"],
       ["someone deleted", undefined, "closed"],
     ] as const)(
       "does not save over a suggestion %s it",

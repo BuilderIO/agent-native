@@ -118,7 +118,7 @@ export type SuggestionSaveOutcome<Result> =
   // Accepted, or amended elsewhere: the draft's base no longer describes the
   // suggestion, so saving the draft over it would discard that change.
   | { status: "changed" }
-  // Rejected, withdrawn, or gone: the Page never took it.
+  // Rejected, withdrawn, stale, superseded, or gone: the Page never took it.
   | { status: "closed" };
 
 // A conflict means the suggestion moved on without this save: a reviewer
@@ -138,11 +138,17 @@ export async function saveUnlessSuggestionChanged<Result>(
     if (!options.isConflict(error)) throw error;
   }
   const latest = await options.latest(suggestion.id);
-  return !latest ||
-    latest.status === "rejected" ||
-    latest.status === "withdrawn"
-    ? { status: "closed" }
-    : { status: "changed" };
+  if (!latest) return { status: "closed" };
+  switch (latest.status) {
+    case "pending":
+    case "accepted":
+      return { status: "changed" };
+    case "rejected":
+    case "stale":
+    case "superseded":
+    case "withdrawn":
+      return { status: "closed" };
+  }
 }
 
 export function createSuggestionDraftSession(input: {
