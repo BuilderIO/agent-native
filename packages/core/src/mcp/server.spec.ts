@@ -1962,6 +1962,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const { client } = await createModernClient(approvalConfig, {
       manualInputRequired: true,
       supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
     });
     try {
       const first = (await client.callTool(
@@ -2037,6 +2038,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     };
     const { client, wireResponses } = await createModernClient(approvalConfig, {
       approvalDecision: "deny",
+      requestHeaders: await mcpAppsAuthHeaders(),
     });
     try {
       const denied = await client.callTool({
@@ -2083,6 +2085,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const { client } = await createModernClient(approvalConfig, {
       manualInputRequired: true,
       supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
     });
     try {
       const first = (await client.callTool(
@@ -2205,6 +2208,33 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("does not accept action approval from a static-token caller", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "publish-draft": {
+          tool: { description: "Publish a draft" },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const { client } = await createModernClient(approvalConfig, {
+      approvalDecision: "approve",
+    });
+    try {
+      const result = await client.callTool({
+        name: "publish-draft",
+        arguments: {},
+      });
+      expect(result.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
   it("runs a false approval predicate normally and fails closed when it throws", async () => {
     const ordinaryRun = vi.fn(async () => ({ ok: true }));
     const throwingRun = vi.fn(async () => ({ ok: true }));
@@ -2225,7 +2255,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
       },
     };
-    const { client } = await createModernClient(approvalConfig);
+    const { client } = await createModernClient(approvalConfig, {
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
     try {
       const ordinary = await client.callTool({
         name: "ordinary",

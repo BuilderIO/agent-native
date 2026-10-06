@@ -3,6 +3,9 @@ import { createApp } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const discoverOrgDirectoryAgentsMock = vi.hoisted(() => vi.fn());
+const runWithRequestContextMock = vi.hoisted(() =>
+  vi.fn(async (_context: unknown, run: () => Promise<unknown>) => run()),
+);
 
 vi.mock("@agent-native/core/org", () => ({
   getA2ASecretByDomain: vi.fn(async () => TEST_SECRET),
@@ -16,9 +19,7 @@ vi.mock("@agent-native/core/org", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getH3App: vi.fn(),
-  runWithRequestContext: vi.fn(
-    async (_context: unknown, run: () => Promise<unknown>) => run(),
-  ),
+  runWithRequestContext: runWithRequestContextMock,
 }));
 
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
@@ -37,7 +38,10 @@ async function authorization(): Promise<string> {
     "operator@example.test",
     "example.test",
     TEST_SECRET,
-    { preferGlobalSecret: false },
+    {
+      preferGlobalSecret: false,
+      audience: "https://dispatch.example.test/_agent-native/org/apps",
+    },
   )}`;
 }
 
@@ -56,6 +60,7 @@ describe("org apps directory handler", () => {
   beforeEach(() => {
     _resetOrgAppsDirectoryCache();
     discoverOrgDirectoryAgentsMock.mockReset();
+    runWithRequestContextMock.mockClear();
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -81,6 +86,10 @@ describe("org apps directory handler", () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(discoverOrgDirectoryAgentsMock).toHaveBeenCalledTimes(1);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      { orgId: "org-123" },
+      expect.any(Function),
+    );
     expect(await first.json()).toMatchObject({
       apps: [expect.objectContaining({ id: "content" })],
     });

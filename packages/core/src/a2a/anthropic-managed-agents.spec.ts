@@ -55,6 +55,7 @@ function context() {
 describe("Anthropic Managed Agents A2A handler", () => {
   let server: Server;
   let origin = "";
+  const previousAppUrl = process.env.APP_URL;
   let mode:
     | "complete"
     | "approval"
@@ -193,6 +194,7 @@ describe("Anthropic Managed Agents A2A handler", () => {
           throw new Error("fixture did not bind");
         }
         origin = `http://127.0.0.1:${address.port}`;
+        process.env.APP_URL = origin;
         resolve();
       });
     });
@@ -201,6 +203,8 @@ describe("Anthropic Managed Agents A2A handler", () => {
   afterAll(async () => {
     if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
     else process.env.A2A_SECRET = previousA2ASecret;
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );

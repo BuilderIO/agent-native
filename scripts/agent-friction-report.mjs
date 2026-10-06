@@ -2367,6 +2367,13 @@ const PATTERNS = [
     re: /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b/i,
   },
   {
+    key: "a2a-user-identity-boundary",
+    label: "Had to correct user identity trusted from a shared A2A org secret",
+    fixedBy:
+      ".agents/skills/a2a-protocol + shared A2A/MCP identity verifier (2026-10-05)",
+    re: /\b(?:a2a|mcp)\b[^.!?\n]{0,100}\b(?:impersonat\w*|shared (?:org|organization|team) secret|org(?:anization)? secret|forg(?:e|ed|ery)|approvedActions)\b|\b(?:impersonat\w*|forg(?:e|ed|ery))\b[^.!?\n]{0,100}\b(?:a2a|mcp|org(?:anization)? secret)\b/i,
+  },
+  {
     key: "cross-thread-interference",
     label: "Agent acted on other agents' threads or work uninvited",
     fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
