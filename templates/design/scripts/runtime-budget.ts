@@ -319,7 +319,11 @@ async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
       deltaY: Math.sign(off) * Math.min(40, Math.max(2, Math.abs(off) * 40)),
       modifiers: 2,
     });
-    await new Promise((resolve) => setTimeout(resolve, 16));
+    // Near the target, let the camera apply each step before reading again;
+    // otherwise a slow runner overshoots back and forth around it.
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.abs(off) < 0.3 ? 120 : 16),
+    );
   }
   await page.waitForTimeout(1500);
   return Math.abs(await distance()) < 0.15;
