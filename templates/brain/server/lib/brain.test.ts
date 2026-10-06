@@ -4396,6 +4396,47 @@ describe("Brain connector smoke coverage", () => {
     expect(listFromDates).toEqual([lookbackStart, yesterday]);
   });
 
+  it("rewinds the Zoom window when lookback days increase", async () => {
+    const listFromDates: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          listFromDates.push(url.searchParams.get("from") ?? "");
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const dayMs = 24 * 60 * 60 * 1000;
+    const yesterday = new Date(Date.now() - dayMs).toISOString().slice(0, 10);
+    const lookbackStart = new Date(Date.now() - 20 * dayMs)
+      .toISOString()
+      .slice(0, 10);
+    const source = seedSource({
+      id: "zoom-lookback-change-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { lookbackDays: 20 } }),
+      cursorJson: JSON.stringify({
+        from: yesterday,
+        filterKey: null,
+        lookbackDays: 7,
+      }),
+    });
+
+    await runConnectorSync(source as never);
+    const savedCursor = JSON.parse(String(source.cursorJson));
+    source.cursorJson = JSON.stringify({ ...savedCursor, from: yesterday });
+    await runConnectorSync(source as never);
+
+    expect(savedCursor.lookbackDays).toBe(20);
+    expect(listFromDates).toEqual([lookbackStart, yesterday]);
+  });
+
   it("dedupes account-wide Zoom recordings across query chunks", async () => {
     const meetings = Array.from({ length: 1_001 }, (_, index) => ({
       uuid: `meeting-${index}`,

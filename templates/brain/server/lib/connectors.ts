@@ -202,6 +202,7 @@ interface GranolaSyncCursor {
 interface ZoomSyncCursor {
   from?: string;
   filterKey?: string | null;
+  lookbackDays?: number;
   retry?: RetryCursor;
   transientRetryAt?: string;
   lastRunAt?: string;
@@ -3028,6 +3029,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
 }
 
 const ZOOM_MAX_LOOKBACK_DAYS = 30;
+const ZOOM_DEFAULT_LOOKBACK_DAYS = 7;
 const ZOOM_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function utcDate(ms: number): string {
@@ -3104,20 +3106,31 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const db = getDb();
   const runStartedAt = Date.now();
   const cursor = parseJson<ZoomSyncCursor>(source.cursorJson, {});
-  const lookbackDays = configuredNumber(config, ["lookbackDays"], 7, {
-    min: 1,
-    max: ZOOM_MAX_LOOKBACK_DAYS,
-    nestedKey: "zoom",
-  });
+  const lookbackDays = configuredNumber(
+    config,
+    ["lookbackDays"],
+    ZOOM_DEFAULT_LOOKBACK_DAYS,
+    {
+      min: 1,
+      max: ZOOM_MAX_LOOKBACK_DAYS,
+      nestedKey: "zoom",
+    },
+  );
   const dayMs = 24 * 60 * 60 * 1000;
   const to = utcDate(runStartedAt);
   const earliest = utcDate(runStartedAt - ZOOM_MAX_LOOKBACK_DAYS * dayMs);
   const meetingFilter = zoomMeetingFilterFromConfig(objectValue(config.zoom));
   const filterKey = zoomMeetingFilterKey(meetingFilter);
-  // A changed filter can include meetings the cursor has already moved past.
+  // A changed filter or a longer lookback can include meetings the cursor has
+  // already moved past.
   const filterChanged = (cursor.filterKey ?? null) !== filterKey;
+  const lookbackIncreased =
+    lookbackDays > (cursor.lookbackDays ?? ZOOM_DEFAULT_LOOKBACK_DAYS);
   const requestedFrom =
-    !filterChanged && cursor.from && ZOOM_DATE.test(cursor.from)
+    !filterChanged &&
+    !lookbackIncreased &&
+    cursor.from &&
+    ZOOM_DATE.test(cursor.from)
       ? cursor.from
       : utcDate(runStartedAt - lookbackDays * dayMs);
   const from = requestedFrom < earliest ? earliest : requestedFrom;
@@ -3244,6 +3257,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         earliest,
       }),
       filterKey,
+      lookbackDays,
       retry: undefined,
       lastRunAt: nowIso(),
     };

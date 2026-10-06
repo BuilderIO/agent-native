@@ -60,7 +60,7 @@ allowed, as Zoom displays them): recurring meetings keep one ID across
 occurrences. Topics match the whole title, case-insensitively, so a renamed
 meeting stops matching. With neither set, every cloud-recorded meeting in the
 account is imported. `update-source` replaces the whole `zoom` object, so send
-every Zoom field you want to keep. Changing the filter rewinds the next sync to
+every Zoom field you want to keep. Changing the filter or raising `lookbackDays` rewinds the next sync to
 the `lookbackDays` window, so newly included meetings are backfilled (raise
 `lookbackDays`, up to 30, to reach further back). Run stats report
 `meetingsSkippedByFilter` and `filterChanged`.
