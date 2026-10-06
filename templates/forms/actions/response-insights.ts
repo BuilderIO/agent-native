@@ -283,7 +283,6 @@ async function loadForms(args: ResponseInsightsArgs) {
 }
 
 export default defineAction({
-  authorize: requireFormsPermission("forms.review", "formId"),
   description:
     "Analyze form response data and return a native widget. Set displayMode=chart for chart-only requests, displayMode=table for table-only requests, and displayMode=insights only for combined dashboards/reports.",
   schema: responseInsightsSchema,
@@ -319,6 +318,10 @@ export default defineAction({
     const db = getDb();
     const forms = await loadForms(args);
     const formIds = forms.map((form) => form.id);
+    await requireFormsPermission("forms.review", "formId")(
+      { formId: formIds },
+      ctx,
+    );
 
     if (formId && forms.length === 0) {
       fail(`Form ${formId} not found`, {

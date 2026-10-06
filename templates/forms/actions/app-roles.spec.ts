@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   resourceOrg: "org-example" as string | null,
   orgRoles: {} as Record<string, string[]>,
   lookupOrgs: [] as string[],
+  selectCount: 0,
   overrides: [] as { permission: string; roles_json: string }[],
   write: vi.fn(),
   assertAccess: vi.fn(),
@@ -50,24 +51,33 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
       : { role, resource: { orgId: state.resourceOrg } };
   },
   assertAccess: (...args: unknown[]) => state.assertAccess(...args),
+  accessFilter: vi.fn(() => true),
 }));
 const formDb = vi.hoisted(() => ({
   getDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: async () => [
-            {
-              id: "shared-form",
-              formId: "shared-form",
-              status: "draft",
-              fields: "[]",
-              settings: "{}",
-            },
-          ],
+    select: () => {
+      state.selectCount++;
+      return {
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({
+              limit: async () => [
+                { id: "shared-form", fields: "[]", settings: "{}" },
+              ],
+            }),
+            limit: async () => [
+              {
+                id: "shared-form",
+                formId: "shared-form",
+                status: "draft",
+                fields: "[]",
+                settings: "{}",
+              },
+            ],
+          }),
         }),
-      }),
-    }),
+      };
+    },
     update: () => ({
       set: (data: unknown) => {
         state.write(data);
@@ -94,6 +104,7 @@ const { default: updateForm } = await import("./update-form.js");
 const { default: deleteForm } = await import("./delete-form.js");
 const { default: restoreForm } = await import("./restore-form.js");
 const { default: patchFields } = await import("./patch-form-fields.js");
+const { default: responseInsights } = await import("./response-insights.js");
 const { requireFormsPermission } = await import("../server/lib/app-roles.js");
 const caller: ActionRunContext = {
   caller: "frontend",
@@ -115,6 +126,7 @@ beforeEach(() => {
   state.resourceOrg = "org-example";
   state.orgRoles = {};
   state.lookupOrgs = [];
+  state.selectCount = 0;
   state.overrides = [];
   state.write.mockClear();
   state.assertAccess.mockReset();
@@ -268,4 +280,19 @@ describe("Forms app-role enforcement", () => {
     await persist(args);
     expect(state.write).toHaveBeenCalledWith({ visibility: "org" });
   });
+  it.each(["removed-member", "retired-role"])(
+    "denies bulk submission analysis to a %s before reading responses",
+    async (kind) => {
+      if (kind === "removed-member") state.member = false;
+      else state.roles = ["retired"];
+      await expect(
+        responseInsights.run(
+          { displayMode: "chart" },
+          { ...caller, orgId: null },
+        ),
+      ).rejects.toThrow("forms.review");
+      expect(state.lookupOrgs).toEqual(["org-example"]);
+      expect(state.selectCount).toBe(1);
+    },
+  );
 });
