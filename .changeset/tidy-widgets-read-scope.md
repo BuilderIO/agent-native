@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Scope ChatGPT directory widget embed tickets to the profile's listed read-only actions.
+Keep ChatGPT directory widgets reloadable with app-only ticket renewal scoped to their app, widget resource, and exact record.

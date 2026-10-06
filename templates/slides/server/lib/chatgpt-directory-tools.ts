@@ -11,10 +11,58 @@ export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "duplicate-deck",
 ];
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function id(...values: unknown[]): string | null {
+  return (
+    values.find(
+      (value): value is string =>
+        typeof value === "string" && Boolean(value.trim()),
+    ) ?? null
+  );
+}
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://slides.agent-native.com",
+  widgetTargets: {
+    "get-deck": (args: Record<string, unknown>, result: unknown) => {
+      const deckId = id(args.deckId, args.id, record(result).id);
+      return deckId
+        ? {
+            targetPath: `/deck/${encodeURIComponent(deckId)}`,
+            resourceIds: { deckId },
+          }
+        : null;
+    },
+    "create-deck": (args: Record<string, unknown>, result: unknown) => {
+      const deckId = id(record(result).id, args.deckId);
+      return deckId
+        ? {
+            targetPath: `/deck/${encodeURIComponent(deckId)}`,
+            resourceIds: { deckId },
+          }
+        : null;
+    },
+    "add-slide": (args: Record<string, unknown>, result: unknown) => {
+      const deckId = id(args.deckId, record(result).deckId);
+      return deckId
+        ? {
+            targetPath: `/deck/${encodeURIComponent(deckId)}`,
+            resourceIds: { deckId },
+          }
+        : null;
+    },
+  },
+  widgetReadActionArguments: {
+    // get-deck is GET but can repair duplicate slide IDs; tickets remain deck-scoped.
+    "get-deck": { id: "deckId", deckId: "deckId" },
+  },
   keyToolNames: [
     "list-decks",
     "get-deck",

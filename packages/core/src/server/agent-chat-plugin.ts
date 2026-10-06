@@ -202,7 +202,10 @@ import {
   normalizeMcpPrincipal,
   principalFromRequestContext,
 } from "../mcp-client/principal.js";
-import { declaredMcpToolNames } from "../mcp/build-server.js";
+import {
+  declaredMcpToolNames,
+  getMcpDirectoryWidgetResourceUri,
+} from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -3451,11 +3454,24 @@ export function createAgentChatPlugin(
           clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
-          mcpDirectoryWidgetReadActionNames:
+          mcpDirectoryWidgetReadActionArguments:
             mcpOptions.enabled && mcpOptions.directoryProfile
-              ? mcpOptions.directoryProfile.connectorCatalog.filter(
-                  (name) => httpActions[name]?.readOnly === true,
+              ? Object.fromEntries(
+                  Object.entries(
+                    mcpOptions.directoryProfile.widgetReadActionArguments ?? {},
+                  )
+                    .filter(
+                      ([name]) =>
+                        mcpOptions.directoryProfile?.connectorCatalog.includes(
+                          name,
+                        ) && httpActions[name],
+                    )
+                    .map(([name, args]) => [name, Object.keys(args)]),
                 )
+              : undefined,
+          mcpDirectoryWidgetResourceUri:
+            mcpOptions.enabled && mcpOptions.directoryProfile
+              ? getMcpDirectoryWidgetResourceUri(options?.appId)
               : undefined,
         });
       }

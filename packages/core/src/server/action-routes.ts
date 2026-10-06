@@ -336,7 +336,8 @@ export interface ActionRouteAuthAdapter {
 
 export interface MountActionRoutesOptions {
   clientCompatibilityVersion?: string;
-  mcpDirectoryWidgetReadActionNames?: readonly string[];
+  mcpDirectoryWidgetReadActionArguments?: Record<string, readonly string[]>;
+  mcpDirectoryWidgetResourceUri?: string;
   getOwnerContextFromEvent?: (
     event: any,
   ) => AgentRunOwnerContext | Promise<AgentRunOwnerContext>;
@@ -570,8 +571,7 @@ function mountActionRoutesInternal(
       (Array.isArray(entry.capabilityScopes) &&
         entry.capabilityScopes.length) ||
       (!options?.caller &&
-        entry.readOnly === true &&
-        options?.mcpDirectoryWidgetReadActionNames?.includes(name) === true)
+        options?.mcpDirectoryWidgetReadActionArguments?.[name] !== undefined)
     ) {
       registerAuthPublicPaths([routePath], app);
     }
@@ -661,15 +661,26 @@ function mountActionRoutesInternal(
           directoryWidgetReadCapability &&
           embedSession !== null &&
           isFrontendActionRequest(event) &&
-          entry.readOnly === true &&
-          allowsMcpDirectoryWidgetReadAction(authCapability, name);
+          entry.http !== false &&
+          entry.http?.method === "GET" &&
+          entry.requiresAuth !== false &&
+          options?.mcpDirectoryWidgetReadActionArguments?.[name] !==
+            undefined &&
+          allowsMcpDirectoryWidgetReadAction(authCapability, {
+            actionName: name,
+            appId: options.appId,
+            resourceUri: options.mcpDirectoryWidgetResourceUri,
+            allowedArgumentNames:
+              options.mcpDirectoryWidgetReadActionArguments[name],
+            requireArgumentMatch: false,
+          });
         const directoryWidgetReadRoute =
-          options?.mcpDirectoryWidgetReadActionNames?.includes(name) === true;
+          options?.mcpDirectoryWidgetReadActionArguments?.[name] !== undefined;
         if (directoryWidgetReadCapability && !directoryWidgetReadAllowed) {
           setResponseStatus(event, 403);
           return {
             error:
-              "This widget capability only permits its listed read-only actions.",
+              "This widget capability only permits its scoped data routes.",
           };
         }
         if (directoryWidgetReadAllowed && embedSession) {
@@ -731,11 +742,7 @@ function mountActionRoutesInternal(
             resolvedCaller = caller;
           }
         }
-        if (
-          directoryWidgetReadRoute &&
-          entry.requiresAuth !== false &&
-          !directoryWidgetReadAllowed
-        ) {
+        if (directoryWidgetReadRoute && !directoryWidgetReadAllowed) {
           if (resolvedCaller?.anonymous) {
             setResponseStatus(event, 401);
             return { error: "Unauthorized" };
@@ -1003,6 +1010,23 @@ function mountActionRoutesInternal(
                 throw new ActionContractError(paramsError, {
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
+                });
+              }
+              if (
+                directoryWidgetReadAllowed &&
+                !allowsMcpDirectoryWidgetReadAction(authCapability, {
+                  actionName: name,
+                  appId: options.appId,
+                  resourceUri: options.mcpDirectoryWidgetResourceUri,
+                  args: params,
+                  allowedArgumentNames:
+                    options.mcpDirectoryWidgetReadActionArguments?.[name],
+                })
+              ) {
+                throw createError({
+                  statusCode: 403,
+                  statusMessage:
+                    "This widget capability is scoped to a different app resource.",
                 });
               }
               if (

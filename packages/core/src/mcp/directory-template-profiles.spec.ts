@@ -244,4 +244,71 @@ describe("ChatGPT directory template profiles", () => {
       }),
     ).toThrow(/not registered or is not exposed to MCP/);
   });
+
+  it("requires scoped widget routes to be authenticated GET actions", () => {
+    const writeAnnotations = {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const readAnnotations = {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const config = {
+      name: "agent-native-directory-test",
+      description: "Widget read-route validation.",
+      catalogMode: "directory" as const,
+      actions: {
+        "create-document": {
+          tool: { description: "Create one document." },
+          readOnly: false,
+          mcpAnnotations: writeAnnotations,
+          mcpApp: {
+            resource: {
+              uri: "ui://content/shell-v67",
+              title: "Document",
+              html: "<html></html>",
+            },
+          },
+          run: async () => ({ id: "doc-1" }),
+        },
+        "get-document": {
+          tool: { description: "Read one document." },
+          readOnly: true,
+          requiresAuth: true,
+          http: { method: "GET" },
+          mcpAnnotations: readAnnotations,
+          run: async () => ({ id: "doc-1" }),
+        },
+      },
+      directoryProfile: {
+        connectorCatalog: ["create-document", "get-document"],
+        widgetTargets: {
+          "create-document": () => ({
+            targetPath: "/page/doc-1",
+            resourceIds: { documentId: "doc-1" },
+          }),
+        },
+        widgetReadActionArguments: {
+          "get-document": { id: "documentId" },
+        },
+      },
+    };
+
+    expect(() => validateMcpDirectoryProfile(config)).not.toThrow();
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...config,
+        actions: {
+          ...config.actions,
+          "get-document": {
+            ...config.actions["get-document"],
+            requiresAuth: false,
+          },
+        },
+      }),
+    ).toThrow(/authenticated GET action/);
+  });
 });

@@ -1,3 +1,4 @@
+import type { McpDirectoryWidgetTarget } from "../../mcp/build-server.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 
 export interface AgentChatMcpIcon {
@@ -15,6 +16,14 @@ export interface AgentChatMcpOptions {
     connectorCatalog: string[];
     instructions?: string;
     widgets?: boolean;
+    widgetTargets?: Record<
+      string,
+      (
+        args: Record<string, unknown>,
+        result: unknown,
+      ) => McpDirectoryWidgetTarget | null
+    >;
+    widgetReadActionArguments?: Record<string, Record<string, string>>;
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;

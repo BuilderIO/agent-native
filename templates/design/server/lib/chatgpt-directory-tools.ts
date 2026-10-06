@@ -11,10 +11,85 @@ export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "edit-design",
 ];
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function id(...values: unknown[]): string | null {
+  return (
+    values.find(
+      (value): value is string =>
+        typeof value === "string" && Boolean(value.trim()),
+    ) ?? null
+  );
+}
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://design.agent-native.com",
+  widgetTargets: {
+    "get-design-snapshot": (args: Record<string, unknown>, result: unknown) => {
+      const designId = id(args.designId, record(result).designId);
+      return designId
+        ? {
+            targetPath: `/design/${encodeURIComponent(designId)}`,
+            resourceIds: { designId },
+          }
+        : null;
+    },
+    "create-design": (_args: Record<string, unknown>, result: unknown) => {
+      const designId = id(record(result).id, record(result).designId);
+      return designId
+        ? {
+            targetPath: `/design/${encodeURIComponent(designId)}`,
+            resourceIds: { designId },
+          }
+        : null;
+    },
+    "create-design-from-template": (
+      args: Record<string, unknown>,
+      result: unknown,
+    ) => {
+      const designId = id(
+        record(result).id,
+        record(result).designId,
+        args.targetDesignId,
+      );
+      return designId
+        ? {
+            targetPath: `/design/${encodeURIComponent(designId)}`,
+            resourceIds: { designId },
+          }
+        : null;
+    },
+    "generate-design": (args: Record<string, unknown>, result: unknown) => {
+      const designId = id(args.designId, record(result).designId);
+      return designId
+        ? {
+            targetPath: `/design/${encodeURIComponent(designId)}`,
+            resourceIds: { designId },
+          }
+        : null;
+    },
+    "present-design-variants": (
+      args: Record<string, unknown>,
+      result: unknown,
+    ) => {
+      const designId = id(args.designId, record(result).designId);
+      return designId
+        ? {
+            targetPath: `/design/${encodeURIComponent(designId)}`,
+            resourceIds: { designId },
+          }
+        : null;
+    },
+  },
+  widgetReadActionArguments: {
+    "get-design-snapshot": { designId: "designId" },
+  },
   keyToolNames: [
     "list-designs",
     "list-design-templates",

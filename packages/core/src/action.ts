@@ -278,6 +278,7 @@ export type ActionMcpAppHtmlBuilder = (ctx: {
   appId?: string;
   requestOrigin?: string;
   catalogMode?: "app" | "directory";
+  startToolName?: string;
 }) => string;
 
 export interface ActionMcpAppResourceConfig {

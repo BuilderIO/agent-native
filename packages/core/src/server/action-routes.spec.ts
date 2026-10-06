@@ -1521,7 +1521,7 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("limits directory widget embed tickets to their listed read-only actions", async () => {
+  it("limits directory widget tickets to one app, shell resource, and record", async () => {
     const {
       allowsMcpDirectoryWidgetReadAction,
       createMcpDirectoryWidgetReadCapability,
@@ -1537,9 +1537,12 @@ describe("mountActionRoutes", () => {
       authCapability: getRequestAuthCapability(),
     }));
     const runWrite = vi.fn(async () => ({ ok: true }));
-    const capability = createMcpDirectoryWidgetReadCapability([
-      "list-documents",
-    ])!;
+    const capability = createMcpDirectoryWidgetReadCapability({
+      appId: "content",
+      resourceUri: "ui://content/shell-v67",
+      resourceIds: { documentId: "doc-1" },
+      actionArguments: { "get-document": { id: "doc-1" } },
+    })!;
     mockResolveEmbedSessionFromRequest.mockResolvedValue({
       email: "ticket-owner@example.com",
       orgId: "org-widget",
@@ -1556,7 +1559,7 @@ describe("mountActionRoutes", () => {
     mountActionRoutes(
       nitroApp,
       {
-        "list-documents": {
+        "get-document": {
           http: { method: "GET" },
           readOnly: true,
           requiresAuth: true,
@@ -1581,18 +1584,34 @@ describe("mountActionRoutes", () => {
             statusCode: 401,
           });
         },
-        mcpDirectoryWidgetReadActionNames: ["list-documents"],
+        appId: "content",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v67",
+        mcpDirectoryWidgetReadActionArguments: {
+          "get-document": ["id"],
+        },
       },
     );
 
     expect(
-      allowsMcpDirectoryWidgetReadAction(capability, "list-documents"),
+      allowsMcpDirectoryWidgetReadAction(capability, {
+        actionName: "get-document",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { id: "doc-1" },
+        allowedArgumentNames: ["id"],
+      }),
     ).toBe(true);
-    expect(allowsMcpDirectoryWidgetReadAction(capability, "private-read")).toBe(
-      false,
-    );
+    expect(
+      allowsMcpDirectoryWidgetReadAction(capability, {
+        actionName: "private-read",
+        appId: "content",
+        resourceUri: "ui://content/shell-v67",
+        args: { id: "doc-1" },
+        allowedArgumentNames: ["id"],
+      }),
+    ).toBe(false);
     expect(mockRegisterAuthPublicPaths).toHaveBeenCalledWith(
-      ["/_agent-native/actions/list-documents"],
+      ["/_agent-native/actions/get-document"],
       nitroApp,
     );
     expect(mockRegisterAuthPublicPaths).not.toHaveBeenCalledWith(
@@ -1604,7 +1623,10 @@ describe("mountActionRoutes", () => {
       mounted[0]!.handler({
         _method: "GET",
         _headers: { "x-agent-native-frontend": "1" },
-        req: { url: "http://app.test/_agent-native/actions/list-documents" },
+        _query: { id: "doc-1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1",
+        },
       }),
     ).resolves.toEqual({
       actionUser: "ticket-owner@example.com",
@@ -1623,8 +1645,7 @@ describe("mountActionRoutes", () => {
         },
       }),
     ).resolves.toEqual({
-      error:
-        "This widget capability only permits its listed read-only actions.",
+      error: "This widget capability only permits its scoped data routes.",
     });
     await expect(
       mounted[2]!.handler({
@@ -1633,17 +1654,40 @@ describe("mountActionRoutes", () => {
         req: { url: "http://app.test/_agent-native/actions/private-read" },
       }),
     ).resolves.toEqual({
-      error:
-        "This widget capability only permits its listed read-only actions.",
+      error: "This widget capability only permits its scoped data routes.",
     });
     await expect(
       mounted[0]!.handler({
         _method: "GET",
-        req: { url: "http://app.test/_agent-native/actions/list-documents" },
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: { id: "doc-2" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-2",
+        },
       }),
     ).resolves.toEqual({
-      error:
-        "This widget capability only permits its listed read-only actions.",
+      error: "This widget capability is scoped to a different app resource.",
+    });
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: { id: "doc-1", includePrivate: "true" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-document?id=doc-1&includePrivate=true",
+        },
+      }),
+    ).resolves.toEqual({
+      error: "This widget capability is scoped to a different app resource.",
+    });
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { url: "http://app.test/_agent-native/actions/get-document" },
+      }),
+    ).resolves.toEqual({
+      error: "This widget capability is scoped to a different app resource.",
     });
     expect(runRead).toHaveBeenCalledOnce();
     expect(runWrite).not.toHaveBeenCalled();
@@ -1679,7 +1723,11 @@ describe("mountActionRoutes", () => {
           anonymous:
             event._headers?.["x-test-owner"] !== "signed-in@example.com",
         }),
-        mcpDirectoryWidgetReadActionNames: ["list-documents"],
+        appId: "content",
+        mcpDirectoryWidgetResourceUri: "ui://content/shell-v67",
+        mcpDirectoryWidgetReadActionArguments: {
+          "list-documents": ["id"],
+        },
       },
     );
 

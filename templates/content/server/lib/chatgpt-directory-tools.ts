@@ -11,10 +11,57 @@ export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "update-database-item",
 ];
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function id(...values: unknown[]): string | null {
+  return (
+    values.find(
+      (value): value is string =>
+        typeof value === "string" && Boolean(value.trim()),
+    ) ?? null
+  );
+}
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://content.agent-native.com",
+  widgetTargets: {
+    "create-document": (_args: Record<string, unknown>, result: unknown) => {
+      const documentId = id(record(result).id, record(result).documentId);
+      return documentId
+        ? {
+            targetPath: `/page/${encodeURIComponent(documentId)}`,
+            resourceIds: { documentId },
+          }
+        : null;
+    },
+    "create-content-database": (
+      _args: Record<string, unknown>,
+      result: unknown,
+    ) => {
+      const database = record(record(result).database);
+      const databaseId = id(database.id);
+      const documentId = id(database.documentId);
+      return databaseId && documentId
+        ? {
+            targetPath: `/page/${encodeURIComponent(documentId)}`,
+            resourceIds: { databaseId, documentId },
+          }
+        : null;
+    },
+  },
+  widgetReadActionArguments: {
+    "get-document": { id: "documentId" },
+    "get-content-database": {
+      databaseId: "databaseId",
+      documentId: "documentId",
+    },
+  },
   keyToolNames: [
     "search-documents",
     "get-document",
