@@ -48,7 +48,13 @@ function withAppBasePath(path: string): string {
   const base = getAppBasePathFromViteEnv();
   if (!base) return path;
   const pathname = path.split(/[?#]/, 1)[0] || path;
-  if (pathname === base || pathname.startsWith(`${base}/`)) return path;
+  if (
+    pathname === base ||
+    pathname === `${base}.data` ||
+    pathname.startsWith(`${base}/`)
+  ) {
+    return path;
+  }
   return pathname === "/" ? `${base}${path.slice(1)}` : `${base}${path}`;
 }
 

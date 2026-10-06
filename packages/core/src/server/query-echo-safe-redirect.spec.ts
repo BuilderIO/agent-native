@@ -79,6 +79,11 @@ describe("queryEchoSafeRedirect", () => {
     expect(
       await landingUrl(queryEchoSafeRedirect(event, redirect("/calendar/day"))),
     ).toBe("/calendar/day");
+    expect(
+      await landingUrl(
+        queryEchoSafeRedirect(event, redirect("/calendar.data")),
+      ),
+    ).toBe("/calendar.data");
   });
 
   it("keeps the 302 when the edge would not copy a query onto it", () => {
