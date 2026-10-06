@@ -87,6 +87,7 @@ export async function evaluateCondition(
     deadlineAt?: number;
     signal?: AbortSignal;
     engine?: AgentEngine;
+    resolvedModel?: string;
   } = {},
 ): Promise<boolean> {
   if (!condition || !condition.trim()) return true;
@@ -121,10 +122,14 @@ export async function evaluateCondition(
           },
           appId: identity.appId,
         }));
-      const modelCandidate =
-        (await getStoredModelForEngine(engine, { appId: identity.appId })) ??
-        engine.defaultModel;
-      model = normalizeModelForEngine(engine, modelCandidate);
+      if (options.resolvedModel !== undefined) {
+        model = options.resolvedModel;
+      } else {
+        const modelCandidate =
+          (await getStoredModelForEngine(engine, { appId: identity.appId })) ??
+          engine.defaultModel;
+        model = normalizeModelForEngine(engine, modelCandidate);
+      }
     } catch (err) {
       if (controller.signal.aborted) throw err;
       console.error("[triggers] Condition eval error:", err);

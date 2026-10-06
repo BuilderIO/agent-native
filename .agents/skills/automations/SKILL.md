@@ -185,7 +185,7 @@ emit("calendar.booking.created", {
 When an automation has a `condition`, the dispatcher resolves the owner's agent engine through the same `resolveEngine` path chat and the automation's own run use (owner key, deployment fallback, or Builder Gateway) and asks it a yes/no classification question. This is a yes/no classification, not a generation task; it is never hardcoded to a single provider, so an owner using Builder Gateway, OpenRouter, or any other configured provider can use conditions, not only Anthropic.
 
 - Empty or missing condition = unconditional (always fires).
-- Results are memoized by condition, payload, execution identity, resolved engine, and model, with a 5-minute TTL and 500-entry LRU cache. The background runner's resolved engine is reused for the classifier, including configured engine and deployment-key fallbacks.
+- Results are memoized by condition, payload, execution identity, resolved engine, and model, with a 5-minute TTL and 500-entry LRU cache. The background runner's resolved engine and model are reused for the classifier, including configured engine, deployment-key, and automation model settings.
 - Payload is truncated to 4000 characters before sending to the model.
 - On a classifier failure (no usable credential, provider error, malformed response), evaluation throws; the trigger dispatcher records it as an `error` (or a `missing_credentials` precondition) rather than silently skipping.
 

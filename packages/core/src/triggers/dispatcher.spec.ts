@@ -39,7 +39,11 @@ const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
-const conditionResource = (name: string, eventName: string) => {
+const conditionResource = (
+  name: string,
+  eventName: string,
+  model = "automation-model",
+) => {
   const owner = "alice+triggers@agent-native.test";
   return {
     id: "resource-" + name,
@@ -51,6 +55,7 @@ const conditionResource = (name: string, eventName: string) => {
       "enabled: true",
       "triggerType: event",
       "event: " + eventName,
+      "model: " + model,
       'condition: "the subject mentions a refund"',
       "mode: agentic",
       "createdBy: " + owner,
@@ -2726,6 +2731,7 @@ Handle the event.`,
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
       apiKey: "test-deployment-api-key",
+      model: "dependency-model",
     });
     const handler = subscribeMock.mock.calls.find(
       ([eventName]) => eventName === "event.condition.deployment.key",
@@ -2745,7 +2751,10 @@ Handle the event.`,
     );
     expect(
       vi.mocked(conditionEvaluator.evaluateCondition).mock.calls[0]?.[3],
-    ).toMatchObject({ engine: { name: "test-engine" } });
+    ).toMatchObject({
+      engine: { name: "test-engine" },
+      resolvedModel: "automation-model",
+    });
   });
 
   it("passes a configured background engine into condition checks", async () => {
@@ -2782,7 +2791,7 @@ Handle the event.`,
 
     expect(
       vi.mocked(conditionEvaluator.evaluateCondition).mock.calls[0]?.[3],
-    ).toMatchObject({ engine });
+    ).toMatchObject({ engine, resolvedModel: "automation-model" });
   });
 
   it("routes organization events only to their creator and fails closed when membership is unreadable", async () => {

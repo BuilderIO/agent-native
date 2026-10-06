@@ -1008,10 +1008,12 @@ async function dispatchQueuedAutomationEvent(
   // interactive chat — a raw provider API key is not how most owners are
   // actually authorized to call a model.
   let classifierEngine: BackgroundAutomationDeps["engine"];
+  let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
       { ownerEmail: identity.userEmail, orgId: identity.orgId },
       deps,
+      meta.model,
     );
     if (!credentialCheck.ok) {
       await recordTriggerExecutionOutcome(
@@ -1022,6 +1024,7 @@ async function dispatchQueuedAutomationEvent(
       return "completed";
     }
     classifierEngine = credentialCheck.engine;
+    classifierModel = credentialCheck.model;
   }
 
   let matches: boolean;
@@ -1037,7 +1040,11 @@ async function dispatchQueuedAutomationEvent(
             orgId: identity.orgId,
             appId: deps.appId,
           },
-          { deadlineAt: hardDeadlineAt, engine: classifierEngine },
+          {
+            deadlineAt: hardDeadlineAt,
+            engine: classifierEngine,
+            resolvedModel: classifierModel,
+          },
         ),
     );
   } catch (error) {
@@ -1112,10 +1119,12 @@ export async function dispatchAutomationWebhookTask(
   if (!resolved.ok) throw new Error(resolved.reason);
   const identity = resolved.identity;
   let classifierEngine: BackgroundAutomationDeps["engine"];
+  let classifierModel: string | undefined;
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
       { ownerEmail: identity.userEmail, orgId: identity.orgId },
       deps,
+      meta.model,
     );
     if (!credentialCheck.ok) {
       throw new BackgroundAutomationRunError(
@@ -1124,6 +1133,7 @@ export async function dispatchAutomationWebhookTask(
       );
     }
     classifierEngine = credentialCheck.engine;
+    classifierModel = credentialCheck.model;
   }
 
   if (isBackgroundAutomationRunActive(meta)) {
@@ -1142,7 +1152,7 @@ export async function dispatchAutomationWebhookTask(
             orgId: identity.orgId,
             appId: deps.appId,
           },
-          { engine: classifierEngine },
+          { engine: classifierEngine, resolvedModel: classifierModel },
         ),
     );
   } catch (err) {

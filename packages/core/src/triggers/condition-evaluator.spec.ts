@@ -212,7 +212,9 @@ describe("evaluateCondition", () => {
   });
 
   it("uses a background-resolved engine when provided", async () => {
-    async function* yesStream() {
+    const models: string[] = [];
+    async function* yesStream(opts: { model?: string }) {
+      models.push(opts.model ?? "");
       yield { type: "text-delta", text: "yes" };
     }
     const engine = fakeEngine(yesStream);
@@ -220,10 +222,13 @@ describe("evaluateCondition", () => {
     await expect(
       evaluateCondition("is this urgent?", { messageId: "engine" }, IDENTITY, {
         engine,
+        resolvedModel: "automation-model",
       }),
     ).resolves.toBe(true);
 
     expect(resolveEngineMock).not.toHaveBeenCalled();
+    expect(getStoredModelForEngineMock).not.toHaveBeenCalled();
+    expect(models).toEqual(["automation-model"]);
   });
 
   it("fails closed on an unexpected classifier response", async () => {
