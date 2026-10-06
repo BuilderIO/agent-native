@@ -24,7 +24,11 @@ import {
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,
 } from "./frame.js";
-import { sendMcpAppHostMessage } from "./mcp-app-host.js";
+import {
+  isOpenAiMcpAppHost,
+  sendMcpAppHostMessage,
+  type McpAppModelContextContentPart,
+} from "./mcp-app-host.js";
 
 export { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
 
@@ -804,6 +808,165 @@ function isDirectMcpAppEmbedSession(): boolean {
   return isEmbedAuthActive() && !isEmbedMcpChatBridgeActive();
 }
 
+function hasMcpAppLocalPayload(
+  opts: Pick<
+    AgentChatMessage,
+    | "actionScope"
+    | "attachments"
+    | "effort"
+    | "engine"
+    | "images"
+    | "instructions"
+    | "model"
+    | "newTab"
+    | "preset"
+    | "projectSlug"
+    | "referenceImagePaths"
+    | "reuseEmptyTab"
+    | "submitMessageId"
+    | "tabId"
+    | "targetTabId"
+    | "uploadedReferenceImages"
+    | "usageLabel"
+    | "approvedToolCalls"
+  >,
+  additionalSubmitMessageId?: string,
+): boolean {
+  return Boolean(
+    opts.attachments?.length ||
+    opts.images?.length ||
+    opts.referenceImagePaths?.length ||
+    opts.uploadedReferenceImages?.length ||
+    opts.usageLabel ||
+    opts.actionScope ||
+    opts.projectSlug ||
+    opts.instructions ||
+    opts.model ||
+    opts.engine ||
+    opts.effort ||
+    opts.newTab ||
+    opts.reuseEmptyTab ||
+    opts.submitMessageId ||
+    additionalSubmitMessageId ||
+    opts.tabId ||
+    opts.targetTabId ||
+    opts.preset ||
+    opts.approvedToolCalls?.length,
+  );
+}
+
+const MAX_MCP_APP_IMAGE_BYTES = 10 * 1024 * 1024;
+
+function imageContentFromBase64(
+  mimeType: string,
+  data: string,
+): McpAppModelContextContentPart | null {
+  const normalizedMimeType = mimeType.toLowerCase();
+  if (
+    ![
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/gif",
+      "image/webp",
+    ].includes(normalizedMimeType)
+  ) {
+    return null;
+  }
+  if (
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      data,
+    ) ||
+    data.length === 0 ||
+    (data.length * 3) / 4 > MAX_MCP_APP_IMAGE_BYTES
+  ) {
+    return null;
+  }
+  return {
+    type: "image",
+    data,
+    mimeType:
+      normalizedMimeType === "image/jpg" ? "image/jpeg" : normalizedMimeType,
+  };
+}
+
+function imageContentFromDataUrl(
+  dataUrl: string,
+): McpAppModelContextContentPart | null {
+  const match = /^data:(image\/(?:png|jpeg|jpg|gif|webp));base64,(.*)$/i.exec(
+    dataUrl,
+  );
+  return match ? imageContentFromBase64(match[1], match[2]) : null;
+}
+
+function mcpAppHostContent(
+  opts: AgentChatMessage,
+): McpAppModelContextContentPart[] | undefined | null {
+  const content: McpAppModelContextContentPart[] = [];
+  for (const image of opts.images ?? []) {
+    const imageContent = imageContentFromDataUrl(image);
+    if (!imageContent) return null;
+    content.push(imageContent);
+  }
+  for (const attachment of opts.attachments ?? []) {
+    if (attachment.displayOnly) continue;
+    if (attachment.type === "image" && attachment.data) {
+      const imageContent = attachment.data.startsWith("data:")
+        ? imageContentFromDataUrl(attachment.data)
+        : imageContentFromBase64(attachment.contentType ?? "", attachment.data);
+      if (!imageContent) return null;
+      content.push(imageContent);
+      continue;
+    }
+    if (attachment.type === "text" && typeof attachment.text === "string") {
+      content.push({
+        type: "text",
+        text: `Attachment: ${attachment.name}\n${attachment.text}`,
+      });
+      continue;
+    }
+    return null;
+  }
+  return content.length ? content : undefined;
+}
+
+function hasMcpAppLocalOnlySemantics(
+  opts: AgentChatMessage,
+  content: McpAppModelContextContentPart[] | undefined | null,
+): boolean {
+  return Boolean(
+    content === null ||
+    opts.referenceImagePaths?.length ||
+    opts.uploadedReferenceImages?.length ||
+    opts.usageLabel ||
+    opts.actionScope ||
+    opts.projectSlug ||
+    opts.instructions ||
+    opts.model ||
+    opts.engine ||
+    opts.effort ||
+    opts.reuseEmptyTab ||
+    opts.tabId ||
+    opts.targetTabId ||
+    opts.preset ||
+    opts.approvedToolCalls?.length,
+  );
+}
+
+function routesForcedLocalChatToOpenAiHost(opts: AgentChatMessage): boolean {
+  const content = mcpAppHostContent(opts);
+  return (
+    opts.chatTarget === "local" &&
+    opts.submit !== false &&
+    opts.background !== true &&
+    isMcpAppChatBridgeEnabled() &&
+    isOpenAiMcpAppHost() &&
+    !hasMcpAppLocalOnlySemantics(opts, content) &&
+    !routesToCodeFrame(opts) &&
+    !keepsApprovalInAppChat(opts)
+  );
+}
+
 function dispatchAgentChatRunning(isRunning: boolean, tabId?: string): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
@@ -1020,28 +1183,26 @@ export function routesToCodeFrame(
   return !keepsApprovalInAppChat(opts);
 }
 
-export function sendToAgentChat(opts: AgentChatMessage): string {
+function sendToAgentChatInternal(
+  opts: AgentChatMessage,
+  forceMcpAppWrapperRelay = false,
+): string {
   const tabId = opts.tabId ?? generateTabId();
   const actionScope =
     opts.actionScope === undefined
       ? undefined
       : normalizeAgentActionScope(opts.actionScope);
   const mcpBridgeEnabled = isMcpAppChatBridgeEnabled();
-  const hasMcpAppLocalPayload =
-    mcpBridgeEnabled &&
-    Boolean(
-      opts.attachments?.length ||
-      opts.images?.length ||
-      opts.referenceImagePaths?.length ||
-      opts.uploadedReferenceImages?.length ||
-      opts.usageLabel ||
-      actionScope,
-    );
-  const isCodeRequest = routesToCodeFrame(opts) && !hasMcpAppLocalPayload;
+  const mcpAppLocalPayload = mcpBridgeEnabled && hasMcpAppLocalPayload(opts);
+  const mcpAppPayloadBlocksCodeRoute =
+    mcpBridgeEnabled && hasMcpAppLocalPayload({ ...opts, newTab: false });
+  const routesLocalToChatGpt = routesForcedLocalChatToOpenAiHost(opts);
+  const isCodeRequest =
+    routesToCodeFrame(opts) && !mcpAppPayloadBlocksCodeRoute;
   const localChatTarget =
-    opts.chatTarget === "local" ||
+    (opts.chatTarget === "local" && !routesLocalToChatGpt) ||
     keepsApprovalInAppChat(opts) ||
-    hasMcpAppLocalPayload;
+    (mcpAppLocalPayload && !routesLocalToChatGpt);
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -1077,6 +1238,14 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     },
   };
 
+  if (forceMcpAppWrapperRelay && mcpBridgeEnabled) {
+    window.parent.postMessage(
+      payload,
+      getFramePostMessageTargetOrigin() || "*",
+    );
+    return tabId;
+  }
+
   if (opts.submit !== false && !localChatTarget && mcpBridgeEnabled) {
     if (opts.targetTabId) {
       window.parent.postMessage(
@@ -1085,9 +1254,13 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
       );
       return tabId;
     }
+    const hostContent = mcpAppHostContent(opts);
     const directHostMessage = sendMcpAppHostMessage({
       message: opts.message,
       context: opts.context,
+      ...(hostContent
+        ? { content: [{ type: "text", text: opts.message }, ...hostContent] }
+        : {}),
       ...(requestMode ? { mode: requestMode, requestMode } : {}),
     });
     if (directHostMessage) {
@@ -1147,6 +1320,10 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   return tabId;
 }
 
+export function sendToAgentChat(opts: AgentChatMessage): string {
+  return sendToAgentChatInternal(opts);
+}
+
 const DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS = SELF_SUBMIT_BUFFER_TTL_MS + 2000;
 
 export interface SendToAgentChatAndConfirmResult {
@@ -1155,26 +1332,12 @@ export interface SendToAgentChatAndConfirmResult {
   reason?: string;
 }
 
-export function sendToAgentChatAndConfirm(
+function confirmAgentChatSubmit(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options?: { submitMessageId?: string; timeoutMs?: number },
+  options: { submitMessageId?: string; timeoutMs?: number } | undefined,
+  tabId: string,
+  dispatch: (submission: AgentChatMessage) => void,
 ): Promise<SendToAgentChatAndConfirmResult> {
-  const tabId = opts.tabId ?? generateTabId();
-  if (typeof window === "undefined") {
-    return Promise.resolve({ tabId, delivered: false, reason: "no-window" });
-  }
-  if (
-    opts.chatTarget !== "local" ||
-    routesToCodeFrame(opts) ||
-    opts.submit === false
-  ) {
-    return Promise.resolve({
-      tabId,
-      delivered: false,
-      reason: "unsupported-target",
-    });
-  }
-
   const submitMessageId =
     options?.submitMessageId ?? generateAgentChatSubmitMessageId();
   const timeoutMs = Math.max(
@@ -1211,11 +1374,66 @@ export function sendToAgentChatAndConfirm(
     );
     timer = window.setTimeout(() => finish(false, "timeout", true), timeoutMs);
     try {
-      sendToAgentChat({ ...opts, tabId, submitMessageId });
+      dispatch({ ...opts, tabId, submitMessageId });
     } catch {
       finish(false, "send-failed", true);
     }
   });
+}
+
+export function sendToAgentChatAndConfirm(
+  opts: Omit<AgentChatMessage, "submitMessageId">,
+  options?: { submitMessageId?: string; timeoutMs?: number },
+): Promise<SendToAgentChatAndConfirmResult> {
+  const tabId = opts.tabId ?? generateTabId();
+  if (typeof window === "undefined") {
+    return Promise.resolve({ tabId, delivered: false, reason: "no-window" });
+  }
+  if (
+    opts.chatTarget !== "local" ||
+    routesToCodeFrame(opts) ||
+    opts.submit === false
+  ) {
+    return Promise.resolve({
+      tabId,
+      delivered: false,
+      reason: "unsupported-target",
+    });
+  }
+
+  if (routesForcedLocalChatToOpenAiHost(opts)) {
+    const requestMode =
+      normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
+      readStoredAgentChatRequestMode();
+    const hostContent = mcpAppHostContent(opts);
+    const hostDelivery = sendMcpAppHostMessage({
+      message: opts.message,
+      context: opts.context,
+      ...(hostContent
+        ? { content: [{ type: "text", text: opts.message }, ...hostContent] }
+        : {}),
+      ...(requestMode ? { mode: requestMode, requestMode } : {}),
+    });
+    if (hostDelivery === false) {
+      return confirmAgentChatSubmit(opts, options, tabId, (submission) =>
+        sendToAgentChatInternal(submission, true),
+      );
+    }
+    return Promise.resolve(hostDelivery)
+      .then((delivered) =>
+        delivered === false
+          ? confirmAgentChatSubmit(opts, options, tabId, (submission) =>
+              sendToAgentChatInternal(submission, true),
+            )
+          : {
+              tabId,
+              delivered: delivered === true,
+              ...(delivered === true ? {} : { reason: "host-unconfirmed" }),
+            },
+      )
+      .catch(() => ({ tabId, delivered: false, reason: "host-rejected" }));
+  }
+  return confirmAgentChatSubmit(opts, options, tabId, sendToAgentChat);
 }
 
 export function setAgentChatContextItem(

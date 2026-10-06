@@ -1,13 +1,14 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppAudience: "internal",
   workspaceAppPublicPaths: ["/", "/visual-edit", "/design", "/present"],
   marketing: {
     appName: "Design",
-    learnMoreUrl: "https://agent-native.com/apps/design",
+    learnMoreUrl:
+      "https://agent-native.com/apps/design?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",
     features: [

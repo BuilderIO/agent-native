@@ -35,6 +35,23 @@ design with `overrideTransactionalEmail(id, render)` from a server plugin, never
 by editing `better-auth-instance.ts` call sites. See
 `/docs/deployment#email-templates`.
 
+## Hosted Sign-In Pages and the Shared Wave
+
+- First-party server auth plugins use `createToolkitAuthPlugin` from
+  `@agent-native/toolkit/app/auth/server`. It server-renders `AuthPage` and
+  `ResetPasswordPage` before hydration. Direct Core `createAuthPlugin` calls
+  leave generic fallback markup in the response and can flash before React
+  replaces it.
+- `AuthPage` uses Toolkit's full-page `WaveBackground` for every auth view.
+  The Agent-Native homepage hero and Calendar booking use the same renderer:
+  Calendar's animated FFT ocean wave with its WebGL fallback. Do not substitute
+  the older Starfield shader, a gradient, a signup-only strip, or a copied
+  renderer. `StarfieldBackground` is only a compatibility export for older
+  callers.
+- Hosted marketing apps keep auth enabled at `/` so the public root response
+  contains the full server-rendered sign-in page. Keep session decisions out of
+  public SSR; `RequireSession` resolves signed-in app navigation in the client.
+
 > **Never** use `local@localhost` as a fallback identity in app code
 > (`getRequestUserEmail() ?? "local@localhost"`, `session?.email ?? "local@localhost"`,
 > etc.). There is no dev auth shim. That pattern pools every unauthenticated
@@ -56,7 +73,15 @@ authorization-code + PKCE at
 Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
 advertising `offline_access` lets hosts such as ChatGPT retain refresh access.
-Refresh tokens are stored hashed and rotate. Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
+Refresh tokens are stored hashed and are not rotated: a refresh returns the
+same token and slides its 365-day expiry. MCP OAuth and connect tokens carry
+the org chosen when they were issued, so `verifyAuth` and the token endpoint
+re-check live org membership on every use. A removed member gets a 401 or
+`invalid_grant`; a failed check answers a retryable 503. Offboarding revokes
+their MCP refresh and connect tokens instead of transferring them. Cross-app A2A
+tokens are not re-checked, because their `org_id` is the signing app's
+assertion, and the A2A endpoint rejects MCP credentials.
+Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
 local stdio proxying and fallback clients. The CLI
 uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
 default; use the Connect page or `npx @agent-native/core@latest connect --token <token>` when a

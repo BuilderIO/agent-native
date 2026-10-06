@@ -46,6 +46,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { dispatchAgentChatRunning } from "@agent-native/core/client/agent-chat";
 import {
+  fetchAgentEngineConfiguredState,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
@@ -84,6 +85,7 @@ import {
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertTriangle,
+  IconLoader2,
   IconMessage,
   IconPlayerStopFilled,
   IconQuote,
@@ -609,6 +611,8 @@ export const AgentKitAssistantChat = forwardRef<
     );
   }
   const t = useT();
+  const translatorRef = useRef(t);
+  translatorRef.current = t;
   const { formatDate } = useFormatters();
   const threadId = props.threadId ?? props.tabId;
   if (!threadId) {
@@ -726,6 +730,11 @@ export const AgentKitAssistantChat = forwardRef<
       },
       agents: t("agentChat.activity.agents"),
       tasks: t("agentChat.activity.tasks"),
+      toolInput: t("agentChat.tool.input"),
+      toolResult: t("agentChat.tool.result"),
+      activityValueIdentifierHidden: t("agentChat.tool.identifierHidden"),
+      activityValueOmitted: t("agentChat.tool.contentOmitted"),
+      activityValueCircular: t("agentChat.tool.circularReference"),
       working: t("agentChat.status.working"),
       workingFor: t("agentChat.status.workingFor", {
         duration: "{{duration}}",
@@ -738,9 +747,10 @@ export const AgentKitAssistantChat = forwardRef<
       composerLabel: t("agentChat.composer.messageAgent"),
       composerPlaceholder: t("agentChat.composer.messageAgent"),
       queue: t("agentChat.queue.label"),
-      queueSteer: t("agentChat.queue.steer"),
-      queueSteerHint: t("agentChat.queue.steerHint"),
-      queueMoveToTop: t("agentChat.queue.moveToTop"),
+      queueSendNow: t("agentChat.queue.sendNow"),
+      queueSendNowHint: t("agentChat.queue.sendNowHint"),
+      queueSendNext: t("agentChat.queue.sendNext"),
+      queueSendNextHint: t("agentChat.queue.sendNextHint"),
       queueRemove: t("agentChat.queue.remove"),
       queueMore: t("agentChat.queue.moreActions"),
       suggestions: t("agentChat.composer.suggestedPrompts"),
@@ -836,7 +846,13 @@ export const AgentKitAssistantChat = forwardRef<
         signal: context?.signal,
       });
       if (!response.ok) {
-        throw new Error(`Upload failed with ${response.status}.`);
+        throw new Error(
+          translatorRef.current(
+            response.status === 415
+              ? "agentChat.composer.unsupportedFileType"
+              : "agentChat.composer.uploadFailed",
+          ),
+        );
       }
       const result: unknown = await response.json();
       const uploaded = asRecord(result);
@@ -1149,27 +1165,61 @@ const AgentKitAssistantChatBody = forwardRef<
     tabId: props.tabId,
     threadId,
   });
+  const [submissionReadiness, setSubmissionReadiness] =
+    useState<AgentEngineConfiguredState | null>(null);
+  const readinessRequestIdRef = useRef(0);
+  const providerReadinessRequestRef = useRef<{
+    requestId: number;
+    promise: Promise<AgentEngineConfiguredState>;
+  } | null>(null);
+  const latestResolvedReadinessRef = useRef<{
+    requestId: number;
+    state: AgentEngineConfiguredState;
+  } | null>(null);
+  const passiveReadinessRef = useRef(readiness.state);
+  const providerReadinessPassRef = useRef<number | null>(null);
+  const latestSubmissionReadinessRef = useRef(readiness.state);
+  useEffect(() => {
+    if (passiveReadinessRef.current !== readiness.state) {
+      const explicitReadinessPassed =
+        providerReadinessPassRef.current === readinessRequestIdRef.current &&
+        latestResolvedReadinessRef.current?.requestId ===
+          readinessRequestIdRef.current &&
+        latestResolvedReadinessRef.current.state === "configured";
+      if (readiness.state === "unavailable" && explicitReadinessPassed) {
+        return;
+      }
+      passiveReadinessRef.current = readiness.state;
+      readinessRequestIdRef.current += 1;
+      providerReadinessRequestRef.current = null;
+      providerReadinessPassRef.current = null;
+      latestSubmissionReadinessRef.current = readiness.state;
+      setSubmissionReadiness(null);
+      return;
+    }
+    if (submissionReadiness === readiness.state) {
+      latestSubmissionReadinessRef.current = readiness.state;
+      setSubmissionReadiness(null);
+    }
+  }, [readiness.state, submissionReadiness]);
   const modelCatalogPending =
     props.showModelSelector !== false && props.modelListLoading === true;
   const modelListUnavailable =
     props.showModelSelector !== false && props.modelListError === true;
-  const canChat = !providerChecksEnabled || readiness.canChat;
+  const effectiveReadiness = submissionReadiness ?? readiness.state;
+  const canChat = !providerChecksEnabled || effectiveReadiness === "configured";
   const setupMissing =
-    providerChecksEnabled &&
-    readiness.missing &&
-    !modelCatalogPending &&
-    !modelListUnavailable;
-  const providerStatus: AgentEngineConfiguredState = modelListUnavailable
-    ? "unavailable"
-    : modelCatalogPending
-      ? "unknown"
-      : providerChecksEnabled
-        ? readiness.state
-        : "configured";
-  const providerSubmissionPending =
-    !canChat &&
-    !setupMissing &&
-    (providerStatus === "unknown" || providerStatus === "unavailable");
+    providerChecksEnabled && effectiveReadiness === "missing";
+  const providerStatus: AgentEngineConfiguredState = setupMissing
+    ? "missing"
+    : modelListUnavailable
+      ? "unavailable"
+      : modelCatalogPending
+        ? "unknown"
+        : providerChecksEnabled
+          ? effectiveReadiness
+          : "configured";
+  const composerPreflightRunActiveRef = useRef<boolean | null>(null);
   const retryProviderStatus = useCallback(() => {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
@@ -1356,6 +1406,14 @@ const AgentKitAssistantChatBody = forwardRef<
   const bounceSetupCard = useCallback(() => {
     if (setupMissing) setSetupBouncePulse((pulse) => pulse + 1);
   }, [setupMissing]);
+  const reportMissingProvider = useCallback(() => {
+    bounceSetupCard();
+    window.dispatchEvent(
+      new CustomEvent("agent-chat:missing-api-key", {
+        detail: { tabId: props.tabId, threadId },
+      }),
+    );
+  }, [bounceSetupCard, props.tabId, threadId]);
   const lastCustomRunningStateRef = useRef<{
     custom: boolean;
     isRunning: boolean;
@@ -1849,71 +1907,139 @@ const AgentKitAssistantChatBody = forwardRef<
     return () => window.clearInterval(interval);
   }, [isRunning]);
 
-  const acquireSubmission = useCallback(async () => {
-    if (
-      isRestoring ||
-      props.composerDisabled ||
-      props.composerSubmissionDisabled
-    )
-      return null;
-    if (!canChat) {
-      if (setupMissing) {
-        bounceSetupCard();
-        window.dispatchEvent(
-          new CustomEvent("agent-chat:missing-api-key", {
-            detail: { tabId: props.tabId, threadId },
-          }),
-        );
+  const refreshProviderReadiness = useCallback(async () => {
+    if (!providerChecksEnabled) return "configured";
+    let request = providerReadinessRequestRef.current;
+    if (!request || request.requestId !== readinessRequestIdRef.current) {
+      const requestId = ++readinessRequestIdRef.current;
+      providerReadinessPassRef.current = null;
+      request = {
+        requestId,
+        promise: fetchAgentEngineConfiguredState(true, { fresh: true }),
+      };
+      providerReadinessRequestRef.current = request;
+    }
+    let currentRequest = request;
+    while (true) {
+      const nextReadiness = await currentRequest.promise;
+      if (currentRequest.requestId === readinessRequestIdRef.current) {
+        if (providerReadinessRequestRef.current === currentRequest) {
+          providerReadinessRequestRef.current = null;
+        }
+        latestResolvedReadinessRef.current = {
+          requestId: currentRequest.requestId,
+          state: nextReadiness,
+        };
+        latestSubmissionReadinessRef.current = nextReadiness;
+        setSubmissionReadiness(nextReadiness);
+        return nextReadiness;
       }
-      return null;
+      const latestRequest = providerReadinessRequestRef.current;
+      if (
+        latestRequest &&
+        latestRequest.requestId === readinessRequestIdRef.current &&
+        latestRequest.requestId > currentRequest.requestId
+      ) {
+        currentRequest = latestRequest;
+        continue;
+      }
+      const latestResolved = latestResolvedReadinessRef.current;
+      if (latestResolved?.requestId === readinessRequestIdRef.current) {
+        return latestResolved.state;
+      }
+      return latestSubmissionReadinessRef.current;
     }
-    if (history) {
-      const release = await history.beginSubmission();
-      if (!release) return null;
-      return release;
-    }
-    return () => undefined;
-  }, [
-    bounceSetupCard,
-    canChat,
-    history,
-    isRestoring,
-    props.composerDisabled,
-    props.composerSubmissionDisabled,
-    props.tabId,
-    setupMissing,
-    threadId,
-  ]);
+  }, [providerChecksEnabled]);
+
+  const acquireSubmission = useCallback(
+    async (useReadinessPass = false) => {
+      const readinessPass = providerReadinessPassRef.current;
+      const hasReadinessPass =
+        useReadinessPass &&
+        readinessPass !== null &&
+        readinessPass === readinessRequestIdRef.current &&
+        latestResolvedReadinessRef.current?.requestId === readinessPass &&
+        latestResolvedReadinessRef.current.state === "configured";
+      if (useReadinessPass) providerReadinessPassRef.current = null;
+      if (
+        isRestoring ||
+        props.composerDisabled ||
+        props.composerSubmissionDisabled
+      )
+        return null;
+      if (providerChecksEnabled) {
+        const currentReadiness = hasReadinessPass
+          ? "configured"
+          : await refreshProviderReadiness();
+        if (currentReadiness !== "configured") {
+          if (currentReadiness === "missing") reportMissingProvider();
+          return null;
+        }
+      }
+      if (history) {
+        const release = await history.beginSubmission();
+        if (!release) return null;
+        return release;
+      }
+      return () => undefined;
+    },
+    [
+      history,
+      isRestoring,
+      props.composerDisabled,
+      props.composerSubmissionDisabled,
+      providerChecksEnabled,
+      refreshProviderReadiness,
+      reportMissingProvider,
+    ],
+  );
 
   const beforeSubmit = useCallback(async () => {
+    providerReadinessPassRef.current = null;
+    composerPreflightRunActiveRef.current = null;
     if (
       isRestoring ||
       props.composerDisabled ||
       props.composerSubmissionDisabled
     )
       return false;
-    if (!canChat) {
-      if (setupMissing) {
-        bounceSetupCard();
-        window.dispatchEvent(
-          new CustomEvent("agent-chat:missing-api-key", {
-            detail: { tabId: props.tabId, threadId },
-          }),
-        );
-      }
-      return providerSubmissionPending;
+    const runWasActive = isThreadRunning();
+    if (!providerChecksEnabled) {
+      composerPreflightRunActiveRef.current = runWasActive;
+      return true;
     }
+    let currentReadiness = await refreshProviderReadiness();
+    let resolvedReadiness = latestResolvedReadinessRef.current;
+    while (
+      currentReadiness === "configured" &&
+      (!resolvedReadiness ||
+        resolvedReadiness.requestId !== readinessRequestIdRef.current ||
+        resolvedReadiness.state !== "configured")
+    ) {
+      currentReadiness = await refreshProviderReadiness();
+      resolvedReadiness = latestResolvedReadinessRef.current;
+    }
+    if (currentReadiness !== "configured") {
+      if (currentReadiness === "missing") reportMissingProvider();
+      return false;
+    }
+    if (
+      !resolvedReadiness ||
+      resolvedReadiness.requestId !== readinessRequestIdRef.current
+    ) {
+      return false;
+    }
+    composerPreflightRunActiveRef.current = runWasActive;
+    providerReadinessPassRef.current = resolvedReadiness.requestId;
     return true;
   }, [
-    bounceSetupCard,
-    canChat,
     isRestoring,
     props.composerDisabled,
     props.composerSubmissionDisabled,
-    props.tabId,
-    providerSubmissionPending,
-    setupMissing,
-    threadId,
+    providerChecksEnabled,
+    isThreadRunning,
+    refreshProviderReadiness,
+    reportMissingProvider,
   ]);
 
   const dispatch = useCallback(
@@ -2120,13 +2246,7 @@ const AgentKitAssistantChatBody = forwardRef<
       );
       const release = await acquireSubmission();
       if (!release) {
-        if (
-          !setupMissing &&
-          (isRestoring ||
-            (providerChecksEnabled &&
-              (readiness.state === "unknown" ||
-                readiness.state === "unavailable")))
-        ) {
+        if (isRestoring) {
           try {
             const selectionHydration = pendingSelectionHydrationRef.current;
             await selectionHydration?.promise;
@@ -2218,9 +2338,10 @@ const AgentKitAssistantChatBody = forwardRef<
             throw error;
           }
         }
-        const reason = setupMissing
-          ? "engine-not-configured"
-          : "submission-unavailable";
+        const reason =
+          setupMissing || latestSubmissionReadinessRef.current === "missing"
+            ? "engine-not-configured"
+            : "submission-unavailable";
         reportAgentChatSubmitResult(options.submitMessageId, false, reason);
         return { status: "rejected", reason };
       }
@@ -2260,8 +2381,6 @@ const AgentKitAssistantChatBody = forwardRef<
       isRestoring,
       isThreadRunning,
       props.tabId,
-      providerChecksEnabled,
-      readiness.state,
       setupMissing,
       t,
       threadId,
@@ -2276,38 +2395,13 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       prepare?: () => Promise<PromptComposerSubmitOptions>,
     ) => {
-      const runWasActiveAtSubmit = isThreadRunning();
-      const release = await acquireSubmission();
-      if (!release) {
-        if (
-          providerSubmissionPending &&
-          !props.composerDisabled &&
-          !props.composerSubmissionDisabled
-        ) {
-          try {
-            const preparedOptions = prepare ? await prepare() : composerOptions;
-            const submittedOptions = captureQueuedRunState(
-              preserveQueuedIntent(preparedOptions, composerOptions),
-              runWasActiveAtSubmit,
-            );
-            const result = await submit(
-              text,
-              files,
-              references,
-              submittedOptions,
-            );
-            if (result.status === "rejected") {
-              throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
-            }
-          } catch (error) {
-            dispatchSetupRequiredEvent(error, props.tabId, threadId);
-            throw error;
-          }
-        } else {
-          throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
-        }
-        return;
-      }
+      const runWasActiveAtSubmit = providerReadinessPassRef.current
+        ? (composerPreflightRunActiveRef.current ?? isThreadRunning())
+        : isThreadRunning();
+      composerPreflightRunActiveRef.current = null;
+      const release = await acquireSubmission(true);
+      if (!release)
+        throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
       try {
         const preparedOptions = prepare ? await prepare() : composerOptions;
         await dispatch(
@@ -2333,8 +2427,6 @@ const AgentKitAssistantChatBody = forwardRef<
       props.composerDisabled,
       props.composerSubmissionDisabled,
       props.tabId,
-      providerSubmissionPending,
-      submit,
       t,
       threadId,
     ],
@@ -3102,7 +3194,9 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       ? []
       : getAgentKitThreadHandoffMessages(thread, surface.handoffSnapshot);
   const guided = useGuidedQuestionFlow({
-    enabled: surface.props.isActiveComposer !== false,
+    enabled:
+      surface.props.isActiveComposer !== false &&
+      surface.props.showGuidedQuestions !== false,
     stateKey: "guided-questions",
     queryKey: ["guided-questions", "agentkit"],
     browserTabId: surface.props.browserTabId,
@@ -3337,7 +3431,8 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           </span>
         </div>
       ) : null}
-      {guided.questions?.length ? (
+      {surface.props.showGuidedQuestions !== false &&
+      guided.questions?.length ? (
         <div className="px-3 pb-3">
           <GuidedQuestionFlow
             questions={guided.questions}
@@ -3797,8 +3892,9 @@ function AgentKitComposerSurface({
           }
         />
       ) : null}
-      {modelListUnavailable ||
-      (!canChat && !setupMissing && providerStatus !== "configured") ? (
+      {!setupMissing &&
+      (modelListUnavailable ||
+        (!canChat && providerStatus !== "configured")) ? (
         <GuidedQuestionProviderGate
           providerStatus={providerStatus}
           modelListUnavailable={modelListUnavailable}
@@ -3911,7 +4007,23 @@ function AgentKitComposerSurface({
               {props.composerToolbarSlot}
             </>
           }
-          extraActionButton={props.composerExtraActionButton}
+          extraActionButton={
+            <>
+              {props.composerExtraActionButton}
+              {composerSubmissionPending ? (
+                <span
+                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                  role="status"
+                  aria-live="polite"
+                  aria-label={t("agentChat.common.waiting")}
+                  data-testid="provider-preflight-pending"
+                >
+                  <IconLoader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+                  <span>{t("agentChat.common.waiting")}</span>
+                </span>
+              ) : null}
+            </>
+          }
           includeDefaultSlashCommands
           includeDefaultSlashSkills
           onSlashCommand={props.onSlashCommand}

@@ -694,7 +694,6 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("./audiences.js", () => ({
-  refreshSlackPrivateChannelAudience: vi.fn(async () => undefined),
   ensureCaptureAudience: vi.fn(async ({ captureId }: { captureId: string }) => {
     await mocks.audienceHook.value?.(captureId);
     if (
@@ -797,10 +796,7 @@ import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
-import {
-  ensureCaptureAudience,
-  refreshSlackPrivateChannelAudience,
-} from "./audiences.js";
+import { ensureCaptureAudience } from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   applyRedactions,
@@ -4085,8 +4081,8 @@ describe("Brain connector smoke coverage", () => {
     ).toEqual(segments.map((segment) => segment.text));
   });
 
-  it("refreshes private-channel membership even when no new messages exist", async () => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+  function privateSlackChannelFetch() {
+    return vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(requestString(input));
       if (url.pathname.endsWith("/conversations.info")) {
         return Response.json({
@@ -4100,261 +4096,10 @@ describe("Brain connector smoke coverage", () => {
           },
         });
       }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({ ok: true, members: ["U123", "U456"] });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        const email =
-          url.searchParams.get("user") === "U123"
-            ? "ada@example.test"
-            : "grace@example.test";
-        return Response.json({ ok: true, user: { profile: { email } } });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
-        return Response.json({ ok: true, messages: [], has_more: false });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-    const source = seedSource({
-      id: "slack-private-idle-source",
-      provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123"] }),
-    });
-
-    const result = await runConnectorSync(source as never);
-
-    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
-    expect(refreshSlackPrivateChannelAudience).toHaveBeenCalledWith({
-      source,
-      channelId: "G123",
-      memberEmails: ["ada@example.test", "grace@example.test"],
-    });
-    expect(ensureCaptureAudience).not.toHaveBeenCalled();
-  });
-
-  it("refreshes an idle audience with a revoked Slack member removed", async () => {
-    let memberIds = ["U123", "U456"];
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({ ok: true, members: memberIds });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        const email =
-          url.searchParams.get("user") === "U123"
-            ? "ada@example.test"
-            : "grace@example.test";
-        return Response.json({ ok: true, user: { profile: { email } } });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
-        return Response.json({ ok: true, messages: [], has_more: false });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-    const source = seedSource({
-      id: "slack-private-revoked-source",
-      provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123"] }),
-    });
-
-    await runConnectorSync(source as never);
-    memberIds = ["U123"];
-    const result = await runConnectorSync(source as never);
-
-    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
-    expect(vi.mocked(refreshSlackPrivateChannelAudience).mock.calls).toEqual([
-      [
-        {
-          source,
-          channelId: "G123",
-          memberEmails: ["ada@example.test", "grace@example.test"],
-        },
-      ],
-      [{ source, channelId: "G123", memberEmails: ["ada@example.test"] }],
-    ]);
-  });
-
-  it.each([
-    ["bot-only", ["UBOT"]],
-    ["empty", []],
-  ])(
-    "revokes a private audience with a verified %s roster",
-    async (label, removedIds) => {
-      let memberIds = ["U123"];
-      const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(requestString(input));
-        if (url.pathname.endsWith("/conversations.info")) {
-          return Response.json({
-            ok: true,
-            channel: {
-              id: "G123",
-              name: "leadership",
-              is_group: true,
-              is_private: true,
-              is_archived: false,
-            },
-          });
-        }
-        if (url.pathname.endsWith("/conversations.members")) {
-          return Response.json({ ok: true, members: memberIds });
-        }
-        if (url.pathname.endsWith("/users.info")) {
-          return Response.json({
-            ok: true,
-            user:
-              url.searchParams.get("user") === "UBOT"
-                ? { is_bot: true }
-                : { profile: { email: "ada@example.test" } },
-          });
-        }
-        if (url.pathname.endsWith("/conversations.history")) {
-          return Response.json({ ok: true, messages: [], has_more: false });
-        }
-        return Response.json({ ok: false, error: "unexpected_method" });
-      });
-      vi.stubGlobal("fetch", fetchSpy);
-      const source = seedSource({
-        id: `slack-private-${label}-source`,
-        provider: "slack",
-        configJson: JSON.stringify({ channelIds: ["G123"] }),
-      });
-
-      await runConnectorSync(source as never);
-      memberIds = removedIds;
-      const result = await runConnectorSync(source as never);
-
-      expect(result).toMatchObject({
-        status: "success",
-        capturesCreated: 0,
-        stats: { rejectedChannels: 1 },
-      });
-      expect(vi.mocked(refreshSlackPrivateChannelAudience).mock.calls).toEqual([
-        [{ source, channelId: "G123", memberEmails: ["ada@example.test"] }],
-        [{ source, channelId: "G123", memberEmails: [] }],
-      ]);
-      expect(ensureCaptureAudience).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each([
-    ["unresolved email", { members: ["U123"] }],
-    ["missing roster", {}],
-  ])("does not refresh a private audience with %s", async (_label, roster) => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({ ok: true, ...roster });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        return Response.json({ ok: true, user: { profile: {} } });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-    const source = seedSource({
-      id: "slack-private-unresolved-source",
-      provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123"] }),
-    });
-
-    const result = await runConnectorSync(source as never);
-
-    expect(result).toMatchObject({
-      status: "success",
-      capturesCreated: 0,
-      stats: { rejectedChannels: 1 },
-    });
-    expect(refreshSlackPrivateChannelAudience).not.toHaveBeenCalled();
-    expect(ensureCaptureAudience).not.toHaveBeenCalled();
-  });
-
-  it("revokes a verified empty audience during thread-only refresh", async () => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({ ok: true, members: ["UBOT"] });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        return Response.json({ ok: true, user: { is_bot: true } });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-    const source = seedSource({
-      id: "slack-private-thread-empty-source",
-      provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123"] }),
-    });
-
-    await expect(
-      refreshSlackThreadCapture(
-        source as never,
-        JSON.stringify({ channelId: "G123", threadTs: "1770919200.000100" }),
-      ),
-    ).rejects.toThrow("no human members");
-    expect(refreshSlackPrivateChannelAudience).toHaveBeenCalledWith({
-      source,
-      channelId: "G123",
-      memberEmails: [],
-    });
-    expect(ensureCaptureAudience).not.toHaveBeenCalled();
-  });
-
-  it("paginates private Slack membership before deriving the member-scoped audience", async () => {
-    const membershipCursors: Array<string | null> = [];
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
+      if (
+        url.pathname.endsWith("/conversations.history") ||
+        url.pathname.endsWith("/conversations.replies")
+      ) {
         return Response.json({
           ok: true,
           messages: [
@@ -4364,45 +4109,6 @@ describe("Brain connector smoke coverage", () => {
               ts: "1770919200.000100",
             },
           ],
-        });
-      }
-      if (url.pathname.endsWith("/conversations.replies")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        const cursor = url.searchParams.get("cursor");
-        membershipCursors.push(cursor);
-        return cursor === "members-page-2"
-          ? Response.json({ ok: true, members: ["U789"] })
-          : Response.json({
-              ok: true,
-              members: ["U123", "U456"],
-              response_metadata: { next_cursor: "members-page-2" },
-            });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        const user = url.searchParams.get("user");
-        return Response.json({
-          ok: true,
-          user: {
-            profile: {
-              email:
-                user === "U123"
-                  ? "ada@example.test"
-                  : user === "U456"
-                    ? "grace@example.test"
-                    : "lin@example.test",
-            },
-          },
         });
       }
       if (url.pathname.endsWith("/chat.getPermalink")) {
@@ -4414,6 +4120,19 @@ describe("Brain connector smoke coverage", () => {
       }
       return Response.json({ ok: false, error: "unexpected_method" });
     });
+  }
+
+  function slackMemberLookupCalls(fetchSpy: ReturnType<typeof vi.fn>) {
+    return fetchSpy.mock.calls.filter((call) => {
+      const url = requestString(call[0]);
+      return (
+        url.includes("conversations.members") || url.includes("users.info")
+      );
+    });
+  }
+
+  it("captures invited private channels into the org audience without a member lookup", async () => {
+    const fetchSpy = privateSlackChannelFetch();
     vi.stubGlobal("fetch", fetchSpy);
     const source = seedSource({
       id: "slack-private-source",
@@ -4423,205 +4142,79 @@ describe("Brain connector smoke coverage", () => {
 
     const result = await runConnectorSync(source as never);
 
-    expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
-    expect(membershipCursors).toEqual([null, "members-page-2"]);
-    expect(
-      fetchSpy.mock.calls.filter((call) =>
-        requestString(call[0]).includes("users.info"),
-      ),
-    ).toHaveLength(3);
-    expect(JSON.stringify(result.captures[0]?.metadata)).not.toContain(
-      "ada@example.test",
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { scannedChannels: 1, rejectedChannels: 0 },
+    });
+    expect(slackMemberLookupCalls(fetchSpy)).toHaveLength(0);
+    expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "org", upstreamRefHash: "G123" }),
+    );
+    expect(vi.mocked(ensureCaptureAudience)).not.toHaveBeenCalledWith(
+      expect.objectContaining({ memberEmails: expect.anything() }),
     );
   });
 
-  it("ignores Slack bot and app members when deriving a private-channel audience", async () => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({
-          ok: true,
-          members: ["U123", "BAGENT", "APP1", "UDELETED"],
-        });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        const user = url.searchParams.get("user");
-        if (user === "BAGENT") {
-          return Response.json({ ok: true, user: { is_bot: true } });
-        }
-        if (user === "APP1") {
-          return Response.json({ ok: true, user: { is_app_user: true } });
-        }
-        if (user === "UDELETED") {
-          return Response.json({ ok: true, user: { deleted: true } });
-        }
-        return Response.json({
-          ok: true,
-          user: { profile: { email: "ada@example.test" } },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/conversations.replies")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/chat.getPermalink")) {
-        return Response.json({
-          ok: true,
-          permalink:
-            "https://example.slack.com/archives/G123/p1770919200000100",
-        });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
+  it("refreshes a private-channel thread into the org audience without a member lookup", async () => {
+    const fetchSpy = privateSlackChannelFetch();
     vi.stubGlobal("fetch", fetchSpy);
     const source = seedSource({
-      id: "slack-private-bot-source",
+      id: "slack-private-thread-source",
       provider: "slack",
       configJson: JSON.stringify({ channelIds: ["G123"] }),
     });
 
-    const result = await runConnectorSync(source as never);
+    await refreshSlackThreadCapture(
+      source as never,
+      JSON.stringify({ channelId: "G123", threadTs: "1770919200.000100" }),
+    );
 
-    expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
-    expect(
-      fetchSpy.mock.calls.filter((call) =>
-        requestString(call[0]).includes("users.info"),
-      ),
-    ).toHaveLength(4);
+    expect(slackMemberLookupCalls(fetchSpy)).toHaveLength(0);
     expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: "slack-private-channel",
-        memberEmails: ["ada@example.test"],
-        upstreamRefHash: "G123",
-      }),
+      expect.objectContaining({ kind: "org", upstreamRefHash: "G123" }),
     );
   });
 
-  it("caches private Slack member emails and bounds concurrent user lookups within a sync", async () => {
-    let activeUserLookups = 0;
-    let maxActiveUserLookups = 0;
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      const channelId = url.searchParams.get("channel") ?? "G123";
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: channelId,
-            name: channelId === "G123" ? "leadership" : "strategy",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({
-          ok: true,
-          members:
-            channelId === "G123"
-              ? ["USHARED", "U1", "U2", "U3", "U4", "U5"]
-              : ["USHARED", "U6"],
-        });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        activeUserLookups += 1;
-        maxActiveUserLookups = Math.max(
-          maxActiveUserLookups,
-          activeUserLookups,
-        );
-        await new Promise((resolve) => setTimeout(resolve, 1));
-        activeUserLookups -= 1;
-        return Response.json({
-          ok: true,
-          user: {
-            profile: {
-              email: `${url.searchParams.get("user")?.toLowerCase()}@example.test`,
-            },
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/conversations.replies")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/chat.getPermalink")) {
-        return Response.json({
-          ok: true,
-          permalink: `https://example.slack.com/archives/${channelId}/p1770919200000100`,
-        });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
+  it("still rejects a private channel configured by name instead of ID", async () => {
+    const historyCalls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        const channel = {
+          id: "G123",
+          name: "leadership",
+          is_group: true,
+          is_private: true,
+          is_archived: false,
+        };
+        if (url.pathname.endsWith("/conversations.list")) {
+          return Response.json({ ok: true, channels: [channel] });
+        }
+        if (url.pathname.endsWith("/conversations.info")) {
+          return Response.json({ ok: true, channel });
+        }
+        if (url.pathname.endsWith("/conversations.history")) {
+          historyCalls.push(url.searchParams.get("channel") ?? "");
+        }
+        return Response.json({ ok: false, error: "unexpected_method" });
+      }),
+    );
     const source = seedSource({
-      id: "slack-private-cache-source",
+      id: "slack-private-by-name-source",
       provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123", "G456"] }),
+      configJson: JSON.stringify({ channels: ["#leadership"] }),
     });
 
     const result = await runConnectorSync(source as never);
 
-    expect(result).toMatchObject({ status: "success", capturesCreated: 2 });
-    expect(
-      fetchSpy.mock.calls.filter((call) =>
-        requestString(call[0]).includes("users.info"),
-      ),
-    ).toHaveLength(7);
-    expect(maxActiveUserLookups).toBeGreaterThan(1);
-    expect(maxActiveUserLookups).toBeLessThanOrEqual(4);
+    expect(result).toMatchObject({
+      capturesCreated: 0,
+      stats: { rejectedChannels: 1, scannedChannels: 0 },
+    });
+    expect(historyCalls).toEqual([]);
+    expect(ensureCaptureAudience).not.toHaveBeenCalled();
   });
 
   it("discovers every paginated public channel while applying workspace exclusions", async () => {

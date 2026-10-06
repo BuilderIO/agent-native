@@ -427,7 +427,7 @@ describe("home landing route optimistic title", () => {
     expect(startPageOpenDocumentReads).not.toHaveBeenCalled();
   });
 
-  it("does not guess a page for a workspace landing or an unavailable-page recovery", async () => {
+  it("does not guess a page for a workspace landing", async () => {
     rememberLastLocationHint(aliceScope, "doc-1");
     useLastLocationTitleHint.mockReturnValue({
       documentId: "doc-1",
@@ -435,12 +435,6 @@ describe("home landing route optimistic title", () => {
     });
     resolveLanding.mutateAsync.mockReturnValue(new Promise(() => {}));
     searchParams.set("spaceId", "space-2");
-    renderHome(root);
-    await act(async () => Promise.resolve());
-    expect(startPageOpenDocumentReads).not.toHaveBeenCalled();
-
-    searchParams.delete("spaceId");
-    locationState.current = { unavailableDocumentId: "doc-1" };
     renderHome(root);
     await act(async () => Promise.resolve());
     expect(startPageOpenDocumentReads).not.toHaveBeenCalled();

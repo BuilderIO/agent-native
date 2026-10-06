@@ -55,6 +55,15 @@ const SLOW_EDITOR_RUNTIME_REGEX_CASES = [
   [false, "add it to memory so you remember next time"],
   [false, "the list query is so slow in production"],
 ];
+const AUTH_PAGE_BACKGROUND_REGRESSION_RE =
+  /\b(?:signup|sign[ -]?in|auth(?:entication)?|homepage|home page)\b[^.!?\n]{0,200}\b(?:wave|background|graphic|welcome|webgl)\b[^.!?\n]{0,100}\b(?:again|over and over|revert\w*|wrong|missing|flash|not|should always|never)\b|\b(?:welcome|fallback|graphic)\b[^.!?\n]{0,100}\b(?:flash|revert\w*|wrong|missing|not)\b[^.!?\n]{0,100}\b(?:signup|sign[ -]?in|auth(?:entication)?|homepage|home page)\b/i;
+const AUTH_PAGE_BACKGROUND_REGRESSION_CASES = [
+  [true, "Signup pages should always show the WebGL wave, not this graphic."],
+  [true, "The wrong sign-in background has come back again."],
+  [true, "Why does the Welcome fallback flash on the sign-in page?"],
+  [false, "The sign-in page uses the shared wave background."],
+  [false, "The homepage hero uses a WebGL wave."],
+];
 const RESOURCE_CLEANUP_REGEX_CASES = [
   [
     true,
@@ -2006,6 +2015,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...AUTH_PAGE_BACKGROUND_REGRESSION_CASES.filter(
+      ([expected, message]) =>
+        AUTH_PAGE_BACKGROUND_REGRESSION_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...SHIPPING_CHURN_REGEX_CASES.filter(
       ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
     ),
@@ -2108,7 +2123,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2183,6 +2198,13 @@ const PATTERNS = [
     label: "Reported done while still broken",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
     re: /\b(you (said|claimed) (you )?fixed|third time|still (broken|not working|happening)|didn'?t (actually )?(work|fix)|not (actually )?fixed)\b/i,
+  },
+  {
+    key: "auth-page-background-regression",
+    label: "Had to repeat the sign-in wave or no-flash requirement",
+    fixedBy:
+      ".agents/skills/authentication + Toolkit auth SSR and shared wave regression tests (2026-10-05)",
+    re: AUTH_PAGE_BACKGROUND_REGRESSION_RE,
   },
   {
     key: "ssr-cache-regression",
@@ -2360,6 +2382,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback (2026-09-01 three-question budget)",
     re: /\b(?:too many|so many|stop asking|spam(?:ming|med)?|carpet|blast(?:ed|ing)?|barrage|flood(?:ed|ing)?)\b[^.!?\n]{0,80}\b(?:questions?|asks?|replies|messages?|threads?)\b|\b(?:questions?|asks?|replies|messages?)\b[^.!?\n]{0,60}\b(?:odd|weird|strange|pointless|useless|low[- ]value|generic|templated|robotic|noisy|annoying)\b|\b(?:don['’]?t|do not|stop|quit)\b[^.!?\n]{0,60}\b(?:ask(?:ing)?|reply(?:ing)?|post(?:ing)?)\b[^.!?\n]{0,60}\b(?:every|each|all)\b[^.!?\n]{0,40}\b(?:thread|report|message|item)\b/i,
+  },
+  {
+    key: "feedback-channel-coverage",
+    label: "Had to ask for another feedback channel to be scanned",
+    fixedBy:
+      ".agents/skills/review-latest-feedback (default channel coverage, 2026-10-05)",
+    re: /\b(?:also|add|include|check|scan|review)\b[^.!?\n]{0,120}\b(?:the\s+)?#?[\w-]*feedback(?:[-\s]+channel)?\b|\b(?:missed|skipped|ignored|excluded)\b[^.!?\n]{0,100}\b#?[\w-]*feedback\b/i,
   },
   {
     key: "cross-thread-interference",

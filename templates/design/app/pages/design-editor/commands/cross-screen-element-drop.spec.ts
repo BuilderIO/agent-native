@@ -68,6 +68,7 @@ function acceptFixture(fileId: string, content: string) {
 function runStoredCrossScreenDrop(args: {
   sourceContent: string;
   destinationContent: string;
+  boardFileId?: string;
   refusePersistFalseFor?: string[];
   drop: Parameters<typeof runCrossScreenElementDrop>[1];
   publish?: Parameters<
@@ -164,7 +165,7 @@ function runStoredCrossScreenDrop(args: {
   runCrossScreenElementDrop(
     {
       applyFileContentUpdate,
-      boardFileId: undefined,
+      boardFileId: args.boardFileId,
       canEditDesign: true,
       clearPendingOverviewLayerSelectionTimer: () => {},
       codeLayerOwnerByNodeIdRef: { current: new Map() },
@@ -1065,6 +1066,80 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
 });
 
 describe("runCrossScreenElementDrop ordinary move routing", () => {
+  it("persists an unanchored board drop in authored coordinates outside the render window", () => {
+    const renderOrigin = { x: -16_384, y: -8_192 };
+    const targetCanvasPoint = { x: -18_099.98, y: -9_234.5 };
+    const targetLocalPoint = {
+      x: targetCanvasPoint.x - renderOrigin.x,
+      y: targetCanvasPoint.y - renderOrigin.y,
+    };
+    const sourcePointerOffset = { x: 32, y: 12 };
+    const sourceContent = `<!DOCTYPE html><html><body><div data-agent-native-node-id="widget" style="position:absolute;left:10px;top:20px;width:64px;height:32px">Widget</div></body></html>`;
+    const { writes } = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: EMPTY_SCREEN,
+      boardFileId: "target",
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="widget"]',
+        sourceNodeId: "widget",
+        sourceProvenance: { uniqueNodeId: "widget" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetDropMode: "absolute-container",
+        targetCanvasPoint,
+        targetOutsideBoardRenderGeometry: true,
+        targetLocalPoint,
+        sourcePointerOffset,
+      },
+    });
+
+    const persistedWidget = new DOMParser()
+      .parseFromString(writes.get("target") ?? "", "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="widget"]');
+    expect(persistedWidget).not.toBeNull();
+    expect(Number.parseFloat(persistedWidget!.style.left)).toBe(
+      Math.round(targetCanvasPoint.x - sourcePointerOffset.x),
+    );
+    expect(Number.parseFloat(persistedWidget!.style.top)).toBe(
+      Math.round(targetCanvasPoint.y - sourcePointerOffset.y),
+    );
+  });
+
+  it("keeps render-window-local coordinates for an in-window board drop", () => {
+    const targetCanvasPoint = { x: 8_276, y: 5_000 };
+    const targetLocalPoint = { x: 84, y: 904 };
+    const sourcePointerOffset = { x: 32, y: 12 };
+    const sourceContent = `<!DOCTYPE html><html><body><div data-agent-native-node-id="widget" style="position:absolute;left:10px;top:20px;width:64px;height:32px">Widget</div></body></html>`;
+    const { writes } = runStoredCrossScreenDrop({
+      sourceContent,
+      destinationContent: EMPTY_SCREEN,
+      boardFileId: "target",
+      drop: {
+        sourceSelector: '[data-agent-native-node-id="widget"]',
+        sourceNodeId: "widget",
+        sourceProvenance: { uniqueNodeId: "widget" },
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        targetDropMode: "absolute-container",
+        targetCanvasPoint,
+        targetOutsideBoardRenderGeometry: false,
+        targetLocalPoint,
+        sourcePointerOffset,
+      },
+    });
+
+    const persistedWidget = new DOMParser()
+      .parseFromString(writes.get("target") ?? "", "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="widget"]');
+    expect(persistedWidget).not.toBeNull();
+    expect(Number.parseFloat(persistedWidget!.style.left)).toBe(
+      targetLocalPoint.x - sourcePointerOffset.x,
+    );
+    expect(Number.parseFloat(persistedWidget!.style.top)).toBe(
+      targetLocalPoint.y - sourcePointerOffset.y,
+    );
+  });
+
   it("preserves resolved dimensions only when a drop converts auto layout to absolute positioning", () => {
     const sourceContent = `<!DOCTYPE html><html><body><section style="display:flex"><div data-agent-native-node-id="flow-child" style="flex:0 0 100px;height:50px"></div></section></body></html>`;
     const styleSnapshot = {

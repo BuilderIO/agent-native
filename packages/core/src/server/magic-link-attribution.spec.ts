@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deriveLastTouchAttribution,
+  deriveSignupAttribution,
+} from "./attribution.js";
+import {
   decodeMagicLinkSignupAttribution,
   encodeMagicLinkSignupAttribution,
   MAGIC_LINK_ATTRIBUTION_PARAM,
@@ -11,6 +15,44 @@ const SECRET = "test-magic-link-attribution-secret";
 const NOW = Date.parse("2026-08-12T16:00:00.000Z");
 
 describe("magic-link attribution handoff", () => {
+  it("carries every first- and last-touch property a signup can have", () => {
+    const touch = {
+      ref: "steve",
+      via: "owner_42",
+      utm_source: "youtube",
+      utm_medium: "video",
+      utm_campaign: "launch",
+      utm_content: "intro",
+      utm_term: "agents",
+      gclid: "g-1",
+      msclkid: "m-1",
+      vector_source: "v-1",
+      landing_path: "/",
+      landing_referrer: "www.youtube.com",
+      site_referrer: "github.com",
+      capture_truncated: "1",
+    };
+    const attribution = {
+      ...deriveSignupAttribution({ ...touch, site_landing_path: "/apps" }),
+      ...deriveLastTouchAttribution({
+        ...touch,
+        site_landing_path: "/blog/launch",
+        touched_at: "2026-08-12T15:00:00.000Z",
+      }),
+    };
+    expect(Object.keys(attribution)).toHaveLength(34);
+
+    const token = encodeMagicLinkSignupAttribution(
+      { attribution },
+      SECRET,
+      NOW,
+    );
+
+    expect(decodeMagicLinkSignupAttribution(token, SECRET, NOW)).toEqual({
+      attribution,
+    });
+  });
+
   it("round-trips attribution through Better Auth's verification URL", () => {
     const token = encodeMagicLinkSignupAttribution(
       {
