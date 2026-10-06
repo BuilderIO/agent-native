@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 
 import { getDbExec } from "@agent-native/core/db";
-import { getRequestRunContext } from "@agent-native/core/server";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { resolveCredential } from "./credentials";
@@ -140,6 +139,7 @@ interface CacheFence {
   generation: number;
   fenceToken: string | null;
   refreshInProgress: boolean;
+  refreshForced: boolean;
 }
 
 function getCacheKey(
@@ -195,17 +195,23 @@ async function getCacheFence(key: string): Promise<CacheFence> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const db = getDbExec();
     const { rows } = await db.execute({
-      sql: "SELECT generation, fence_token, refresh_in_progress, refresh_started_at FROM bigquery_cache WHERE key = $1",
+      sql: "SELECT generation, fence_token, refresh_in_progress, refresh_forced, refresh_started_at FROM bigquery_cache WHERE key = $1",
       args: [key],
     });
     if (!rows.length) {
-      return { generation: 0, fenceToken: null, refreshInProgress: false };
+      return {
+        generation: 0,
+        fenceToken: null,
+        refreshInProgress: false,
+        refreshForced: false,
+      };
     }
 
     const entry = rows[0] as {
       generation: unknown;
       fence_token: unknown;
       refresh_in_progress: unknown;
+      refresh_forced: unknown;
       refresh_started_at: unknown;
     };
     const generation = Number(entry.generation);
@@ -217,8 +223,14 @@ async function getCacheFence(key: string): Promise<CacheFence> {
     }
     const fenceToken = entry.fence_token;
     const refreshInProgress = entry.refresh_in_progress === true;
+    const refreshForced = entry.refresh_forced === true;
     if (!refreshInProgress) {
-      return { generation, fenceToken, refreshInProgress: false };
+      return {
+        generation,
+        fenceToken,
+        refreshInProgress: false,
+        refreshForced,
+      };
     }
 
     if (typeof entry.refresh_started_at !== "string") {
@@ -229,12 +241,17 @@ async function getCacheFence(key: string): Promise<CacheFence> {
       throw new Error("BigQuery cache refresh timestamp is invalid");
     }
     if (Date.now() - refreshStartedAt <= STALE_REFRESH_MS) {
-      return { generation, fenceToken, refreshInProgress: true };
+      return {
+        generation,
+        fenceToken,
+        refreshInProgress: true,
+        refreshForced,
+      };
     }
 
-    // A terminated request must not leave forced refreshes blocked indefinitely.
+    // A terminated request must not leave cache queries blocked indefinitely.
     const released = await db.execute({
-      sql: "UPDATE bigquery_cache SET refresh_in_progress = FALSE, refresh_started_at = NULL WHERE key = $1 AND generation = $2 AND fence_token IS NOT DISTINCT FROM $5 AND refresh_in_progress = TRUE AND refresh_started_at = $3 AND refresh_started_at < $4 RETURNING key",
+      sql: "UPDATE bigquery_cache SET refresh_in_progress = FALSE, refresh_forced = FALSE, refresh_started_at = NULL WHERE key = $1 AND generation = $2 AND fence_token IS NOT DISTINCT FROM $5 AND refresh_in_progress = TRUE AND refresh_started_at = $3 AND refresh_started_at < $4 RETURNING key",
       args: [
         key,
         generation,
@@ -244,22 +261,28 @@ async function getCacheFence(key: string): Promise<CacheFence> {
       ],
     });
     if (released.rows.length) {
-      return { generation, fenceToken, refreshInProgress: false };
+      return {
+        generation,
+        fenceToken,
+        refreshInProgress: false,
+        refreshForced: false,
+      };
     }
   }
   throw new Error("BigQuery cache refresh state changed repeatedly");
 }
 
-async function beginForcedRefresh(
+async function beginCacheQuery(
   key: string,
   sql: string,
+  forced: boolean,
 ): Promise<CacheFence | null> {
   const now = new Date().toISOString();
   const fenceToken = randomUUID();
   const staleBefore = new Date(Date.now() - STALE_REFRESH_MS).toISOString();
   const { rows } = await getDbExec().execute({
-    sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at, generation, fence_token, refresh_in_progress, refresh_started_at) VALUES ($1, $2, '{}', 0, $3, $3, 1, $5, TRUE, $3) ON CONFLICT (key) DO UPDATE SET sql = EXCLUDED.sql, generation = bigquery_cache.generation + 1, fence_token = EXCLUDED.fence_token, refresh_in_progress = TRUE, refresh_started_at = EXCLUDED.refresh_started_at WHERE bigquery_cache.refresh_in_progress = FALSE OR bigquery_cache.refresh_started_at < $4 RETURNING generation, fence_token",
-    args: [key, sql, now, staleBefore, fenceToken],
+    sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at, generation, fence_token, refresh_in_progress, refresh_started_at, refresh_forced) VALUES ($1, $2, '{}', 0, $3, $3, 1, $5, TRUE, $3, $6) ON CONFLICT (key) DO UPDATE SET sql = EXCLUDED.sql, generation = bigquery_cache.generation + 1, fence_token = EXCLUDED.fence_token, refresh_in_progress = TRUE, refresh_started_at = EXCLUDED.refresh_started_at, refresh_forced = EXCLUDED.refresh_forced WHERE bigquery_cache.refresh_in_progress = FALSE OR bigquery_cache.refresh_started_at < $4 RETURNING generation, fence_token",
+    args: [key, sql, now, staleBefore, fenceToken, forced],
   });
   if (!rows.length) return null;
   const row = rows[0] as { generation?: unknown; fence_token?: unknown };
@@ -271,79 +294,26 @@ async function beginForcedRefresh(
   ) {
     throw new Error("Could not establish BigQuery cache refresh fence");
   }
-  return { generation, fenceToken, refreshInProgress: true };
+  return {
+    generation,
+    fenceToken,
+    refreshInProgress: true,
+    refreshForced: forced,
+  };
 }
 
 async function getL2(key: string): Promise<QueryResult | null> {
-  try {
-    const db = getDbExec();
-    const { rows } = await db.execute({
-      sql: "SELECT result FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
-      args: [key, new Date().toISOString()],
-    });
-    if (!rows.length) return null;
-    const raw = (rows[0] as { result: string }).result;
-    return JSON.parse(raw) as QueryResult;
-  } catch (err) {
-    console.warn("[bigquery] L2 cache read failed:", err);
-    return null;
-  }
+  const db = getDbExec();
+  const { rows } = await db.execute({
+    sql: "SELECT result FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
+    args: [key, new Date().toISOString()],
+  });
+  if (!rows.length) return null;
+  const raw = (rows[0] as { result: string }).result;
+  return JSON.parse(raw) as QueryResult;
 }
 
-async function setL2(
-  key: string,
-  sql: string,
-  result: QueryResult,
-  fence: CacheFence,
-): Promise<CacheFence | null> {
-  try {
-    const db = getDbExec();
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + CACHE_TTL_MS);
-    const serialized = JSON.stringify(result);
-    const nextFence = {
-      generation: fence.generation + 1,
-      fenceToken: randomUUID(),
-      refreshInProgress: false,
-    } satisfies CacheFence;
-    const { rows } = await db.execute({
-      sql: "INSERT INTO bigquery_cache (key, sql, result, bytes_processed, created_at, expires_at, generation, fence_token, refresh_in_progress, refresh_started_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, NULL) ON CONFLICT (key) DO UPDATE SET sql = EXCLUDED.sql, result = EXCLUDED.result, bytes_processed = EXCLUDED.bytes_processed, created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at, generation = EXCLUDED.generation, fence_token = EXCLUDED.fence_token WHERE bigquery_cache.generation = $9 AND bigquery_cache.fence_token IS NOT DISTINCT FROM $10 AND bigquery_cache.refresh_in_progress = FALSE RETURNING generation, fence_token",
-      args: [
-        key,
-        sql,
-        serialized,
-        result.bytesProcessed ?? 0,
-        now.toISOString(),
-        expiresAt.toISOString(),
-        nextFence.generation,
-        nextFence.fenceToken,
-        fence.generation,
-        fence.fenceToken,
-      ],
-    });
-    if (!rows.length) return null;
-    const row = rows[0] as { generation?: unknown; fence_token?: unknown };
-    const generation = Number(row.generation);
-    if (
-      generation !== nextFence.generation ||
-      row.fence_token !== nextFence.fenceToken
-    ) {
-      throw new Error("BigQuery cache fence changed during write");
-    }
-    if (Math.random() < 0.01) {
-      await db.execute({
-        sql: "DELETE FROM bigquery_cache WHERE expires_at <= $1 AND refresh_in_progress = FALSE",
-        args: [now.toISOString()],
-      });
-    }
-    return { ...nextFence, generation };
-  } catch (err) {
-    console.warn("[bigquery] L2 cache write failed:", err);
-    return null;
-  }
-}
-
-async function finishForcedRefresh(
+async function finishCacheQuery(
   key: string,
   sql: string,
   result: QueryResult,
@@ -354,7 +324,7 @@ async function finishForcedRefresh(
     const now = new Date();
     const expiresAt = new Date(now.getTime() + CACHE_TTL_MS);
     const { rows } = await db.execute({
-      sql: "UPDATE bigquery_cache SET sql = $2, result = $3, bytes_processed = $4, created_at = $5, expires_at = $6, generation = generation + 1, refresh_in_progress = FALSE, refresh_started_at = NULL WHERE key = $1 AND generation = $7 AND fence_token = $8 AND refresh_in_progress = TRUE RETURNING generation, fence_token",
+      sql: "UPDATE bigquery_cache SET sql = $2, result = $3, bytes_processed = $4, created_at = $5, expires_at = $6, generation = generation + 1, refresh_in_progress = FALSE, refresh_forced = FALSE, refresh_started_at = NULL WHERE key = $1 AND generation = $7 AND fence_token = $8 AND refresh_in_progress = TRUE RETURNING generation, fence_token",
       args: [
         key,
         sql,
@@ -376,24 +346,39 @@ async function finishForcedRefresh(
     ) {
       throw new Error("BigQuery cache refresh fence changed during commit");
     }
-    return { ...fence, generation, refreshInProgress: false };
+    if (Math.random() < 0.01) {
+      try {
+        await db.execute({
+          sql: "DELETE FROM bigquery_cache WHERE expires_at <= $1 AND refresh_in_progress = FALSE",
+          args: [now.toISOString()],
+        });
+      } catch (err) {
+        console.warn("[bigquery] Expired cache cleanup failed:", err);
+      }
+    }
+    return {
+      ...fence,
+      generation,
+      refreshInProgress: false,
+      refreshForced: false,
+    };
   } catch (err) {
-    console.warn("[bigquery] Forced cache refresh write failed:", err);
+    console.warn("[bigquery] Cache query write failed:", err);
     return null;
   }
 }
 
-async function releaseForcedRefresh(
+async function releaseCacheQuery(
   key: string,
   fence: CacheFence,
 ): Promise<void> {
   try {
     await getDbExec().execute({
-      sql: "UPDATE bigquery_cache SET refresh_in_progress = FALSE, refresh_started_at = NULL WHERE key = $1 AND generation = $2 AND fence_token = $3 AND refresh_in_progress = TRUE",
+      sql: "UPDATE bigquery_cache SET refresh_in_progress = FALSE, refresh_forced = FALSE, refresh_started_at = NULL WHERE key = $1 AND generation = $2 AND fence_token = $3 AND refresh_in_progress = TRUE",
       args: [key, fence.generation, fence.fenceToken],
     });
   } catch (err) {
-    console.warn("[bigquery] Forced cache refresh release failed:", err);
+    console.warn("[bigquery] Cache query release failed:", err);
   }
 }
 
@@ -417,17 +402,41 @@ async function acquireForcedRefresh(
 ): Promise<{ fence: CacheFence } | { result: QueryResult }> {
   while (true) {
     throwIfAborted(signal);
-    const fence = await beginForcedRefresh(key, sql);
+    const fence = await beginCacheQuery(key, sql, true);
     if (fence) return { fence };
 
     const activeFence = await getCacheFence(key);
     if (!activeFence.refreshInProgress) continue;
 
     const completedFence = await waitForCacheRefresh(key, activeFence, signal);
-    if (completedFence.generation > activeFence.generation) {
+    if (
+      activeFence.refreshForced &&
+      completedFence.generation > activeFence.generation
+    ) {
       const result = await getL2(key);
       if (result) return { result };
     }
+  }
+}
+
+async function acquireCacheQuery(
+  key: string,
+  sql: string,
+  signal?: AbortSignal,
+): Promise<{ fence: CacheFence } | { result: QueryResult }> {
+  while (true) {
+    throwIfAborted(signal);
+    const activeFence = await getCacheFence(key);
+    const cached = await getL2(key);
+    if (cached) return { result: cached };
+
+    if (!activeFence.refreshInProgress) {
+      const fence = await beginCacheQuery(key, sql, false);
+      if (fence) return { fence };
+      continue;
+    }
+
+    await waitForCacheRefresh(key, activeFence, signal);
   }
 }
 
@@ -450,15 +459,6 @@ interface BigQueryField {
   type: string;
   mode?: string;
   fields?: BigQueryField[];
-}
-
-interface BigQueryQueryResponse {
-  schema?: { fields?: BigQueryField[] };
-  rows?: { f: { v: unknown }[] }[];
-  totalRows?: string;
-  totalBytesProcessed?: string;
-  jobComplete?: boolean;
-  jobReference?: { jobId: string };
 }
 
 interface BigQueryGetQueryResultsResponse {
@@ -502,10 +502,14 @@ async function cancelQueryJob(
   projectId: string,
   jobId: string,
   token: string,
+  location?: string,
 ): Promise<void> {
   try {
+    const locationQuery = location
+      ? `?location=${encodeURIComponent(location)}`
+      : "";
     await fetch(
-      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}/cancel`,
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}/cancel${locationQuery}`,
       {
         method: "POST",
         headers: {
@@ -654,53 +658,50 @@ export async function runQuery(
     cacheFence = acquired.fence;
     l1Cache.delete(cacheKey);
   } else {
-    try {
-      cacheFence = await getCacheFence(cacheKey);
-    } catch (err) {
-      console.warn("[bigquery] Cache fence read failed; bypassing cache:", err);
+    // Validate shared generation before L1 so another instance's refresh invalidates local entries.
+    cacheFence = await getCacheFence(cacheKey);
+    const l1Hit = getL1(cacheKey, cacheFence.generation, cacheFence.fenceToken);
+    if (l1Hit) {
+      return { ...l1Hit, cached: true };
     }
-    if (cacheFence) {
-      const l1Hit = getL1(
-        cacheKey,
-        cacheFence.generation,
-        cacheFence.fenceToken,
-      );
-      if (l1Hit) {
-        return { ...l1Hit, cached: true };
-      }
-      const l2Hit = await getL2(cacheKey);
-      if (l2Hit) {
-        setL1(cacheKey, l2Hit, cacheFence);
-        return { ...l2Hit, cached: true };
-      }
-      if (cacheFence.refreshInProgress) {
-        cacheFence = await waitForCacheRefresh(cacheKey, cacheFence, signal);
-        const refreshed = await getL2(cacheKey);
-        if (refreshed) {
-          setL1(cacheKey, refreshed, cacheFence);
-          return { ...refreshed, cached: true };
-        }
-      }
+    const l2Hit = await getL2(cacheKey);
+    if (l2Hit) {
+      setL1(cacheKey, l2Hit, cacheFence);
+      return { ...l2Hit, cached: true };
     }
+    const acquired = await acquireCacheQuery(cacheKey, cacheableSql, signal);
+    if ("result" in acquired) return { ...acquired.result, cached: true };
+    cacheFence = acquired.fence;
+    l1Cache.delete(cacheKey);
   }
 
+  let jobId: string | null = null;
+  let jobLocation: string | undefined;
+  let token: string | null = null;
+  let cancelJob = false;
   try {
-    const token = await getAccessToken();
-    const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`;
-
+    token = await getAccessToken();
     throwIfAborted(signal);
+    jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
+    const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
+
+    // Keep submission alive long enough to read the job location for cancellation.
     const res = await fetch(url, {
       method: "POST",
-      ...(signal ? { signal } : {}),
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        query: cacheableSql,
-        useLegacySql: false,
-        maximumBytesBilled: "750000000000", // 750GB cap
-        ...(forceRefresh ? { useQueryCache: false } : {}),
+        jobReference: { projectId, jobId },
+        configuration: {
+          query: {
+            query: cacheableSql,
+            useLegacySql: false,
+            maximumBytesBilled: "750000000000", // 750GB cap
+            ...(forceRefresh ? { useQueryCache: false } : {}),
+          },
+        },
       }),
     });
 
@@ -709,42 +710,46 @@ export async function runQuery(
       throw new Error(`BigQuery API error ${res.status}: ${text}`);
     }
 
-    let data = (await res.json()) as BigQueryQueryResponse;
+    const insertedJob = (await res.json()) as {
+      jobReference?: { jobId?: string; location?: string };
+    };
+    if (
+      insertedJob.jobReference?.jobId &&
+      insertedJob.jobReference.jobId !== jobId
+    ) {
+      throw new Error("BigQuery did not accept the requested job ID");
+    }
+    jobLocation = insertedJob.jobReference?.location;
 
-    if (!data.jobComplete && data.jobReference?.jobId) {
-      const jobId = data.jobReference.jobId;
-      const resultsUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}`;
-
-      let attempts = 0;
-      try {
-        while (!data.jobComplete && attempts < 60) {
-          await waitForPollInterval(signal);
-          throwIfAborted(signal);
-          const pollRes = await fetch(resultsUrl, {
-            ...(signal ? { signal } : {}),
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-          });
-          if (!pollRes.ok) {
-            const text = await pollRes.text();
-            throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
-          }
-          data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
-          attempts++;
-        }
-      } catch (error) {
-        if (signal?.aborted) {
-          await cancelQueryJob(projectId, jobId, token);
-        }
-        throw error;
+    const locationQuery = jobLocation
+      ? `?location=${encodeURIComponent(jobLocation)}`
+      : "";
+    const resultsUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}${locationQuery}`;
+    let data: BigQueryGetQueryResultsResponse = { jobComplete: false };
+    let attempts = 0;
+    while (!data.jobComplete && attempts < 60) {
+      throwIfAborted(signal);
+      const pollRes = await fetch(resultsUrl, {
+        ...(signal ? { signal } : {}),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!pollRes.ok) {
+        const text = await pollRes.text();
+        throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
       }
-
-      if (!data.jobComplete) {
-        await cancelQueryJob(projectId, jobId, token);
-        throw new Error("BigQuery query timed out after 60 seconds");
+      data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
+      attempts++;
+      if (!data.jobComplete && attempts < 60) {
+        await waitForPollInterval(signal);
       }
+    }
+
+    if (!data.jobComplete) {
+      cancelJob = true;
+      throw new Error("BigQuery query timed out after 60 seconds");
     }
 
     const fields = data.schema?.fields ?? [];
@@ -769,34 +774,25 @@ export async function runQuery(
       ...(totalRows > rows.length ? { truncated: true } : {}),
     };
 
-    if (forceRefresh && cacheFence) {
-      const persisted = await finishForcedRefresh(
+    if (cacheFence) {
+      const persisted = await finishCacheQuery(
         cacheKey,
         cacheableSql,
         result,
         cacheFence,
       );
       if (persisted) setL1(cacheKey, result, persisted);
-      else await releaseForcedRefresh(cacheKey, cacheFence);
-    } else if (cacheFence) {
-      const l2Persistence = setL2(
-        cacheKey,
-        cacheableSql,
-        result,
-        cacheFence,
-      ).then((persisted) => {
-        if (persisted) setL1(cacheKey, result, persisted);
-        return persisted;
-      });
-      const waitUntil = getRequestRunContext()?.waitUntil;
-      if (waitUntil) waitUntil(l2Persistence);
-      else await l2Persistence;
+      else await releaseCacheQuery(cacheKey, cacheFence);
     }
 
     return result;
   } catch (error) {
-    if (forceRefresh && cacheFence) {
-      await releaseForcedRefresh(cacheKey, cacheFence);
+    if (jobId) cancelJob = true;
+    if (cancelJob && jobId && token) {
+      await cancelQueryJob(projectId, jobId, token, jobLocation);
+    }
+    if (cacheFence) {
+      await releaseCacheQuery(cacheKey, cacheFence);
     }
     throw error;
   }

@@ -29,6 +29,25 @@ function jsonResponse(data: unknown): Response {
   } as Response;
 }
 
+function mockQueryJobs(...results: Response[]) {
+  const pendingResults = [...results];
+  return vi
+    .fn<typeof globalThis.fetch>()
+    .mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/jobs")) {
+        const request = JSON.parse(String(init?.body)) as {
+          jobReference: { jobId: string; projectId: string };
+        };
+        return jsonResponse({ jobReference: request.jobReference });
+      }
+      const result = pendingResults.shift();
+      if (!result)
+        throw new Error(`No BigQuery poll response configured for ${url}`);
+      return result;
+    });
+}
+
 function useCacheDatabase(): Map<
   string,
   {
@@ -36,6 +55,7 @@ function useCacheDatabase(): Map<
     generation: number;
     fenceToken: string | null;
     refreshInProgress: boolean;
+    refreshForced: boolean;
     refreshStartedAt: string | null;
     expiresAt: string;
   }
@@ -47,6 +67,7 @@ function useCacheDatabase(): Map<
       generation: number;
       fenceToken: string | null;
       refreshInProgress: boolean;
+      refreshForced: boolean;
       refreshStartedAt: string | null;
       expiresAt: string;
     }
@@ -62,6 +83,7 @@ function useCacheDatabase(): Map<
                 generation: entry.generation,
                 fence_token: entry.fenceToken,
                 refresh_in_progress: entry.refreshInProgress,
+                refresh_forced: entry.refreshForced,
                 refresh_started_at: entry.refreshStartedAt,
               },
             ]
@@ -86,6 +108,7 @@ function useCacheDatabase(): Map<
         generation: (entry?.generation ?? 0) + 1,
         fenceToken: String(args[4]),
         refreshInProgress: true,
+        refreshForced: Boolean(args[5]),
         refreshStartedAt: String(args[2]),
         expiresAt: entry?.expiresAt ?? String(args[2]),
       };
@@ -103,6 +126,7 @@ function useCacheDatabase(): Map<
         generation,
         fenceToken: String(args[7]),
         refreshInProgress: false,
+        refreshForced: false,
         refreshStartedAt: null,
         expiresAt: String(args[5]),
       };
@@ -137,6 +161,7 @@ function useCacheDatabase(): Map<
           generation: generation + 1,
           fenceToken,
           refreshInProgress: false,
+          refreshForced: false,
           refreshStartedAt: null,
           expiresAt: String(args[5]),
         };
@@ -159,6 +184,7 @@ function useCacheDatabase(): Map<
           cache.set(key, {
             ...entry,
             refreshInProgress: false,
+            refreshForced: false,
             refreshStartedAt: null,
           });
           return { rows: [{ key }] };
@@ -175,6 +201,7 @@ function useCacheDatabase(): Map<
         cache.set(key, {
           ...entry,
           refreshInProgress: false,
+          refreshForced: false,
           refreshStartedAt: null,
         });
         return { rows: [{ key }] };
@@ -186,10 +213,40 @@ function useCacheDatabase(): Map<
   return cache;
 }
 
+function pauseNextL2Read(): { started: Promise<void>; release: () => void } {
+  const original = execute.getMockImplementation();
+  if (!original) throw new Error("Cache database mock is not configured");
+
+  let signalStarted!: () => void;
+  let releaseRead!: () => void;
+  const started = new Promise<void>((resolve) => {
+    signalStarted = resolve;
+  });
+  const readBlocked = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  let shouldPause = true;
+
+  execute.mockImplementation(
+    async (input: { sql: string; args: unknown[] }) => {
+      if (shouldPause && input.sql.startsWith("SELECT result")) {
+        shouldPause = false;
+        const snapshot = await original(input);
+        signalStarted();
+        await readBlocked;
+        return snapshot;
+      }
+      return original(input);
+    },
+  );
+
+  return { started, release: releaseRead };
+}
+
 describe("runQuery cancellation", () => {
   beforeEach(() => {
     execute.mockReset();
-    execute.mockResolvedValue({ rows: [] });
+    useCacheDatabase();
     getCredentialContext.mockReset();
     getCredentialContext.mockReturnValue({
       userEmail: "test@example.com",
@@ -211,20 +268,27 @@ describe("runQuery cancellation", () => {
   it("stops an incomplete job's poll wait immediately when the agent run aborts", async () => {
     vi.useFakeTimers();
     const controller = new AbortController();
-    const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      jsonResponse({
-        jobComplete: false,
-        jobReference: { jobId: "job-1" },
-      }),
-    );
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
+        if (url.endsWith("/cancel")) return jsonResponse({});
+        return jsonResponse({ jobComplete: false });
+      });
     vi.stubGlobal("fetch", fetchMock);
 
     const pending = runQuery("SELECT 1", { signal: controller.signal });
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/projects/test-project/queries"),
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringContaining("/projects/test-project/queries/agent_native_"),
       expect.objectContaining({ signal: controller.signal }),
     );
 
@@ -233,26 +297,72 @@ describe("runQuery cancellation", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     await vi.advanceTimersByTimeAsync(60_000);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock).toHaveBeenLastCalledWith(
-      expect.stringContaining("/projects/test-project/jobs/job-1/cancel"),
+      expect.stringContaining("/projects/test-project/jobs/agent_native_"),
       expect.objectContaining({ method: "POST" }),
+    );
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/cancel");
+  });
+
+  it("cancels a submitted job when the caller aborts before the response arrives", async () => {
+    const controller = new AbortController();
+    let jobId = "";
+    let resolveSubmission!: (response: Response) => void;
+    let signalSubmissionStarted!: () => void;
+    const submissionStarted = new Promise<void>((resolve) => {
+      signalSubmissionStarted = resolve;
+    });
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          jobId = request.jobReference.jobId;
+          signalSubmissionStarted();
+          return new Promise<Response>((resolve) => {
+            resolveSubmission = resolve;
+          });
+        }
+        return jsonResponse({});
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = runQuery("SELECT 1", { signal: controller.signal });
+    await submissionStarted;
+    controller.abort();
+    resolveSubmission(
+      jsonResponse({
+        jobReference: { jobId, projectId: "test-project", location: "US" },
+      }),
+    );
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("signal");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/test-project/jobs/${jobId}/cancel?location=US`,
     );
   });
 
   it("cancels an incomplete job after the polling limit is reached", async () => {
     vi.useFakeTimers();
-    const incompleteJob = {
-      jobComplete: false,
-      jobReference: { jobId: "job-timeout" },
-    };
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
-      .mockImplementation(async (input) => {
+      .mockImplementation(async (input, init) => {
         const url = String(input);
+        if (url.endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
         return url.endsWith("/cancel")
           ? jsonResponse({})
-          : jsonResponse(incompleteJob);
+          : jsonResponse({ jobComplete: false });
       });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -266,25 +376,29 @@ describe("runQuery cancellation", () => {
     await rejection;
 
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "https://bigquery.googleapis.com/bigquery/v2/projects/test-project/jobs/job-timeout/cancel",
+      expect.stringMatching(
+        /^https:\/\/bigquery\.googleapis\.com\/bigquery\/v2\/projects\/test-project\/jobs\/agent_native_[a-f0-9]+\/cancel$/,
+      ),
       expect.objectContaining({ method: "POST" }),
     );
   });
 
   it("preserves the timeout error when job cancellation fails", async () => {
     vi.useFakeTimers();
-    const incompleteJob = {
-      jobComplete: false,
-      jobReference: { jobId: "job-cancel-fails" },
-    };
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
-      .mockImplementation(async (input) => {
+      .mockImplementation(async (input, init) => {
         const url = String(input);
+        if (url.endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
         if (url.endsWith("/cancel")) {
           throw new Error("cancel unavailable");
         }
-        return jsonResponse(incompleteJob);
+        return jsonResponse({ jobComplete: false });
       });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -298,7 +412,9 @@ describe("runQuery cancellation", () => {
     await rejection;
 
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "https://bigquery.googleapis.com/bigquery/v2/projects/test-project/jobs/job-cancel-fails/cancel",
+      expect.stringMatching(
+        /^https:\/\/bigquery\.googleapis\.com\/bigquery\/v2\/projects\/test-project\/jobs\/agent_native_[a-f0-9]+\/cancel$/,
+      ),
       expect.objectContaining({ method: "POST" }),
     );
   });
@@ -306,22 +422,17 @@ describe("runQuery cancellation", () => {
   it("forwards the signal to completed-job polling requests", async () => {
     vi.useFakeTimers();
     const controller = new AbortController();
-    const fetchMock = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          jobComplete: false,
-          jobReference: { jobId: "job-1" },
-        }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          jobComplete: true,
-          schema: { fields: [{ name: "signups", type: "INT64" }] },
-          rows: [{ f: [{ v: "42" }] }],
-          totalBytesProcessed: "12",
-        }),
-      );
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: false,
+      }),
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "signups", type: "INT64" }] },
+        rows: [{ f: [{ v: "42" }] }],
+        totalBytesProcessed: "12",
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const result = runQuery("SELECT 1", { signal: controller.signal });
@@ -332,7 +443,9 @@ describe("runQuery cancellation", () => {
       bytesProcessed: 12,
     });
     expect(fetchMock).toHaveBeenLastCalledWith(
-      expect.stringContaining("/projects/test-project/queries/job-1"),
+      expect.stringMatching(
+        /^https:\/\/bigquery\.googleapis\.com\/bigquery\/v2\/projects\/test-project\/queries\/agent_native_[a-f0-9]+$/,
+      ),
       expect.objectContaining({ signal: controller.signal }),
     );
   });
@@ -367,7 +480,13 @@ describe("runQuery cancellation", () => {
   it("refreshes cached current-date queries at UTC midnight", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-08T23:59:00Z"));
-    const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
       jsonResponse({
         jobComplete: true,
         schema: { fields: [] },
@@ -381,11 +500,11 @@ describe("runQuery cancellation", () => {
     vi.setSystemTime(new Date("2026-09-09T00:01:00Z"));
     await runQuery("SELECT CURRENT_DATE() AS day");
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
       "agent-native-utc-date:2026-09-08",
     );
-    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toContain(
+    expect(String(fetchMock.mock.calls[2]?.[1]?.body)).toContain(
       "agent-native-utc-date:2026-09-09",
     );
   });
@@ -399,10 +518,7 @@ describe("runQuery cancellation", () => {
         rows: [{ f: [{ v: signups }] }],
         totalBytesProcessed: "12",
       });
-    const fetchMock = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(response("3918"))
-      .mockResolvedValueOnce(response("4200"));
+    const fetchMock = mockQueryJobs(response("3918"), response("4200"));
     vi.stubGlobal("fetch", fetchMock);
     const sql = "SELECT 1 AS manual_dashboard_refresh_test";
 
@@ -417,16 +533,46 @@ describe("runQuery cancellation", () => {
       cached: true,
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(
-      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).configuration
+        .query,
     ).not.toHaveProperty("useQueryCache");
     expect(
-      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+      JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)).configuration
+        .query,
     ).toHaveProperty("useQueryCache", false);
   });
 
+  it("rechecks the fence when a forced refresh wins during an ordinary cache miss", async () => {
+    useCacheDatabase();
+    const read = pauseNextL2Read();
+    const response = jsonResponse({
+      jobComplete: true,
+      schema: { fields: [{ name: "signups", type: "INT64" }] },
+      rows: [{ f: [{ v: "4200" }] }],
+      totalBytesProcessed: "12",
+    });
+    const fetchMock = mockQueryJobs(response);
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT 1 AS refresh_wins_cache_miss_race_test";
+
+    const ordinary = runQuery(sql);
+    await read.started;
+    await expect(runQuery(sql, { forceRefresh: true })).resolves.toMatchObject({
+      rows: [{ signups: 4200 }],
+    });
+    read.release();
+
+    await expect(ordinary).resolves.toMatchObject({
+      rows: [{ signups: 4200 }],
+      cached: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("prevents an older query from overwriting a forced refresh", async () => {
+    vi.useFakeTimers();
     useCacheDatabase();
     const response = (signups: string) =>
       jsonResponse({
@@ -440,33 +586,47 @@ describe("runQuery cancellation", () => {
     const olderStarted = new Promise<void>((resolve) => {
       signalOlderStarted = resolve;
     });
+    let insertedJobs = 0;
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
-      .mockImplementationOnce(() => {
-        signalOlderStarted();
-        return new Promise<Response>((resolve) => {
-          resolveOlder = resolve;
-        });
-      })
-      .mockResolvedValueOnce(response("4200"));
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          insertedJobs++;
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
+        if (insertedJobs === 1) {
+          signalOlderStarted();
+          return new Promise<Response>((resolve) => {
+            resolveOlder = resolve;
+          });
+        }
+        return response("4200");
+      });
     vi.stubGlobal("fetch", fetchMock);
     const sql = "SELECT 1 AS concurrent_dashboard_refresh_test";
 
     const olderQuery = runQuery(sql);
     await olderStarted;
-    await expect(runQuery(sql, { forceRefresh: true })).resolves.toMatchObject({
-      rows: [{ signups: 4200 }],
-    });
+    const forcedQuery = runQuery(sql, { forceRefresh: true });
+    await vi.advanceTimersByTimeAsync(0);
     resolveOlder(response("3918"));
     await expect(olderQuery).resolves.toMatchObject({
       rows: [{ signups: 3918 }],
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(forcedQuery).resolves.toMatchObject({
+      rows: [{ signups: 4200 }],
     });
 
     await expect(runQuery(sql)).resolves.toMatchObject({
       rows: [{ signups: 4200 }],
       cached: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("does not reuse a deleted row's generation fence", async () => {
@@ -485,16 +645,27 @@ describe("runQuery cancellation", () => {
     const olderStarted = new Promise<void>((resolve) => {
       signalOlderStarted = resolve;
     });
+    let insertedJobs = 0;
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(response("3918"))
-      .mockImplementationOnce(() => {
-        signalOlderStarted();
-        return new Promise<Response>((resolve) => {
-          resolveOlder = resolve;
-        });
-      })
-      .mockResolvedValueOnce(response("4200"));
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          insertedJobs++;
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
+        if (insertedJobs === 1) return response("3918");
+        if (insertedJobs === 2) {
+          signalOlderStarted();
+          return new Promise<Response>((resolve) => {
+            resolveOlder = resolve;
+          });
+        }
+        return response("4200");
+      });
     vi.stubGlobal("fetch", fetchMock);
     const sql = "SELECT 1 AS cache_cleanup_fence_test";
 
@@ -514,7 +685,7 @@ describe("runQuery cancellation", () => {
       rows: [{ signups: 4200 }],
       cached: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("keeps the prior cached result usable when a forced refresh fails", async () => {
@@ -525,10 +696,22 @@ describe("runQuery cancellation", () => {
       rows: [{ f: [{ v: "3918" }] }],
       totalBytesProcessed: "12",
     });
+    let insertedJobs = 0;
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(response)
-      .mockRejectedValueOnce(new Error("warehouse unavailable"));
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          insertedJobs++;
+          if (insertedJobs === 2) throw new Error("warehouse unavailable");
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
+        if (url.endsWith("/cancel")) return jsonResponse({});
+        return response;
+      });
     vi.stubGlobal("fetch", fetchMock);
     const sql = "SELECT 1 AS failed_refresh_keeps_cache_test";
 
@@ -540,7 +723,7 @@ describe("runQuery cancellation", () => {
       rows: [{ signups: 3918 }],
       cached: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("serves the last cached result to ordinary reads during a forced refresh", async () => {
@@ -557,10 +740,19 @@ describe("runQuery cancellation", () => {
     const refreshStarted = new Promise<void>((resolve) => {
       signalRefreshStarted = resolve;
     });
+    let insertedJobs = 0;
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(response("3918"))
-      .mockImplementationOnce(() => {
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          insertedJobs++;
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
+        if (insertedJobs === 1) return response("3918");
         signalRefreshStarted();
         return new Promise<Response>((resolve) => {
           resolveRefresh = resolve;
@@ -576,7 +768,7 @@ describe("runQuery cancellation", () => {
       rows: [{ signups: 3918 }],
       cached: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
 
     resolveRefresh(response("4200"));
     await refreshing;
@@ -584,7 +776,7 @@ describe("runQuery cancellation", () => {
       rows: [{ signups: 4200 }],
       cached: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("coalesces concurrent forced refreshes into one BigQuery job", async () => {
@@ -603,7 +795,14 @@ describe("runQuery cancellation", () => {
     });
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
-      .mockImplementationOnce(() => {
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
         signalRefreshStarted();
         return new Promise<Response>((resolve) => {
           resolveRefresh = resolve;
@@ -623,7 +822,7 @@ describe("runQuery cancellation", () => {
       { rows: [{ signups: 4200 }] },
       { rows: [{ signups: 4200 }] },
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("rejects mutating SQL before resolving credentials or contacting BigQuery", async () => {
@@ -640,7 +839,19 @@ describe("runQuery cancellation", () => {
 
   it("isolates cached results by default member and organization-only scope", async () => {
     useCacheDatabase();
-    const fetchMock = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
       jsonResponse({
         jobComplete: true,
         schema: { fields: [] },
@@ -670,6 +881,6 @@ describe("runQuery cancellation", () => {
     });
     await runQuery(sql);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 });

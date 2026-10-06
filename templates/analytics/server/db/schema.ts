@@ -185,6 +185,7 @@ export const bigqueryCache = table("bigquery_cache", {
   generation: integer("generation").notNull().default(0),
   fenceToken: text("fence_token"),
   refreshInProgress: boolean("refresh_in_progress").notNull().default(false),
+  refreshForced: boolean("refresh_forced").notNull().default(false),
   refreshStartedAt: text("refresh_started_at"),
 });
 
