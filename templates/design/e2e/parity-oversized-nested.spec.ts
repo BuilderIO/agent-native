@@ -16,7 +16,7 @@ test.beforeEach(async ({}, info) => setBaseURL(info));
 const FIXTURE = `<!doctype html><html><body style="margin:0;min-height:900px;background:#111827">
   <div data-agent-native-node-id="source" data-agent-native-layer-name="Source" style="position:absolute;left:80px;top:520px;width:220px;height:96px;background:#f97316">Source</div>
   <section data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:500px;top:120px;width:340px;height:260px;padding:16px;display:flex;flex-direction:column;gap:12px;background:#334155">
-    <section data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" data-an-primitive="frame" style="flex:0 0 80px;width:120px;height:80px;display:flex;flex-direction:column;gap:8px;padding:8px;background:#64748b">
+    <section data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" data-an-primitive="frame" style="flex:0 0 160px;width:180px;height:160px;display:flex;flex-direction:column;gap:8px;padding:8px;background:#64748b">
       <div data-agent-native-node-id="anchor" data-agent-native-layer-name="Anchor" style="flex:0 0 32px;width:80px;height:32px;background:#94a3b8">Anchor</div>
     </section>
   </section>
@@ -127,7 +127,9 @@ async function cleanup(page: Page, id: string) {
   await postAction(page, "delete-design", { id }).catch(() => {});
 }
 
-test("default oversized drop rejects nested insertion", async ({ page }) => {
+test("cross-axis oversized drop rejects nested insertion despite main-axis fit", async ({
+  page,
+}) => {
   const id = await newDesign(page, FIXTURE);
   try {
     await openEditor(page, id);

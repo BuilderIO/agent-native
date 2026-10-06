@@ -128,11 +128,14 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "擁有 Builder.io 帳戶即可免費使用",
   "onboarding.builderMonthlyCredits": "每月 60 點 Agent Credits",
+  "onboarding.builderIncludedFree": "免費包含",
+  "onboarding.builderMoreServices": "+ {{count}} 項其他服務",
+  "onboarding.builderIncludedServices": "包含的服務",
   "onboarding.builderActivateTitle": "啟用免費額度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 帳戶",
   "onboarding.builderAccountExistsDescription": "登入以使用您的帳戶。",
   "onboarding.builderActivationDescription":
-    "我們會按一下自動為您建立 Builder.io 帳戶。",
+    "按一下即可建立或連接 Builder.io 帳戶，取得免費額度。",
   "onboarding.builderOrgActivationDescription":
     "我們會一鍵建立您的 Builder.io 帳戶，讓您的組織可以使用。",
   "onboarding.builderCreateAndActivate": "建立並啟用",
@@ -153,6 +156,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "開啟背景代理程式設定",
   "onboarding.capability.llm.keySummary": "連線您自己的 AI 模型",
   "onboarding.capability.fileStorage.keySummary": "檔案上傳與儲存",
+  "onboarding.capability.llm.why": "代理程式使用語言模型理解要求並產生回答。",
+  "onboarding.capability.fileStorage.why":
+    "儲存上傳的圖片和檔案，讓代理程式能在對話中再次使用。",
   "onboarding.fileStorage.title": "連接儲存空間以上傳檔案",
   "onboarding.fileStorage.statusUnavailable": "無法檢查儲存空間",
   "onboarding.fileStorage.description":
@@ -169,6 +175,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
+  "onboarding.capability.systemOne.why":
+    "Jev 是一個選用的決策模型，可在代理首次要求模型前協助選擇相關工具與技能。",
   "onboarding.capability.assetsImageGeneration.label": "影像生成",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 點數或影像提供者金鑰",
@@ -466,6 +474,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上傳技能檔案",
   "composer.upload": "上傳",
   "composer.uploadFailed": "無法上傳所選檔案。",
+  "composer.unsupportedFileType": "不支援此檔案類型。",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
   "mentions.learnMore": "深入瞭解",
@@ -1038,11 +1047,10 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}} 則排隊中——傳送後續訊息...",
   "queue.remove": "從佇列中移除",
   "queue.sendNow": "立即傳送",
-  "queue.sendNowHint": "立即傳送（停止目前的回應）",
-  "queue.steer": "引導",
-  "queue.steerHint": "下一則傳送此訊息",
+  "queue.sendNowHint": "停止目前的回應，然後傳送此訊息",
+  "queue.sendNext": "下一則傳送",
+  "queue.sendNextHint": "在目前的回應結束後傳送",
   "queue.moreActions": "更多操作",
-  "queue.moveToTop": "移至頂端",
   "recovery.connectingBuilder": "正在設定 Builder.io",
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
@@ -1119,6 +1127,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "連線 AI 以開始聊天...",
   "setup.connectToChat": "連線 AI 以聊天",
   "setup.connectToStart": "連線 AI 以開始聊天",
+  "setup.modelListUnavailable": "無法載入模型。",
   "setup.providerStatusUnavailable": "無法確認 AI 是否已就緒。",
   "agentNativeClips.meetingAsk.placeholder": "隨便問些什麼",
   "agentNativeClips.meetingAsk.ariaLabel": "詢問這場會議的任何問題",
@@ -1827,6 +1836,8 @@ const messages: ToolkitAgentChatTranslation = {
     "在此瀏覽器中使用範例資料進行簡報。",
   "settingsShell.appGroup.labsFootnote": "這些新功能尚不穩定，可能會有錯誤。",
   "settingsShell.appGroup.labsLoadError": "無法載入實驗室功能。",
+  "settingsShell.appGroup.labsReadError":
+    "無法讀取已儲存的選項。請選擇開啟或關閉以重新設定。",
   "settingsShell.appGroup.labsSaveError": "無法變更 {{lab}}。請再試一次。",
   "settingsShell.appGroup.mcpAbout":
     "將 {{app}} 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 {{app}} 中工作。它只能看到你有權看到的內容。",

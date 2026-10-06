@@ -11,6 +11,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Two people editing one plan at the same time, or one of them offline, now keep both sets of edits, and opening a plan together no longer duplicates its content.
 - Consecutive Plan edits now use the latest saved revision.
 
 ## 2026-09-25

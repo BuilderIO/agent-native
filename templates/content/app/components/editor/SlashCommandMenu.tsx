@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useLabs } from "@agent-native/core/client/labs";
+import {
+  isLabStateEnabled,
+  useLabStates,
+} from "@agent-native/core/client/labs";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import {
@@ -708,7 +711,7 @@ export function SlashCommandMenu({
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
-  const labs = useLabs();
+  const labs = useLabStates();
   const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
@@ -1188,10 +1191,16 @@ export function SlashCommandMenu({
         : (buildRegistrySlashItems(contentBlockRegistry, {
             notionCompatibleOnly: !!notionPageId,
             policy: {
-              advancedCode: labs[CONTENT_SLASH_ADVANCED_CODE.key] === true,
-              layouts: labs[CONTENT_SLASH_LAYOUTS.key] === true,
-              visuals: labs[CONTENT_SLASH_VISUALS.key] === true,
-              developerDocs: labs[CONTENT_SLASH_DEVELOPER_DOCS.key] === true,
+              advancedCode: isLabStateEnabled(
+                labs,
+                CONTENT_SLASH_ADVANCED_CODE.key,
+              ),
+              layouts: isLabStateEnabled(labs, CONTENT_SLASH_LAYOUTS.key),
+              visuals: isLabStateEnabled(labs, CONTENT_SLASH_VISUALS.key),
+              developerDocs: isLabStateEnabled(
+                labs,
+                CONTENT_SLASH_DEVELOPER_DOCS.key,
+              ),
             },
           }) as unknown as CommandItem[]),
     [isTurnInto, labs, notionPageId],

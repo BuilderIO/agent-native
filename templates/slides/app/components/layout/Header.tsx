@@ -77,21 +77,8 @@ function HeaderControls({
   );
 }
 
-export function HomeHeaderActions({
-  search,
-  children,
-}: {
-  search: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <>
-      {search ? (
-        <div className="slides-home-search w-full">{search}</div>
-      ) : null}
-      <HeaderControls showNotifications={false}>{children}</HeaderControls>
-    </>
-  );
+export function HomeHeaderActions({ children }: { children: ReactNode }) {
+  return <HeaderControls showNotifications={false}>{children}</HeaderControls>;
 }
 
 export function Header() {

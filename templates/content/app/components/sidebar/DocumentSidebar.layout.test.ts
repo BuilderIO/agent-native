@@ -367,7 +367,7 @@ describe("document sidebar layout", () => {
       "expandedDocumentIds={visibleExpandedDocumentIds}",
     );
     expect(sidebar).toContain(
-      "new Set([...expandedDocumentIds, ...activeAncestorIds])",
+      "openFilesFolderIds(activeAncestorIds, expandedDocumentIds)",
     );
     expect(sidebar).toContain("createContentSidebarStateWriteQueue");
     expect(sidebar).toContain(

@@ -127,6 +127,11 @@ export function useBuilderStatus({
     try {
       const res = await fetch(
         agentNativePath("/_agent-native/connection-status/builder"),
+        {
+          headers: {
+            "x-agent-native-preview-origin": window.location.origin,
+          },
+        },
       );
       if (!res.ok) {
         keepLastGoodStatus(`Builder status unavailable (${res.status})`);
@@ -926,6 +931,9 @@ export function useBuilderConnectFlow(
           );
         }
         const r = await fetch(statusUrl.href, {
+          headers: {
+            "x-agent-native-preview-origin": window.location.origin,
+          },
           signal: signal ?? ownController?.signal,
         });
         if (!r.ok) return null;

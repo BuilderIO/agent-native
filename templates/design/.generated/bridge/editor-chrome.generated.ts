@@ -6170,6 +6170,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenSourceHtml = void 0;
     var activeCrossScreenComputedSize;
+    var activeCrossScreenGridSpan;
     var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
     function rememberEndedCrossScreenModifierSnapshot(snapshotId) {
@@ -8688,10 +8689,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var cs = window.getComputedStyle(el);
         var box = borderBoxDimensions(cs);
-        var radii = cornerRadiusMap(cs, box.width, box.height)[pos] || {
-          x: 0,
-          y: 0
-        };
+        var radii = normalizeCornerRadiusMap(
+          cornerRadiusMap(cs, box.width, box.height),
+          box.width,
+          box.height
+        )[pos] || { x: 0, y: 0 };
         var west = pos.indexOf("w") !== -1;
         var north = pos.indexOf("n") !== -1;
         var targetGeometry = radiusViewportBoxGeometry(
@@ -11217,14 +11219,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         )
       };
     }
-    function isDirectCornerRadiusValue(value) {
-      var trimmed = typeof value === "string" ? value.trim() : "";
-      if (!trimmed) return false;
-      var parts = trimmed.split(/\\s+/);
-      return parts.length <= 2 && parts.every(function(part) {
-        return /^[-+]?(?:\\d*\\.\\d+|\\d+\\.?\\d*)(?:px|%)$/i.test(part) || /^[-+]?0(?:\\.0*)?$/.test(part);
-      });
-    }
     function borderBoxDimensions(cs) {
       var width = readPx(cs.width);
       var height = readPx(cs.height);
@@ -11592,12 +11586,63 @@ export const editorChromeBridgeScript: string = `"use strict";
         sw: resolveCornerRadiusXY(cs.borderBottomLeftRadius, width, height)
       };
     }
-    function radiusDragMaximums(corner, radii, width, height) {
+    function normalizeCornerRadiusMap(radii, width, height) {
+      var scale = 1;
+      [
+        { size: width, sum: radii.nw.x + radii.ne.x },
+        { size: width, sum: radii.sw.x + radii.se.x },
+        { size: height, sum: radii.nw.y + radii.sw.y },
+        { size: height, sum: radii.ne.y + radii.se.y }
+      ].forEach(function(side) {
+        if (side.sum > side.size && side.sum > 0) {
+          scale = Math.min(scale, side.size / side.sum);
+        }
+      });
+      if (scale === 1) return radii;
+      var normalized = {};
+      Object.keys(radii).forEach(function(corner) {
+        normalized[corner] = {
+          x: radii[corner].x * scale,
+          y: radii[corner].y * scale
+        };
+      });
+      return normalized;
+    }
+    function radiusDragMaximums(corner, radii, width, height, minimumRadius, allowBeyondHalf) {
       var horizontalNeighbor = corner === "nw" ? radii.ne.x : corner === "ne" ? radii.nw.x : corner === "se" ? radii.sw.x : radii.se.x;
       var verticalNeighbor = corner === "nw" ? radii.sw.y : corner === "ne" ? radii.se.y : corner === "se" ? radii.ne.y : radii.nw.y;
       return {
-        x: Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
-        y: Math.max(0, Math.min(height / 2, height - verticalNeighbor))
+        x: Math.max(
+          minimumRadius ? minimumRadius.x : 0,
+          Math.max(
+            0,
+            Math.min(
+              allowBeyondHalf ? width : width / 2,
+              width - horizontalNeighbor
+            )
+          )
+        ),
+        y: Math.max(
+          minimumRadius ? minimumRadius.y : 0,
+          Math.max(
+            0,
+            Math.min(
+              allowBeyondHalf ? height : height / 2,
+              height - verticalNeighbor
+            )
+          )
+        )
+      };
+    }
+    function uniformCornerRadiusMaximums(corner, radii, width, height) {
+      var topRoom = width - radii.nw.x - radii.ne.x;
+      var bottomRoom = width - radii.sw.x - radii.se.x;
+      var leftRoom = height - radii.nw.y - radii.sw.y;
+      var rightRoom = height - radii.ne.y - radii.se.y;
+      var origin = radii[corner] || { x: 0, y: 0 };
+      return {
+        x: origin.x + Math.max(0, Math.min(topRoom, bottomRoom)) / 2,
+        y: origin.y + Math.max(0, Math.min(leftRoom, rightRoom)) / 2
       };
     }
     var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
@@ -13652,15 +13697,21 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function dropFitsContainer(container, sourceWidth, sourceHeight) {
       var size = dropContentSize(container);
+      return size.width >= sourceWidth && size.height >= sourceHeight;
+    }
+    function dropFitsAutoLayoutFallback(container, sourceWidth, sourceHeight) {
+      if (dropFitsContainer(container, sourceWidth, sourceHeight)) return true;
       var style = window.getComputedStyle(container);
       var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
-      if (singleLineFlex && style.flexDirection.indexOf("row") === 0) {
+      if (!singleLineFlex) return false;
+      var size = dropContentSize(container);
+      if (style.flexDirection.indexOf("row") === 0) {
         return size.width >= sourceWidth;
       }
-      if (singleLineFlex && style.flexDirection.indexOf("column") === 0) {
+      if (style.flexDirection.indexOf("column") === 0) {
         return size.height >= sourceHeight;
       }
-      return size.width >= sourceWidth && size.height >= sourceHeight;
+      return false;
     }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
@@ -13760,6 +13811,38 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return ev.timeStamp >= 1e12 ? ev.timeStamp : eventPerformance.timeOrigin + ev.timeStamp;
     }
+    function gridItemAxisSpanForSource(el, layout, axis) {
+      var styles = window.getComputedStyle(el);
+      var startValue = axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+      var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+      var authoredSpan = endValue.trim().match(/^span\\s+(\\d+)$/) || startValue.trim().match(/^span\\s+(\\d+)$/);
+      if (authoredSpan) return Math.max(1, Number(authoredSpan[1]));
+      var start = gridLinePosition(startValue, layout, axis);
+      var end = gridLinePosition(endValue, layout, axis);
+      if (start !== null && end !== null) {
+        return Math.max(1, Math.abs(end - start));
+      }
+      var startIsAuto = startValue.trim() === "auto" || startValue.trim() === "";
+      var endIsAuto = endValue.trim() === "auto" || endValue.trim() === "";
+      if (startIsAuto && endIsAuto || start !== null && endIsAuto) return 1;
+      if (startIsAuto && end !== null) return 1;
+      return null;
+    }
+    function crossScreenGridSpanForElement(el) {
+      if (!el) return void 0;
+      var parent = el.parentElement;
+      while (parent && window.getComputedStyle(parent).display === "contents") {
+        parent = parent.parentElement;
+      }
+      if (!parent) return void 0;
+      var display = window.getComputedStyle(parent).display;
+      if (display !== "grid" && display !== "inline-grid") return void 0;
+      var layout = gridTrackLayoutForElement(parent);
+      var columns = gridItemAxisSpanForSource(el, layout, "column");
+      var rows = gridItemAxisSpanForSource(el, layout, "row");
+      if (columns === null || rows === null) return void 0;
+      return { columns, rows };
+    }
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
@@ -13767,6 +13850,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
+        activeCrossScreenGridSpan = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
         window.parent.postMessage(
@@ -13794,6 +13878,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           activeCrossScreenStyleSnapshot,
           computed
         );
+        activeCrossScreenGridSpan = crossScreenGridSpanForElement(el ?? null);
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -13840,6 +13925,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
           sourceComputedSize: activeCrossScreenComputedSize,
+          sourceGridSpan: activeCrossScreenGridSpan,
           styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
           modifiers: options?.modifiers,
           duplicate: options?.duplicate === true ? true : void 0,
@@ -13855,6 +13941,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
+        activeCrossScreenGridSpan = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
       }
@@ -14087,6 +14174,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (styles.display !== "grid" && styles.display !== "inline-grid") {
         return null;
       }
+      for (var pseudo of ["::before", "::after"]) {
+        var pseudoStyles = window.getComputedStyle(container, pseudo);
+        if (pseudoStyles.content !== "none" && pseudoStyles.content !== "normal" && pseudoStyles.display !== "none" && pseudoStyles.position !== "absolute" && pseudoStyles.position !== "fixed") {
+          return null;
+        }
+      }
       var trackLayout = gridTrackLayoutForElement(container);
       if (trackLayout) {
         trackLayout = expandGridTrackLayoutForAuthoredChildren(
@@ -14141,10 +14234,45 @@ export const editorChromeBridgeScript: string = `"use strict";
             return rect.left < cellRight && rect.right > cellLeft && // i18n-ignore non-user-facing pointer geometry condition
             rect.top < cellBottom && rect.bottom > cellTop;
           });
+          var displacedFootprint = null;
+          if (displaced && trackLayout) {
+            var displacedColumn = gridItemAxisPlacement(
+              displaced,
+              trackLayout,
+              "column"
+            );
+            var displacedRow = gridItemAxisPlacement(
+              displaced,
+              trackLayout,
+              "row"
+            );
+            var displacedColumnIndex = displacedColumn.start !== null ? styles.direction === "rtl" ? trackLayout.columnBounds.length - displacedColumn.start - displacedColumn.span + 1 : displacedColumn.start - 1 : null;
+            var firstDisplacedColumn = displacedColumnIndex !== null && displacedColumnIndex >= 0 ? trackLayout.columnBounds[displacedColumnIndex] : null;
+            var lastDisplacedColumn = displacedColumnIndex !== null && displacedColumnIndex >= 0 ? trackLayout.columnBounds[displacedColumnIndex + displacedColumn.span - 1] : null;
+            var firstDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start - 1] : null;
+            var lastDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start + displacedRow.span - 2] : null;
+            if (firstDisplacedColumn && lastDisplacedColumn && firstDisplacedRow && lastDisplacedRow) {
+              displacedFootprint = {
+                left: Math.min(
+                  firstDisplacedColumn.start,
+                  lastDisplacedColumn.start
+                ),
+                top: Math.min(firstDisplacedRow.start, lastDisplacedRow.start),
+                width: Math.max(firstDisplacedColumn.end, lastDisplacedColumn.end) - Math.min(firstDisplacedColumn.start, lastDisplacedColumn.start),
+                height: Math.max(firstDisplacedRow.end, lastDisplacedRow.end) - Math.min(firstDisplacedRow.start, lastDisplacedRow.start)
+              };
+            }
+          }
+          var insertionFootprint = displacedFootprint || {
+            left: cellLeft,
+            top: cellTop,
+            width: cellRight - cellLeft,
+            height: cellBottom - cellTop
+          };
           var autoFlow = (styles.gridAutoFlow || "row").split(/\\s+/);
           var gridAxis = autoFlow[0] === "column" ? "y" : "x";
           var pointer = gridAxis === "x" ? clientX : clientY;
-          var midpoint = gridAxis === "x" ? (cellLeft + cellRight) / 2 : (cellTop + cellBottom) / 2;
+          var midpoint = gridAxis === "x" ? insertionFootprint.left + insertionFootprint.width / 2 : insertionFootprint.top + insertionFootprint.height / 2;
           return {
             anchor: container,
             placement: "inside",
@@ -14152,12 +14280,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             persistencePlacement: displaced ? pointer <= midpoint + 0.5 ? "before" : "after" : "inside",
             axis: gridAxis,
             dropMode: "flow-insert",
-            guideRect: {
-              left: cellLeft,
-              top: cellTop,
-              width: cellRight - cellLeft,
-              height: cellBottom - cellTop
-            },
+            guideRect: insertionFootprint,
             guideMode: displaced ? "grid-line" : "grid-cell",
             guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
             ...autoFlow[0] === "column" && !sourceHasAuthoredPlacement ? {} : { gridCell: { column, row } },
@@ -15063,13 +15186,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
     }
-    function gridLineIndexAtCoordinate(bounds, coordinate) {
-      for (var index = 0; index < bounds.length; index += 1) {
-        if (Math.abs(bounds[index].start - coordinate) < 1) return index + 1;
-      }
-      var last = bounds[bounds.length - 1];
-      return last && Math.abs(last.end - coordinate) < 1 ? bounds.length + 1 : null;
-    }
     function gridLinePosition(value, layout, axis) {
       var numeric = numericGridLine(value);
       if (numeric !== null) return numeric;
@@ -15077,23 +15193,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       var negative = value.trim().match(/^-(\\d+)$/);
       if (negative) {
         var bounds = axis === "column" ? layout.columnBounds : layout.rowBounds;
-        var coordinates = withGridAreaProbe(layout.container, function(probe) {
+        return withGridAreaProbe(layout.container, function(probe) {
           if (axis === "column") probe.style.gridRow = "1 / 1";
           else probe.style.gridColumn = "1 / 1";
-          if (axis === "column") probe.style.gridColumn = "1 / 1";
-          else probe.style.gridRow = "1 / 1";
-          var first = probe.getBoundingClientRect();
           if (axis === "column") probe.style.gridColumn = \`\${value} / \${value}\`;
           else probe.style.gridRow = \`\${value} / \${value}\`;
           var resolved = probe.getBoundingClientRect();
-          return axis === "column" ? { first: first.left, resolved: resolved.left } : { first: first.top, resolved: resolved.top };
+          var coordinate = axis === "column" ? resolved.left : resolved.top;
+          for (var line = 1; line <= bounds.length + 1; line += 1) {
+            if (axis === "column") probe.style.gridColumn = \`\${line} / \${line}\`;
+            else probe.style.gridRow = \`\${line} / \${line}\`;
+            var candidate = probe.getBoundingClientRect();
+            var candidateCoordinate = axis === "column" ? candidate.left : candidate.top;
+            if (Math.abs(candidateCoordinate - coordinate) < 1) return line;
+          }
+          return null;
         });
-        var firstLine = gridLineIndexAtCoordinate(bounds, coordinates.first);
-        var resolvedLine = gridLineIndexAtCoordinate(
-          bounds,
-          coordinates.resolved
-        );
-        return firstLine !== null && resolvedLine !== null ? resolvedLine - firstLine + 1 : null;
       }
       var name = value.trim();
       if (!name || name === "auto" || name.startsWith("span ")) return null;
@@ -15122,13 +15237,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         axis === "column" ? layout.columnBounds : layout.rowBounds,
         axis
       ) : null;
-      var span = authoredSpan ? Number(authoredSpan[1]) : start !== null && end !== null ? end - start : geometricRange ? geometricRange.end - geometricRange.start : 1;
+      var span = authoredSpan ? Number(authoredSpan[1]) : start !== null && end !== null ? Math.abs(end - start) : geometricRange ? geometricRange.end - geometricRange.start : 1;
       span = Math.max(1, span);
       if (start === null && end !== null && authoredSpan) start = end - span;
+      var areaStart = start !== null && end !== null ? Math.min(start, end) : start;
       return {
         authoredStart: start,
         hasAuthoredPlacement,
-        start: start ?? (geometricRange ? geometricRange.start + 1 : null),
+        start: areaStart ?? (geometricRange ? geometricRange.start + 1 : null),
         span
       };
     }
@@ -17547,11 +17663,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           var parentIsFlow = isAutoLayoutElement(parent);
           var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
           if (isContainerDropTarget(parent) && parent !== dragEl && (parentIsFlow || parentIsAbsolute)) {
-            if (dropFitsContainer(
+            var parentFits = parentIsFlow ? dropFitsAutoLayoutFallback(
               parent,
               dragElStartRect.width,
               dragElStartRect.height
-            )) {
+            ) : dropFitsContainer(
+              parent,
+              dragElStartRect.width,
+              dragElStartRect.height
+            );
+            if (parentFits) {
               if (parentIsFlow) {
                 return nearestChildInsertionTarget(
                   parent,
@@ -19230,21 +19351,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       var borderBox = borderBoxDimensions(cs);
       var elWidthPx = borderBox.width;
       var elHeightPx = borderBox.height;
-      var authoredRadiusValue = radiusEl.style[cornerProperty];
-      var originRadius = resolveCornerRadiusXY(
-        isDirectCornerRadiusValue(authoredRadiusValue) ? authoredRadiusValue : cs[cornerProperty],
-        elWidthPx,
-        elHeightPx
-      );
-      var maxRadius = radiusDragMaximums(
+      var authoredRadii = cornerRadiusMap(cs, elWidthPx, elHeightPx);
+      var radii = normalizeCornerRadiusMap(authoredRadii, elWidthPx, elHeightPx);
+      var radiiWereNormalized = radii !== authoredRadii;
+      var originRadius = radii[corner] || { x: 0, y: 0 };
+      var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
+      var maxRadius = wholeShape && radiiWereNormalized ? uniformCornerRadiusMaximums(corner, radii, elWidthPx, elHeightPx) : radiusDragMaximums(
         corner,
-        cornerRadiusMap(cs, elWidthPx, elHeightPx),
+        radii,
         elWidthPx,
-        elHeightPx
+        elHeightPx,
+        wholeShape ? null : originRadius,
+        radiiWereNormalized || e.altKey
       );
       var maxRadiusX = maxRadius.x;
       var maxRadiusY = maxRadius.y;
-      var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
       var radiusStyleProperties = [
         "border-radius",
         "border-top-left-radius",
@@ -19287,8 +19408,34 @@ export const editorChromeBridgeScript: string = `"use strict";
         var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX * 100) / 100));
         var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY * 100) / 100));
         var value = x === y ? x + "px" : x + "px " + y + "px";
-        if (wholeShape) {
+        if (wholeShape && radiiWereNormalized) {
+          var deltaX = x - originRadius.x;
+          var deltaY = y - originRadius.y;
+          Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+            function(radiusCorner) {
+              var radius = radii[radiusCorner] || { x: 0, y: 0 };
+              var nextCornerX = Math.max(
+                0,
+                Math.round((radius.x + deltaX) * 100) / 100
+              );
+              var nextCornerY = Math.max(
+                0,
+                Math.round((radius.y + deltaY) * 100) / 100
+              );
+              var cornerValue = nextCornerX === nextCornerY ? nextCornerX + "px" : nextCornerX + "px " + nextCornerY + "px";
+              radiusEl.style[CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner]] = cornerValue;
+            }
+          );
+        } else if (wholeShape) {
           radiusEl.style.borderRadius = x === y ? value : x + "px / " + y + "px";
+        } else if (radiiWereNormalized) {
+          Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+            function(radiusCorner) {
+              var radius = radiusCorner === corner ? { x, y } : radii[radiusCorner];
+              var radiusValue = radius.x === radius.y ? radius.x + "px" : radius.x + "px " + radius.y + "px";
+              radiusEl.style[CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner]] = radiusValue;
+            }
+          );
         } else {
           radiusEl.style[cornerProperty] = value;
         }
@@ -19347,7 +19494,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var finalRadius = resolveCornerRadiusXY(
-          wholeShape ? radiusEl.style.borderRadius || cs.borderRadius : radiusEl.style[cornerProperty] || cs[cornerProperty],
+          wholeShape && !radiiWereNormalized ? radiusEl.style.borderRadius || cs.borderRadius : radiusEl.style[cornerProperty] || cs[cornerProperty],
           elWidthPx,
           elHeightPx
         );
@@ -19360,8 +19507,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var styles = {};
-        if (wholeShape) {
+        if (wholeShape && !radiiWereNormalized) {
           styles.borderRadius = radiusEl.style.borderRadius;
+        } else if (radiiWereNormalized) {
+          Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+            function(radiusCorner) {
+              var property = CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner];
+              styles[property] = radiusEl.style[property];
+            }
+          );
         } else {
           styles[cornerProperty] = radiusEl.style[cornerProperty];
         }
@@ -21839,6 +21993,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           rejectInsert("html");
           return;
         }
+        var rawInsertGridPlacement = e.data.gridPlacement;
+        var insertGridPlacement = rawInsertGridPlacement && Number.isInteger(rawInsertGridPlacement.column) && Number.isInteger(rawInsertGridPlacement.columnEnd) && Number.isInteger(rawInsertGridPlacement.row) && Number.isInteger(rawInsertGridPlacement.rowEnd) && rawInsertGridPlacement.column > 0 && rawInsertGridPlacement.row > 0 && rawInsertGridPlacement.columnEnd > rawInsertGridPlacement.column && rawInsertGridPlacement.rowEnd > rawInsertGridPlacement.row ? {
+          column: rawInsertGridPlacement.column,
+          columnEnd: rawInsertGridPlacement.columnEnd,
+          row: rawInsertGridPlacement.row,
+          rowEnd: rawInsertGridPlacement.rowEnd
+        } : null;
+        if (rawInsertGridPlacement && (!insertGridPlacement || insertPlacement !== "inside" || !["grid", "inline-grid"].includes(
+          window.getComputedStyle(insertAnchor).display
+        ))) {
+          rejectInsert("grid-placement");
+          return;
+        }
+        if (insertGridPlacement) {
+          parsedInsertEl.style.gridColumn = insertGridPlacement.column + " / " + insertGridPlacement.columnEnd;
+          parsedInsertEl.style.gridRow = insertGridPlacement.row + " / " + insertGridPlacement.rowEnd;
+        }
         var insertNodeId = parsedInsertEl.getAttribute(
           "data-agent-native-node-id"
         );
@@ -21872,7 +22043,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           axis: parentFlowAxis(
             insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement
           ),
-          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert"
+          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert",
+          gridPlacement: insertGridPlacement || void 0
         };
         if (existingInsertEl) {
           if (existingInsertEl.contains(insertAnchor)) {

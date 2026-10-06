@@ -48,6 +48,7 @@
     "node-pty": "^1.1.0",
     "react-router": "^8.3.0",
     "sonner": "^2.0.7",
+    "ws": "8.22.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

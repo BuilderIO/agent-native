@@ -9,7 +9,7 @@ import {
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import { build } from "esbuild";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
@@ -48,11 +48,9 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
   name: string,
   nextFunction: string,
   globals: Record<string, unknown>,
+  bridgeFilename = "editor-chrome.bridge.ts",
 ): T {
-  const source = readFileSync(
-    join(bridgeDir, "editor-chrome.bridge.ts"),
-    "utf8",
-  );
+  const source = readFileSync(join(bridgeDir, bridgeFilename), "utf8");
   const start = source.indexOf(`function ${name}(`);
   const next = source.indexOf(`function ${nextFunction}(`, start);
   const end = source.lastIndexOf("\n", next);
@@ -64,6 +62,113 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
     `${ts.transpile(source.slice(start, end), { target: ts.ScriptTarget.ES2020 })}; return ${name};`,
   )(...Object.values(globals)) as T;
 }
+
+describe("cross-screen grid source span resolution", () => {
+  it("does not fabricate a one-track span when source geometry is unavailable", () => {
+    const sourceGrid = {};
+    const source = { parentElement: sourceGrid };
+    const getSourceGridSpan = compileBridgeFunction<
+      (element: Element | null) => { columns: number; rows: number } | undefined
+    >("crossScreenGridSpanForElement", "postCrossScreenDrag", {
+      window: { getComputedStyle: () => ({ display: "grid" }) },
+      gridTrackLayoutForElement: () => null,
+      gridItemAxisPlacement: () => ({ span: 1 }),
+      gridItemAxisSpanForSource: () => null,
+    });
+
+    expect(getSourceGridSpan(source as unknown as Element)).toBeUndefined();
+  });
+
+  it.each([
+    { start: "start", end: "end", expected: null },
+    { start: "-4", end: "-2", expected: null },
+    { start: "2", end: "4", expected: 2 },
+    { start: "span 3", end: "auto", expected: 3 },
+    { start: "auto", end: "auto", expected: 1 },
+  ])(
+    "resolves source spans from authored axis placement ($start / $end)",
+    ({ start, end, expected }) => {
+      const element = {};
+      const stylesByElement = new Map([
+        [
+          element,
+          {
+            gridColumnStart: start,
+            gridColumnEnd: end,
+            gridRowStart: "auto",
+            gridRowEnd: "auto",
+          },
+        ],
+      ]);
+      const getSourceAxisSpan = compileBridgeFunction<
+        (
+          element: Element,
+          layout: null,
+          axis: "column" | "row",
+        ) => number | null
+      >("gridItemAxisSpanForSource", "crossScreenGridSpanForElement", {
+        window: {
+          getComputedStyle: (node: object) => stylesByElement.get(node),
+        },
+        gridLinePosition: (value: string) => {
+          const numeric = value.trim().match(/^(\d+)$/);
+          return numeric ? Number(numeric[1]) : null;
+        },
+      });
+
+      expect(getSourceAxisSpan(element as Element, null, "column")).toBe(
+        expected,
+      );
+    },
+  );
+
+  it("walks through display:contents ancestors to the grid formatting parent", () => {
+    const grid = {};
+    const flattened = { parentElement: grid };
+    const source = { parentElement: flattened };
+    const layout = {};
+    const displayFor = new Map([
+      [grid, "grid"],
+      [flattened, "contents"],
+    ]);
+    const gridTrackLayoutForElement = vi.fn((element: unknown) =>
+      element === grid ? layout : null,
+    );
+    const gridItemAxisSpanForSource = vi.fn(
+      (_element: unknown, _layout: unknown, axis: "column" | "row") =>
+        axis === "column" ? 2 : 3,
+    );
+    const getSourceGridSpan = compileBridgeFunction<
+      (element: Element | null) => { columns: number; rows: number } | undefined
+    >("crossScreenGridSpanForElement", "postCrossScreenDrag", {
+      window: {
+        getComputedStyle: (element: object) => ({
+          display: displayFor.get(element),
+        }),
+      },
+      gridTrackLayoutForElement,
+      gridItemAxisPlacement: () => ({ span: 1 }),
+      gridItemAxisSpanForSource,
+    });
+
+    expect(getSourceGridSpan(source as unknown as Element)).toEqual({
+      columns: 2,
+      rows: 3,
+    });
+    expect(gridTrackLayoutForElement).toHaveBeenCalledWith(grid);
+    expect(gridItemAxisSpanForSource).toHaveBeenCalledTimes(2);
+    expect(gridItemAxisSpanForSource).toHaveBeenCalledWith(
+      source,
+      layout,
+      "column",
+    );
+    expect(gridItemAxisSpanForSource).toHaveBeenCalledWith(
+      source,
+      layout,
+      "row",
+    );
+  });
+});
 
 describe("editor drop-container primitive eligibility", () => {
   it("accepts both rectangle primitive markers and rejects non-containers", () => {
@@ -98,8 +203,8 @@ describe("editor drop-container primitive eligibility", () => {
   });
 });
 
-describe("editor oversized-drop receiver guards", () => {
-  it("uses the main axis for non-wrapping column receivers", () => {
+describe("bridge oversized-drop receiver guards", () => {
+  it("requires both dimensions for non-wrapping column receivers", () => {
     const dropFitsContainer = compileBridgeFunction<
       (container: Element, sourceWidth: number, sourceHeight: number) => boolean
     >("dropFitsContainer", "isOutsideIframeViewport", {
@@ -113,7 +218,158 @@ describe("editor oversized-drop receiver guards", () => {
       },
     });
 
-    expect(dropFitsContainer({} as Element, 220, 96)).toBe(true);
+    expect(dropFitsContainer({} as Element, 220, 96)).toBe(false);
+  });
+
+  it.each([
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      flexDirection: "row",
+      containerSize: { width: 236, height: 64 },
+      sourceSize: { width: 100, height: 80 },
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      flexDirection: "row",
+      containerSize: { width: 236, height: 64 },
+      sourceSize: { width: 100, height: 80 },
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      flexDirection: "column",
+      containerSize: { width: 180, height: 160 },
+      sourceSize: { width: 220, height: 96 },
+    },
+  ])(
+    "rejects cross-axis overflow in $bridgeFilename $flexDirection flex receivers",
+    ({
+      bridgeFilename,
+      nextFunction,
+      flexDirection,
+      containerSize,
+      sourceSize,
+    }) => {
+      const dropFitsContainer = compileBridgeFunction<
+        (
+          container: Element,
+          sourceWidth: number,
+          sourceHeight: number,
+        ) => boolean
+      >(
+        "dropFitsContainer",
+        nextFunction,
+        {
+          dropContentSize: () => containerSize,
+          window: {
+            getComputedStyle: () => ({
+              display: "flex",
+              flexDirection,
+              flexWrap: "nowrap",
+            }),
+          },
+        },
+        bridgeFilename,
+      );
+
+      expect(
+        dropFitsContainer({} as Element, sourceSize.width, sourceSize.height),
+      ).toBe(false);
+    },
+  );
+
+  it.each([
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      style: { display: "flex", flexDirection: "row", flexWrap: "nowrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: true,
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "isFlexContainer",
+      style: {
+        display: "inline-flex",
+        flexDirection: "column",
+        flexWrap: "nowrap",
+      },
+      containerSize: { width: 124, height: 300 },
+      sourceSize: { width: 140, height: 80 },
+      expected: true,
+    },
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      style: { display: "flex", flexDirection: "row", flexWrap: "wrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: false,
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      style: { display: "grid", flexDirection: "row", flexWrap: "nowrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: false,
+    },
+  ])(
+    "uses main-axis fit only for single-line auto-layout fallback in $bridgeFilename",
+    ({
+      bridgeFilename,
+      nextFunction,
+      style,
+      containerSize,
+      sourceSize,
+      expected,
+    }) => {
+      const dropFitsAutoLayoutFallback = compileBridgeFunction<
+        (
+          container: Element,
+          sourceWidth: number,
+          sourceHeight: number,
+        ) => boolean
+      >(
+        "dropFitsAutoLayoutFallback",
+        nextFunction,
+        {
+          dropFitsContainer: () => false,
+          dropContentSize: () => containerSize,
+          window: { getComputedStyle: () => style },
+        },
+        bridgeFilename,
+      );
+
+      expect(
+        dropFitsAutoLayoutFallback(
+          {} as Element,
+          sourceSize.width,
+          sourceSize.height,
+        ),
+      ).toBe(expected);
+    },
+  );
+
+  it("keeps the two-dimensional fit check for static receivers", () => {
+    const dropFitsContainer = compileBridgeFunction<
+      (container: Element, sourceWidth: number, sourceHeight: number) => boolean
+    >("dropFitsContainer", "isOutsideIframeViewport", {
+      dropContentSize: () => ({ width: 180, height: 160 }),
+      window: {
+        getComputedStyle: () => ({
+          display: "block",
+          flexDirection: "row",
+          flexWrap: "nowrap",
+        }),
+      },
+    });
+
+    expect(dropFitsContainer({} as Element, 220, 96)).toBe(false);
+    expect(dropFitsContainer({} as Element, 180, 160)).toBe(true);
   });
 
   it("does not promote an oversized drop beyond the top-level receiver to body", () => {
@@ -167,6 +423,7 @@ describe("editor oversized-drop receiver guards", () => {
       isAbsolutePrimitiveContainer: () => false,
       isFreeformRelativeContainer: () => false,
       dropFitsContainer: (element: Element) => element === body,
+      dropFitsAutoLayoutFallback: () => false,
       parentFlowAxis: () => "y",
       nearestChildInsertionTarget,
     });
@@ -383,6 +640,44 @@ function hydratedEditorChromeBridgeScriptWithLiveReflow(
     "__LIVE_REFLOW_ENABLED__",
     "true",
   );
+}
+
+async function crossScreenDragStartFor(
+  page: Page,
+  selector: string,
+): Promise<Record<string, unknown> | undefined> {
+  await page.evaluate(() => {
+    window.__bridgeMessages = [];
+    window.postMessage = ((message: unknown) => {
+      window.__bridgeMessages?.push(
+        message as { type?: string; phase?: string },
+      );
+    }) as typeof window.postMessage;
+  });
+  const sourceBox = await page.locator(selector).boundingBox();
+  expect(sourceBox).not.toBeNull();
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2,
+    sourceBox!.y + sourceBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2 + 40,
+    sourceBox!.y + sourceBox!.height / 2 + 40,
+    { steps: 4 },
+  );
+  const start = await page.evaluate(() => {
+    const starts = (window.__bridgeMessages ?? []).filter(
+      (message) =>
+        message.type === "agent-native:cross-screen-drag" &&
+        message.phase === "start",
+    );
+    return starts[starts.length - 1] as unknown as
+      | Record<string, unknown>
+      | undefined;
+  });
+  await page.mouse.up();
+  return start;
 }
 
 function hydratedBoardEditorChromeBridgeScriptWithOffset(
@@ -7268,6 +7563,400 @@ it(
         styles: { borderRadius: "16px / 20px" },
       });
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each(["200px", "20000px"])(
+  "positions oversized CSS radius handles at the rendered corner (%s)",
+  { timeout: 30_000 },
+  async (borderRadius) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:${borderRadius}"></div>
+  <div id="effective-reference" style="position:absolute;left:300px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:50px"></div>
+</body></html>`);
+
+      const renderedTarget = await page.locator("#target").screenshot();
+      const renderedReference = await page
+        .locator("#effective-reference")
+        .screenshot();
+      expect(renderedTarget).toEqual(renderedReference);
+
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(94, 94);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("nw radius handle is not visible");
+      const targetBox = await page.locator("#target").boundingBox();
+      if (!targetBox) throw new Error("target is not visible");
+      expect(
+        Math.abs(handleBox.x + handleBox.width / 2 - (targetBox.x + 54)),
+      ).toBeLessThan(1.5);
+      expect(
+        Math.abs(handleBox.y + handleBox.height / 2 - (targetBox.y + 54)),
+      ).toBeLessThan(1.5);
+
+      const radiusValues = await page.locator("#target").evaluate((element) => {
+        const target = element as HTMLElement;
+        return {
+          inline: target.style.borderRadius,
+          computed: getComputedStyle(target).borderTopLeftRadius,
+        };
+      });
+      expect(radiusValues).toEqual({
+        inline: borderRadius,
+        computed: borderRadius,
+      });
+
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2 + 1,
+        handleBox.y + handleBox.height / 2 + 1,
+        { steps: 2 },
+      );
+      const readRadius = () =>
+        page.locator("#target").evaluate((element) => {
+          const target = element as HTMLElement;
+          return {
+            inline: target.style.borderRadius,
+            computed: getComputedStyle(target).borderTopLeftRadius,
+          };
+        });
+      const duringTinyDrag = await readRadius();
+      await page.mouse.up();
+      const afterTinyDrag = await readRadius();
+      for (const radiusValues of [duringTinyDrag, afterTinyDrag]) {
+        const [draggedRadiusX, draggedRadiusY] = radiusValues.computed
+          .split(/\s+/)
+          .map(Number.parseFloat);
+        expect(draggedRadiusX).toBeGreaterThanOrEqual(50);
+        expect(draggedRadiusX).toBeLessThan(55);
+        expect(draggedRadiusY).toBeGreaterThanOrEqual(49);
+        expect(draggedRadiusY).toBeLessThanOrEqual(50);
+        expect(radiusValues.inline).not.toBe("0px");
+      }
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps untouched normalized corners stable during an Alt radius drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(94, 94);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const centers = () =>
+        page.evaluate(() =>
+          ["nw", "ne", "se", "sw"].map((corner) => {
+            const handle = document.querySelector<HTMLElement>(
+              `[data-agent-native-radius-handle="${corner}"]`,
+            );
+            if (!handle) throw new Error(`${corner} radius handle is missing`);
+            const rect = handle.getBoundingClientRect();
+            return {
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+            };
+          }),
+        );
+      const before = await centers();
+      await page.mouse.move(before[0].x, before[0].y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(before[0].x - 1, before[0].y - 1, { steps: 2 });
+      const during = await centers();
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      expect(during[0].x).toBeLessThan(before[0].x);
+      expect(during[0].y).toBeLessThan(before[0].y);
+      expect(
+        Math.hypot(during[0].x - before[0].x, during[0].y - before[0].y),
+      ).toBeLessThan(2);
+      for (const index of [1, 2, 3]) {
+        expect(
+          Math.hypot(
+            during[index].x - before[index].x,
+            during[index].y - before[index].y,
+          ),
+        ).toBeLessThan(1);
+      }
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "49px",
+        borderTopRightRadius: "50px",
+        borderBottomRightRadius: "50px",
+        borderBottomLeftRadius: "50px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "does not snap a lone oversized corner below its rendered radius during Alt drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(144, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const before = await handle.boundingBox();
+      if (!before) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: before.x + before.width / 2,
+        y: before.y + before.height / 2,
+      };
+      await page.mouse.move(start.x, start.y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const during = await handle.boundingBox();
+      if (!during) throw new Error("nw radius handle disappeared during drag");
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      const moved = {
+        x: during.x + during.width / 2,
+        y: during.y + during.height / 2,
+      };
+      expect(Math.abs(moved.x - (start.x - 1))).toBeLessThan(1.5);
+      expect(Math.abs(moved.y - (start.y - 1))).toBeLessThan(1.5);
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps a lone asymmetric oversized corner editable from its normalized rendered origin",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:300px 200px"></div>
+  <div id="effective-reference" style="position:absolute;left:300px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:150px 100px"></div>
+</body></html>`);
+
+      expect(await page.locator("#target").screenshot()).toEqual(
+        await page.locator("#effective-reference").screenshot(),
+      );
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(194, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const before = await handle.boundingBox();
+      if (!before) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: before.x + before.width / 2,
+        y: before.y + before.height / 2,
+      };
+      expect(Math.abs(start.x - 194)).toBeLessThan(1.5);
+      expect(Math.abs(start.y - 144)).toBeLessThan(1.5);
+
+      await page.mouse.move(start.x, start.y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const during = await handle.boundingBox();
+      if (!during) throw new Error("nw radius handle disappeared during drag");
+      const moved = {
+        x: during.x + during.width / 2,
+        y: during.y + during.height / 2,
+      };
+      expect(Math.abs(moved.x - (start.x - 1))).toBeLessThan(1.5);
+      expect(Math.abs(moved.y - (start.y - 1))).toBeLessThan(1.5);
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "149px 99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
+      const persisted = await page.locator("#target").evaluate((element) => {
+        const target = element as HTMLElement;
+        return {
+          inline: target.style.borderTopLeftRadius,
+          computed: getComputedStyle(target).borderTopLeftRadius,
+        };
+      });
+      expect(persisted).toEqual({
+        inline: "149px 99px",
+        computed: "149px 99px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps a lone asymmetric oversized corner under the pointer during a whole-shape drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:300px 200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(194, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const initialBox = await handle.boundingBox();
+      if (!initialBox) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: initialBox.x + initialBox.width / 2,
+        y: initialBox.y + initialBox.height / 2,
+      };
+      expect(Math.abs(start.x - 194)).toBeLessThan(1.5);
+      expect(Math.abs(start.y - 144)).toBeLessThan(1.5);
+
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const duringBox = await handle.boundingBox();
+      if (!duringBox)
+        throw new Error("nw radius handle disappeared during drag");
+      expect(
+        Math.abs(duringBox.x + duringBox.width / 2 - (start.x - 1)),
+      ).toBeLessThan(1.5);
+      expect(
+        Math.abs(duringBox.y + duringBox.height / 2 - (start.y - 1)),
+      ).toBeLessThan(1.5);
+      await page.mouse.up();
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "149px 99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
     } finally {
       await browser.close();
     }
@@ -14949,6 +15638,104 @@ it(
 );
 
 it(
+  "editor chrome bridge declines grid-cell targets occupied by in-flow generated items",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><head><style>
+        #grid::before { content: ""; grid-column: 2; grid-row: 1; width: 80px; height: 80px; }
+      </style></head><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:300px;top:80px;width:160px;height:80px;display:grid;grid-template-columns:80px 80px;grid-template-rows:80px;box-sizing:border-box">
+          <div id="occupied" data-agent-native-node-id="occupied" style="grid-column:1;grid-row:1;width:80px;height:80px"></div>
+        </div>
+      </body></html>`);
+      const bridgeScript = hydratedEditorChromeBridgeScript().replace(
+        "function nearestChildInsertionTarget(",
+        "window.__testGridCellInsertionTarget = gridCellInsertionTarget;\nfunction nearestChildInsertionTarget(",
+      );
+      await page.addScriptTag({ content: bridgeScript });
+
+      const target = await page.evaluate(() => {
+        const grid = document.querySelector<Element>("#grid")!;
+        const occupied = document.querySelector<Element>("#occupied")!;
+        return (window as any).__testGridCellInsertionTarget(
+          grid,
+          420,
+          120,
+          [occupied],
+          [],
+        );
+      });
+
+      expect(target).toBeNull();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge bounds RTL displaced guides to the occupied partial span",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="source" data-agent-native-node-id="source"
+          style="position:absolute;left:40px;top:400px;width:80px;height:44px;background:#6366f1">Source</div>
+        <div id="grid" data-agent-native-node-id="grid"
+          style="position:absolute;left:300px;top:80px;width:320px;height:80px;display:grid;direction:rtl;grid-template-columns:repeat(4,80px);grid-template-rows:80px;box-sizing:border-box">
+          <div id="span" data-agent-native-node-id="span" style="grid-column:1 / 3;grid-row:1;background:#a855f7">Span</div>
+        </div>
+      </body></html>`);
+      const bridgeScript = hydratedEditorChromeBridgeScript().replace(
+        "function nearestChildInsertionTarget(",
+        "window.__testGridCellInsertionTarget = gridCellInsertionTarget;\nfunction nearestChildInsertionTarget(",
+      );
+      expect(bridgeScript).not.toBe(hydratedEditorChromeBridgeScript());
+      await page.addScriptTag({ content: bridgeScript });
+
+      const target = await page.locator("#span").boundingBox();
+      expect(target).toMatchObject({ x: 460, y: 80, width: 160, height: 80 });
+      const targetResult = await page.evaluate(() => {
+        const grid = document.querySelector<Element>("#grid")!;
+        const occupant = document.querySelector<Element>("#span")!;
+        const source = document.querySelector<Element>("#source")!;
+        return (window as any).__testGridCellInsertionTarget(
+          grid,
+          600,
+          120,
+          [occupant],
+          [source],
+        );
+      });
+      expect(targetResult.guideRect).toEqual({
+        left: target!.x,
+        top: target!.y,
+        width: target!.width,
+        height: target!.height,
+      });
+      expect(targetResult.persistencePlacement).toBe("after");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge posts element-hover only when the hovered element actually changes, not on every raw pointermove",
   { timeout: 30_000 },
   async () => {
@@ -15272,6 +16059,246 @@ it(
       });
       expect(start?.sourceCloneHtml).toBe(preLiftHtml);
       await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge preserves an RTL source item's authored grid span on drag start",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 80px; display: grid; direction: rtl; grid-template-columns: repeat(4, 80px); grid-auto-columns: 80px; grid-template-rows: 80px; }
+      #target { grid-column: 1 / -1; grid-row: 1; justify-self: start; align-self: start; width: 40px; height: 40px; background: #6366f1; }
+      #implicit { grid-column: 6; grid-row: 1; width: 20px; height: 20px; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="target" data-agent-native-node-id="target">Target</div><div id="implicit" data-agent-native-node-id="implicit">Implicit</div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.postMessage = ((message: unknown) => {
+          (window as any).__bridgeMessages.push(message);
+        }) as typeof window.postMessage;
+      });
+
+      const sourceBox = await page.locator("#target").boundingBox();
+      expect(sourceBox).toMatchObject({
+        y: 100,
+        width: 40,
+        height: 40,
+      });
+      expect(sourceBox).not.toBeNull();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2,
+        sourceBox!.y + sourceBox!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2 + 40,
+        sourceBox!.y + sourceBox!.height / 2 + 40,
+        { steps: 4 },
+      );
+
+      const start = await page.evaluate(() => {
+        const starts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        );
+        return starts[starts.length - 1];
+      });
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toEqual({
+        columns: 4,
+        rows: 1,
+      });
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge preserves reversed explicit source grid spans on drag start",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 80px; display: grid; grid-template-columns: repeat(4, 80px); grid-template-rows: 80px; }
+      #target { grid-column: 4 / 2; grid-row: 1; justify-self: start; align-self: start; width: 40px; height: 40px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="target" data-agent-native-node-id="target">Target</div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.postMessage = ((message: unknown) => {
+          (window as any).__bridgeMessages.push(message);
+        }) as typeof window.postMessage;
+      });
+
+      const sourceBox = await page.locator("#target").boundingBox();
+      expect(sourceBox).not.toBeNull();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2,
+        sourceBox!.y + sourceBox!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2 + 40,
+        sourceBox!.y + sourceBox!.height / 2 + 40,
+        { steps: 4 },
+      );
+
+      const start = await page.evaluate(() => {
+        const starts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        );
+        return starts[starts.length - 1];
+      });
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toEqual({
+        columns: 2,
+        rows: 1,
+      });
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each([
+  {
+    kind: "named",
+    columns: "[start] 80px [middle] 80px [end]",
+    placement: "start / end",
+  },
+  {
+    kind: "negative",
+    columns: "repeat(4, 80px)",
+    placement: "-4 / -2",
+  },
+])(
+  "omits unresolved $kind source grid lines when track geometry is unavailable",
+  { timeout: 30_000 },
+  async ({ columns, placement }) => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 80px; display: grid; grid-template-columns: ${columns}; grid-template-rows: 80px; transform: rotate(2deg); transform-origin: top left; }
+      #target { grid-column: ${placement}; grid-row: 1; justify-self: start; align-self: start; width: 160px; height: 40px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="target" data-agent-native-node-id="target">Target</div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      expect(
+        await page
+          .locator("#grid")
+          .evaluate((grid) => getComputedStyle(grid).transform),
+      ).not.toBe("none");
+
+      const start = await crossScreenDragStartFor(page, "#target");
+
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toBeUndefined();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "captures authored source grid spans through display:contents wrappers",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 160px; display: grid; grid-template-columns: repeat(4, 80px); grid-template-rows: repeat(2, 80px); }
+      #flattened { display: contents; }
+      #target { grid-column: 2 / 4; grid-row: 1 / 3; justify-self: start; align-self: start; width: 160px; height: 160px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="flattened"><div id="target" data-agent-native-node-id="target">Target</div></div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const start = await crossScreenDragStartFor(page, "#target");
+
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toEqual({
+        columns: 2,
+        rows: 2,
+      });
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
