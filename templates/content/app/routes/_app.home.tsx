@@ -5,7 +5,7 @@ import type {
   ContentSpaceLandingResult,
 } from "@shared/content-landing";
 import { contentRecentHref } from "@shared/content-personal-navigation";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   Link,
@@ -57,14 +57,6 @@ export function meta() {
     { name: "twitter:title", content: SEO_TITLE },
     { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
-}
-
-function refreshAfterLanding(
-  queryClient: QueryClient,
-  result: ContentLandingResult | ContentSpaceLandingResult,
-) {
-  if (!("welcomeCreated" in result) || !result.welcomeCreated) return;
-  refreshLandingCollections(queryClient);
 }
 
 // The landing draws the page placeholder, so a page that opens here keeps its
@@ -157,7 +149,13 @@ export default function HomeRoute() {
     { spaceId?: string }
   >("resolve-content-landing", {
     skipActionQueryInvalidation: true,
-    onSuccess: (result) => refreshAfterLanding(queryClient, result),
+    onSuccess: (result) => {
+      const owed = collectionsRefreshOwedRef.current;
+      collectionsRefreshOwedRef.current = false;
+      if (owed || ("welcomeCreated" in result && result.welcomeCreated)) {
+        refreshLandingCollections(queryClient);
+      }
+    },
   });
 
   const openLanding = useCallback(async () => {
@@ -196,10 +194,6 @@ export default function HomeRoute() {
       const result =
         adopted ??
         (await resolveLanding.mutateAsync(spaceId ? { spaceId } : {}));
-      if (collectionsRefreshOwedRef.current) {
-        collectionsRefreshOwedRef.current = false;
-        refreshLandingCollections(queryClient);
-      }
       if (!current()) return;
       if ("target" in result) {
         if (!result.target) return;
@@ -232,7 +226,6 @@ export default function HomeRoute() {
     location.key,
     location.search,
     navigate,
-    queryClient,
     resolveLanding,
     scope,
     spaceId,

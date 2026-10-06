@@ -108,6 +108,14 @@ const aliceScope = JSON.stringify(["alice@example.com", "org-1"]);
 const alice = { email: "alice@example.com", orgId: "org-1" };
 const bob = { email: "bob@example.com", orgId: "org-1" };
 
+// Mirrors react-query: a mutation's onSuccess runs before mutateAsync resolves.
+function succeed<T extends { resolution: string; welcomeCreated?: true }>(
+  result: T,
+) {
+  landingOptions.current?.onSuccess?.(result);
+  return result;
+}
+
 function renderHome(root: Root) {
   act(() => {
     root.render(
@@ -663,10 +671,9 @@ describe("home landing route optimistic title", () => {
     resolveLanding.isError = true;
     renderHome(root);
     resolveLanding.isError = false;
-    resolveLanding.mutateAsync.mockResolvedValue({
-      documentId: "welcome-1",
-      resolution: "welcome-reused",
-    });
+    resolveLanding.mutateAsync.mockImplementation(async () =>
+      succeed({ documentId: "welcome-1", resolution: "welcome-reused" }),
+    );
     const retry = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "database.retry",
     );
@@ -674,6 +681,29 @@ describe("home landing route optimistic title", () => {
 
     expect(resolveLanding.mutateAsync).toHaveBeenCalledTimes(2);
     expect(recentRefreshes()).toBe(2);
+    invalidate.mockRestore();
+  });
+
+  it("refreshes once when the landing after a failed early one creates Welcome", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    callAction.mockRejectedValue(new Error("response lost"));
+    startEarlyContentLanding(queryClient, locationKey.current);
+    resolveLanding.mutateAsync.mockImplementation(async () =>
+      succeed({
+        documentId: "welcome-1",
+        resolution: "welcome-created",
+        welcomeCreated: true,
+      }),
+    );
+
+    renderHome(root);
+    await act(async () => Promise.resolve());
+
+    expect(
+      invalidate.mock.calls.filter(
+        ([filters]) => filters?.queryKey?.[1] === "get-content-recent",
+      ),
+    ).toHaveLength(2);
     invalidate.mockRestore();
   });
 
