@@ -1170,6 +1170,7 @@ import {
   hasSelectableCodeLayerParent,
   isScreenRootElementInfo,
   isUserOriginatedSelectionIntent,
+  overviewScreenSelectionForPendingEcho,
   overviewSelectionTargetsElement,
   resolveAvailableActiveFileId,
   resolveEffectiveSelectedLayerIds,
@@ -2903,6 +2904,7 @@ function DesignEditor() {
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const selectedLayerIdsStateRef = useRef<string[]>([]);
   const overviewSelectedScreenIdsRef = useRef<string[]>([]);
+  const explicitOverviewScreenSelectionRef = useRef<string[]>([]);
   const fileCreationUndoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const fileCreationRedoStackRef = useRef<FileCreationHistoryEntry[]>([]);
   const pendingFileCreationHistoryEntriesRef = useRef<
@@ -2989,10 +2991,21 @@ function DesignEditor() {
     (selection: GeometryHistorySelection | undefined) => {
       if (!selection) return;
       if (viewModeRef.current !== "overview") {
+        explicitOverviewScreenSelectionRef.current = [];
         setSelectedLayerIdsState(selection.selectedLayerIds);
         if (selection.activeFileId) setActiveFileId(selection.activeFileId);
         return;
       }
+      const screenFileIds = new Set(
+        getOverviewScreenFileIds(historyFilesRef.current),
+      );
+      const restoresChildLayerSelection = selection.selectedLayerIds.some(
+        (layerId) =>
+          layerId && !layerId.startsWith("__") && !screenFileIds.has(layerId),
+      );
+      explicitOverviewScreenSelectionRef.current = restoresChildLayerSelection
+        ? []
+        : [...selection.overviewSelectedScreenIds];
       const restoredLayerId =
         selection.selectedLayerIds.length === 1
           ? selection.selectedLayerIds[0]
@@ -6927,6 +6940,9 @@ function DesignEditor() {
           setViewMode,
           setZoomForView,
           pendingOverviewScreenSelectionRef,
+          setExplicitOverviewScreenSelection: (screenIds) => {
+            explicitOverviewScreenSelectionRef.current = screenIds;
+          },
           overviewDataReady,
           viewModeRef,
           requestCameraFit: (camera) => {
@@ -7073,6 +7089,7 @@ function DesignEditor() {
       setActiveFileId(plan.activeFileId);
       setSelectedElement(null);
       setSelectedLayerIdsState(plan.selectedLayerIds);
+      explicitOverviewScreenSelectionRef.current = plan.selectedScreenIds;
       setOverviewSelectedScreenIds(plan.selectedScreenIds);
       setActiveTool("move");
       setMode("edit");
@@ -7820,6 +7837,7 @@ function DesignEditor() {
           ? `[data-agent-native-node-id="${finding.nodeId.replace(/"/g, '\\"')}"]`
           : null);
       if (!selector) return;
+      explicitOverviewScreenSelectionRef.current = [];
       canvasIframeRef.current?.contentWindow?.postMessage(
         {
           type: "select-element",
@@ -10694,6 +10712,10 @@ function DesignEditor() {
   const handleReviewThreadSelect = useCallback(
     (thread: ReviewThread) => {
       const targetId = thread.root.targetId;
+      explicitOverviewScreenSelectionRef.current =
+        targetId && overviewScreens.some((screen) => screen.id === targetId)
+          ? [targetId]
+          : [];
       if (
         shouldClearSelectionForReviewThreadTarget({
           activeFileId: activeFile?.id,
@@ -10725,7 +10747,7 @@ function DesignEditor() {
         threadId: thread.root.threadId,
       });
     },
-    [activeFile?.id, boardFileId],
+    [activeFile?.id, boardFileId, overviewScreens],
   );
 
   useEffect(() => {
@@ -11203,8 +11225,17 @@ function DesignEditor() {
       const pendingId = pendingOverviewScreenSelectionRef.current;
       const fileIds = new Set(getOverviewScreenFileIds(files));
       const nextIds = ids.filter((layerId) => fileIds.has(layerId));
-      if (pendingId && ids.length === 0) return;
+      if (pendingId && ids.length === 0) {
+        explicitOverviewScreenSelectionRef.current = [];
+        return;
+      }
       if (pendingId && ids.includes(pendingId)) {
+        explicitOverviewScreenSelectionRef.current =
+          overviewScreenSelectionForPendingEcho({
+            screenIds: nextIds,
+            pendingLayerId: pendingOverviewLayerSelectionRef.current,
+            screenFileIds: fileIds,
+          });
         setOverviewSelectedScreenIds((current) =>
           sameStringIds(current, nextIds) ? current : nextIds,
         );
@@ -11219,6 +11250,7 @@ function DesignEditor() {
         clearPendingOverviewLayerSelectionTimer();
         setCreatedOverviewLayerSelection(null);
       }
+      explicitOverviewScreenSelectionRef.current = nextIds;
       setOverviewSelectedScreenIds((current) =>
         sameStringIds(current, nextIds) ? current : nextIds,
       );
@@ -11782,6 +11814,7 @@ function DesignEditor() {
       selector?: string;
       title?: string;
     }) => {
+      explicitOverviewScreenSelectionRef.current = [];
       if (viewModeRef.current === "single") {
         viewModeRef.current = "overview";
         setViewMode("overview");
@@ -11892,6 +11925,7 @@ function DesignEditor() {
         breakpointWidthPx?: number;
       } = {},
     ) => {
+      explicitOverviewScreenSelectionRef.current = [];
       const run = () => {
         runScreenElementSelect(
           {
@@ -12014,6 +12048,7 @@ function DesignEditor() {
         handleScreenElementSelect(screenId, info, intent);
         return;
       }
+      explicitOverviewScreenSelectionRef.current = [];
       setSelectedElement(
         canonicalizeElementInfoFromProjection(activeCodeLayerProjection, info),
       );
@@ -12060,6 +12095,7 @@ function DesignEditor() {
 
   const handleScreenElementDblClickText = useCallback(
     (screenId: string, info: ElementInfo) => {
+      explicitOverviewScreenSelectionRef.current = [];
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
@@ -12097,6 +12133,7 @@ function DesignEditor() {
         handleScreenElementDblClickText(screenId, info);
         return;
       }
+      explicitOverviewScreenSelectionRef.current = [];
       setSelectedElement(
         canonicalizeElementInfoFromProjection(activeCodeLayerProjection, info),
       );
@@ -14120,6 +14157,7 @@ function DesignEditor() {
         )
         .filter((node): node is CodeLayerNode => Boolean(node));
       if (insertedNodes.length === 0) return;
+      explicitOverviewScreenSelectionRef.current = [];
       const lastNode = insertedNodes[insertedNodes.length - 1];
       if (lastNode) {
         pendingOverviewScreenSelectionRef.current =
@@ -15006,6 +15044,9 @@ function DesignEditor() {
         getScreenContent,
         getSelectedLayerSnapshots,
         handleDuplicateScreen,
+        clearExplicitOverviewScreenSelection: () => {
+          explicitOverviewScreenSelectionRef.current = [];
+        },
         lastDuplicateTransformRef,
         overviewSelectedScreenIds,
         remapMotionTracksForClone,
@@ -16205,6 +16246,9 @@ function DesignEditor() {
           runtimeStructureInsertRevisionRef,
           runtimeStructurePendingTransactionRef,
           sendRuntimeLayerMoveSemanticHandoff,
+          clearExplicitOverviewScreenSelection: () => {
+            explicitOverviewScreenSelectionRef.current = [];
+          },
           setActiveFileId,
           setCreatedOverviewLayerSelection,
           setOverviewSelectedScreenIds,
@@ -16991,7 +17035,7 @@ function DesignEditor() {
   }, [files, selectedElement, selectedLayerIdsState]);
 
   const handleDeleteOverviewSelection = useCallback(
-    (selectedIds: string[]) => {
+    (selectedIds: string[], explicitScreenDeletion = false) => {
       if (!canEditDesign) return false;
       if (fileHistoryMutationPendingRef.current) return false;
       const overviewScreenIds = new Set(
@@ -17001,28 +17045,36 @@ function DesignEditor() {
       const selectedFiles = files.filter(
         (file) => selectedIdSet.has(file.id) && overviewScreenIds.has(file.id),
       );
-      if (!selectedFiles.length) {
-        if (
-          overviewSelectionTargetsElement({
-            selectedElement,
-            selectedLayerIds: selectedLayerIdsState,
-            fileIds: files.map((file) => file.id),
-          })
-        ) {
-          handleDeleteSelection();
-        }
+      const explicitlySelectedFiles = selectedFiles.filter((file) =>
+        explicitOverviewScreenSelectionRef.current.includes(file.id),
+      );
+      if (
+        !explicitScreenDeletion &&
+        explicitlySelectedFiles.length === 0 &&
+        overviewSelectionTargetsElement({
+          selectedElement,
+          selectedLayerIds: selectedLayerIdsState,
+          fileIds: files.map((file) => file.id),
+        })
+      ) {
+        handleDeleteSelection();
         return false;
       }
-      if (overviewScreens.length <= 1) return false;
+      const filesToDelete =
+        explicitlySelectedFiles.length > 0
+          ? explicitlySelectedFiles
+          : selectedFiles;
+      if (!filesToDelete.length || overviewScreens.length <= 1) return false;
 
       const maxDeleteCount =
-        selectedFiles.length >= overviewScreens.length
+        filesToDelete.length >= overviewScreens.length
           ? Math.max(0, overviewScreens.length - 1)
-          : selectedFiles.length;
-      const filesToDelete = selectedFiles.slice(0, maxDeleteCount);
-      if (!filesToDelete.length) return false;
+          : filesToDelete.length;
+      const boundedFilesToDelete = filesToDelete.slice(0, maxDeleteCount);
+      if (!boundedFilesToDelete.length) return false;
 
-      performDeleteFiles(filesToDelete, { recordDeletionHistory: true });
+      explicitOverviewScreenSelectionRef.current = [];
+      performDeleteFiles(boundedFilesToDelete, { recordDeletionHistory: true });
       return false;
     },
     [
@@ -18178,6 +18230,7 @@ function DesignEditor() {
 
   const handleSidebarScreenSelect = useCallback(
     (screenId: string) => {
+      explicitOverviewScreenSelectionRef.current = [];
       if (
         viewModeRef.current === "overview" &&
         overviewSelectedScreenIds.length > 0
@@ -18210,6 +18263,7 @@ function DesignEditor() {
 
   const handleReviewNodeRewrite = useCallback(
     (proposal: NodeRewriteProposal) => {
+      explicitOverviewScreenSelectionRef.current = [proposal.fileId];
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
@@ -18265,6 +18319,7 @@ function DesignEditor() {
 
   const handleSidebarScreenOverview = useCallback(() => {
     const restoredOverviewSelection = getRestoredOverviewSelection();
+    explicitOverviewScreenSelectionRef.current = restoredOverviewSelection;
     pendingOverviewScreenSelectionRef.current = null;
     pendingOverviewLayerSelectionRef.current = null;
     clearPendingOverviewLayerSelectionTimer();
@@ -18454,6 +18509,7 @@ function DesignEditor() {
       expandedIds: readonly string[] = [],
     ): boolean => {
       if (nodes.length === 0) return false;
+      explicitOverviewScreenSelectionRef.current = [];
       setActiveFileId(fileId);
       setOverviewSelectedScreenIds([]);
       setSelectedLayerIdsState(nodes.map((node) => node.id));
@@ -18750,7 +18806,9 @@ function DesignEditor() {
       setActiveTool("move");
       viewModeRef.current = "overview";
       setViewMode("overview");
-      setOverviewSelectedScreenIds(overviewScreens.map((screen) => screen.id));
+      const selectedScreenIds = overviewScreens.map((screen) => screen.id);
+      explicitOverviewScreenSelectionRef.current = selectedScreenIds;
+      setOverviewSelectedScreenIds(selectedScreenIds);
       setOverviewSelectAllRequest((request) => request + 1);
     });
   }, [
@@ -21671,6 +21729,7 @@ function DesignEditor() {
     pendingOverviewLayerSelectionRef.current = null;
     clearPendingOverviewLayerSelectionTimer();
     setCreatedOverviewLayerSelection(null);
+    explicitOverviewScreenSelectionRef.current = [];
     setActiveFileId(owner.fileId);
     setSelectedLayerIdsState([resolvedInitialRouteSelectionId]);
     if (viewModeRef.current === "overview") {
@@ -21942,7 +22001,7 @@ function DesignEditor() {
   const handleRemoveSelectedScreen = useCallback(() => {
     const screenId = selectedScreenGeometry?.id;
     if (!screenId) return;
-    handleDeleteOverviewSelection([screenId]);
+    handleDeleteOverviewSelection([screenId], true);
   }, [handleDeleteOverviewSelection, selectedScreenGeometry?.id]);
 
   const handleScreenSourceChange = useCallback(
@@ -22928,6 +22987,12 @@ function DesignEditor() {
             addUnique(nextScreenIds, owner.fileId);
           }
         }
+
+        explicitOverviewScreenSelectionRef.current = targets.some(
+          (target) => target.tag !== "html" && target.tag !== "body",
+        )
+          ? []
+          : [...nextScreenIds];
 
         if (viewModeRef.current === "overview") {
           const nextActiveFileId = nextScreenIds[0] ?? targets[0]?.fileId;
@@ -24166,6 +24231,7 @@ function DesignEditor() {
         range: boolean;
       },
     ) => {
+      explicitOverviewScreenSelectionRef.current = [];
       recordSelectionHistoryAroundChange(() => {
         const effectiveIds = runLayerSelectionChange(
           {
@@ -24262,6 +24328,9 @@ function DesignEditor() {
       infos: ElementInfo[],
       intent?: ElementSelectionIntent,
     ) => {
+      if (!intent?.cancelled) {
+        explicitOverviewScreenSelectionRef.current = [];
+      }
       handleLayerMarqueeSelectionChange(
         infos.map((info) => ({ screenId, info })),
         {
@@ -25453,6 +25522,9 @@ function DesignEditor() {
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
+      if (!shiftKeyHeldRef.current) {
+        explicitOverviewScreenSelectionRef.current = [pickedId];
+      }
       setSelectedElement(null);
       setHoveredElement(null);
       // PICK-RACE — see computeOverviewScreenPickSelectionIds's doc comment
@@ -28487,6 +28559,7 @@ function DesignEditor() {
                         onElementHover={handleElementHover}
                         onEditorDragStateChange={handleEditorDragStateChange}
                         onClearSelection={() => {
+                          explicitOverviewScreenSelectionRef.current = [];
                           setSelectedElement(null);
                           setHoveredElement(null);
                           setHoveredElementScreenId(null);
@@ -28707,6 +28780,7 @@ function DesignEditor() {
                   if (nextOpen) return;
                   setSelectedElement(null);
                   setSelectedLayerIdsState([]);
+                  explicitOverviewScreenSelectionRef.current = [];
                   setOverviewSelectedScreenIds([]);
                 }
               : undefined

@@ -471,6 +471,19 @@ export function computeOverviewScreenPickSelectionIds(args: {
   return args.shiftKeyHeld ? args.currentSelectedLayerIds : [args.pickedId];
 }
 
+export function overviewScreenSelectionForPendingEcho(args: {
+  screenIds: string[];
+  pendingLayerId: string | null;
+  screenFileIds: ReadonlySet<string>;
+}): string[] {
+  const pendingLayerIsChild = Boolean(
+    args.pendingLayerId &&
+    !args.pendingLayerId.startsWith("__") &&
+    !args.screenFileIds.has(args.pendingLayerId),
+  );
+  return pendingLayerIsChild ? [] : args.screenIds;
+}
+
 export function buildActiveFileNodeIdSet(
   projection: CodeLayerProjection,
 ): Set<string> {

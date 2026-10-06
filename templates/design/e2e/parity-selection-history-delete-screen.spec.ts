@@ -183,6 +183,38 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
   ).toEqual([]);
 });
 
+test("deleting a selected child layer keeps its owning Screen", async ({
+  page,
+}) => {
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    await expect(blueBoxButton).toHaveCount(1);
+    const blueBoxRow = blueBoxButton.locator(
+      "xpath=ancestor::*[@role='treeitem'][1]",
+    );
+    await blueBoxButton.click();
+    await expect(blueBoxRow).toHaveAttribute("aria-selected", "true");
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Blue Box")).toHaveCount(0);
+    await expect(layerRow(page, "Home")).toHaveCount(1);
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+
+    await page.keyboard.press(UNDO);
+    await expect(layerRow(page, "Blue Box")).toHaveCount(1);
+    await expect(layerRow(page, "Home")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 test("marquee selection persists and deletes Screens after a prior layer selection", async ({
   page,
 }) => {
@@ -285,6 +317,7 @@ test("marquee selection persists and deletes Screens after a prior layer selecti
 
     await expect(passiveScreenSelections).toHaveCount(2);
     await expect(groupScreenSelection).toHaveCount(1);
+    await expect(blueBoxRow).toHaveAttribute("aria-selected", "false");
 
     await page.keyboard.press("Delete");
     await expect(layerRow(page, "Home")).toHaveCount(0);

@@ -106,6 +106,45 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
     });
   });
 
+  it("does not treat an overview owner Screen as explicitly selected for a child command selection", () => {
+    const setExplicitOverviewScreenSelection = vi.fn();
+    const args = makeArgs({
+      files: [screenFile],
+      overviewScreens: [overviewScreen],
+      setExplicitOverviewScreenSelection,
+    });
+
+    const applied = runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      editorView: "overview",
+      screen: "file-1",
+      selection: "code:layer-1",
+    });
+
+    expect(applied).toBe(true);
+    expect(args.setOverviewSelectedScreenIds).toHaveBeenCalledWith(["file-1"]);
+    expect(setExplicitOverviewScreenSelection).toHaveBeenCalledWith([]);
+  });
+
+  it("marks a command that selects a Screen root as explicit overview selection", () => {
+    const setExplicitOverviewScreenSelection = vi.fn();
+    const args = makeArgs({
+      files: [screenFile],
+      overviewScreens: [overviewScreen],
+      setExplicitOverviewScreenSelection,
+    });
+
+    runApplyDesignEditorCommand(args, {
+      designId: "design-1",
+      issuedAt: 0,
+      editorView: "overview",
+      selection: "code:file-1",
+    });
+
+    expect(setExplicitOverviewScreenSelection).toHaveBeenCalledWith(["file-1"]);
+  });
+
   it("fits the rendered responsive layout-group fallback", () => {
     const requestCameraFit = vi.fn();
     const args = makeArgs({

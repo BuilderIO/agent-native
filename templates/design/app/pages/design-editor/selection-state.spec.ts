@@ -12,6 +12,7 @@ import {
   isDocumentShellCodeLayerNode,
   isUserOriginatedSelectionIntent,
   overviewSelectionTargetsElement,
+  overviewScreenSelectionForPendingEcho,
   pendingEditTargetsSelectedElement,
   resolveMarqueeAdditive,
   resolveOverviewScreenFrameGeometry,
@@ -139,6 +140,28 @@ describe("getOverviewScreenContentKey", () => {
       useRuntimeReplacement: false,
     });
     expect(after).not.toBe(before);
+  });
+});
+
+describe("overviewScreenSelectionForPendingEcho", () => {
+  it("keeps a pending child-layer selection from becoming an explicit Screen selection", () => {
+    expect(
+      overviewScreenSelectionForPendingEcho({
+        screenIds: ["screen-1"],
+        pendingLayerId: "layer-1",
+        screenFileIds: new Set(["screen-1", "screen-2"]),
+      }),
+    ).toEqual([]);
+  });
+
+  it("preserves an explicit Screen-root selection", () => {
+    expect(
+      overviewScreenSelectionForPendingEcho({
+        screenIds: ["screen-1"],
+        pendingLayerId: "screen-1",
+        screenFileIds: new Set(["screen-1", "screen-2"]),
+      }),
+    ).toEqual(["screen-1"]);
   });
 });
 
