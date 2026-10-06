@@ -1006,7 +1006,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         expect(listedTools.map((tool: any) => tool.name).sort()).toEqual(
           [...profile.connectorCatalog].sort(),
         );
-        expect(linkedUris.length).toBeGreaterThan(0);
+        if (profile.widgets === false) {
+          expect(linkedUris).toEqual([]);
+          expect(JSON.stringify(listedTools)).not.toMatch(
+            /ui:\/\/|openai\/(?:ui|outputTemplate|widget)/,
+          );
+        } else {
+          expect(linkedUris.length).toBeGreaterThan(0);
+        }
         expect(resources.body?.result?.resources).toHaveLength(
           linkedUris.length,
         );
@@ -1504,6 +1511,134 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     } finally {
       await client.close();
     }
+  });
+
+  it("can omit widgets from one directory profile without changing /mcp", async () => {
+    const directoryAction = defineAction({
+      description: "Create one workspace artifact.",
+      parameters: {},
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/directory-action/shell-v65",
+          title: "Created artifact",
+          html: "<!doctype html><html><body>Created</body></html>",
+        },
+      },
+      run: async () => ({ ok: true }),
+    });
+    (directoryAction.tool as any)._meta = {
+      ui: { resourceUri: "ui://content/directory-action/shell-v65" },
+      "openai/ui": { entrypoints: [{ type: "thread" }] },
+      "openai/outputTemplate": "ui://content/directory-action/shell-v65",
+      "openai/widgetDomain": "https://content.agent-native.com",
+      "openai/widgetCSP": {
+        frameDomains: ["https://content.agent-native.com"],
+      },
+      "agent-native/retained": true,
+    };
+    const profileConfig = {
+      ...config,
+      catalogMode: undefined,
+      directoryProfile: {
+        connectorCatalog: ["directory-action"],
+        widgets: false,
+      },
+      actions: { "directory-action": directoryAction },
+    };
+    const directoryHeaders = await mcpAppsAuthHeaders({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const normalHeaders = await mcpAppsAuthHeaders({
+      resource: "https://mail.agent-native.com/_agent-native/mcp",
+    });
+
+    const directoryTools = await callWeb(
+      { jsonrpc: "2.0", id: 160, method: "tools/list", params: {} },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryTools.result.tools).toHaveLength(1);
+    expect(directoryTools.result.tools[0]._meta).toEqual({
+      "agent-native/retained": true,
+    });
+
+    const directoryResources = await callWeb(
+      { jsonrpc: "2.0", id: 161, method: "resources/list", params: {} },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryResources.result.resources).toEqual([]);
+
+    const directoryTemplates = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 162,
+        method: "resources/templates/list",
+        params: {},
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(directoryTemplates.result.resourceTemplates).toEqual([]);
+
+    const hiddenResource = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 163,
+        method: "resources/read",
+        params: { uri: "ui://content/directory-action/shell-v65" },
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(hiddenResource.error?.message).toContain(
+      "MCP App resource not found",
+    );
+
+    const directoryCall = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "directory-action", arguments: {} },
+      },
+      {
+        headers: directoryHeaders,
+        config: profileConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+    expect(JSON.stringify(directoryCall)).not.toMatch(
+      /ui:\/\/|openai\/(?:ui|outputTemplate|widget)/,
+    );
+
+    const normalTools = await callWeb(
+      { jsonrpc: "2.0", id: 165, method: "tools/list", params: {} },
+      { headers: normalHeaders, config: profileConfig },
+    );
+    expect(normalTools.result.tools[0]._meta.ui.resourceUri).toBe(
+      "ui://content/directory-action/shell-v65",
+    );
+    expect(normalTools.result.tools[0]._meta["openai/outputTemplate"]).toBe(
+      "ui://content/directory-action/shell-v65",
+    );
   });
 
   it("rejects directory actions without complete annotations", async () => {

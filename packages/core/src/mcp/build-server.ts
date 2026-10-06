@@ -137,6 +137,7 @@ export interface MCPConfig {
   directoryProfile?: {
     connectorCatalog: string[];
     instructions?: string;
+    widgets?: boolean;
     keyToolNames?: readonly string[];
     toolDescriptions?: Record<string, string>;
     toolParameterDescriptions?: Record<string, Record<string, string>>;
@@ -1407,12 +1408,33 @@ async function resolveMcpAppResourceSafely(
   }
 }
 
+function mcpAppWidgetsEnabled(config: MCPConfig): boolean {
+  return !(
+    config.catalogMode === "directory" &&
+    config.directoryProfile?.widgets === false
+  );
+}
+
+function stripDirectoryWidgetMeta(
+  config: MCPConfig,
+  metadata: Record<string, unknown>,
+): void {
+  if (mcpAppWidgetsEnabled(config)) return;
+  delete metadata.ui;
+  delete metadata[MCP_APP_RESOURCE_URI_META_KEY];
+  delete metadata["openai/ui"];
+  delete metadata["openai/outputTemplate"];
+  for (const key of Object.keys(metadata)) {
+    if (key.startsWith("openai/widget")) delete metadata[key];
+  }
+}
+
 async function getMcpAppResources(
   config: MCPConfig,
   actions: Record<string, ActionEntry>,
   requestMeta?: MCPRequestMeta,
 ): Promise<ResolvedMcpAppResource[]> {
-  if (!requestMeta?.inlineMcpApps) return [];
+  if (!requestMeta?.inlineMcpApps || !mcpAppWidgetsEnabled(config)) return [];
   const resources = await Promise.all(
     Object.entries(actions).map(([name, entry]) =>
       resolveMcpAppResourceSafely(config, name, entry, requestMeta),
@@ -1973,18 +1995,21 @@ export async function createMCPServerForRequest(
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
           .map(async ([name, entry]) => {
             const hasLink = typeof entry.link === "function";
-            const mcpAppResource = await resolveMcpAppResourceSafely(
-              config,
-              name,
-              entry,
-              requestMeta,
-            );
+            const mcpAppResource = mcpAppWidgetsEnabled(config)
+              ? await resolveMcpAppResourceSafely(
+                  config,
+                  name,
+                  entry,
+                  requestMeta,
+                )
+              : null;
             const rawToolMeta =
               (entry.tool as any)._meta &&
               typeof (entry.tool as any)._meta === "object" &&
               !Array.isArray((entry.tool as any)._meta)
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
+            stripDirectoryWidgetMeta(config, rawToolMeta);
             const inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
             if (directoryCatalog) {
               const properties = inputSchema.properties as
@@ -2256,14 +2281,15 @@ export async function createMCPServerForRequest(
             !!mcpResult.raw &&
             typeof mcpResult.raw === "object" &&
             (mcpResult.raw as Record<string, unknown>).isError === true;
-          const mcpAppResourceCandidate = requestMeta?.inlineMcpApps
-            ? await resolveMcpAppResourceSafely(
-                config,
-                name,
-                entry,
-                requestMeta,
-              )
-            : null;
+          const mcpAppResourceCandidate =
+            requestMeta?.inlineMcpApps && mcpAppWidgetsEnabled(config)
+              ? await resolveMcpAppResourceSafely(
+                  config,
+                  name,
+                  entry,
+                  requestMeta,
+                )
+              : null;
           let directoryLinkUrl: string | undefined;
           if (config.catalogMode === "directory" && entry.link) {
             const linked = entry.link({
@@ -2531,7 +2557,10 @@ export async function createMCPServerForRequest(
               actionName: string;
               resource: ResolvedMcpAppResource;
             } | null = null;
-            for (const [name, entry] of Object.entries(advertisedActions)) {
+            const resourceActions = mcpAppWidgetsEnabled(config)
+              ? Object.entries(advertisedActions)
+              : [];
+            for (const [name, entry] of resourceActions) {
               const resourceUri = getMcpAppResourceUri(config, name, entry);
               if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
                 continue;
