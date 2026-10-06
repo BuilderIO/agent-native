@@ -183,6 +183,114 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
   ).toEqual([]);
 });
 
+test("marquee selection persists and deletes selected Screens over an old layer selection", async ({
+  page,
+}) => {
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const cards = page.locator("[data-screen-card]");
+    await expect(cards).toHaveCount(3);
+
+    const homeLayer = layerRow(page, "Home");
+    await homeLayer.click();
+    await expect(homeLayer).toHaveAttribute("aria-selected", "true");
+
+    const canvas = await page
+      .locator("[data-multi-screen-canvas-surface]")
+      .boundingBox();
+    expect(canvas).not.toBeNull();
+    const boxes = await Promise.all(
+      [0, 1, 2].map((index) => cards.nth(index).boundingBox()),
+    );
+    const marqueeBoxes = boxes.slice(0, 2).filter((box) => box !== null);
+    expect(marqueeBoxes).toHaveLength(2);
+    const thirdBox = boxes[2];
+    expect(thirdBox).not.toBeNull();
+    const margin = 32;
+    const left = Math.min(...marqueeBoxes.map((box) => box!.x)) - margin;
+    const top = Math.min(...marqueeBoxes.map((box) => box!.y)) - margin;
+    const right =
+      Math.max(...marqueeBoxes.map((box) => box!.x + box!.width)) + margin;
+    const bottom =
+      Math.max(...marqueeBoxes.map((box) => box!.y + box!.height)) + margin;
+    expect(left).toBeGreaterThanOrEqual(canvas!.x);
+    expect(top).toBeGreaterThanOrEqual(canvas!.y);
+    expect(right).toBeLessThanOrEqual(canvas!.x + canvas!.width);
+    expect(bottom).toBeLessThanOrEqual(canvas!.y + canvas!.height);
+    for (const box of marqueeBoxes) {
+      expect(left).toBeLessThan(box!.x);
+      expect(top).toBeLessThan(box!.y);
+      expect(right).toBeGreaterThan(box!.x + box!.width);
+      expect(bottom).toBeGreaterThan(box!.y + box!.height);
+    }
+    expect(bottom).toBeLessThan(thirdBox!.y + thirdBox!.height);
+
+    const passiveScreenSelections = page.locator(
+      "[data-passive-frame-selection-box]",
+    );
+    const groupScreenSelection = page.locator("[data-frame-selection-box]");
+
+    const hitTargets = await page.evaluate(
+      ({ left, top, right, bottom }) => {
+        const describe = (x: number, y: number) => {
+          const target = document.elementFromPoint(x, y);
+          const element = target instanceof Element ? target : null;
+          return {
+            tag: element?.tagName ?? null,
+            className: element?.getAttribute("class") ?? null,
+            canvas: Boolean(
+              element?.closest("[data-multi-screen-canvas-surface]"),
+            ),
+            frame:
+              element
+                ?.closest("[data-frame-shell]")
+                ?.getAttribute("data-frame-id") ?? null,
+            screenCard: Boolean(element?.closest("[data-screen-card]")),
+            control:
+              element?.closest("button,[role=button]")?.textContent?.trim() ??
+              null,
+          };
+        };
+        return {
+          start: describe(right, bottom),
+          end: describe(left, top),
+        };
+      },
+      { left, top, right, bottom },
+    );
+    expect(hitTargets.start.canvas).toBe(true);
+    expect(hitTargets.end.canvas).toBe(true);
+    expect(hitTargets.start.frame).toBeNull();
+    expect(hitTargets.end.frame).toBeNull();
+    expect(hitTargets.start.control).toBeNull();
+    expect(hitTargets.end.control).toBeNull();
+
+    await page.mouse.move(right, bottom);
+    await page.mouse.down();
+    await page.mouse.move(left, top, { steps: 16 });
+    await expect(passiveScreenSelections).toHaveCount(2);
+    await expect(groupScreenSelection).toHaveCount(1);
+    await page.mouse.up();
+
+    await expect(passiveScreenSelections).toHaveCount(2);
+    await expect(groupScreenSelection).toHaveCount(1);
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Home")).toHaveCount(0);
+    await expect(layerRow(page, "Second")).toHaveCount(0);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+
+    await page.keyboard.press(UNDO);
+    await expect(layerRow(page, "Home")).toHaveCount(1, { timeout: 10_000 });
+    await expect(layerRow(page, "Second")).toHaveCount(1);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
 test("deletes multiple selected Screens as one undoable operation", async ({
   page,
 }) => {

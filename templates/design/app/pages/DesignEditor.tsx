@@ -16994,26 +16994,26 @@ function DesignEditor() {
     (selectedIds: string[]) => {
       if (!canEditDesign) return false;
       if (fileHistoryMutationPendingRef.current) return false;
-      if (
-        overviewSelectionTargetsElement({
-          selectedElement,
-          selectedLayerIds: selectedLayerIdsState,
-          fileIds: files.map((file) => file.id),
-        })
-      ) {
-        handleDeleteSelection();
-        return false;
-      }
-      if (!selectedIds.length || overviewScreens.length <= 1) return false;
-
-      const selectedIdSet = new Set(selectedIds);
       const overviewScreenIds = new Set(
         overviewScreens.map((screen) => screen.id),
       );
+      const selectedIdSet = new Set(selectedIds);
       const selectedFiles = files.filter(
         (file) => selectedIdSet.has(file.id) && overviewScreenIds.has(file.id),
       );
-      if (!selectedFiles.length) return false;
+      if (!selectedFiles.length) {
+        if (
+          overviewSelectionTargetsElement({
+            selectedElement,
+            selectedLayerIds: selectedLayerIdsState,
+            fileIds: files.map((file) => file.id),
+          })
+        ) {
+          handleDeleteSelection();
+        }
+        return false;
+      }
+      if (overviewScreens.length <= 1) return false;
 
       const maxDeleteCount =
         selectedFiles.length >= overviewScreens.length
