@@ -212,7 +212,7 @@ export default {
       tokenLabel: "Figma एक्सेस टोकन",
       tokenPlaceholder: "Figma access token paste करें",
       connecting: "कनेक्ट हो रहा है…",
-      connect: "Builder.io इस्तेमाल करें",
+      connect: "Figma कनेक्ट करें",
       getToken: "Token पाएँ",
       importFrame: "Frame import करें",
       chooseFrame: "Frame चुनें",

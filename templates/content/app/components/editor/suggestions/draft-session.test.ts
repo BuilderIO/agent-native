@@ -8,13 +8,17 @@ import {
   draftSuggestionsForSession,
   editableSuggestionDraft,
   freshestSavedSuggestions,
-  persistSuggestionDraftOperations,
+  planSuggestionDraftPersistence,
   previewSuggestionDraft,
   recordSuggestionReplacementIntent,
+  saveUnlessSuggestionChanged,
+  suggestionAmendmentIdempotencyKey,
   suggestionDraftOperations,
   suggestionOperationKey,
   suggestionSessionVisuals,
   unpersistedDraftSuggestions,
+  withdrawnSessionSuggestionIds,
+  type SuggestionPersistenceEntry,
 } from "./draft-session";
 
 describe("suggestion draft session", () => {
@@ -105,7 +109,12 @@ describe("suggestion draft session", () => {
       baseContent: "Use workflow.\nAnother paragraph.",
       baseRevision: "one",
       startedAt: "now",
-      existingSuggestion: { id: "saved", threadId: "thread", revision: 1 },
+      existingSuggestion: {
+        id: "saved",
+        threadId: "thread",
+        revision: 1,
+        baseRevision: "one",
+      },
     });
     const content = "Use workflows!\nAnother edited paragraph.";
     const operations = suggestionDraftOperations(session, content);
@@ -171,6 +180,7 @@ describe("suggestion draft session", () => {
           id: "suggestion-one",
           threadId: "thread-one",
           revision: 2,
+          baseRevision: "revision-one",
         },
       },
       caret: { from: 9, prefix: "An edited", suffix: " example" },
@@ -189,13 +199,13 @@ describe("suggestion draft session", () => {
     const staleRemote = savedSuggestion({ revision: 1, summary: "Original" });
     expect(freshestSavedSuggestions([local], [staleRemote])).toEqual([local]);
 
-    const decidedRemote = savedSuggestion({
-      revision: 2,
-      status: "accepted",
-    });
-    expect(freshestSavedSuggestions([local], [decidedRemote])).toEqual([
-      decidedRemote,
-    ]);
+    // A decision keeps the revision, so the refreshed row must still win.
+    for (const status of ["accepted", "rejected", "withdrawn"] as const) {
+      const decidedRemote = savedSuggestion({ revision: 2, status });
+      expect(freshestSavedSuggestions([local], [decidedRemote])).toEqual([
+        decidedRemote,
+      ]);
+    }
   });
 
   it("keeps a reopened addition as the same Add while typing continues", () => {
@@ -778,7 +788,7 @@ describe("suggestion draft session", () => {
     ).toBe("Review note. ");
   });
 
-  it("materializes once and mode exit reuses the same durable suggestion", async () => {
+  it("materializes once and mode exit reuses the same durable suggestion", () => {
     const session = createSuggestionDraftSession({
       id: "session-three",
       baseContent: "publish this",
@@ -786,66 +796,50 @@ describe("suggestion draft session", () => {
       startedAt: "2026-09-06T12:00:00.000Z",
     });
     const operations = suggestionDraftOperations(session, " this");
-    const entries = new Map();
-    let creates = 0;
-    const create = async () => {
-      creates += 1;
-      return { id: "saved-once" } as ResourceSuggestion;
-    };
+    const entries = new Map<string, SuggestionPersistenceEntry>();
 
-    await persistSuggestionDraftOperations(operations, entries, create);
-    await persistSuggestionDraftOperations(operations, entries, create);
+    const first = planSuggestionDraftPersistence(operations, entries);
+    expect(first.create).toHaveLength(1);
+    recordSaved(entries, first.create, "saved-once");
 
-    expect(creates).toBe(1);
+    expect(planSuggestionDraftPersistence(operations, entries)).toMatchObject({
+      create: [],
+      amend: [],
+      withdraw: [],
+    });
   });
 
-  it("retries only the failed tail with its original idempotency key", async () => {
+  it("creates only the operations a failed save left unrecorded", () => {
     const session = createSuggestionDraftSession({
       id: "session-four",
       baseContent: "one old; two old",
       baseRevision: "revision-four",
       startedAt: "2026-09-06T12:00:00.000Z",
     });
-    const operations = suggestionDraftOperations(session, "one new; two fresh");
+    const draftContent = "one new; two fresh";
+    const operations = suggestionDraftOperations(session, draftContent);
     expect(operations).toHaveLength(2);
-    const entries = new Map();
-    const attempts: string[] = [];
-    let failTail = true;
-    const create = async (_operation: unknown, idempotencyKey: string) => {
-      attempts.push(idempotencyKey);
-      if (attempts.length === 2 && failTail) {
-        failTail = false;
-        throw new Error("tail failed");
-      }
-      return {
-        id: `saved-${attempts.length}`,
-      } as ResourceSuggestion;
-    };
-
-    await expect(
-      persistSuggestionDraftOperations(operations, entries, create),
-    ).rejects.toThrow("tail failed");
-    const draftsAfterFailure = draftSuggestionsForSession(
-      session,
-      "one new; two fresh",
-      null,
+    const entries = new Map<string, SuggestionPersistenceEntry>();
+    recordSaved(
+      entries,
+      planSuggestionDraftPersistence(operations, entries).create.slice(0, 1),
+      "saved-head",
     );
+
     expect(
-      unpersistedDraftSuggestions(draftsAfterFailure, entries),
+      unpersistedDraftSuggestions(
+        draftSuggestionsForSession(session, draftContent, null),
+        entries,
+      ),
     ).toHaveLength(1);
-    const firstAttemptKeys = [...entries.values()].map(
-      (entry) => entry.idempotencyKey,
-    );
-    await persistSuggestionDraftOperations(operations, entries, create);
-
-    expect(attempts).toEqual([
-      firstAttemptKeys[0],
-      firstAttemptKeys[1],
-      firstAttemptKeys[1],
-    ]);
+    const retry = planSuggestionDraftPersistence(operations, entries);
+    expect(
+      retry.create.map(({ operation }) => operation.after.changedText),
+    ).toEqual(["fresh"]);
+    expect(retry.amend).toEqual([]);
   });
 
-  it("keeps confirmed and failed hunk identities when an earlier edit shifts ordinals", async () => {
+  it("keeps confirmed and failed hunk identities when an earlier edit shifts ordinals", () => {
     const session = createSuggestionDraftSession({
       id: "session-shift",
       baseContent: "zero same; one old; two old",
@@ -856,18 +850,12 @@ describe("suggestion draft session", () => {
       session,
       "zero same; one new; two fresh",
     );
-    const entries = new Map();
-    let attempt = 0;
-    await expect(
-      persistSuggestionDraftOperations(initial, entries, async (operation) => {
-        attempt += 1;
-        if (attempt === 2) throw new Error("ambiguous tail failure");
-        return {
-          id: "saved-middle",
-          threadId: "saved-middle-thread",
-        } as ResourceSuggestion;
-      }),
-    ).rejects.toThrow("ambiguous tail failure");
+    const entries = new Map<string, SuggestionPersistenceEntry>();
+    recordSaved(
+      entries,
+      planSuggestionDraftPersistence(initial, entries).create.slice(0, 1),
+      "saved-middle",
+    );
 
     const revised = suggestionDraftOperations(
       session,
@@ -888,22 +876,14 @@ describe("suggestion draft session", () => {
       entries,
     );
     expect(remaining).toHaveLength(2);
-
-    const retriedOrdinals: number[] = [];
-    await persistSuggestionDraftOperations(
-      revised,
-      entries,
-      async (operation) => {
-        retriedOrdinals.push(operation.ordinal);
-        return {
-          id: `saved-${operation.ordinal}`,
-        } as ResourceSuggestion;
-      },
-    );
-    expect(retriedOrdinals).toEqual([0, 1]);
+    expect(
+      planSuggestionDraftPersistence(revised, entries).create.map(
+        ({ operation }) => operation.ordinal,
+      ),
+    ).toEqual([0, 2]);
   });
 
-  it("keeps confirmed insertion geometry under its durable id after a later hunk fails", async () => {
+  it("keeps confirmed insertion geometry under its durable id after a later hunk fails", () => {
     const session = createSuggestionDraftSession({
       id: "session-insertion",
       baseContent: "Alpha middle tail old",
@@ -913,18 +893,12 @@ describe("suggestion draft session", () => {
     const draftContent = "Alpha INSERT middle tail fresh";
     const operations = suggestionDraftOperations(session, draftContent);
     expect(operations).toHaveLength(2);
-    const entries = new Map();
-    let attempt = 0;
-    await expect(
-      persistSuggestionDraftOperations(operations, entries, async () => {
-        attempt += 1;
-        if (attempt === 2) throw new Error("tail failed");
-        return {
-          id: "saved-insertion",
-          threadId: "saved-insertion-thread",
-        } as ResourceSuggestion;
-      }),
-    ).rejects.toThrow("tail failed");
+    const entries = new Map<string, SuggestionPersistenceEntry>();
+    recordSaved(
+      entries,
+      planSuggestionDraftPersistence(operations, entries).create.slice(0, 1),
+      "saved-insertion",
+    );
     const drafts = draftSuggestionsForSession(session, draftContent, null);
     const visuals = suggestionSessionVisuals(drafts, entries);
 
@@ -936,35 +910,261 @@ describe("suggestion draft session", () => {
       draftContent.slice(visuals[0]!.anchor.from, visuals[0]!.anchor.to),
     ).toBe("INSERT ");
     expect(unpersistedDraftSuggestions(drafts, entries)).toHaveLength(1);
-    expect(
-      new Set([
-        "saved-insertion",
-        ...unpersistedDraftSuggestions(drafts, entries).map(
-          (draft) => draft.id,
-        ),
-      ]).size,
-    ).toBe(2);
   });
 
-  it("does not persist when a draft is deleted before materialization", async () => {
+  it("does not persist when a draft is deleted before materialization", () => {
     const session = createSuggestionDraftSession({
       id: "session-five",
       baseContent: "unchanged",
       baseRevision: "revision-five",
       startedAt: "2026-09-06T12:00:00.000Z",
     });
-    let creates = 0;
-    await persistSuggestionDraftOperations(
-      suggestionDraftOperations(session, "unchanged"),
-      new Map(),
-      async () => {
-        creates += 1;
-        return {} as ResourceSuggestion;
+    expect(
+      planSuggestionDraftPersistence(
+        suggestionDraftOperations(session, "unchanged"),
+        new Map(),
+      ),
+    ).toEqual({ unchanged: new Map(), amend: [], create: [], withdraw: [] });
+  });
+
+  describe("saving as the author types", () => {
+    // Minimized from the Content page where a suggested sentence was lost:
+    // "one" became "diagram", then a sentence was appended before a heading.
+    const base =
+      "I've already promised Apoorva my next one for another critique.\n## Hand edits are gold";
+    const firstPause = base.replace(
+      "my next one for another critique.",
+      "my next diagram for another critique. Encoding our",
+    );
+    const laterTyping = base.replace(
+      "my next one for another critique.",
+      "my next diagram for another critique. Encoding our newfound knowledge into skills is how we keep raising the bar.",
+    );
+    const session = () =>
+      createSuggestionDraftSession({
+        id: "session-autosave",
+        baseContent: base,
+        baseRevision: "body:11",
+        startedAt: "2026-10-05T11:16:00.000Z",
+      });
+    const savedAtFirstPause = () => {
+      const draftSession = session();
+      const entries = new Map<string, SuggestionPersistenceEntry>();
+      const plan = planSuggestionDraftPersistence(
+        suggestionDraftOperations(draftSession, firstPause),
+        entries,
+      );
+      expect(plan.create).toHaveLength(2);
+      recordSaved(entries, plan.create, "saved");
+      return { draftSession, entries };
+    };
+
+    it("amends the saved suggestion instead of saving continued typing as a duplicate", () => {
+      const { draftSession, entries } = savedAtFirstPause();
+
+      const plan = planSuggestionDraftPersistence(
+        suggestionDraftOperations(draftSession, laterTyping),
+        entries,
+      );
+
+      expect(plan.create).toEqual([]);
+      expect(plan.withdraw).toEqual([]);
+      expect([...plan.unchanged.values()].map(({ id }) => id)).toEqual([
+        "saved-0",
+      ]);
+      expect(plan.amend.map(({ suggestion }) => suggestion.id)).toEqual([
+        "saved-1",
+      ]);
+      expect(plan.amend[0]!.operation.after.changedText).toBe(
+        " Encoding our newfound knowledge into skills is how we keep raising the bar.",
+      );
+      const drafts = draftSuggestionsForSession(
+        draftSession,
+        laterTyping,
+        null,
+      );
+      expect(unpersistedDraftSuggestions(drafts, entries)).toEqual([]);
+      expect(
+        suggestionSessionVisuals(drafts, entries).map(({ id }) => id),
+      ).toEqual(["saved-0", "saved-1"]);
+    });
+
+    it("withdraws a saved suggestion whose text the author deleted", () => {
+      const { draftSession, entries } = savedAtFirstPause();
+      const replacedOnly = base.replace(
+        "my next one for",
+        "my next diagram for",
+      );
+
+      const plan = planSuggestionDraftPersistence(
+        suggestionDraftOperations(draftSession, replacedOnly),
+        entries,
+      );
+
+      expect(plan.create).toEqual([]);
+      expect(plan.amend).toEqual([]);
+      expect(plan.withdraw.map(({ suggestion }) => suggestion.id)).toEqual([
+        "saved-1",
+      ]);
+      expect(
+        withdrawnSessionSuggestionIds(
+          draftSuggestionsForSession(draftSession, replacedOnly, null),
+          entries,
+        ),
+      ).toEqual(new Set(["saved-1"]));
+      expect(
+        planSuggestionDraftPersistence(
+          suggestionDraftOperations(draftSession, base),
+          entries,
+        ).withdraw.map(({ suggestion }) => suggestion.id),
+      ).toEqual(["saved-0", "saved-1"]);
+    });
+  });
+
+  it("amends one and withdraws the other when typing joins two saved suggestions", () => {
+    const draftSession = createSuggestionDraftSession({
+      id: "session-join",
+      baseContent: "alpha beta gamma",
+      baseRevision: "revision-join",
+      startedAt: "2026-10-05T11:16:00.000Z",
+    });
+    const entries = new Map<string, SuggestionPersistenceEntry>();
+    const separate = planSuggestionDraftPersistence(
+      suggestionDraftOperations(draftSession, "alpha11 beta 22gamma"),
+      entries,
+    );
+    expect(separate.create).toHaveLength(2);
+    recordSaved(entries, separate.create, "saved");
+
+    const plan = planSuggestionDraftPersistence(
+      suggestionDraftOperations(draftSession, "alpha1122gamma"),
+      entries,
+    );
+
+    expect(plan.create).toEqual([]);
+    expect(plan.amend.map(({ suggestion }) => suggestion.id)).toEqual([
+      "saved-0",
+    ]);
+    expect(plan.withdraw.map(({ suggestion }) => suggestion.id)).toEqual([
+      "saved-1",
+    ]);
+  });
+
+  describe("a save that conflicts with the saved suggestion", () => {
+    const conflict = Object.assign(new Error("changed"), {
+      errorCode: "suggestion_conflict",
+    });
+    const isConflict = (error: unknown) => error === conflict;
+    const saved = (revision: number, status = "pending") =>
+      ({ id: "saved", revision, status }) as ResourceSuggestion;
+
+    it("saves when nothing moved the suggestion", async () => {
+      await expect(
+        saveUnlessSuggestionChanged(saved(1), async () => "saved at 1", {
+          isConflict,
+          latest: async () => saved(1),
+        }),
+      ).resolves.toEqual({ status: "saved", result: "saved at 1" });
+    });
+
+    it.each([
+      ["another tab amended", saved(2), "changed"],
+      ["a reviewer accepted", saved(1, "accepted"), "changed"],
+      ["a reviewer rejected", saved(1, "rejected"), "closed"],
+      ["its author withdrew", saved(1, "withdrawn"), "closed"],
+      ["an outdated accept marked stale", saved(1, "stale"), "closed"],
+      ["a newer suggestion superseded", saved(1, "superseded"), "closed"],
+      ["someone deleted", undefined, "closed"],
+    ] as const)(
+      "does not save over a suggestion %s it",
+      async (_, latest, outcome) => {
+        let attempts = 0;
+        const result = await saveUnlessSuggestionChanged(
+          saved(1),
+          async () => {
+            attempts += 1;
+            throw conflict;
+          },
+          { isConflict, latest: async () => latest },
+        );
+        expect(result).toEqual({ status: outcome });
+        expect(attempts).toBe(1);
       },
     );
-    expect(creates).toBe(0);
+
+    it("fails without refreshing on any other error", async () => {
+      const outage = new Error("offline");
+      let refreshed = false;
+      await expect(
+        saveUnlessSuggestionChanged(
+          saved(1),
+          async () => {
+            throw outage;
+          },
+          {
+            isConflict,
+            latest: async () => {
+              refreshed = true;
+              return saved(2);
+            },
+          },
+        ),
+      ).rejects.toBe(outage);
+      expect(refreshed).toBe(false);
+    });
+
+    it("fails when the refresh fails", async () => {
+      const unreadable = new Error("refresh failed");
+      await expect(
+        saveUnlessSuggestionChanged(
+          saved(1),
+          async () => {
+            throw conflict;
+          },
+          {
+            isConflict,
+            latest: async () => {
+              throw unreadable;
+            },
+          },
+        ),
+      ).rejects.toBe(unreadable);
+    });
+  });
+
+  it("gives an amendment a new key once the suggestion it observed advances", () => {
+    const keys = new Map<string, string>();
+    const at = (revision: number) => ({ id: "saved", revision });
+    const firstA = suggestionAmendmentIdempotencyKey(keys, at(1), "A");
+
+    expect(suggestionAmendmentIdempotencyKey(keys, at(1), "A")).toBe(firstA);
+    const b = suggestionAmendmentIdempotencyKey(keys, at(2), "B");
+    // Undoing B back to A amends revision 3; the server would reject A's
+    // first key as a different request.
+    const secondA = suggestionAmendmentIdempotencyKey(keys, at(3), "A");
+
+    expect(new Set([firstA, b, secondA]).size).toBe(3);
+    expect(suggestionAmendmentIdempotencyKey(keys, at(3), "A")).toBe(secondA);
   });
 });
+
+function recordSaved(
+  entries: Map<string, SuggestionPersistenceEntry>,
+  created: Array<{
+    key: string;
+    operation: SuggestionPersistenceEntry["operation"];
+  }>,
+  idPrefix: string,
+) {
+  created.forEach(({ key, operation }, index) => {
+    const id = created.length === 1 ? idPrefix : `${idPrefix}-${index}`;
+    entries.set(key, {
+      idempotencyKey: `key-${id}`,
+      operation,
+      suggestion: { id, threadId: `${id}-thread` } as ResourceSuggestion,
+    });
+  });
+}
 
 describe("suggestion drafts on a stored page the editor rewrites", () => {
   // Agent-written pages keep blank lines and pipe tables; the editor shows

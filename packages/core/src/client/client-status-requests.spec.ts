@@ -19,6 +19,14 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
+function untilAborted(signal: AbortSignal | null | undefined): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    signal?.addEventListener("abort", () => {
+      reject(new DOMException("Aborted", "AbortError"));
+    });
+  });
+}
+
 describe("client status requests", () => {
   beforeEach(() => {
     invalidateClientStatusRequests();
@@ -184,7 +192,7 @@ describe("client status requests", () => {
     resolveStale(jsonResponse({ configured: true }));
     await expect(stale).resolves.toEqual({
       state: "available",
-      value: { configured: true },
+      value: { configured: false },
     });
     await expect(fetchBuilderStatus()).resolves.toEqual({
       state: "available",
@@ -195,14 +203,13 @@ describe("client status requests", () => {
 
   it("does not abort another endpoint when one status request is invalidated", async () => {
     let resolveEnvironment!: (response: Response) => void;
+    let builderReads = 0;
     const fetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes("/builder/status")) {
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            reject(new DOMException("Aborted", "AbortError"));
-          });
-        });
+      if (String(input).includes("/builder/status")) {
+        builderReads += 1;
+        return builderReads === 1
+          ? untilAborted(init?.signal)
+          : Promise.resolve(jsonResponse({ configured: true }));
       }
       return new Promise<Response>((resolve) => {
         resolveEnvironment = resolve;
@@ -215,11 +222,32 @@ describe("client status requests", () => {
     invalidateClientStatusRequest("/_agent-native/builder/status");
     resolveEnvironment(jsonResponse([{ key: "ANTHROPIC_API_KEY" }]));
 
-    await expect(builder).resolves.toEqual({ state: "unavailable" });
+    await expect(builder).resolves.toEqual({
+      state: "available",
+      value: { configured: true },
+    });
+    expect(builderReads).toBe(2);
     await expect(environment).resolves.toEqual({
       state: "available",
       value: [{ key: "ANTHROPIC_API_KEY" }],
     });
+  });
+
+  it("gives callers of an invalidated engine status read the re-read result", async () => {
+    const fetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      if (fetch.mock.calls.length === 1) await untilAborted(init?.signal);
+      return jsonResponse({ chatEligible: true });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const joined = fetchAgentEngineStatus({ fresh: true });
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+
+    await expect(joined).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: true },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("expires cached status on focus without aborting an in-flight request", async () => {

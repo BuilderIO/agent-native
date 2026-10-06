@@ -294,9 +294,14 @@ describe("suggestion action access", () => {
     expect(reviewStore.insertReviewCommentWithClient).not.toHaveBeenCalled();
   });
 
-  it.each(["accepted", "rejected"] as const)(
-    "denies a commenter deciding %s without changing the suggestion or canonical resource",
-    async (decision) => {
+  it.each([
+    ["accepted", "another commenter", "other-commenter@example.com"],
+    ["rejected", "another commenter", "other-commenter@example.com"],
+    ["accepted", "the author", suggestion.authorEmail],
+    ["rejected", "the author", suggestion.authorEmail],
+  ] as const)(
+    "denies %s by %s with comment access without changing the suggestion or canonical resource",
+    async (decision, _who, userEmail) => {
       const resolveAccess = vi.fn(
         (_resourceId: string, _ctx?: ReviewResourceContext) => ({
           role: "commenter" as const,
@@ -314,18 +319,105 @@ describe("suggestion action access", () => {
             idempotencyKey: `commenter-${decision}-1`,
             observedBase: suggestion.baseRevision,
           },
-          { userEmail: "commenter@example.com" },
+          { userEmail },
         ),
       ).rejects.toThrow("Not allowed to access doc:doc-1");
 
       expect(resolveAccess).toHaveBeenCalledWith(
         "doc-1",
-        expect.objectContaining({ userEmail: "commenter@example.com" }),
+        expect.objectContaining({ userEmail }),
       );
       expect(client.transaction).not.toHaveBeenCalled();
       expectNoReviewWrites();
     },
   );
+
+  it("denies withdrawing another author's suggestion even with edit access", async () => {
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+      }),
+    });
+
+    await expect(
+      decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "withdrawn",
+          idempotencyKey: "withdraw-other-1",
+          observedBase: suggestion.baseRevision,
+        },
+        { userEmail: "editor@example.com" },
+      ),
+    ).rejects.toThrow("Only the author can withdraw this suggestion");
+    expect(client.transaction).not.toHaveBeenCalled();
+    expectNoReviewWrites();
+  });
+
+  it("lets the author withdraw their own pending suggestion with comment access, whatever base they observed", async () => {
+    const withdrawn = { ...suggestion, status: "withdrawn" as const };
+    const decision = {
+      id: "decision-withdraw",
+      suggestionId: suggestion.id,
+      idempotencyKey: "withdraw-1",
+      reviewer: suggestion.authorEmail,
+      decision: "withdrawn" as const,
+      observedBase: "base-after-another-edit",
+      outcome: "withdrawn",
+      detail: null,
+      createdAt: "now",
+    };
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "commenter",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+      }),
+    });
+    vi.mocked(suggestionStore.getSuggestion)
+      .mockResolvedValueOnce(suggestion)
+      .mockResolvedValueOnce(suggestion)
+      .mockResolvedValueOnce(withdrawn);
+    updateSuggestionStatus.mockResolvedValueOnce(true);
+    vi.mocked(suggestionStore.recordDecision).mockResolvedValueOnce({
+      record: decision,
+      duplicate: false,
+    });
+
+    await expect(
+      decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "withdrawn",
+          idempotencyKey: decision.idempotencyKey,
+          observedBase: decision.observedBase,
+          observedRevision: suggestion.revision,
+        },
+        { userEmail: suggestion.authorEmail },
+      ),
+    ).resolves.toEqual({ suggestion: withdrawn, decision });
+    expect(updateSuggestionStatus).toHaveBeenCalledWith(
+      transaction,
+      suggestion.id,
+      "withdrawn",
+      suggestion.revision,
+    );
+    expect(reviewStore.resolveReviewThreadWithClient).toHaveBeenCalledWith(
+      transaction,
+      suggestion.threadId,
+      suggestion.authorEmail,
+      {
+        resourceType: suggestion.resourceType,
+        resourceId: suggestion.resourceId,
+      },
+      "withdrawn",
+    );
+    expect(applySuggestion).not.toHaveBeenCalled();
+  });
 
   it("rechecks editor access inside the decision transaction", async () => {
     await expect(

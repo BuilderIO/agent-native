@@ -103,7 +103,7 @@ export interface LayerMoveArgs {
   canEditLiveScreen?: (screenId: string) => boolean;
   canMoveLayer: (intent: LayersPanelMoveIntent) => boolean;
   boardFileId?: string;
-  codeLayerOwnerByNodeId: Map<
+  codeLayerOwnerByNodeId: ReadonlyMap<
     string,
     {
       fileId: string;
