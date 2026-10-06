@@ -8,6 +8,7 @@ import {
   SESSION_REPLAY_IFRAME_START,
   SESSION_REPLAY_IFRAME_STOP,
 } from "../session-replay-iframe-protocol.js";
+import { SESSION_REPLAY_BLOCK_ATTRIBUTE } from "./session-replay-privacy.js";
 
 const recordMock = vi.hoisted(() => vi.fn());
 const sentryMock = vi.hoisted(() => ({
@@ -1737,6 +1738,9 @@ describe("session replay", () => {
     expect(recordOptions.blockSelector).toContain(".custom-private-zone");
     expect(recordOptions.blockSelector).toContain(
       `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`,
+    );
+    expect(recordOptions.blockSelector).toContain(
+      `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
     );
     await replay.stopSessionReplay();
 

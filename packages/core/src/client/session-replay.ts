@@ -986,10 +986,19 @@ function normalizeOptions(
   };
 }
 
+/** App block selectors extend these framework markers instead of replacing them. */
+const REQUIRED_BLOCK_SELECTORS = [
+  SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
+  `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
+];
+
 function mergeReplayBlockSelector(blockSelector: string): string {
-  return blockSelector.includes(SESSION_REPLAY_IFRAME_BLOCK_SELECTOR)
-    ? blockSelector
-    : `${blockSelector}, ${SESSION_REPLAY_IFRAME_BLOCK_SELECTOR}`;
+  return [
+    blockSelector,
+    ...REQUIRED_BLOCK_SELECTORS.filter(
+      (selector) => !blockSelector.includes(selector),
+    ),
+  ].join(", ");
 }
 
 function normalizeCaptureToggle(
