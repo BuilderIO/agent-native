@@ -1030,6 +1030,11 @@ async function engineCreateConfigForEntry(
   if (aiSdkProvider) {
     const isOllama = aiSdkProvider === "ollama";
     const allowLocalOllama = isOllama && isTrustedSelfHostedRuntime();
+    const usesDeploymentKey = keyBelongsToDeployment(
+      matchingApiKey,
+      matchingApiKeyProvenance,
+      entry.requiredEnvVars[0],
+    );
     let resolvedEndpoint: ResolvedProviderBaseUrl | undefined;
     if (safeExtra.baseUrl == null && typeof safeExtra.baseURL !== "string") {
       const envVar =
@@ -1041,11 +1046,7 @@ async function engineCreateConfigForEntry(
       if (envVar) {
         resolvedEndpoint = await resolveProviderBaseUrl(
           envVar,
-          keyBelongsToDeployment(
-            matchingApiKey,
-            matchingApiKeyProvenance,
-            entry.requiredEnvVars[0],
-          ),
+          usesDeploymentKey,
         );
       }
       if (resolvedEndpoint) safeExtra.baseUrl = resolvedEndpoint.baseUrl;
@@ -1099,9 +1100,11 @@ async function engineCreateConfigForEntry(
         allowedPrivateOrigins,
       );
     } else if (
-      matchingApiKey !== undefined &&
+      !usesDeploymentKey &&
       AI_SDK_PROVIDER_DEFAULT_BASE_URLS[aiSdkProvider]
     ) {
+      // The deployment's own key keeps the SDK's env endpoint (a self-hosted
+      // ANTHROPIC_BASE_URL proxy, which this resolver does not read).
       safeExtra.baseUrl = AI_SDK_PROVIDER_DEFAULT_BASE_URLS[aiSdkProvider];
     }
   }

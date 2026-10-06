@@ -2337,7 +2337,6 @@ describe("AgentEngine registry", () => {
       const resolved = await resolveEngine({ apiKey: "sk-openai-provider" });
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: "sk-openai-provider",
-        baseUrl: "https://api.openai.com/v1",
         allowEnvFallback: true,
       });
       expect(builderCreate).not.toHaveBeenCalled();
@@ -2551,6 +2550,58 @@ describe("AgentEngine registry", () => {
           baseUrl: "https://api.anthropic.com/v1",
         }),
       );
+    });
+
+    it("leaves the deployment's own Anthropic key on the SDK's ANTHROPIC_BASE_URL", async () => {
+      vi.stubEnv("ANTHROPIC_BASE_URL", "https://proxy.example.invalid");
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import("../../server/credential-provider.js")
+          >()),
+          canUseDeployCredentialFallbackForRequest: vi.fn(() => true),
+          readDeployCredentialEnv: vi.fn((key: string) =>
+            key === "ANTHROPIC_API_KEY" ? "sk-ant-deployment" : undefined,
+          ),
+        }),
+      );
+      vi.doMock("../../settings/store.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../../settings/store.js")>()),
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "ai-sdk:anthropic",
+          model: "claude-sonnet-5",
+        }),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const anthropicEngine = {
+        name: "ai-sdk:anthropic",
+        stream: vi.fn(),
+      } as any;
+      const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+      registerAgentEngine({
+        name: "ai-sdk:anthropic",
+        label: "Claude",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "claude-sonnet-5",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: anthropicCreate,
+      });
+
+      await expect(
+        resolveEngine({
+          engineOption: "ai-sdk:anthropic",
+          apiKey: "sk-ant-deployment",
+        }),
+      ).resolves.toBe(anthropicEngine);
+      expect(anthropicCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: "sk-ant-deployment" }),
+      );
+      expect(anthropicCreate.mock.calls[0][0]).not.toHaveProperty("baseUrl");
     });
 
     it("does not pass an unrelated active key to an env-selected provider", async () => {
