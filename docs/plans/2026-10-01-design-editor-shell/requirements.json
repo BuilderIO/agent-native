@@ -1426,7 +1426,7 @@
           "id": "COLOR-12",
           "status": "decided",
           "today": "`DesignColorPicker` shows up to eight paint types in a grid capped at six columns with the active type's name under it: Solid, Linear, Radial, Angular, Diamond, Image, Shader, None. Blend is a select at the bottom, shown with `showBlendMode`. `supportedPaintTypes` limits strokes to solid.",
-          "change": "A 40px paint row under the Custom | Libraries header, in two groups so the types and the tools don't blur together: on the left the paint types as 24px icon toggles, Solid · Gradient · Image · Shader; on the right Blend and, on text fills, Contrast (COLOR-10). The four gradients are one Gradient tab with a Type select (COLOR-13), as color Mode is one select. None goes, since the Fill row's − removes a fill, and so does the label under the icons; tooltips name them. Shader opens the shader panel as today. Blend opens a menu of the blend modes in Figma's groups (Normal · Darken, Multiply, Color burn · Lighten, Screen, Color dodge · Overlay, Soft light, Hard light · Difference, Exclusion · Hue, Saturation, Color, Luminosity) and reads pressed when not Normal, replacing the select at the bottom. Where only solid is supported (strokes, the Tokens panel's picker) the row doesn't render. The Fill field names the paint (Linear, Image) in its own case; only a hex reads in capitals.",
+          "change": "A 40px paint row under the Custom | Libraries header, in two groups so the types and the tools don't blur together: on the left the paint types as 24px icon toggles, Solid · Gradient · Image · Shader; on the right Blend and, on text fills, Contrast (COLOR-10). The four gradients are one Gradient tab with a Type select (COLOR-13), as color Mode is one select. None goes, since the Fill row's − removes a fill, and so does the label under the icons; tooltips name them. Shader shows the shader fills (COLOR-16). Blend opens a menu of the blend modes in Figma's groups (Normal · Darken, Multiply, Color burn · Lighten, Screen, Color dodge · Overlay, Soft light, Hard light · Difference, Exclusion · Hue, Saturation, Color, Luminosity) and reads pressed when not Normal, replacing the select at the bottom. Where only solid is supported (strokes, the Tokens panel's picker) the row doesn't render. The Fill field names the paint (Linear, Image) in its own case; only a hex reads in capitals.",
           "refs": [
             "templates/design/app/components/design/inspector/DesignColorPicker.tsx#PAINT_TYPES",
             "templates/design/app/components/design/inspector/DesignColorPicker.tsx#supportedPaintTypes",
@@ -1437,12 +1437,12 @@
         {
           "id": "COLOR-13",
           "status": "decided",
-          "change": "Gradient (`GradientEditor`): under the paint row, Type (Linear, Radial, Angular, Diamond) and Angle (for Linear and Angular; off for the others) on the value grid's columns (136 · 104), then a 16px stop bar over the checker. Click the bar to add a stop with the selected stop's color, drag a stop to move it (knobs travel inside the bar, like the sliders), and ⌫ removes the selected stop while two remain. The selected stop is edited with the same square, sliders, and fields as a solid. A new gradient runs from the solid's color to the same color at 0% opacity. On text it paints through `background-clip: text`. CSS has no diamond gradient, so Diamond is written as four corner-to-center linear gradients, one per quadrant.",
+          "change": "Gradient, laid out as Figma's: Type (Linear, Radial, Angular, Diamond) with Flip (⇆, which reverses the stops) and Rotate 90° (Linear and Angular; off for the others) on the right. Then pins over a 24px bar: each pin is a 20px swatch pointing at its stop, the selected one in the accent, and pins travel from 10px to the width less 10px so a stop at 0% or 100% stays over the bar, with the bar's gradient mapped onto the same travel. Click the bar to add a stop with the color at that point; drag a pin to move it. Then Stops with + (a stop halfway to the next one), and a row per stop in position order: position 56 · color with its opacity 152 · − 24, the selected row filled edge to edge; − is off while two stops remain, and ⌫ on a pin removes it. The selected stop's color is edited with the same square, sliders, and fields as a solid; document colors hide. Stop colors sit over the checker, so a transparent stop reads as transparent. A new gradient runs from the solid's color to the same color at 0% opacity. On text it paints through `background-clip: text`; CSS has no diamond gradient, so Diamond is written as four corner-to-center linear gradients. New against today's `GradientEditor`: Flip, Rotate 90°, and the Stops list (it edits one selected stop's position and has an angle field instead).",
           "refs": [
             "templates/design/app/components/design/inspector/GradientEditor.tsx#Gradient stops",
             "templates/design/app/components/design/inspector/DesignColorPicker.tsx#DesignGradientType"
           ],
-          "prototype": "In the headline's Fill, choose Gradient, click the middle of the stop bar, type FF0000, then try Type › Diamond."
+          "prototype": "In the headline's Fill, choose Gradient, click Flip, then + under Stops, and set the new stop's opacity to 40."
         },
         {
           "id": "COLOR-14",
@@ -1462,6 +1462,17 @@
             "templates/design/app/components/design/inspector/DesignColorPicker.tsx#triggerLabel"
           ],
           "prototype": "Open a Fill, switch Mode to OKLCH, and close it: the field reads OKLCH 20.5 0 0. In HSL it reads the hex."
+        },
+        {
+          "id": "COLOR-16",
+          "status": "proposed",
+          "today": "Shader opens `GlslShaderPanel` inside the picker: Shader fills, a search field, Created by you (with an AI create card and shaders saved in the design), and Presets from `GLSL_SHADER_PRESETS` (mode fill: Mesh Gradient, Glowing Wave, Water Caustics, Fractal Noise, Clouds, Nebula, Moiré, Concentric Rings, Pattern Grid), then the picked shader's controls, Edit code, and Remove shader.",
+          "change": "The same panel in the picker's Shader tab, on the 248px column: a 24px search field; Created by you, starting with Create with AI, which hands the agent a new-shader chat; Presets as a two-column grid of 120px preview cards with their names, scrolling inside a 320px area. Picking one replaces the browser with the shader's controls: a 24px select of the shaders, with Browse shaders at its end, and a … menu (Edit code, Remove shader, which returns the fill to Solid); then each uniform as a label · control row like the spring editor's (64 · 112 · 56): colors as a swatch and hex across the control columns, numbers as a slider and value. The Fill field names the shader. Video and pattern fills aren't supported in code, so they aren't offered.",
+          "refs": [
+            "templates/design/app/components/design/inspector/GlslShaderPanel.tsx#GLSL_SHADER_PRESETS",
+            "templates/design/shared/shader-presets.ts#GLSL_SHADER_PRESETS"
+          ],
+          "prototype": "In the headline's Fill, choose Shader, search noise, then pick Glowing Wave and set its wave color to FF3366."
         }
       ]
     }

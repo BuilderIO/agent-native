@@ -299,6 +299,7 @@ where it names Annotate or the old toolbar.
 - 2026-10-05: The color picker sits on the 8pt grid (272px, columns 64 · 64 · 64 · 32), and slider knobs stay inside their tracks, filled with their value. COLOR-09.
 - 2026-10-06: Import leaves the top bar for File › Import…, the system file panel scoped to .fig and HTML, the inputs that become screens; home's Import opens the same panel; an empty canvas offers Import…, From your app…, and Blank screen. Figma links become agent-only, Paste from Figma is ⌘V, Local app stays in Screens' +, and GitHub goes. TOP-09, FILE-01, FILE-04, FILE-05, FILE-06, FILE-07.
 - 2026-10-06: The color picker gets a paint row (Solid · Gradient · Image · Shader, then Blend and Contrast), with the gradients as one tab and a Type select, and None gone. Contrast is a mode like Figma's: a ratio chip with its level, and the AA line drawn on the square, instead of the Aa header button. COLOR-10, COLOR-12, COLOR-13, COLOR-14.
+- 2026-10-06: The gradient pane follows Figma's: Type with Flip and Rotate 90°, pins over the bar, and a Stops list of position, color with opacity, and −. COLOR-13.
 
 ## Open questions
 
