@@ -567,6 +567,8 @@ async function defaultUploadDriver(
 }
 
 const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
+const MAX_TOOL_HISTORY_BYTES = 256 * 1024 - 256;
+const MAX_TOOL_HISTORY_CALLS = 64;
 
 function toolHistoryValueOmission(value: unknown): string | undefined {
   try {
@@ -584,19 +586,40 @@ function toolHistoryValueOmission(value: unknown): string | undefined {
   }
 }
 
+function toolHistoryTextOmission(value: string): string | undefined {
+  return new TextEncoder().encode(value).byteLength >
+    MAX_TOOL_HISTORY_VALUE_BYTES
+    ? "it exceeds 64 KiB"
+    : undefined;
+}
+
 function orderedThreadToolCalls(thread: AgentThreadState): AgentToolCall[] {
   const seen = new Set<string>();
+  const started = new Set<string>();
+  const settled = new Set<string>();
+  for (const event of thread.events) {
+    if (event.type === "tool.started") started.add(event.toolCall.id);
+    if (event.type === "tool.updated" && event.toolCall.status !== "running") {
+      settled.add(event.toolCall.id);
+    }
+  }
   const ordered: AgentToolCall[] = [];
   for (const event of thread.events) {
     if (event.type !== "tool.started" || seen.has(event.toolCall.id)) continue;
+    if (!settled.has(event.toolCall.id)) continue;
     const toolCall = thread.tools[event.toolCall.id];
-    if (!toolCall) continue;
+    if (!toolCall || toolCall.status === "running") continue;
     seen.add(toolCall.id);
     ordered.push(toolCall);
   }
   return [
     ...ordered,
-    ...Object.values(thread.tools).filter((toolCall) => !seen.has(toolCall.id)),
+    ...Object.values(thread.tools).filter(
+      (toolCall) =>
+        !seen.has(toolCall.id) &&
+        !started.has(toolCall.id) &&
+        toolCall.status !== "running",
+    ),
   ];
 }
 
@@ -609,77 +632,144 @@ function messagesWithToolCallHistory(
       .filter((message) => message.role === "assistant")
       .map((message) => message.id),
   );
-  const callsByMessageId = new Map<string, AgentToolCall[]>();
-  for (const toolCall of toolCalls) {
-    if (
-      toolCall.status === "running" ||
-      (toolCall.status === "completed" &&
-        toolCall.output === undefined &&
-        !toolCall.error) ||
-      !toolCall.messageId ||
-      !assistantMessageIds.has(toolCall.messageId)
-    ) {
+  const eligibleCalls = toolCalls.filter(
+    (toolCall) =>
+      toolCall.status !== "running" &&
+      Boolean(
+        toolCall.messageId && assistantMessageIds.has(toolCall.messageId),
+      ),
+  );
+  const historyPartsByMessageId = new Map<
+    string,
+    AgentMessage["parts"][number][]
+  >();
+  const selectedCalls: Array<{
+    messageId: string;
+    parts: DataPart[];
+  }> = [];
+  let totalBytes = 0;
+  const recentCalls = eligibleCalls.slice(-MAX_TOOL_HISTORY_CALLS);
+  let omittedHistory = recentCalls.length < eligibleCalls.length;
+
+  for (let index = recentCalls.length - 1; index >= 0; index--) {
+    const toolCall = recentCalls[index]!;
+
+    const parts = toolCallHistoryParts(toolCall);
+    const bytes = new TextEncoder().encode(
+      JSON.stringify(parts) ?? "",
+    ).byteLength;
+    if (totalBytes + bytes > MAX_TOOL_HISTORY_BYTES) {
+      omittedHistory = true;
       continue;
     }
-    const calls = callsByMessageId.get(toolCall.messageId) ?? [];
-    calls.push(toolCall);
-    callsByMessageId.set(toolCall.messageId, calls);
+
+    selectedCalls.push({ messageId: toolCall.messageId!, parts });
+    totalBytes += bytes;
   }
 
-  if (callsByMessageId.size === 0) return messages;
+  if (selectedCalls.length < recentCalls.length) omittedHistory = true;
+  for (const { messageId, parts } of selectedCalls.reverse()) {
+    const historyParts = historyPartsByMessageId.get(messageId) ?? [];
+    historyParts.push(...parts);
+    historyPartsByMessageId.set(messageId, historyParts);
+  }
+
+  if (omittedHistory) {
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    if (latestAssistantMessage) {
+      const historyParts =
+        historyPartsByMessageId.get(latestAssistantMessage.id) ?? [];
+      historyParts.push({
+        type: "text",
+        text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      });
+      historyPartsByMessageId.set(latestAssistantMessage.id, historyParts);
+    }
+  }
+
+  if (historyPartsByMessageId.size === 0) return messages;
   return messages.map((message) => {
-    const calls = callsByMessageId.get(message.id);
-    if (!calls) return message;
-    const historyParts: DataPart[] = calls.flatMap((toolCall) => {
-      const inputOmission =
-        toolCall.input === undefined
-          ? undefined
-          : toolHistoryValueOmission(toolCall.input);
-      const outputOmission =
-        toolCall.output === undefined
-          ? undefined
-          : toolHistoryValueOmission(toolCall.output);
-      const resultText =
-        outputOmission === undefined
-          ? toolCall.output === undefined
-            ? (toolCall.error?.message ??
-              `Tool call ${toolCall.status} without a recorded result.`)
-            : undefined
-          : `Tool output omitted from history because ${outputOmission}.`;
-      return [
-        {
-          type: "data",
-          mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
-          data: {
-            id: toolCall.id,
-            name: toolCall.name,
-            ...(toolCall.input === undefined || inputOmission !== undefined
-              ? {}
-              : { input: toolCall.input }),
-            ...(inputOmission !== undefined
-              ? {
-                  inputText: `Tool input omitted from history because ${inputOmission}.`,
-                }
-              : {}),
-          },
-        },
-        {
-          type: "data",
-          mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
-          data: {
-            id: toolCall.id,
-            name: toolCall.name,
-            ...(toolCall.output === undefined || outputOmission !== undefined
-              ? {}
-              : { result: toolCall.output }),
-            ...(resultText === undefined ? {} : { resultText }),
-            ...(toolCall.status === "completed" ? {} : { isError: true }),
-          },
-        },
-      ];
-    });
-    return { ...message, parts: [...message.parts, ...historyParts] };
+    const historyParts = historyPartsByMessageId.get(message.id);
+    return historyParts
+      ? { ...message, parts: [...message.parts, ...historyParts] }
+      : message;
   });
+}
+
+function toolCallHistoryParts(toolCall: AgentToolCall): DataPart[] {
+  const inputOmission =
+    toolCall.input === undefined
+      ? undefined
+      : toolHistoryValueOmission(toolCall.input);
+  const outputOmission =
+    toolCall.output === undefined
+      ? undefined
+      : toolHistoryValueOmission(toolCall.output);
+  const outputOmissionText = outputOmission
+    ? `Tool output omitted from history because ${outputOmission}.`
+    : undefined;
+  const errorText = toolCall.error?.message
+    ? `Tool error: ${toolCall.error.message}`
+    : undefined;
+  const errorTextOmission = errorText
+    ? toolHistoryTextOmission(errorText)
+    : undefined;
+  const boundedErrorText = errorText
+    ? errorTextOmission
+      ? `Tool error omitted from history because ${errorTextOmission}.`
+      : errorText
+    : undefined;
+  const statusText =
+    toolCall.output === undefined
+      ? boundedErrorText
+        ? undefined
+        : `Tool call ${toolCall.status} without a recorded result.`
+      : toolCall.status === "completed" || toolCall.error
+        ? undefined
+        : `Tool call ${toolCall.status} returned partial output without a recorded error.`;
+  const resultText = [outputOmissionText, boundedErrorText, statusText]
+    .filter((text): text is string => Boolean(text))
+    .join("\n");
+  const resultTextOmission = toolHistoryTextOmission(resultText);
+  const boundedResultText = resultTextOmission
+    ? `Tool result details omitted from history because ${resultTextOmission}.`
+    : resultText;
+
+  return [
+    {
+      type: "data",
+      mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+      data: {
+        id: toolCall.id,
+        name: toolCall.name,
+        ...(toolCall.input === undefined || inputOmission !== undefined
+          ? {}
+          : { input: toolCall.input }),
+        ...(inputOmission !== undefined
+          ? {
+              inputText: `Tool input omitted from history because ${inputOmission}.`,
+            }
+          : {}),
+      },
+    },
+    {
+      type: "data",
+      mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
+      data: {
+        id: toolCall.id,
+        name: toolCall.name,
+        ...(toolCall.output === undefined || outputOmission !== undefined
+          ? {}
+          : { result: toolCall.output }),
+        ...(boundedResultText ? { resultText: boundedResultText } : {}),
+        ...(toolCall.status === "completed" && !toolCall.error
+          ? {}
+          : { isError: true }),
+      },
+    },
+  ];
 }
 
 export class AgentKitClient implements AgentKitController {

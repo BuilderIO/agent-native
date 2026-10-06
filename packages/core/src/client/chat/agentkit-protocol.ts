@@ -1953,7 +1953,7 @@ export function createAgentKitProtocolAdapter(
               "running",
               undefined,
               undefined,
-              run.activeMessageId,
+              runtimeEventMessageId(run, event.toolCall.metadata),
             ),
           },
           ...(invocation
@@ -2023,6 +2023,8 @@ export function createAgentKitProtocolAdapter(
           : undefined;
         if (invocation) run.actions.delete(event.toolCallId);
         const activeTool = run.activeTools.get(event.toolCallId);
+        const messageId =
+          activeTool?.messageId ?? runtimeEventMessageId(run, event.metadata);
         return [
           {
             type: "tool.updated",
@@ -2036,9 +2038,7 @@ export function createAgentKitProtocolAdapter(
               output:
                 event.result !== undefined ? event.result : event.resultText,
               error,
-              ...(activeTool?.messageId || run.activeMessageId
-                ? { messageId: activeTool?.messageId ?? run.activeMessageId }
-                : {}),
+              ...(messageId ? { messageId } : {}),
               ...(metadata ? { metadata } : {}),
             },
           },

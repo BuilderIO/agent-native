@@ -277,6 +277,13 @@ describe("AgentKitClient", () => {
           },
         });
         const calls = [
+          ...Array.from({ length: 70 }, (_, index) => ({
+            id: `call-history-${index}`,
+            name: "docs-search",
+            input: { index },
+            output: "Found one result.",
+            status: "completed" as const,
+          })),
           {
             id: "call-document",
             name: "get_document",
@@ -303,6 +310,32 @@ describe("AgentKitClient", () => {
             name: "docs-search",
             input: "x".repeat(65 * 1024),
             output: "Search completed.",
+            status: "completed" as const,
+          },
+          {
+            id: "call-large-error",
+            name: "docs-search",
+            error: {
+              code: "tool_error",
+              message: "x".repeat(65 * 1024),
+            },
+            status: "failed" as const,
+          },
+          {
+            id: "call-partial-error",
+            name: "docs-search",
+            input: { query: "partial" },
+            output: { matches: ["first page"] },
+            error: {
+              code: "tool_error",
+              message: "Second page timed out.",
+            },
+            status: "failed" as const,
+          },
+          {
+            id: "call-void",
+            name: "delete_draft",
+            input: { draftId: "draft-1" },
             status: "completed" as const,
           },
           {
@@ -419,12 +452,68 @@ describe("AgentKitClient", () => {
           data: {
             id: "call-search-2",
             name: "docs-search",
-            resultText: "Provider timed out.",
+            resultText: "Tool error: Provider timed out.",
             isError: true,
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-result",
+          data: {
+            id: "call-large-error",
+            name: "docs-search",
+            resultText:
+              "Tool error omitted from history because it exceeds 64 KiB.",
+            isError: true,
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-call",
+          data: {
+            id: "call-partial-error",
+            name: "docs-search",
+            input: { query: "partial" },
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-result",
+          data: {
+            id: "call-partial-error",
+            name: "docs-search",
+            result: { matches: ["first page"] },
+            resultText: "Tool error: Second page timed out.",
+            isError: true,
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-call",
+          data: {
+            id: "call-void",
+            name: "delete_draft",
+            input: { draftId: "draft-1" },
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-result",
+          data: {
+            id: "call-void",
+            name: "delete_draft",
+            resultText: "Tool call completed without a recorded result.",
           },
         },
       ]),
     );
+    expect(
+      assistantMessage?.parts.filter((part) => part.type === "data"),
+    ).toHaveLength(64 * 2);
+    expect(assistantMessage?.parts).toContainEqual({
+      type: "text",
+      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+    });
     expect(assistantMessage?.parts).not.toContainEqual(
       expect.objectContaining({
         data: expect.objectContaining({ id: "call-pending" }),
@@ -440,6 +529,225 @@ describe("AgentKitClient", () => {
         parts: [{ type: "text", text: "I checked the document." }],
       }),
     );
+    await client.shutdown();
+  });
+
+  it("caps the aggregate prior tool history sent on a later turn", async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-1",
+    }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      startRun,
+      async *subscribeToRun({ runId }) {
+        const event = (
+          sequence: number,
+          body: Omit<
+            AgentEvent,
+            "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+          >,
+        ) =>
+          ({
+            ...body,
+            id: `${runId}-event-${sequence}`,
+            threadId: "thread-1",
+            runId,
+            sequence,
+            occurredAt: "2026-08-29T00:00:00.000Z",
+          }) as AgentEvent;
+        if (runId !== "run-1") {
+          yield event(1, { type: "run.started" });
+          yield event(2, { type: "run.completed" });
+          return;
+        }
+
+        let sequence = 0;
+        const push = (
+          body: Omit<
+            AgentEvent,
+            "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+          >,
+        ) => event(++sequence, body);
+        yield push({ type: "run.started" });
+        yield push({
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [{ type: "text", text: "I searched four sources." }],
+          },
+        });
+        for (let index = 0; index < 4; index++) {
+          const toolCall = {
+            id: `call-${index}`,
+            name: "search",
+            input: { query: "i".repeat(40 * 1024) },
+            messageId: "assistant-1",
+          };
+          yield push({
+            type: "tool.started",
+            toolCall: { ...toolCall, status: "running" },
+          });
+          yield push({
+            type: "tool.updated",
+            toolCall: {
+              ...toolCall,
+              output: "o".repeat(40 * 1024),
+              status: "completed",
+            },
+          });
+        }
+        yield push({
+          type: "message.completed",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "I searched four sources." }],
+          },
+        });
+        yield push({ type: "run.completed" });
+      },
+    };
+    const client = new AgentKitClient({ transport });
+
+    await (
+      await client.sendMessage({
+        threadId: "thread-1",
+        text: "Search four sources",
+      })
+    ).completed;
+    await (
+      await client.sendMessage({
+        threadId: "thread-1",
+        text: "What did you find?",
+      })
+    ).completed;
+
+    const assistantMessage = startRun.mock.calls[1]![0].messages.find(
+      (message) => message.id === "assistant-1",
+    );
+    const dataParts = assistantMessage?.parts.filter(
+      (part) => part.type === "data",
+    );
+    expect(dataParts).toHaveLength(3 * 2);
+    expect(dataParts?.[0]).toMatchObject({
+      data: { id: "call-1" },
+    });
+    expect(assistantMessage?.parts).toContainEqual({
+      type: "text",
+      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+    });
+    await client.shutdown();
+  });
+
+  it("caps serialized prior tool history by aggregate bytes", async () => {
+    let runNumber = 0;
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: `run-${++runNumber}`,
+    }));
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      startRun,
+      async *subscribeToRun({ runId }) {
+        const event = (
+          sequence: number,
+          body: Omit<
+            AgentEvent,
+            "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+          >,
+        ) =>
+          ({
+            ...body,
+            id: `${runId}-event-${sequence}`,
+            threadId: "thread-1",
+            runId,
+            sequence,
+            occurredAt: "2026-08-29T00:00:00.000Z",
+          }) as AgentEvent;
+        if (runId !== "run-1") {
+          yield event(1, { type: "run.started" });
+          yield event(2, { type: "run.completed" });
+          return;
+        }
+
+        let sequence = 0;
+        const push = (
+          body: Omit<
+            AgentEvent,
+            "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+          >,
+        ) => event(++sequence, body);
+        yield push({ type: "run.started" });
+        yield push({
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [{ type: "text", text: "I searched four sources." }],
+          },
+        });
+        for (let index = 0; index < 4; index++) {
+          const toolCall = {
+            id: `call-${index}`,
+            name: "search",
+            input: { query: "i".repeat(40 * 1024) },
+            messageId: "assistant-1",
+          };
+          yield push({
+            type: "tool.started",
+            toolCall: { ...toolCall, status: "running" },
+          });
+          yield push({
+            type: "tool.updated",
+            toolCall: {
+              ...toolCall,
+              output: "o".repeat(40 * 1024),
+              status: "completed",
+            },
+          });
+        }
+        yield push({
+          type: "message.completed",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "I searched four sources." }],
+          },
+        });
+        yield push({ type: "run.completed" });
+      },
+    };
+    const client = new AgentKitClient({ transport });
+
+    await (
+      await client.sendMessage({
+        threadId: "thread-1",
+        text: "Search four sources",
+      })
+    ).completed;
+    await (
+      await client.sendMessage({
+        threadId: "thread-1",
+        text: "What did you find?",
+      })
+    ).completed;
+
+    const assistantMessage = startRun.mock.calls[1]![0].messages.find(
+      (message) => message.id === "assistant-1",
+    );
+    const dataParts = assistantMessage?.parts.filter(
+      (part) => part.type === "data",
+    );
+    expect(dataParts).toHaveLength(3 * 2);
+    expect(dataParts?.[0]).toMatchObject({ data: { id: "call-1" } });
+    expect(assistantMessage?.parts).toContainEqual({
+      type: "text",
+      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+    });
     await client.shutdown();
   });
 

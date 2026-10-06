@@ -1664,13 +1664,9 @@ function nativeStructuredHistoryFromMessages(
       } else if (part.type === "tool-result") {
         hasToolHistory = true;
         const result =
-          part.resultText ??
-          (typeof part.result === "string"
-            ? part.result
-            : part.result === undefined
-              ? "No tool result was recorded."
-              : (JSON.stringify(part.result) ??
-                "Tool result could not be serialized for history."));
+          part.result === undefined
+            ? (part.resultText ?? "No tool result was recorded.")
+            : `${typeof part.result === "string" ? part.result : (JSON.stringify(part.result) ?? "Tool result could not be serialized for history.")}${part.resultText ? `\n${part.resultText}` : ""}`;
         results.push({
           type: "tool-result",
           toolCallId: part.toolCallId,

@@ -450,7 +450,8 @@ describe("createAgentNativeChatRuntime", () => {
             type: "tool-result",
             toolCallId: "call-search",
             toolName: "docs-search",
-            resultText: "Provider timed out.",
+            result: "Partial search results",
+            resultText: "Tool error: Provider timed out.",
             isError: true,
           },
           {
@@ -527,7 +528,7 @@ describe("createAgentNativeChatRuntime", () => {
             type: "tool-result",
             toolCallId: "call-search",
             toolName: "docs-search",
-            content: "Provider timed out.",
+            content: "Partial search results\nTool error: Provider timed out.",
             isError: true,
           },
           {

@@ -1051,6 +1051,57 @@ describe("createAgentKitProtocolAdapter", () => {
     });
   });
 
+  it("does not associate a tool call with an already completed assistant message", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "message-done",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          content: [{ type: "text", text: "That reply is complete." }],
+        },
+      };
+      yield {
+        type: "tool-start",
+        toolCall: { id: "tool-1", name: "search", input: { query: "next" } },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "search",
+        status: "completed",
+        result: { found: true },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.find((event) => event.type === "tool.started")).toMatchObject(
+      {
+        type: "tool.started",
+        toolCall: { id: "tool-1" },
+      },
+    );
+    expect(
+      result.find((event) => event.type === "tool.started"),
+    ).not.toHaveProperty("toolCall.messageId");
+    expect(
+      result.find((event) => event.type === "tool.updated"),
+    ).not.toHaveProperty("toolCall.messageId");
+  });
+
   it("attaches tool-first chatUI widgets to the next assistant message", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {
