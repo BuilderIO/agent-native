@@ -597,7 +597,7 @@ describe("end to end classification", () => {
 
     expect(outcome).toEqual({
       configured: false,
-      failureReason: "jev-credential-unavailable",
+      failureReason: "jev-credential-lookup-failed",
     });
     expect(JSON.stringify(outcome)).not.toContain("private credential detail");
   });

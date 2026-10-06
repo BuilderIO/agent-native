@@ -38,6 +38,7 @@ export type JevFailureReason =
   | "jev-timeout"
   | "jev-invalid-response"
   | "jev-credential-unavailable"
+  | "jev-credential-lookup-failed"
   | "jev-unavailable";
 
 class JevDiagnosticError extends Error {
@@ -53,6 +54,7 @@ const TRANSIENT_JEV_REASONS = new Set<string>([
   "jev-timeout",
   "jev-unavailable",
   "jev-invalid-response",
+  "jev-credential-lookup-failed",
 ]);
 
 export function jevFailureHttpStatus(reason: string): number | null {
@@ -641,7 +643,7 @@ function jevFailureReason(
   error: unknown,
   context: "credential" | "request",
 ): JevFailureReason {
-  if (context === "credential") return "jev-credential-unavailable";
+  if (context === "credential") return "jev-credential-lookup-failed";
   if (error instanceof JevDiagnosticError) return error.code;
   if (
     error instanceof Error &&

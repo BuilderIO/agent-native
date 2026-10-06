@@ -289,6 +289,7 @@ describe("capture sanitization", () => {
     ["jev-timeout", "timed out after 3 attempts", 600_000],
     ["jev-http-503", "returned HTTP 503 after 3 attempts", 600_000],
     ["jev-credential-unavailable", "no Builder connection", null],
+    ["jev-credential-lookup-failed", "lookup failed", 600_000],
     ["jev-http-401", "rejected the source owner", null],
   ])(
     "explains a %s failure in plain language",
