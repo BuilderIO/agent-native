@@ -1636,6 +1636,59 @@ function nativeHistoryFromMessages(
     .filter((message) => message.content.trim());
 }
 
+const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
+const TOOL_INPUT_OMISSION_TEXT =
+  "Tool input omitted from history because it could not be serialized.";
+const TOOL_INPUT_SIZE_OMISSION_TEXT =
+  "Tool input omitted from history because it exceeds 64 KiB.";
+const TOOL_RESULT_OMISSION_TEXT =
+  "Tool result omitted from history because it could not be serialized.";
+const TOOL_RESULT_SIZE_OMISSION_TEXT =
+  "Tool result omitted from history because it exceeds 64 KiB.";
+
+function exceedsToolHistoryValueLimit(value: string): boolean {
+  return (
+    new TextEncoder().encode(value).byteLength > MAX_TOOL_HISTORY_VALUE_BYTES
+  );
+}
+
+function toolInputForStructuredHistory(
+  input: unknown,
+): { input: unknown } | { omissionText: string } {
+  try {
+    const serialized = JSON.stringify(input);
+    if (serialized === undefined)
+      return { omissionText: TOOL_INPUT_OMISSION_TEXT };
+    if (exceedsToolHistoryValueLimit(serialized))
+      return { omissionText: TOOL_INPUT_SIZE_OMISSION_TEXT };
+    return { input: JSON.parse(serialized) as unknown };
+  } catch {
+    return { omissionText: TOOL_INPUT_OMISSION_TEXT };
+  }
+}
+
+function toolResultForStructuredHistory(
+  result: unknown,
+  resultText?: string,
+): string {
+  let content: string;
+  if (result === undefined) {
+    content = resultText ?? "No tool result was recorded.";
+  } else {
+    let serialized: string | undefined;
+    try {
+      serialized = typeof result === "string" ? result : JSON.stringify(result);
+    } catch {
+      return TOOL_RESULT_OMISSION_TEXT;
+    }
+    if (serialized === undefined) return TOOL_RESULT_OMISSION_TEXT;
+    content = `${serialized}${resultText ? `\n${resultText}` : ""}`;
+  }
+  return exceedsToolHistoryValueLimit(content)
+    ? TOOL_RESULT_SIZE_OMISSION_TEXT
+    : content;
+}
+
 function nativeStructuredHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
@@ -1645,42 +1698,64 @@ function nativeStructuredHistoryFromMessages(
 
   for (const message of priorNativeHistoryMessages(messages, currentPrompt)) {
     if (message.role !== "user" && message.role !== "assistant") continue;
-    const content: AgentChatStructuredMessage["content"] = [];
-    const results: AgentChatStructuredMessage["content"] = [];
+    const role = message.role;
+    let content: AgentChatStructuredMessage["content"] = [];
+    let results: AgentChatStructuredMessage["content"] = [];
+    const flushContent = () => {
+      if (!content.length) return;
+      structuredHistory.push({ role, content });
+      content = [];
+    };
+    const flushResults = () => {
+      if (!results.length) return;
+      structuredHistory.push({ role: "user", content: results });
+      results = [];
+    };
+
     for (const part of message.content) {
       if (part.type === "text" || part.type === "reasoning") {
-        if (part.text.trim()) content.push({ type: "text", text: part.text });
+        if (part.text.trim()) {
+          flushResults();
+          content.push({ type: "text", text: part.text });
+        }
       } else if (part.type === "tool-call" && message.role === "assistant") {
         hasToolHistory = true;
+        flushResults();
         if (part.inputText?.trim()) {
-          content.push({ type: "text", text: part.inputText });
+          content.push({
+            type: "text",
+            text: exceedsToolHistoryValueLimit(part.inputText)
+              ? TOOL_INPUT_SIZE_OMISSION_TEXT
+              : part.inputText,
+          });
+        }
+        const input =
+          part.input === undefined
+            ? undefined
+            : toolInputForStructuredHistory(part.input);
+        if (input && "omissionText" in input) {
+          content.push({ type: "text", text: input.omissionText });
         }
         content.push({
           type: "tool-call",
           id: part.toolCallId,
           name: part.toolName,
-          ...(part.input === undefined ? {} : { input: part.input }),
+          ...(input && "input" in input ? { input: input.input } : {}),
         });
       } else if (part.type === "tool-result") {
         hasToolHistory = true;
-        const result =
-          part.result === undefined
-            ? (part.resultText ?? "No tool result was recorded.")
-            : `${typeof part.result === "string" ? part.result : (JSON.stringify(part.result) ?? "Tool result could not be serialized for history.")}${part.resultText ? `\n${part.resultText}` : ""}`;
+        flushContent();
         results.push({
           type: "tool-result",
           toolCallId: part.toolCallId,
           ...(part.toolName ? { toolName: part.toolName } : {}),
-          content: result,
+          content: toolResultForStructuredHistory(part.result, part.resultText),
           ...(part.isError ? { isError: true } : {}),
         });
       }
     }
-    if (content.length) {
-      structuredHistory.push({ role: message.role, content });
-    }
-    if (results.length)
-      structuredHistory.push({ role: "user", content: results });
+    flushContent();
+    flushResults();
   }
 
   return hasToolHistory ? structuredHistory : undefined;

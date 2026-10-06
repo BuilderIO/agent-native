@@ -440,6 +440,7 @@ describe("createAgentNativeChatRuntime", () => {
             toolName: "get_document",
             result: "Document title: Project Brief",
           },
+          { type: "text", text: "The document title is Project Brief." },
           {
             type: "tool-call",
             toolCallId: "call-search",
@@ -498,12 +499,46 @@ describe("createAgentNativeChatRuntime", () => {
             name: "get_document",
             input: { documentId: "doc-1" },
           },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-document",
+            toolName: "get_document",
+            content: "Document title: Project Brief",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "The document title is Project Brief." },
           {
             type: "tool-call",
             id: "call-search",
             name: "docs-search",
             input: { query: "project brief" },
           },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-search",
+            toolName: "docs-search",
+            content: "Partial search results\nTool error: Provider timed out.",
+            isError: true,
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
           {
             type: "text",
             text: "Tool input omitted from history because it exceeds 64 KiB.",
@@ -518,19 +553,6 @@ describe("createAgentNativeChatRuntime", () => {
       {
         role: "user",
         content: [
-          {
-            type: "tool-result",
-            toolCallId: "call-document",
-            toolName: "get_document",
-            content: "Document title: Project Brief",
-          },
-          {
-            type: "tool-result",
-            toolCallId: "call-search",
-            toolName: "docs-search",
-            content: "Partial search results\nTool error: Provider timed out.",
-            isError: true,
-          },
           {
             type: "tool-result",
             toolCallId: "call-large-input",
@@ -549,6 +571,125 @@ describe("createAgentNativeChatRuntime", () => {
         ]),
       }),
     );
+  });
+
+  it("bounds non-serializable tool inputs and results in structured history", async () => {
+    const cyclicInput: Record<string, unknown> = {};
+    cyclicInput.self = cyclicInput;
+    const cyclicResult: Record<string, unknown> = {};
+    cyclicResult.self = cyclicResult;
+    const oversizedInput = "x".repeat(64 * 1024);
+    const oversizedResult = "y".repeat(64 * 1024 + 1);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-non-serializable-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-cyclic-input",
+              toolName: "cyclic-input",
+              input: cyclicInput,
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-bigint-input",
+              toolName: "bigint-input",
+              input: 1n,
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-oversized-input",
+              toolName: "oversized-input",
+              input: oversizedInput,
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-cyclic-result",
+              result: cyclicResult,
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-bigint-result",
+              result: 1n,
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-oversized-result",
+              result: oversizedResult,
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.structuredHistory).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Tool input omitted from history because it could not be serialized.",
+          },
+          { type: "tool-call", id: "call-cyclic-input", name: "cyclic-input" },
+          {
+            type: "text",
+            text: "Tool input omitted from history because it could not be serialized.",
+          },
+          { type: "tool-call", id: "call-bigint-input", name: "bigint-input" },
+          {
+            type: "text",
+            text: "Tool input omitted from history because it exceeds 64 KiB.",
+          },
+          {
+            type: "tool-call",
+            id: "call-oversized-input",
+            name: "oversized-input",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-cyclic-result",
+            content:
+              "Tool result omitted from history because it could not be serialized.",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-bigint-result",
+            content:
+              "Tool result omitted from history because it could not be serialized.",
+          },
+          {
+            type: "tool-result",
+            toolCallId: "call-oversized-result",
+            content:
+              "Tool result omitted from history because it exceeds 64 KiB.",
+          },
+        ],
+      },
+    ]);
   });
 
   it("wraps the existing Agent-Native chat endpoint and normalizes SSE events", async () => {
