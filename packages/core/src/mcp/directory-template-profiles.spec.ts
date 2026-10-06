@@ -106,6 +106,21 @@ function mentionsTool(text: string, name: string): boolean {
 
 describe("ChatGPT directory template profiles", () => {
   it.each(templateProfiles)(
+    "$appId keeps widgets enabled with its assigned scan configuration",
+    ({ appId, profile }) => {
+      expect(profile.widgets).toBe(true);
+      expect(profile.widgetDomain).toBe(`https://${appId}.agent-native.com`);
+      expect(profile.widgetDiagnostic).toBe(
+        appId === "slides"
+          ? "tiny-html"
+          : appId === "content"
+            ? "no-frame-domains"
+            : undefined,
+      );
+    },
+  );
+
+  it.each(templateProfiles)(
     "$appId allowlist is registered, exposed, annotated, and narrowly scoped",
     async ({ appId, profile }) => {
       const { actions, productionActions, actionNames } =
