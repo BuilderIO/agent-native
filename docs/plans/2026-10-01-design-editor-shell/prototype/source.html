@@ -380,6 +380,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .p-btn { height: 46px; padding-inline: 24px; border-radius: var(--radius-button, 23px); font-size: 16px; display: inline-flex; align-items: center; border: 1px solid #e5e5e5; color: var(--page-fg); background: var(--page-bg); }
 .p-btn.dark { background: var(--color-primary, #171717); color: var(--color-on-primary, #fff); border-color: var(--color-primary, #171717); }
 .interact .p-btn:hover { filter: brightness(.94); }
+.p-btn { transition: filter var(--spring-fast, 150ms ease), background-color var(--duration-base, 250ms) var(--ease-standard, ease); }
 .p-cmd { display: flex; gap: 16px; align-items: center; }
 .p-cmd code { height: 40px; padding-inline: 16px; border-radius: 20px; border: 1px solid #e5e5e5; display: inline-flex; align-items: center; gap: 12px; font: 14px var(--font); color: #333; }
 .p-cmd code b { color: var(--page-muted); font-weight: 400; }
@@ -714,6 +715,28 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .row.tk[aria-expanded="true"] { background: var(--hover); }
 .row.tk .tk-warn { margin-left: 6px; display: grid; color: var(--warning); flex: none; }
 .row.tk .tk-glyph { color: var(--muted-fg); }
+.row.tk .tk-ease { width: 16px; height: 16px; display: grid; color: var(--fg); }
+/* A preset name is a word, so it reads in the UI font; custom control points stay mono like other values. */
+.row.tk .tk-val.word { font-family: var(--font); max-width: 112px; }
+/* Curve editor (Easing and Spring tokens): the color picker's 272px popover, 12px padding, one 248px column.
+   A square graph with left and bottom axes; handles sit on dashed tethers to the curve's ends. */
+.cpk.curve { padding: 12px; display: grid; gap: 8px; }
+.curve-preset { height: 24px; }
+.curve-graph { display: block; overflow: visible; touch-action: none; }
+.curve-graph .axis { stroke: var(--border); stroke-width: 1; }
+.curve-graph .guide { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
+.curve-graph .tether { stroke: var(--muted-fg); stroke-width: 1; stroke-dasharray: 3 3; opacity: .7; }
+.curve-graph .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.curve-graph .end { fill: var(--accent); opacity: .3; }
+.curve-graph .h { fill: var(--accent); cursor: grab; }
+.curve-graph .h:active { cursor: grabbing; }
+.curve-graph .h:hover, .curve-graph .h:focus-visible { outline: none; stroke: var(--accent-soft); stroke-width: 6; }
+.curve-track { height: 16px; border-radius: 8px; background: var(--hover); position: relative; }
+.curve-dot { position: absolute; left: 4px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.curve-fields { display: grid; grid-template-columns: repeat(4, 56px); gap: 8px; }
+.curve-fields .inp { height: 24px; }
+.curve-fields .inp.span2 { grid-column: span 2; }
+.curve-fields .inp.span2 .pre { width: auto; padding-right: 8px; }
 .row.tk .tk-val { margin-left: 8px; font: 11px/16px var(--mono); color: var(--muted-fg); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; text-align: right; }
 .row.tk:hover .tk-val { color: var(--fg); }
 .row.tk input.tk-edit { margin-left: 8px; width: 104px; height: 20px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 4px; color: var(--fg); flex: none; }
@@ -2549,10 +2572,12 @@ document.addEventListener("click", e => {
   const tks = t.closest("[data-tk-sec]"); if (tks) { const k = tks.dataset.tkSec; TK.collapsed.has(k) ? TK.collapsed.delete(k) : TK.collapsed.add(k); renderTokens(); return; }
   if (t.closest("[data-fill-menu]")) return fillTokenMenu(t.closest("[data-fill-menu]"));
   if (t.closest("[data-fill]")) return pickFill(t.closest("[data-fill]"));
+  if (t.closest("[data-tk-dease]")) { const sw = t.closest("[data-tk-dease]"), v = $("#tk-dval"); return curveEditor(sw.closest(".row"), v.value, { onInput: x => { v.value = x; sw.innerHTML = curveGlyph(x); }, onClose: () => $("#tk-dval")?.focus() }); }
   if (t.closest("[data-tk-dcolor]")) { const sw = t.closest("[data-tk-dcolor]"), v = $("#tk-dval"); return colorPicker(sw.closest(".row"), v.value, { onInput: x => { v.value = x; sw.style.background = x; }, onClose: () => $("#tk-dval")?.focus() }); }
   const tkr = t.closest(".row.tk"); if (tkr && !tkr.matches("[data-tk-draft]") && !t.closest(".tk-edit")) {
     const tok = TOKENS.find(x => x.cssVar === tkr.dataset.tk);
     if (tok.type === "color" && isColor(tok.value)) return pickTokenColor(tok, tkr);
+    if (isCurve(tok)) return pickTokenCurve(tok, tkr);
     TK.editing = tkr.dataset.tk; renderTokens(); return;
   }
   const pin = t.closest("[data-pin]"); if (pin) { if (S.cmOpen === +pin.dataset.pin) closeCard(); else openThread(+pin.dataset.pin); return; }
@@ -3119,6 +3144,13 @@ let TOKENS = [
   { name: "Button", cssVar: "--radius-button", value: "23px", type: "radius", source: "Agent-Native brand" },
   { name: "Pill", cssVar: "--radius-pill", value: "13px", type: "radius", source: "index.html" },
   { name: "Card", cssVar: "--shadow-card", value: "none", type: "shadow", source: "index.html" },
+  { name: "Standard", cssVar: "--ease-standard", value: "cubic-bezier(0.2, 0, 0, 1)", type: "motion", source: "index.html" },
+  { name: "Enter", cssVar: "--ease-enter", value: "cubic-bezier(0.05, 0.7, 0.1, 1)", type: "motion", source: "index.html" },
+  { name: "Fast", cssVar: "--spring-fast", value: "spring(80ms, 0)", type: "motion", source: "index.html" },
+  { name: "Moderate", cssVar: "--spring-moderate", value: "spring(160ms, 0)", type: "motion", source: "index.html" },
+  { name: "Slow", cssVar: "--spring-slow", value: "spring(240ms, 0.12)", type: "motion", source: "index.html" },
+  { name: "Fast", cssVar: "--duration-fast", value: "150ms", type: "motion", source: "index.html" },
+  { name: "Base", cssVar: "--duration-base", value: "250ms", type: "motion", source: "index.html" },
 ];
 const TK = { q: "", searching: false, editing: null, draft: null, collapsed: new Set() };
 // The panel's groups are these kinds, with the same labels and in the same order, so a new token lands under
@@ -3139,6 +3171,10 @@ const TOKEN_KINDS = [
   "-",
   ["shadow", "Shadow", "shadow", "shadow", "--shadow-", "0 1px 2px rgb(0 0 0 / 8%)"],
   ["opacity", "Opacity", "droplet-half-2", "shadow", "--opacity-", "0.5"],
+  "-",
+  ["easing", "Easing", "ease-in-out", "motion", "--ease-", "cubic-bezier(0.2, 0, 0, 1)"],
+  ["spring", "Spring", "ease-in-out", "motion", "--spring-", "spring(160ms, 0)"],
+  ["duration", "Duration", "clock", "motion", "--duration-", "200ms"],
 ];
 // Every left panel shares one header search: an icon that swaps in a focused field for the whole line.
 // Clicking away, ×, or Esc dismisses it (query cleared). Clicking a result row keeps it, so results stay clickable.
@@ -3240,6 +3276,135 @@ function fillTokenMenu(anchor) {
     ...colors.map(t => ({ t: t.name, k: t.value, radio: true, on: t === bound, run: () => { set({ fillToken: t.cssVar }); toast(bound ? `Swapped ${bound.name} for ${t.name}` : `Fill uses ${t.name}`); } })),
   ], { align: "right" });
 }
+/* ───────── curve editor ───────── */
+// One editor for every curve: Easing tokens (cubic-béziers) and Spring tokens (duration and bounce), and in code the
+// Motion dock's ease field, so a curve tweaks the same way wherever it's applied.
+// Easing presets are Material 3's (material-web md.sys.motion.easing; Emphasized is left out because the web
+// tokens alias it to Standard, its real two-segment path has no cubic-bézier), then the dock's three back curves.
+const EASE_PRESETS = [["Standard", "cubic-bezier(0.2, 0, 0, 1)"], ["Standard decelerate", "cubic-bezier(0, 0, 0, 1)"], ["Standard accelerate", "cubic-bezier(0.3, 0, 1, 1)"], "-",
+  ["Emphasized decelerate", "cubic-bezier(0.05, 0.7, 0.1, 1)"], ["Emphasized accelerate", "cubic-bezier(0.3, 0, 0.8, 0.15)"], "-",
+  ["Legacy", "cubic-bezier(0.4, 0, 0.2, 1)"], ["Legacy decelerate", "cubic-bezier(0, 0, 0.2, 1)"], ["Legacy accelerate", "cubic-bezier(0.4, 0, 1, 1)"], "-",
+  ["Ease in back", "cubic-bezier(0.36, 0, 0.66, -0.56)"], ["Ease out back", "cubic-bezier(0.34, 1.56, 0.64, 1)"], ["Ease in and out back", "cubic-bezier(0.68, -0.6, 0.32, 1.6)"], "-",
+  ["Linear", "linear"]];
+// Spring presets are Fluid Functionalism's tiers (lib/springs.ts, MIT): Motion springs by duration and bounce.
+const SPRING_PRESETS = [["Fast", "spring(80ms, 0)"], ["Moderate", "spring(160ms, 0)"], ["Slow", "spring(240ms, 0.12)"]];
+const EASE_KEYWORDS = { linear: [0, 0, 1, 1], ease: [0.25, 0.1, 0.25, 1], "ease-in": [0.42, 0, 1, 1], "ease-out": [0, 0, 0.58, 1], "ease-in-out": [0.42, 0, 0.58, 1] };
+// x1 and x2 must stay within 0–1 for the curve to be a function of time; y may overshoot.
+function parseEase(v) {
+  const s = String(v).trim().toLowerCase(); if (EASE_KEYWORDS[s]) return EASE_KEYWORDS[s].slice();
+  const n = s.match(/^cubic-bezier\(([^)]+)\)$/)?.[1].split(",").map(Number);
+  return n?.length === 4 && n.every(Number.isFinite) && n[0] >= 0 && n[0] <= 1 && n[2] >= 0 && n[2] <= 1 ? n : null;
+}
+const parseSpring = v => { const m = String(v).trim().match(/^spring\(\s*([\d.]+)(ms|s)\s*,\s*([\d.]+)\s*\)$/i); return m ? { ms: +m[1] * (m[2].toLowerCase() === "s" ? 1000 : 1), bounce: Math.min(1, +m[3]) } : null; };
+const r2 = n => Math.round(n * 100) / 100;
+const samePts = (a, b) => !!a && !!b && a.every((n, i) => Math.abs(n - b[i]) < 0.005);
+const springCss = ({ ms, bounce }) => `spring(${Math.round(ms)}ms, ${r2(bounce)})`;
+const curvePreset = v => { const e = parseEase(v), sp = parseSpring(v);
+  return e ? EASE_PRESETS.find(x => x !== "-" && samePts(parseEase(x[1]), e)) : sp ? SPRING_PRESETS.find(([, x]) => springCss(parseSpring(x)) === springCss(sp)) : null; };
+const easeCss = p => curvePreset(`cubic-bezier(${p.join(", ")})`)?.[1] || `cubic-bezier(${p.map(r2).join(", ")})`;
+// Springs read as their numbers, since two tiers can share a curve and differ only in duration.
+const curveLabel = v => parseSpring(v) ? `${Math.round(parseSpring(v).ms)}ms · ${r2(parseSpring(v).bounce)}` : curvePreset(v)?.[0] || parseEase(v).map(r2).join(", ");
+// Motion's spring by bounce over normalized time, as shared/motion-easing.ts sampleSpring does: bounce 0 is
+// critically damped, and the spring settles by the end of its duration.
+function springAt(bounce, u) {
+  if (u <= 0) return 0; if (u >= 1) return 1;
+  const z = Math.min(1, Math.max(0.02, 1 - bounce)), w = Math.log(1000) / z;
+  if (z >= 1) return 1 - Math.exp(-w * u) * (1 + w * u);
+  const wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * u) * (Math.cos(wd * u) + (z * w / wd) * Math.sin(wd * u));
+}
+// CSS can't say spring(), so the canvas gets the duration and the spring sampled as linear().
+const springToCss = ({ ms, bounce }) => `${Math.round(ms)}ms linear(${Array.from({ length: 41 }, (_, i) => +springAt(bounce, i / 40).toFixed(3)).join(", ")})`;
+const cssValue = t => parseSpring(t.value) ? springToCss(parseSpring(t.value)) : t.value;
+// Points along a curve, for the glyph, the graph, and the DTCG fallback.
+const bezierPts = ([a, b, c, d], n = 48) => Array.from({ length: n + 1 }, (_, i) => { const u = i / n, k = 1 - u; return [3 * k * k * u * a + 3 * k * u * u * c + u ** 3, 3 * k * k * u * b + 3 * k * u * u * d + u ** 3]; });
+const curvePts = v => parseEase(v) ? bezierPts(parseEase(v)) : Array.from({ length: 49 }, (_, i) => [i / 48, springAt(parseSpring(v).bounce, i / 48)]);
+// The row's lead draws the curve itself, the way a color row shows its swatch.
+function curveGlyph(v) {
+  const d = curvePts(v).map(([x, y], i) => `${i ? "L" : "M"}${(2 + x * 12).toFixed(2)} ${(14 - y * 12).toFixed(2)}`).join("");
+  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+// The color picker's popover (272px, 12px padding, a 248px column, Esc puts the old value back, click-away keeps it):
+// the preset select, a square graph, a dot that replays the motion, then the curve's numbers. A cubic-bézier has two
+// handles on dashed tethers; a spring has none, so its graph is the response and its fields are duration and bounce.
+// The graph shows 0–1 with a little room either side, and grows to fit a handle you drag to its edge once you let go.
+function curveEditor(anchor, value, { onInput, onClose = () => {} }) {
+  document.querySelector(".cpk")?._close();
+  const before = value, spring = !!parseSpring(value);
+  let P = spring ? null : parseEase(value) || [0.2, 0, 0, 1], SP = spring ? parseSpring(value) : null, done = false, lo = -0.1, hi = 1.1;
+  const S = 248, X = x => 16 + x * 216, Y = y => 232 - (y - lo) / (hi - lo) * 216;
+  const css = () => spring ? springCss(SP) : easeCss(P);
+  const fit = () => { const ys = spring ? curvePts(css()).map(p => p[1]) : [P[1], P[3]]; lo = Math.min(-0.1, ...ys.map(y => y - (spring ? 0.05 : 0.15))); hi = Math.max(1.1, ...ys.map(y => y + (spring ? 0.05 : 0.15))); };
+  const pop = document.createElement("div"); pop.className = "cpk curve"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", spring ? "Spring" : "Easing");
+  const field = (l, i, cls = "") => `<label class="inp ${cls}"><span class="pre">${l}</span><input data-i="${i}" aria-label="${l}" inputmode="decimal" spellcheck="false">${i === "ms" ? `<span class="post">ms</span>` : ""}</label>`;
+  pop.innerHTML = `<button class="inp sel curve-preset" aria-haspopup="menu" aria-expanded="false"><span class="v"></span>${ic("chevron-down", "s12")}</button>
+    <svg class="curve-graph" viewBox="0 0 ${S} ${S}" width="${S}" height="${S}" role="group" aria-label="Curve"><line class="axis y"/><line class="axis x"/><line class="guide"/>
+      ${spring ? "" : `<line class="tether t1"/><line class="tether t2"/>`}<path class="line"/><circle class="end e0" r="4"/><circle class="end e1" r="4"/>
+      ${spring ? "" : `<circle class="h" data-h="0" r="6" tabindex="0" aria-label="First handle"/><circle class="h" data-h="1" r="6" tabindex="0" aria-label="Second handle"/>`}</svg>
+    <div class="curve-track" aria-hidden="true"><span class="curve-dot"></span></div>
+    <div class="curve-fields">${spring ? field("Duration", "ms", "span2") + field("Bounce", "b", "span2") : ["X1", "Y1", "X2", "Y2"].map((l, i) => field(l, i)).join("")}</div>`;
+  document.body.append(pop);
+  const q = sel => pop.querySelector(sel), attrs = (el, o) => Object.entries(o).forEach(([k, v]) => el.setAttribute(k, v));
+  const replay = () => { const d = q(".curve-dot"); d.style.transition = "none"; d.style.transform = ""; d.offsetWidth; d.style.transition = `transform ${spring ? springToCss({ ...SP, ms: Math.max(SP.ms, 600) }) : `600ms ${css()}`}`; d.style.transform = "translateX(232px)"; };
+  const draw = (fields = true) => {
+    attrs(q(".axis.y"), { x1: X(0), y1: 16, x2: X(0), y2: 232 }); attrs(q(".axis.x"), { x1: X(0), y1: Y(0), x2: X(1), y2: Y(0) }); attrs(q(".guide"), { x1: X(0), y1: Y(1), x2: X(1), y2: Y(1) });
+    attrs(q(".e0"), { cx: X(0), cy: Y(0) }); attrs(q(".e1"), { cx: X(1), cy: Y(1) });
+    q(".line").setAttribute("d", spring ? curvePts(css()).map(([x, y], i) => `${i ? "L" : "M"}${X(x).toFixed(1)} ${Y(y).toFixed(1)}`).join("") : `M${X(0)} ${Y(0)}C${X(P[0])} ${Y(P[1])} ${X(P[2])} ${Y(P[3])} ${X(1)} ${Y(1)}`);
+    if (!spring) { attrs(q(".t1"), { x1: X(0), y1: Y(0), x2: X(P[0]), y2: Y(P[1]) }); attrs(q(".t2"), { x1: X(1), y1: Y(1), x2: X(P[2]), y2: Y(P[3]) });
+      pop.querySelectorAll(".h").forEach((h, i) => attrs(h, { cx: X(P[i * 2]), cy: Y(P[i * 2 + 1]) })); }
+    q(".curve-preset .v").textContent = curvePreset(css())?.[0] || "Custom";
+    if (fields) pop.querySelectorAll(".curve-fields input").forEach(inp => { const i = inp.dataset.i; inp.value = i === "ms" ? Math.round(SP.ms) : i === "b" ? r2(SP.bounce) : r2(P[+i]); });
+  };
+  const set = ({ fields = true, play = true, refit = true } = {}) => { if (refit) fit(); draw(fields); onInput(css()); if (play) replay(); };
+  q(".curve-preset").addEventListener("click", e => openMenu(e.currentTarget, (spring ? SPRING_PRESETS : EASE_PRESETS).map(x => x === "-" ? x : { t: x[0], radio: true, on: curvePreset(css()) === x,
+    run: () => { if (spring) SP = parseSpring(x[1]); else P = parseEase(x[1]); set(); } })));
+  pop.querySelectorAll(".h").forEach((h, i) => h.addEventListener("pointerdown", e => {
+    e.preventDefault(); h.setPointerCapture(e.pointerId);
+    const g = q(".curve-graph").getBoundingClientRect();
+    const move = ev => { const x = Math.min(1, Math.max(0, ((ev.clientX - g.left) * S / g.width - 16) / 216)), y = Math.min(hi, Math.max(lo, lo + (232 - (ev.clientY - g.top) * S / g.height) / 216 * (hi - lo)));
+      P = P.slice(); P[i * 2] = r2(x); P[i * 2 + 1] = r2(y); set({ play: false, refit: false }); };
+    const up = () => { h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up); set({ fields: false }); };
+    h.addEventListener("pointermove", move); h.addEventListener("pointerup", up);
+  }));
+  pop.addEventListener("input", e => {
+    const i = e.target.dataset.i; if (i == null) return; const v = parseFloat(e.target.value); if (!Number.isFinite(v)) return;
+    if (i === "ms") { if (v <= 0) return; SP = { ...SP, ms: v }; } else if (i === "b") { if (v < 0 || v > 1) return; SP = { ...SP, bounce: v }; }
+    else { if ((i === "0" || i === "2") && (v < 0 || v > 1)) return; P = P.slice(); P[+i] = v; }
+    set({ fields: false });
+  });
+  const close = cancelled => { if (done) return; done = true; pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); if (cancelled) onInput(before); onClose(cancelled); };
+  const outside = e => { if (!pop.contains(e.target) && !e.target.closest?.(".menu, .scrim")) close(false); };
+  const key = e => { if (e.key === "Escape" && !document.querySelector(".menu")) { e.preventDefault(); e.stopPropagation(); close(true); } };
+  document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key, true);
+  pop._close = () => close(false);
+  fit(); draw();
+  const host = (anchor.closest("#tokens, #insp") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+  pop.style.maxHeight = innerHeight - 16 + "px"; pop.style.overflowY = pop.scrollHeight > innerHeight - 16 ? "auto" : "";
+  pop.style.left = (anchor.closest("#insp") ? Math.max(8, host.left - 8 - pop.offsetWidth) : Math.min(innerWidth - pop.offsetWidth - 8, host.right + 8)) + "px";
+  pop.style.top = Math.max(8, Math.min(ar.top, innerHeight - pop.offsetHeight - 8)) + "px";
+  requestAnimationFrame(replay);
+}
+const isCurve = t => ["easing", "spring"].includes(tokenKind(t)) && !!(parseEase(t.value) || parseSpring(t.value));
+function pickTokenCurve(t, row) {
+  const before = t.value; TK.picking = t.cssVar; row.setAttribute("aria-expanded", "true");
+  curveEditor(row, t.value, {
+    onInput: v => { t.value = v; applyTokens(); row.querySelector(".tk-ease").innerHTML = curveGlyph(v); const val = row.querySelector(".tk-val"); val.textContent = curveLabel(v); val.classList.toggle("word", !!(parseEase(v) && curvePreset(v))); },
+    onClose: cancelled => { TK.picking = null; row.setAttribute("aria-expanded", "false"); if (cancelled) renderTokens(); else if (t.value !== before) toast(`${t.cssVar} updated`); },
+  });
+}
+// DTCG has no spring type, so a spring exports as a transition: its duration, and the cubic-bézier nearest its
+// response as timingFunction, with the spring itself under $extensions so a round trip keeps it.
+function springToBezier(sp) {
+  const target = Array.from({ length: 13 }, (_, i) => springAt(sp.bounce, i / 12)), grid = [];
+  for (let v = -0.6; v <= 1.6001; v += 0.1) grid.push(r2(v));
+  let best = null, err = Infinity;
+  for (let a = 0; a <= 1.0001; a += 0.1) for (const b of grid) for (let c = 0; c <= 1.0001; c += 0.1) for (const d of grid) {
+    const pts = bezierPts([a, b, c, d], 24); let e = 0, j = 0;
+    for (let i = 0; i <= 12 && e < err; i++) { const x = i / 12; while (j < 23 && pts[j + 1][0] < x) j++; const [x0, y0] = pts[j], [x1, y1] = pts[j + 1]; const y = x1 === x0 ? y0 : y0 + (y1 - y0) * (x - x0) / (x1 - x0); e += (y - target[i]) ** 2; }
+    if (e < err) { err = e; best = [a, b, c, d].map(r2); }
+  }
+  return best;
+}
 function pickTokenColor(t, row) {
   const before = t.value; TK.picking = t.cssVar; row.setAttribute("aria-expanded", "true");
   colorPicker(row, t.value, {
@@ -3247,10 +3412,10 @@ function pickTokenColor(t, row) {
     onClose: cancelled => { TK.picking = null; row.setAttribute("aria-expanded", "false"); if (cancelled) { t.value = before; applyTokens(); renderTokens(); } else if (t.value !== before) toast(`${t.cssVar} updated`); },
   });
 }
-const guessType = (name, v) => isColor(v) ? "color" : /radius|round/.test(name) ? "radius" : /shadow|elev/.test(name) ? "shadow" : /font|text|tracking|leading|weight/.test(name) ? "typography" : /space|gap|pad|margin|size/.test(name) ? "spacing" : "other";
+const guessType = (name, v) => isColor(v) ? "color" : parseEase(v) || parseSpring(v) || /^[\d.]+m?s$/.test(v.trim()) || /ease|easing|spring|duration|motion|transition/.test(name) ? "motion" : /radius|round/.test(name) ? "radius" : /shadow|elev/.test(name) ? "shadow" : /font|text|tracking|leading|weight/.test(name) ? "typography" : /space|gap|pad|margin|size/.test(name) ? "spacing" : "other";
 const KIND_SUFFIX = [["font-size-", " size"], ["font-weight-", " weight"], ["leading-", " line height"], ["tracking-", " tracking"], ["opacity-", " opacity"], ["container-", " container"], ["breakpoint-", " breakpoint"]];
 const friendly = cssVar => { let n = cssVar.replace(/^--/, ""), tail = ""; const k = KIND_SUFFIX.find(([p]) => n.startsWith(p)); if (k) { n = n.slice(k[0].length); tail = k[1]; } else n = n.replace(/^(color|font|space|radius|shadow)-/, ""); return (n.replace(/-/g, " ") + tail).replace(/^./, c => c.toUpperCase()); };
-function applyTokens() { const p = $("#page"); if (!p) return; TOKENS.forEach(t => p.style.setProperty(t.cssVar, t.value)); }
+function applyTokens() { const p = $("#page"); if (!p) return; TOKENS.forEach(t => p.style.setProperty(t.cssVar, cssValue(t))); }
 function upsertTokens(list, source) {
   let n = 0;
   list.forEach(([cssVar, value]) => { const t = TOKENS.find(x => x.cssVar === cssVar); if (t) { if (t.value !== value) { t.value = value; n++; } } else { TOKENS.push({ name: friendly(cssVar), cssVar, value, type: guessType(cssVar, value), source }); n++; } });
@@ -3259,7 +3424,7 @@ function upsertTokens(list, source) {
 const parseVars = text => [...text.matchAll(/(--[\w-]+)\s*:\s*([^;\n]+)/g)].map(m => [m[1], m[2].trim()]);
 // A token's kind is the one it was created as, or else the longest + menu prefix its variable starts with.
 const KINDS = TOKEN_KINDS.filter(k => k !== "-");
-const tokenKind = t => t.kind || (t.type === "color" ? "color" : KINDS.filter(k => t.cssVar.startsWith(k[4])).sort((a, b) => b[4].length - a[4].length)[0]?.[0]) || "other";
+const tokenKind = t => t.kind || (t.type === "color" ? "color" : KINDS.filter(k => t.cssVar.startsWith(k[4])).sort((a, b) => b[4].length - a[4].length)[0]?.[0]) || (t.type === "motion" ? (parseEase(t.value) ? "easing" : parseSpring(t.value) ? "spring" : "duration") : "other");
 const TOKEN_GROUPS = [...KINDS.map(([kind, label, icon]) => [kind, label, icon]), ["other", "Other", "brush"]];
 function renderTokens() {
   const el = $("#tokens"); if (S.panel !== "tokens") return;
@@ -3273,10 +3438,11 @@ function renderTokens() {
     return `<div class="sec-head ${gi ? "rule" : ""}"><button class="sec-toggle" data-tk-sec="${kind}" aria-expanded="${open}"><span class="chev">${ic("chevron-down", "s12")}</span>${label}</button></div>
       ${open ? `<div class="sec-block">${items.map(t => {
         const editing = TK.editing === t.cssVar;
-        const lead = t.type === "color" && isColor(t.value) ? `<span class="tk-sw" style="background:${t.value}"></span>` : `<span class="tk-glyph">${ic(icon, "s14")}</span>`;
+        const curve = isCurve(t);
+        const lead = t.type === "color" && isColor(t.value) ? `<span class="tk-sw" style="background:${t.value}"></span>` : curve ? `<span class="tk-ease">${curveGlyph(t.value)}</span>` : `<span class="tk-glyph">${ic(icon, "s14")}</span>`;
         const clash = tokenConflict(t);
-        const picker = t.type === "color" ? ` aria-haspopup="dialog" aria-expanded="${TK.picking === t.cssVar}"` : "";
-        return `<div class="row tk" data-tk="${t.cssVar}" title="${t.cssVar} · ${t.source}"${picker}><span class="slot ico">${lead}</span><span class="gap"></span><span class="label">${t.name}</span>${editing ? `<input class="tk-edit" id="tk-edit" value="${t.value}" spellcheck="false" aria-label="Value for ${t.name}">` : `${clash ? `<span class="tk-warn" title="${clash}">${ic("alert-triangle", "s14")}</span>` : ""}<span class="tk-val">${t.value}</span>`}</div>`;
+        const picker = t.type === "color" || curve ? ` aria-haspopup="dialog" aria-expanded="${TK.picking === t.cssVar}"` : "";
+        return `<div class="row tk" data-tk="${t.cssVar}" title="${t.cssVar} · ${t.source}"${picker}><span class="slot ico">${lead}</span><span class="gap"></span><span class="label">${t.name}</span>${editing ? `<input class="tk-edit" id="tk-edit" value="${t.value}" spellcheck="false" aria-label="Value for ${t.name}">` : `${clash ? `<span class="tk-warn" title="${clash}">${ic("alert-triangle", "s14")}</span>` : ""}<span class="tk-val${curve && parseEase(t.value) && curvePreset(t.value) ? " word" : ""}">${curve ? curveLabel(t.value) : t.value}</span>`}</div>`;
       }).join("")}${TK.draft?.kind === kind ? draftRow(TK.draft) : ""}</div>` : ""}`;
   }).join("") : (q ? `<div class="tk-empty">No tokens match “${TK.q}”.</div>` : `<div class="tk-empty"><b>No tokens yet</b><span class="acts"><button class="btn secondary" data-tk-open-import>Import</button><button class="btn secondary" data-tk-gen>${ic("sparkles", "s14")}Generate from design</button></span></div>`);
   el.innerHTML = head + `<div class="ag-body">${body}</div>`;
@@ -3285,7 +3451,7 @@ function renderTokens() {
   if (TK.draft) { const i = $("#tk-dname"); i.focus(); i.select(); i.closest(".row").scrollIntoView({ block: "nearest" }); }
 }
 function draftRow(d) {
-  const lead = d.type === "color" ? `<button class="tk-sw" style="background:${d.value}" data-tk-dcolor aria-haspopup="dialog" aria-label="Pick a color"></button>` : `<span class="tk-glyph">${ic(d.icon, "s14")}</span>`;
+  const lead = d.type === "color" ? `<button class="tk-sw" style="background:${d.value}" data-tk-dcolor aria-haspopup="dialog" aria-label="Pick a color"></button>` : d.kind === "easing" || d.kind === "spring" ? `<button class="tk-ease" data-tk-dease aria-haspopup="dialog" aria-label="Edit the curve">${curveGlyph(d.value)}</button>` : `<span class="tk-glyph">${ic(d.icon, "s14")}</span>`;
   return `<div class="row tk draft" data-tk-draft><span class="slot ico">${lead}</span><span class="gap"></span><input class="tk-dname" id="tk-dname" value="${d.slug}" spellcheck="false" aria-label="${d.label} token name" title="${d.prefix}…"><input class="tk-edit" id="tk-dval" value="${d.value}" spellcheck="false" aria-label="${d.label} value"></div>`;
 }
 function commitTokenEdit(save) {
@@ -3296,6 +3462,7 @@ function commitTokenEdit(save) {
   renderTokens();
 }
 document.addEventListener("input", e => {
+  if (e.target.id === "tk-dval" && ["easing", "spring"].includes(TK.draft?.kind) && (parseEase(e.target.value) || parseSpring(e.target.value))) e.target.closest(".row").querySelector(".tk-ease").innerHTML = curveGlyph(e.target.value);
   if (e.target.id === "tk-dval" && TK.draft?.type === "color") { const sw = e.target.closest(".row").querySelector(".tk-sw"); if (sw && isColor(e.target.value)) sw.style.background = e.target.value; }
 });
 document.addEventListener("keydown", e => {
@@ -3318,6 +3485,9 @@ document.addEventListener("focusout", e => {
 function dtcgValue(t) {
   const v = t.value.trim();
   if (t.type === "color" && /^#([0-9a-f]{6})$/i.test(v)) { const n = v.slice(1).match(/../g).map(h => +(parseInt(h, 16) / 255).toFixed(4)); return ["color", { colorSpace: "srgb", components: n, hex: v.toLowerCase() }]; }
+  const pts = tokenKind(t) === "easing" && parseEase(v); if (pts) return ["cubicBezier", pts];
+  const sp = parseSpring(v); if (sp) return ["transition", { duration: { value: Math.round(sp.ms), unit: "ms" }, delay: { value: 0, unit: "ms" }, timingFunction: springToBezier(sp) }, { "com.agent-native.spring": { duration: { value: Math.round(sp.ms), unit: "ms" }, bounce: sp.bounce } }];
+  const dur = v.match(/^([\d.]+)(ms|s)$/); if (dur) return ["duration", { value: +dur[1], unit: dur[2] }];
   const dim = v.match(/^(-?[\d.]+)(px|rem)$/); if (dim) return ["dimension", { value: +dim[1], unit: dim[2] }];
   if (/weight/.test(t.cssVar) && /^\d+$/.test(v)) return ["fontWeight", +v];
   if (/font-display|font-family/.test(t.cssVar)) return ["fontFamily", v.split(",").map(f => f.trim().replace(/^["']|["']$/g, "")).filter(Boolean)];
@@ -3330,8 +3500,8 @@ function toDtcg() {
   TOKENS.forEach(t => {
     const path = t.cssVar.replace(/^--/, "").split("-");
     let node = root; path.slice(0, -1).forEach(k => node = node[k] ||= {});
-    const [type, value] = dtcgValue(t);
-    node[path[path.length - 1]] = { ...(type ? { $type: type } : {}), $value: value, ...(t.source ? { $extensions: { "com.agent-native.source": t.source } } : {}) };
+    const [type, value, ext] = dtcgValue(t);
+    node[path[path.length - 1]] = { ...(type ? { $type: type } : {}), $value: value, ...(t.source || ext ? { $extensions: { ...(t.source ? { "com.agent-native.source": t.source } : {}), ...ext } } : {}) };
   });
   return JSON.stringify(root, null, 2);
 }
@@ -3361,7 +3531,7 @@ function dtcgToCss(type, v) {
   if (type === "shadow") { const one = x => [x.inset ? "inset" : "", dtcgToCss("dimension", x.offsetX), dtcgToCss("dimension", x.offsetY), dtcgToCss("dimension", x.blur), dtcgToCss("dimension", x.spread), dtcgToCss("color", x.color)].filter(Boolean).join(" "); return (Array.isArray(v) ? v : [v]).map(one).join(", "); }
   return JSON.stringify(v);
 }
-const DTCG_PANEL_TYPE = { color: "color", fontFamily: "typography", fontWeight: "typography", typography: "typography", shadow: "shadow", duration: "other", cubicBezier: "other", transition: "other", number: "other", strokeStyle: "other", border: "other", gradient: "other" };
+const DTCG_PANEL_TYPE = { color: "color", fontFamily: "typography", fontWeight: "typography", typography: "typography", shadow: "shadow", duration: "motion", cubicBezier: "motion", transition: "motion", number: "other", strokeStyle: "other", border: "other", gradient: "other" };
 function parseDtcg(text) {
   const doc = JSON.parse(text), flat = {};
   (function walk(node, path, inherited) {
@@ -3379,7 +3549,8 @@ function parseDtcg(text) {
     return dtcgToCss(tok.type, raw);
   };
   return Object.values(flat).map(tok => {
-    const value = resolve(tok); if (value == null) return null;
+    const sp = tok.ext["com.agent-native.spring"];
+    const value = sp ? springCss({ ms: sp.duration.unit === "s" ? sp.duration.value * 1000 : sp.duration.value, bounce: sp.bounce }) : resolve(tok); if (value == null) return null;
     const cssVar = tok.ext["com.agent-native.cssVar"] || "--" + tok.path.join("-");
     const panelType = tok.type === "dimension" ? guessType(cssVar, value) : (DTCG_PANEL_TYPE[tok.type] || guessType(cssVar, value));
     return { cssVar, value, type: panelType, name: friendly(cssVar) };
