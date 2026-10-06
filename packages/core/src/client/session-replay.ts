@@ -318,6 +318,15 @@ const DEFAULT_BLOCK_SELECTOR = [
   "[name*='card' i]",
   "[name*='ssn' i]",
 ].join(", ");
+/**
+ * App block selectors extend these framework markers instead of replacing them.
+ * Append them whole: a custom selector can mention one, as in
+ * `[data-an-block] .secret`, without matching the bare marker.
+ */
+const REQUIRED_BLOCK_SELECTORS = [
+  SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
+  `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
+];
 const DEFAULT_IGNORE_SELECTOR = ".an-ignore, [data-an-ignore]";
 const DEFAULT_MASK_TEXT_CLASS = "an-mask";
 const DEFAULT_MASK_TEXT_SELECTOR = `[${SESSION_REPLAY_MASK_ATTRIBUTE}]`;
@@ -955,9 +964,9 @@ function normalizeOptions(
     checkoutEveryNth: options.checkoutEveryNth,
     checkoutEveryNms: options.checkoutEveryNms,
     inlineStylesheet: options.inlineStylesheet ?? true,
-    blockSelector: mergeReplayBlockSelector(
-      options.blockSelector || DEFAULT_BLOCK_SELECTOR,
-    ),
+    blockSelector: options.blockSelector
+      ? [options.blockSelector, ...REQUIRED_BLOCK_SELECTORS].join(", ")
+      : DEFAULT_BLOCK_SELECTOR,
     ignoreSelector: options.ignoreSelector || DEFAULT_IGNORE_SELECTOR,
     maskTextClass: options.maskTextClass || DEFAULT_MASK_TEXT_CLASS,
     maskTextSelector: options.maskTextSelector
@@ -984,21 +993,6 @@ function normalizeOptions(
     extraProperties: options.extraProperties,
     shouldStart: options.shouldStart,
   };
-}
-
-/** App block selectors extend these framework markers instead of replacing them. */
-const REQUIRED_BLOCK_SELECTORS = [
-  SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
-  `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
-];
-
-function mergeReplayBlockSelector(blockSelector: string): string {
-  return [
-    blockSelector,
-    ...REQUIRED_BLOCK_SELECTORS.filter(
-      (selector) => !blockSelector.includes(selector),
-    ),
-  ].join(", ");
 }
 
 function normalizeCaptureToggle(

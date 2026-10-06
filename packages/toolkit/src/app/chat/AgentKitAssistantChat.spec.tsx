@@ -4938,8 +4938,15 @@ describe("AgentKitAssistantChat host behavior", () => {
         chatMocks.composerProps.stopButton.props.onClick();
         await Promise.resolve();
       });
-      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-        "Stop unavailable",
+      const alert = container.querySelector('[role="alert"]');
+      expect(alert?.textContent).toContain("Stop unavailable");
+      const message = Array.from(alert?.querySelectorAll("span") ?? []).find(
+        (element) => element.textContent === "Stop unavailable",
+      );
+      expect(message?.hasAttribute("data-an-mask")).toBe(true);
+      expect(alert?.hasAttribute("data-an-mask")).toBe(false);
+      expect(alert?.querySelector("button")?.closest("[data-an-mask]")).toBe(
+        null,
       );
       await act(async () => {
         chatMocks.composerProps.stopButton.props.onClick();

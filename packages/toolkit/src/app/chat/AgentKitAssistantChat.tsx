@@ -3996,7 +3996,12 @@ function AgentKitComposerSurface({
             className="mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-md border border-border bg-muted/70 px-3 py-2 text-xs text-foreground shadow-sm"
           >
             <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="flex-1 leading-snug">{composerError}</span>
+            <span
+              {...SESSION_REPLAY_MASK_PROPS}
+              className="flex-1 leading-snug"
+            >
+              {composerError}
+            </span>
             <button
               type="button"
               aria-label={t("agentChat.common.dismissError")}

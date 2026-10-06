@@ -1754,6 +1754,28 @@ describe("session replay", () => {
     await replay.stopSessionReplay();
   });
 
+  it("keeps the bare block markers when a custom selector only mentions one", async () => {
+    installBrowser();
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const replay = await freshSessionReplay();
+
+    await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      blockSelector: `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}] .app-secret`,
+    });
+    expect(recordOptions.blockSelector.split(", ")).toEqual([
+      `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}] .app-secret`,
+      `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`,
+      `[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`,
+    ]);
+    await replay.stopSessionReplay();
+  });
+
   it("starts and stops only marked direct cooperative iframe recorders", async () => {
     const { fireWindowEvent } = installBrowser();
     const childWindow = { postMessage: vi.fn() };
