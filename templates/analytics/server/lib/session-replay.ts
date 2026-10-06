@@ -45,6 +45,11 @@ import {
   type SessionFrictionSignal,
   type SessionFrictionSort,
 } from "../../shared/session-friction.js";
+import type {
+  SessionPerformanceSummary,
+  SessionRecordingPerformance,
+  SlowSessionFilter,
+} from "../../shared/session-performance.js";
 import {
   isFailedSessionReplayNetworkStatus,
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
@@ -69,6 +74,12 @@ import {
   sessionFrictionFilterConditions,
   sessionFrictionSortOrder,
 } from "./session-friction.js";
+import {
+  getPerformanceCoverageStart,
+  getSessionPerformanceSummaries,
+  prunePerformanceAggregates,
+  slowSessionConditions,
+} from "./session-performance.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -135,6 +146,10 @@ export interface SessionReplayListFilters {
   didEvents?: string[];
   /** Sessions that tracked none of these events. */
   didNotEvents?: string[];
+  /** Sessions with a poor Web Vital, a slow request, or either. */
+  slow?: SlowSessionFilter;
+  /** Attach each recording's performance summary and coverage start. */
+  includePerformance?: boolean;
   /** Measured sessions that showed every one of these friction signals. */
   frictionSignals?: SessionFrictionSignal[];
 }
@@ -219,6 +234,8 @@ export interface SessionRecordingSummary {
   role?: SessionReplayAccessRole;
   canEdit?: boolean;
   canManage?: boolean;
+  /** Present when requested; null when the session was never measured. */
+  performance?: SessionPerformanceSummary | null;
   /** Present only when the Sessions triage Lab asked for it. */
   friction?: SessionFriction;
 }
@@ -1797,7 +1814,9 @@ export async function listSessionRecordings(
     filters.offset ||
     filters.didEvents?.length ||
     filters.didNotEvents?.length ||
-    filters.frictionSignals?.length
+    filters.frictionSignals?.length ||
+    filters.slow ||
+    filters.includePerformance
   ) {
     return (await listSessionRecordingsPage(scope, filters)).recordings;
   }
@@ -1881,6 +1900,11 @@ export interface SessionRecordingPage {
    * friction filter.
    */
   frictionCoverageStartedAt?: string | null;
+  /**
+   * With a slow filter or performance summaries: when the viewer's
+   * performance aggregates began, or null when they have not.
+   */
+  performanceCoverageStartedAt?: string | null;
 }
 
 const personalEmailDomains = [...FREE_EMAIL_PROVIDER_DOMAINS];
@@ -1911,6 +1935,71 @@ function sessionVisitorDomain() {
   const userId = schema.sessionRecordings.userId;
   const userKey = schema.sessionRecordings.userKey;
   return sql<string>`lower(split_part(case when ${userId} like '%@%' then ${userId} else ${userKey} end, '@', 2))`;
+}
+
+async function sessionRecordingPerformance(
+  scope: SessionReplayScope,
+  recordings: SessionRecordingSummary[],
+  options: { summaries: boolean },
+): Promise<{ coverageStartedAt: string | null }> {
+  const [coverageStartedAt, summaries] = await Promise.all([
+    getPerformanceCoverageStart(scope),
+    options.summaries
+      ? getSessionPerformanceSummaries(scope, recordings)
+      : Promise.resolve(null),
+  ]);
+  if (summaries) {
+    for (const recording of recordings) {
+      recording.performance = summaries.get(recording.id) ?? null;
+    }
+  }
+  return { coverageStartedAt };
+}
+
+/**
+ * Performance summaries for recordings the viewer can read, such as the rows
+ * of one list page, so speed hints load beside the list instead of in it.
+ */
+export async function getSessionRecordingPerformance(
+  scope: SessionReplayScope,
+  recordingIds: readonly string[],
+): Promise<SessionRecordingPerformance> {
+  const ids = [...new Set(recordingIds)];
+  const db = getDb() as any;
+  const r = schema.sessionRecordings;
+  const [recordings, coverageStartedAt] = await Promise.all([
+    ids.length
+      ? db
+          .select({
+            id: r.id,
+            sessionId: r.sessionId,
+            ownerEmail: r.ownerEmail,
+            orgId: r.orgId,
+          })
+          .from(r)
+          .where(
+            and(
+              accessFilter(r, schema.sessionRecordingShares, {
+                userEmail: scope.userEmail,
+                orgId: scope.orgId ?? undefined,
+              }),
+              inArray(r.id, ids),
+            ),
+          )
+          .limit(ids.length)
+      : Promise.resolve([]),
+    getPerformanceCoverageStart(scope),
+  ]);
+  const summaries = await getSessionPerformanceSummaries(scope, recordings);
+  return {
+    performance: Object.fromEntries(
+      recordings.map((recording: { id: string }) => [
+        recording.id,
+        summaries.get(recording.id) ?? null,
+      ]),
+    ),
+    coverageStartedAt,
+  };
 }
 
 export async function listSessionRecordingsPage(
@@ -2008,6 +2097,7 @@ export async function listSessionRecordingsPage(
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
     })),
+    ...(await slowSessionConditions(scope, filters.slow)),
     ...(await sessionFrictionFilterConditions(scope, filters.frictionSignals)),
   );
   const appConditions = [...conditions];
@@ -2083,9 +2173,21 @@ export async function listSessionRecordingsPage(
           )
           .offset(offset)
       : [];
+  const recordings: SessionRecordingSummary[] = rows.map((row: any) =>
+    rowToSessionRecordingSummary(row),
+  );
+  const performance =
+    filters.slow || filters.includePerformance
+      ? await sessionRecordingPerformance(scope, recordings, {
+          summaries: filters.includePerformance === true,
+        })
+      : null;
   return {
-    recordings: rows.map((row: any) => rowToSessionRecordingSummary(row)),
+    recordings,
     total,
+    ...(performance
+      ? { performanceCoverageStartedAt: performance.coverageStartedAt }
+      : {}),
     appCounts: appRows
       .filter((row: { app: string | null }) => row.app)
       .map((row: { app: string; count: number }) => ({
@@ -2871,6 +2973,11 @@ export async function runSessionReplayRetentionSweep(
     await pruneSessionFriction(replayRetentionDays(), now);
   } catch (err) {
     console.warn("[session-replay] Session friction pruning failed:", err);
+  }
+  try {
+    await prunePerformanceAggregates(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Performance aggregate pruning failed:", err);
   }
   return {
     finalized: finalized.finalized,

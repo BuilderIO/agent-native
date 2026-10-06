@@ -69,6 +69,9 @@ export function useNavigationState() {
       } else if (pathname === "/sessions/events") {
         state.view = "event-catalog";
         state.filters = sessionFilters(searchParams);
+      } else if (pathname === "/sessions/performance") {
+        state.view = "performance";
+        state.filters = sessionFilters(searchParams);
       } else if (pathname.startsWith("/sessions/")) {
         state.view = "sessions";
         const match = pathname.match(/\/sessions\/([^/]+)/);
@@ -135,6 +138,7 @@ function commandPathForNavigation(cmd: NavigationState): string {
     return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
   if (cmd.view === "sessions") return "/sessions";
   if (cmd.view === "event-catalog") return "/sessions/events";
+  if (cmd.view === "performance") return "/sessions/performance";
   if (
     cmd.view === "agents" &&
     (cmd.agentsView === "database" ||

@@ -5,14 +5,13 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { listRecordingFriction } from "../server/lib/session-friction.js";
+import { getSessionRecordingPerformance } from "../server/lib/session-replay.js";
 import { assertSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
-import type { SessionRecordingFriction } from "../shared/session-friction.js";
 import { SESSION_PAGE_SIZE } from "../shared/session-page.js";
 
 export default defineAction({
   description:
-    "Friction for specific session recordings, such as the rows of one list page: the same `friction` object `list-session-recordings` adds with includeFriction (score, signal counts, top signals, agent failures grouped by cause, and linked Monitoring error issues), keyed by recording id. A null part means it was not measured, not zero, and `errorIssues` null means the links are unknown while [] means no issues. Ids you cannot read are absent. Requires the Sessions triage Lab.",
+    "Speed summaries for specific session recordings, such as the rows of one list page: each recording's worst measured page-view vitals (ttfbMs, lcpMs, inpMs, cls), slowRequests (requests of 1 s or more; null when no request was measured), maxRequestMs, atLeast (fields that hit the measurement ceiling, so each is a floor), and incomplete (some measurements failed to save, so it may be slower). A recording that was never measured maps to null; ids you cannot read are absent. Also returns coverageStartedAt. Requires the Sessions triage Lab.",
   schema: z.object({
     recordingIds: z
       .array(z.string().min(1).max(200))
@@ -23,7 +22,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  run: async ({ recordingIds }): Promise<SessionRecordingFriction> => {
+  run: async ({ recordingIds }) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) {
       fail("no authenticated user", {
@@ -32,9 +31,7 @@ export default defineAction({
       });
     }
     const orgId = getRequestOrgId() || null;
-    await assertSessionsTriageLabEnabled(userEmail, orgId, ["friction"]);
-    return {
-      friction: await listRecordingFriction({ userEmail, orgId }, recordingIds),
-    };
+    await assertSessionsTriageLabEnabled(userEmail, orgId, ["speed"]);
+    return getSessionRecordingPerformance({ userEmail, orgId }, recordingIds);
   },
 });
