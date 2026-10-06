@@ -10,6 +10,7 @@ import type {
 } from "@agent-native/core/client/agent-chat";
 import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
+import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import {
   isCallAgentToolCallShadowed,
   isToolCallActive,
@@ -1079,7 +1080,10 @@ function ToolCallDisplayGeneric({
             />
           )}
           {isError ? (
-            <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
+            <div
+              {...SESSION_REPLAY_MASK_PROPS}
+              className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground"
+            >
               {result || t("agentChat.tool.failedWithoutDetails")}
             </div>
           ) : resultPayload ? (
@@ -1289,7 +1293,10 @@ function AgentCallCell({
             </div>
           )}
           {isError && errorText ? (
-            <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
+            <div
+              {...SESSION_REPLAY_MASK_PROPS}
+              className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground"
+            >
               {errorText}
             </div>
           ) : null}
@@ -1372,7 +1379,10 @@ function AgentActivityToolCallRow({
             />
           </button>
           <AnimatedCollapse open={open}>
-            <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
+            <div
+              {...SESSION_REPLAY_MASK_PROPS}
+              className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground"
+            >
               {failureDetails}
             </div>
           </AnimatedCollapse>

@@ -5,7 +5,10 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AgentConversationMessageView } from "./AgentConversation.js";
+import {
+  AgentConversation,
+  AgentConversationMessageView,
+} from "./AgentConversation.js";
 
 vi.mock("../../extensions/index.js", () => ({
   InlineExtensionFrame: ({ extensionId, extension }: any) => (
@@ -37,6 +40,101 @@ describe("AgentConversationMessageView", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
+
+  it("masks the conversation error without masking its container", () => {
+    act(() =>
+      root.render(
+        <AgentConversation
+          messages={[]}
+          error="Example Person's example run failed."
+        />,
+      ),
+    );
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.querySelector("span")?.hasAttribute("data-an-mask")).toBe(
+      true,
+    );
+    expect(alert?.hasAttribute("data-an-mask")).toBe(false);
+  });
+
+  it.each(["errored", "completed"] as const)(
+    "masks only errored conversation tool diagnostics (%s)",
+    (state) => {
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-example",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-example",
+                  type: "tool",
+                  tool: {
+                    id: "tool-example",
+                    name: "example-tool",
+                    state,
+                    summary: "Example Person's example notes.",
+                    result: "Example Document failed.",
+                  },
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+      const summary = container.querySelector(
+        ".agent-conversation-tool__summary",
+      );
+      const result = container.querySelector("pre span");
+      expect(summary?.hasAttribute("data-an-mask")).toBe(state === "errored");
+      expect(result?.textContent).toBe("Example Document failed.");
+      expect(result?.hasAttribute("data-an-mask")).toBe(state === "errored");
+      expect(
+        container
+          .querySelector(".agent-conversation-tool__name")
+          ?.closest("[data-an-mask]"),
+      ).toBeNull();
+      expect(
+        container.querySelector("pre strong")?.closest("[data-an-mask]"),
+      ).toBeNull();
+    },
+  );
+
+  it.each(["error", "info"] as const)(
+    "masks only error notice text (%s)",
+    (tone) => {
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-example",
+              role: "assistant",
+              notices: [
+                {
+                  id: "notice-example",
+                  tone,
+                  title: "Run status",
+                  text: "Example Person's example run status.",
+                  action: <button>Retry</button>,
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+      const notice = container.querySelector(".agent-conversation-notice");
+      expect(notice?.querySelector("span")?.hasAttribute("data-an-mask")).toBe(
+        tone === "error",
+      );
+      expect(
+        notice?.querySelector("strong")?.closest("[data-an-mask]"),
+      ).toBeNull();
+      expect(
+        notice?.querySelector("button")?.closest("[data-an-mask]"),
+      ).toBeNull();
+    },
+  );
 
   it("renders text and tool parts in transcript order", () => {
     act(() => {

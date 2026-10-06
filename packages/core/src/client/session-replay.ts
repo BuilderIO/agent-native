@@ -17,6 +17,7 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { SESSION_REPLAY_MASK_ATTRIBUTE } from "./session-replay-privacy.js";
 import {
   decideReplayQuotaResponse,
   parseRetryAfterSeconds,
@@ -192,6 +193,7 @@ export interface SessionReplayOptions {
   blockSelector?: string;
   ignoreSelector?: string;
   maskTextClass?: string | RegExp;
+  /** App selectors extend the framework's `data-an-mask` privacy marker. */
   maskTextSelector?: string;
   maskAllInputs?: boolean;
   recordCanvas?: boolean;
@@ -315,7 +317,7 @@ const DEFAULT_BLOCK_SELECTOR = [
 ].join(", ");
 const DEFAULT_IGNORE_SELECTOR = ".an-ignore, [data-an-ignore]";
 const DEFAULT_MASK_TEXT_CLASS = "an-mask";
-const DEFAULT_MASK_TEXT_SELECTOR = "[data-an-mask]";
+const DEFAULT_MASK_TEXT_SELECTOR = `[${SESSION_REPLAY_MASK_ATTRIBUTE}]`;
 const DEFAULT_MASK_INPUT_OPTIONS: Record<string, boolean> = {
   color: true,
   date: true,
@@ -955,7 +957,9 @@ function normalizeOptions(
     ),
     ignoreSelector: options.ignoreSelector || DEFAULT_IGNORE_SELECTOR,
     maskTextClass: options.maskTextClass || DEFAULT_MASK_TEXT_CLASS,
-    maskTextSelector: options.maskTextSelector || DEFAULT_MASK_TEXT_SELECTOR,
+    maskTextSelector: options.maskTextSelector
+      ? `${DEFAULT_MASK_TEXT_SELECTOR}, ${options.maskTextSelector}`
+      : DEFAULT_MASK_TEXT_SELECTOR,
     maskAllInputs: options.maskAllInputs ?? true,
     recordCanvas: options.recordCanvas ?? false,
     recordCrossOriginIframes:

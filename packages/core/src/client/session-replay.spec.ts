@@ -1583,6 +1583,27 @@ describe("session replay", () => {
     expect(stopRecorder).toHaveBeenCalledOnce();
   });
 
+  it("keeps the framework text mask with an app-specific selector and class", async () => {
+    installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      maskTextSelector: ".customer-private, [data-app-secret]",
+      maskTextClass: "customer-mask",
+    });
+
+    expect(result.started).toBe(true);
+    expect(recordMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maskTextClass: "customer-mask",
+        maskTextSelector:
+          "[data-an-mask], .customer-private, [data-app-secret]",
+      }),
+    );
+  });
+
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
     const { fetchMock } = installBrowser(
       "https://app.agent-native.com/all?code=secret&q=private.sender%40example.com&keep=1",

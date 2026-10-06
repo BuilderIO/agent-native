@@ -1,3 +1,4 @@
+import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import {
   IconActivity,
   IconAlertCircle,
@@ -631,7 +632,12 @@ export function AgentActivityItem({
         {!activity.object && activity.source ? (
           <ObjectRenderer value={activity.source} threadId={threadId} />
         ) : !activity.object && activity.detail ? (
-          <span className="agentkit-activity-detail">{activity.detail}</span>
+          <span
+            {...(activity.status === "failed" ? SESSION_REPLAY_MASK_PROPS : {})}
+            className="agentkit-activity-detail"
+          >
+            {activity.detail}
+          </span>
         ) : null}
         {expandable ? (
           <button
@@ -650,7 +656,10 @@ export function AgentActivityItem({
         ) : null}
       </div>
       {open ? (
-        <div className="agentkit-activity-summary">
+        <div
+          {...(activity.status === "failed" ? SESSION_REPLAY_MASK_PROPS : {})}
+          className="agentkit-activity-summary"
+        >
           {activity.summary?.map((part, index) => (
             <AgentMessagePartView
               key={`${activity.id}-summary-${index}`}
@@ -3196,7 +3205,7 @@ export function AgentRunFailure({
       <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
       <div className="agentkit-run-failure-copy">
         <strong>{labels.runFailed}</strong>
-        <span>{error.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
       </div>
     </div>
   );
@@ -3218,7 +3227,7 @@ export function AgentConnectionErrorView({
       role="alert"
     >
       <strong>{labels.error}</strong>
-      <span>{error.message}</span>
+      <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
       {error.retryable ? (
         <div className="agentkit-error-actions">
           <ActionButton
@@ -3232,7 +3241,9 @@ export function AgentConnectionErrorView({
         </div>
       ) : null}
       {recoveryError ? (
-        <span className="agentkit-command-error">{recoveryError.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS} className="agentkit-command-error">
+          {recoveryError.message}
+        </span>
       ) : null}
     </div>
   );

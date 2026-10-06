@@ -428,6 +428,14 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
     expect(container.textContent).toContain(errorMessage);
+    expect(
+      Array.from(container.querySelectorAll("[data-an-mask]")).some(
+        (element) => element.textContent === errorMessage,
+      ),
+    ).toBe(true);
+    for (const button of container.querySelectorAll("button[aria-expanded]")) {
+      expect(button.closest("[data-an-mask]")).toBeNull();
+    }
   });
 
   it("shows regular tool errors only after explicitly expanding the call", () => {
@@ -456,6 +464,14 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
     expect(container.textContent).toContain(errorMessage);
+    expect(
+      Array.from(container.querySelectorAll("[data-an-mask]")).some(
+        (element) => element.textContent === errorMessage,
+      ),
+    ).toBe(true);
+    for (const button of container.querySelectorAll("button[aria-expanded]")) {
+      expect(button.closest("[data-an-mask]")).toBeNull();
+    }
     expect(container.querySelector(".text-destructive")).toBeNull();
   });
 
@@ -489,6 +505,14 @@ describe("ToolCallDisplay native renderers", () => {
     act(() => disclosure?.click());
 
     expect(container.textContent).toContain(errorMessage);
+    expect(
+      Array.from(container.querySelectorAll("[data-an-mask]")).some(
+        (element) => element.textContent === errorMessage,
+      ),
+    ).toBe(true);
+    for (const button of container.querySelectorAll("button[aria-expanded]")) {
+      expect(button.closest("[data-an-mask]")).toBeNull();
+    }
   });
 
   it("bypasses native tool renderers for failures and keeps details collapsed", () => {
@@ -521,6 +545,14 @@ describe("ToolCallDisplay native renderers", () => {
     act(() => disclosure?.click());
 
     expect(container.textContent).toContain(errorMessage);
+    expect(
+      Array.from(container.querySelectorAll("[data-an-mask]")).some(
+        (element) => element.textContent === errorMessage,
+      ),
+    ).toBe(true);
+    for (const button of container.querySelectorAll("button[aria-expanded]")) {
+      expect(button.closest("[data-an-mask]")).toBeNull();
+    }
     expect(container.querySelector(".text-destructive")).toBeNull();
   });
 
@@ -599,6 +631,14 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(subtool?.getAttribute("aria-expanded")).toBe("true");
     expect(container.textContent).toContain(errorMessage);
+    expect(
+      Array.from(container.querySelectorAll("[data-an-mask]")).some(
+        (element) => element.textContent === errorMessage,
+      ),
+    ).toBe(true);
+    for (const button of container.querySelectorAll("button[aria-expanded]")) {
+      expect(button.closest("[data-an-mask]")).toBeNull();
+    }
   });
 
   it("keeps failed delegated subtools expandable without error text", () => {
@@ -802,6 +842,14 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
     expect(container.textContent).toContain(errorMessage);
+    expect(
+      Array.from(container.querySelectorAll("[data-an-mask]")).some(
+        (element) => element.textContent === errorMessage,
+      ),
+    ).toBe(true);
+    for (const button of container.querySelectorAll("button[aria-expanded]")) {
+      expect(button.closest("[data-an-mask]")).toBeNull();
+    }
     expect(container.querySelector(".text-destructive")).toBeNull();
   });
 

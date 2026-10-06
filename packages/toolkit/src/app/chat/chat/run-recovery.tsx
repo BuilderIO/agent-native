@@ -7,6 +7,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
@@ -725,7 +726,10 @@ export function RunErrorRecoveryCard({
               terminal: t("agentChat.error.failed"),
             })}
           </div>
-          <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
+          <p
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground"
+          >
             {localizeKnownChatErrorText(info.message, t)}
           </p>
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
@@ -764,7 +768,10 @@ export function RunErrorRecoveryCard({
               {info.runId && <div>run: {info.runId}</div>}
               {info.errorCode && <div>code: {info.errorCode}</div>}
               {info.details && (
-                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono">
+                <pre
+                  {...SESSION_REPLAY_MASK_PROPS}
+                  className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono"
+                >
                   {info.details}
                 </pre>
               )}

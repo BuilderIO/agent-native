@@ -17,6 +17,7 @@ import {
 import { ToolkitProvider } from "../../../provider.js";
 import { AgentChat } from "./chat.js";
 import {
+  AgentConnectionErrorView,
   AgentKitComposer,
   AgentKitChat,
   type AgentKitComposerProps,
@@ -31,6 +32,43 @@ import {
   type AgentRunFailureRenderProps,
 } from "./context.js";
 import { AgentKitRoot } from "./root.js";
+
+describe("AgentConnectionErrorView replay privacy", () => {
+  it("masks connection and recovery messages while preserving the headline and reconnect control", () => {
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-example" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-example">
+        <AgentConnectionErrorView
+          error={{
+            code: "runtime_error",
+            message: "Example Person's connection failed.",
+            retryable: true,
+          }}
+          threadId="thread-example"
+          recover={async () => {}}
+          recovering={false}
+          recoveryError={new Error("Example Document recovery failed.")}
+        />
+      </AgentKitProvider>,
+    );
+    expect(html).toContain(
+      '<span data-an-mask="">Example Person&#x27;s connection failed.</span>',
+    );
+    expect(html).toContain(
+      '<span data-an-mask="" class="agentkit-command-error">Example Document recovery failed.</span>',
+    );
+    expect(html).toContain("<strong>Something went wrong</strong>");
+    expect(html).toContain("Reconnect");
+  });
+});
 
 describe("AgentMessageActions request IDs", () => {
   it("prefers an explicit request ID and never uses the local message ID", () => {
@@ -1777,7 +1815,10 @@ describe("AgentKitChat", () => {
     expect(defaultHtml.match(/class="agentkit-run-failure"/g)).toHaveLength(1);
     expect(defaultHtml).toContain('data-run-id="run-failure"');
     expect(defaultHtml).toContain('data-error-code="tool_timeout"');
-    expect(defaultHtml).toContain("The dashboard check timed out.");
+    expect(defaultHtml).toContain(
+      '<span data-an-mask="">The dashboard check timed out.</span>',
+    );
+    expect(defaultHtml).toContain("<strong>Run failed</strong>");
 
     const slotCalls: AgentRunFailureRenderProps[] = [];
     const RunFailure = (props: AgentRunFailureRenderProps) => {

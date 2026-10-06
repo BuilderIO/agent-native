@@ -260,6 +260,12 @@ agent answers about browser recordings in the Analytics template.
   Vite/Netlify env vars on the recorded site.
 - Inputs are masked by default. Page text is visible unless marked with
   `.an-mask` or `data-an-mask`.
+- UI rendering a run failure message or diagnostic details spreads
+  `SESSION_REPLAY_MASK_PROPS` from `@agent-native/core/client/session-replay-privacy` on
+  the message element, including expanded details and failed tool rows. Keep
+  headlines and recovery controls outside the mask. The `data-an-mask` marker
+  remains active when an app supplies its own `maskTextSelector`; selectors
+  extend this privacy baseline. Do not rely on name redaction for run errors.
 - Use `.an-block`, `.an-ignore`, `data-an-block`, or `data-an-ignore` for
   sensitive zones that should not be captured.
 - A definitive upload `409` abandons only the conflicted replay identity and

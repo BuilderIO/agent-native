@@ -201,7 +201,8 @@
         "sonner",
         "tailwind-merge"
       ],
-      "verification": ["pnpm typecheck"]
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/session-replay-privacy"]
     },
     {
       "id": "toolkit/app-chat",

@@ -37,8 +37,77 @@ import { AgentKitClient } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
 
 import { getComposerDraftKey } from "../../../composer/draft-key.js";
-import { AgentKitChat, AgentMessageActions } from "./components.js";
+import {
+  AgentActivityItem,
+  AgentKitChat,
+  AgentMessageActions,
+} from "./components.js";
 import { AgentKitProvider } from "./context.js";
+
+describe("AgentActivityItem replay privacy", () => {
+  it.each(["failed", "completed"] as const)(
+    "masks only failed activity diagnostics (%s)",
+    async (status) => {
+      const client = new AgentKitClient({
+        transport: {
+          async startRun() {
+            return { runId: "run-example" };
+          },
+          async *subscribeToRun() {},
+          async cancelRun() {},
+        },
+      });
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      try {
+        await act(async () =>
+          root.render(
+            <AgentKitProvider controller={client} threadId="thread-example">
+              <AgentActivityItem
+                value={{
+                  id: "activity-example",
+                  kind: "tool",
+                  label: "Example tool",
+                  status,
+                  detail: "Example Person's example notes.",
+                  summary: [
+                    { type: "text", text: "Example Document diagnostics." },
+                  ],
+                }}
+                threadId="thread-example"
+              />
+            </AgentKitProvider>,
+          ),
+        );
+        const disclosure = container.querySelector<HTMLButtonElement>(
+          "button[aria-expanded]",
+        )!;
+        expect(disclosure.closest("[data-an-mask]")).toBeNull();
+        expect(
+          container
+            .querySelector(".agentkit-activity-label")
+            ?.closest("[data-an-mask]"),
+        ).toBeNull();
+        expect(
+          container
+            .querySelector(".agentkit-activity-detail")
+            ?.hasAttribute("data-an-mask"),
+        ).toBe(status === "failed");
+        await act(async () => disclosure.click());
+        const summary = container.querySelector(".agentkit-activity-summary");
+        expect(summary?.textContent).toContain("Example Document diagnostics.");
+        expect(summary?.hasAttribute("data-an-mask")).toBe(status === "failed");
+      } finally {
+        await act(async () => root.unmount());
+        await client.shutdown();
+        container.remove();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+});
 
 describe("AgentKitChat interactions", () => {
   it("preserves host submission disablement", async () => {

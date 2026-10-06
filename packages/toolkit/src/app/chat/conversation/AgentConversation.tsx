@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import { toolLabel } from "@agent-native/core/client/tool-display";
 import { cn } from "@agent-native/toolkit/utils";
 import {
@@ -70,7 +71,7 @@ export function AgentConversation({
       {error && (
         <div className="agent-conversation__error" role="alert">
           <IconAlertTriangle size={15} strokeWidth={1.8} />
-          <span>{error}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{error}</span>
         </div>
       )}
       <MessageScrollerProvider autoScroll>
@@ -446,7 +447,12 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
         {toolLabel(t, tool.name)}
       </span>
       {tool.summary && (
-        <span className="agent-conversation-tool__summary">{tool.summary}</span>
+        <span
+          {...(tool.state === "errored" ? SESSION_REPLAY_MASK_PROPS : {})}
+          className="agent-conversation-tool__summary"
+        >
+          {tool.summary}
+        </span>
       )}
     </>
   );
@@ -478,7 +484,11 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
         {tool.result && (
           <pre>
             <strong>result</strong>
-            {tool.result}
+            <span
+              {...(tool.state === "errored" ? SESSION_REPLAY_MASK_PROPS : {})}
+            >
+              {tool.result}
+            </span>
           </pre>
         )}
       </div>
@@ -497,7 +507,9 @@ function ConversationNotice({ notice }: { notice: AgentConversationNotice }) {
       <IconAlertTriangle size={15} />
       <div>
         {notice.title && <strong>{notice.title}</strong>}
-        <span>{notice.text}</span>
+        <span {...(notice.tone === "error" ? SESSION_REPLAY_MASK_PROPS : {})}>
+          {notice.text}
+        </span>
       </div>
       {notice.action}
     </div>
