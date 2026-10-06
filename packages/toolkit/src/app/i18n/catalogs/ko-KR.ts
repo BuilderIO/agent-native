@@ -133,6 +133,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
   "onboarding.builderIncludedFree": "무료 포함",
   "onboarding.builderMoreServices": "+ 서비스 {{count}}개 더",
+  "onboarding.builderIncludedServices": "포함된 서비스",
   "onboarding.builderActivateTitle": "무료 크레딧 활성화",
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
   "onboarding.builderAccountExistsDescription":
