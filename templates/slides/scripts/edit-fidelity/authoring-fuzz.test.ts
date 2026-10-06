@@ -5,10 +5,12 @@ import {
   assertByteIdenticalHtml,
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
+  AUTHORING_FUZZ_STYLE_PROPERTIES,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
+  isCaretScrollOnlyChange,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
   runAuthoringFuzz,
@@ -22,13 +24,17 @@ it("requires a markdown shortcut to add its result markup", () => {
   );
 });
 
-const authoringSnapshot = (y: number, color: string): Snapshot => ({
+const authoringSnapshot = (
+  y: number,
+  color: string,
+  props: Record<string, string> = {},
+): Snapshot => ({
   records: [
     {
       key: "box:div#0",
       kind: "box",
       inside: false,
-      props: { color },
+      props: { color, ...props },
       rect: { x: 0, y, width: 100, height: 80 },
     },
   ],
@@ -51,6 +57,95 @@ it("gates outside style changes and unmodeled geometry changes", () => {
       authoringSnapshot(64, "rgb(255, 0, 0)"),
     ),
   ).toHaveLength(1);
+});
+
+it("tracks computed style properties beyond typography and box paint", () => {
+  expect(AUTHORING_FUZZ_STYLE_PROPERTIES).toEqual(
+    expect.arrayContaining([
+      "filter",
+      "position",
+      "text-decoration-color",
+      "text-decoration-style",
+      "text-underline-offset",
+      "transform",
+      "vertical-align",
+    ]),
+  );
+});
+
+it.each(["transform", "filter", "position", "--fmd-fit-scale"])(
+  "gates outside computed-style changes to %s",
+  (property) => {
+    const before = authoringSnapshot(64, "rgb(0, 0, 0)", {
+      [property]: "before",
+    });
+    const after = authoringSnapshot(64, "rgb(0, 0, 0)", {
+      [property]: "after",
+    });
+
+    expect(outsideAuthoringChangesFor(before, after)).toContainEqual(
+      expect.objectContaining({ prop: property, inside: false }),
+    );
+  },
+);
+
+it("allows only the matching native caret scroll in an overflowing slide", () => {
+  const change = [
+    {
+      key: "box:div.fmd-autofit-scale#0",
+      prop: "y",
+      a: "64",
+      b: "-300",
+    },
+  ];
+  const options = {
+    scrollDelta: 364,
+    contentGrew: true,
+    containerOverflows: true,
+    containerStationary: true,
+    fitPositionStylesUnchanged: true,
+    fitSizeUnchanged: true,
+  };
+  expect(isCaretScrollOnlyChange(change, options)).toBe(true);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, scrollDelta: 362 }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange([{ ...change[0], b: "-118" }], {
+      ...options,
+      scrollDelta: 182,
+    }),
+  ).toBe(true);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, contentGrew: false }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      containerOverflows: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      containerStationary: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      fitPositionStylesUnchanged: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, fitSizeUnchanged: false }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(
+      [...change, { key: "box:p#0", prop: "y", a: "0", b: "1" }],
+      options,
+    ),
+  ).toBe(false);
 });
 
 function pageAtScale(scale: number) {

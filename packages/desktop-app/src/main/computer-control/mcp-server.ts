@@ -8,10 +8,8 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import {
-  assertValidComputerCommandEnvelope,
-  type ComputerCommandEnvelope,
-} from "@agent-native/core/integrations";
+import type { ComputerCommandEnvelope } from "@agent-native/core/integrations";
+import { assertValidComputerCommandEnvelope } from "@agent-native/core/integrations/computer-supervision";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";

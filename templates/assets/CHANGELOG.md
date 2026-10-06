@@ -3,6 +3,13 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies account use and available credits.
+- Owners and admins can save image generation keys for the whole organization, which is now the default.
+
 ## 2026-10-01
 
 ### Fixed

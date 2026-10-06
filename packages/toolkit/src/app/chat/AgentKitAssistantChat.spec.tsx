@@ -44,6 +44,7 @@ const chatMocks = vi.hoisted(() => ({
   failureCopies: 1,
   connectionError: null as any,
   setupCardProps: null as any,
+  providerGateProps: null as any,
   suggestionBarProps: null as any,
   dynamicSuggestionOptions: null as any,
   approvalRequest: null as any,
@@ -378,7 +379,25 @@ vi.mock("./agentkit-chat/index.js", async () => {
       React.createElement(React.Fragment, null, children),
     createAgentNativeAgentKitTransport: chatMocks.createTransport,
     findMcpConnectionSuggestionIntegration: () => null,
-    GuidedQuestionProviderGate: () => null,
+    GuidedQuestionProviderGate: (props: any) => {
+      chatMocks.providerGateProps = props;
+      return React.createElement(
+        "div",
+        { "data-testid": "provider-status-gate" },
+        React.createElement(
+          "span",
+          null,
+          props.modelListUnavailable
+            ? "agentChat.setup.modelListUnavailable"
+            : "agentChat.setup.providerStatusUnavailable",
+        ),
+        React.createElement(
+          "button",
+          { type: "button", onClick: props.onRetry },
+          "Retry",
+        ),
+      );
+    },
     GuidedQuestionFlow: (props: unknown) => {
       chatMocks.guidedFlowProps = props;
       return null;
@@ -599,6 +618,7 @@ vi.mock("./chat/agent-approval-card.js", async () => {
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
   appendAgentChatContextToMessage,
+  createAgentNativeAgentKitTransport,
 } from "@agent-native/core/client/agent-chat";
 import {
   deleteClientAppState,
@@ -720,6 +740,7 @@ beforeEach(() => {
   chatMocks.failureCopies = 1;
   chatMocks.connectionError = null;
   chatMocks.setupCardProps = null;
+  chatMocks.providerGateProps = null;
   chatMocks.suggestionBarProps = null;
   chatMocks.dynamicSuggestionOptions = null;
   chatMocks.approvalRequest = null;
@@ -1851,6 +1872,39 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(false);
   });
 
+  it("shows a model catalog retry instead of missing-provider setup", async () => {
+    const onRetryModelList = vi.fn();
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
+    await mount(
+      baseProps({
+        providerStatusChecksEnabled: true,
+        modelListError: true,
+        onRetryModelList,
+      }),
+    );
+
+    expect(chatMocks.setupCardProps).toBeNull();
+    expect(chatMocks.providerGateProps).toMatchObject({
+      modelListUnavailable: true,
+      providerStatus: "unavailable",
+    });
+    expect(container.textContent).toContain(
+      "agentChat.setup.modelListUnavailable",
+    );
+
+    const dispatchEvent = vi.spyOn(window, "dispatchEvent");
+    await act(async () => container.querySelector("button")?.click());
+    expect(onRetryModelList).toHaveBeenCalledOnce();
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-engine:configured-changed" }),
+    );
+    dispatchEvent.mockRestore();
+  });
+
   it("keeps the composer editable while provider readiness is checked", async () => {
     chatMocks.readiness = {
       canChat: false,
@@ -2558,6 +2612,35 @@ describe("AgentKitAssistantChat host behavior", () => {
       text: "Summarize this pasted text:\n\nFull pasted document text",
       attachments: [],
     });
+  });
+
+  it("localizes unsupported upload errors instead of exposing the HTTP status", async () => {
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json(
+          { error: "Unsupported file type: application/pdf" },
+          { status: 415 },
+        ),
+      );
+    await mount(baseProps());
+
+    try {
+      await expect(
+        chatMocks.rootProps.clientOptions.upload(
+          { uploadId: "upload-1", method: "POST", url: "/uploads" },
+          {
+            name: "reference.pdf",
+            mediaType: "application/pdf",
+            size: 4,
+            body: new Blob(["data"], { type: "application/pdf" }),
+          },
+        ),
+      ).rejects.toThrow("agentChat.composer.unsupportedFileType");
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      fetch.mockRestore();
+    }
   });
 
   it("sends without waiting for pending-selection cleanup", async () => {
@@ -3595,7 +3678,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       collapseMessage: "agentChat.common.collapse",
       messageUnavailable: "agentChat.message.unavailable",
       navigationUnavailable: "agentChat.message.navigationUnavailable",
-      queueMoveToTop: "agentChat.queue.moveToTop",
+      queueSendNow: "agentChat.queue.sendNow",
+      queueSendNowHint: "agentChat.queue.sendNowHint",
+      queueSendNext: "agentChat.queue.sendNext",
+      queueSendNextHint: "agentChat.queue.sendNextHint",
       previewAttachment: "Preview {{name}}",
       imagePreview: "agentChat.composer.imagePreview",
       closePreview: "agentChat.composer.closePreview",
@@ -3867,13 +3953,7 @@ describe("AgentKitAssistantChat host behavior", () => {
   });
 
   it("routes the built-in transport 404 through AgentKitRoot to the not-found fallback", async () => {
-    const { createAgentNativeAgentKitTransport } =
-      await import("@agent-native/core/client/agent-chat");
-    let resolveNotFound!: (response: Response) => void;
-    const notFoundResponse = new Promise<Response>((resolve) => {
-      resolveNotFound = resolve;
-    });
-    const fetch = vi.fn(async () => notFoundResponse);
+    const fetch = vi.fn(async () => new Response(null, { status: 404 }));
     const onThreadRestoreNotFound = vi.fn();
     const runtime = {
       id: "restore-test",
@@ -3896,20 +3976,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
     await flush();
     expect(fetch).toHaveBeenCalledOnce();
-    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-
-    await act(async () => {
-      resolveNotFound(new Response(null, { status: 404 }));
-    });
-    await flush();
 
     expect(onThreadRestoreNotFound).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("agentChat.message.threadNotFound");
   });
 
   it("hands a recent snapshot across surfaces while thread persistence lags", async () => {
-    const { createAgentNativeAgentKitTransport } =
-      await import("@agent-native/core/client/agent-chat");
     const threadId = "surface-handoff-thread";
     const browserTabId = "surface-handoff-tab";
     const savedSnapshots = vi.fn();

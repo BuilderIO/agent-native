@@ -757,10 +757,17 @@ export class AgentClient {
     const minted = [...(await activeMcpTokenIds(page))].filter(
       (id) => !before.has(id),
     );
-    expect(
-      minted,
-      "exactly one MCP token minted by this connection",
-    ).toHaveLength(1);
+    try {
+      expect(
+        minted,
+        "exactly one MCP token minted by this connection",
+      ).toHaveLength(1);
+    } catch (error) {
+      // The poll already minted a live token; don't leave it behind.
+      for (const id of minted)
+        await page.request.post(`${MCP_TOKENS_PATH}/revoke`, { data: { id } });
+      throw error;
+    }
     return new AgentClient(page, headers, minted[0]);
   }
 

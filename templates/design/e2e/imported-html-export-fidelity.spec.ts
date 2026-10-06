@@ -563,6 +563,7 @@ test("imported and static Figma designs export pixel-identically through DesignE
       try {
         const viewport = { width: entry.width, height: entry.height };
         const opened = (await postAction(request, baseURL, "open-visual-edit", {
+          newDesign: true,
           title: `Imported HTML export parity ${entry.name}`,
           devServerUrl: sourceUrl,
           bridgeUrl: bridgeManifest.bridgeUrl,

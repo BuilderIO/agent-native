@@ -13,6 +13,10 @@ import {
   getSession,
   type AuthSession,
 } from "./auth.js";
+import {
+  isCredentialMembershipUnavailable,
+  respondCredentialMembershipUnavailable,
+} from "./credential-membership-unavailable.js";
 import { getAppUrl } from "./google-oauth.js";
 import {
   RECAP_IMAGE_CONTENT_TYPE,
@@ -78,6 +82,9 @@ async function readPngFromRequest(event: H3Event): Promise<Buffer | null> {
 
 async function handleUpload(event: H3Event): Promise<unknown> {
   const session = await resolveUploadSession(event);
+  if (!session?.email && isCredentialMembershipUnavailable(event)) {
+    return respondCredentialMembershipUnavailable(event);
+  }
   if (!session?.email) {
     setResponseStatus(event, 401);
     return { error: "Authentication required" };

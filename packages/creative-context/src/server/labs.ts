@@ -1,5 +1,5 @@
 import { fail } from "@agent-native/core/action";
-import { getUserLabs } from "@agent-native/core/labs/server";
+import { getUserLabEnabled } from "@agent-native/core/labs/server";
 import type { ActionEntry } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
@@ -11,8 +11,7 @@ export async function isCreativeContextLabAvailable(
   labKey = CREATIVE_CONTEXT_LIBRARY_LAB.key,
 ): Promise<boolean> {
   if (!userEmail) return false;
-  const labs = await getUserLabs(userEmail);
-  return labs[labKey] === true;
+  return getUserLabEnabled(userEmail, labKey);
 }
 
 export async function assertCreativeContextLabEnabled(

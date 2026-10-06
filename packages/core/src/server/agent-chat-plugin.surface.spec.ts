@@ -411,6 +411,15 @@ describe("request-scoped action surface", () => {
     expect(route).toContain("runWithRequestContext");
     expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
     expect(route).toContain("{ userEmail: ownerEmail, orgId }");
+    expect(route).toContain("requireAgentChatAiSetup()");
+    expect(route.indexOf("const now = Date.now();")).toBeLessThan(
+      route.indexOf(
+        "const request = chatTitleRequestFromBody(await readBody(event));",
+      ),
+    );
+    expect(route.indexOf("const now = Date.now();")).toBeLessThan(
+      route.indexOf("requireAgentChatAiSetup()"),
+    );
     expect(route).toContain(
       "generateChatTitle({ ...request, appId: options?.appId })",
     );

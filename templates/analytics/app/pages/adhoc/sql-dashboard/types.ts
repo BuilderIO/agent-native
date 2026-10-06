@@ -11,6 +11,7 @@ export type ChartType =
   | "line"
   | "area"
   | "bar"
+  | "combo"
   | "metric"
   | "table"
   | "pie"
@@ -80,6 +81,7 @@ export interface SqlPanelConfig {
   yFormatter?: "number" | "currency" | "percent";
   rightYKeys?: string[];
   rightYFormatter?: "number" | "currency" | "percent";
+  barKeys?: string[];
   seriesLabels?: Record<string, string>;
   description?: string;
   pivot?: PivotConfig;

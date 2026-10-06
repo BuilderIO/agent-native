@@ -3,11 +3,23 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-05
+
+### Improved
+
+- Custom date controls stay beside the range selector, and dashboards can save a shared default view.
+
 ## 2026-10-02
 
 ### Improved
 
+- Builder.io setup now explains free credits and the existing-account option.
+- Owners and admins can save data source credentials for the whole organization or just for themselves.
 - Retention reports now compare returns from paid and untagged signups.
+
+### Fixed
+
+- Events with a very long name, app, or page path no longer cause the rest of their batch to be lost
 
 ## 2026-10-01
 

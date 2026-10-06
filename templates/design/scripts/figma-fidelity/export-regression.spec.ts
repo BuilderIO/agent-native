@@ -1,6 +1,7 @@
 import { chromium, type Browser } from "@playwright/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { launchChromium } from "../../server/lib/playwright-runtime.js";
 import {
   findExportBaselineProblems,
   hashExportSource,
@@ -13,7 +14,7 @@ describe("Figma export fidelity corpus", () => {
   let browser: Browser;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
+    browser = await launchChromium(chromium);
   });
 
   afterAll(async () => {

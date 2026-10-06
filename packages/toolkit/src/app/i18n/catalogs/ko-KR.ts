@@ -131,12 +131,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
   "onboarding.builderIncludedFreeWithAccount": "Builder.io 계정에 무료로 포함",
   "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
+  "onboarding.builderIncludedFree": "무료 포함",
+  "onboarding.builderMoreServices": "+ 서비스 {{count}}개 더",
+  "onboarding.builderIncludedServices": "포함된 서비스",
   "onboarding.builderActivateTitle": "무료 크레딧 활성화",
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
   "onboarding.builderAccountExistsDescription":
     "계정을 사용하려면 로그인하세요.",
   "onboarding.builderActivationDescription":
-    "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
+    "한 번의 클릭으로 Builder.io 계정을 만들거나 연결해 무료 크레딧을 받으세요.",
   "onboarding.builderOrgActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 만들어 조직에서 사용할 수 있도록 합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
@@ -158,6 +161,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
   "onboarding.capability.llm.keySummary": "자체 AI 모델 연결",
   "onboarding.capability.fileStorage.keySummary": "파일 업로드 및 저장소",
+  "onboarding.capability.llm.why":
+    "에이전트는 언어 모델을 사용해 요청을 이해하고 답변을 작성합니다.",
+  "onboarding.capability.fileStorage.why":
+    "업로드한 이미지와 파일을 저장해 에이전트가 대화에서 다시 사용할 수 있도록 합니다.",
   "onboarding.fileStorage.title": "파일 업로드를 위해 저장소 연결",
   "onboarding.fileStorage.statusUnavailable": "저장소를 확인할 수 없습니다",
   "onboarding.fileStorage.description":
@@ -174,6 +181,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
+  "onboarding.capability.systemOne.why":
+    "Jev는 에이전트의 첫 모델 요청 전에 관련 도구와 스킬을 선택하도록 돕는 선택형 의사결정 모델입니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 크레딧 또는 이미지 제공업체 키",
@@ -483,6 +492,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
+  "composer.unsupportedFileType": "지원되지 않는 파일 형식입니다.",
   "composer.useAttachedContext": "첨부된 컨텍스트를 사용하세요.",
   "mentions.commands": "명령",
   "mentions.learnMore": "자세히 알아보기",
@@ -1092,11 +1102,10 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}}개 대기 중 — 후속 메시지 보내기...",
   "queue.remove": "대기열에서 제거",
   "queue.sendNow": "지금 보내기",
-  "queue.sendNowHint": "지금 보내기(현재 응답 중지)",
-  "queue.steer": "조정",
-  "queue.steerHint": "이 메시지를 다음에 보내기",
+  "queue.sendNowHint": "현재 응답을 중지한 다음 이 메시지를 보냅니다",
+  "queue.sendNext": "다음에 보내기",
+  "queue.sendNextHint": "현재 응답이 끝난 후 보내기",
   "queue.moreActions": "추가 작업",
-  "queue.moveToTop": "맨 위로 이동",
   "recovery.connectingBuilder": "Builder.io 설정 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
@@ -1178,6 +1187,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "AI를 연결하여 채팅 시작...",
   "setup.connectToChat": "AI를 연결하여 채팅",
   "setup.connectToStart": "AI를 연결하여 채팅 시작",
+  "setup.modelListUnavailable": "모델을 불러오지 못했습니다.",
   "setup.providerStatusUnavailable":
     "AI를 사용할 수 있는지 확인할 수 없습니다.",
   "agentNativeClips.meetingAsk.placeholder": "무엇이든 물어보세요",
@@ -1921,6 +1931,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsFootnote":
     "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
   "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
+  "settingsShell.appGroup.labsReadError":
+    "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
   "settingsShell.appGroup.mcpAbout":
