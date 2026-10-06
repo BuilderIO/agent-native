@@ -2,6 +2,8 @@ import { DataGrid, type DataGridProps } from "@agent-native/toolkit/data-grid";
 import { DATABASE_TABLE_GUTTER_WIDTH } from "@shared/database-table-columns";
 import {
   IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconDots,
   IconMinus,
   IconSearch,
@@ -19,6 +21,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -359,6 +362,105 @@ export function ContentTableSearch({
   );
 }
 
+function useConstraintRowOverflow() {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState({ start: false, end: false });
+
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    const track = trackRef.current;
+    if (!scroller || !track) return;
+    const update = () => {
+      const offset = Math.abs(scroller.scrollLeft);
+      const start = offset > 1;
+      const end = offset + scroller.clientWidth < scroller.scrollWidth - 1;
+      setOverflow((current) =>
+        current.start === start && current.end === end
+          ? current
+          : { start, end },
+      );
+    };
+    update();
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(scroller);
+    observer?.observe(track);
+    scroller.addEventListener("scroll", update, { passive: true });
+    return () => {
+      observer?.disconnect();
+      scroller.removeEventListener("scroll", update);
+    };
+  }, []);
+
+  return { scrollerRef, trackRef, overflow };
+}
+
+// Chrome scrolls a keyboard-focused chip only until its edge shows, which
+// leaves it under the fade and its chevron. Popover content is portaled but
+// still bubbles here through React, so only reveal targets inside the row.
+function revealFocusedConstraint(event: FocusEvent<HTMLDivElement>) {
+  const scroller = event.currentTarget;
+  const target = event.target;
+  if (
+    !(target instanceof HTMLElement) ||
+    !scroller.contains(target) ||
+    scroller.scrollWidth <= scroller.clientWidth ||
+    !target.matches(":focus-visible")
+  )
+    return;
+  target.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+// The row can end in the gap between two chips, where a fade has nothing to
+// fade, so a chevron marks each edge with more chips past it. Keyboard users
+// reach those chips by tabbing, which reveals them, so it stays out of the
+// tab order.
+function ConstraintRowScrollCue({
+  edge,
+  scrollerRef,
+}: {
+  edge: "start" | "end";
+  scrollerRef: RefObject<HTMLDivElement | null>;
+}) {
+  const Icon = edge === "start" ? IconChevronLeft : IconChevronRight;
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden="true"
+      data-constraint-scroll-cue={edge}
+      className={cn(
+        "absolute inset-y-0 flex w-5 items-center justify-center text-muted-foreground hover:text-foreground sm:hidden",
+        edge === "start" ? "start-0" : "end-0",
+      )}
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={() => {
+        const scroller = scrollerRef.current;
+        if (!scroller) return;
+        const forward =
+          (edge === "end") !== (getComputedStyle(scroller).direction === "rtl");
+        const distance = scroller.clientWidth * 0.75;
+        scroller.scrollBy({
+          left: forward ? distance : -distance,
+          behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)")
+            .matches
+            ? "auto"
+            : "smooth",
+        });
+      }}
+    >
+      <Icon className="size-3.5 rtl:-scale-x-100" />
+    </button>
+  );
+}
+
+/**
+ * Below `sm` the chips scroll on one line, so the row keeps the height its
+ * placeholder holds; wrapping moved everything under it. `trailing` stays
+ * pinned outside the scroller. From `sm` up the frame, scroller, and track
+ * use `display: contents` and the chips wrap in the row as before.
+ */
 export function ContentTableConstraintBar({
   children,
   trailing,
@@ -368,16 +470,41 @@ export function ContentTableConstraintBar({
   trailing?: ReactNode;
   className?: string;
 }) {
+  const { scrollerRef, trackRef, overflow } = useConstraintRowOverflow();
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-wrap items-center gap-1.5 overflow-x-auto text-xs",
+        "flex min-w-0 items-center gap-1.5 text-xs sm:flex-wrap sm:overflow-x-auto",
         className,
       )}
     >
-      {children}
+      <div className="relative flex min-w-0 flex-1 gap-[inherit] sm:contents">
+        <div
+          ref={scrollerRef}
+          data-constraint-scroller=""
+          data-overflow-start={overflow.start ? "" : undefined}
+          data-overflow-end={overflow.end ? "" : undefined}
+          className="-m-0.5 min-w-0 flex-1 gap-[inherit] scroll-px-10 overflow-x-auto overscroll-x-contain p-0.5 [--constraint-fade-direction:to_right] [mask-image:linear-gradient(var(--constraint-fade-direction),transparent_calc(var(--constraint-fade-start,0px)/2),black_var(--constraint-fade-start,0px),black_calc(100%_-_var(--constraint-fade-end,0px)),transparent_calc(100%_-_var(--constraint-fade-end,0px)/2))] [scrollbar-width:none] data-[overflow-end]:[--constraint-fade-end:2.5rem] data-[overflow-start]:[--constraint-fade-start:2.5rem] rtl:[--constraint-fade-direction:to_left] sm:contents [&::-webkit-scrollbar]:hidden"
+          onFocus={revealFocusedConstraint}
+        >
+          <div
+            ref={trackRef}
+            className="flex w-max items-center gap-[inherit] sm:contents"
+          >
+            {children}
+          </div>
+        </div>
+        {overflow.start ? (
+          <ConstraintRowScrollCue edge="start" scrollerRef={scrollerRef} />
+        ) : null}
+        {overflow.end ? (
+          <ConstraintRowScrollCue edge="end" scrollerRef={scrollerRef} />
+        ) : null}
+      </div>
       {trailing ? (
-        <div className="ms-auto flex items-center gap-1 ps-2">{trailing}</div>
+        <div className="ms-auto flex shrink-0 items-center gap-1 ps-2">
+          {trailing}
+        </div>
       ) : null}
     </div>
   );
