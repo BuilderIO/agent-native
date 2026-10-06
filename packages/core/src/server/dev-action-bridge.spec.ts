@@ -14,6 +14,8 @@ const mockResolveDevUserEmail = vi.hoisted(() =>
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
+  getRequestHeader: (event: any, name: string) =>
+    event._headers?.[name.toLowerCase()],
   readBody: async (event: any) => event._body,
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
@@ -60,7 +62,11 @@ import {
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "./dev-action-bridge.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "./request-context.js";
 
 describe("dev action browser handoff validation", () => {
   it("accepts only the relative embed path or a loopback APP_URL origin", () => {
@@ -305,6 +311,7 @@ describe("mountDevActionForwardRoute", () => {
     const run = vi.fn(async (params: unknown, ctx: unknown) => ({
       params,
       ctx,
+      requestOrigin: getRequestContext()?.requestOrigin,
     }));
     const handler = mountedHandler(
       { "do-thing": { run, readOnly: false } as any },
@@ -312,6 +319,7 @@ describe("mountDevActionForwardRoute", () => {
     );
     const event: any = {
       _headers: {
+        host: "localhost:8100",
         [DEV_ACTION_TOKEN_HEADER]: token,
         [DEV_ACTION_USER_HEADER]: "owner@example.test",
         [DEV_ACTION_ORG_HEADER]: "org_1",
@@ -321,6 +329,9 @@ describe("mountDevActionForwardRoute", () => {
 
     const response = await handler(event);
     expect(response.ok).toBe(true);
+    // Actions that mint credentials bind them to this origin, as on the HTTP
+    // action routes; without it they fall back to a guessed URL.
+    expect(response.result.requestOrigin).toBe("http://localhost:8100");
     expect(run).toHaveBeenCalledTimes(1);
     const [params, ctx] = run.mock.calls[0]!;
     expect(params).toEqual({ a: 1 });

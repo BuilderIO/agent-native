@@ -290,6 +290,20 @@ async function signConnectToken(params: {
 }
 
 /**
+ * Neither the request nor configuration names this app's public URL, so no
+ * issuer `verifyAuth` would accept can be resolved. Guessing one would mint a
+ * token the app then refuses.
+ */
+export class OrgServiceTokenAppUrlError extends Error {
+  constructor() {
+    super(
+      "Could not determine the app URL needed to mint a token. Set APP_URL on the deployment.",
+    );
+    this.name = "OrgServiceTokenAppUrlError";
+  }
+}
+
+/**
  * Mint an ORG SERVICE token: a connect-scoped, revocable bearer whose subject
  * is the synthetic service identity `svc-<name>@service.<orgId>` instead of a
  * person. Built for CI (e.g. the `PLAN_RECAP_TOKEN` GitHub secret) so the
@@ -312,8 +326,8 @@ export async function mintOrgServiceToken(params: {
   /** The human minting the token — stored for audit, never used as identity. */
   createdBy: string;
   ttlDays?: number;
-  /** The caller's request origin. */
-  appUrl: string;
+  /** The caller's request origin, when there is a request. */
+  appUrl: string | undefined;
 }): Promise<{
   token: string;
   jti: string;
@@ -327,11 +341,7 @@ export async function mintOrgServiceToken(params: {
   const orgDomain = await resolveOrgDomain(params.orgId);
   const ttlDays = clampTtlDays(params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS);
   const issuer = resolveMcpOAuthIssuer(params.appUrl || undefined);
-  if (!issuer) {
-    throw new Error(
-      "Cannot mint an org service token without this app's public URL.",
-    );
-  }
+  if (!issuer) throw new OrgServiceTokenAppUrlError();
   await prepareConnectIssuance();
   return withMcpCredentialIssuance(
     {

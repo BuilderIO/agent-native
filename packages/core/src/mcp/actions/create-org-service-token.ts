@@ -18,10 +18,12 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { getAppProductionUrl } from "../../server/app-url.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../../server/credential-membership-unavailable.js";
 import { getRequestContext } from "../../server/request-context.js";
-import { mintOrgServiceToken } from "../connect-route.js";
+import {
+  mintOrgServiceToken,
+  OrgServiceTokenAppUrlError,
+} from "../connect-route.js";
 import { McpCredentialIssuanceError } from "../credential-issuance.js";
 import {
   requireServiceTokenCaller,
@@ -54,16 +56,6 @@ export default defineAction({
       level: "manage",
     });
 
-    const appUrl = (
-      getRequestContext()?.requestOrigin || getAppProductionUrl()
-    ).replace(/\/+$/, "");
-    if (!appUrl) {
-      throw new ServiceTokenError(
-        "Could not determine the app URL needed to mint a token. Set APP_URL on the deployment.",
-        500,
-      );
-    }
-
     let minted: Awaited<ReturnType<typeof mintOrgServiceToken>>;
     try {
       minted = await mintOrgServiceToken({
@@ -71,9 +63,12 @@ export default defineAction({
         orgId: caller.orgId,
         createdBy: caller.email,
         ttlDays: args.ttlDays,
-        appUrl,
+        appUrl: getRequestContext()?.requestOrigin?.replace(/\/+$/, ""),
       });
     } catch (error) {
+      if (error instanceof OrgServiceTokenAppUrlError) {
+        throw new ServiceTokenError(error.message, 500);
+      }
       if (!(error instanceof McpCredentialIssuanceError)) throw error;
       throw error.reason === "not-member"
         ? new ServiceTokenError(SERVICE_TOKEN_MANAGE_FORBIDDEN_MESSAGE, 403)

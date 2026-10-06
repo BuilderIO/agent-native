@@ -32,7 +32,11 @@ import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { createOrganization } from "../org/context.js";
 import { runFrameworkReleaseMigrations } from "../server/release-migrations.js";
 import { verifyAuth } from "./build-server.js";
-import { handleMcpConnect, mintOrgServiceToken } from "./connect-route.js";
+import {
+  handleMcpConnect,
+  mintOrgServiceToken,
+  OrgServiceTokenAppUrlError,
+} from "./connect-route.js";
 import { recordMintedToken } from "./connect-store.js";
 import { getMcpOAuthAudiences } from "./oauth-route.js";
 import { verifyMcpOAuthAccessToken } from "./oauth-token.js";
@@ -269,6 +273,28 @@ describe("connect tokens minted where the configured public URL differs from the
     for (const token of tokens) {
       expect(await verifyAtMcp(token)).toMatchObject({ authed: true });
     }
+  });
+
+  it("mints a service token from the configured URL when there is no request", async () => {
+    process.env.APP_URL = ORIGIN; // guard:allow-env-mutation — spec-owned public URL
+    const { token } = await mintOrgServiceToken({
+      serviceName: `ci-${randomUUID().slice(0, 8)}`,
+      orgId: ORG,
+      createdBy: ALICE,
+      appUrl: undefined,
+    });
+    expect(await verifyAtMcp(token)).toMatchObject({ authed: true });
+  });
+
+  it("refuses to mint a service token when nothing names the app URL", async () => {
+    await expect(
+      mintOrgServiceToken({
+        serviceName: "ci",
+        orgId: ORG,
+        createdBy: ALICE,
+        appUrl: undefined,
+      }),
+    ).rejects.toBeInstanceOf(OrgServiceTokenAppUrlError);
   });
 
   it("admits every mint under a configured base path", async () => {

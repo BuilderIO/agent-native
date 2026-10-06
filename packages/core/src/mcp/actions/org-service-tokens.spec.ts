@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mintOrgServiceTokenMock = vi.fn();
+const { OrgServiceTokenAppUrlError } = vi.hoisted(() => ({
+  OrgServiceTokenAppUrlError: class extends Error {},
+}));
 vi.mock("../connect-route.js", () => ({
   mintOrgServiceToken: (...a: any[]) => mintOrgServiceTokenMock(...a),
+  OrgServiceTokenAppUrlError,
 }));
 
 const listOrgServiceTokensMock = vi.fn();
@@ -25,9 +29,6 @@ vi.mock("../../db/client.js", () => ({
 
 vi.mock("../../server/request-context.js", () => ({
   getRequestContext: () => ({ requestOrigin: "https://plan.example.com" }),
-}));
-vi.mock("../../server/app-url.js", () => ({
-  getAppProductionUrl: () => "https://plan.example.com",
 }));
 
 const createAction = (await import("./create-org-service-token.js")).default;
@@ -157,6 +158,19 @@ describe("create-org-service-token", () => {
       } as any),
     ).rejects.toMatchObject({ statusCode: 400 });
     expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("answers a 500 naming APP_URL, not a guessed URL, when the mint cannot resolve one", async () => {
+    mintOrgServiceTokenMock.mockRejectedValue(
+      new OrgServiceTokenAppUrlError("Set APP_URL on the deployment."),
+    );
+    await expect(createAction.run({ name: "ci" }, CTX())).rejects.toMatchObject(
+      {
+        name: "ServiceTokenError",
+        statusCode: 500,
+        message: "Set APP_URL on the deployment.",
+      },
+    );
   });
 
   it.each([

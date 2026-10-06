@@ -295,8 +295,8 @@ export async function listOrgServiceTokens(
 /**
  * Revoke an org service token by id, scoped to `orgId` AND `kind = 'service'`
  * so a caller can never revoke another org's token (or someone's personal
- * token) through this path. Uses the same `revoked_at` gate `isJtiRevoked`
- * checks, so revocation takes effect on the next request like personal
+ * token) through this path. Uses the same `revoked_at` gate
+ * `lookupConnectTokenOrg` checks, so revocation takes effect on the next request like personal
  * tokens. Idempotent; returns true when a row actually transitioned.
  */
 export async function revokeOrgServiceToken(
