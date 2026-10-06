@@ -279,6 +279,8 @@ test("exact-size generation preserves its canvas dimensions without mobile frame
       width: 300,
       height: 250,
       breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
     });
     expect(data.breakpointSet.breakpoints).toHaveLength(2);
 
@@ -288,6 +290,11 @@ test("exact-size generation preserves its canvas dimensions without mobile frame
     await expect(
       page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
     ).toBeVisible();
+    const card = page.locator(`[data-frame-id="${fileId}"] [data-screen-card]`);
+    await expect(card).toBeVisible();
+    const bounds = await card.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.width / bounds!.height).toBeCloseTo(300 / 250, 2);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

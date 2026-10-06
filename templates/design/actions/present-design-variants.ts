@@ -802,7 +802,9 @@ export default defineAction({
     "blocked there. Design will render compact screens from direction data only " +
     "for open-ended exploration. Expand the chosen direction after the user " +
     "picks. Exact pixel dimensions in the prompt set every variant's exact " +
-    "canvas size and suppress extra mobile or tablet frames. Screens from an earlier variant set are never " +
+    "canvas size and suppress extra mobile or tablet frames. Use one exact " +
+    "canvas size per call; different sizes require separate calls scoped to " +
+    "each screen. Screens from an earlier variant set are never " +
     "deleted automatically: if you are knowingly replacing your own earlier " +
     "set that the user never picked from or discussed, pass its set id in " +
     "deleteSupersededSetIds; otherwise leave old sets in place.",
@@ -860,8 +862,8 @@ export default defineAction({
     context,
   ) => {
     await assertAccess("design", designId, "editor");
-    await snapshotDesignBeforeAgentEdit(designId, context);
     const promptDimensions = explicitCanvasDimensionsFromPrompt(prompt);
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const useResponsiveFrames = !promptDimensions && responsive !== false;
 
     const omittedContent = variants.filter(
@@ -1017,6 +1019,10 @@ export default defineAction({
           } else {
             metadata.breakpointWidths = [];
           }
+          if (promptDimensions) {
+            metadata.heightPinned = true;
+            metadata.heightMode = "fixed";
+          }
           previousMetadata[screen.id] = metadata;
         }
         previousVariantSets[variantSetId] = {
@@ -1082,6 +1088,9 @@ export default defineAction({
                 ? screenMetadata.breakpointWidths === undefined
                 : Array.isArray(screenMetadata.breakpointWidths) &&
                   screenMetadata.breakpointWidths.length === 0) &&
+              (!promptDimensions ||
+                (screenMetadata.heightPinned === true &&
+                  screenMetadata.heightMode === "fixed")) &&
               persistedScreens.some(
                 (persisted) =>
                   isRecord(persisted) && persisted.id === screen.id,

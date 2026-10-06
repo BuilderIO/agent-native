@@ -357,7 +357,7 @@ follow-up ambiguity instead of resolving it.
 
 **Carry the form-factor answer through to generation — do not just ask and discard it.** Map the answer to the design's device SET, not to separate per-device screen files. Device widths of the SAME page are breakpoint frames of one document (see the `responsive-breakpoints` skill), never a `mobile.html` + `desktop.html` pair. Pass the answer through `generate-design`'s `devices` param — `("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`:
 
-- An exact pixel size in the prompt defines one fixed-size canvas. Use those exact dimensions, pass `devices: []` (or `responsive: false` to `present-design-variants`), and do not generate mobile or other device frames for it.
+- An exact pixel size in the prompt defines one fixed-size canvas. Use those exact dimensions, pass `devices: []` (or `responsive: false` to `present-design-variants`), and do not generate mobile or other device frames for it. Keep each action prompt to one distinct exact canvas size; make separate calls scoped to each screen when a request names different sizes.
 - If the prompt/answer names specific devices, generate EXACTLY those, deduped ("mobile" only → one mobile frame; "mobile, tablet, desktop" → all three).
 - If no exact pixel size or form factor is specified — or the answer is "Both / responsive" or "Decide for me" — default to `["desktop","mobile"]`: a Desktop base + a Mobile frame only. Never auto-add a tablet, a redundant desktop, or a stray duplicate frame.
 
@@ -427,8 +427,10 @@ Pass the `devices` param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop"
 
 `canvasFrames` accepts exact `width`/`height` in px, so "create a 300x250
 ad" style requests work the same way — use the requested dimensions verbatim
-and pass `devices: []` so the fixed-size screen has no extra mobile view. This
-also applies to exact-size email and social assets. The editor's own Frame tool preset
+and pass `devices: []` so the fixed-size screen has no extra mobile view. Keep
+each action prompt to one distinct exact size; use separate calls for screens
+with different dimensions. This also applies to exact-size email and social
+assets. The editor's own Frame tool preset
 list (`app/components/design/inspector/frame-size-presets.ts`) documents the
 canonical sizes to reuse instead of guessing:
 

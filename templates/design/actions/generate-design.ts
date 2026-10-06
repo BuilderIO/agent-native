@@ -435,7 +435,8 @@ const generateDesignAgentParameters = {
       description:
         "Optional JSON array of overview-canvas placements keyed by filename or fileId. " +
         "Pass explicit x/y/width/height for every generated screen as numbers. " +
-        "When the prompt gives exact pixel dimensions, use those exact width/height values.",
+        "When the prompt gives one exact pixel size, use those exact width/height values. " +
+        "For screens with different exact sizes, make separate calls scoped to one screen each.",
     },
     contextPackId: {
       type: "string",
@@ -468,6 +469,7 @@ const generateDesignAgentParameters = {
         "Device set for responsive frames. Honor the devices the prompt " +
         'explicitly names; omit to default to ["desktop","mobile"]. Use [] ' +
         "for an exact-size static screen so no mobile or tablet frame is added. " +
+        "One exact canvas size per call; prompts with multiple distinct exact sizes are rejected. " +
         "Exact pixel dimensions in the prompt always take precedence and suppress extra device frames. The widest " +
         "device becomes the primary/base frame and the narrower devices become " +
         "breakpoint frames — never a duplicate of the base width and never an " +
@@ -500,7 +502,8 @@ const generateDesignAction = defineAction({
     "alone as enough design-system context. " +
     "Every web design without a fixed exact-size request must be responsive. " +
     "For exact pixel dimensions, use those values for the screen's canvas frame " +
-    "and do not add mobile or tablet frames. This action adds responsive editor " +
+    "and do not add mobile or tablet frames. Use one exact canvas size per call; " +
+    "make separate calls for screens with different exact sizes. This action adds responsive editor " +
     "breakpoints by default: a Desktop 1440x900 base frame plus a Mobile " +
     "breakpoint (no auto tablet, no duplicate desktop). Pass `devices` to honor " +
     "the form factors the prompt explicitly names — the widest becomes the base " +
@@ -687,6 +690,7 @@ const generateDesignAction = defineAction({
     },
     context,
   ) => {
+    const promptCanvasDimensions = explicitCanvasDimensionsFromPrompt(prompt);
     await assertAccess("design", designId, "editor");
     track(
       "generation_started",
@@ -923,12 +927,12 @@ const generateDesignAction = defineAction({
       width: number;
       height: number;
       breakpointWidths: number[] | undefined;
+      fixedSize: boolean;
     }> = [];
     const normalizedTweaks = tweaks?.map((tweak) => ({
       ...tweak,
       type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
     }));
-    const promptCanvasDimensions = explicitCanvasDimensionsFromPrompt(prompt);
     const resolvedDevices = promptCanvasDimensions
       ? []
       : (devices ?? devicesForPrimaryViewport(primaryViewport));
@@ -1074,6 +1078,10 @@ const generateDesignAction = defineAction({
           } else {
             delete nextMetadata.breakpointWidths;
           }
+          if (promptCanvasDimensions) {
+            nextMetadata.heightPinned = true;
+            nextMetadata.heightMode = "fixed";
+          }
           if (!jsonValuesEqual(rawMetadata, nextMetadata)) {
             nextScreenMetadata[file.id] = nextMetadata;
             screenMetadataUpdates.push({
@@ -1081,6 +1089,7 @@ const generateDesignAction = defineAction({
               width,
               height,
               breakpointWidths,
+              fixedSize: promptCanvasDimensions !== undefined,
             });
           }
         }
@@ -1173,7 +1182,21 @@ const generateDesignAction = defineAction({
           a.y < b.y + b.height &&
           a.y + a.height > b.y;
         const occupiedRects: Array<ReturnType<typeof rectOf>> = [];
+        const exactSizeResizedFileIds = promptCanvasDimensions
+          ? new Set(
+              savedFiles
+                .filter((file) => {
+                  if (!preExistingFrameIds.has(file.id)) return false;
+                  const source = files.find(
+                    (candidate) => candidate.filename === file.filename,
+                  );
+                  return Boolean(source && isRenderableDesignFile(source));
+                })
+                .map((file) => file.id),
+            )
+          : new Set<string>();
         for (const id of preExistingFrameIds) {
+          if (exactSizeResizedFileIds.has(id)) continue;
           const frame = merged.canvasFrames[id];
           if (frame) occupiedRects.push(rectOf(frame, id));
         }
@@ -1197,6 +1220,7 @@ const generateDesignAction = defineAction({
           const current = merged.canvasFrames[file.id] ?? {};
           if (
             preExistingFrameIds.has(file.id) &&
+            !exactSizeResizedFileIds.has(file.id) &&
             current.x !== undefined &&
             current.y !== undefined &&
             current.width !== undefined &&
@@ -1372,7 +1396,7 @@ const generateDesignAction = defineAction({
             ? (current.screenMetadata as Record<string, unknown>)
             : {};
         const screenMetadataApplied = screenMetadataUpdates.every(
-          ({ fileId, width, height, breakpointWidths }) => {
+          ({ fileId, width, height, breakpointWidths, fixedSize }) => {
             const metadata = currentMetadata[fileId];
             return (
               metadata &&
@@ -1386,7 +1410,10 @@ const generateDesignAction = defineAction({
                 : jsonValuesEqual(
                     (metadata as Record<string, unknown>).breakpointWidths,
                     breakpointWidths,
-                  ))
+                  )) &&
+              (!fixedSize ||
+                ((metadata as Record<string, unknown>).heightPinned === true &&
+                  (metadata as Record<string, unknown>).heightMode === "fixed"))
             );
           },
         );

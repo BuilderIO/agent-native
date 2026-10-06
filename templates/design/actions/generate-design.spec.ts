@@ -985,8 +985,136 @@ describe("generate-design: new-file creation path", () => {
       width: 1080,
       height: 1080,
       breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
     });
     expect(data.breakpointSet).toBeUndefined();
+  });
+
+  it("rejects multiple exact canvas sizes before writing files", async () => {
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Create a 300x250 ad and a 728x90 leaderboard",
+        files: [
+          {
+            filename: "ad.html",
+            fileType: "html",
+            content: "<!doctype html><html><body>Ad</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("Use one exact canvas size per Design action call");
+
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("moves an exact-size resize clear of neighboring existing screens", async () => {
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body>old</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "file-2",
+        designId: "design-1",
+        filename: "neighbor.html",
+        fileType: "html",
+        content: "<html><body>neighbor</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: {
+        "file-1": { width: 390, height: 250 },
+        "file-2": { width: 390, height: 250 },
+      },
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 390, height: 250, z: 0 },
+        "file-2": { x: 400, y: 0, width: 390, height: 250, z: 1 },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Set exact canvas dimensions to 600x500 pixels",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Updated</body></html>",
+        },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    expect(frames["file-1"]).toMatchObject({ width: 600, height: 500 });
+    expect(frames["file-1"]!.x).toBeGreaterThanOrEqual(
+      frames["file-2"]!.x + frames["file-2"]!.width + 96,
+    );
+  });
+
+  it("keeps non-renderable existing frames in exact-size collision checks", async () => {
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body>old</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "file-2",
+        designId: "design-1",
+        filename: "notes.txt",
+        fileType: "asset",
+        content: "notes",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 390, height: 250, z: 0 },
+        "file-2": { x: 400, y: 0, width: 390, height: 250, z: 1 },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Set exact canvas dimensions to 600x500 pixels",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Updated</body></html>",
+        },
+        { filename: "notes.txt", fileType: "asset", content: "updated notes" },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    expect(frames["file-1"]!.width).toBe(600);
+    expect(frames["file-2"]!.width).toBe(600);
+    expect(frames["file-1"]!.x).toBeGreaterThanOrEqual(
+      frames["file-2"]!.x + frames["file-2"]!.width + 96,
+    );
   });
 
   it("keeps existing breakpoints while hiding them for an exact-size screen", async () => {
@@ -1020,6 +1148,8 @@ describe("generate-design: new-file creation path", () => {
       width: 1200,
       height: 600,
       breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
     });
   });
 

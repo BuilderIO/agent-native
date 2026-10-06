@@ -198,6 +198,22 @@ describe("present-design-variants", () => {
       .mockReturnValueOnce("file-c");
   });
 
+  it("rejects different exact canvas sizes before writing variants", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Create a 300x250 ad and a 728x90 leaderboard",
+        variants: [
+          { id: "one", label: "One" },
+          { id: "two", label: "Two" },
+        ],
+      }),
+    ).rejects.toThrow("Use one exact canvas size per Design action call");
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
   it("keeps fallback direction screens fluid on narrow viewports", async () => {
     await action.run({
       designId: "design_123",
@@ -458,6 +474,8 @@ describe("present-design-variants", () => {
       width: 2400,
       height: 3200,
       breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
     });
     expect(mocks.designData.breakpointSet).toMatchObject({ id: "existing" });
   });
