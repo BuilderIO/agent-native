@@ -108,7 +108,12 @@ describe("suggestion draft session", () => {
       baseContent: "Use workflow.\nAnother paragraph.",
       baseRevision: "one",
       startedAt: "now",
-      existingSuggestion: { id: "saved", threadId: "thread", revision: 1 },
+      existingSuggestion: {
+        id: "saved",
+        threadId: "thread",
+        revision: 1,
+        baseRevision: "one",
+      },
     });
     const content = "Use workflows!\nAnother edited paragraph.";
     const operations = suggestionDraftOperations(session, content);
@@ -174,6 +179,7 @@ describe("suggestion draft session", () => {
           id: "suggestion-one",
           threadId: "thread-one",
           revision: 2,
+          baseRevision: "revision-one",
         },
       },
       caret: { from: 9, prefix: "An edited", suffix: " example" },

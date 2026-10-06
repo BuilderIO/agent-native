@@ -37,6 +37,7 @@ export type SuggestionDraftSession = {
     id: string;
     threadId: string;
     revision: number;
+    baseRevision: string;
   };
 };
 
@@ -128,7 +129,7 @@ export type SuggestionSaveOutcome<Result> =
 // decided it, or someone amended it elsewhere, which is the only way its
 // revision advances.
 export async function saveUnlessSuggestionChanged<Result>(
-  suggestion: ResourceSuggestion,
+  suggestion: Pick<ResourceSuggestion, "id">,
   attempt: () => Promise<Result>,
   options: {
     isConflict: (error: unknown) => boolean;
@@ -240,6 +241,7 @@ export function editableSuggestionDraft(input: {
         id: suggestion.id,
         threadId: suggestion.threadId,
         revision: suggestion.revision,
+        baseRevision: suggestion.baseRevision,
       },
     }),
     content: after.markdown,

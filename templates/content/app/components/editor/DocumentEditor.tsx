@@ -5066,10 +5066,6 @@ function PageEditorSessionBody({
         setSuggestionAmendmentConflict(true);
         return null;
       }
-      if (base.existingSuggestion && draft === base.baseContent) {
-        if (!autosave) toast.error(t("editor.suggestionAmendmentEmpty"));
-        return null;
-      }
       if (!autosave) setIsSubmittingSuggestions(true);
       try {
         type CreatedProposal = Awaited<
@@ -5114,10 +5110,58 @@ function PageEditorSessionBody({
           unresolvedProposalCreationRef.current = null;
         }
         const operations = suggestionDraftOperations(base, draft);
+        const conflictCheck = {
+          isConflict: isSuggestionConflictActionError,
+          latest: async (id: string) => {
+            const refreshed = await suggestionsQuery.refetch();
+            if (refreshed.isError || !refreshed.data)
+              throw (
+                refreshed.error ?? new Error("Could not refresh suggestions")
+              );
+            return refreshed.data.suggestions.find(
+              (suggestion) => suggestion.id === id,
+            );
+          },
+        };
         if (base.existingSuggestion) {
+          const existing = base.existingSuggestion;
           if (operations.length === 0) {
-            if (!autosave) toast.error(t("editor.suggestionAmendmentEmpty"));
-            return null;
+            // Edited back to the Page, the suggestion has nothing left to
+            // suggest, so leaving Suggesting withdraws it. Before then the
+            // author may still be retyping it.
+            if (keepMode) {
+              if (!autosave) toast.error(t("editor.suggestionAmendmentEmpty"));
+              return null;
+            }
+            const withdrawn = await saveUnlessSuggestionChanged(
+              existing,
+              async () =>
+                (
+                  await decideSuggestion.mutateAsync({
+                    id: existing.id,
+                    decision: "withdrawn",
+                    idempotencyKey: `withdraw:${existing.id}:${existing.revision}`,
+                    observedBase: existing.baseRevision,
+                    observedRevision: existing.revision,
+                  })
+                ).suggestion,
+              conflictCheck,
+            );
+            if (withdrawn.status === "changed") {
+              setSuggestionAmendmentConflict(true);
+              return null;
+            }
+            if (withdrawn.status === "saved") {
+              const settled = withdrawn.result;
+              setLocallyCreatedSuggestions((current) => {
+                const byId = new Map(
+                  current.map((suggestion) => [suggestion.id, suggestion]),
+                );
+                byId.set(settled.id, settled);
+                return [...byId.values()];
+              });
+            }
+            return saved(new Map<string, ResourceSuggestion>());
           }
           const operationKey = JSON.stringify(operations);
           const idempotencyKey =
@@ -5135,6 +5179,7 @@ function PageEditorSessionBody({
             base.existingSuggestion = {
               ...base.existingSuggestion,
               revision: amended.revision,
+              baseRevision: amended.baseRevision,
             };
             base.initialContent = draft;
           }
@@ -5154,19 +5199,6 @@ function PageEditorSessionBody({
         const plan = planSuggestionDraftPersistence(operations, entries);
         const persisted = new Map(plan.unchanged);
         const settled: ResourceSuggestion[] = [];
-        const conflictCheck = {
-          isConflict: isSuggestionConflictActionError,
-          latest: async (id: string) => {
-            const refreshed = await suggestionsQuery.refetch();
-            if (refreshed.isError || !refreshed.data)
-              throw (
-                refreshed.error ?? new Error("Could not refresh suggestions")
-              );
-            return refreshed.data.suggestions.find(
-              (suggestion) => suggestion.id === id,
-            );
-          },
-        };
         // Set once a suggestion this save meant to change was accepted or
         // amended elsewhere: writing this draft over it would discard that
         // change, so the author resolves the draft from the conflict banner.

@@ -693,6 +693,38 @@ describe("document editor layout", () => {
     );
   });
 
+  // A commenter cannot reject, so before withdrawal an author who edited their
+  // suggestion back to the Page could not leave Suggesting at all.
+  it("withdraws an edited suggestion reverted to the Page when Suggesting ends", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const persist = source.slice(
+      source.indexOf("const persistSuggestionDraft"),
+      source.indexOf("const flushSuggestionDraft = "),
+    );
+    const empty = persist.slice(
+      persist.indexOf("if (base.existingSuggestion) {"),
+      persist.indexOf("const operationKey = JSON.stringify(operations);"),
+    );
+    expect(empty).toMatch(
+      /if \(operations\.length === 0\) \{[\s\S]*?if \(keepMode\) \{[\s\S]*?return null;\s*\}\s*const withdrawn = await saveUnlessSuggestionChanged\(\s*existing,/,
+    );
+    expect(empty).toMatch(
+      /decision: "withdrawn",[\s\S]*?observedBase: existing\.baseRevision,\s*observedRevision: existing\.revision,/,
+    );
+    expect(empty).toMatch(
+      /withdrawn\.status === "changed"\) \{\s*setSuggestionAmendmentConflict\(true\);\s*return null;/,
+    );
+    expect(empty).toContain(
+      "return saved(new Map<string, ResourceSuggestion>());",
+    );
+    expect(persist).not.toMatch(
+      /base\.existingSuggestion && draft === base\.baseContent/,
+    );
+  });
+
   it("recognizes resolved amendment targets and action conflicts", () => {
     expect(
       suggestionAmendmentTargetIsResolved("suggestion-1", [
