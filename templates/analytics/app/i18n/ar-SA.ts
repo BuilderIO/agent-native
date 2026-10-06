@@ -1486,7 +1486,7 @@ export default {
     screenshotDownloaded: "تم تنزيل لقطة الشاشة",
     screenshotSaveFailed: "تعذّر حفظ لقطة الشاشة",
     screenshotUnsupportedAssets:
-      "لم تُحفظ لقطة الشاشة: تعذّر التقاط بعض الصور بأمان.",
+      "لم تُحفظ لقطة الشاشة: تعذّر التقاط بعض الوسائط المضمّنة أو الصور بأمان.",
     timeline: "الخط الزمني للأحداث",
     replayTimeline: "خط إعادة التشغيل الزمني",
     timelineDescription: "عرض {{count}} من {{total}} أحداث مفيدة.",

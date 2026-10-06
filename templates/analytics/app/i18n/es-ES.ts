@@ -1528,7 +1528,7 @@ export default {
     screenshotDownloaded: "Captura descargada",
     screenshotSaveFailed: "No se pudo guardar la captura",
     screenshotUnsupportedAssets:
-      "No se guardó la captura: no se pudieron capturar algunas imágenes de forma segura.",
+      "No se guardó la captura: algunos medios o imágenes incrustados no se pudieron capturar de forma segura.",
     timeline: "Línea de tiempo de eventos",
     replayTimeline: "Línea de tiempo de reproducción",
     timelineDescription: "Mostrando {{count}} de {{total}} eventos útiles.",

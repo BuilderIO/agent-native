@@ -1514,7 +1514,7 @@ export default {
     screenshotDownloaded: "スクリーンショットをダウンロードしました",
     screenshotSaveFailed: "スクリーンショットを保存できませんでした",
     screenshotUnsupportedAssets:
-      "安全にキャプチャできない画像があるため、スクリーンショットは保存されませんでした。",
+      "安全にキャプチャできない埋め込みメディアや画像があるため、スクリーンショットは保存されませんでした。",
     timeline: "イベントタイムライン",
     replayTimeline: "リプレイタイムライン",
     timelineDescription:

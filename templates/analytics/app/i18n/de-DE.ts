@@ -1539,7 +1539,7 @@ export default {
     screenshotDownloaded: "Screenshot heruntergeladen",
     screenshotSaveFailed: "Screenshot konnte nicht gespeichert werden",
     screenshotUnsupportedAssets:
-      "Screenshot nicht gespeichert: Einige Bilder können nicht sicher erfasst werden.",
+      "Screenshot nicht gespeichert: Eingebettete Medien oder Bilder können teilweise nicht sicher erfasst werden.",
     timeline: "Ereignis-Timeline",
     replayTimeline: "Wiedergabe-Zeitachse",
     timelineDescription:

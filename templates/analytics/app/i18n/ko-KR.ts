@@ -1487,7 +1487,7 @@ export default {
     screenshotDownloaded: "스크린샷을 다운로드했습니다",
     screenshotSaveFailed: "스크린샷을 저장하지 못했습니다",
     screenshotUnsupportedAssets:
-      "일부 이미지를 안전하게 캡처할 수 없어 스크린샷을 저장하지 않았습니다.",
+      "일부 포함된 미디어 또는 이미지를 안전하게 캡처할 수 없어 스크린샷을 저장하지 않았습니다.",
     timeline: "이벤트 타임라인",
     replayTimeline: "리플레이 타임라인",
     timelineDescription: "유용한 이벤트 {{count}} / {{total}}개를 표시합니다.",

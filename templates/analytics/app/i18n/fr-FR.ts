@@ -1544,7 +1544,7 @@ export default {
     screenshotDownloaded: "Capture téléchargée",
     screenshotSaveFailed: "Impossible d’enregistrer la capture",
     screenshotUnsupportedAssets:
-      "Capture non enregistrée : certaines images ne peuvent pas être capturées en toute sécurité.",
+      "Capture non enregistrée : certains médias intégrés ou images ne peuvent pas être capturés en toute sécurité.",
     timeline: "Chronologie des événements",
     replayTimeline: "Chronologie de relecture",
     timelineDescription:

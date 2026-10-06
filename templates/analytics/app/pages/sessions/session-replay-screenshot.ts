@@ -1,14 +1,39 @@
 export class ReplayScreenshotAssetError extends Error {
   constructor() {
-    super("Replay contains cross-origin images that cannot be captured safely");
+    super("Replay contains media or images that cannot be captured safely");
     this.name = "ReplayScreenshotAssetError";
   }
 }
 
-export function crossOriginImageUrls(document: Document): string[] {
+function replayDocuments(document: Document): Document[] {
+  const documents: Document[] = [];
+  const visited = new Set<Document>();
+  const visit = (current: Document) => {
+    if (visited.has(current)) return;
+    visited.add(current);
+    documents.push(current);
+
+    for (const frame of current.querySelectorAll<HTMLIFrameElement>("iframe")) {
+      const child = frame.contentDocument;
+      if (!child?.documentElement) {
+        const source = frame.getAttribute("src");
+        if (source && new URL(source, current.baseURI).protocol !== "about:") {
+          throw new ReplayScreenshotAssetError();
+        }
+        continue;
+      }
+      visit(child);
+    }
+  };
+
+  visit(document);
+  return documents;
+}
+
+function imageUrlsInDocuments(documents: Document[]): string[] {
   const urls = new Set<string>();
-  const addUrl = (value: string) => {
-    const url = new URL(value, document.baseURI);
+  const addUrl = (value: string, baseURI: string) => {
+    const url = new URL(value, baseURI);
     if (
       (url.protocol === "https:" || url.protocol === "http:") &&
       url.origin !== window.location.origin
@@ -16,41 +41,75 @@ export function crossOriginImageUrls(document: Document): string[] {
       urls.add(url.href);
     }
   };
-  const addCssUrls = (value: string) => {
+  const addCssUrls = (value: string, baseURI: string) => {
+    if (!value) return;
     for (const match of value.matchAll(/url\(["']?([^"')]+)["']?\)/gi)) {
-      addUrl(match[1]);
+      addUrl(match[1], baseURI);
     }
   };
 
-  for (const image of document.querySelectorAll<HTMLImageElement>("img")) {
-    const source = image.currentSrc || image.src;
-    if (source) addUrl(source);
-  }
+  for (const current of documents) {
+    for (const image of current.querySelectorAll<HTMLImageElement>("img")) {
+      const source = image.currentSrc || image.src;
+      if (source) addUrl(source, current.baseURI);
+    }
 
-  for (const video of document.querySelectorAll<HTMLVideoElement>(
-    "video[poster]",
-  )) {
-    if (video.poster) addUrl(video.poster);
-  }
+    for (const image of current.querySelectorAll<SVGImageElement>(
+      "svg image",
+    )) {
+      const source =
+        image.getAttribute("href") ||
+        image.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+      if (source) addUrl(source, current.baseURI);
+    }
 
-  for (const element of document.querySelectorAll<HTMLElement>("*")) {
-    const styles = window.getComputedStyle(element);
-    addCssUrls(styles.backgroundImage);
-    addCssUrls(styles.maskImage);
+    for (const video of current.querySelectorAll<HTMLVideoElement>(
+      "video[poster]",
+    )) {
+      if (video.poster) addUrl(video.poster, current.baseURI);
+    }
 
-    for (const pseudo of ["::before", "::after"]) {
-      const pseudoStyles = window.getComputedStyle(element, pseudo);
-      addCssUrls(pseudoStyles.content);
-      addCssUrls(pseudoStyles.backgroundImage);
-      addCssUrls(pseudoStyles.maskImage);
+    for (const element of current.querySelectorAll<Element>("*")) {
+      const view = current.defaultView ?? window;
+      const styles = view.getComputedStyle(element);
+      addCssUrls(styles.backgroundImage, current.baseURI);
+      addCssUrls(styles.maskImage, current.baseURI);
+
+      for (const pseudo of ["::before", "::after"]) {
+        const pseudoStyles = view.getComputedStyle(element, pseudo);
+        addCssUrls(pseudoStyles.content, current.baseURI);
+        addCssUrls(pseudoStyles.backgroundImage, current.baseURI);
+        addCssUrls(pseudoStyles.maskImage, current.baseURI);
+      }
     }
   }
 
   return [...urls];
 }
 
-async function assertRemoteImagesCapturable(document: Document): Promise<void> {
-  const urls = crossOriginImageUrls(document);
+export function crossOriginImageUrls(document: Document): string[] {
+  return imageUrlsInDocuments(replayDocuments(document));
+}
+
+export async function assertRemoteImagesCapturable(
+  document: Document,
+): Promise<void> {
+  const documents = replayDocuments(document);
+  if (
+    documents.some((current) =>
+      Array.from(current.querySelectorAll<HTMLVideoElement>("video")).some(
+        (video) =>
+          video.currentSrc ||
+          video.hasAttribute("src") ||
+          video.srcObject ||
+          video.querySelector("source[src]"),
+      ),
+    )
+  ) {
+    throw new ReplayScreenshotAssetError();
+  }
+
+  const urls = imageUrlsInDocuments(documents);
   const checks = await Promise.all(
     urls.map(async (url) => {
       let response: Response;

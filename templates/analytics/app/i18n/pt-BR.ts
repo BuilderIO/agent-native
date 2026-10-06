@@ -1524,7 +1524,7 @@ export default {
     screenshotDownloaded: "Captura baixada",
     screenshotSaveFailed: "Não foi possível salvar a captura",
     screenshotUnsupportedAssets:
-      "Captura não salva: algumas imagens não podem ser capturadas com segurança.",
+      "Captura não salva: algumas mídias incorporadas ou imagens não podem ser capturadas com segurança.",
     timeline: "Linha do tempo de eventos",
     replayTimeline: "Linha do tempo do replay",
     timelineDescription: "Mostrando {{count}} de {{total}} eventos úteis.",
