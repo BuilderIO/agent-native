@@ -95,6 +95,7 @@ async function drag(
   beforeRelease?: (
     held: Awaited<ReturnType<typeof guide>>,
   ) => void | Promise<void>,
+  targetPosition?: { xRatio?: number; yRatio?: number },
 ) {
   const source = (await node(page, id).boundingBox())!;
   const targetBox = (await target.boundingBox())!;
@@ -111,8 +112,8 @@ async function drag(
       { steps: 6 },
     );
     await page.mouse.move(
-      targetBox.x + targetBox.width / 2,
-      targetBox.y + targetBox.height / 2,
+      targetBox.x + targetBox.width * (targetPosition?.xRatio ?? 0.5),
+      targetBox.y + targetBox.height * (targetPosition?.yRatio ?? 0.5),
       { steps: 24 },
     );
     const held = await guide(page);
@@ -179,32 +180,40 @@ test("width-only oversized drop previews the outer fallback insertion slot", asy
           el.parentElement?.tagName,
       );
     const before = await indexHtml(page, id);
-    await drag(page, "source", target, undefined, true, async (held) => {
-      expect(held).toBeTruthy();
-      expect(held?.height).toBeLessThan(16);
-      expect(held?.width).toBeGreaterThan(sizeGate.nestedWidth - 2);
-      expect(Math.abs(held!.left - sizeGate.nestedLeft)).toBeLessThan(2);
-      expect(
-        Math.abs(held!.top + held!.height / 2 - sizeGate.nestedTop),
-      ).toBeLessThan(3);
-      expect(await indexHtml(page, id)).toBe(before);
-      await expect
-        .poll(() =>
-          body(page)
-            .locator('[data-agent-native-node-id="source"]')
-            .evaluate(
-              (el) =>
-                el.parentElement?.getAttribute("data-agent-native-node-id") ??
-                el.parentElement?.tagName,
-            ),
-        )
-        .toBe(sourceParentBefore);
-      await expect(
-        body(page).locator(
-          '[data-agent-native-node-id="nested"] [data-agent-native-node-id="source"]',
-        ),
-      ).toHaveCount(0);
-    });
+    await drag(
+      page,
+      "source",
+      target,
+      undefined,
+      true,
+      async (held) => {
+        expect(held).toBeTruthy();
+        expect(held?.height).toBeLessThan(16);
+        expect(held?.width).toBeGreaterThan(sizeGate.nestedWidth - 2);
+        expect(Math.abs(held!.left - sizeGate.nestedLeft)).toBeLessThan(2);
+        expect(
+          Math.abs(held!.top + held!.height / 2 - sizeGate.nestedTop),
+        ).toBeLessThan(3);
+        expect(await indexHtml(page, id)).toBe(before);
+        await expect
+          .poll(() =>
+            body(page)
+              .locator('[data-agent-native-node-id="source"]')
+              .evaluate(
+                (el) =>
+                  el.parentElement?.getAttribute("data-agent-native-node-id") ??
+                  el.parentElement?.tagName,
+              ),
+          )
+          .toBe(sourceParentBefore);
+        await expect(
+          body(page).locator(
+            '[data-agent-native-node-id="nested"] [data-agent-native-node-id="source"]',
+          ),
+        ).toHaveCount(0);
+      },
+      { xRatio: 0.5, yRatio: 0.25 },
+    );
     await expect
       .poll(() => indexHtml(page, id), { timeout: 5_000 })
       .not.toBe(before);
