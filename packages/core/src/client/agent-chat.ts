@@ -24,7 +24,7 @@ import {
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,
 } from "./frame.js";
-import { sendMcpAppHostMessage } from "./mcp-app-host.js";
+import { isOpenAiMcpAppHost, sendMcpAppHostMessage } from "./mcp-app-host.js";
 
 export { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
 
@@ -804,6 +804,68 @@ function isDirectMcpAppEmbedSession(): boolean {
   return isEmbedAuthActive() && !isEmbedMcpChatBridgeActive();
 }
 
+function hasMcpAppLocalPayload(
+  opts: Pick<
+    AgentChatMessage,
+    | "actionScope"
+    | "attachments"
+    | "effort"
+    | "engine"
+    | "images"
+    | "instructions"
+    | "model"
+    | "newTab"
+    | "preset"
+    | "projectSlug"
+    | "referenceImagePaths"
+    | "reuseEmptyTab"
+    | "submitMessageId"
+    | "tabId"
+    | "targetTabId"
+    | "uploadedReferenceImages"
+    | "usageLabel"
+    | "approvedToolCalls"
+  >,
+  additionalSubmitMessageId?: string,
+): boolean {
+  return Boolean(
+    opts.attachments?.length ||
+    opts.images?.length ||
+    opts.referenceImagePaths?.length ||
+    opts.uploadedReferenceImages?.length ||
+    opts.usageLabel ||
+    opts.actionScope ||
+    opts.projectSlug ||
+    opts.instructions ||
+    opts.model ||
+    opts.engine ||
+    opts.effort ||
+    opts.newTab ||
+    opts.reuseEmptyTab ||
+    opts.submitMessageId ||
+    additionalSubmitMessageId ||
+    opts.tabId ||
+    opts.targetTabId ||
+    opts.preset ||
+    opts.approvedToolCalls?.length,
+  );
+}
+
+function routesForcedLocalChatToOpenAiHost(
+  opts: AgentChatMessage,
+  submitMessageId?: string,
+): boolean {
+  return (
+    opts.chatTarget === "local" &&
+    opts.submit !== false &&
+    opts.background !== true &&
+    isMcpAppChatBridgeEnabled() &&
+    isOpenAiMcpAppHost() &&
+    !hasMcpAppLocalPayload(opts, submitMessageId) &&
+    !keepsApprovalInAppChat(opts)
+  );
+}
+
 function dispatchAgentChatRunning(isRunning: boolean, tabId?: string): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
@@ -1027,21 +1089,12 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
       ? undefined
       : normalizeAgentActionScope(opts.actionScope);
   const mcpBridgeEnabled = isMcpAppChatBridgeEnabled();
-  const hasMcpAppLocalPayload =
-    mcpBridgeEnabled &&
-    Boolean(
-      opts.attachments?.length ||
-      opts.images?.length ||
-      opts.referenceImagePaths?.length ||
-      opts.uploadedReferenceImages?.length ||
-      opts.usageLabel ||
-      actionScope,
-    );
-  const isCodeRequest = routesToCodeFrame(opts) && !hasMcpAppLocalPayload;
+  const mcpAppLocalPayload = mcpBridgeEnabled && hasMcpAppLocalPayload(opts);
+  const isCodeRequest = routesToCodeFrame(opts) && !mcpAppLocalPayload;
   const localChatTarget =
-    opts.chatTarget === "local" ||
+    (opts.chatTarget === "local" && !routesForcedLocalChatToOpenAiHost(opts)) ||
     keepsApprovalInAppChat(opts) ||
-    hasMcpAppLocalPayload;
+    mcpAppLocalPayload;
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -1173,6 +1226,35 @@ export function sendToAgentChatAndConfirm(
       delivered: false,
       reason: "unsupported-target",
     });
+  }
+
+  if (routesForcedLocalChatToOpenAiHost(opts, options?.submitMessageId)) {
+    const requestMode =
+      normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
+      readStoredAgentChatRequestMode();
+    const hostDelivery = sendMcpAppHostMessage({
+      message: opts.message,
+      context: opts.context,
+      ...(requestMode ? { mode: requestMode, requestMode } : {}),
+    });
+    if (hostDelivery === false) {
+      return Promise.resolve({
+        tabId,
+        delivered: false,
+        reason: "host-unavailable",
+      });
+    }
+    return Promise.resolve(hostDelivery)
+      .then((delivered) => ({
+        tabId,
+        delivered: delivered === true,
+        ...(delivered === true
+          ? {}
+          : {
+              reason: delivered === null ? "host-unconfirmed" : "host-rejected",
+            }),
+      }))
+      .catch(() => ({ tabId, delivered: false, reason: "host-rejected" }));
   }
 
   const submitMessageId =

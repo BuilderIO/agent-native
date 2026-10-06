@@ -136,6 +136,12 @@ Claude/ChatGPT conversation. Hidden context stays in model context; do not put
 internal app-state file instructions into the visible prompt. `submit: false`
 stays local as a prefill/review path.
 
+In the ChatGPT MCP App host, foreground text-and-context handoffs explicitly
+marked `chatTarget: "local"` also use the active `window.openai` / `ui/message`
+bridge, so review and edit actions continue in the ChatGPT conversation. Keep
+prefill-only, background, approval, attachment, and app-scoped requests local;
+other MCP hosts retain their explicit local-chat behavior.
+
 When testing Claude through ngrok, use a production build (`pnpm exec agent-native build`
 then `pnpm exec agent-native start`) or a deployed preview/production URL. Claude's
 transplant path works with production asset chunks; raw Vite dev modules such

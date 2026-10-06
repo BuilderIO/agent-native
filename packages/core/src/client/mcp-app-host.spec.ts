@@ -9,6 +9,7 @@ import {
   AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
   _resetMcpAppHostForTests,
   getMcpAppHostContext,
+  isOpenAiMcpAppHost,
   openMcpAppHostLink,
   requestMcpAppDisplayMode,
   sendMcpAppHostMessage,
@@ -126,6 +127,15 @@ describe("MCP app host client helpers", () => {
     _resetMcpAppHostForTests();
     _resetEmbedAuthForTests();
     sessionStorage.clear();
+  });
+
+  it("detects an active ChatGPT MCP App host from window.openai", () => {
+    setDirectParent(parentWindow());
+    vi.stubGlobal("openai", {});
+    expect(isOpenAiMcpAppHost()).toBe(true);
+
+    vi.stubGlobal("openai", undefined);
+    expect(isOpenAiMcpAppHost()).toBe(false);
   });
 
   it("caches host context and exposes it through the React hook", async () => {
