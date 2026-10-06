@@ -126,7 +126,7 @@ https://<your-app>.agent-native.com/mcp
 
 ホストされているすべてのアプリには、ヘルパー ページもあります
 `https://&lt;app&gt;/mcp/connect` とコピー可能な URL および
-Claude、ChatGPT、カーソル、Claude コード、Codex、Grok、その他のホスト固有のタブ。
+Claude、ChatGPT、Cursor、VS Code、Claude Code、Codex、Grok、その他のホスト別タブがあります。
 
 ## 非公開 Content リンク {#private-content-links}
 
@@ -173,9 +173,31 @@ Dispatch は、ChatGPT または Claude のキャッシュされたカレンダ�
 スナップショット。`mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` スコープは、以下の
 [標準リモート MCP OAuth](#standard-oauth) で説明するものと同じです。
 
-Cursor、Goose、Postman、MCPJam、VS Code GitHub Copilot は同じリモートを使用します
-ビルドがリモート OAuth をサポートしている場合、独自の MCP サーバー UI を介した MCP URL
-MCP サーバー。
+### Cursor、VS Code、Codex {#install-links}
+
+**Settings → MCP server** と `/mcp/connect` の **Cursor** タブと **VS Code**
+タブにはインストール ボタンがあります。**Cursor に追加** は Cursor の
+**Install MCP server?** の確認を開きます。**VS Code に追加** と
+**VS Code Insiders に追加** は **Install** ボタンのあるサーバー ページを開きます。
+リンクに含まれるのはサーバー名、トランスポート、MCP URL だけで、トークン、ヘッダー、アカウント情報は含まれません。
+クライアントは最初の接続時に独自の OAuth サインインを行います。VS Code では、その後ツールが Agent モードの Chat ビューに表示されます。
+
+Codex では `codex mcp add <server-name> --url <mcp-url>` を実行してから
+`codex mcp login <server-name>` を実行し、OAuth でサインインします。**Codex**
+タブには両方の値が入力済みです。
+
+Goose、Postman、MCPJam などのクライアントは、そのビルドが OAuth 対応のリモート MCP
+サーバーをサポートしていれば、各自の MCP サーバー画面から同じリモート MCP URL を使用します。
+
+### サーバー名 {#server-names}
+
+アプリは自身の MCP サーバーに名前を付け、すべての画面がその名前を使います。インストール
+リンク、コピー用のコマンド、`npx @agent-native/core@latest connect` も同じです。
+本番環境では `agent-native-mail` のようにサフィックスのない名前を使います。ベータ、
+プレビュー、ローカルのデプロイでは `agent-native-mail-beta` のように環境名が付くため、
+1 つのクライアントに本番とベータのエントリを並べて保持できます。スクリプトは
+`GET /mcp/connect/identity` で名前を取得できます。このエンドポイントはサインイン不要で、
+サーバー名、アプリ名、アプリ URL、MCP URL、環境を返します。
 
 ### クイック テスト プロンプト {#quick-test}
 

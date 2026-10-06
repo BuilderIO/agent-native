@@ -93,6 +93,8 @@ export interface McpSettingsMessages {
   mcpCopied: string;
   mcpStaticTokenDescription: string;
   mcpOpenConnectPage: string;
+  mcpIdentityError: string;
+  mcpRetry: string;
   mcpConnect: McpConnectMessages;
 }
 

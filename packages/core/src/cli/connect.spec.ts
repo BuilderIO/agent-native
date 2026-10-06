@@ -22,6 +22,14 @@ const originalHome = process.env.HOME;
 beforeEach(() => {
   process.exitCode = undefined;
   process.env.HOME = tmpDir();
+  // os.homedir() reads USERPROFILE on Windows, not HOME. Without this pin the
+  // client writers below edit the developer's real ~/.codex and ~/.cowork.
+  vi.spyOn(os, "homedir").mockImplementation(() => {
+    const home = process.env.HOME;
+    if (!home) throw new Error("connect tests need a temporary HOME");
+    return home;
+  });
+  vi.stubEnv("CODEX_HOME", undefined);
   vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 });
@@ -36,6 +44,7 @@ afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
   }
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 function tmpDir(): string {
@@ -229,12 +238,20 @@ describe("supportsRemoteMcpOAuth", () => {
   });
 });
 
+const CONNECT_IDENTITY_SUFFIX = "/mcp/connect/identity";
+
 function makeFetch(
   pollResponses: any[],
   start: Record<string, unknown> = {},
 ): typeof fetch {
   let pollIdx = 0;
   return vi.fn(async (url: string) => {
+    if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+      return new Response(JSON.stringify({ error: "Not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
       return new Response(
         JSON.stringify({
@@ -1311,6 +1328,9 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       expect(String(url)).toBe(
         "https://mail.agent-native.com/.well-known/oauth-protected-resource",
       );
@@ -1336,7 +1356,11 @@ describe("runConnect", () => {
     );
 
     expect(process.exitCode).toBeFalsy();
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://mail.agent-native.com/mcp/connect/identity",
+      expect.objectContaining({ method: "GET" }),
+    );
     expect(openBrowser).not.toHaveBeenCalled();
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
@@ -1351,6 +1375,9 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
     const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       expect(String(url)).toBe(
         "https://mail.agent-native.com/.well-known/oauth-protected-resource",
       );
@@ -1387,6 +1414,9 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
     const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       expect(String(url)).toBe(
         "https://mail.agent-native.com/mail/.well-known/oauth-protected-resource",
       );
@@ -1417,6 +1447,115 @@ describe("runConnect", () => {
       type: "http",
       url: "https://mail.agent-native.com/mail/mcp",
     });
+  });
+
+  it("uses the server name the app reports, so beta entries stay apart from production", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response(
+          JSON.stringify({
+            serverName: "agent-native-mail-beta",
+            appName: "Mail",
+            appUrl: "https://beta.mail.agent-native.com",
+            mcpUrl: "https://beta.mail.agent-native.com/mcp",
+            environment: "beta",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({ resource: "https://beta.mail.agent-native.com/mcp" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://beta.mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(cfg.mcpServers)).toEqual(["agent-native-mail-beta"]);
+    expect(cfg.mcpServers["agent-native-mail-beta"]).toEqual({
+      type: "http",
+      url: "https://beta.mail.agent-native.com/mcp",
+    });
+  });
+
+  it("warns and falls back to the hostname name when the server-name lookup fails", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("upstream down", { status: 502 });
+      }
+      return new Response(
+        JSON.stringify({ resource: "https://mail.agent-native.com/mcp" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(cfg.mcpServers)).toEqual(["agent-native-mail"]);
+    const warnings = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(warnings).toContain("Could not read the server name");
+    expect(warnings).toContain("HTTP 502");
+  });
+
+  it("stays quiet when an older server has no identity route", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = makeFetch([]);
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(cfg.mcpServers)).toEqual(["agent-native-mail"]);
+    const warnings = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(warnings).not.toContain("Could not read the server name");
   });
 
   it("rejects OAuth-native config when MCP metadata is unavailable", async () => {

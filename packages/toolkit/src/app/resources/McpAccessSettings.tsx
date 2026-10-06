@@ -1,8 +1,9 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useMcpConnectIdentity } from "@agent-native/core/client/mcp-connect-identity";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
 import {
-  MCP_CONNECT_MCP_URL_TEMPLATE,
+  buildMcpInstallLink,
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
@@ -31,6 +32,7 @@ interface AccessUrls {
   appName: string;
   appUrl: string;
   mcpUrl: string;
+  serverName: string;
   connectUrl: string;
   agentCardUrl: string;
 }
@@ -111,6 +113,36 @@ function McpGuidePanel({
   const t = useT();
   return (
     <>
+      {guide.install?.length ? (
+        <div className="flex flex-wrap gap-2">
+          {guide.install.map((option, index) => {
+            const link = buildMcpInstallLink(option.client, {
+              serverName: templateValues.serverId,
+              mcpUrl: templateValues.mcpUrl,
+            });
+            return (
+              <Button
+                key={option.client}
+                asChild
+                size="sm"
+                variant={index === 0 ? "default" : "outline"}
+              >
+                <a
+                  href={link.href}
+                  {...(link.opensWebPage
+                    ? { target: "_blank", rel: "noopener noreferrer" }
+                    : {})}
+                >
+                  {option.label}
+                  {link.opensWebPage ? (
+                    <IconExternalLink aria-hidden="true" />
+                  ) : null}
+                </a>
+              </Button>
+            );
+          })}
+        </div>
+      ) : null}
       {guide.steps?.length ? (
         <ol className="list-decimal space-y-2 ps-5 text-xs leading-relaxed text-muted-foreground">
           {guide.steps.map((step) => (
@@ -177,6 +209,9 @@ export function McpAccessSettings({
     () => getMcpStaticTokenFallback(locale),
     [locale],
   );
+  const identityState = useMcpConnectIdentity();
+  const identity =
+    identityState.status === "ready" ? identityState.identity : null;
   const [urls, setUrls] = useState<AccessUrls | null>(null);
   const [agentCardAvailable, setAgentCardAvailable] = useState(false);
   const [activeGuide, setActiveGuide] = useState<string>("claude");
@@ -195,9 +230,11 @@ export function McpAccessSettings({
   }, []);
 
   useEffect(() => {
+    if (!identity) {
+      setUrls(null);
+      return;
+    }
     const origin = window.location.origin;
-    const baseUrl = new URL(appPath("/"), origin).toString().replace(/\/$/, "");
-    const hostname = window.location.hostname || "app";
     const metaSiteName = [
       'meta[name="application-name"]',
       'meta[name="apple-mobile-web-app-title"]',
@@ -207,35 +244,22 @@ export function McpAccessSettings({
         document.querySelector(selector)?.getAttribute("content")?.trim(),
       )
       .find(Boolean);
-    const hostnameGuess =
-      hostname !== "localhost" && hostname !== "127.0.0.1"
-        ? hostname.split(".")[0]
-        : "";
-    const appName =
-      appNameProp?.trim() || metaSiteName || hostnameGuess || "this app";
-    const templateValues = {
-      appName,
-      appUrl: baseUrl,
-      mcpUrl: "",
-      serverId: `agent-native-${hostname}`,
-    } satisfies McpConnectTemplateValues;
+    const appName = appNameProp?.trim() || metaSiteName || identity.appName;
     const connectUrl = new URL(appPath("/mcp/connect"), origin);
     connectUrl.searchParams.set("locale", locale);
     connectUrl.searchParams.set("guide", activeGuide);
     setUrls({
       appName,
-      appUrl: baseUrl,
-      mcpUrl: interpolateMcpConnectTemplate(
-        MCP_CONNECT_MCP_URL_TEMPLATE,
-        templateValues,
-      ),
+      appUrl: identity.appUrl,
+      mcpUrl: identity.mcpUrl,
+      serverName: identity.serverName,
       connectUrl: connectUrl.toString(),
       agentCardUrl: new URL(
         appPath("/.well-known/agent-card.json"),
         origin,
       ).toString(),
     });
-  }, [activeGuide, appNameProp, locale]);
+  }, [activeGuide, appNameProp, identity, locale]);
 
   useEffect(() => {
     if (!urls) return;
@@ -257,7 +281,7 @@ export function McpAccessSettings({
         appName: urls.appName,
         appUrl: urls.appUrl,
         mcpUrl: urls.mcpUrl,
-        serverId: `agent-native-${window.location.hostname || "app"}`,
+        serverId: urls.serverName,
       }
     : null;
   const selectGuide = (guideId: string) => {
@@ -356,6 +380,20 @@ export function McpAccessSettings({
               </Button>
             </section>
           </>
+        ) : identityState.status === "error" ? (
+          <div className="space-y-3" role="alert">
+            <p className="text-xs text-muted-foreground">
+              {t("settings.mcpIdentityError")}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={identityState.retry}
+            >
+              {t("settings.mcpRetry")}
+            </Button>
+          </div>
         ) : (
           <div className="space-y-3" aria-busy="true">
             <Skeleton className="h-5 w-36" />

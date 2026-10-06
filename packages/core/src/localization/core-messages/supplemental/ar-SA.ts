@@ -90,6 +90,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "افتح صفحة الاتصال الكاملة لإنشاء رمز مميز للعملاء الذين لا يستطيعون إكمال OAuth.",
   mcpOpenConnectPage: "فتح صفحة الاتصال الكاملة",
+  mcpIdentityError: "تعذّر تحميل تفاصيل الاتصال لهذا التطبيق.",
+  mcpRetry: "إعادة المحاولة",
   mcpConnect: mcpConnectMessages,
 };
 

@@ -93,6 +93,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "Öffne die vollständige Verbindungsseite, um ein Token für Clients zu erstellen, die OAuth nicht abschließen können.",
   mcpOpenConnectPage: "Vollständige Verbindungsseite öffnen",
+  mcpIdentityError: "Die Verbindungsdetails dieser App konnten nicht geladen werden.",
+  mcpRetry: "Erneut versuchen",
   mcpConnect: mcpConnectMessages,
 };
 

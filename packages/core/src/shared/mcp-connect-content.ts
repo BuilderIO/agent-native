@@ -4,6 +4,7 @@ export type McpConnectGuideId =
   | "claude"
   | "chatgpt"
   | "cursor"
+  | "vscode"
   | "claude-code"
   | "codex"
   | "grok"
@@ -23,9 +24,32 @@ export interface McpConnectTemplateValues {
   serverId: string;
 }
 
+export type McpConnectEnvironment = "local" | "beta" | "production" | "preview";
+
+/**
+ * What an MCP client stores for this app: the name its config entry goes
+ * under and the URL it connects to. It never carries a credential, so every
+ * surface can render it and write it into an install link.
+ */
+export interface McpConnectIdentity {
+  serverName: string;
+  appName: string;
+  appUrl: string;
+  mcpUrl: string;
+  environment: McpConnectEnvironment;
+}
+
+export type McpInstallClient = "cursor" | "vscode" | "vscode-insiders";
+
+export interface McpConnectInstallOption {
+  client: McpInstallClient;
+  label: string;
+}
+
 export interface McpConnectGuide {
   id: McpConnectGuideId;
   label: string;
+  install?: readonly McpConnectInstallOption[];
   steps?: readonly string[];
   intro?: string;
   commandTemplate?: string;
@@ -75,12 +99,27 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
   {
     id: "cursor",
     label: "Cursor",
+    install: [{ client: "cursor", label: "Add to Cursor" }],
     steps: [
-      "Open Cursor → Settings → MCP.",
-      "Click Add MCP Server, paste the MCP URL above, save.",
+      "Click Add to Cursor, then Install when Cursor asks.",
+      "Without the button, open Cursor Settings → Tools & MCPs → New MCP Server and add the MCP URL above.",
       "When prompted, sign in with your Agent-Native account and approve the MCP scopes.",
     ],
     note: "Cursor supports remote-OAuth MCP servers, same paste-URL flow as Claude — no terminal needed.",
+  },
+  {
+    id: "vscode",
+    label: "VS Code",
+    install: [
+      { client: "vscode", label: "Add to VS Code" },
+      { client: "vscode-insiders", label: "Add to VS Code Insiders" },
+    ],
+    steps: [
+      "Click Add to VS Code, then Install on the server page VS Code opens.",
+      "Without the button, run MCP: Add Server from the Command Palette, choose HTTP, and paste the MCP URL above.",
+      "When VS Code asks, allow the sign-in and approve the MCP scopes on the Agent-Native consent page.",
+    ],
+    note: "The tools appear in the Chat view in Agent mode.",
   },
   {
     id: "claude-code",
@@ -94,9 +133,9 @@ export const MCP_CONNECT_GUIDES: readonly McpConnectGuide[] = [
     id: "codex",
     label: "Codex",
     intro: "In your terminal, run:",
-    commandTemplate: "npx @agent-native/core@latest connect {appUrl}",
+    commandTemplate: "codex mcp add {serverId} --url {mcpUrl}",
     action: { kind: "copy", label: "Copy command" },
-    note: "Opens this page in your browser and writes Codex's ~/.codex/config.toml automatically. The same command works for Claude Cowork and Goose.",
+    note: "Then run codex mcp login {serverId} and sign in with your Agent-Native account. For Claude Cowork or Goose, run npx @agent-native/core@latest connect {appUrl} instead.",
   },
   {
     id: "grok",
@@ -166,6 +205,18 @@ export const MCP_CONNECT_HOSTS: readonly McpConnectHost[] = [
     label: "Cursor",
     aliases: ["cursor"],
     guideId: "cursor",
+  },
+  {
+    id: "vscode",
+    label: "VS Code",
+    aliases: [
+      "vs code",
+      "vscode",
+      "visual studio code",
+      "copilot",
+      "github copilot",
+    ],
+    guideId: "vscode",
   },
   {
     id: "grok",
@@ -251,6 +302,7 @@ type McpConnectGuideTranslation = Partial<
   Pick<McpConnectGuide, "steps" | "intro" | "note">
 > & {
   actionLabel?: string;
+  installLabels?: Partial<Record<McpInstallClient, string>>;
 };
 
 const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
@@ -281,11 +333,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "Abre Cursor → Settings → MCP.",
-        "Haz clic en Add MCP Server, pega la URL de MCP de arriba y guarda.",
+        "Haz clic en Añadir a Cursor y luego en Install cuando Cursor lo pida.",
+        "Sin el botón, abre Cursor Settings → Tools & MCPs → New MCP Server y añade la URL de MCP de arriba.",
         "Cuando se te solicite, inicia sesión con tu cuenta de Agent-Native y aprueba los ámbitos de MCP.",
       ],
+      installLabels: { cursor: "Añadir a Cursor" },
       note: "Cursor admite servidores MCP remotos con OAuth y ofrece el mismo flujo de pegar la URL que Claude, sin necesidad de usar la terminal.",
+    },
+    vscode: {
+      steps: [
+        "Haz clic en Añadir a VS Code y luego en Install en la página del servidor que abre VS Code.",
+        "Sin el botón, ejecuta MCP: Add Server desde la paleta de comandos, elige HTTP y pega la URL de MCP de arriba.",
+        "Cuando VS Code lo pida, permite el inicio de sesión y aprueba los ámbitos de MCP en la página de consentimiento de Agent-Native.",
+      ],
+      installLabels: {
+        vscode: "Añadir a VS Code",
+        "vscode-insiders": "Añadir a VS Code Insiders",
+      },
+      note: "Las herramientas aparecen en la vista Chat en modo Agent.",
     },
     "claude-code": {
       intro: "En tu terminal, ejecuta:",
@@ -295,7 +360,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "En tu terminal, ejecuta:",
       actionLabel: "Copiar comando",
-      note: "Esta página se abre en tu navegador y escribe automáticamente la configuración de Codex en ~/.codex/config.toml. El mismo comando funciona con Claude Cowork y Goose.",
+      note: "Después ejecuta codex mcp login {serverId} e inicia sesión con tu cuenta de Agent-Native. Para Claude Cowork o Goose, ejecuta npx @agent-native/core@latest connect {appUrl} en su lugar.",
     },
     grok: {
       steps: [
@@ -334,11 +399,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "Ouvrez Cursor → Settings → MCP.",
-        "Cliquez sur Add MCP Server, collez l’URL MCP ci-dessus et enregistrez.",
+        "Cliquez sur Ajouter à Cursor, puis sur Install lorsque Cursor vous le demande.",
+        "Sans le bouton, ouvrez Cursor Settings → Tools & MCPs → New MCP Server et ajoutez l’URL MCP ci-dessus.",
         "Lorsque vous y êtes invité, connectez-vous avec votre compte Agent-Native et approuvez les champs d’application MCP.",
       ],
+      installLabels: { cursor: "Ajouter à Cursor" },
       note: "Cursor prend en charge les serveurs MCP distants avec OAuth et propose le même flux de collage d’URL que Claude, sans terminal.",
+    },
+    vscode: {
+      steps: [
+        "Cliquez sur Ajouter à VS Code, puis sur Install dans la page du serveur ouverte par VS Code.",
+        "Sans le bouton, exécutez MCP: Add Server depuis la palette de commandes, choisissez HTTP et collez l’URL MCP ci-dessus.",
+        "Lorsque VS Code le demande, autorisez la connexion et approuvez les champs d’application MCP sur la page de consentement Agent-Native.",
+      ],
+      installLabels: {
+        vscode: "Ajouter à VS Code",
+        "vscode-insiders": "Ajouter à VS Code Insiders",
+      },
+      note: "Les outils apparaissent dans la vue Chat, en mode Agent.",
     },
     "claude-code": {
       intro: "Dans votre terminal, exécutez :",
@@ -348,7 +426,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "Dans votre terminal, exécutez :",
       actionLabel: "Copier la commande",
-      note: "Cette page s’ouvre dans votre navigateur et écrit automatiquement la configuration de Codex dans ~/.codex/config.toml. La même commande fonctionne avec Claude Cowork et Goose.",
+      note: "Exécutez ensuite codex mcp login {serverId} et connectez-vous avec votre compte Agent-Native. Pour Claude Cowork ou Goose, exécutez plutôt npx @agent-native/core@latest connect {appUrl}.",
     },
     grok: {
       steps: [
@@ -387,11 +465,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "Öffne Cursor → Settings → MCP.",
-        "Klicke auf Add MCP Server, füge die MCP-URL oben ein und speichere.",
+        "Klicke auf Zu Cursor hinzufügen und dann auf Install, wenn Cursor nachfragt.",
+        "Ohne die Schaltfläche öffnest du Cursor Settings → Tools & MCPs → New MCP Server und fügst die MCP-URL oben hinzu.",
         "Melde dich bei der Aufforderung mit deinem Agent-Native-Konto an und genehmige die MCP-Bereiche.",
       ],
+      installLabels: { cursor: "Zu Cursor hinzufügen" },
       note: "Cursor unterstützt entfernte MCP-Server mit OAuth und denselben URL-Einfügeablauf wie Claude, ganz ohne Terminal.",
+    },
+    vscode: {
+      steps: [
+        "Klicke auf Zu VS Code hinzufügen und dann auf der Serverseite, die VS Code öffnet, auf Install.",
+        "Ohne die Schaltfläche führst du MCP: Add Server in der Befehlspalette aus, wählst HTTP und fügst die MCP-URL oben ein.",
+        "Wenn VS Code nachfragt, erlaube die Anmeldung und genehmige die MCP-Bereiche auf der Agent-Native-Zustimmungsseite.",
+      ],
+      installLabels: {
+        vscode: "Zu VS Code hinzufügen",
+        "vscode-insiders": "Zu VS Code Insiders hinzufügen",
+      },
+      note: "Die Tools erscheinen in der Chat-Ansicht im Agent-Modus.",
     },
     "claude-code": {
       intro: "Führe in deinem Terminal Folgendes aus:",
@@ -401,7 +492,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "Führe in deinem Terminal Folgendes aus:",
       actionLabel: "Befehl kopieren",
-      note: "Diese Seite wird in deinem Browser geöffnet und schreibt die Codex-Konfiguration automatisch in ~/.codex/config.toml. Derselbe Befehl funktioniert mit Claude Cowork und Goose.",
+      note: "Führe danach codex mcp login {serverId} aus und melde dich mit deinem Agent-Native-Konto an. Für Claude Cowork oder Goose führe stattdessen npx @agent-native/core@latest connect {appUrl} aus.",
     },
     grok: {
       steps: [
@@ -440,11 +531,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "Abra Cursor → Settings → MCP.",
-        "Clique em Add MCP Server, cole a URL MCP acima e salve.",
+        "Clique em Adicionar ao Cursor e depois em Install quando o Cursor pedir.",
+        "Sem o botão, abra Cursor Settings → Tools & MCPs → New MCP Server e adicione a URL MCP acima.",
         "Quando solicitado, entre com sua conta Agent-Native e aprove os escopos MCP.",
       ],
+      installLabels: { cursor: "Adicionar ao Cursor" },
       note: "O Cursor aceita servidores MCP remotos com OAuth e oferece o mesmo fluxo de colar a URL do Claude, sem terminal.",
+    },
+    vscode: {
+      steps: [
+        "Clique em Adicionar ao VS Code e depois em Install na página do servidor que o VS Code abrir.",
+        "Sem o botão, execute MCP: Add Server na paleta de comandos, escolha HTTP e cole a URL MCP acima.",
+        "Quando o VS Code pedir, permita o login e aprove os escopos MCP na página de consentimento do Agent-Native.",
+      ],
+      installLabels: {
+        vscode: "Adicionar ao VS Code",
+        "vscode-insiders": "Adicionar ao VS Code Insiders",
+      },
+      note: "As ferramentas aparecem na visualização Chat, no modo Agent.",
     },
     "claude-code": {
       intro: "No terminal, execute:",
@@ -454,7 +558,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "No terminal, execute:",
       actionLabel: "Copiar comando",
-      note: "Esta página é aberta no navegador e grava automaticamente a configuração do Codex em ~/.codex/config.toml. O mesmo comando funciona com Claude Cowork e Goose.",
+      note: "Depois execute codex mcp login {serverId} e entre com sua conta Agent-Native. Para Claude Cowork ou Goose, execute npx @agent-native/core@latest connect {appUrl}.",
     },
     grok: {
       steps: [
@@ -493,11 +597,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "打开 Cursor → Settings → MCP。",
-        "点击 Add MCP Server，粘贴上面的 MCP URL，然后保存。",
+        "点击“添加到 Cursor”，然后在 Cursor 询问时点击 Install。",
+        "如果没有该按钮，请打开 Cursor Settings → Tools & MCPs → New MCP Server，并添加上面的 MCP URL。",
         "出现提示时，使用 Agent-Native 账户登录并批准 MCP 权限范围。",
       ],
+      installLabels: { cursor: "添加到 Cursor" },
       note: "Cursor 支持远程 OAuth MCP 服务器，使用与 Claude 相同的粘贴 URL 流程，无需终端。",
+    },
+    vscode: {
+      steps: [
+        "点击“添加到 VS Code”，然后在 VS Code 打开的服务器页面上点击 Install。",
+        "如果没有该按钮，请在命令面板中运行 MCP: Add Server，选择 HTTP，然后粘贴上面的 MCP URL。",
+        "VS Code 询问时，允许登录，并在 Agent-Native 授权页面上批准 MCP 权限范围。",
+      ],
+      installLabels: {
+        vscode: "添加到 VS Code",
+        "vscode-insiders": "添加到 VS Code Insiders",
+      },
+      note: "这些工具会出现在 Agent 模式下的 Chat 视图中。",
     },
     "claude-code": {
       intro: "在终端中运行：",
@@ -507,7 +624,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "在终端中运行：",
       actionLabel: "复制命令",
-      note: "此页面会在浏览器中打开，并自动将 Codex 配置写入 ~/.codex/config.toml。同一命令也适用于 Claude Cowork 和 Goose。",
+      note: "然后运行 codex mcp login {serverId}，并使用 Agent-Native 账户登录。如需连接 Claude Cowork 或 Goose，请改为运行 npx @agent-native/core@latest connect {appUrl}。",
     },
     grok: {
       steps: [
@@ -546,11 +663,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "開啟 Cursor → Settings → MCP。",
-        "按一下 Add MCP Server，貼上方的 MCP URL，然後儲存。",
+        "按一下「新增至 Cursor」，然後在 Cursor 詢問時按一下 Install。",
+        "如果沒有這個按鈕，請開啟 Cursor Settings → Tools & MCPs → New MCP Server，並新增上方的 MCP URL。",
         "出現提示時，使用 Agent-Native 帳戶登入並核准 MCP 權限範圍。",
       ],
+      installLabels: { cursor: "新增至 Cursor" },
       note: "Cursor 支援遠端 OAuth MCP 伺服器，使用與 Claude 相同的貼上 URL 流程，不需要終端機。",
+    },
+    vscode: {
+      steps: [
+        "按一下「新增至 VS Code」，然後在 VS Code 開啟的伺服器頁面上按一下 Install。",
+        "如果沒有這個按鈕，請在命令選擇區執行 MCP: Add Server，選擇 HTTP，然後貼上上方的 MCP URL。",
+        "VS Code 詢問時，允許登入，並在 Agent-Native 同意頁面上核准 MCP 權限範圍。",
+      ],
+      installLabels: {
+        vscode: "新增至 VS Code",
+        "vscode-insiders": "新增至 VS Code Insiders",
+      },
+      note: "這些工具會出現在 Agent 模式下的 Chat 檢視中。",
     },
     "claude-code": {
       intro: "在終端機中執行：",
@@ -560,7 +690,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "在終端機中執行：",
       actionLabel: "複製指令",
-      note: "此頁面會在瀏覽器中開啟，並自動將 Codex 設定寫入 ~/.codex/config.toml。同一個指令也適用於 Claude Cowork 和 Goose。",
+      note: "接著執行 codex mcp login {serverId}，並使用 Agent-Native 帳戶登入。若要連接 Claude Cowork 或 Goose，請改為執行 npx @agent-native/core@latest connect {appUrl}。",
     },
     grok: {
       steps: [
@@ -599,11 +729,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "Cursor → Settings → MCP を開きます。",
-        "Add MCP Server をクリックし、上の MCP URL を貼り付けて保存します。",
+        "「Cursor に追加」をクリックし、Cursor で確認されたら Install をクリックします。",
+        "ボタンを使わない場合は、Cursor Settings → Tools & MCPs → New MCP Server を開き、上の MCP URL を追加します。",
         "求められたら Agent-Native アカウントでサインインし、MCP スコープを承認します。",
       ],
+      installLabels: { cursor: "Cursor に追加" },
       note: "Cursor はリモート OAuth MCP サーバーをサポートしており、ターミナルを使わず Claude と同じ URL 貼り付けフローで設定できます。",
+    },
+    vscode: {
+      steps: [
+        "「VS Code に追加」をクリックし、VS Code が開くサーバー ページで Install をクリックします。",
+        "ボタンを使わない場合は、コマンド パレットで MCP: Add Server を実行し、HTTP を選んで上の MCP URL を貼り付けます。",
+        "VS Code で確認されたらサインインを許可し、Agent-Native の同意ページで MCP スコープを承認します。",
+      ],
+      installLabels: {
+        vscode: "VS Code に追加",
+        "vscode-insiders": "VS Code Insiders に追加",
+      },
+      note: "ツールは Agent モードの Chat ビューに表示されます。",
     },
     "claude-code": {
       intro: "ターミナルで次を実行します：",
@@ -613,7 +756,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "ターミナルで次を実行します：",
       actionLabel: "コマンドをコピー",
-      note: "このページがブラウザで開き、Codex の設定を ~/.codex/config.toml に自動的に書き込みます。同じコマンドは Claude Cowork と Goose でも使えます。",
+      note: "続けて codex mcp login {serverId} を実行し、Agent-Native アカウントでサインインします。Claude Cowork や Goose の場合は、代わりに npx @agent-native/core@latest connect {appUrl} を実行します。",
     },
     grok: {
       steps: [
@@ -652,11 +795,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "Cursor → Settings → MCP를 엽니다.",
-        "Add MCP Server를 클릭하고 위의 MCP URL을 붙여 넣은 다음 저장합니다.",
+        "Cursor에 추가를 클릭한 다음 Cursor에서 묻는 경우 Install을 클릭합니다.",
+        "버튼이 없다면 Cursor Settings → Tools & MCPs → New MCP Server를 열고 위의 MCP URL을 추가합니다.",
         "메시지가 표시되면 Agent-Native 계정으로 로그인하고 MCP 범위를 승인합니다.",
       ],
+      installLabels: { cursor: "Cursor에 추가" },
       note: "Cursor는 원격 OAuth MCP 서버를 지원하며 터미널 없이 Claude와 같은 URL 붙여 넣기 흐름을 사용합니다.",
+    },
+    vscode: {
+      steps: [
+        "VS Code에 추가를 클릭한 다음 VS Code가 여는 서버 페이지에서 Install을 클릭합니다.",
+        "버튼이 없다면 명령 팔레트에서 MCP: Add Server를 실행하고 HTTP를 선택한 다음 위의 MCP URL을 붙여 넣습니다.",
+        "VS Code에서 묻는 경우 로그인을 허용하고 Agent-Native 동의 페이지에서 MCP 범위를 승인합니다.",
+      ],
+      installLabels: {
+        vscode: "VS Code에 추가",
+        "vscode-insiders": "VS Code Insiders에 추가",
+      },
+      note: "도구는 Agent 모드의 Chat 보기에 표시됩니다.",
     },
     "claude-code": {
       intro: "터미널에서 다음을 실행합니다:",
@@ -666,7 +822,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "터미널에서 다음을 실행합니다:",
       actionLabel: "명령 복사",
-      note: "이 페이지가 브라우저에서 열리고 Codex 설정을 ~/.codex/config.toml에 자동으로 씁니다. 같은 명령은 Claude Cowork와 Goose에서도 작동합니다.",
+      note: "그런 다음 codex mcp login {serverId}를 실행하고 Agent-Native 계정으로 로그인합니다. Claude Cowork 또는 Goose에서는 대신 npx @agent-native/core@latest connect {appUrl}를 실행합니다.",
     },
     grok: {
       steps: [
@@ -705,11 +861,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "Cursor → Settings → MCP खोलें।",
-        "Add MCP Server पर क्लिक करें, ऊपर दिया MCP URL पेस्ट करें और सेव करें।",
+        "Cursor में जोड़ें पर क्लिक करें, फिर Cursor के पूछने पर Install पर क्लिक करें।",
+        "बटन के बिना, Cursor Settings → Tools & MCPs → New MCP Server खोलें और ऊपर दिया MCP URL जोड़ें।",
         "पूछे जाने पर अपने Agent-Native खाते से साइन इन करें और MCP scopes को मंज़ूरी दें।",
       ],
+      installLabels: { cursor: "Cursor में जोड़ें" },
       note: "Cursor remote-OAuth MCP servers का समर्थन करता है और terminal के बिना Claude जैसा paste-URL flow देता है।",
+    },
+    vscode: {
+      steps: [
+        "VS Code में जोड़ें पर क्लिक करें, फिर VS Code के खोले गए सर्वर पेज पर Install पर क्लिक करें।",
+        "बटन के बिना, Command Palette से MCP: Add Server चलाएँ, HTTP चुनें और ऊपर दिया MCP URL पेस्ट करें।",
+        "VS Code के पूछने पर साइन-इन की अनुमति दें और Agent-Native सहमति पेज पर MCP scopes को मंज़ूरी दें।",
+      ],
+      installLabels: {
+        vscode: "VS Code में जोड़ें",
+        "vscode-insiders": "VS Code Insiders में जोड़ें",
+      },
+      note: "टूल Agent मोड में Chat व्यू में दिखते हैं।",
     },
     "claude-code": {
       intro: "अपने terminal में चलाएँ:",
@@ -719,7 +888,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "अपने terminal में चलाएँ:",
       actionLabel: "कमांड कॉपी करें",
-      note: "यह पेज आपके browser में खुलता है और Codex का config अपने आप ~/.codex/config.toml में लिखता है। यही command Claude Cowork और Goose के साथ भी काम करती है।",
+      note: "फिर codex mcp login {serverId} चलाएँ और अपने Agent-Native खाते से साइन इन करें। Claude Cowork या Goose के लिए इसके बजाय npx @agent-native/core@latest connect {appUrl} चलाएँ।",
     },
     grok: {
       steps: [
@@ -758,11 +927,24 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     },
     cursor: {
       steps: [
-        "افتح Cursor → Settings → MCP.",
-        "انقر على Add MCP Server، والصق عنوان MCP أعلاه، ثم احفظ.",
+        "انقر على إضافة إلى Cursor، ثم على Install عندما يطلب Cursor ذلك.",
+        "من دون الزر، افتح Cursor Settings → Tools & MCPs → New MCP Server وأضف عنوان MCP أعلاه.",
         "عند الطلب، سجّل الدخول بحساب Agent-Native ووافق على نطاقات MCP.",
       ],
+      installLabels: { cursor: "إضافة إلى Cursor" },
       note: "يدعم Cursor خوادم MCP البعيدة باستخدام OAuth، مع نفس طريقة لصق العنوان المتوفرة في Claude، من دون الحاجة إلى الطرفية.",
+    },
+    vscode: {
+      steps: [
+        "انقر على إضافة إلى VS Code، ثم على Install في صفحة الخادم التي يفتحها VS Code.",
+        "من دون الزر، شغّل MCP: Add Server من لوحة الأوامر، واختر HTTP، والصق عنوان MCP أعلاه.",
+        "عندما يطلب VS Code ذلك، اسمح بتسجيل الدخول ووافق على نطاقات MCP في صفحة الموافقة في Agent-Native.",
+      ],
+      installLabels: {
+        vscode: "إضافة إلى VS Code",
+        "vscode-insiders": "إضافة إلى VS Code Insiders",
+      },
+      note: "تظهر الأدوات في عرض Chat في وضع Agent.",
     },
     "claude-code": {
       intro: "شغّل الأمر التالي في الطرفية:",
@@ -772,7 +954,7 @@ const MCP_CONNECT_GUIDE_TRANSLATIONS: Partial<
     codex: {
       intro: "شغّل الأمر التالي في الطرفية:",
       actionLabel: "نسخ الأمر",
-      note: "تفتح هذه الصفحة في متصفحك وتكتب إعدادات Codex تلقائيًا في ~/.codex/config.toml. يعمل الأمر نفسه مع Claude Cowork وGoose.",
+      note: "ثم شغّل codex mcp login {serverId} وسجّل الدخول بحساب Agent-Native. بالنسبة إلى Claude Cowork أو Goose، شغّل npx @agent-native/core@latest connect {appUrl} بدلاً من ذلك.",
     },
     grok: {
       steps: [
@@ -807,6 +989,14 @@ export function getMcpConnectGuides(
       ...(translation.note ? { note: translation.note } : {}),
       ...(translation.actionLabel && guide.action
         ? { action: { ...guide.action, label: translation.actionLabel } }
+        : {}),
+      ...(translation.installLabels && guide.install
+        ? {
+            install: guide.install.map((option) => ({
+              ...option,
+              label: translation.installLabels?.[option.client] ?? option.label,
+            })),
+          }
         : {}),
     };
   });
@@ -909,4 +1099,70 @@ export function interpolateMcpConnectTemplate(
   return template.replace(/\{(appName|appUrl|mcpUrl|serverId)\}/g, (_, key) => {
     return values[key as keyof McpConnectTemplateValues];
   });
+}
+
+/**
+ * Production keeps the bare name so existing client entries keep working;
+ * every other environment gets its own entry instead of overwriting
+ * production's in the same client.
+ */
+export function mcpConnectServerName(
+  baseName: string,
+  environment: McpConnectEnvironment,
+): string {
+  return environment === "production" ? baseName : `${baseName}-${environment}`;
+}
+
+/**
+ * Everything an install link may carry. There is deliberately no field for
+ * headers, tokens or document data: the link lands in the person's client
+ * config and in vendor URLs, and OAuth is the only auth it sets up.
+ */
+export interface McpInstallLinkTarget {
+  serverName: string;
+  mcpUrl: string;
+}
+
+export interface McpInstallLink {
+  href: string;
+  /**
+   * Cursor's link is a web page that launches Cursor and shows the config to
+   * paste when Cursor is missing, so it opens in a new tab. VS Code's web
+   * redirect is a bare 302 to its scheme, so the scheme is used directly.
+   */
+  opensWebPage: boolean;
+}
+
+function encodeBase64(value: string): string {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(value)) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+export function buildMcpInstallLink(
+  client: McpInstallClient,
+  target: McpInstallLinkTarget,
+): McpInstallLink {
+  const { serverName, mcpUrl } = target;
+  if (client === "cursor") {
+    const params = new URLSearchParams({
+      name: serverName,
+      config: encodeBase64(JSON.stringify({ url: mcpUrl })),
+    });
+    return {
+      href: `https://cursor.com/install-mcp?${params.toString()}`,
+      opensWebPage: true,
+    };
+  }
+  const config = JSON.stringify({
+    name: serverName,
+    type: "http",
+    url: mcpUrl,
+  });
+  return {
+    href: `${client}:mcp/install?${encodeURIComponent(config)}`,
+    opensWebPage: false,
+  };
 }

@@ -90,6 +90,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "전체 연결 페이지를 열어 OAuth를 완료할 수 없는 클라이언트용 토큰을 만드세요.",
   mcpOpenConnectPage: "전체 연결 페이지 열기",
+  mcpIdentityError: "이 앱의 연결 정보를 불러오지 못했습니다.",
+  mcpRetry: "다시 시도",
   mcpConnect: mcpConnectMessages,
 };
 

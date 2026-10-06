@@ -1,0 +1,6 @@
+---
+"@agent-native/core": minor
+"@agent-native/toolkit": patch
+---
+
+The MCP server settings and `/mcp/connect` page add **Add to Cursor**, **Add to VS Code**, and **Add to VS Code Insiders** install links, a VS Code guide, and a Codex guide that uses `codex mcp add` and `codex mcp login`. The app now names its own MCP server through a public `GET /mcp/connect/identity` route: production keeps the bare name, while beta, preview, and local deployments add the environment (`agent-native-mail-beta`), so one client can hold both. Settings, the connect page, install links, and `npx @agent-native/core connect` all use that name instead of each deriving one from the hostname. Install links carry only the server name, transport, and MCP URL. Use `buildMcpInstallLink` from `@agent-native/core/shared/mcp-connect-content` and `useMcpConnectIdentity` from `@agent-native/core/client/mcp-connect-identity` to build them elsewhere.

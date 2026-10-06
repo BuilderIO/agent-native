@@ -5,6 +5,7 @@ import { getMethod, getHeader } from "h3";
 
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
+import { isAgentNativeDeploymentEnvironment } from "../config.js";
 import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import {
@@ -18,15 +19,18 @@ import {
   getConfiguredLoginHtml,
   isLoopbackRequest,
 } from "../server/auth.js";
+import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
-  MCP_CONNECT_MCP_URL_TEMPLATE,
+  buildMcpInstallLink,
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
+  mcpConnectServerName,
   resolveMcpConnectGuideId,
   type McpConnectGuide,
   type McpConnectGuideId,
+  type McpConnectIdentity,
 } from "../shared/mcp-connect-content.js";
 import {
   recordMintedToken,
@@ -136,10 +140,33 @@ function appLabel(origin: string, options: McpConnectRouteOptions): string {
   }
 }
 
-function serverName(origin: string, options: McpConnectRouteOptions): string {
-  const explicit = options.serverName?.trim();
-  if (explicit) return explicit;
-  return `agent-native-${appLabel(origin, options)}`;
+function connectEnvironment(): McpConnectIdentity["environment"] {
+  const environment = resolveDeployEnvironment();
+  if (!isAgentNativeDeploymentEnvironment(environment)) {
+    throw new Error(`Unknown deployment environment "${environment}"`);
+  }
+  return environment;
+}
+
+/**
+ * The one name and URL every connect surface hands to an MCP client: this
+ * page, the device-flow payload, the settings tab, share dialogs (through the
+ * `/identity` subroute) and the `connect` CLI.
+ */
+export function resolveMcpConnectIdentity(
+  appUrl: string,
+  options: McpConnectRouteOptions,
+): McpConnectIdentity {
+  const environment = connectEnvironment();
+  const baseName =
+    options.serverName?.trim() || `agent-native-${appLabel(appUrl, options)}`;
+  return {
+    serverName: mcpConnectServerName(baseName, environment),
+    appName: options.appName || appLabel(appUrl, options),
+    appUrl,
+    mcpUrl: mcpResourceUrl(appUrl),
+    environment,
+  };
 }
 
 function canUseDevOpenConnect(event: H3Event): boolean {
@@ -323,8 +350,7 @@ function mcpResultPayload(
     catalogScope?: "full" | null;
   },
 ) {
-  const mcpUrl = mcpResourceUrl(appUrl);
-  const name = serverName(appUrl, options);
+  const { mcpUrl, serverName } = resolveMcpConnectIdentity(appUrl, options);
   const headers: Record<string, string> = {};
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
   if (!auth.token && auth.ownerEmail) {
@@ -336,7 +362,7 @@ function mcpResultPayload(
   return {
     token: auth.token ?? "",
     mcpUrl,
-    serverName: name,
+    serverName,
     mcpServerEntry: {
       type: "http" as const,
       url: mcpUrl,
@@ -378,7 +404,20 @@ function renderConnectGuide(
   copyLabel: string,
 ): string {
   const guideId = escapeHtml(guide.id);
+  const installLinks = (guide.install ?? []).map((option) => {
+    const link = buildMcpInstallLink(option.client, {
+      serverName: values.serverId,
+      mcpUrl: values.mcpUrl,
+    });
+    const target = link.opensWebPage
+      ? ` target="_blank" rel="noopener noreferrer"`
+      : "";
+    return `<a class="primary-link compact" href="${escapeHtml(link.href)}"${target}>${escapeHtml(option.label)}</a>`;
+  });
   const content = [
+    installLinks.length
+      ? `<div class="install-links">${installLinks.join("")}</div>`
+      : "",
     guide.steps?.length
       ? `<ol>${guide.steps
           .map(
@@ -412,9 +451,7 @@ function renderConnectGuide(
 function renderConnectPage(params: {
   connectBasePath: string;
   email: string;
-  appName: string;
-  appUrl: string;
-  serverId: string;
+  identity: McpConnectIdentity;
   userCode: string | null;
   catalogScope: "full" | null;
   locale: LocaleCode;
@@ -425,9 +462,7 @@ function renderConnectPage(params: {
   const {
     connectBasePath,
     email,
-    appName,
-    appUrl,
-    serverId,
+    identity,
     userCode,
     catalogScope,
     locale,
@@ -441,12 +476,7 @@ function renderConnectPage(params: {
   const guides = getMcpConnectGuides(locale);
   const staticTokenFallback = getMcpStaticTokenFallback(locale);
   const safeEmail = escapeHtml(email);
-  const mcpUrl = interpolateMcpConnectTemplate(MCP_CONNECT_MCP_URL_TEMPLATE, {
-    appName,
-    appUrl,
-    mcpUrl: "",
-    serverId,
-  });
+  const { appName, appUrl, mcpUrl, serverName: serverId } = identity;
   const safeMcpUrl = escapeHtml(mcpUrl);
   const connectTemplateValues = { appName, appUrl, mcpUrl, serverId };
   const localize = (message: string) =>
@@ -867,6 +897,13 @@ function renderConnectPage(params: {
     background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2);
   }
   .primary-link.compact { min-width: 0; }
+  .primary-link:focus-visible {
+    outline: 2px solid var(--ring); outline-offset: 2px;
+  }
+  .install-links {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem;
+  }
+  .install-links .primary-link { margin: 0; }
   .copy-flash {
     color: var(--ok) !important;
     border-color: var(--ok-border) !important;
@@ -1258,9 +1295,7 @@ export async function handleMcpConnect(
         renderConnectPage({
           connectBasePath: basePath,
           email: "(no auth configured)",
-          appName: options.appName || appLabel(appUrl, options),
-          appUrl,
-          serverId: serverName(appUrl, options),
+          identity: resolveMcpConnectIdentity(appUrl, options),
           userCode: null,
           catalogScope: null,
           locale,
@@ -1289,9 +1324,7 @@ export async function handleMcpConnect(
       renderConnectPage({
         connectBasePath: basePath,
         email: session.email,
-        appName: options.appName || appLabel(appUrl, options),
-        appUrl,
-        serverId: serverName(appUrl, options),
+        identity: resolveMcpConnectIdentity(appUrl, options),
         userCode,
         catalogScope,
         locale,
@@ -1300,6 +1333,13 @@ export async function handleMcpConnect(
         defaultOrganizationId,
       }),
     );
+  }
+
+  if (sub === "/identity") {
+    if (method !== "GET" && method !== "HEAD") {
+      return json({ error: "Method not allowed" }, 405);
+    }
+    return json(resolveMcpConnectIdentity(appUrl, options));
   }
 
   if (sub === "/token") {

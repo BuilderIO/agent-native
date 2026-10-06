@@ -128,8 +128,8 @@ https://<your-app>.agent-native.com/mcp
 
 Every hosted app also has a helper page at
 `https://&lt;app&gt;/mcp/connect` with the copyable URL and
-host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, Grok, and
-Other.
+host-specific tabs for Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex,
+Grok, and Other.
 
 ## Private Content links {#private-content-links}
 
@@ -202,9 +202,32 @@ Dispatch does not rewrite ChatGPT or Claude's cached Calendar/Mail/etc.
 snapshots. The `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` scopes are the same ones
 covered in [Standard remote MCP OAuth](#standard-oauth) below.
 
-Cursor, Goose, Postman, MCPJam, and VS Code GitHub Copilot use the same remote
-MCP URL through their own MCP-server UIs when their build supports remote OAuth
-MCP servers.
+### Cursor, VS Code, and Codex {#install-links}
+
+The **Cursor** and **VS Code** tabs in **Settings → MCP server** and on
+`/mcp/connect` have install buttons. **Add to Cursor** opens Cursor's
+**Install MCP server?** prompt. **Add to VS Code** and **Add to VS Code
+Insiders** open a server page with an **Install** button. A link carries only
+the server name, the transport, and the MCP URL; it never carries a token,
+header, or account detail. The client runs its own OAuth sign-in the first time
+it connects. In VS Code, the tools then appear in the Chat view in Agent mode.
+
+For Codex, run `codex mcp add <server-name> --url <mcp-url>`, then
+`codex mcp login <server-name>` to sign in with OAuth. The **Codex** tab fills
+in both values.
+
+Goose, Postman, MCPJam, and other clients use the same remote MCP URL through
+their own MCP-server UIs when their build supports remote OAuth MCP servers.
+
+### Server names {#server-names}
+
+The app names its MCP server, and every surface uses that name: the install
+links, the copyable commands, and `npx @agent-native/core@latest connect`.
+Production uses the bare name, such as `agent-native-mail`. Beta, preview, and
+local deployments add the environment, such as `agent-native-mail-beta`, so one
+client can keep a production entry and a beta entry side by side. Scripts can
+read the name from `GET /mcp/connect/identity`, which needs no sign-in and
+returns the server name, app name, app URL, MCP URL, and environment.
 
 ### Quick test prompt {#quick-test}
 

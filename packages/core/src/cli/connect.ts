@@ -23,6 +23,7 @@ import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start`;
 const DEVICE_POLL_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/poll`;
+const CONNECT_IDENTITY_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/identity`;
 const MCP_PATH = MCP_PUBLIC_ROUTE_PREFIX;
 const LEGACY_MCP_PATH = MCP_LEGACY_ROUTE_PREFIX;
 const SERVER_NAME_PREFIX = "agent-native";
@@ -722,6 +723,66 @@ async function validateOAuthMcpServer(
       (lastFailure ? ` (${lastFailure}).` : "."),
   );
   return false;
+}
+
+type ConnectIdentityLookup =
+  | { status: "found"; serverName: string }
+  | { status: "unsupported" }
+  | { status: "failed"; reason: string };
+
+async function lookupConnectServerName(
+  baseUrl: string,
+  deps: ConnectDeps,
+): Promise<ConnectIdentityLookup> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetchImpl(`${baseUrl}${CONNECT_IDENTITY_PATH}`, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    // Servers released before the identity route answer 404 (or 401 behind
+    // the auth guard); the hostname-derived name is their real name.
+    if (response.status === 404 || response.status === 401) {
+      return { status: "unsupported" };
+    }
+    if (!response.ok) {
+      return { status: "failed", reason: `HTTP ${response.status}` };
+    }
+    const body = (await response.json()) as { serverName?: unknown } | null;
+    const serverName =
+      typeof body?.serverName === "string" ? body.serverName.trim() : "";
+    return serverName
+      ? { status: "found", serverName }
+      : { status: "failed", reason: "the response had no serverName" };
+  } catch (err: any) {
+    return { status: "failed", reason: err?.message ?? String(err) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * The server owns its name (it adds the environment suffix that keeps beta
+ * and local entries apart from production), so ask it before guessing from
+ * the hostname.
+ */
+async function serverNameFromServer(
+  baseUrl: string,
+  deps: ConnectDeps,
+): Promise<string> {
+  const lookup = await lookupConnectServerName(baseUrl, deps);
+  if (lookup.status === "found") return lookup.serverName;
+  const fallback = defaultServerName(baseUrl);
+  if (lookup.status === "failed") {
+    logErr(
+      `  Could not read the server name from ${baseUrl}${CONNECT_IDENTITY_PATH} ` +
+        `(${lookup.reason}); using ${fallback}.`,
+    );
+  }
+  return fallback;
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -1973,13 +2034,13 @@ async function connectOne(
   if (parsed.token) {
     token = parsed.token;
     mcpUrl = normalizedMcpUrl;
-    serverName = parsed.name ?? defaultServerName(baseUrl);
+    serverName = parsed.name ?? (await serverNameFromServer(baseUrl, deps));
     logOut("");
     logOut(`  Using supplied --token for ${baseUrl} (skipping browser flow).`);
   } else if (deviceFlowClients.length === 0) {
     token = undefined;
     mcpUrl = normalizedMcpUrl;
-    serverName = parsed.name ?? defaultServerName(baseUrl);
+    serverName = parsed.name ?? (await serverNameFromServer(baseUrl, deps));
   } else {
     const grant = await runDeviceFlow(
       baseUrl,
