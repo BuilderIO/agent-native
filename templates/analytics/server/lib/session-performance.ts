@@ -24,8 +24,8 @@ import {
   isWaitedActionResponse,
 } from "../../shared/slow-request.js";
 import { getDb, schema } from "../db/index.js";
+import { boundedText } from "./indexed-text.js";
 import {
-  boundedText,
   isoDate,
   recordingTenantSql,
   sessionEventTenantKey,
