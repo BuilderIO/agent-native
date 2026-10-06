@@ -81,6 +81,7 @@ const chatHandleMocks = vi.hoisted(() => ({
 
 const assistantChatMockState = vi.hoisted(() => ({
   onThreadRestoreNotFound: undefined as (() => void) | undefined,
+  onRetryModelList: undefined as (() => void) | undefined,
   onSlashCommand: undefined as ((command: string) => void) | undefined,
   onForkedThread: undefined as ((threadId: string) => void) | undefined,
   branchNavigation: undefined as
@@ -335,12 +336,14 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
         onThreadRestoreNotFound?: () => void;
+        onRetryModelList?: () => void;
         onSlashCommand?: (command: string) => void;
         onForkedThread?: (threadId: string) => void;
         branchNavigation?: typeof assistantChatMockState.branchNavigation;
       };
       assistantChatMockState.onThreadRestoreNotFound =
         props.onThreadRestoreNotFound;
+      assistantChatMockState.onRetryModelList = props.onRetryModelList;
       assistantChatMockState.onSlashCommand = props.onSlashCommand;
       assistantChatMockState.onForkedThread = props.onForkedThread;
       assistantChatMockState.branchNavigation = props.branchNavigation;
@@ -393,6 +396,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
 
 function resetThreadMocks() {
   assistantChatMockState.onThreadRestoreNotFound = undefined;
+  assistantChatMockState.onRetryModelList = undefined;
   assistantChatMockState.onSlashCommand = undefined;
   assistantChatMockState.onForkedThread = undefined;
   assistantChatMockState.branchNavigation = undefined;
@@ -957,6 +961,29 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-model-catalog"),
     ).toBe("host:true");
+
+    await act(async () => localRoot.unmount());
+    el.remove();
+  });
+
+  it("routes host model catalog retries to the host", async () => {
+    const onRetryModelList = vi.fn();
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const localRoot = createRoot(el);
+    await act(async () => {
+      localRoot.render(
+        <MultiTabAssistantChat
+          storageKey="host-catalog-retry-test"
+          availableModels={[]}
+          modelListError
+          onRetryModelList={onRetryModelList}
+        />,
+      );
+    });
+
+    await act(async () => assistantChatMockState.onRetryModelList?.());
+    expect(onRetryModelList).toHaveBeenCalledOnce();
 
     await act(async () => localRoot.unmount());
     el.remove();

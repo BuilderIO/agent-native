@@ -1037,9 +1037,13 @@ const messages = {
     all: "Tous",
     showMineDecks: "Afficher les decks créés par moi",
     mine: "Les miens",
+    ownedByAnyone: "À tout le monde",
+    ownedByMe: "À moi",
+    sharedWithMe: "Partagés avec moi",
     createDeckOrVisual: "Créer une présentation",
     noMineDecks: "Aucun deck créé par vous pour le moment.",
     noDecksMatchSearch: "Aucun deck ne correspond à votre recherche.",
+    noDecksMatchFilter: "Aucun deck ne correspond au filtre actuel.",
     deleteDeckTitle: "Supprimer le deck ?",
     deleteDeckDescription:
       "Cela supprimera définitivement ce deck et toutes ses diapositives. Cette action est irréversible.",

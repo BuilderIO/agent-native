@@ -4,7 +4,6 @@ import { Link } from "react-router";
 
 import { CustomizeTemplatePopover } from "../components/CustomizeTemplatePopover";
 import { firstPartyAppUrl } from "../components/deployment-links";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { PlansProductMock } from "../components/template-landing/PlansProductMock";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -163,8 +162,7 @@ export default function PlanTemplate() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="secondary-button whitespace-nowrap"
-                  onClick={(event) => {
-                    applyFirstTouchAttributionToLink(event.currentTarget);
+                  onClick={() => {
                     trackEvent("try live demo", {
                       template: template.slug,
                       location: "landing_page_hero",

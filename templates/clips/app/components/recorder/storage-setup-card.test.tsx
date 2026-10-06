@@ -25,6 +25,25 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  useOnboarding: () => ({
+    loading: false,
+    error: null,
+    profile: {
+      capabilities: [
+        {
+          id: "decision-model",
+          label: "Decision model",
+          builderIncluded: true,
+          service: "decision-model",
+          whyKey: "decisionModel.why",
+          why: "The agent can use a decision model.",
+        },
+      ],
+    },
+  }),
+}));
+
 // The real consent popover, so these tests prove the card's account creation
 // goes through it rather than through a stand-in.
 vi.mock("@agent-native/toolkit/app/settings", async (importOriginal) => ({
@@ -50,6 +69,7 @@ import { StorageSetupCard } from "./storage-setup-card";
 
 const CREATE = "agentChat.onboarding.builderCreateAndActivate";
 const EXISTING_ACCOUNT = "agentChat.onboarding.builderExistingAccount";
+const SIGN_IN = "agentChat.onboarding.builderSignInWithAccount";
 const CONSENT = "agentChat.onboarding.builderConsentPrefix";
 
 function flowState(overrides: Record<string, unknown> = {}) {
@@ -171,6 +191,25 @@ describe("StorageSetupCard", () => {
     });
   });
 
+  it("expands included services with help tooltips in the shared popover", async () => {
+    await renderCard();
+
+    await clickConnect();
+    const includedServices = bodyButton(
+      "agentChat.onboarding.builderMoreServices",
+    );
+    expect(includedServices).toBeDefined();
+
+    await act(async () => includedServices?.click());
+
+    expect(document.body.textContent).toContain("Decision model");
+    expect(
+      document.body.querySelector(
+        'button[aria-label="agentChat.onboarding.capability.about"]',
+      ),
+    ).toBeDefined();
+  });
+
   it("keeps connecting an existing account in the popover", async () => {
     await renderCard();
 
@@ -221,32 +260,42 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("offers Log in when account creation found an existing account", async () => {
+  it("opens the shared account popover when activation finds an existing account", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ accountExists: true }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    await act(async () => bodyButton("agentChat.auth.logIn")?.click());
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderIncludedFree",
+    );
+    expect(bodyButton(SIGN_IN)).toBeDefined();
+    expect(bodyButton(CREATE)).toBeUndefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
+    await act(async () => bodyButton(SIGN_IN)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });
   });
 
-  it("offers Log in for an existing Builder credential", async () => {
+  it("opens the shared account popover for an existing Builder credential", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ configured: true, credentialSource: "user" }),
     );
     await renderCard();
 
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    expect(bodyButton("agentChat.auth.logIn")).toBeDefined();
+    expect(document.body.textContent).toContain(CONSENT);
+    expect(document.body.textContent).toContain(
+      "agentChat.onboarding.builderIncludedFree",
+    );
+    expect(bodyButton(SIGN_IN)).toBeDefined();
     expect(bodyButton(CREATE)).toBeUndefined();
+    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
 
-    await act(async () => bodyButton("agentChat.auth.logIn")?.click());
+    await act(async () => bodyButton(SIGN_IN)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
     });

@@ -39,6 +39,7 @@ import {
   getOrgDomain,
   getOrgA2ASecret,
   getA2ASecretByDomain,
+  resolveA2AOrganizationCredentialsByDomain,
   isSoleOrgDomain,
   listOrgMembershipsForEvent,
   markActiveOrgSelectionChanged,
@@ -1451,6 +1452,25 @@ describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {
   it("getA2ASecretByDomain returns null on DB error", async () => {
     mockExecute.mockRejectedValueOnce(new Error("boom"));
     expect(await getA2ASecretByDomain("acme.com")).toBeNull();
+  });
+
+  it("resolves org credentials with normalized domain and preserves lookup failures", async () => {
+    queueSelect([
+      { id: "org1", allowed_domain: "Acme.COM", a2a_secret: " secret " },
+    ]);
+    await expect(
+      resolveA2AOrganizationCredentialsByDomain(" ACME.COM "),
+    ).resolves.toEqual({
+      orgId: "org1",
+      orgDomain: "acme.com",
+      secret: "secret",
+    });
+    expect(mockExecute.mock.calls[0]?.[0].args).toEqual(["acme.com"]);
+
+    mockExecute.mockRejectedValueOnce(new Error("database unavailable"));
+    await expect(
+      resolveA2AOrganizationCredentialsByDomain("acme.com"),
+    ).rejects.toThrow("database unavailable");
   });
 
   it("recognizes a matching sole organization domain", async () => {

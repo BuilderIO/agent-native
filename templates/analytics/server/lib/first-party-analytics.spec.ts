@@ -129,6 +129,13 @@ import {
   touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
+import {
+  MAX_APP_LENGTH,
+  MAX_EVENT_NAME_LENGTH,
+  MAX_PATH_LENGTH,
+  MAX_USER_KEY_LENGTH,
+  boundedIdentity,
+} from "./indexed-text.js";
 
 beforeEach(() => {
   execute.mockReset();
@@ -283,6 +290,22 @@ describe("resolveAnalyticsEventDimensions", () => {
         hostname: "mail.agent-native.com",
       }),
     ).toEqual({ app: "clips", template: "clips" });
+  });
+
+  it("cuts app and template names to a length that fits an index entry", () => {
+    expect(
+      resolveAnalyticsEventDimensions({
+        properties: {
+          app: "中".repeat(4096),
+          template: `${"t".repeat(MAX_APP_LENGTH - 1)}\u{1F600}`,
+        },
+        context: {},
+        hostname: null,
+      }),
+    ).toEqual({
+      app: "中".repeat(MAX_APP_LENGTH),
+      template: "t".repeat(MAX_APP_LENGTH - 1),
+    });
   });
 });
 
@@ -530,6 +553,90 @@ describe("recordAnalyticsEvents", () => {
       [expect.objectContaining({ eventName: "clip_\uFFFD" })],
       expect.any(String),
     );
+  });
+
+  it("drops NUL from every string and key so one cannot fail the batch", async () => {
+    const parsed = parseAnalyticsTrackPayload(
+      JSON.stringify({
+        publicKey: "anpk_test",
+        events: [
+          {
+            event: "clip\u0000_viewed",
+            userId: "user\u0000_1",
+            properties: {
+              path: "/clips\u0000",
+              "note\u0000": { quote: "a\u0000b", half: "x\uD83D" },
+            },
+          },
+        ],
+      }),
+    );
+    await recordAnalyticsEvents(parsed.publicKey, parsed.events);
+
+    const [rows] = rollupMocks.upsert.mock.calls[0];
+    expect(rows[0]).toMatchObject({
+      eventName: "clip_viewed",
+      userId: "user_1",
+      path: "/clips",
+    });
+    expect(JSON.parse(rows[0].properties).note).toEqual({
+      quote: "ab",
+      half: "x�",
+    });
+    expect(JSON.stringify(rows[0])).not.toMatch(/\\u0000|\\ud83d/i);
+  });
+
+  it("bounds every indexed value so one long value cannot fail the batch", async () => {
+    const long = "中".repeat(4096);
+    await recordAnalyticsEvents("anpk_test", [
+      { event: long, userId: long, properties: { app: long, path: long } },
+      { event: "pageview", userId: "user_1" },
+    ]);
+
+    const [rows] = rollupMocks.upsert.mock.calls[0];
+    expect(rows[0]).toMatchObject({
+      eventName: "中".repeat(MAX_EVENT_NAME_LENGTH),
+      app: "中".repeat(MAX_APP_LENGTH),
+      template: "中".repeat(MAX_APP_LENGTH),
+      path: "中".repeat(MAX_PATH_LENGTH),
+      userKey: boundedIdentity(long, MAX_USER_KEY_LENGTH),
+      userId: long,
+    });
+    expect(rows[1]).toMatchObject({ eventName: "pageview", userKey: "user_1" });
+  });
+
+  it("keeps two long user ids with the same prefix as two users", async () => {
+    const shared = "u".repeat(MAX_USER_KEY_LENGTH);
+    await recordAnalyticsEvents("anpk_test", [
+      { event: "pageview", userId: `${shared}-first` },
+      { event: "pageview", userId: `${shared}-second` },
+    ]);
+
+    const [rows] = rollupMocks.upsert.mock.calls[0];
+    expect(rows[0].userKey).not.toBe(rows[1].userKey);
+    expect(rows[0].userKey.length).toBeLessThanOrEqual(MAX_USER_KEY_LENGTH);
+  });
+
+  it("bounds the user id an exception indexes in its error event", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      { event: "$exception", userId: "中".repeat(4096), properties: {} },
+    ]);
+
+    const [, sources] = exceptionMocks.ingest.mock.calls[0];
+    expect(sources[0].derived.userId).toBe(
+      boundedIdentity("中".repeat(4096), MAX_USER_KEY_LENGTH),
+    );
+  });
+
+  it("rejects an unknown key as the caller's error", async () => {
+    analyticsDbMocks.selectLimit.mockResolvedValueOnce([]);
+
+    await expect(
+      recordAnalyticsEvents("anpk_unknown", [{ event: "pageview" }]),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      message: "Invalid analytics public key",
+    });
   });
 
   it("does not index session events when persistence fails", async () => {

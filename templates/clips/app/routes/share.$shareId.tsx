@@ -1564,7 +1564,7 @@ export default function ShareRoute() {
   return (
     <div
       className={cn(
-        "clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-y-auto bg-background lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_420px] [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background",
+        "clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-y-auto bg-background lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_420px] [&_.agent-composer-root]:!border-0",
         sidePanelCollapsed &&
           "lg:grid-cols-[minmax(0,1fr)_40px] xl:grid-cols-[minmax(0,1fr)_40px]",
       )}

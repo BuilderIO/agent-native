@@ -107,13 +107,6 @@
   border-color: var(--agentkit-composer-focus-border) !important;
 }
 
-:is(:root.dark, :root[data-theme="dark"], .dark)
-  .agentkit-composer[data-agent-composer-slot="root"],
-:is(:root.dark, :root[data-theme="dark"], .dark)
-  .agentkit-composer[data-agent-composer-slot="root"]:focus-within {
-  border-color: transparent !important;
-}
-
 .agentkit-composer [data-agent-composer-slot="editor-wrap"] {
   padding: 0.75rem 0.875rem 0.25rem;
 }
@@ -272,6 +265,13 @@
   list-style: none;
 }
 
+.agentkit-composer-stack [data-agent-message-queue-variant="recessed"] ul {
+  max-block-size: none;
+  gap: 0;
+  padding: 0;
+  overflow-y: hidden;
+}
+
 .agentkit-composer-stack [data-agent-message-queue="true"] li {
   display: flex;
   min-block-size: 2.25rem;
@@ -282,6 +282,10 @@
   color: var(--agentkit-text);
   font-size: 0.8125rem;
   line-height: 1rem;
+}
+
+.agentkit-composer-stack [data-agent-message-queue-variant="recessed"] li {
+  padding-block: 0.125rem;
 }
 
 .agentkit-composer-stack [data-agent-message-queue="true"] li > svg {
@@ -369,17 +373,56 @@
 }
 
 .agentkit-suggestions [data-agent-suggestion-scroller="true"] {
-  display: flex;
   inline-size: 100%;
-  gap: 0.375rem;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
+  scroll-padding-inline: 1.5rem;
   scrollbar-width: none;
 }
 
 .agentkit-suggestions
   [data-agent-suggestion-scroller="true"]::-webkit-scrollbar {
   display: none;
+}
+
+.agentkit-suggestions [data-agent-suggestion-track="true"] {
+  display: flex;
+  flex-wrap: wrap;
+  inline-size: var(--agent-suggestion-track-width);
+  min-inline-size: 100%;
+  gap: 0.375rem;
+}
+
+[data-agent-suggestion-scroller="true"]:is(
+  [data-overflow-start],
+  [data-overflow-end]
+) {
+  -webkit-mask-image: linear-gradient(
+    var(--agent-suggestion-fade-direction, to right),
+    transparent 0,
+    black var(--agent-suggestion-fade-start, 0px),
+    black calc(100% - var(--agent-suggestion-fade-end, 0px)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    var(--agent-suggestion-fade-direction, to right),
+    transparent 0,
+    black var(--agent-suggestion-fade-start, 0px),
+    black calc(100% - var(--agent-suggestion-fade-end, 0px)),
+    transparent 100%
+  );
+}
+
+[data-agent-suggestion-scroller="true"]:dir(rtl) {
+  --agent-suggestion-fade-direction: to left;
+}
+
+[data-agent-suggestion-scroller="true"][data-overflow-start] {
+  --agent-suggestion-fade-start: 1.5rem;
+}
+
+[data-agent-suggestion-scroller="true"][data-overflow-end] {
+  --agent-suggestion-fade-end: 1.5rem;
 }
 
 .agentkit-suggestions button {

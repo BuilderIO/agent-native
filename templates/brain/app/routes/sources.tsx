@@ -2744,7 +2744,9 @@ export default function SourcesRoute() {
                             })
                           }
                         >
-                          {enqueueDistillation.isPending ? (
+                          {enqueueDistillation.isPending &&
+                          enqueueDistillation.variables?.captureId ===
+                            capture.id ? (
                             <IconLoader2 className="size-4 animate-spin" />
                           ) : (
                             <IconSend className="size-4 rtl:-scale-x-100" />

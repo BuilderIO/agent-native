@@ -39,6 +39,18 @@ describe("authored content base", () => {
     expect(tracker.base(merged)).toEqual(merged);
   });
 
+  it("authors on the saved body when the peer's text arrived and was deleted before the answer", () => {
+    const tracker = createAuthoredContentBase();
+    tracker.observed("Alpha. peer\nBravo. mine", authoredOn);
+    tracker.saved({
+      saved: merged,
+      sentContent: "Alpha.\nBravo. mine",
+      editorContent: "Alpha.\nBravo. mine",
+      authoredOn,
+    });
+    expect(tracker.base(merged)).toEqual(merged);
+  });
+
   it("authors on the winner a displaced save adopted", () => {
     const tracker = createAuthoredContentBase();
     const winner = { revision: "r2", content: "Alpha. peer\nBravo." };

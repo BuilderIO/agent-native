@@ -1,15 +1,55 @@
 // @vitest-environment happy-dom
 
+import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (_key: string, options?: { defaultValue?: string }) =>
-    options?.defaultValue ?? _key,
+  useT:
+    () => (_key: string, options?: { defaultValue?: string; count?: number }) =>
+      (options?.defaultValue ?? _key).replace(
+        "{{count}}",
+        String(options?.count ?? ""),
+      ),
+}));
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  useOnboarding: () => ({
+    loading: false,
+    error: null,
+    profile: {
+      capabilities: [
+        {
+          id: "llm",
+          label: "AI model",
+          required: true,
+          builderIncluded: true,
+          service: "model",
+          keySummary: "Connect your own AI model",
+          why: "The agent uses a language model.",
+        },
+        {
+          id: "design-system-intelligence",
+          label: "Design system intelligence",
+          required: false,
+          builderIncluded: true,
+          service: "design-system-intelligence",
+        },
+        {
+          id: "background-agents",
+          label: "Background agents",
+          required: false,
+          builderIncluded: true,
+          service: "background-agents",
+        },
+      ],
+    },
+  }),
 }));
 
 import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -46,7 +86,7 @@ function click(element: HTMLElement) {
 }
 
 function render(node: React.ReactElement) {
-  act(() => root.render(node));
+  act(() => root.render(React.createElement(TooltipProvider, null, node)));
 }
 
 function trigger() {
@@ -57,6 +97,23 @@ function trigger() {
 }
 
 describe("BuilderConnectPopover before the status read resolves", () => {
+  it("starts the OAuth path from the original trigger click", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: false,
+      accountExists: false,
+    };
+
+    render(
+      React.createElement(DeferredBuilderConnectPopover, { flow }, trigger()),
+    );
+    click(connectButton());
+
+    expect(flow.start).toHaveBeenCalledWith({ provisionAccount: false });
+  });
+
   it("uses existing-account sign-in when provisioning is unavailable", () => {
     const onConnect = vi.fn();
     const flow = {
@@ -182,6 +239,120 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(onConnect).toHaveBeenCalledWith(true);
   });
 
+  it("shows one sign-in action when Builder reports an existing account", () => {
+    const onConnect = vi.fn();
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      accountExists: true,
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow,
+          onConnect,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    expect(document.querySelector("[data-testid='consent']")).toBeNull();
+    click(connectButton());
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.textContent).toContain("builderActivateTitle");
+    expect(consent?.querySelector("p[role='status']")?.textContent).toBe(
+      "You already have a Builder.io account",
+    );
+    expect(consent?.textContent).toContain("Included free");
+    expect(consent?.textContent).not.toContain(
+      "Included free with a Builder.io account",
+    );
+    expect(consent?.textContent).toContain("60 monthly Agent Credits");
+    expect(consent?.textContent).toContain("+ 2 more services");
+    const services = consent?.querySelector<HTMLElement>(
+      "[data-testid='builder-included-services']",
+    );
+    const servicesToggle = services?.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    expect(servicesToggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      Array.from(
+        servicesToggle?.querySelectorAll(":scope > span > span") ?? [],
+      ).map((line) => line.textContent),
+    ).toEqual([
+      "Included free",
+      "60 monthly Agent Credits",
+      "+ 2 more services",
+    ]);
+    expect(
+      consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
+        ?.textContent,
+    ).toBe("agentChat.onboarding.builderSignInWithAccount");
+    expect(
+      consent?.querySelector<HTMLButtonElement>("[data-testid='sign-in']"),
+    ).toBeNull();
+    expect(
+      consent?.querySelector<HTMLButtonElement>("[data-testid='create'] svg"),
+    ).toBeNull();
+    expect(consent?.textContent).not.toContain("agentChat.auth.logIn");
+
+    click(servicesToggle!);
+    expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");
+    click(consent?.querySelector("[data-testid='create']") as HTMLElement);
+    expect(onConnect).toHaveBeenCalledWith(false);
+  });
+
+  it("reopens the same account choices when activation finds an existing account", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+    };
+    const props = {
+      flow,
+      contentTestId: "consent",
+      primaryTestId: "create",
+      secondaryTestId: "sign-in",
+    };
+
+    render(React.createElement(BuilderConnectPopover, props, trigger()));
+    click(connectButton());
+    click(
+      document.querySelector(
+        "[data-testid='consent'] [data-testid='create']",
+      ) as HTMLElement,
+    );
+    expect(flow.start).toHaveBeenCalledWith({ provisionAccount: true });
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { ...props, flow: { ...flow, accountExists: true } },
+        trigger(),
+      ),
+    );
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.querySelector("p[role='status']")?.textContent).toBe(
+      "You already have a Builder.io account",
+    );
+    expect(consent?.querySelector("[data-testid='create']")).not.toBeNull();
+    expect(consent?.querySelector("[data-testid='sign-in']")).toBeNull();
+
+    click(consent?.querySelector("[data-testid='create']") as HTMLElement);
+    expect(flow.start).toHaveBeenLastCalledWith({ provisionAccount: false });
+  });
+
   it("stacks the create and sign-in buttons together with the terms below them", () => {
     const flow = {
       connecting: false,
@@ -225,9 +396,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
       p.querySelector("a"),
     );
     expect(create && signIn && terms).toBeTruthy();
-    expect(consent?.textContent).toContain(
-      "Included free with a Builder.io account",
-    );
+    expect(consent?.textContent).toContain("Included free");
     expect(consent?.textContent).toContain("60 monthly Agent Credits");
     expect(signIn?.parentElement).toBe(create?.parentElement);
     expect(create!.compareDocumentPosition(signIn!)).toBe(

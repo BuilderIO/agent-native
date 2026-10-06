@@ -1,11 +1,18 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconApps } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 import { Link, useLocation } from "react-router";
 
+import {
+  filterBuiltInApps,
+  type ConnectedAppSummary,
+} from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
 import {
   isWorkspaceAppVisibleInDefaultLaunchers,
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
   workspaceAppRoute,
   workspaceAppHref,
@@ -22,7 +29,7 @@ function appLabel(app: WorkspaceAppSummary): string {
   return app.name.trim() || app.id;
 }
 
-type RailApp = WorkspaceAppSummary;
+type RailApp = WorkspaceAppSummary & { external?: boolean };
 
 export function WorkspaceAppsRail({
   collapsed = false,
@@ -39,17 +46,34 @@ export function WorkspaceAppsRail({
       includeAgentCards: false,
     },
   );
+  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
+    "list-connected-agents",
+    {},
+  );
   if (appsQuery.isError || !appsQuery.data) return null;
 
-  const apps: RailApp[] = appsQuery.data
-    .filter(
+  const workspaceApps = appsQuery.data;
+  const apps: RailApp[] = [
+    ...workspaceApps.filter(
       (app) =>
         isWorkspaceAppVisibleInDefaultLaunchers(app) &&
         !app.archived &&
         app.status !== "pending" &&
         !!workspaceAppHref(app),
-    )
-    .sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
+    ),
+    ...filterBuiltInApps(connectedAppsQuery.data ?? [], workspaceApps).map(
+      (app) => ({
+        id: app.id,
+        name: app.name,
+        description: app.description,
+        path: "",
+        url: app.homeUrl?.trim() || app.url,
+        status: "ready" as const,
+        source: "builtin" as const,
+        external: true,
+      }),
+    ),
+  ].sort((a, b) => appLabel(a).localeCompare(appLabel(b)));
 
   if (apps.length === 0) return null;
 
@@ -62,7 +86,21 @@ export function WorkspaceAppsRail({
     const linkProps = {
       "aria-current": active ? ("page" as const) : undefined,
       "aria-label": collapsed ? label : undefined,
-      onClick: onNavigate,
+      onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+        onNavigate?.();
+        if (
+          !app.external ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey ||
+          !shouldOpenWorkspaceAppInTopWindow()
+        ) {
+          return;
+        }
+        if (navigateToWorkspaceApp(href)) event.preventDefault();
+      },
       className: cn(
         "flex h-9 items-center rounded-md text-sm transition-colors",
         collapsed ? "w-9 justify-center" : "w-full gap-2 px-2 text-start",
@@ -82,7 +120,11 @@ export function WorkspaceAppsRail({
         {!collapsed ? <span className="truncate">{label}</span> : null}
       </>
     );
-    const link = (
+    const link = app.external ? (
+      <a href={href} {...linkProps}>
+        {linkContent}
+      </a>
+    ) : (
       <Link to={workspaceAppRoute(app.id)} {...linkProps}>
         {linkContent}
       </Link>

@@ -9,9 +9,7 @@ vi.mock("@agent-native/core/client/application-state", () => ({
 }));
 
 import {
-  contentLandingRecoveryTarget,
   isPersonalLanding,
-  readContentLandingRecovery,
   rememberContentLandingDocument,
 } from "./content-landing";
 
@@ -127,60 +125,13 @@ describe("rememberContentLandingDocument", () => {
   });
 });
 
-describe("contentLandingRecoveryTarget", () => {
-  it("sends an unavailable full-page deep link to the landing resolver", () => {
-    expect(
-      contentLandingRecoveryTarget({ host: "page", documentId: "inbox" }),
-    ).toEqual({
-      pathname: "/home",
-      state: { unavailableDocumentId: "inbox" },
-    });
-  });
-
-  it("leaves an embedded preview on its inline unavailable state", () => {
-    expect(
-      contentLandingRecoveryTarget({ host: "preview", documentId: "inbox" }),
-    ).toBeNull();
-  });
-
-  it("does not redirect without a requested document", () => {
-    expect(
-      contentLandingRecoveryTarget({ host: "page", documentId: "" }),
-    ).toBeNull();
-  });
-});
-
-describe("readContentLandingRecovery", () => {
-  it("reads the handoff written by the redirect", () => {
-    expect(
-      readContentLandingRecovery({ unavailableDocumentId: "inbox" }),
-    ).toEqual({ unavailableDocumentId: "inbox" });
-  });
-
-  it("keeps a plain landing visit distinguishable from a recovery", () => {
-    for (const state of [
-      null,
-      undefined,
-      "inbox",
-      {},
-      { unavailableDocumentId: "" },
-      { unavailableDocumentId: 7 },
-    ]) {
-      expect(readContentLandingRecovery(state)).toBeNull();
-    }
-  });
-});
-
 describe("isPersonalLanding", () => {
-  it("is /home without a space or a page to explain", () => {
-    const home = { pathname: "/home", search: "", state: null };
+  it("is /home without a space", () => {
+    const home = { pathname: "/home", search: "" };
     expect(isPersonalLanding(home)).toBe(true);
     expect(isPersonalLanding({ ...home, search: "?spaceId=space-1" })).toBe(
       false,
     );
-    expect(
-      isPersonalLanding({ ...home, state: { unavailableDocumentId: "inbox" } }),
-    ).toBe(false);
     expect(isPersonalLanding({ ...home, pathname: "/page/inbox" })).toBe(false);
   });
 });

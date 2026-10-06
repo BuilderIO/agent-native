@@ -28,7 +28,8 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Mail",
-    learnMoreUrl: "https://agent-native.com/apps/mail",
+    learnMoreUrl:
+      "https://agent-native.com/apps/mail?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",

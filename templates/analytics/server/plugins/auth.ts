@@ -34,7 +34,8 @@ const authPlugin = createAuthPlugin({
   publicCorsPaths: ["/track", "/api/analytics/track", "/api/analytics/replay"],
   marketing: {
     appName: "Analytics",
-    learnMoreUrl: "https://agent-native.com/apps/analytics",
+    learnMoreUrl:
+      "https://agent-native.com/apps/analytics?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you.",
     features: [
