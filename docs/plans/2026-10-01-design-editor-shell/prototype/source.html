@@ -773,7 +773,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-types .icon-btn { width: 24px; height: 24px; }
 /* Gradient: Type and Angle on the value grid's columns (136 · 104), then the stop bar; the selected stop is edited below. */
 .cpk-image { padding: 12px 12px 0; display: grid; grid-template-columns: 136px 104px; gap: 8px; }
-.cpk-grad { padding: 12px 12px 0; display: grid; gap: 8px; }
+.cpk-grad { padding: 12px 12px 4px; display: grid; gap: 8px; }
 .cpk-grad .inp, .cpk-image .inp, .cpk-image .btn { height: 24px; }
 /* Gradient, as Figma's: Type, then Flip and Rotate; pins over the bar; the Stops list. */
 .cpk-grow { display: flex; align-items: center; justify-content: space-between; }
@@ -799,6 +799,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-scol { display: flex; align-items: center; gap: 0; padding-right: 6px; }
 .cpk-sswatch { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 24px; padding-left: 4px; text-align: left; font-size: 11px; white-space: nowrap; overflow: hidden; text-transform: uppercase; }
 .cpk-sswatch .sw { width: 14px; height: 14px; flex: none; border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-sswatch:hover .sw, .cpk-shcol .sw:hover { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%), 0 0 0 2px var(--accent-soft); }
 .cpk-sswatch .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cpk-scol input { width: 28px; flex: none; text-align: right; padding: 0; }
 .cpk-scol .post { width: auto; padding-left: 2px; color: var(--muted-fg); }
@@ -819,13 +820,13 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-shpick { flex: 1; height: 24px; }
 .cpk-shmore { margin-right: -4px; }
 .cpk-shcol { grid-column: 2 / 4; height: 24px; gap: 6px; padding-left: 4px; }
-.cpk-shcol .sw { width: 14px; height: 14px; flex: none; border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-shcol .sw { width: 14px; height: 14px; flex: none; border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); cursor: pointer; }
 .cpk-image .btn { font-size: 11px; border-radius: 6px; justify-content: center; }
 .cpk-img { grid-column: 1 / -1; height: 160px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%); background-color: var(--hover); }
 .cpk-img.empty { background-image: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%); background-size: 8px 8px; }
 .cpk[data-paint="image"] :is(.cpk-sv, .cpk-ctl, .cpk-val, .cpk-doc) { display: none; }
 .cpk[data-paint="image"] .cpk-image { padding-bottom: 12px; }
-.cpk[data-paint="gradient"] .cpk-doc, .cpk:not([data-paint="gradient"]) .cpk-grad, .cpk:not([data-paint="image"]) .cpk-image, .cpk:not(.contrast-on) .cpk-cbar { display: none; }
+.cpk[data-paint="gradient"] :is(.cpk-sv, .cpk-ctl, .cpk-val, .cpk-doc), .cpk:not([data-paint="gradient"]) .cpk-grad, .cpk:not([data-paint="image"]) .cpk-image, .cpk:not(.contrast-on) .cpk-cbar { display: none; }
 /* Contrast mode: the ratio chip (Figma's) and the level it reaches; the square gets the line where it's met. */
 .cpk-cbar { padding: 12px 12px 0; display: flex; align-items: center; justify-content: space-between; }
 .cpk-chip { height: 24px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent); font: 500 11px/16px var(--font); font-variant-numeric: tabular-nums; }
@@ -2249,8 +2250,9 @@ const gradientCss = g => g.kind === "linear" ? `linear-gradient(${g.angle}deg, $
   : ["top left", "top right", "bottom left", "bottom right"].map(c => `linear-gradient(to ${c}, ${stopsCss(g)}) ${c} / 50% 50% no-repeat`).join(", ");
 const imageCss = im => `url(${im.url}) ${im.fit === "tile" ? "top left / auto repeat" : `center / ${im.fit === "fit" ? "contain" : "cover"} no-repeat`}`;
 const isPaintCss = v => /gradient\(|url\(/.test(String(v));
-function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = null, onPickToken = null, current = null, canCreate = false, contrast = null, paint: fillPaint = null }) {
-  document.querySelector(".cpk")?._close();
+function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = null, onPickToken = null, current = null, canCreate = false, contrast = null, paint: fillPaint = null, beside = null }) {
+  // A picker opened beside another (a gradient stop's, a shader color's) replaces only another such picker.
+  document.querySelector(beside ? ".cpk.nested" : ".cpk")?._close();
   // A gradient edits its selected stop with the same square, sliders, and fields; an image hides them.
   const P = fillPaint; if (P) { P.type ||= "solid"; P.blend ||= "normal"; }
   const G = () => P.gradient ||= { kind: "linear", angle: 90, stops: [{ pos: 0, color: css(1) }, { pos: 100, color: formatColor(C.lin, 0, C.mode, C.okHue) }], sel: 0 };
@@ -2264,7 +2266,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const canEye = "EyeDropper" in window;
   const docs = [...new Set(TOKENS.filter(t => t.type === "color" && parseColor(t.value)).map(t => t.value.toLowerCase()))].slice(0, 16);
   const libs = libraries || [];
-  const pop = document.createElement("div"); pop.className = "cpk"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Color");
+  const pop = document.createElement("div"); pop.className = beside ? "cpk nested" : "cpk"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Color");
   pop.innerHTML = `${libraries ? `<div class="cpk-head"><span class="tabs" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></span><span class="acts">${canCreate ? `<button class="icon-btn cpk-create" title="Create a color token from this color">${ic("plus")}</button>` : ""}</span></div>` : ""}
     <div class="cpk-panes">
       <div class="cpk-pane" data-cpk-pane="custom">
@@ -2293,6 +2295,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   // then the anchor may be gone: the picker keeps its column and only moves up as far as it must to stay on screen.
   const place = () => {
     pop.style.maxHeight = innerHeight - 16 + "px"; pop.style.overflowY = pop.scrollHeight > innerHeight - 16 ? "auto" : "";
+    if (beside) { const b = beside.getBoundingClientRect(), ar = anchor.getBoundingClientRect(); pop.style.left = Math.max(8, b.left - 8 - pop.offsetWidth) + "px"; pop.style.top = Math.max(8, Math.min(ar.top, innerHeight - pop.offsetHeight - 8)) + "px"; return; }
     if (!anchor.isConnected) { pop.style.top = Math.max(8, Math.min(pop.offsetTop, innerHeight - pop.offsetHeight - 8)) + "px"; return; }
     const host = (anchor.closest("#tokens, #insp") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
     pop.style.left = (anchor.closest("#insp") ? Math.max(8, host.left - 8 - pop.offsetWidth) : Math.min(innerWidth - pop.offsetWidth - 8, host.right + 8)) + "px";
@@ -2448,7 +2451,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     const def = SHADER_FILLS.find(f => f.name === sh.name), active = document.activeElement?.dataset?.u;
     box.innerHTML = `<div class="cpk-shhead"><button class="inp sel cpk-shpick" aria-haspopup="menu" aria-expanded="false" title="Shader"><span class="v">${def.label}</span>${ic("chevron-down", "s12")}</button><button class="icon-btn cpk-shmore" aria-haspopup="menu" aria-expanded="false" aria-label="More">${ic("dots")}</button></div>
       <div class="curve-fields springs cpk-shu">${Object.entries(def.uniforms).map(([k, u]) => u.type === "color"
-        ? `<span class="cs-l">${u.label}</span><label class="inp cpk-shcol"><span class="sw" style="background:${sh.values[k]}"></span><input data-u="${k}" value="${sh.values[k].replace("#", "").toUpperCase()}" aria-label="${u.label}" spellcheck="false"></label>`
+        ? `<span class="cs-l">${u.label}</span><label class="inp cpk-shcol"><button class="sw" data-shpick="${k}" style="background:${sh.values[k]}" aria-label="Edit ${u.label}" aria-haspopup="dialog"></button><input data-u="${k}" value="${sh.values[k].replace("#", "").toUpperCase()}" aria-label="${u.label}" spellcheck="false"></label>`
         : `<span class="cs-l">${u.label}</span><div class="cs-track" data-u="${k}" role="slider" aria-label="${u.label}" style="--t:${(sh.values[k] - u.min) / (u.max - u.min)}"><span class="cs-knob"></span></div><label class="inp cs-v"><input data-u="${k}" value="${+(+sh.values[k]).toFixed(3)}" aria-label="${u.label}" inputmode="decimal"></label>`).join("")}</div>`;
     if (active) box.querySelector(`input[data-u="${active}"]`)?.focus();
   };
@@ -2517,10 +2520,14 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
   };
   // What the fill becomes: the color, the gradient with this stop's new color, or the image.
-  const out = () => !P || P.type === "solid" ? css() : P.type === "gradient" ? (G().stops[G().sel].color = css(), gradientCss(G())) : P.type === "shader" ? (P.shader ? shaderCss(P.shader) : null) : P.image?.url ? imageCss(P.image) : null;
+  const out = () => !P || P.type === "solid" ? css() : P.type === "gradient" ? gradientCss(G()) : P.type === "shader" ? (P.shader ? shaderCss(P.shader) : null) : P.image?.url ? imageCss(P.image) : null;
   const emit = () => { const v = out(); if (v !== null) onInput(v); };
   const update = (fields = true) => { paint(fields); emit(); };
-  const loadStop = i => { const g = G(); g.sel = i; const pc = parseColor(g.stops[i].color); if (pc) Object.assign(C, { lin: pc.lin, a: pc.a }); };
+  const loadStop = i => { G().sel = i; };
+  // Each mode has its own controls; a color in them (a stop, a shader's color) opens its own picker beside this one,
+  // as Figma does, rather than this picker's square. Esc there puts that color back.
+  const pickBeside = (anchorEl, color, set) => { const was = color;
+    colorPicker(anchorEl, color, { beside: pop, onInput: v => { set(v); paint(); emit(); }, onClose: cancelled => { if (cancelled) { set(was); paint(); emit(); } } }); };
   const setType = k => {
     if (k === P.type) return;
     if (P.type === "gradient" && k === "solid") C.a = 1;
@@ -2541,6 +2548,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     const g = G(), r = bar.getBoundingClientRect(), posAt = ev => Math.round(clamp01((ev.clientX - r.left - 10) / (r.width - 20)) * 100);
     let i = e.target.closest("[data-stop]") ? +e.target.closest("[data-stop]").dataset.stop : -1;
     if (i < 0) { const pos = posAt(e); g.stops.push({ pos, color: colorAt(g, pos) }); i = g.stops.length - 1; }
+    document.querySelector(".cpk.nested")?._close();
     loadStop(i); update(); e.preventDefault();
     try { bar.setPointerCapture(e.pointerId); } catch { return; }
     bar.onpointermove = ev => { g.stops[i].pos = posAt(ev); update(false); }; bar.onpointerup = () => { bar.onpointermove = null; bar.querySelector(`[data-stop="${i}"]`)?.focus(); };
@@ -2622,6 +2630,8 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     if (e.target.closest(".cpk-sadd")) { const g = G(), o = g.stops.slice().sort((a, b) => a.pos - b.pos), cur = g.stops[g.sel], next = o.find(st => st.pos > cur.pos), pos = Math.round(next ? (cur.pos + next.pos) / 2 : Math.max(0, cur.pos - 10));
       g.stops.push({ pos, color: colorAt(g, pos) }); loadStop(g.stops.length - 1); return update(); }
     const rm = e.target.closest("[data-srm]"); if (rm) return removeStop(+rm.dataset.srm);
+    const pk = e.target.closest("[data-pick]"); if (pk) { const i = +pk.dataset.pick; loadStop(i); paint(); return pickBeside(q(`.cpk-srow[data-srow="${i}"]`), G().stops[i].color, v => { G().stops[i].color = v; }); }
+    const shc = e.target.closest("[data-shpick]"); if (shc) { const k = shc.dataset.shpick; return pickBeside(shc, P.shader.values[k], v => { P.shader.values[k] = /^#[0-9a-f]{6}$/i.test(v) ? v : formatColor(parseColor(v).lin, 1, "hex"); }); }
     const srow = e.target.closest("[data-srow]"); if (srow && !e.target.closest("input")) { loadStop(+srow.dataset.srow); return update(); }
     const sc = e.target.closest("[data-shader]"); if (sc) { const def = SHADER_FILLS.find(f => f.name === sc.dataset.shader); P.shader = { name: def.name, values: Object.fromEntries(Object.entries(def.uniforms).map(([k, u]) => [k, u.value])) }; update(); return place(); }
     if (e.target.closest("[data-shader-ai]")) { close(false); setPanel("agents"); S.chat = { title: "New shader fill", msgs: [{ user: true, text: `Make a shader fill for “${FLAT[S.selected]?.name || "this layer"}”.` }, { step: "Writing the GLSL" }] }; return renderAgents(); }
@@ -2662,10 +2672,11 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   // Leaving OKLCH for a narrower mode maps the color into it; OKLCH itself keeps what was authored.
   const setMode = k => { C.mode = k; if (k !== "oklch" && !spaceFits()(C.lin)) C.lin = fitGamut(C.lin, spaceFits()); update(); };
   let done = false;
-  const close = cancelled => { if (done) return; done = true; hideTip(); pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); onClose(cancelled); };
-  const outside = e => { if (!pop.contains(e.target) && !e.target.closest?.(".menu, .scrim")) close(false); };
+  const close = cancelled => { if (done) return; done = true; hideTip(); if (!beside) document.querySelector(".cpk.nested")?._close(); pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); onClose(cancelled); };
+  const outside = e => { if (!pop.contains(e.target) && !e.target.closest?.(beside ? ".menu, .scrim" : ".menu, .scrim, .cpk.nested")) close(false); };
   // Esc in a Create draft belongs to the draft; anywhere else it puts the color back and closes.
-  const key = e => { if (e.key === "Escape" && !document.querySelector(".menu") && !e.target.closest?.(".cpk-tdraft")) { e.preventDefault(); e.stopPropagation(); close(true); } };
+  // With a stop's picker open beside it, Esc closes that one first.
+  const key = e => { if (e.key === "Escape" && !document.querySelector(".menu") && !e.target.closest?.(".cpk-tdraft") && (beside || !document.querySelector(".cpk.nested"))) { e.preventDefault(); e.stopPropagation(); close(true); } };
   document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key, true);
   pop._close = () => close(false);
   q(".cpk-new").addEventListener("pointerenter", () => { tipTimer = setTimeout(showTip, 300); });
