@@ -1,26 +1,27 @@
 ---
 title: "Access और Authorization"
-description: "कौन किसी action को कॉल कर सकता है: exposure flags (agentTool, mcpTool, toolCallable), ctx-आधारित scoping, accessFilter/assertAccess, और authorize गार्ड।"
+description: "कौन किसी action को कॉल कर सकता है: exposure flags (agentTool, mcpTool, toolCallable), declarative access विकल्प, ctx-आधारित scoping, accessFilter/assertAccess, और authorize गार्ड।"
 ---
 
 # Access और Authorization
 
-छह सेटिंग्स तय करती हैं कि किसी action को कौन कॉल कर सकता है: एजेंट, फ्रंटएंड, कोई extension, कोई बाहरी API कॉलर, या पहले किसी मानव के अनुमोदन के बिना कोई नहीं। अधिकतर actions को इनमें से किसी को छूने की कभी ज़रूरत नहीं पड़ती, क्योंकि defaults पहले से सामान्य UI-और-एजेंट उपयोग के अनुकूल हैं।
+सात सेटिंग्स तय करती हैं कि किसी action को कौन कॉल कर सकता है: एजेंट, फ्रंटएंड, कोई extension, कोई बाहरी API कॉलर, या पहले किसी मानव के अनुमोदन के बिना कोई नहीं। अधिकतर actions को इनमें से किसी को छूने की कभी ज़रूरत नहीं पड़ती, क्योंकि defaults पहले से सामान्य UI-और-एजेंट उपयोग के अनुकूल हैं।
 
 ### Exposure flags {#exposure-flags}
 
-सभी छह flags डिफ़ॉल्ट रूप से permissive वैल्यू पर होते हैं — `mcpTool` `agentTool` से विरासत में लेकर — इसलिए आप किसी एक को तभी सेट करते हैं जब आपको किसी विशिष्ट सतह को टाइट करने की आवश्यकता हो। नीचे दी गई तालिका एक त्वरित सारांश है। इसके बाद के सेक्शन हर flag की एक ज़रूरी जानकारी जोड़ते हैं।
+सभी सात flags डिफ़ॉल्ट रूप से permissive वैल्यू पर होते हैं — `mcpTool` `agentTool` से विरासत में लेकर — इसलिए आप किसी एक को तभी सेट करते हैं जब आपको किसी विशिष्ट सतह को टाइट करने की आवश्यकता हो। नीचे दी गई तालिका एक त्वरित सारांश है। इसके बाद के सेक्शन हर flag की एक ज़रूरी जानकारी जोड़ते हैं।
 
-| Flag            | डिफ़ॉल्ट      | प्रतिबंधात्मक वैल्यू → कौन अभी भी कॉल कर सकता है                                     | सामान्य उपयोग                                                          |
-| --------------- | ------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| `agentTool`     | `true`        | `false` → केवल UI, HTTP, और CLI (मॉडल, MCP, और A2A से छिपा हुआ)                      | UI-only या प्रोग्रामेटिक actions जिन्हें टूल स्लॉट नहीं लेना चाहिए     |
-| `mcpTool`       | `agentTool`   | `false` → केवल आपकी अपनी app का एजेंट (MCP और A2A से छिपा हुआ)                       | ऐसे actions जिन्हें दूसरी ओर app की स्क्रीन या सेशन चाहिए              |
-| `toolCallable`  | `true`        | `false` → sandboxed extension iframe ब्रिज **को छोड़कर** सब कुछ (403)                | संवेदनशील account या org बदलाव (account delete करना, membership बदलना) |
-| `publicAgent`   | off (private) | `{ expose: true }` → action को **public** MCP/A2A/OpenAPI सतहों में जोड़ता है        | सुरक्षित read या ingest टूल जिन्हें authentication की आवश्यकता नहीं    |
-| `needsApproval` | `false`       | `true` → एजेंट **रुक जाता है**, और किसी मानव को उस विशिष्ट कॉल को अनुमोदित करना होगा | परिणामी side effects (email भेजना, कार्ड चार्ज करना, delete करना)      |
-| `authorize`     | none          | एक गार्ड फ़ंक्शन → **हर** सतह पर केवल वे कॉलर्स जिन्हें यह स्वीकार करता है           | किसी भूमिका तक प्रतिबंधित ऑपरेशंस (per-app RBAC, admin-only ऑप्स)      |
+| Flag            | डिफ़ॉल्ट      | प्रतिबंधात्मक वैल्यू → कौन अभी भी कॉल कर सकता है                                     | सामान्य उपयोग                                                            |
+| --------------- | ------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `agentTool`     | `true`        | `false` → केवल UI, HTTP, और CLI (मॉडल, MCP, और A2A से छिपा हुआ)                      | UI-only या प्रोग्रामेटिक actions जिन्हें टूल स्लॉट नहीं लेना चाहिए       |
+| `mcpTool`       | `agentTool`   | `false` → केवल आपकी अपनी app का एजेंट (MCP और A2A से छिपा हुआ)                       | ऐसे actions जिन्हें दूसरी ओर app की स्क्रीन या सेशन चाहिए                |
+| `toolCallable`  | `true`        | `false` → sandboxed extension iframe ब्रिज **को छोड़कर** सब कुछ (403)                | संवेदनशील account या org बदलाव (account delete करना, membership बदलना)   |
+| `publicAgent`   | off (private) | `{ expose: true }` → action को **public** MCP/A2A/OpenAPI सतहों में जोड़ता है        | सुरक्षित read या ingest टूल जिन्हें authentication की आवश्यकता नहीं      |
+| `needsApproval` | `false`       | `true` → एजेंट **रुक जाता है**, और किसी मानव को उस विशिष्ट कॉल को अनुमोदित करना होगा | परिणामी side effects (email भेजना, कार्ड चार्ज करना, delete करना)        |
+| `access`        | none          | एक घोषित policy → **हर** सतह पर केवल वे कॉलर्स जिनके पास उसमें बताई गई भूमिका है     | किसी एक साझा resource को पढ़ने या बदलने वाले actions (form को edit करना) |
+| `authorize`     | none          | एक गार्ड फ़ंक्शन → **हर** सतह पर केवल वे कॉलर्स जिन्हें यह स्वीकार करता है           | किसी भूमिका तक प्रतिबंधित ऑपरेशंस (per-app RBAC, admin-only ऑप्स)        |
 
-ये flags स्वतंत्र हैं, एक अपवाद के साथ: बिना घोषित किया गया `mcpTool` `agentTool` से विरासत में लेता है। `agentTool` नियंत्रित करता है कि मॉडल क्या देखता है, नीचे [मॉडल से छिपाएं](#agent-tool) देखें। `mcpTool` इसे केवल बाहरी एजेंट्स तक सीमित करता है, नीचे [बाहरी एजेंट्स से छिपाएं](#mcp-tool) देखें। `toolCallable` केवल extension iframe को नियंत्रित करता है, नीचे [Extension iframes को ब्लॉक करें](#tool-callable) देखें। `publicAgent` एक opt-in public सतह जोड़ता है, और कोई public web route कभी public tool exposure का संकेत नहीं देता, नीचे [Public एजेंट्स के लिए एक्सपोज़ करें](#public-agent) देखें। `needsApproval` कॉल पहले से किए जाने के बाद execution को गेट करता है, नीचे [मानव अनुमोदन की आवश्यकता](#needs-approval) देखें। `authorize` तय करता है कि क्या यह कॉलर बिल्कुल भी action चला सकता है, हर dispatch पथ पर, `run()` में प्रवेश करने से पहले, नीचे [भूमिका के अनुसार कॉलर्स को प्रतिबंधित करें](#authorize) देखें।
+ये flags स्वतंत्र हैं, एक अपवाद के साथ: बिना घोषित किया गया `mcpTool` `agentTool` से विरासत में लेता है। `agentTool` नियंत्रित करता है कि मॉडल क्या देखता है, नीचे [मॉडल से छिपाएं](#agent-tool) देखें। `mcpTool` इसे केवल बाहरी एजेंट्स तक सीमित करता है, नीचे [बाहरी एजेंट्स से छिपाएं](#mcp-tool) देखें। `toolCallable` केवल extension iframe को नियंत्रित करता है, नीचे [Extension iframes को ब्लॉक करें](#tool-callable) देखें। `publicAgent` एक opt-in public सतह जोड़ता है, और कोई public web route कभी public tool exposure का संकेत नहीं देता, नीचे [Public एजेंट्स के लिए एक्सपोज़ करें](#public-agent) देखें। `needsApproval` कॉल पहले से किए जाने के बाद execution को गेट करता है, नीचे [मानव अनुमोदन की आवश्यकता](#needs-approval) देखें। `access` घोषित करता है कि कॉलर के पास किसी resource पर कौन-सी भूमिका होनी चाहिए, जिसे `run()` में प्रवेश करने से पहले हर dispatch पथ पर जांचा जाता है, नीचे [किसी resource तक access की आवश्यकता](#access) देखें। `authorize` तय करता है कि क्या यह कॉलर बिल्कुल भी action चला सकता है, हर dispatch पथ पर, `run()` में प्रवेश करने से पहले, नीचे [भूमिका के अनुसार कॉलर्स को प्रतिबंधित करें](#authorize) देखें।
 
 ## मॉडल से छिपाएं {#agent-tool}
 
@@ -261,6 +262,48 @@ export default defineAction({
 
 Mail template का `send-email` action फ्रेमवर्क में इस गेट का canonical उपयोग है, और यह जानबूझकर दुर्लभ है। यह `needsApproval: true` सेट करता है ताकि एजेंट स्वतंत्र रूप से emails draft और queue कर सके। यह किसी मानव के उस विशिष्ट send को अनुमोदित किए बिना कभी असल में कोई मैसेज नहीं भेज सकता।
 
+## किसी resource तक access की आवश्यकता {#access}
+
+`access` घोषित करता है कि action चलने से पहले कॉलर के पास क्या होना चाहिए। यह परिभाषा पर मौजूद data है, `run()` के अंदर का कोड नहीं। इसका सबसे सामान्य रूप किसी साझा resource और उस पर न्यूनतम भूमिका का नाम देता है। Forms template का `update-form` action इसका उपयोग करता है ताकि केवल किसी form का editor ही उस form को बदल सके:
+
+```ts
+// actions/update-form.ts
+export default defineAction({
+  description: "Update an existing form.",
+  access: {
+    scope: "resource",
+    resource: { type: "form", idFrom: "id", level: "editor" },
+  },
+  schema: z.object({
+    id: z.string(),
+    title: z.string().optional(),
+  }),
+  run: async (args) => {
+    /* ...update the form... */
+  },
+});
+```
+
+`resource` तीन fields लेता है:
+
+- **type**: वह नाम जिसके तहत resource को `registerShareableResource()` से रजिस्टर किया गया था, जैसे `"form"` या `"deck"`। देखें [Sharing](/docs/sharing#building)।
+- **idFrom**: वह input field जिसमें resource की id होती है। `"target.formId"` जैसा dotted path किसी nested field को पढ़ता है। अगर वैल्यू मौजूद नहीं है या non-empty string नहीं है, तो कॉल अस्वीकृत कर दी जाती है।
+- **level**: कॉलर को चाहिए वाली न्यूनतम भूमिका, इनमें से एक: `"viewer"`, `"commenter"`, `"editor"`, `"admin"`, या `"owner"`। डिफ़ॉल्ट `"viewer"` है।
+
+`authorize` की तरह, यह जांच `run()` को स्वयं wrap करती है, इसलिए UI, HTTP कॉलर्स, in-app एजेंट, MCP क्लाइंट्स, A2A कॉलर्स, और CLI सभी बॉडी चलने से पहले वही जांच पास करते हैं। यह कॉलर की भूमिका को उसी तरह resolve करती है जैसे `assertAccess()` करता है, इसलिए ownership, shares, और visibility सब गिने जाते हैं। `level` से नीचे वाले कॉलर को 403 मिलता है, जैसे `Requires editor access to form <id>.` जो resource मौजूद नहीं है उसे भी वही 403 मिलता है, ताकि अस्वीकृति से यह पता न चले कि id असली है या नहीं।
+
+`access` का उपयोग तब करें जब कोई एक input field उस एकमात्र resource का नाम देता है जिसे action छूता है। `run()` के अंदर `assertAccess()` का उपयोग तब करें जब id कहीं और से आती है, जैसे किसी row से जिसे आप पहले load करते हैं, या जब एक कॉल कई resources को छूती है। List queries में जांचने के लिए कोई एक id नहीं होती, इसलिए वे `accessFilter()` का उपयोग करती हैं। नीचे [Actions में Access control](#access-control) देखें। [doctor](/docs/doctor) जांच `resource-action-access` घोषित `access` या `assertAccess()` कॉल, दोनों में से किसी को भी स्वीकार करती है।
+
+### Organization और app scopes {#access-scopes}
+
+बाकी fields किसी एक resource के बजाय membership जांचते हैं। आपके द्वारा सेट किया गया हर field पास होना चाहिए।
+
+- **`scope: "org"`**: कॉलर अपने वर्तमान organization का सक्रिय सदस्य होना चाहिए।
+- **`scope: "app"`**: कॉलर साइन इन होना चाहिए, और workspace ने यह app उसके लिए उपलब्ध कराई होनी चाहिए।
+- **`permission`**: इस app के `defineAppRoles()` `permissions` map से एक permission key। कॉलर के पास ऐसी app भूमिका होनी चाहिए जो इसे देती हो। यह पहले `scope: "app"` जांच चलाता है।
+
+`scope: "app"` और `permission` workspace की app registry पढ़ते हैं, इसलिए ये किसी workspace के हिस्से के रूप में deploy की गई apps के लिए उपयुक्त हैं। Standalone app में, किसी app permission को गार्ड करने के लिए इसके बजाय `authorize` और `requirePermission()` का उपयोग करें, जैसा [App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac) में दिखाया गया है। वह गार्ड मॉड्यूल लोड होते समय किसी अघोषित permission key को अस्वीकार भी करता है। `access.permission` उसे केवल request समय पर अस्वीकार करता है।
+
 ## भूमिका के अनुसार कॉलर्स को प्रतिबंधित करें {#authorize}
 
 `authorize` एक विशिष्ट सवाल का जवाब देता है: **क्या यह कॉलर बिल्कुल भी यह ऑपरेशन चला सकता है?** इसे एक गार्ड फ़ंक्शन दें, और यह हर कॉलर पर `run()` से पहले चलता है: एजेंट टूल, HTTP, फ्रंटएंड, MCP, A2A, और CLI।
@@ -299,10 +342,10 @@ export default defineAction({
 Wrappers इस क्रम में compose होते हैं:
 
 ```text
-इनपुट वैलिडेट करें -> authorize -> run -> आउटपुट वैलिडेट करें -> audit
+इनपुट वैलिडेट करें -> access -> authorize -> run -> आउटपुट वैलिडेट करें -> audit
 ```
 
-Authorization input validation के _अंदर_ बैठता है, इसलिए `args` का निरीक्षण करने वाले गार्ड को वही parsed, type-checked वैल्यू मिलती है जो `run()` को मिलती है, न कि कॉलर द्वारा भेजा गया कोई भी raw shape। Auditing सबसे बाहरी है, इसलिए कोई denial भी दर्ज होता है।
+Authorization input validation के _अंदर_ बैठता है, इसलिए `args` का निरीक्षण करने वाले गार्ड को वही parsed, type-checked वैल्यू मिलती है जो `run()` को मिलती है, न कि कॉलर द्वारा भेजा गया कोई भी raw shape। `access` उसी parsed वैल्यू से `idFrom` पढ़ता है। Auditing सबसे बाहरी है, इसलिए कोई denial भी दर्ज होता है।
 
 `requireAny()` definition समय पर विफल होता है, request समय पर नहीं। इसे बिना किसी भूमिका के, या घोषित सूची के बाहर किसी भूमिका के साथ कॉल करने पर, मॉड्यूल लोड होते ही throw हो जाता है। इस तरह कोई गलती, जैसे किसी छूटे हुए argument के साथ `authorize: coachAccess.requireAny()`, ठीक वहीं टूट जाती है जहां वह हुई, बजाय बाद में एक अस्पष्ट 403 के रूप में सामने आने के।
 
@@ -355,17 +398,20 @@ export default defineAction({
 });
 ```
 
+जब id सीधे input से आती है, जैसे यहां `id`, तो घोषित [`access`](#access) policy action परिभाषा से वही जांच चलाती है।
+
 एक create action किसी भी हेल्पर को कॉल नहीं करता। इसे केवल नई row insert करते समय request context से `ownerEmail` (और `orgId`) को stamp करना होता है, क्योंकि access जांचने के लिए अभी कोई मौजूदा row नहीं है। पूरे registration और create पैटर्न के लिए [Sharing](/docs/sharing#building) देखें, और ऊपर उपयोग किए गए `ctx` दूसरे argument की पूरी संरचना के लिए [Run Context](/docs/actions-run-context) देखें।
 
-तीनों mechanism आपस में बदले नहीं जा सकते:
+चारों mechanism आपस में बदले नहीं जा सकते:
 
 | Mechanism                         | यह किस सवाल का जवाब देता है                                    | किस पर लागू होता है                 |
 | --------------------------------- | -------------------------------------------------------------- | ----------------------------------- |
+| `access`                          | क्या कॉलर के पास घोषित भूमिका या membership है?                | सभी छह dispatch साइट्स              |
 | `authorize`                       | क्या यह कॉलर बिल्कुल भी ऑपरेशन कर सकता है?                     | सभी छह dispatch साइट्स              |
 | `needsApproval`                   | क्या किसी मानव को इस विशिष्ट अनुमत कॉल को अनुमोदित करना चाहिए? | केवल एजेंट लूप                      |
 | `accessFilter()`/`assertAccess()` | यह अनुमत कॉलर कौन-सी rows देख या लिख सकता है?                  | `run()` के अंदर, प्रति query या row |
 
-एक प्रतिबंधित write action को आमतौर पर `authorize` और `assertAccess()` दोनों चाहिए होते हैं। पहला non-coaches को ऑपरेशन से बाहर रखता है। दूसरा किसी coach को किसी दूसरे org के plan से बाहर रखता है। `needsApproval` एक अलग axis है। यह कभी प्रतिबंधित नहीं करता कि कौन कॉल कर सकता है, केवल यह कि क्या एजेंट बिना निगरानी के आगे बढ़ सकता है।
+एक प्रतिबंधित write action को आमतौर पर `authorize` और एक row जांच दोनों चाहिए होते हैं। पहला non-coaches को ऑपरेशन से बाहर रखता है। दूसरा किसी coach को किसी दूसरे org के plan से बाहर रखता है। row जांच `assertAccess()` है, या `access` जब row की id कोई input field हो। `needsApproval` एक अलग axis है। यह कभी प्रतिबंधित नहीं करता कि कौन कॉल कर सकता है, केवल यह कि क्या एजेंट बिना निगरानी के आगे बढ़ सकता है।
 
 ऊपर दिया गया `coachAccess` `defineAppRoles()` से आता है, org membership पर per-app भूमिका overlay। भूमिका मॉडल और इसकी गारंटियों के लिए [Organizations, Teams & Permissions → App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac) देखें।
 
