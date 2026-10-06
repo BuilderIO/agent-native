@@ -154,6 +154,11 @@ duplicate the provider transport, auth, quota, and cache implementation.
   loading skeleton wait on a serial chain.
 - Load the visible page from one read where possible, and **lazy-load**
   secondary / below-the-fold data after first paint.
+- An inline script that starts a read goes above every stylesheet in
+  `<head>`: an inline script after a stylesheet waits for it to load. The
+  document request handler starts the early session read from the top of
+  `<head>` for this reason, with the path AppProviders reports through
+  `SsrSessionBootstrapContext`.
 - When a read needs an id that another read returns, keep this browser's last
   copy of that id in localStorage and start the read from it as the app
   hydrates. The server's answer still decides where the page goes, and a read
