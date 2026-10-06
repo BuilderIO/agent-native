@@ -13,7 +13,10 @@ export const CHATGPT_DIRECTORY_TOOL_NAMES = [
 
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
-  widgets: false,
+  widgets: true,
+  widgetDomain: "https://content.agent-native.com",
+  // TEMPORARY: omit frame domains and widget domain only for the scan A/B.
+  widgetDiagnostic: "no-frame-domains",
   keyToolNames: [
     "search-documents",
     "get-document",
