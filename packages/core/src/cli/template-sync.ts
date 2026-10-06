@@ -17,6 +17,7 @@ import {
   _getCorePackageVersion,
   _getDispatchDependencyVersion,
   _getGitHubTemplateRefCandidates,
+  _getOtelDependencyVersion,
   _getToolkitDependencyVersion,
   _localTemplateSourceKind,
   _normalizeTemplateName,
@@ -165,6 +166,7 @@ export async function materializeTemplate(
       coreDependencyVersion: _getCoreDependencyVersion(),
       dispatchDependencyVersion: _getDispatchDependencyVersion(),
       toolkitDependencyVersion: _getToolkitDependencyVersion(),
+      otelDependencyVersion: _getOtelDependencyVersion(),
     });
     _fixPackageJsonName(dest, opts.appName, opts.template, {
       ...provenance,

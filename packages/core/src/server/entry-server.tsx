@@ -6,9 +6,68 @@ const { renderToReadableStream } = ReactDOMServer;
 
 import { isbot } from "isbot";
 
+import { ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT } from "../shared/route-chunk-recovery-bootstrap.js";
 import { wrapWithAnalytics } from "./analytics.js";
 
 export const streamTimeout = 5_000;
+
+const HEAD_OPEN_PATTERN = /<head\b[^>]*>/i;
+const CHUNK_RECOVERY_BOOTSTRAP_TAG = `<script data-agent-native-chunk-recovery-bootstrap>${ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT}</script>`;
+
+function installEarlyChunkRecoveryBootstrap(
+  body: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let pending = "";
+  let injected = false;
+
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        pending += decoder.decode(chunk, { stream: true });
+
+        if (!injected) {
+          const headOpenMatch = HEAD_OPEN_PATTERN.exec(pending);
+          if (!headOpenMatch || headOpenMatch.index === undefined) return;
+
+          const headEnd = headOpenMatch.index + headOpenMatch[0].length;
+          controller.enqueue(
+            encoder.encode(
+              pending.slice(0, headEnd) + CHUNK_RECOVERY_BOOTSTRAP_TAG,
+            ),
+          );
+          pending = pending.slice(headEnd);
+          injected = true;
+        }
+
+        if (pending) {
+          controller.enqueue(encoder.encode(pending));
+          pending = "";
+        }
+      },
+      flush(controller) {
+        pending += decoder.decode();
+
+        if (!injected) {
+          const headOpenMatch = HEAD_OPEN_PATTERN.exec(pending);
+          if (headOpenMatch && headOpenMatch.index !== undefined) {
+            const headEnd = headOpenMatch.index + headOpenMatch[0].length;
+            controller.enqueue(
+              encoder.encode(
+                pending.slice(0, headEnd) + CHUNK_RECOVERY_BOOTSTRAP_TAG,
+              ),
+            );
+            pending = pending.slice(headEnd);
+            injected = true;
+          }
+        }
+
+        if (pending) controller.enqueue(encoder.encode(pending));
+      },
+    }),
+  );
+}
 
 type ServerRouterComponent = (props: {
   context: EntryContext;
@@ -70,11 +129,14 @@ export function createDocumentRequestHandler(
         await body.allReady;
       }
 
-      responseHeaders.set("Content-Type", "text/html");
-      return new Response(wrapWithAnalytics(body), {
-        headers: responseHeaders,
-        status: responseStatusCode,
-      });
+      responseHeaders.set("Content-Type", "text/html; charset=utf-8");
+      return new Response(
+        wrapWithAnalytics(installEarlyChunkRecoveryBootstrap(body)),
+        {
+          headers: responseHeaders,
+          status: responseStatusCode,
+        },
+      );
     } finally {
       clearTimeout(timeoutId);
     }

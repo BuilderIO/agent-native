@@ -5,6 +5,7 @@ import DiffMatchPatch, {
 } from "diff-match-patch";
 
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "./nfm";
+import { suggestionSourceAlignment } from "./suggestion-formatting";
 
 type ContextualMarkdownOperation = {
   before?: unknown;
@@ -13,13 +14,43 @@ type ContextualMarkdownOperation = {
 };
 
 type MarkdownPayload = { markdown: string; changedText: string };
-type MarkdownAnchor = {
-  from: number;
-  to: number;
+type Range = { from: number; to: number };
+type MarkdownAnchor = Range & {
   prefix: string;
   suffix: string;
-  siblingRanges?: Array<{ from: number; to: number }>;
+  siblingRanges?: Range[];
 };
+
+const SIBLING_SEARCH_LIMIT = 128_000;
+
+type CanonicalForm = {
+  source: string;
+  canonical: string;
+  diffs?: ReturnType<DiffMatchPatch["diff_main"]>;
+};
+let lastCanonicalForm: CanonicalForm | null = null;
+
+// Highlighting a page resolves each of its suggestions against the same saved
+// page, and each resolution can place several ranges in its canonical form.
+function canonicalFormOf(source: string): CanonicalForm {
+  if (lastCanonicalForm?.source !== source)
+    lastCanonicalForm = { source, canonical: canonicalizeNfm(source) };
+  return lastCanonicalForm;
+}
+
+// Context that repeats on the saved page, such as two table rows that read the
+// same around the target, can survive only at the other copy after someone
+// edits the first, so finding it once on the current page proves nothing.
+function locateUnrepeatedContext(
+  saved: string,
+  current: string,
+  needle: string,
+) {
+  const index = current.indexOf(needle);
+  if (index < 0 || current.indexOf(needle, index + 1) >= 0) return -1;
+  const first = saved.indexOf(needle);
+  return first >= 0 && saved.indexOf(needle, first + 1) >= 0 ? -1 : index;
+}
 
 function isPayload(value: unknown): value is MarkdownPayload {
   if (!value || typeof value !== "object") return false;
@@ -109,36 +140,78 @@ function resolveParagraphRange(
 function resolveCanonicalizedRange(
   before: string,
   current: string,
-  anchor: MarkdownAnchor,
+  anchor: Range,
 ) {
-  if (canonicalizeNfm(before) !== current) return null;
+  return canonicalFormOf(before).canonical === current
+    ? placeInCanonicalForm(before, current, anchor)
+    : null;
+}
+
+// `canonical` must be the canonical form of `before`.
+function placeInCanonicalForm(
+  before: string,
+  canonical: string,
+  anchor: Range,
+) {
   const target = before.slice(anchor.from, anchor.to);
   if (!target)
-    return resolveCanonicalizedInsertion(before, current, anchor.from);
+    return (
+      resolveCanonicalizedInsertion(before, canonical, anchor.from) ??
+      resolveAlignedRange(before, canonical, anchor)
+    );
   if (!target.trim()) return null;
   const range = resolveUnchangedCanonicalRange(
     before,
-    current,
+    canonical,
     anchor.from,
     anchor.to,
   );
   if (
     !range ||
-    current.indexOf(target) !== range.from ||
-    current.indexOf(target, range.from + 1) >= 0
+    canonical.indexOf(target) !== range.from ||
+    canonical.indexOf(target, range.from + 1) >= 0
   )
-    return null;
+    return resolveAlignedRange(before, canonical, anchor);
   return range;
 }
 
+// The alignment knows how stored syntax, such as a pipe table, maps to its
+// canonical form, so it can place a range the diff cannot: the start of a
+// cell, an empty cell, or a word that repeats elsewhere on the page. Away
+// from the edge of text, beside whitespace that canonicalization collapses or
+// strips, an insertion boundary would be a guess, and a target whose bytes
+// changed is no longer the same target.
+function resolveAlignedRange(before: string, current: string, anchor: Range) {
+  const alignment = suggestionSourceAlignment(before);
+  if (!alignment) return null;
+  const from = alignment.map(anchor.from, "stored");
+  const to = alignment.map(anchor.to, "stored");
+  if (from === null || to === null || from > to) return null;
+  if (anchor.to > anchor.from)
+    return current.slice(from, to) === before.slice(anchor.from, anchor.to)
+      ? { from, to }
+      : null;
+  const shared = (stored?: string, canonical?: string) =>
+    Boolean(stored?.trim()) && stored === canonical;
+  return alignment.atTextEdge(anchor.from, "stored") ||
+    shared(before[anchor.from - 1], current[from - 1]) ||
+    shared(before[anchor.from], current[from])
+    ? { from, to }
+    : null;
+}
+
+// `current` must be the canonical form of `before`.
 function resolveUnchangedCanonicalRange(
   before: string,
   current: string,
   from: number,
   to: number,
 ) {
-  const differ = new DiffMatchPatch();
-  const diffs = differ.diff_main(before, current, true);
+  const form = canonicalFormOf(before);
+  const diffs =
+    form.canonical === current
+      ? (form.diffs ??= new DiffMatchPatch().diff_main(before, current, true))
+      : new DiffMatchPatch().diff_main(before, current, true);
   let beforeOffset = 0;
   let currentOffset = 0;
   for (const [operation, text] of diffs) {
@@ -224,9 +297,12 @@ export function resolveMarkdownSuggestionRange(
   if (currentMarkdown === before.markdown) {
     return { from: anchor.from, to: anchor.to };
   }
-  const needle = `${anchor.prefix}${before.changedText}${anchor.suffix}`;
-  const index = currentMarkdown.indexOf(needle);
-  if (index >= 0 && currentMarkdown.indexOf(needle, index + 1) < 0) {
+  const index = locateUnrepeatedContext(
+    before.markdown,
+    currentMarkdown,
+    `${anchor.prefix}${before.changedText}${anchor.suffix}`,
+  );
+  if (index >= 0) {
     const from = index + anchor.prefix.length;
     return { from, to: from + before.changedText.length };
   }
@@ -241,8 +317,62 @@ export function resolveMarkdownSuggestionRange(
   return (
     resolveOutsideChange(before.markdown, currentMarkdown, anchor) ??
     resolveParagraphRange(before.markdown, currentMarkdown, anchor) ??
-    resolveAcrossSiblingRanges(before.markdown, currentMarkdown, anchor)
+    resolveAcrossSiblingRanges(before.markdown, currentMarkdown, anchor) ??
+    resolveThroughCanonicalForm(before.markdown, currentMarkdown, anchor)
   );
+}
+
+// A page an agent wrote, with blank lines or a pipe table, is saved in the
+// editor's canonical form the first time someone edits it. Comparing the
+// stored page with that edit directly sees two changes at once, so place the
+// anchor in the canonical form first. From there, follow later edits by the
+// same rules as a page that was canonical all along: the text around the
+// anchor is unchanged, every edit lies wholly before or after it, or every
+// edit is another part of the same proposal.
+function resolveThroughCanonicalForm(
+  before: string,
+  current: string,
+  anchor: MarkdownAnchor,
+) {
+  const { canonical: context } = canonicalFormOf(before);
+  if (context === before) return null;
+  const range = placeInCanonicalForm(before, context, anchor);
+  if (!range) return null;
+  const prefix = context.slice(Math.max(0, range.from - 32), range.from);
+  const index = locateUnrepeatedContext(
+    context,
+    current,
+    prefix + context.slice(range.from, range.to + 32),
+  );
+  if (index >= 0) {
+    const from = index + prefix.length;
+    return { from, to: from + range.to - range.from };
+  }
+  const outside = resolveOutsideChange(context, current, range);
+  if (
+    outside ||
+    !anchor.siblingRanges?.length ||
+    context.length + current.length > SIBLING_SEARCH_LIMIT
+  )
+    return outside;
+  const siblingRanges: Range[] = [];
+  for (const sibling of anchor.siblingRanges) {
+    const placed =
+      Number.isInteger(sibling.from) &&
+      Number.isInteger(sibling.to) &&
+      sibling.from >= 0 &&
+      sibling.from <= sibling.to &&
+      sibling.to <= before.length
+        ? placeInCanonicalForm(before, context, sibling)
+        : null;
+    if (!placed) return null;
+    siblingRanges.push(placed);
+  }
+  return resolveAcrossSiblingRanges(context, current, {
+    ...anchor,
+    ...range,
+    siblingRanges,
+  });
 }
 
 export function resolveMarkdownSuggestionRangeInContext(
@@ -255,7 +385,7 @@ export function resolveMarkdownSuggestionRangeInContext(
   const anchor = operation.anchor as MarkdownAnchor;
   if (currentMarkdown === before.markdown)
     return { from: anchor.from, to: anchor.to };
-  const context = canonicalizeNfm(before.markdown);
+  const { canonical: context } = canonicalFormOf(before.markdown);
   const contextualRange =
     context === before.markdown
       ? anchor
@@ -287,7 +417,10 @@ function resolveAcrossSiblingRanges(
   anchor: MarkdownAnchor,
 ) {
   const siblings = anchor.siblingRanges;
-  if (!siblings?.length || before.length + current.length > 128_000)
+  if (
+    !siblings?.length ||
+    before.length + current.length > SIBLING_SEARCH_LIMIT
+  )
     return null;
   let cursor = 0;
   const fixed: Array<{ from: number; text: string }> = [];

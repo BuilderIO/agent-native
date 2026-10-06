@@ -167,6 +167,13 @@ export function lineNavigationKeys(platform: string) {
     : { start: "Home", end: "End" };
 }
 
+export function authoringFuzzLineNavigationKeys(
+  platform: string,
+  override?: ReturnType<typeof lineNavigationKeys>,
+) {
+  return override ?? lineNavigationKeys(platform);
+}
+
 export function authoringFuzzProfileIndex(seed: number): number | null {
   if (!Number.isSafeInteger(seed) || seed < 0)
     throw new Error("seed must be a non-negative safe integer");
@@ -222,10 +229,6 @@ export function assertShortcutMarkupAdded(
     );
   }
 }
-
-const { start: lineStartKey, end: lineEndKey } = lineNavigationKeys(
-  process.platform,
-);
 
 export type AuthoringFuzzOperation =
   | { kind: "type"; value: string }
@@ -321,6 +324,7 @@ export interface AuthoringFuzzOptions {
   /** Fail if the caller's viewport did not scale the selected slide down. */
   expectScaledSlide?: boolean;
   browser?: "chromium" | "webkit" | "firefox";
+  lineKeys?: ReturnType<typeof lineNavigationKeys>;
 }
 
 export interface AuthoringFuzzResult {
@@ -621,6 +625,8 @@ export async function runAuthoringFuzz(
     options;
   const plan = createAuthoringFuzzPlan(seed, steps);
   const { modifier } = options;
+  const { start: lineStartKey, end: lineEndKey } =
+    authoringFuzzLineNavigationKeys(process.platform, options.lineKeys);
   const historyLimit = options.historyLimit ?? 100;
   if (!Number.isSafeInteger(historyLimit) || historyLimit < 1) {
     throw new Error("historyLimit must be a positive safe integer");
@@ -945,7 +951,6 @@ export async function runAuthoringFuzz(
               childShape: string;
             }>;
           };
-          __authoringFuzzStyleProperties?: WeakMap<Element, string[]>;
         };
         const block =
           /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|DD|DIV|DL|DT|FIGCAPTION|FIGURE|FOOTER|H[1-6]|HEADER|LI|OL|P|PRE|SECTION|TABLE|TBODY|TD|TFOOT|TH|THEAD|TR|UL)$/;
@@ -1031,26 +1036,11 @@ export async function runAuthoringFuzz(
             current = parent;
           }
         }
-        const propertyCache =
-          scope.__authoringFuzzStyleProperties ??
-          (scope.__authoringFuzzStyleProperties = new WeakMap());
-        const names = new Set(propertyCache.get(root) ?? styleProperties);
-        for (const element of [root, ...root.querySelectorAll("*")]) {
-          const style = getComputedStyle(element);
-          for (let index = 0; index < style.length; index++) {
-            const property = style[index];
-            // The resolved properties below catch visual changes; these utility tokens do not paint.
-            if (
-              property &&
-              property.startsWith("--") &&
-              !property.startsWith("--tw-")
-            ) {
-              names.add(property);
-            }
-          }
-        }
+        const names = new Set([
+          ...styleProperties,
+          ...window.__editFidelity.customStyleProperties(root),
+        ]);
         const stylePropertyNames = [...names].sort();
-        propertyCache.set(root, stylePropertyNames);
         const styleValues = (element: Element) => {
           const style = getComputedStyle(element);
           return Object.fromEntries(
@@ -1143,6 +1133,24 @@ export async function runAuthoringFuzz(
         const isListItem = (node: Node) =>
           node instanceof Element &&
           (node.tagName === "LI" || isListGroup(node));
+        const originalListRows = new Set<Element>();
+        if (listShortcut) {
+          for (const target of targets) {
+            let candidate = target.parentElement;
+            while (candidate && candidate !== root) {
+              if (isListContainer(candidate)) {
+                const rows = Array.from(candidate.children).filter(isListItem);
+                if (
+                  rows.some((row) => row === target || row.contains(target))
+                ) {
+                  rows.forEach((row) => originalListRows.add(row));
+                  break;
+                }
+              }
+              candidate = candidate.parentElement;
+            }
+          }
+        }
         const isEmptyAuthorStyleSpan = (element: Element): boolean =>
           element.tagName === "SPAN" &&
           element.getAttribute("data-slide-inline-style") === "true" &&
@@ -1280,7 +1288,8 @@ export async function runAuthoringFuzz(
             !(
               promotedHeadingLine ||
               (listShortcut &&
-                isListItem(record.node) &&
+                record.node instanceof Element &&
+                originalListRows.has(record.node) &&
                 isListContainer(record.parent) &&
                 record.node.parentNode &&
                 isListContainer(record.node.parentNode))
@@ -3565,10 +3574,114 @@ export async function runAuthoringFuzz(
         );
       }
       await assertOutsideUnchanged();
+      if ((activeIndex + 1) % 100 === 0) {
+        console.log(
+          `[edit-fidelity] fuzz seed=${seed} checked ${activeIndex + 1}/${plan.length} steps`,
+        );
+      }
     }
 
     const finalHtml = await editor.innerHTML();
     const finalSlideHtml = await slideContent.innerHTML();
+    const readHistoryState = () =>
+      page.evaluate((selector: string) => {
+        const root = document.querySelector(selector);
+        const selection = window.getSelection();
+        return {
+          html: root instanceof HTMLElement ? root.innerHTML : null,
+          inside:
+            root instanceof HTMLElement &&
+            !!selection?.rangeCount &&
+            root.contains(selection.anchorNode) &&
+            root.contains(selection.focusNode),
+        };
+      }, editorSelector);
+    // Keep one real shortcut per direction; replay the rest in-page to avoid thousands of protocol round trips.
+    const runHistoryBatch = (options: {
+      direction: "undo" | "redo";
+      maxCalls: number;
+      html: string;
+      stableCalls: number;
+      changedCount: number;
+    }) =>
+      page.evaluate(
+        async ({
+          selector,
+          modifier,
+          stableLimit,
+          ...state
+        }: {
+          selector: string;
+          modifier: string;
+          stableLimit: number;
+          direction: "undo" | "redo";
+          maxCalls: number;
+          html: string;
+          stableCalls: number;
+          changedCount: number;
+        }) => {
+          let { html, stableCalls, changedCount } = state;
+          let calls = 0;
+          while (calls < state.maxCalls && stableCalls < stableLimit) {
+            const root = document.querySelector(selector);
+            if (!(root instanceof HTMLElement)) {
+              throw new Error(
+                "edited element disappeared during history replay",
+              );
+            }
+            const event = new KeyboardEvent("keydown", {
+              key: "z",
+              code: "KeyZ",
+              bubbles: true,
+              cancelable: true,
+              metaKey: modifier === "Meta",
+              ctrlKey: modifier === "Control",
+              shiftKey: state.direction === "redo",
+            });
+            if (root.dispatchEvent(event)) {
+              throw new Error(
+                `the editor did not handle ${state.direction} during history replay`,
+              );
+            }
+            const restored = document.querySelector(selector);
+            if (!(restored instanceof HTMLElement)) {
+              throw new Error(
+                "edited element disappeared during history replay",
+              );
+            }
+            const selection = window.getSelection();
+            if (
+              !selection?.rangeCount ||
+              !restored.contains(selection.anchorNode) ||
+              !restored.contains(selection.focusNode)
+            ) {
+              throw new Error(
+                `selection/caret left the edited element during ${state.direction}`,
+              );
+            }
+            const nextHtml = restored.innerHTML;
+            if (nextHtml === html) stableCalls += 1;
+            else {
+              stableCalls = 0;
+              changedCount += 1;
+            }
+            html = nextHtml;
+            calls += 1;
+            if (calls % 32 === 0) {
+              await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve()),
+              );
+            }
+          }
+          return { html, stableCalls, changedCount, calls };
+        },
+        {
+          ...options,
+          selector: editorSelector,
+          modifier,
+          stableLimit: stableHistoryProbeLimit,
+        },
+      );
     let currentHtml = finalHtml;
     activePhase = "undo-all";
     // Drain selection-only snapshots too, past the editor's configured cap.
@@ -3577,24 +3690,29 @@ export async function runAuthoringFuzz(
     let stableUndo = 0;
     let undoCalls = 0;
     let undoCount = 0;
-    // History replay may replace blocks created by earlier Enter operations; byte-identical HTML below proves restoration.
-    while (
-      undoCalls < maxHistoryCalls &&
-      stableUndo < stableHistoryProbeLimit
-    ) {
-      await page.keyboard.press(`${modifier}+Z`);
-      undoCalls += 1;
-      const nextHtml = await editor.innerHTML();
-      if (nextHtml === currentHtml) stableUndo += 1;
-      else {
-        stableUndo = 0;
-        undoCount += 1;
-      }
-      currentHtml = nextHtml;
-      await assertCaret();
-      await checkPageErrors();
-      await assertOutsideUnchanged();
+    await page.keyboard.press(`${modifier}+Z`);
+    undoCalls += 1;
+    const afterKeyboardUndo = await readHistoryState();
+    if (!afterKeyboardUndo.inside) {
+      throw new Error("selection/caret left the edited element during undo");
     }
+    if (afterKeyboardUndo.html === null)
+      throw new Error("edited element disappeared during undo");
+    if (afterKeyboardUndo.html === currentHtml) stableUndo += 1;
+    else undoCount += 1;
+    currentHtml = afterKeyboardUndo.html;
+    const remainingUndo = await runHistoryBatch({
+      direction: "undo",
+      maxCalls: maxHistoryCalls - undoCalls,
+      html: currentHtml,
+      stableCalls: stableUndo,
+      changedCount: undoCount,
+    });
+    undoCalls += remainingUndo.calls;
+    undoCount = remainingUndo.changedCount;
+    currentHtml = remainingUndo.html;
+    await checkPageErrors();
+    await assertOutsideUnchanged();
     assertByteIdenticalHtml(
       currentHtml,
       originalHtml,
@@ -3611,20 +3729,29 @@ export async function runAuthoringFuzz(
     let redoCount = 0;
     activePhase = "redo-all";
     const maxRedoCalls = historyLimit + stableHistoryProbeLimit;
-    while (redoCalls < maxRedoCalls && stableRedo < stableHistoryProbeLimit) {
-      await page.keyboard.press(`${modifier}+Shift+Z`);
-      redoCalls += 1;
-      const nextHtml = await editor.innerHTML();
-      if (nextHtml === currentHtml) stableRedo += 1;
-      else {
-        stableRedo = 0;
-        redoCount += 1;
-      }
-      currentHtml = nextHtml;
-      await assertCaret();
-      await checkPageErrors();
-      await assertOutsideUnchanged();
+    await page.keyboard.press(`${modifier}+Shift+Z`);
+    redoCalls += 1;
+    const afterKeyboardRedo = await readHistoryState();
+    if (!afterKeyboardRedo.inside) {
+      throw new Error("selection/caret left the edited element during redo");
     }
+    if (afterKeyboardRedo.html === null)
+      throw new Error("edited element disappeared during redo");
+    if (afterKeyboardRedo.html === currentHtml) stableRedo += 1;
+    else redoCount += 1;
+    currentHtml = afterKeyboardRedo.html;
+    const remainingRedo = await runHistoryBatch({
+      direction: "redo",
+      maxCalls: maxRedoCalls - redoCalls,
+      html: currentHtml,
+      stableCalls: stableRedo,
+      changedCount: redoCount,
+    });
+    redoCalls += remainingRedo.calls;
+    redoCount = remainingRedo.changedCount;
+    currentHtml = remainingRedo.html;
+    await checkPageErrors();
+    await assertOutsideUnchanged();
     assertByteIdenticalHtml(currentHtml, finalHtml, "redo-all editor HTML");
     assertByteIdenticalHtml(
       await slideContent.innerHTML(),

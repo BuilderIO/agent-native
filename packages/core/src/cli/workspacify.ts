@@ -28,6 +28,7 @@ export interface WorkspacifyOptions {
   dispatchDependencyVersion?: string;
   toolkitDependencyVersion?: string;
   agentKitDependencyVersion?: string;
+  otelDependencyVersion?: string;
 }
 
 export function ensureNodePtyBuildDependency(workspaceRoot: string): void {
@@ -102,6 +103,10 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     "@agent-native/agentkit",
     opts.agentKitDependencyVersion,
   );
+  const otelDependencyVersion = pinnedByWorkspace(
+    "@agent-native/otel",
+    opts.otelDependencyVersion,
+  );
 
   const pkgPath = path.join(appDir, "package.json");
   let hasNodePty = false;
@@ -128,6 +133,9 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             }
             if (key === "@agent-native/agentkit") {
               deps[key] = agentKitDependencyVersion;
+            }
+            if (key === "@agent-native/otel") {
+              deps[key] = otelDependencyVersion;
             }
           }
         }

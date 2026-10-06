@@ -26,7 +26,15 @@ export async function verifyA2ATokenWithClaims(
         : [];
     if (audiences.length === 0 || audiences.some((value) => !value.trim()))
       return null;
-    const orgId = typeof raw.org_id === "string" ? raw.org_id.trim() : "";
+    const claimedOrgId =
+      typeof raw.org_id === "string" ? raw.org_id.trim() : "";
+    // Global-secret verification can resolve an ID-only claim locally; require
+    // the signed domain too so the ID alone cannot choose the authorization scope.
+    const claimedOrgDomain =
+      typeof raw.org_domain === "string"
+        ? raw.org_domain.trim().toLowerCase()
+        : "";
+    const orgId = identity.orgId?.trim() ?? "";
     const jti = typeof raw.jti === "string" ? raw.jti.trim() : "";
     const scopes =
       typeof raw.scope === "string"
@@ -34,7 +42,11 @@ export async function verifyA2ATokenWithClaims(
         : [];
     const issuer = typeof raw.iss === "string" ? raw.iss.trim() : "";
     const orgDomain = identity.orgDomain?.trim().toLowerCase() ?? "";
-    return orgId && orgDomain && jti
+    return claimedOrgId &&
+      claimedOrgId === orgId &&
+      claimedOrgDomain &&
+      claimedOrgDomain === orgDomain &&
+      jti
       ? {
           email: identity.email,
           orgId,

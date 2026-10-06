@@ -57,6 +57,10 @@ export interface AutomationRun {
   finishedAt: number | null;
   error: string | null;
   errorCode: string | null;
+  /** A queued "Run now" row that a worker claims before it starts. */
+  dispatchPending: boolean;
+  /** When a worker last claimed this queued dispatch, if ever. */
+  claimedAt: number | null;
 }
 
 export interface StartAutomationRunInput {
@@ -85,7 +89,17 @@ const INTERRUPTED_RUN_ERROR_CODE = "background_automation_interrupted";
 
 const claimLeaseMs = () => resolveRunLivenessCeilingMs();
 
-const RUNS_RETAINED_PER_AUTOMATION = 50;
+/**
+ * How long a queued dispatch's claim stays valid before another worker may take
+ * it over (`claimAutomationRun`). The stale-lock recovery must leave a row
+ * inside this lease to its own worker.
+ */
+export function automationRunClaimLeaseMs(): number {
+  return claimLeaseMs();
+}
+
+/** How many runs each automation retains; pruning bounds unfinished rows to this. */
+export const RUNS_RETAINED_PER_AUTOMATION = 50;
 const FAILURE_ALERT_LEASE_MS = 60_000;
 const FAILURE_ALERT_RETRY_BASE_MS = 60_000;
 const FAILURE_ALERT_RETRY_MAX_MS = 6 * 60 * 60_000;
@@ -314,6 +328,8 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
         : row.error_code == null
           ? null
           : stringifyValue(row.error_code),
+    dispatchPending: Number(row.dispatch_pending ?? 0) === 1,
+    claimedAt: row.claimed_at == null ? null : Number(row.claimed_at),
   };
 }
 
@@ -746,21 +762,32 @@ export async function processPendingAutomationFailureAlerts(options?: {
   return { attempted, delivered, deferred, suppressed, uncertain, failed };
 }
 
-export async function finishAutomationRun(
-  id: string,
-  status: Exclude<AutomationRunStatus, "running">,
-  error?: string,
-  errorCode?: string,
+export interface FinishAutomationRunOptions {
   /**
    * `notify: false` records the run without queueing the owner email. Used for
    * the early failures of a streak that will pause: the owner is told once,
    * by the run that pauses it.
    */
-  options: { notify?: boolean } = {},
+  notify?: boolean;
+  /**
+   * Finish only if the stored claim still equals this snapshot. The stale-lock
+   * recovery passes the `claimedAt` it read, so a worker that claims the run
+   * between that read and this write keeps its run instead of losing it to a
+   * stale terminal write.
+   */
+  expectedClaimedAt?: number | null;
+}
+
+export async function finishAutomationRun(
+  id: string,
+  status: Exclude<AutomationRunStatus, "running">,
+  error?: string,
+  errorCode?: string,
+  options: FinishAutomationRunOptions = {},
 ): Promise<void> {
   await ensureTable();
   const existing = await getDbExec().execute({
-    sql: `SELECT owner, automation, path, org_id, app_id, notification_email, run_id, thread_id, started_at, status FROM ${TABLE} WHERE id = ? LIMIT 1`,
+    sql: `SELECT owner, automation, path, org_id, app_id, notification_email, run_id, thread_id, started_at, status, claimed_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
     args: [id],
   });
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
@@ -769,12 +796,13 @@ export async function finishAutomationRun(
     status !== "success" &&
     options.notify !== false &&
     Boolean(row?.notification_email);
+  const claimGuard = options.expectedClaimedAt !== undefined;
   const update = await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET status = ?, finished_at = ?, error = ?, error_code = ?,
               failure_alert_state = ?, failure_alert_next_attempt_at = ?,
               failure_alert_claimed_at = NULL
-          WHERE id = ? AND status = 'running'`,
+          WHERE id = ? AND status = 'running'${claimGuard ? " AND claimed_at IS NOT DISTINCT FROM ?" : ""}`,
     args: [
       status,
       finishedAt,
@@ -783,6 +811,7 @@ export async function finishAutomationRun(
       shouldQueueFailureAlert ? "evaluating" : null,
       shouldQueueFailureAlert ? finishedAt : null,
       id,
+      ...(claimGuard ? [options.expectedClaimedAt] : []),
     ],
   });
   if (!row || Number(update.rowsAffected ?? 0) === 0) return;

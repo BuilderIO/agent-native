@@ -1,7 +1,6 @@
 import { agentNative } from "@agent-native/core/vite";
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { wgslVitePlugin } from "@vgpu/wgsl/loader-vite";
 import { defineConfig } from "vite";
 
 import { sitemapPlugin } from "./app/vite-sitemap-plugin";
@@ -14,7 +13,6 @@ const agentNativePlugins = agentNative as unknown as (
 export default defineConfig({
   plugins: [
     tailwindcss(),
-    wgslVitePlugin(),
     ...reactRouterPlugins(),
     sitemapPlugin(),
     ...agentNativePlugins({

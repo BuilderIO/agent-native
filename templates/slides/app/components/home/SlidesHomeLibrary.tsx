@@ -13,7 +13,6 @@ interface SlidesHomeLibraryProps {
   recentActions?: ReactNode;
   templates: ReactNode;
   recent?: ReactNode;
-  recentVisible: boolean;
 }
 
 export function SlidesHomeLibrary({
@@ -25,9 +24,8 @@ export function SlidesHomeLibrary({
   recentActions,
   templates,
   recent,
-  recentVisible,
 }: SlidesHomeLibraryProps) {
-  const activeValue = recentVisible ? value : "templates";
+  const activeValue = value;
 
   return (
     <section
@@ -45,11 +43,15 @@ export function SlidesHomeLibrary({
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList variant="line">
-            {recentVisible ? (
-              <TabsTrigger value="recent" className="flex-none">
-                {labels.recent}
-              </TabsTrigger>
-            ) : null}
+            <TabsTrigger
+              value="recent"
+              className="flex-none"
+              onClick={() => {
+                if (activeValue === "recent") onValueChange("recent");
+              }}
+            >
+              {labels.recent}
+            </TabsTrigger>
             <TabsTrigger
               value="templates"
               className="flex-none"
@@ -70,9 +72,7 @@ export function SlidesHomeLibrary({
           )}
         </div>
         <TabsContent value="templates">{templates}</TabsContent>
-        {recentVisible ? (
-          <TabsContent value="recent">{recent}</TabsContent>
-        ) : null}
+        <TabsContent value="recent">{recent}</TabsContent>
       </Tabs>
     </section>
   );

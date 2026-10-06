@@ -211,7 +211,7 @@ export default {
       tokenLabel: "رمز وصول Figma",
       tokenPlaceholder: "الصق رمز وصول Figma",
       connecting: "جار الاتصال…",
-      connect: "اتصال",
+      connect: "الاتصال بـ Figma",
       getToken: "الحصول على رمز",
       importFrame: "استيراد الإطار",
       chooseFrame: "اختيار إطار",

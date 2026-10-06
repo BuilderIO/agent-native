@@ -23,8 +23,7 @@
     "@agent-native/code-agents-ui",
     "@agent-native/shared-app-config",
     "@agent-native/embedding",
-    "@agent-native/migrate",
-    "@agent-native/otel"
+    "@agent-native/migrate"
   ],
   "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
     "onlyUpdatePeerDependentsWhenOutOfRange": true
