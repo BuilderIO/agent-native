@@ -5509,6 +5509,8 @@ describe("server/auth", () => {
         path: "/mcp/directory",
         headers: { origin },
       });
+      event.req.method = "POST";
+      event.node.req.method = "POST";
 
       await guard(event);
 
