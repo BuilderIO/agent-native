@@ -20,6 +20,27 @@ registerShareableResource({
   titleColumn: "title",
   getResourcePath: (document) => `/page/${document.id}`,
   ownerAccessIgnoresOrg: true,
+  // A trashed page reads as missing to anyone who can't open it.
+  availability: {
+    columns: ["trashedAt"],
+    isAvailable: (document) => !document.trashedAt,
+  },
+  // A space's members can read its pages, so a trashed one reads as trashed
+  // to them. Imported lazily: the access helpers import this module.
+  fallbackAccessContext: {
+    columns: ["spaceId"],
+    resolve: async (document) => {
+      const { contentSpaceAuthority } =
+        await import("../../actions/_document-access.js");
+      const authority = await contentSpaceAuthority(document.spaceId);
+      return authority
+        ? {
+            userEmail: authority.userEmail,
+            orgId: authority.orgId ?? undefined,
+          }
+        : null;
+    },
+  },
   agentReadable: {
     resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
     getContextPath: () => DOCUMENT_AGENT_CONTEXT_ENDPOINT,
