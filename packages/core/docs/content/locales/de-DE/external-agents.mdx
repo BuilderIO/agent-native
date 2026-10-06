@@ -295,6 +295,8 @@ Die Verbindung ist **pro Benutzer, bereichsbezogen und widerrufbar**. Im OAuth-P
 
 ### Erneute Authentifizierung nach einem 401 {#reconnect}
 
+Die Aktualisierung zur OAuth-Eigentümerbindung erfordert für jede bestehende OAuth-Verbindung eine [einmalige erneute Verbindung](/docs/external-agents#reconnect). Alte OAuth-Zugriffstoken werden nach der Einführung abgelehnt. Ungebundene bisherige Aktualisierungstoken liefern `invalid_grant`, und für noch ausstehende alte Autorisierungscodes muss der Zustimmungsablauf neu gestartet werden. Neu ausgestellte Zugriffstoken nutzen die konfigurierte Gültigkeitsdauer und die laufenden Mitgliedschaftsprüfungen. Bisherige `mcp-connect`-Zugangsdaten im A2A-Format und appübergreifende A2A-Token bleiben durch diese Umstellung unverändert. Verbindungen mit alten Connect-Token im OAuth-Format müssen ebenfalls erneut hergestellt werden.
+
 Sobald die Verbindung hergestellt ist, sollte die Authentifizierung langfristig bestehen bleiben – Zugriffstokens sind standardmäßig 30 Tage gültig (Überschreibung durch `MCP_OAUTH_ACCESS_TOKEN_TTL` auf dem Server, z. B. `7d` oder `12h`) mit einem gleitenden Aktualisierungsfenster von 365 Tagen, sodass zufällige 401-Fehler selten sein sollten. Wenn einer auftritt, verwenden Sie den einfachen Befehl zum erneuten Verbinden, anstatt eine Neuinstallation durchzuführen:
 
 ```bash
@@ -343,7 +345,7 @@ Dies ist derselbe Nur-URL-Eintrag, den `npx @agent-native/core@latest connect ht
 https://dispatch.agent-native.com/mcp
 ```
 
-Der OAuth-Fluss besteht aus Autorisierungscode + PKCE mit Aktualisierungstokenrotation. Zugriffstoken sind an die genaue MCP-Ressource URL zielgruppengebunden und tragen die signierte Benutzer-/Organisationsidentität, sodass Toolaufrufe, `resources/read` und MCP App-Iframe-initiiertes `tools/call` alle denselben `runWithRequestContext`-Mandantenbereich durchlaufen wie der vorhandene Connect-Minted-JWT-Pfad. Der Iframe empfängt niemals rohe OAuth-Token; Der Host vermittelt Anrufe über die authentifizierte MCP-Verbindung.
+Der OAuth-Fluss besteht aus Autorisierungscode + PKCE mit Aktualisierungstoken, die nicht rotiert werden. Zugriffstoken sind an die genaue MCP-Ressource URL zielgruppengebunden und tragen die signierte Benutzer-/Organisationsidentität, sodass Toolaufrufe, `resources/read` und MCP App-Iframe-initiiertes `tools/call` alle denselben `runWithRequestContext`-Mandantenbereich durchlaufen wie der vorhandene Connect-Minted-JWT-Pfad. Der Iframe empfängt niemals rohe OAuth-Token; Der Host vermittelt Anrufe über die authentifizierte MCP-Verbindung.
 
 Aktuelle Bereiche sind:
 

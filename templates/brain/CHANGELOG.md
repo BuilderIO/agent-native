@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-05
+
+### Improved
+
+- Messages from private Slack channels the Brain app is invited to are now searchable by everyone in the org once they pass sensitivity screening. Syncs no longer look up channel members, so a member without a visible email no longer stops a channel from syncing. Personal sources stay visible only to their owner and the people they are shared with.
+
 ## 2026-10-02
 
 ### Improved

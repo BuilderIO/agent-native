@@ -19,6 +19,8 @@ import {
   getConfiguredLoginHtml,
   isLoopbackRequest,
 } from "../server/auth.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
@@ -33,6 +35,7 @@ import {
   type McpConnectIdentity,
 } from "../shared/mcp-connect-content.js";
 import {
+  ensureConnectTables,
   recordMintedToken,
   listTokens,
   revokeToken,
@@ -45,7 +48,6 @@ import {
   consumeDeviceCode,
   claimDeviceCodeForMint,
   finishDeviceCodeMint,
-  releaseDeviceCodeMint,
   expireDeviceCode,
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
@@ -54,6 +56,10 @@ import {
   MAX_TOKEN_TTL_DAYS,
   DEVICE_CODE_TTL_MS,
 } from "./connect-store.js";
+import {
+  McpCredentialIssuanceError,
+  withMcpCredentialIssuance,
+} from "./credential-issuance.js";
 import {
   MCP_OAUTH_DEFAULT_SCOPE,
   signMcpOAuthAccessToken,
@@ -76,6 +82,26 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function issuanceErrorResponse(err: McpCredentialIssuanceError): Response {
+  if (err.reason === "not-member") {
+    return json({ error: "Choose an organization you belong to." }, 403);
+  }
+  const response = json(
+    { error: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE },
+    503,
+  );
+  response.headers.set("Retry-After", "5");
+  return response;
+}
+
+async function prepareConnectIssuance(): Promise<void> {
+  try {
+    await ensureConnectTables();
+  } catch (error) {
+    throw new McpCredentialIssuanceError("unavailable", { cause: error });
+  }
 }
 
 function html(body: string, status = 200): Response {
@@ -178,7 +204,7 @@ function canUseDevOpenConnect(event: H3Event): boolean {
   return (
     isLoopbackRequest(event) &&
     isLoopbackOrigin(deriveOrigin(event)) &&
-    !process.env.A2A_SECRET?.trim() &&
+    !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
     !process.env.ACCESS_TOKEN?.trim() &&
     !process.env.ACCESS_TOKENS?.trim()
   );
@@ -224,25 +250,39 @@ async function mintConnectToken(params: {
   ttlDays: number;
   appUrl: string;
   catalogScope?: "full";
+  requestOrigin: string;
 }): Promise<{ token: string; jti: string }> {
   const orgDomain = await resolveOrgDomain(params.orgId);
-  const jti = randomUUID();
-  const token = await signConnectToken({
-    ownerEmail: params.email,
-    orgId: params.orgId,
-    orgDomain,
-    appUrl: params.appUrl,
-    expiresIn: `${params.ttlDays}d`,
-    jti,
-    ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
-  });
-  await recordMintedToken({
-    jti,
-    ownerEmail: params.email,
-    orgId: params.orgId ?? null,
-    label: params.label,
-  });
-  return { token, jti };
+  await prepareConnectIssuance();
+  return withMcpCredentialIssuance(
+    {
+      email: params.email,
+      orgId: params.orgId,
+      requestOrigin: params.requestOrigin,
+    },
+    async (tx) => {
+      const jti = randomUUID();
+      const token = await signConnectToken({
+        ownerEmail: params.email,
+        orgId: params.orgId,
+        orgDomain,
+        appUrl: params.appUrl,
+        expiresIn: `${params.ttlDays}d`,
+        jti,
+        ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
+      });
+      await recordMintedToken(
+        {
+          jti,
+          ownerEmail: params.email,
+          orgId: params.orgId ?? null,
+          label: params.label,
+        },
+        tx,
+      );
+      return { token, jti };
+    },
+  );
 }
 
 async function signConnectToken(params: {
@@ -255,7 +295,7 @@ async function signConnectToken(params: {
   includeOrgIdClaim?: boolean;
   catalogScope?: "full";
 }): Promise<string> {
-  if (process.env.A2A_SECRET?.trim()) {
+  if (readDeployCredentialEnv("A2A_SECRET")?.trim()) {
     return signA2AToken(params.ownerEmail, params.orgDomain, undefined, {
       preferGlobalSecret: true,
       expiresIn: params.expiresIn,
@@ -296,9 +336,10 @@ async function signConnectToken(params: {
  * random `jti` is stored, so the standard revocation path
  * (`isJtiRevoked` in `verifyAuth`) applies to service tokens identically.
  *
- * Authorization is the CALLER'S responsibility: this function does not check
- * org membership/role. The `create-org-service-token` action gates on org
- * owner/admin before calling it.
+ * The `create-org-service-token` action gates on org owner/admin before
+ * calling this. Offboarding can remove that admin before the mint, so the
+ * creator's role is rechecked under the membership lock offboarding takes,
+ * and the token is recorded in the same transaction.
  */
 export async function mintOrgServiceToken(params: {
   serviceName: string;
@@ -319,26 +360,40 @@ export async function mintOrgServiceToken(params: {
   const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
   const orgDomain = await resolveOrgDomain(params.orgId);
   const ttlDays = clampTtlDays(params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS);
-  const jti = randomUUID();
-  const token = await signConnectToken({
-    ownerEmail: serviceEmail,
-    orgId: params.orgId,
-    orgDomain,
-    appUrl: params.appUrl,
-    expiresIn: `${ttlDays}d`,
-    jti,
-    includeOrgIdClaim: true,
-  });
-  const id = await recordMintedToken({
-    jti,
-    ownerEmail: serviceEmail,
-    orgId: params.orgId,
-    label: `Service token: ${serviceName}`,
-    kind: "service",
-    serviceName,
-    createdBy: params.createdBy,
-  });
-  return { token, jti, id, serviceName, serviceEmail, ttlDays };
+  await prepareConnectIssuance();
+  return withMcpCredentialIssuance(
+    {
+      email: params.createdBy,
+      orgId: params.orgId,
+      requestOrigin: params.appUrl,
+      roles: ["owner", "admin"],
+    },
+    async (tx) => {
+      const jti = randomUUID();
+      const token = await signConnectToken({
+        ownerEmail: serviceEmail,
+        orgId: params.orgId,
+        orgDomain,
+        appUrl: params.appUrl,
+        expiresIn: `${ttlDays}d`,
+        jti,
+        includeOrgIdClaim: true,
+      });
+      const id = await recordMintedToken(
+        {
+          jti,
+          ownerEmail: serviceEmail,
+          orgId: params.orgId,
+          label: `Service token: ${serviceName}`,
+          kind: "service",
+          serviceName,
+          createdBy: params.createdBy,
+        },
+        tx,
+      );
+      return { token, jti, id, serviceName, serviceEmail, ttlDays };
+    },
+  );
 }
 
 function mcpResultPayload(
@@ -1346,7 +1401,10 @@ export async function handleMcpConnect(
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
-    if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
+    if (
+      !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
+      canUseDevOpenConnect(event)
+    ) {
       return json(
         mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
       );
@@ -1376,10 +1434,13 @@ export async function handleMcpConnect(
         label,
         ttlDays,
         appUrl,
+        requestOrigin: origin,
         ...(catalogScope ? { catalogScope } : {}),
       });
       return json(mcpResultPayload(appUrl, options, { token }));
-    } catch {
+    } catch (err) {
+      if (err instanceof McpCredentialIssuanceError)
+        return issuanceErrorResponse(err);
       return json({ error: "Failed to mint token." }, 500);
     }
   }
@@ -1454,11 +1515,22 @@ export async function handleMcpConnect(
       return json({ error: "Choose an organization you belong to." }, 403);
     }
     const selectedOrgId = requestedOrgId ?? defaultOrganizationId ?? null;
-    const result = await approveDeviceCode(
-      userCode,
-      session.email,
-      selectedOrgId,
-    );
+    let result;
+    try {
+      await prepareConnectIssuance();
+      result = await withMcpCredentialIssuance(
+        {
+          email: session.email,
+          orgId: selectedOrgId,
+          requestOrigin: origin,
+        },
+        (tx) => approveDeviceCode(userCode, session.email, selectedOrgId, tx),
+      );
+    } catch (err) {
+      if (err instanceof McpCredentialIssuanceError)
+        return issuanceErrorResponse(err);
+      return json({ error: "Failed to mint token." }, 500);
+    }
     if (result === "not_found") {
       return json({ error: "Unknown device code." }, 404);
     }
@@ -1496,64 +1568,81 @@ export async function handleMcpConnect(
     ) {
       return json({ status: "pending" });
     }
-    if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
-      const consumed = await consumeDeviceCode(
-        deviceCode,
-        `dev-open-${randomUUID()}`,
-      );
-      if (!consumed) {
-        const fresh = await getDeviceCode(deviceCode);
-        if (fresh?.status === "consumed") return json({ status: "consumed" });
-        return json({ status: "pending" });
-      }
-      return json({
-        status: "approved",
-        ...mcpResultPayload(appUrl, options, {
-          ownerEmail: row.ownerEmail,
-          catalogScope: row.catalogScope,
-        }),
-      });
-    }
     try {
-      const jti = randomUUID();
-      const claimed = await claimDeviceCodeForMint(deviceCode, jti);
-      if (!claimed) {
-        const fresh = await getDeviceCode(deviceCode);
-        if (fresh?.status === "consumed") return json({ status: "consumed" });
-        return json({ status: "pending" });
-      }
-      let token: string;
-      try {
-        const orgDomain = await resolveOrgDomain(claimed.orgId ?? undefined);
-        token = await signConnectToken({
-          ownerEmail: claimed.ownerEmail!,
-          orgId: claimed.orgId,
-          orgDomain,
-          appUrl,
-          expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
-          jti,
-          ...(claimed.catalogScope
-            ? { catalogScope: claimed.catalogScope }
-            : {}),
-        });
-        await recordMintedToken({
-          jti,
-          ownerEmail: claimed.ownerEmail!,
-          orgId: claimed.orgId,
-          label: "Device connection",
-        });
-        if (!(await finishDeviceCodeMint(deviceCode, jti))) {
-          return json({ status: "pending" });
-        }
-      } catch (err) {
-        await releaseDeviceCodeMint(deviceCode, jti);
-        throw err;
-      }
-      return json({
-        status: "approved",
-        ...mcpResultPayload(appUrl, options, { token }),
-      });
-    } catch {
+      const devOpen =
+        !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
+        canUseDevOpenConnect(event);
+      const orgDomain = await resolveOrgDomain(row.orgId ?? undefined);
+      await prepareConnectIssuance();
+      return await withMcpCredentialIssuance(
+        {
+          email: row.ownerEmail,
+          orgId: row.orgId,
+          requestOrigin: origin,
+        },
+        async (tx) => {
+          const jti = randomUUID();
+          const claimed = devOpen
+            ? await consumeDeviceCode(deviceCode, jti, tx)
+            : await claimDeviceCodeForMint(deviceCode, jti, tx);
+          if (!claimed) {
+            const fresh = await getDeviceCode(deviceCode, tx);
+            if (fresh?.status === "consumed")
+              return json({ status: "consumed" });
+            if (
+              fresh?.status === "expired" ||
+              (fresh?.expiresAt != null && fresh.expiresAt < Date.now())
+            )
+              return json({ status: "expired" });
+            return json({ status: "pending" });
+          }
+          if (
+            claimed.ownerEmail !== row.ownerEmail ||
+            claimed.orgId !== row.orgId
+          ) {
+            throw new McpCredentialIssuanceError("not-member");
+          }
+          if (devOpen) {
+            return json({
+              status: "approved",
+              ...mcpResultPayload(appUrl, options, {
+                ownerEmail: row.ownerEmail!,
+                catalogScope: claimed.catalogScope,
+              }),
+            });
+          }
+          const token = await signConnectToken({
+            ownerEmail: claimed.ownerEmail!,
+            orgId: claimed.orgId,
+            orgDomain,
+            appUrl,
+            expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
+            jti,
+            ...(claimed.catalogScope
+              ? { catalogScope: claimed.catalogScope }
+              : {}),
+          });
+          await recordMintedToken(
+            {
+              jti,
+              ownerEmail: claimed.ownerEmail!,
+              orgId: claimed.orgId,
+              label: "Device connection",
+            },
+            tx,
+          );
+          if (!(await finishDeviceCodeMint(deviceCode, jti, tx))) {
+            throw new McpCredentialIssuanceError("unavailable");
+          }
+          return json({
+            status: "approved",
+            ...mcpResultPayload(appUrl, options, { token }),
+          });
+        },
+      );
+    } catch (err) {
+      if (err instanceof McpCredentialIssuanceError)
+        return issuanceErrorResponse(err);
       return json({ status: "error", error: "Failed to mint token." }, 500);
     }
   }

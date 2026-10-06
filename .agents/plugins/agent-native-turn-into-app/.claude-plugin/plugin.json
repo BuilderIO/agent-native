@@ -2,8 +2,11 @@
   "name": "agent-native-turn-into-app",
   "displayName": "Turn Into App",
   "description": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
-  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
-  "homepage": "https://dispatch.agent-native.com",
+  "author": {
+    "name": "Agent-Native",
+    "url": "https://agent-native.com/?utm_source=claude-plugins&utm_medium=referral&utm_content=plugin-author"
+  },
+  "homepage": "https://dispatch.agent-native.com/?utm_source=claude-plugins&utm_medium=referral&utm_content=plugin-homepage",
   "repository": "https://github.com/BuilderIO/agent-native",
   "license": "MIT",
   "keywords": [

@@ -65,7 +65,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
+import type {
+  ClipboardEvent,
+  CSSProperties,
+  MutableRefObject,
+  ReactNode,
+} from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import type { Doc as YDoc } from "yjs";
@@ -108,6 +113,7 @@ import {
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
+  startPageOpenReviewReads,
   startPreviewDocumentDraftRead,
   useContentNavigationContext,
   useDeleteDocument,
@@ -148,9 +154,12 @@ import {
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
 import {
+  readDocumentShapeHint,
   readPageIconRowHint,
+  readPageShapeHint,
   rememberPageIconRow,
-} from "@/lib/page-icon-row-hint";
+  rememberPageShape,
+} from "@/lib/page-startup-hints";
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
@@ -180,9 +189,12 @@ import {
 } from "./CommentsSidebar";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import {
+  DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME,
+  DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,
   DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
   documentEditorBodyClassName,
+  documentEditorDatabaseRegionClassName,
   documentEditorTitleRegionClassName,
   type DocumentEditorIconRow,
 } from "./document-editor-layout";
@@ -484,6 +496,26 @@ export function documentEditorReservesInlineReviewSpace(args: {
     !args.isDatabasePage &&
     (args.showInlineComments ||
       (args.preserveInlineReviewSpace && args.hasInlineCommentSpace))
+  );
+}
+
+export function documentEditorReviewReadsSettled(args: {
+  isLocalFileDocument: boolean;
+  hasThreads: boolean;
+  hasSuggestions: boolean;
+  commentsFetching: boolean;
+  suggestionsFetching: boolean;
+  commentsError: boolean;
+  suggestionsError: boolean;
+}) {
+  return (
+    args.isLocalFileDocument ||
+    (args.hasThreads &&
+      args.hasSuggestions &&
+      !args.commentsFetching &&
+      !args.suggestionsFetching &&
+      !args.commentsError &&
+      !args.suggestionsError)
   );
 }
 
@@ -1274,13 +1306,13 @@ export function PageEditorSurface({
   });
   useEffect(() => {
     if (readsStartedEarly) return;
-    startPreviewDocumentDraftRead(
-      queryClient,
-      documentId,
-      queryClient.getQueryData<Document>(
-        documentQueryKey(documentId, { databaseId, databaseDocumentId }),
-      ),
+    const cached = queryClient.getQueryData<Document>(
+      documentQueryKey(documentId, { databaseId, databaseDocumentId }),
     );
+    startPreviewDocumentDraftRead(queryClient, documentId, cached);
+    if (cached?.source?.mode !== "local-files") {
+      startPageOpenReviewReads(queryClient, documentId);
+    }
   }, [
     databaseDocumentId,
     databaseId,
@@ -1397,6 +1429,11 @@ export function PageEditorSurface({
       <DocumentEditorSkeleton
         title={optimisticTitle}
         iconRow={readPageIconRowHint(documentId)}
+        shape={
+          document
+            ? readDocumentShapeHint(document)
+            : readPageShapeHint(documentId)
+        }
       />
     );
   }
@@ -1852,7 +1889,9 @@ function useElementMinWidth(
 ) {
   const [matches, setMatches] = useState(false);
 
-  useEffect(() => {
+  // Measured before the first paint: a page that opens beside the review
+  // margin must not first paint without it.
+  useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
     const update = () =>
@@ -1907,14 +1946,25 @@ export function positionAnchoredCommentCard({
       ? below
       : Math.max(boundaryRect.top - containerRect.top + edge, above),
     width,
+    maxHeight: commentCardMaxHeight(boundaryRect, edge),
     placement: fitsBelow ? ("below" as const) : ("above" as const),
   };
+}
+
+// The card scrolls with the page and is re-clamped on every scroll, so any
+// part taller than the visible scroller can never be scrolled into view.
+function commentCardMaxHeight(
+  boundaryRect: Pick<DOMRect, "top" | "bottom">,
+  edge: number,
+) {
+  return Math.max(0, boundaryRect.bottom - boundaryRect.top - edge * 2);
 }
 
 export type AnchoredCommentPosition = {
   left: number;
   top: number;
   width: number;
+  maxHeight: number;
   placement: "above" | "below";
 };
 
@@ -1928,6 +1978,7 @@ export function sameAnchoredCommentPosition(
     left.left === right.left &&
     left.top === right.top &&
     left.width === right.width &&
+    left.maxHeight === right.maxHeight &&
     left.placement === right.placement
   );
 }
@@ -1950,7 +2001,7 @@ export function positionUnanchoredCommentCard({
   edge = 16,
 }: {
   containerRect: Pick<DOMRect, "top" | "width">;
-  boundaryRect: Pick<DOMRect, "top">;
+  boundaryRect: Pick<DOMRect, "top" | "bottom">;
   preferredWidth?: number;
   edge?: number;
 }) {
@@ -1961,6 +2012,7 @@ export function positionUnanchoredCommentCard({
       0,
       Math.min(preferredWidth, containerRect.width - edge * 2),
     ),
+    maxHeight: commentCardMaxHeight(boundaryRect, edge),
     placement: "below" as const,
   };
 }
@@ -2032,11 +2084,10 @@ export function documentEditorShowsUtilityPanelSheet(
   return args.utilityPanel === "info" && !args.hasUtilityRailSpace;
 }
 
-export { documentEditorTitleRegionClassName };
-
-export function documentEditorDatabaseRegionClassName() {
-  return "shrink-0 min-w-0 w-full max-w-none px-4 pb-8 sm:px-8 lg:px-10";
-}
+export {
+  documentEditorDatabaseRegionClassName,
+  documentEditorTitleRegionClassName,
+};
 
 export function resizeDocumentTitleTextarea(
   textarea: Pick<HTMLTextAreaElement, "scrollHeight" | "style">,
@@ -6284,9 +6335,12 @@ function PageEditorSessionBody({
     null,
   );
   const appliedSuggestionLinkRef = useRef<string | null>(null);
-  const { data: threads, isLoading: commentsLoading } = useComments(
-    !isLocalFileDocument ? documentId : null,
-  );
+  const {
+    data: threads,
+    isLoading: commentsLoading,
+    isFetching: commentsFetching,
+    isError: commentsError,
+  } = useComments(!isLocalFileDocument ? documentId : null);
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
@@ -6315,7 +6369,10 @@ function PageEditorSessionBody({
     useState<AnchoredCommentPosition | null>(null);
   const [commentLaneOffset, setCommentLaneOffset] = useState(0);
   const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
-  const hasInlineCommentSpace = useElementMinWidth(documentLayoutRef, 1088);
+  const hasInlineCommentSpace = useElementMinWidth(
+    documentLayoutRef,
+    DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,
+  );
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
   const showDesktopCommentsHistory =
@@ -6348,12 +6405,52 @@ function PageEditorSessionBody({
     hasSelectedCommentThread,
     hasPendingComment: !!pendingComment,
   });
+  // A failed read says nothing about whether the page still has open review,
+  // so the remembered margin holds until both reads answer.
+  const reviewReadsSettled = documentEditorReviewReadsSettled({
+    isLocalFileDocument,
+    hasThreads: threads !== undefined,
+    hasSuggestions: suggestionsQuery.data !== undefined,
+    commentsFetching,
+    suggestionsFetching: suggestionsQuery.isFetching,
+    commentsError,
+    suggestionsError: suggestionsQuery.isError,
+  });
+  const pageHadOpenReview = useMemo(
+    () => host === "page" && readPageShapeHint(documentId) === "review",
+    [documentId, host],
+  );
   const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
     showInlineComments,
-    preserveInlineReviewSpace,
+    preserveInlineReviewSpace:
+      preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
     hasInlineCommentSpace,
     isDatabasePage: Boolean(document.database),
   });
+  const hasOpenReview = hasOpenCommentThreads || hasOpenSuggestions;
+  useEffect(() => {
+    if (
+      host !== "page" ||
+      document.database ||
+      isLocalFileDocument ||
+      !reviewReadsSettled
+    )
+      return;
+    rememberPageShape(documentId, hasOpenReview ? "review" : "page");
+  }, [
+    document.database,
+    documentId,
+    hasOpenReview,
+    host,
+    isLocalFileDocument,
+    reviewReadsSettled,
+    suggestionsQuery.data,
+    suggestionsQuery.isError,
+    suggestionsQuery.isFetching,
+    threads,
+    commentsFetching,
+    commentsError,
+  ]);
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
@@ -7849,7 +7946,7 @@ function PageEditorSessionBody({
                       DOCUMENT_EDITOR_TITLE_CLASS_NAME,
                       "resize-none overflow-hidden border-none bg-transparent outline-none placeholder:text-muted-foreground/40",
                       host === "preview" || isDatabasePage
-                        ? "text-3xl"
+                        ? DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME
                         : DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
                     )}
                   />
@@ -8295,11 +8392,12 @@ function PageEditorSessionBody({
                   data-placement={anchoredCommentPosition?.placement}
                   style={
                     anchoredCommentPosition
-                      ? {
+                      ? ({
                           left: anchoredCommentPosition.left,
                           top: anchoredCommentPosition.top,
                           width: anchoredCommentPosition.width,
-                        }
+                          "--comment-popover-max-height": `${anchoredCommentPosition.maxHeight}px`,
+                        } as CSSProperties)
                       : { visibility: "hidden" }
                   }
                 >

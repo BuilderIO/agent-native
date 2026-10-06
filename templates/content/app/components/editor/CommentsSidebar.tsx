@@ -2216,16 +2216,18 @@ function ProposalGroup({
         aria-expanded={expanded}
         aria-controls={detailsId}
         onClick={() => setExpanded((current) => !current)}
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <IconChevronDown
           size={14}
           className={cn(
-            "shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)]",
+            "mt-px shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)]",
             !expanded && "-rotate-90",
           )}
         />
-        <span className="min-w-0 flex-1 truncate font-medium">{summary}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 break-words font-medium">
+          {summary}
+        </span>
         <span className="shrink-0 text-muted-foreground">
           {t("comments.proposalEditCount", { count: totalCount })}
         </span>
@@ -3114,7 +3116,7 @@ function ThreadView({
   const popoverHeader =
     surface === "popover" ? (
       <div
-        className="flex h-12 items-center gap-1 border-b border-border/70 pe-2 ps-4"
+        className="flex h-12 shrink-0 items-center gap-1 border-b border-border/70 pe-2 ps-4"
         data-comment-popover-header
       >
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
@@ -3168,9 +3170,9 @@ function ThreadView({
                 "opacity-60 hover:opacity-100 focus-within:opacity-100",
             )
           : cn(
-              "overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 focus-visible:ring-2",
+              "flex flex-col overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 focus-visible:ring-2",
               surface === "popover"
-                ? "shadow-comment-raised"
+                ? "max-h-[var(--comment-popover-max-height)] shadow-comment-raised"
                 : "shadow-comment-card",
             ),
         canExpand && !isExpanded && "cursor-pointer",
@@ -3201,8 +3203,11 @@ function ThreadView({
       <div
         className={cn(
           "relative grid grid-cols-1 gap-3.5",
-          isPanel ? "px-4 py-3.5" : "px-4 pb-3.5 pt-3.5",
+          isPanel
+            ? "px-4 py-3.5"
+            : "max-h-96 min-h-0 overflow-y-auto px-4 pb-3.5 pt-3.5",
         )}
+        data-comment-thread-body
       >
         {isPanel && quote ? (
           <button
@@ -3314,7 +3319,7 @@ function ThreadView({
         <div
           data-comment-reply-composer
           className={cn(
-            "flex items-start gap-2.5 px-4 pb-4",
+            "flex shrink-0 items-start gap-2.5 px-4 pb-4",
             isPanel && "ps-13.5",
           )}
           onClick={(e) => e.stopPropagation()}

@@ -162,7 +162,6 @@ import { getAppProductionUrl } from "./app-url.js";
 import {
   addSignupAttributionHeader,
   readAnalyticsAnonymousId,
-  readFirstTouchAttribution,
   signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
   type SignupAttributionContext,
@@ -198,6 +197,11 @@ import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import {
+  isCredentialMembershipUnavailable,
+  markCredentialMembershipUnavailable,
+  respondCredentialMembershipUnavailable,
+} from "./credential-membership-unavailable.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import { getSignInBlockingSettingKeys } from "./deploy-settings.js";
 import {
@@ -1154,7 +1158,12 @@ export async function getMcpOAuthBearerSession(
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
+      requestOrigin: getOrigin(event),
     });
+    if (!result.authed && result.unavailable) {
+      markCredentialMembershipUnavailable(event);
+      return null;
+    }
     const identity = result.authed ? result.identity : undefined;
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
@@ -4128,6 +4137,10 @@ function createAuthGuardFn(
       return;
     }
 
+    if (isCredentialMembershipUnavailable(event)) {
+      return respondCredentialMembershipUnavailable(event);
+    }
+
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
       setResponseStatus(event, 401);
       // Dev-only breadcrumb for the loopback origin-label trap: the session
@@ -6507,20 +6520,11 @@ async function mountBetterAuthRoutes(
           callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
         const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
-        const cookieHeader = getHeader(event, "cookie") ?? null;
-        const signupAttribution =
-          signupAttributionFromCookieHeader(cookieHeader);
-        const signupAnonymousId = readAnalyticsAnonymousId(cookieHeader);
-        const hasSignupAttribution =
-          !!readFirstTouchAttribution(cookieHeader) || !!signupAnonymousId;
-        const attributionToken = hasSignupAttribution
-          ? encodeMagicLinkSignupAttribution(
-              {
-                attribution: signupAttribution,
-                anonymousId: signupAnonymousId,
-              },
-              getAuthSecret(),
-            )
+        const signupContext = signupAttributionContextFromCookieHeader(
+          getHeader(event, "cookie") ?? null,
+        );
+        const attributionToken = signupContext
+          ? encodeMagicLinkSignupAttribution(signupContext, getAuthSecret())
           : undefined;
         const newUserCallbackUrl = new URL(
           `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/magic-link/new-user")}?return=${encodeURIComponent(callbackPath)}`,

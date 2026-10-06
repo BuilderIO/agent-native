@@ -2,7 +2,6 @@ import { useT } from "@agent-native/core/client/i18n";
 
 import { CustomizeTemplatePopover } from "../CustomizeTemplatePopover";
 import { firstPartyAppUrl } from "../deployment-links";
-import { applyFirstTouchAttributionToLink } from "../marketing-attribution";
 import { trackEvent, type Template } from "../TemplateCard";
 
 export type TemplateLandingCtaTemplate = Pick<
@@ -28,8 +27,7 @@ export function TemplateLandingActions({
         target="_blank"
         rel="noopener noreferrer"
         className="primary-button"
-        onClick={(event) => {
-          applyFirstTouchAttributionToLink(event.currentTarget);
+        onClick={() => {
           trackEvent("try live demo", {
             template: template.slug,
             location,
