@@ -1,0 +1,119 @@
+---
+title: "Mail: Posteingang, Suche & Automatisierungen"
+description: "Lesen, durchsuchen und sortieren Sie Ihren Gmail-Posteingang in Mail — Tastenkürzel, Massenbereinigung, Auto-Triage-Regeln, native Gmail-Filter und CRM-Kontext zu einem Thread."
+---
+
+# Posteingang, Suche & Automatisierungen
+
+Diese Seite behandelt die tägliche Posteingangsarbeit in [Mail](/docs/template-mail): Nachrichten lesen und sortieren, alle verbundenen Konten durchsuchen, in großem Umfang aufräumen und die beiden Wege, wiederkehrende Triage zu automatisieren. Sie richtet sich an alle, die Mail nutzen, nicht nur an Entwickler.
+
+## Lesen und Sortieren
+
+Bewegen Sie sich durch Ihren Posteingang, ohne die Maus zu berühren. Die Prioritätssortierung steht nur zur Verfügung, wenn Sie Builder-Zugriff oder einen gespeicherten persönlichen Schlüssel haben. Verwenden Sie diese Tastenkürzel:
+
+| Taste     | Aktion                               |
+| --------- | ------------------------------------ |
+| `J`       | Nächste E-Mail                       |
+| `K`       | Vorherige E-Mail                     |
+| `Up/Down` | Dasselbe wie J/K                     |
+| `Enter`   | Fokussierte E-Mail öffnen            |
+| `E`       | E-Mail oder Thread archivieren       |
+| `D`       | E-Mail oder Thread in den Papierkorb |
+| `S`       | Markieren oder Sternchen aufheben    |
+| `R`       | Antworten                            |
+| `U`       | Gelesen/ungelesen umschalten         |
+| `C`       | Neue E-Mail verfassen                |
+| `/`       | Suchleiste fokussieren               |
+| `Cmd+K`   | Befehlspalette öffnen                |
+| `G I`     | Zum Posteingang gehen                |
+| `G S`     | Zu Markiert gehen                    |
+| `G T`     | Zu Gesendet gehen                    |
+| `G D`     | Zu Entwürfen gehen                   |
+| `G A`     | Zum Archiv gehen                     |
+| `Esc`     | Thread schließen / Suche löschen     |
+
+Alles, was ein Tastenkürzel erledigt, können Sie auch anfragen: „Archiviere alle Netlify-Bot-E-Mails, die älter als eine Woche sind“, „markiere alles von Priya mit einem Sternchen“, „markiere alles in diesem Thread als gelesen“.
+
+## Alle verbundenen Posteingänge durchsuchen
+
+Tippen Sie in die Suchleiste oder fragen Sie den Agenten — eine Abfrage durchsucht alle verbundenen Gmail-Konten gleichzeitig, nicht nur den gerade geöffneten Tab. Wenn Sie ein privates und ein geschäftliches Konto verbunden haben, prüft „finde die Rechnung von Acme“ beide.
+
+## Massenaktionen zur Bereinigung des Posteingangs
+
+Archivieren, Markieren mit Sternchen und Als-gelesen-markieren funktionieren alle in großem Umfang gegen Ihre echten verbundenen Gmail-Konten — wählen Sie mehrere Nachrichten aus (oder bitten Sie den Agenten, „auf all diese“ zu wirken) und Mail bündelt die Anfragen pro Konto, statt einen Aufruf pro Nachricht zu machen. Eine separate datumsbasierte Bereinigung („archiviere alles, was älter als 30 Tage ist“) und ein JSON-Export einer Ansicht sind ebenfalls verfügbar, beide arbeiten aber derzeit auf dem lokalen Demo-Postfach statt auf einem verbundenen Gmail-Konto. Nach Gmail-Änderungen verhindert Mail, dass ältere oder abgebrochene Antworten neuere Ergebnisse ersetzen.
+
+Um einen großen Rückstand ungelesener E-Mails in einem Konto zu leeren, verwenden Sie „markiere alles Ungelesene als gelesen“, statt den Agenten zu bitten, jede Konversation einzeln zu öffnen und zu markieren — Mail führt das als einen einzigen verifizierten Massenvorgang aus und meldet, wie viele Nachrichten tatsächlich geändert wurden.
+
+## Auto-Triage-Regeln vs. native Gmail-Filter
+
+Mail bietet zwei unterschiedliche Wege, um zu automatisieren, was mit eingehender Post geschieht — wählen Sie bewusst:
+
+<Callout tone="info">
+
+**Automatisierungsregeln** gleichen neue Post mit einer von Ihnen in Klartext geschriebenen Bedingung ab („von einem Newsletter“, „Betreff enthält Rechnung“) mithilfe von KI und wenden eine Aktion an (Label, Archivieren, als gelesen markieren, Sternchen, Papierkorb). Sie laufen automatisch etwa einmal pro Minute innerhalb von Mail.
+
+**Gmail-Filter** sind Gmails eigener nativer Mechanismus — sie laufen in Gmail selbst, bevor Automatisierungsregeln die Nachricht überhaupt sehen, und verwenden Gmails genaue Suchsyntax (`from:`, `older_than:`, Anhang vorhanden, Größe und so weiter). Sie funktionieren weiter, auch wenn Mail nicht geöffnet ist.
+
+Verwenden Sie einen Gmail-Filter, wenn sich die Regel mit Gmails eigenen Kriterien ausdrücken lässt; verwenden Sie eine Automatisierungsregel, wenn die Bedingung Urteilsvermögen erfordert („wenn dies wie eine Verkaufsanfrage aussieht“).
+
+</Callout>
+
+<Diagram id="doc-block-mail4" title="Lebenszyklus einer Automatisierungsregel" summary={"Eine Regel, die Sie in Klartext beschreiben, läuft nach einem wiederkehrenden Zeitplan gegen neue eingehende Post und wendet automatisch ihre Aktion an."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    Sie beschreiben eine Regel<br /><small class="diagram-muted"
+      >"von einem Newsletter" → archivieren</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Neue eingehende Post</span
+    ><small class="diagram-muted">jede Minute geprüft</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    KI gleicht Bedingung ab<br /><small class="diagram-muted"
+      >pro Regel, pro Nachricht</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Aktion angewendet<br /><small class="diagram-muted"
+      >Label · Archivieren · als gelesen markieren · Sternchen ·
+      Papierkorb</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## CRM-Kontext zu einem Thread
+
+Öffnen Sie einen Thread, und die Kontakt-Seitenleiste von Mail kann CRM-Kontext zum Absender anzeigen. HubSpot ist heute die einzige durchgängig verbundene Anbindung — fragen Sie den Agenten „wer ist das und welche Deals hat diese Person offen“, und er sucht den Kontakt sowie bis zu 5 zugehörige Deals und bis zu 5 zugehörige Tickets aus Ihrem konfigurierten HubSpot-Konto.
+
+Gong, Pylon und Apollo erscheinen im selben Seitenleisten-Panel, aber nur, wenn Sie deren API-Schlüssel in den Einstellungen hinzugefügt haben, und nur als schreibgeschützte Seitenleistenansicht — der Agent kann heute keinen Gong-Anruf oder ein Pylon-Ticket in den Chat holen, nur HubSpot.
+
+## Wie geht es weiter?
+
+- [**Entwürfe, Planung & die Entwurfswarteschlange**](/docs/template-mail-drafts-and-queue) — die Antwort auf das, was Sie gerade sortiert haben
+- [**Mit dem Agent sprechen**](/docs/template-mail-agent) — Eingabeaufforderungen nach Aufgabe und wann Sie über die vorgefertigten Aktionen hinausgehen sollten
+- [**Entwicklerhandbuch**](/docs/template-mail-developers) — die vollständige Aktionsliste hinter dieser Seite
+- [**Mail-Übersicht**](/docs/template-mail) — zurück zur App-Zusammenfassung
