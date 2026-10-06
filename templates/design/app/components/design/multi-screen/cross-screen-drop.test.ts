@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   COMPACT_CROSS_SCREEN_GHOST_PX,
+  CrossScreenPathFrameHitTracker,
   applyCrossScreenPathFrameDropTarget,
   captureCrossScreenSourceHtmlSnapshot,
   getBoardDropRoute,
@@ -13,7 +14,6 @@ import {
   isPointerInsideSourceIframe,
   rememberCrossScreenPathFrameHit,
   resolveCrossScreenPathFrameHitAtRelease,
-  snapshotCrossScreenPathFrameHitRequests,
   validateCrossScreenSourceHtmlSnapshot,
 } from "./cross-screen-drop";
 import { SURFACE_PADDING } from "./overview-layout";
@@ -257,40 +257,33 @@ describe("cross-screen preview path release ordering", () => {
   };
 
   it("keeps post-release hit tests out of the frozen path snapshot", async () => {
-    const requests = new Map([
-      [
-        41,
-        {
-          requestSeq: 41,
-          sessionId: "drag-1",
-          screenId: "screen-1",
-          ignoreAutoLayout: false,
-          hit: Promise.resolve({
-            ...nestedFrameHit,
-            anchorParentNodeId: "outer-frame",
-          }),
-        },
-      ],
-      [
-        42,
-        {
-          requestSeq: 42,
-          sessionId: "drag-1",
-          screenId: "screen-1",
-          ignoreAutoLayout: false,
-          hit: Promise.resolve({
-            ...nestedFrameHit,
-            anchorNodeId: "already-after-release-child",
-            anchorParentNodeId: "outer-frame",
-          }),
-        },
-      ],
-    ]);
-    const snapshot = snapshotCrossScreenPathFrameHitRequests(requests, 41);
+    const tracker = new CrossScreenPathFrameHitTracker();
+    tracker.add({
+      requestSeq: 41,
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      ignoreAutoLayout: false,
+      hit: Promise.resolve({
+        ...nestedFrameHit,
+        anchorParentNodeId: "outer-frame",
+      }),
+    });
+    tracker.add({
+      requestSeq: 42,
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      ignoreAutoLayout: false,
+      hit: Promise.resolve({
+        ...nestedFrameHit,
+        anchorNodeId: "already-after-release-child",
+        anchorParentNodeId: "outer-frame",
+      }),
+    });
+    const snapshot = tracker.snapshot(41, "screen-1", "drag-1");
     expect(snapshot.requests.map((request) => request.requestSeq)).toEqual([
       41,
     ]);
-    requests.set(43, {
+    tracker.add({
       requestSeq: 43,
       sessionId: "drag-1",
       screenId: "screen-1",
@@ -304,8 +297,6 @@ describe("cross-screen preview path release ordering", () => {
 
     const path = await resolveCrossScreenPathFrameHitAtRelease({
       ...snapshot,
-      sessionId: "drag-1",
-      screenId: "screen-1",
       releaseHit: outerFrameHit,
     });
     expect(path?.hit.anchorNodeId).toBe("nested-frame");
@@ -317,6 +308,109 @@ describe("cross-screen preview path release ordering", () => {
         screenId: "screen-1",
       }),
     ).toMatchObject({ anchorNodeId: "nested-frame", placement: "after" });
+  });
+
+  it("keeps release path history isolated when a drag visits another screen", async () => {
+    const path = await resolveCrossScreenPathFrameHitAtRelease({
+      requests: [
+        {
+          requestSeq: 41,
+          sessionId: "drag-1",
+          screenId: "screen-a",
+          ignoreAutoLayout: false,
+          hit: Promise.resolve({
+            ...nestedFrameHit,
+            anchorParentNodeId: "outer-a",
+          }),
+        },
+        {
+          requestSeq: 42,
+          sessionId: "drag-1",
+          screenId: "screen-b",
+          ignoreAutoLayout: false,
+          hit: Promise.resolve({
+            ...nestedFrameHit,
+            anchorNodeId: "nested-b",
+            anchorParentNodeId: "outer-b",
+          }),
+        },
+        {
+          requestSeq: 43,
+          sessionId: "drag-1",
+          screenId: "screen-a",
+          ignoreAutoLayout: false,
+          hit: Promise.resolve({
+            ...outerFrameHit,
+            anchorNodeId: "outer-a",
+          }),
+        },
+      ],
+      releaseRequestSeq: 43,
+      sessionId: "drag-1",
+      screenId: "screen-a",
+      releaseHit: { ...outerFrameHit, anchorNodeId: "outer-a" },
+    });
+
+    expect(path?.hit.anchorNodeId).toBe("nested-frame");
+    expect(
+      applyCrossScreenPathFrameDropTarget({
+        hit: { ...outerFrameHit, anchorNodeId: "outer-a" },
+        pathFrame: path,
+        sessionId: "drag-1",
+        screenId: "screen-a",
+      }),
+    ).toMatchObject({ anchorNodeId: "nested-frame", placement: "after" });
+  });
+
+  it("compacts resolved hit history in order while retaining pending requests", async () => {
+    const tracker = new CrossScreenPathFrameHitTracker();
+    let resolveFirst!: (hit: typeof nestedFrameHit) => void;
+    const firstHit = new Promise<typeof nestedFrameHit>((resolve) => {
+      resolveFirst = resolve;
+    });
+    tracker.add({
+      requestSeq: 1,
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      ignoreAutoLayout: false,
+      hit: firstHit,
+    });
+    tracker.add({
+      requestSeq: 2,
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      ignoreAutoLayout: false,
+      hit: Promise.resolve(outerFrameHit),
+    });
+    await Promise.resolve();
+
+    expect(tracker.snapshot(2, "screen-1", "drag-1").requests).toHaveLength(2);
+
+    const directNestedFrameHit = {
+      ...nestedFrameHit,
+      anchorParentNodeId: "outer-frame",
+    };
+    resolveFirst(directNestedFrameHit);
+    await Promise.resolve();
+    expect(tracker.snapshot(2, "screen-1", "drag-1").requests).toHaveLength(0);
+
+    for (let requestSeq = 3; requestSeq <= 100; requestSeq += 1) {
+      tracker.add({
+        requestSeq,
+        sessionId: "drag-1",
+        screenId: "screen-1",
+        ignoreAutoLayout: false,
+        hit: Promise.resolve({}),
+      });
+      await Promise.resolve();
+    }
+
+    const snapshot = tracker.snapshot(100, "screen-1", "drag-1");
+    expect(snapshot.requests).toHaveLength(0);
+    expect(snapshot.pathFrame).toMatchObject({
+      hit: directNestedFrameHit,
+      parentHits: [outerFrameHit],
+    });
   });
 
   it("waits for out-of-order nested previews and folds the release hit last", async () => {

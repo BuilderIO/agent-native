@@ -30,6 +30,29 @@ export interface CrossScreenPathFrameHitRequest {
   hit: Promise<CrossScreenHitTestResult>;
 }
 
+export interface CrossScreenPathFrameHitRequestSnapshot {
+  releaseRequestSeq: number;
+  screenId: string;
+  sessionId: string;
+  pathFrame: CrossScreenPathFrameHit | null;
+  requests: CrossScreenPathFrameHitRequest[];
+}
+
+interface TrackedCrossScreenPathFrameHitRequest {
+  requestSeq: number;
+  ignoreAutoLayout: boolean;
+  pendingHit: Promise<CrossScreenHitTestResult> | null;
+  settledHit?: CrossScreenHitTestResult;
+  settled: boolean;
+}
+
+interface CrossScreenPathFrameHitScreenState {
+  sessionId: string;
+  screenId: string;
+  pathFrame: CrossScreenPathFrameHit | null;
+  pending: TrackedCrossScreenPathFrameHitRequest[];
+}
+
 function isCrossScreenPathFrameHitRequestAtOrBeforeRelease(
   request: CrossScreenPathFrameHitRequest,
   releaseRequestSeq: number,
@@ -37,25 +60,92 @@ function isCrossScreenPathFrameHitRequestAtOrBeforeRelease(
   return request.requestSeq <= releaseRequestSeq;
 }
 
-export function snapshotCrossScreenPathFrameHitRequests(
-  requests: ReadonlyMap<number, CrossScreenPathFrameHitRequest>,
-  releaseRequestSeq: number,
-) {
-  const releasedRequests: CrossScreenPathFrameHitRequest[] = [];
-  for (const request of requests.values()) {
-    if (
-      isCrossScreenPathFrameHitRequestAtOrBeforeRelease(
-        request,
-        releaseRequestSeq,
-      )
-    ) {
-      releasedRequests.push(request);
+export class CrossScreenPathFrameHitTracker {
+  private generation = 0;
+  private readonly screenStates = new Map<
+    string,
+    CrossScreenPathFrameHitScreenState
+  >();
+
+  add(request: CrossScreenPathFrameHitRequest) {
+    let state = this.screenStates.get(request.screenId);
+    if (!state || state.sessionId !== request.sessionId) {
+      state = {
+        sessionId: request.sessionId,
+        screenId: request.screenId,
+        pathFrame: null,
+        pending: [],
+      };
+      this.screenStates.set(request.screenId, state);
+    }
+
+    const generation = this.generation;
+    const trackedRequest: TrackedCrossScreenPathFrameHitRequest = {
+      requestSeq: request.requestSeq,
+      ignoreAutoLayout: request.ignoreAutoLayout,
+      pendingHit: request.hit,
+      settled: false,
+    };
+    state.pending.push(trackedRequest);
+    void request.hit.then((hit) => {
+      if (
+        generation !== this.generation ||
+        this.screenStates.get(request.screenId) !== state
+      ) {
+        return;
+      }
+      trackedRequest.pendingHit = null;
+      trackedRequest.settledHit = hit;
+      trackedRequest.settled = true;
+      this.compactSettledRequests(state);
+    });
+  }
+
+  snapshot(
+    releaseRequestSeq: number,
+    screenId: string,
+    sessionId: string,
+  ): CrossScreenPathFrameHitRequestSnapshot {
+    const state = this.screenStates.get(screenId);
+    const matchingState = state?.sessionId === sessionId ? state : undefined;
+    return {
+      releaseRequestSeq,
+      screenId,
+      sessionId,
+      pathFrame: matchingState?.pathFrame ?? null,
+      requests: (matchingState?.pending ?? [])
+        .filter(({ requestSeq }) => requestSeq <= releaseRequestSeq)
+        .map(({ requestSeq, ignoreAutoLayout, pendingHit, settledHit }) => ({
+          requestSeq,
+          screenId,
+          sessionId,
+          ignoreAutoLayout,
+          hit: pendingHit ?? Promise.resolve(settledHit ?? {}),
+        })),
+    };
+  }
+
+  clear() {
+    this.generation += 1;
+    this.screenStates.clear();
+  }
+
+  private compactSettledRequests(state: CrossScreenPathFrameHitScreenState) {
+    while (state.pending[0]?.settled) {
+      const [{ ignoreAutoLayout, settledHit }] = state.pending.splice(0, 1);
+      if (settledHit) {
+        state.pathFrame = rememberCrossScreenPathFrameHit({
+          previous: state.pathFrame,
+          next: {
+            sessionId: state.sessionId,
+            screenId: state.screenId,
+            hit: settledHit,
+          },
+          ignoreAutoLayout,
+        });
+      }
     }
   }
-  return {
-    releaseRequestSeq,
-    requests: releasedRequests,
-  };
 }
 
 export function getCrossScreenPreviewTimeoutResult(args: {
@@ -125,6 +215,7 @@ export async function resolveCrossScreenPathFrameHitAtRelease(args: {
   releaseRequestSeq: number;
   sessionId: string;
   screenId: string;
+  pathFrame?: CrossScreenPathFrameHit | null;
   releaseHit: CrossScreenHitTestResult;
   ignoreAutoLayout?: boolean;
 }): Promise<CrossScreenPathFrameHit | null> {
@@ -133,6 +224,7 @@ export async function resolveCrossScreenPathFrameHitAtRelease(args: {
     releaseRequestSeq,
     sessionId,
     screenId,
+    pathFrame: previousPathFrame = null,
     releaseHit,
     ignoreAutoLayout = false,
   } = args;
@@ -144,7 +236,9 @@ export async function resolveCrossScreenPathFrameHitAtRelease(args: {
         isCrossScreenPathFrameHitRequestAtOrBeforeRelease(
           request,
           releaseRequestSeq,
-        ) && request.sessionId === sessionId,
+        ) &&
+        request.sessionId === sessionId &&
+        request.screenId === screenId,
     )
     .sort((a, b) => a.requestSeq - b.requestSeq);
   const resolvedHits = await Promise.all(
@@ -154,7 +248,11 @@ export async function resolveCrossScreenPathFrameHitAtRelease(args: {
     })),
   );
 
-  let pathFrame: CrossScreenPathFrameHit | null = null;
+  let pathFrame =
+    previousPathFrame?.sessionId === sessionId &&
+    previousPathFrame.screenId === screenId
+      ? previousPathFrame
+      : null;
   for (const { request, hit } of resolvedHits) {
     pathFrame = rememberCrossScreenPathFrameHit({
       previous: pathFrame,
