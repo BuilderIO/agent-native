@@ -28,11 +28,12 @@ beats thirty replies.
 
 ## Slack channels
 
-By default, apply this Slack workflow equally to `#product-agent-native-feedback`
-(`C0ATH3CCZT4`) and `#qa-agent-native` (`C0C4U4XRT6X`), including evidence,
-eligibility, claims, reactions, dispositions, and replies. Repeat each
-`<#CHANNEL>` search/read in both; track pagination and reply cursors and message
-counts per channel. Honor narrower invocation scope.
+Default channels: `#product-agent-native-feedback` (`C0ATH3CCZT4`),
+`#qa-agent-native` (`C0C4U4XRT6X`), and
+`#dev-agent-native-feedback` (`C0AJ5QV0J03`). Apply the full workflow to each:
+use its `in:<#CHANNEL>` filter for searches and read each channel. Track
+pagination, reply cursors, and counts separately. Honor narrower invocation
+scope.
 
 ## Phase 0: claim what you are taking
 
@@ -568,9 +569,9 @@ on - that is how silence stays auditable.
 
 ```md
 ## Feedback sweep
-Start cursors: product [Slack message](...) · QA [Slack message](...)
-Reply cursors (from prior recap; reuse next run): product <last processed timestamp> · QA <last processed timestamp>
-Messages enumerated: product N · QA N (total N) · Claimed: N · Answered since last run: N
+Start cursors: product [Slack message](...) · QA [Slack message](...) · dev [Slack message](...)
+Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <timestamp>
+Messages: product N · QA N · dev N (total N) · claimed N · answered N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)

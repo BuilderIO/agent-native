@@ -131,12 +131,15 @@ const messages = {
   "onboarding.builderIncludedFreeWithAccount":
     "Included free with a Builder.io account",
   "onboarding.builderMonthlyCredits": "60 monthly Agent Credits",
+  "onboarding.builderIncludedFree": "Included free",
+  "onboarding.builderMoreServices": "+ {{count}} more services",
+  "onboarding.builderIncludedServices": "Included services",
   "onboarding.builderActivateTitle": "Activate free credits",
   "onboarding.builderAccountExistsTitle":
     "You already have a Builder.io account",
   "onboarding.builderAccountExistsDescription": "Log in to use your account.",
   "onboarding.builderActivationDescription":
-    "We'll automatically create your Builder.io account for you in one click.",
+    "Create or connect a Builder.io account in one click to get free credits.",
   "onboarding.builderOrgActivationDescription":
     "We'll create your Builder.io account in one click so your organization can use it.",
   "onboarding.builderCreateAndActivate": "Create and activate",
@@ -159,6 +162,10 @@ const messages = {
   "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
   "onboarding.capability.llm.keySummary": "Connect your own AI model",
   "onboarding.capability.fileStorage.keySummary": "File uploads and storage",
+  "onboarding.capability.llm.why":
+    "The agent uses a language model to understand requests and produce answers.",
+  "onboarding.capability.fileStorage.why":
+    "Stores uploaded images and files so the agent can reuse them in your thread.",
   "onboarding.fileStorage.title": "Connect storage to upload files",
   "onboarding.fileStorage.statusUnavailable": "Couldn't check storage",
   "onboarding.fileStorage.description":
@@ -175,6 +182,8 @@ const messages = {
   "onboarding.capability.embeddings.keySummary": "Embeddings",
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
+  "onboarding.capability.systemOne.why":
+    "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder credits or an image provider key",
@@ -486,6 +495,7 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
+  "composer.unsupportedFileType": "This file type isn't supported.",
   "composer.useAttachedContext": "Use the attached context.",
   "mentions.commands": "Commands",
   "mentions.learnMore": "Learn more",
@@ -1099,11 +1109,10 @@ const messages = {
   "queue.followUpWithCount": "{{count}} queued — send a follow-up...",
   "queue.remove": "Remove from queue",
   "queue.sendNow": "Send now",
-  "queue.sendNowHint": "Send now (stops the current response)",
-  "queue.steer": "Steer",
-  "queue.steerHint": "Send this message next",
+  "queue.sendNowHint": "Stops the current response, then sends this message.",
+  "queue.sendNext": "Send next",
+  "queue.sendNextHint": "Send after the current response finishes",
   "queue.moreActions": "More actions",
-  "queue.moveToTop": "Move to top",
   "recovery.connectingBuilder": "Setting up Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
@@ -1185,6 +1194,7 @@ const messages = {
   "setup.connectPlaceholder": "Connect AI to start chatting...",
   "setup.connectToChat": "Connect AI to chat",
   "setup.connectToStart": "Connect AI to start chatting",
+  "setup.modelListUnavailable": "Couldn't load models.",
   "setup.providerStatusUnavailable": "Couldn't confirm AI is ready.",
   "agentNativeClips.meetingAsk.placeholder": "Ask anything",
   "agentNativeClips.meetingAsk.ariaLabel": "Ask anything about this meeting",
@@ -1963,6 +1973,8 @@ const messages = {
   "settingsShell.appGroup.labsFootnote":
     "These new, unstable features may have bugs.",
   "settingsShell.appGroup.labsLoadError": "Couldn't load your labs.",
+  "settingsShell.appGroup.labsReadError":
+    "Couldn't read this saved choice. Choose On or Off to set it again.",
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",

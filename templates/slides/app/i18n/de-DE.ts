@@ -1033,9 +1033,13 @@ const messages = {
     all: "Alle",
     showMineDecks: "Von mir erstellte Decks anzeigen",
     mine: "Meine",
+    ownedByAnyone: "Beliebiger Eigentümer",
+    ownedByMe: "Mir gehörend",
+    sharedWithMe: "Mit mir geteilt",
     createDeckOrVisual: "Präsentation erstellen",
     noMineDecks: "Du hast noch keine Decks erstellt.",
     noDecksMatchSearch: "Keine Decks entsprechen deiner Suche.",
+    noDecksMatchFilter: "Keine Decks entsprechen dem aktuellen Filter.",
     deleteDeckTitle: "Deck löschen?",
     deleteDeckDescription:
       "Dadurch werden dieses Deck und alle Folien dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",

@@ -7,6 +7,7 @@ export interface DashboardView {
   id: string;
   name: string;
   filters: Record<string, string>;
+  isDefault?: boolean;
   createdBy?: string;
   createdAt?: string;
 }
@@ -48,6 +49,7 @@ export function useDashboardViews(dashboardId: string | undefined) {
         id: view.id,
         name: view.name,
         filters: view.filters,
+        isDefault: view.isDefault,
       });
     },
     onSettled: () => {
@@ -74,6 +76,8 @@ export function useDashboardViews(dashboardId: string | undefined) {
   return {
     views,
     isLoading: viewsQuery.isLoading,
+    isSuccess: viewsQuery.isSuccess,
+    isSettled: viewsQuery.isSuccess || viewsQuery.isError,
     error: viewsQuery.error,
     refetch: viewsQuery.refetch,
     saveView,

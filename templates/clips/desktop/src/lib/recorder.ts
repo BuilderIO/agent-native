@@ -2946,6 +2946,7 @@ async function tryStartRewindFullscreenRecording(
   let transcriptFailureSaved = false;
   let countdownFailed = false;
   let countdownFailure: unknown;
+  const startupId = crypto.randomUUID();
   const assertStartupActive = () => {
     throwIfRecordingStartAborted(params.signal);
     if (countdownFailed) throw countdownFailure;
@@ -3022,6 +3023,7 @@ async function tryStartRewindFullscreenRecording(
         uploadMode = preparedRecording.uploadMode ?? "buffered";
         await guardRecordingStart(
           invoke<RewindClipBackendStatus>("rewind_clip_prepare", {
+            startupId,
             artifactLabel: id,
             serverUrl: localOnly ? null : params.serverUrl,
             recordingId: localOnly ? null : id,
@@ -3031,7 +3033,12 @@ async function tryStartRewindFullscreenRecording(
             includeSystemAudio,
             hasCamera: wantsCamera,
           }),
-          { signal: params.signal },
+          {
+            signal: countdownSignal,
+            onLateResolve: () => {
+              void invoke("rewind_clip_cancel", { startupId }).catch(() => {});
+            },
+          },
         );
         assertStartupActive();
         await startRewindTranscription();
@@ -3052,7 +3059,7 @@ async function tryStartRewindFullscreenRecording(
         countdownController.abort();
       },
       async beforeActivate() {
-        await audioCue.playBeforeCapture();
+        await audioCue.playBeforeCapture(params.signal);
       },
       async activate(preparedRecording) {
         throwIfRecordingStartAborted(params.signal);
@@ -3090,7 +3097,7 @@ async function tryStartRewindFullscreenRecording(
       ?.cancel()
       .catch(() => {});
     if (id) forgetRewindClipOrigin(id);
-    await invoke("rewind_clip_cancel").catch(() => {});
+    await invoke("rewind_clip_cancel", { startupId }).catch(() => {});
     audioCue.cleanup();
     if (!localOnly && (!id || isCountdownCancelledError(err))) {
       abortCreatedRecordingOnStartFailure(
@@ -3165,7 +3172,7 @@ async function tryStartRewindFullscreenRecording(
       .catch((err) => {
         console.warn("[clips-recorder] transcription cancel failed:", err);
       });
-    await invoke("rewind_clip_cancel").catch(() => {});
+    await invoke("rewind_clip_cancel", { startupId }).catch(() => {});
     audioCue.cleanup();
     if (forRestart) {
       await invoke("hide_recording_chrome").catch(() => {});

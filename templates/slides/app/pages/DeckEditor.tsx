@@ -598,23 +598,28 @@ export default function DeckEditor() {
   const { generating } = useAgentGenerating();
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
-  const generationSubmitId = searchParams.get("generationSubmitId");
-  const isNewDeckGenerationRoute =
-    searchParams.get("generating") === "1" || Boolean(generationSubmitId);
+  const routeGenerationSubmitId = searchParams.get("generationSubmitId");
+  const isNewDeckGenerationRouteFromUrl =
+    searchParams.get("generating") === "1" || Boolean(routeGenerationSubmitId);
   const retryEmptyGenerationInFlightRef = useRef(false);
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
     useState(false);
   const {
     generating: newDeckGenerationGenerating,
+    submitMessageId: restoredGenerationSubmitId,
     tabId: newDeckGenerationTabId,
     questionContinuationPending,
     submitQuestionContinuation: submitTrackedQuestionContinuation,
   } = useNewDeckGenerationRun(
     id ?? "",
-    isNewDeckGenerationRoute,
-    generationSubmitId,
+    isNewDeckGenerationRouteFromUrl,
+    routeGenerationSubmitId,
   );
+  const generationSubmitId =
+    routeGenerationSubmitId ?? restoredGenerationSubmitId;
+  const isNewDeckGenerationRoute =
+    isNewDeckGenerationRouteFromUrl || Boolean(restoredGenerationSubmitId);
   const submitQuestionContinuation = useCallback(
     ({ message, context }: { message: string; context: string }) => {
       if (!generationSubmitId) {
@@ -1831,9 +1836,21 @@ export default function DeckEditor() {
       `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (${fitDims.width}x${fitDims.height} CSS pixels; standard padding leaves ${Math.max(0, fitDims.width - 220)}x${Math.max(0, fitDims.height - 160)}px for main content); keep each slide within that fit budget and split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
     onSubmitMessage: submitQuestionContinuation,
     onSkipMessage: submitQuestionContinuation,
+    threadId: newDeckGenerationTabId ?? undefined,
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const pendingQuestionKey =
+    questionFlowQuestions?.map((question) => question.id).join(":") ?? "";
+  useEffect(() => {
+    if (!pendingQuestionKey || !newDeckGenerationTabId) return;
+    window.dispatchEvent(
+      new CustomEvent("agent-chat:open-thread", {
+        detail: { threadId: newDeckGenerationTabId },
+      }),
+    );
+    window.dispatchEvent(new Event("agent-panel:open"));
+  }, [id, newDeckGenerationTabId, pendingQuestionKey]);
   const waitingOnNewDeckQuestions =
     showQuestionFlow || questionContinuationPending;
   const { isNewDeckCreation, phase: newDeckGenerationPhase } =
@@ -2152,10 +2169,9 @@ export default function DeckEditor() {
   ]);
 
   useEffect(() => {
-    const submitMessageId = searchParams.get("generationSubmitId");
     if (
       !id ||
-      !submitMessageId ||
+      !generationSubmitId ||
       !shouldClearNewDeckGenerationRun({
         generating: newDeckGenerationGenerating || newDeckGenerationSignal,
         waitingOnQuestions: waitingOnNewDeckQuestions,
@@ -2167,7 +2183,7 @@ export default function DeckEditor() {
     let cancelled = false;
     void refetchPendingQuestion().then((stillWaiting) => {
       if (cancelled || stillWaiting) return;
-      clearNewDeckGenerationRun(id, submitMessageId);
+      clearNewDeckGenerationRun(id, generationSubmitId);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -2181,6 +2197,7 @@ export default function DeckEditor() {
       cancelled = true;
     };
   }, [
+    generationSubmitId,
     id,
     newDeckGenerationGenerating,
     newDeckGenerationSignal,

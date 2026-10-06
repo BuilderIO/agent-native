@@ -32,30 +32,30 @@ catalog:
   "@radix-ui/react-popover": ^1.1.19
   "@radix-ui/react-select": ^2.3.3
   "@radix-ui/react-tooltip": ^1.2.12
-  "@tiptap/core": 3.30.1
-  "@tiptap/extension-blockquote": 3.30.1
-  "@tiptap/extension-bold": 3.30.1
-  "@tiptap/extension-bubble-menu": 3.30.1
-  "@tiptap/extension-code-block-lowlight": 3.30.1
-  "@tiptap/extension-collaboration": 3.30.1
-  "@tiptap/extension-collaboration-caret": 3.30.1
-  "@tiptap/extension-color": 3.30.1
-  "@tiptap/extension-floating-menu": 3.30.1
-  "@tiptap/extension-horizontal-rule": 3.30.1
-  "@tiptap/extension-image": 3.30.1
-  "@tiptap/extension-link": 3.30.1
-  "@tiptap/extension-list": 3.30.1
-  "@tiptap/extension-placeholder": 3.30.1
-  "@tiptap/extension-table": 3.30.1
-  "@tiptap/extension-table-cell": 3.30.1
-  "@tiptap/extension-table-header": 3.30.1
-  "@tiptap/extension-table-row": 3.30.1
-  "@tiptap/extension-task-item": 3.30.1
-  "@tiptap/extension-task-list": 3.30.1
-  "@tiptap/extension-text-style": 3.30.1
-  "@tiptap/pm": 3.30.1
-  "@tiptap/react": 3.30.1
-  "@tiptap/starter-kit": 3.30.1
+  "@tiptap/core": 3.31.4
+  "@tiptap/extension-blockquote": 3.31.4
+  "@tiptap/extension-bold": 3.31.4
+  "@tiptap/extension-bubble-menu": 3.31.4
+  "@tiptap/extension-code-block-lowlight": 3.31.4
+  "@tiptap/extension-collaboration": 3.31.4
+  "@tiptap/extension-collaboration-caret": 3.31.4
+  "@tiptap/extension-color": 3.31.4
+  "@tiptap/extension-floating-menu": 3.31.4
+  "@tiptap/extension-horizontal-rule": 3.31.4
+  "@tiptap/extension-image": 3.31.4
+  "@tiptap/extension-link": 3.31.4
+  "@tiptap/extension-list": 3.31.4
+  "@tiptap/extension-placeholder": 3.31.4
+  "@tiptap/extension-table": 3.31.4
+  "@tiptap/extension-table-cell": 3.31.4
+  "@tiptap/extension-table-header": 3.31.4
+  "@tiptap/extension-table-row": 3.31.4
+  "@tiptap/extension-task-item": 3.31.4
+  "@tiptap/extension-task-list": 3.31.4
+  "@tiptap/extension-text-style": 3.31.4
+  "@tiptap/pm": 3.31.4
+  "@tiptap/react": 3.31.4
+  "@tiptap/starter-kit": 3.31.4
   "@tiptap/y-tiptap": 3.0.7
   "@tabler/icons-react": 3.44.0
   "@tailwindcss/vite": ^4.2.4

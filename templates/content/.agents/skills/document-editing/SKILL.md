@@ -132,6 +132,12 @@ and a `proposalId`. To add another
 find/replace call to that proposal, pass its `proposalId`, the same `summary`,
 and a fresh `idempotencyKey`. Retry the same call with its original key.
 An unchanged replacement creates no suggestion and reports an error.
+Inside tables, callouts, toggles, and columns, suggest text: edit a cell, or
+edit or add a paragraph in a callout, toggle, or column. Keep each `find`
+within one cell or one frame, and make one call per cell. A `find`/`replace`
+that changes text on both sides of a cell or frame edge, adds or removes
+table rows or cells or a column, or changes a callout's icon, a toggle's
+title, or an image, fails with `suggestion_structure_unsupported`.
 
 Use `suggest-document-edit` for every suggested body edit. The generic
 `create-resource-suggestion` action remains for advanced proposals that build

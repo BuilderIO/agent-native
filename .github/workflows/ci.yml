@@ -417,7 +417,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -446,9 +446,16 @@ jobs:
             e2e/drag-and-drop.reparenting-rules.spec.ts \
             e2e/drag-and-drop.auto-layout-parity.spec.ts \
             e2e/cross-screen-auto-layout-parity.spec.ts \
+            e2e/drag-out-of-screen-to-board.spec.ts \
+            e2e/parity-drag-reparent.spec.ts \
             e2e/corner-radius-handle-drag.spec.ts \
             e2e/parity-vector-endpoints.spec.ts \
-            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique" \
+            e2e/responsive-overview-regressions.spec.ts \
+            e2e/parity-report-interactions.spec.ts \
+            e2e/parity-oversized-nested.spec.ts \
+            e2e/parity-alt-drag-duplicate.spec.ts \
+            e2e/z-order-parity.spec.ts \
+            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|a layer dragged below the rendered Screen card moves to the board|a drag released inside rendered Hug overflow stays in its source Screen|a held screen child dropped beyond the rendered board window persists at that canvas point|overview screen creation and duplicate undo/redo keep screens selected and visible|cross-axis oversized drop rejects nested insertion despite main-axis fit|oversized drop from nested plain frames previews and lands in nearest fitting ancestor|oversized drop leaves a fitting static section without a valid ancestor|report path: board frame drops directly into a nested screen frame and survives undo/redo|report path: held board text drop into a nested frame shows guide and ghost, preserves z-order, and reloads|moves an absolute child into empty parent space directly after its exited frame|Figma G8 multi-selection preserves native order, painted order, and one-step undo|Figma G9 Bring to Front reorders an auto-layout child and undo restores it" \
             --workers=1
 
   fast-tests:
@@ -770,11 +777,38 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Check selection direction and chat typing while slide text editing remains active
+      - name: Check chat typing while slide text editing remains active
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 
-      - name: Check line-edge caret navigation in slide text
+      - name: Check platform-aware line-edge caret navigation in slide text
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+
+  slides-macos-caret-qa:
+    name: Slides caret navigation in macOS
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
 
@@ -829,7 +863,7 @@ jobs:
 
       - name: Check mixed rich-text authoring operations in Chromium
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --steps 80
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seed 2 --steps 80
 
   brain-evals:
     name: Brain evals
@@ -1121,11 +1155,12 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, core, Toolkit, and creative context
+      - name: Build recap CLI, AgentKit, core, OTel, Toolkit, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/otel build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
