@@ -231,14 +231,15 @@ export function useSqlQuery(
     retry: options?.retry ?? false,
     staleTime: options?.staleTime ?? 5 * 60 * 1000,
   });
+  const refetch = query.refetch;
 
   useEffect(() => {
     if (refreshToken <= previousRefreshToken.current) return;
     previousRefreshToken.current = refreshToken;
     void queryClient
       .cancelQueries({ queryKey, exact: true })
-      .then(() => query.refetch());
-  }, [queryClient, queryKey, query.refetch, refreshToken]);
+      .then(() => refetch());
+  }, [queryClient, queryKey, refetch, refreshToken]);
 
   return query;
 }
