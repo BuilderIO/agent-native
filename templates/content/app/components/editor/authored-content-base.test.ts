@@ -92,6 +92,20 @@ describe("authored content base", () => {
     expect(tracker.base(merged)).toEqual(merged);
   });
 
+  it("releases the held base on a page an agent stored as blank-line Markdown", () => {
+    const tracker = createAuthoredContentBase();
+    const agentBody = { revision: "r1", content: "Alpha.\n\nBravo." };
+    tracker.edited("Alpha.\nBravo. mine");
+    tracker.saved({
+      saved: merged,
+      sentContent: "Alpha.\nBravo. mine",
+      authoredOn: agentBody,
+    });
+    expect(tracker.base(merged)).toEqual(agentBody);
+    tracker.observed("Alpha. peer\nBravo. mine more", merged);
+    expect(tracker.base(merged)).toEqual(merged);
+  });
+
   it("authors a later deletion of the peer's text on the body that held it", () => {
     const tracker = afterMergedSave();
     // The peer's text arrives through collaboration, so no reconcile runs.

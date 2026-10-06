@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeDocumentBodyIntents } from "./document-intent-merge.js";
+import {
+  bodyHoldsChanges,
+  mergeDocumentBodyIntents,
+} from "./document-intent-merge.js";
 
 const base = "Paragraph one\nParagraph two\nParagraph three";
 const browser = "Browser edit\nParagraph two\nParagraph three";
@@ -614,5 +617,15 @@ describe("document body intent merge", () => {
         ],
       }),
     ).toEqual({ status: "preservation-required", reason: "structure" });
+  });
+
+  it("compares a held body against the blank-line body an agent stored", () => {
+    expect(
+      bodyHoldsChanges(
+        "Alpha.\n\nBravo.",
+        "Alpha. peer\nBravo. mine more",
+        "Alpha. peer\nBravo. mine",
+      ),
+    ).toBe(true);
   });
 });
