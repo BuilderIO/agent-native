@@ -1027,7 +1027,6 @@ async function* parseJsonlStream(
                 requestId: gatewayRequestId,
                 model,
                 gatewayUrl: captureContext.gatewayUrl,
-                rawEvent: event,
               });
             }
             yield stop({
@@ -1433,6 +1432,7 @@ function captureBuilderGatewayTransportError(
 ): void {
   captureError(err, {
     route: "/_agent-native/agent-chat",
+    errorMessagePolicy: "omit",
     tags: {
       source: "builder-engine",
       phase: context.phase,
@@ -1466,7 +1466,6 @@ function captureBuilderGatewayNoDetailError(context: {
   requestId?: string;
   model: string;
   gatewayUrl?: URL;
-  rawEvent: unknown;
 }): void {
   const err = new Error(
     context.requestId
@@ -1476,6 +1475,7 @@ function captureBuilderGatewayNoDetailError(context: {
   err.name = "BuilderGatewayNoDetailError";
   captureError(err, {
     route: "/_agent-native/agent-chat",
+    errorMessagePolicy: "omit",
     tags: {
       source: "builder-engine",
       phase: "stream",
@@ -1486,7 +1486,6 @@ function captureBuilderGatewayNoDetailError(context: {
     extra: {
       gatewayOrigin: context.gatewayUrl?.origin,
       gatewayPath: context.gatewayUrl?.pathname,
-      rawEvent: context.rawEvent,
     },
     contexts: {
       builderGateway: {

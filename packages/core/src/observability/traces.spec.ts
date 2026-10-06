@@ -788,7 +788,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(failed?.properties?.["$ai_error_type"]).toBe("tool_error");
     expect(
       (failed?.properties?.["$ai_error"] as { message: string })?.message,
-    ).toContain("withheld");
+    ).toContain("tool_error");
   });
 
   it("omits tool span content unless capture is enabled", async () => {
@@ -842,7 +842,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(JSON.stringify(events[0])).not.toContain("must-not-be-tracked");
   });
 
-  it("redacts and gates tool failure detail on tool spans", async () => {
+  it("keeps redacted tool failure detail in local spans", async () => {
     const events: TrackingEvent[] = [];
     const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
       [];
@@ -906,7 +906,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events[0]?.properties?.["$ai_error_type"]).toBe("tool_error");
     expect(
       (events[0]?.properties?.["$ai_error"] as { message: string })?.message,
-    ).toContain("withheld");
+    ).toContain("tool_error");
     expect(JSON.stringify(events[0])).not.toContain("abcdef123456");
     expect(JSON.stringify(events[0])).not.toContain("compound-secret");
     expect(JSON.stringify(events[0])).not.toContain("compound-cookie-secret");
@@ -921,7 +921,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(JSON.stringify(events[0])).not.toContain("provider-camel-secret");
     expect(JSON.stringify(events[0])).not.toContain("second-line-secret");
     expect(JSON.stringify(events[0])).not.toContain("not-a-real-private-key");
-    expect(events[0]?.properties?.["$ai_output_state"]).toContain("withheld");
+    expect(events[0]?.properties?.["$ai_output_state"]).toContain("omitted");
     const withheldSpan = persistedSpans.find(
       (span) => span.spanType === "tool_call",
     );
@@ -941,7 +941,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     expect(events).toHaveLength(1);
     const serialized = JSON.stringify(events[0]);
-    expect(serialized).toContain("REDACTED");
+    expect(serialized).not.toContain("REDACTED");
     expect(serialized).not.toContain("jwt-error-secret");
     expect(serialized).not.toContain("provider-jwt-error-secret");
     expect(serialized).not.toContain("abcdef123456");
@@ -1547,11 +1547,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       const toolOtelSpan = spans.find((span) => span.name === "tool.call");
       expect(toolOtelSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-      expect(toolOtelSpan?.status?.message).toBe(
-        captureToolResults
-          ? "Tool call interrupted before completion"
-          : undefined,
-      );
+      expect(toolOtelSpan?.status?.message).toBe("Agent run failed (unknown)");
 
       const toolSpan = persistedSpans.find(
         (span) => span.runId === runId && span.spanType === "tool_call",
@@ -1628,7 +1624,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       expect(events).toHaveLength(1);
       expect(events[0]?.properties).toMatchObject({
         status: "error",
-        error_message: error,
+        $ai_error: expect.objectContaining({ terminal_code: "unknown" }),
         delegated: true,
       });
     },
@@ -1733,7 +1729,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.properties).toMatchObject({
       status: "error",
-      error_message: "The delegated provider failed.",
+      $ai_error: expect.objectContaining({
+        terminal_code: "provider_network_error",
+      }),
       terminal_state: "failed",
       terminal_code: "provider_network_error",
       terminal_retryable: false,
@@ -1965,7 +1963,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(readSpan?.ended).toBe(true);
     expect(readSpan?.parent).toBe(runSpan);
     expect(dbSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-    expect(dbSpan?.status?.message).toBeUndefined();
+    expect(dbSpan?.status?.message).toBe("Agent run failed (unknown)");
     expect(dbSpan?.ended).toBe(true);
     expect(dbSpan?.parent).toBe(runSpan);
 
@@ -1980,7 +1978,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(llmSpan.parent).toBe(runSpan);
   });
 
-  it("gates and sanitizes tool error text in exported span statuses", async () => {
+  it("omits tool error text in exported span statuses", async () => {
     const leakyResult =
       'Error: client_secret=compound-secret private_key=compound-private-key providerSecret="provider-secret-leak" databasePassword="database-password-leak" aws_secret_access_key=aws-access-key-leak oauthToken=camel-oauth-token providerToken=provider-token JWT=jwt-error-secret providerJwt=provider-jwt-error-secret\nCookie: preference=x; session=compound-cookie-secret\nAuthorization: AWS4-HMAC-SHA256 Credential=fake-id/20260924/us-east-1/s3/aws4_request, SignedHeaders=host; Signature=compound-auth-signature\nAuthorization: ["AWS4-HMAC-SHA256 Credential=fake-id; Signature=bracketed-auth-signature"]\nCookie: ["preference=x; session=bracketed-cookie-secret"]';
 
@@ -2027,13 +2025,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
       const toolSpan = spans.find((span) => span.name === "tool.call");
       expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-      if (captureToolResults) {
-        expect(toolSpan?.status?.message).toBe(
-          'Error: client_secret=[REDACTED] private_key=[REDACTED] providerSecret="[REDACTED]" databasePassword="[REDACTED]" aws_secret_access_key=[REDACTED] oauthToken=[REDACTED] providerToken=[REDACTED] JWT=[REDACTED] providerJwt=[REDACTED]\nCookie: [REDACTED]\nAuthorization: [REDACTED]\nAuthorization: ["[REDACTED]"]\nCookie: ["[REDACTED]"]',
-        );
-      } else {
-        expect(toolSpan?.status?.message).toBeUndefined();
-      }
+      expect(toolSpan?.status?.message).toBe("Agent run failed (unknown)");
       expect(JSON.stringify(spans)).not.toContain("compound-secret");
       expect(JSON.stringify(spans)).not.toContain("compound-private-key");
     }
@@ -2183,7 +2175,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(modelSpan?.parent).toBe(runSpan);
     expect(modelSpan?.status).toEqual({
       code: SPAN_STATUS_ERROR,
-      message: "provider stream reset",
+      message: "Agent run failed (unknown)",
     });
     expect(modelSpan?.ended).toBe(true);
   });
@@ -2275,7 +2267,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     const toolSpan = spans.find((span) => span.name === "tool.call");
     expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-    expect(toolSpan?.status?.message).toBeUndefined();
+    expect(toolSpan?.status?.message).toBe("Agent run failed (unknown)");
 
     const runSpan = spans.find((span) => span.name === "agent.run");
     expect(runSpan?.attributes["agent.tool_calls"]).toBe(2);
@@ -2303,7 +2295,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     });
   });
 
-  it("omits tool error text by default and includes it truncated when captureToolResults is opted in", async () => {
+  it("omits tool error text even when captureToolResults is opted in", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -2366,54 +2358,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     const toolsWithCapture = events[0]?.properties?.tools as Array<
       Record<string, unknown>
     >;
-    expect(toolsWithCapture[0]?.error_message).toBe(
-      `${longError.slice(0, 500)}…`,
-    );
-    expect((toolsWithCapture[0]?.error_message as string).length).toBe(501);
-
-    events.length = 0;
-    const credentialError =
-      "Provider failed: Authorization: Bearer <EXAMPLE_BEARER_TOKEN>; api_key=<EXAMPLE_API_KEY>";
-    await runOnce(true, credentialError);
-    const redactedTools = events[0]?.properties?.tools as Array<
-      Record<string, unknown>
-    >;
-    expect(redactedTools[0]?.error_message).toBe(
-      "Provider failed: Authorization: [REDACTED]",
-    );
-
-    events.length = 0;
-    await runOnce(
-      true,
-      "Provider rejected key sk-proj-example-redaction-value",
-    );
-    const standaloneKeyTools = events[0]?.properties?.tools as Array<
-      Record<string, unknown>
-    >;
-    expect(standaloneKeyTools[0]?.error_message).toBe(
-      "Provider rejected key [REDACTED]",
-    );
-
-    events.length = 0;
-    await runOnce(true, "Stripe rejected key sk_live_1234567890abcdefghijk");
-    const stripeKeyTools = events[0]?.properties?.tools as Array<
-      Record<string, unknown>
-    >;
-    expect(stripeKeyTools[0]?.error_message).toBe(
-      "Stripe rejected key [REDACTED]",
-    );
-
-    events.length = 0;
-    await runOnce(
-      true,
-      'Provider failed: {"cookie":"session-secret","authorization":"Bearer session-token","api_key":"key-value"}',
-    );
-    const jsonCredentialTools = events[0]?.properties?.tools as Array<
-      Record<string, unknown>
-    >;
-    expect(jsonCredentialTools[0]?.error_message).toBe(
-      'Provider failed: {"cookie":"[REDACTED]","authorization":"[REDACTED]","api_key":"[REDACTED]"}',
-    );
+    expect(toolsWithCapture[0]?.error_message).toBeUndefined();
+    expect(toolsWithCapture[0]?.error_class).toBe("tool_error");
   });
 
   it("no-ops (emits no spans) when no provider is registered", async () => {
@@ -2850,7 +2796,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(failed?.properties?.["$ai_is_error"]).toBe(true);
     expect(
       (failed?.properties?.["$ai_error"] as { message: string })?.message,
-    ).toBe("provider stream reset");
+    ).toBe("Agent run failed (unknown)");
   });
 
   it("never reports a failure with nothing in $ai_error", async () => {

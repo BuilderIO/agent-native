@@ -204,7 +204,7 @@ Useful query fields live in `properties`:
 | `tools`, `tools_truncated`                       | First 50 tool names, offsets, durations, statuses, and error classes, including interrupted calls                        |
 | `delegated`, `delegation_protocol`, `caller_app` | Delegated-run attribution                                                                                                |
 | `a2a_task_id`, `parent_run_id`, `parent_turn_id` | Cross-app trace linkage, when available                                                                                  |
-| `$ai_is_error`, `status`, `$ai_error`            | Error status and message, when applicable                                                                                |
+| `$ai_is_error`, `status`, `$ai_error`            | Error status, terminal code, named cause, retryability, and a fixed code-derived message; run failure text is omitted    |
 | `$ai_http_status`                                | Provider HTTP status: 200 on a completed call, the reported status on a failed one, absent when the failure carried none |
 
 The `tools` array never includes tool arguments, results, or error messages.

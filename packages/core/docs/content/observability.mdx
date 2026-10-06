@@ -358,10 +358,21 @@ Tool calls always appear (PostHog derives its tool tags from them), but their
 `capturePrompts`. When those are off the fields are omitted entirely rather than
 sent empty, so an unrecorded prompt is never mistaken for an empty one.
 
-Errors carry a structured `$ai_error` with the terminal code and whether the
-failure was retryable, and exceptions captured during a run carry the run's
-`$ai_trace_id` — so an issue in error tracking and the trace it came from link
-to each other.
+Run failure messages are omitted from Analytics and Monitoring, even when
+content capture is enabled. `$ai_error` carries a terminal code, named cause,
+retryability, and fixed message derived from the code. Tracking omits
+`error_message`, `agent_run_terminal.error_detail`, and failed tool result text.
+The terminal event retains `error_code` and `error_cause`. Local
+`agent_runs.error_detail` and `agent_trace_spans.error_message` remain available
+for owner-scoped debugging in the app's own database.
+
+Run and Builder gateway exceptions retain their type, code, and stack frames,
+with a fixed `Internal Server Error` message and no original message header or nested
+cause text. Monitoring groups these issues by app, type, frame, error code, and
+failure class, rather than names in the original message. Exceptions retain
+`$ai_trace_id` so an issue links to the run's trace. Optional host-owned
+OpenTelemetry run exports also omit failure text and retain `agent.error_code`
+and `agent.error_cause`. Other exception capture keeps its existing behavior.
 
 ### Feedback in PostHog
 
@@ -402,7 +413,7 @@ The agent loop emits three span kinds:
 | `tool.call` | once per action invocation | `tool.name`, plus success/error status                            |
 | `llm.call`  | per model call             | timing + OK/error status                                          |
 
-Spans are finished with OK/ERROR status and record the error message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
+Spans are finished with OK/ERROR status and record a fixed code-derived message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
 
 ## Error reporting (Sentry or PostHog) {#sentry}
 

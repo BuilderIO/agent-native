@@ -344,7 +344,7 @@ La boucle d'agent émet trois types de span :
 | `tool.call` | une fois par appel d'action    | `tool.name`, plus statut de réussite/erreur                       |
 | `llm.call`  | par appel de modèle            | timing + état OK/erreur                                           |
 
-Les travées sont terminées avec l'état OK/ERROR et enregistrent le message d'erreur en cas d'échec. Les valeurs des attributs zéro/sentinelle sont élaguées afin que les étendues ne soient pas encombrées de bruit. Cette couche OTel est purement additive aux tables internes `agent_trace_spans` / `agent_trace_summaries` qui alimentent le tableau de bord ci-dessus : les deux sont produites à partir des mêmes événements d'exécution.
+Les travées sont terminées avec l'état OK/ERROR et enregistrent un message fixe dérivé du code en cas d'échec. Les valeurs des attributs zéro/sentinelle sont élaguées afin que les étendues ne soient pas encombrées de bruit. Cette couche OTel est purement additive aux tables internes `agent_trace_spans` / `agent_trace_summaries` qui alimentent le tableau de bord ci-dessus : les deux sont produites à partir des mêmes événements d'exécution.
 
 ## Rapport d'erreurs (Sentry) {#sentry}
 
@@ -398,3 +398,7 @@ Les champs d'identité explicitement définis via `setUser({ id, email, username
 - [**Tracking**](/docs/tracking) – analyses de produits (PostHog, Mixpanel, Amplitude) pour les propres événements de votre application
 - [**Actions**](/docs/actions-overview) — les opérations qui apparaissent sous forme d'appels d'outils dans les traces
 - [**Security**](/docs/security) – Portée des données et gestion des informations d'identification
+
+Les messages d’échec des exécutions sont omis d’Analytics et de Monitoring, même lorsque la capture du contenu est activée. `$ai_error` contient le code terminal, une cause nommée, la possibilité de réessayer et un texte fixe dérivé du code. Les événements omettent `error_message`, `agent_run_terminal.error_detail` et le texte des résultats d’outils en échec ; l’événement terminal conserve `error_code` et `error_cause`. `agent_runs.error_detail` et `agent_trace_spans.error_message` restent disponibles dans la base de données de l’application pour un diagnostic limité aux accès du propriétaire.
+
+Les exceptions d’exécution et de la passerelle Builder conservent type, code et frames de pile, avec le texte fixe `Internal Server Error`, sans message original ni causes imbriquées. Monitoring regroupe par application, type, frame, code et classe d’échec plutôt que par noms dans le message. `$ai_trace_id` conserve le lien vers la trace. Les exports OpenTelemetry facultatifs des exécutions, gérés par l’hôte, omettent aussi le texte des échecs et conservent `agent.error_code` et `agent.error_cause`. La capture des autres exceptions reste inchangée.

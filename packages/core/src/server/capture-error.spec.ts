@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { REPORT_EXPECTED_FAILURE_TAG } from "../shared/error-noise.js";
+import { captureException } from "../tracking/error-capture.js";
+import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "../tracking/registry.js";
+import type { TrackingEvent } from "../tracking/types.js";
 import {
   captureError,
   getCaptureErrorStats,
@@ -10,6 +16,49 @@ import {
 import { runWithRequestContext } from "./request-context.js";
 
 describe("server captureError", () => {
+  it("omits named run error messages from flood summaries", () => {
+    resetCaptureErrorStateForTests();
+    vi.useFakeTimers();
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "run-flood-privacy",
+      track: (event) => {
+        events.push(event);
+      },
+    });
+    const unregister = registerErrorCaptureProvider(
+      "run-flood-privacy",
+      captureException,
+    );
+    const message = "Jane Doe's notes are locked";
+    try {
+      for (let i = 0; i < 2; i++)
+        captureError(new Error(message), {
+          route: "/_agent-native/agent-chat",
+          errorMessagePolicy: "omit",
+          tags: {
+            failureClass: "transient-database",
+            errorCode: "provider_network_error",
+          },
+        });
+      vi.advanceTimersByTime(60_000);
+      expect(events).toHaveLength(2);
+      expect(JSON.stringify(events)).not.toContain("Jane Doe");
+      expect(events[1]?.properties?.exceptionTags).toMatchObject({
+        aggregated: "true",
+        errorCode: "provider_network_error",
+      });
+      expect(events[1]?.properties?.exceptionExtra).toMatchObject({
+        suppressedCount: 1,
+      });
+    } finally {
+      unregister();
+      unregisterTrackingProvider("run-flood-privacy");
+      resetCaptureErrorStateForTests();
+      vi.useRealTimers();
+    }
+  });
+
   it("no-ops when no capture provider is registered", () => {
     expect(captureError(new Error("boom"))).toBeUndefined();
   });

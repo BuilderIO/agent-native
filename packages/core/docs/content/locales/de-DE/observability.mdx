@@ -342,7 +342,7 @@ Die Agentenschleife gibt drei Span-Typen aus:
 | `tool.call` | einmal pro Aktionsaufruf | `tool.name`, plus Erfolgs-/Fehlerstatus                           |
 | `llm.call`  | pro Modellaufruf         | Timing + OK/Fehlerstatus                                          |
 
-Spans werden mit dem Status „OK/ERROR“ abgeschlossen und bei einem Fehler wird eine Fehlermeldung aufgezeichnet. Null-/Sentinel-Attributwerte werden bereinigt, damit Spannen nicht mit Rauschen überfrachtet werden. Diese OTel-Schicht ist eine reine Ergänzung zu den hauseigenen `agent_trace_spans`-/`agent_trace_summaries`-Tabellen, die das obige Dashboard unterstützen – beide werden aus den gleichen Laufereignissen erstellt.
+Spans werden mit dem Status „OK/ERROR“ abgeschlossen und bei einem Fehler wird eine feste, aus dem Code abgeleitete Meldung aufgezeichnet. Null-/Sentinel-Attributwerte werden bereinigt, damit Spannen nicht mit Rauschen überfrachtet werden. Diese OTel-Schicht ist eine reine Ergänzung zu den hauseigenen `agent_trace_spans`-/`agent_trace_summaries`-Tabellen, die das obige Dashboard unterstützen – beide werden aus den gleichen Laufereignissen erstellt.
 
 ## Fehlerberichterstattung (Sentry) {#sentry}
 
@@ -396,3 +396,7 @@ Identitätsfelder, die explizit über `setUser({ id, email, username })` festgel
 - [**Tracking**](/docs/tracking) – Produktanalysen (PostHog, Mixpanel, Amplitude) für die eigenen Ereignisse Ihrer App
 - [**Actions**](/docs/actions-overview) – die Vorgänge, die als Werkzeugaufrufe in Traces erscheinen
 - [**Security**](/docs/security) – Datenumfang und Umgang mit Anmeldeinformationen
+
+Fehlermeldungen von Läufen werden auch bei aktivierter Inhaltserfassung aus Analytics und Monitoring ausgeschlossen. `$ai_error` enthält den Abschlusscode, eine benannte Ursache, Wiederholbarkeit und einen festen, vom Code abgeleiteten Text. Tracking enthält weder `error_message` noch `agent_run_terminal.error_detail` oder Texte fehlgeschlagener Tool-Ergebnisse; das Abschlussereignis behält `error_code` und `error_cause`. `agent_runs.error_detail` und `agent_trace_spans.error_message` bleiben für die zugriffsbeschränkte Fehlerdiagnose in der eigenen App-Datenbank verfügbar.
+
+Ausnahmen von Läufen und dem Builder-Gateway behalten Typ, Code und Stackframes, mit dem festen Text `Internal Server Error` ohne ursprüngliche Meldung oder verschachtelte Ursachen. Monitoring gruppiert nach App, Typ, Frame, Fehlercode und Fehlerklasse statt nach Namen in Meldungen. `$ai_trace_id` bleibt als Verknüpfung zum Trace erhalten. Optionale, vom Host verwaltete OpenTelemetry-Exporte für Läufe lassen Fehlermeldungen ebenfalls weg und behalten `agent.error_code` und `agent.error_cause`. Andere Ausnahmeerfassung bleibt unverändert.

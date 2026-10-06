@@ -1,5 +1,5 @@
+import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
 import { sendPostHogEvent } from "../tracking/providers.js";
-import { boundedText } from "../tracking/redaction.js";
 
 export const MAX_AI_CONTENT_BYTES = 128 * 1024;
 export const MAX_AI_SPANS_PER_RUN = 100;
@@ -9,18 +9,19 @@ export interface AiErrorDetail {
   terminal_code?: string;
   terminal_state?: string;
   retryable?: boolean;
+  cause?: string;
 }
-
-const UNREPORTED_ERROR: AiErrorDetail = {
-  message: "failed without a reported error message",
-};
 
 export function resolveAiError(
   isError: boolean,
   error: AiErrorDetail | undefined,
 ): AiErrorDetail | undefined {
   if (!isError) return undefined;
-  return error ?? UNREPORTED_ERROR;
+  return toAiErrorDetail(error?.message, {
+    state: error?.terminal_state,
+    code: error?.terminal_code,
+    retryable: error?.retryable,
+  });
 }
 
 function trackAiEvent(
@@ -169,7 +170,10 @@ export function toPostHogMessages(value: unknown): unknown {
             ...(typeof part.toolName === "string"
               ? { name: part.toolName }
               : {}),
-            content: part.content,
+            content:
+              part.isError === true
+                ? "[tool error message omitted from telemetry]"
+                : part.content,
           });
           break;
         case "tool-call":
@@ -374,16 +378,17 @@ export function toAiErrorDetail(
     retryable?: boolean;
   },
 ): AiErrorDetail | undefined {
-  if (!errorMessage && !terminalOutcome?.code) return undefined;
+  const { error_code, error_cause } = runErrorTelemetryProperties(
+    terminalOutcome?.code,
+    errorMessage,
+  );
   return {
-    message: boundedText(
-      errorMessage ?? terminalOutcome?.code ?? "error",
-      1000,
-    ),
+    message: `Agent run failed (${error_code})`,
+    cause: error_cause,
     ...(terminalOutcome?.state
       ? { terminal_state: terminalOutcome.state }
       : {}),
-    ...(terminalOutcome?.code ? { terminal_code: terminalOutcome.code } : {}),
+    terminal_code: error_code,
     ...(terminalOutcome?.retryable !== undefined
       ? { retryable: terminalOutcome.retryable }
       : {}),

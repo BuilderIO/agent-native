@@ -1,4 +1,5 @@
 import { credentialStateTrackingProperties } from "../agent/engine/credential-state.js";
+import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
 import type {
   AgentLoopOutcome,
   AgentLoopUsage,
@@ -36,6 +37,30 @@ import {
 } from "./tracing.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
+
+function endRunTelemetrySpan(
+  span: AgentSpan | null,
+  result: NonNullable<Parameters<typeof endAgentSpan>[1]>,
+): void {
+  if (result.status !== "error") {
+    endAgentSpan(span, result);
+    return;
+  }
+  const code = result.attributes?.["agent.terminal_code"];
+  const { error_code, error_cause } = runErrorTelemetryProperties(
+    typeof code === "string" ? code : undefined,
+    result.errorMessage,
+  );
+  endAgentSpan(span, {
+    ...result,
+    errorMessage: `Agent run failed (${error_code})`,
+    attributes: {
+      ...result.attributes,
+      "agent.error_code": error_code,
+      "agent.error_cause": error_cause,
+    },
+  });
+}
 
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -93,6 +118,7 @@ function aiTraceMetadataProperties(
   if (!metadata) return {};
   const properties: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
+    if (key === "error_message" || key === "errorMessage") continue;
     if (value === undefined || value === null) continue;
     const scalar =
       typeof value === "string"
@@ -117,7 +143,6 @@ type GenerationToolCall = {
   duration_ms: number;
   status: "success" | "error";
   error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
-  error_message?: string;
 };
 
 function redactToolErrorMessage(value: string): string {
@@ -160,6 +185,7 @@ function emitLlmGenerationTrackingEvent(args: {
   firstTokenMs: number | undefined;
   status: "success" | "error";
   errorMessage: string | null;
+  errorCode?: string;
   httpStatus?: number;
   toolCalls: number;
   successfulTools: number;
@@ -260,7 +286,7 @@ function emitLlmGenerationTrackingEvent(args: {
       args.status === "error",
       toAiErrorDetail(error, {
         state: args.terminalOutcome?.state,
-        code: terminalCode,
+        code: terminalCode ?? args.errorCode,
         retryable: terminalRetryable,
       }),
     ),
@@ -296,7 +322,6 @@ function emitLlmGenerationTrackingEvent(args: {
       properties.experiment_variant = args.experimentAssignments[0].variantId;
     }
   }
-  if (error) properties.error_message = error;
 
   for (const key of Object.keys(properties)) {
     if (properties[key] === undefined) delete properties[key];
@@ -581,7 +606,7 @@ export async function instrumentAgentLoop(opts: {
       if (!span || entry.ended) return;
       if (entry.endResult) {
         entry.ended = true;
-        endAgentSpan(span, entry.endResult);
+        endRunTelemetrySpan(span, entry.endResult);
       } else {
         entry.span = span;
         openOtelModelSpans.add(span);
@@ -598,7 +623,7 @@ export async function instrumentAgentLoop(opts: {
     if (!entry.span) return;
     entry.ended = true;
     openOtelModelSpans.delete(entry.span);
-    endAgentSpan(entry.span, result);
+    endRunTelemetrySpan(entry.span, result);
   };
   const finishAwaitingOtelModelSpans = (
     finalErrorMessage: string | null = null,
@@ -625,6 +650,7 @@ export async function instrumentAgentLoop(opts: {
   let usage: AgentLoopUsage | undefined;
   let runStatus: "success" | "error" = "success";
   let errorMessage: string | null = null;
+  let errorCode: string | undefined;
   let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   let terminalOutcome: AgentLoopOutcome | undefined;
   let errorHttpStatus: number | undefined;
@@ -678,6 +704,7 @@ export async function instrumentAgentLoop(opts: {
         finishAwaitingOtelModelSpans();
         runStatus = "success";
         errorMessage = null;
+        errorCode = undefined;
         cutOffReason = null;
       } else if (event.type === "auto_continue") {
         const reason = event.reason || "auto_continue";
@@ -689,6 +716,7 @@ export async function instrumentAgentLoop(opts: {
       } else if (event.type === "error") {
         runStatus = "error";
         errorMessage = event.error;
+        errorCode = event.errorCode;
       } else if (event.type === "tripwire") {
         runStatus = "error";
         errorMessage = event.reason;
@@ -769,7 +797,7 @@ export async function instrumentAgentLoop(opts: {
         ).then((span) => {
           if (!span) return;
           if (entry.endResult) {
-            endAgentSpan(span, {
+            endRunTelemetrySpan(span, {
               status: entry.endResult.status,
               errorMessage: entry.endResult.errorMessage,
             });
@@ -822,8 +850,7 @@ export async function instrumentAgentLoop(opts: {
           reportedToolFailures++;
         } else successfulTools++;
 
-        // The full text goes to external sinks only when captureToolResults is
-        // on; the persisted span always keeps at least the signature.
+        // Local spans keep the error text; tracking keeps only its class.
         const toolErrorMessage =
           isError && config.captureToolResults
             ? sanitizeToolErrorMessage(event.result)
@@ -847,7 +874,6 @@ export async function instrumentAgentLoop(opts: {
               : explicitError
                 ? "tool_error"
                 : "legacy_inferred_error",
-            error_message: toolErrorMessage ?? undefined,
           });
         }
 
@@ -857,7 +883,7 @@ export async function instrumentAgentLoop(opts: {
         };
         if (pending?.otelSpan) {
           openOtelToolSpans.delete(pending.otelSpan);
-          endAgentSpan(pending.otelSpan, {
+          endRunTelemetrySpan(pending.otelSpan, {
             status: otelEndResult.status,
             errorMessage: otelEndResult.errorMessage,
             attributes: { "tool.name": event.tool },
@@ -947,6 +973,7 @@ export async function instrumentAgentLoop(opts: {
         ? (err?.message ?? String(err))
         : classification.errorMessage;
     errorHttpStatus = httpStatusFromError(err);
+    errorCode = typeof err?.errorCode === "string" ? err.errorCode : undefined;
     const errorMetadata = classification?.metadata ?? null;
     runMetadata =
       runMetadata || errorMetadata
@@ -993,12 +1020,11 @@ export async function instrumentAgentLoop(opts: {
               duration_ms: Math.max(0, runEnd - pending.startMs),
               status: "error",
               error_class: "interrupted",
-              error_message: capturedInterruptedMessage ?? undefined,
             });
           }
           if (pending.otelSpan) {
             openOtelToolSpans.delete(pending.otelSpan);
-            endAgentSpan(pending.otelSpan, {
+            endRunTelemetrySpan(pending.otelSpan, {
               status: "error",
               errorMessage: capturedInterruptedMessage,
               attributes: { "tool.name": pending.toolName },
@@ -1249,6 +1275,7 @@ export async function instrumentAgentLoop(opts: {
             errorMessage: generationError,
             httpStatus:
               generationStatus === "error" ? errorHttpStatus : HTTP_STATUS_OK,
+            errorCode: generationStatus === "error" ? errorCode : undefined,
             toolCalls: generation.toolSpans.length,
             successfulTools: generation.toolSpans.filter(
               (span) => span.status === "success",
@@ -1306,7 +1333,7 @@ export async function instrumentAgentLoop(opts: {
                   effectiveTerminalOutcome?.state === "failed" ||
                   effectiveTerminalOutcome?.state === "input_required"
                     ? effectiveTerminalOutcome.code
-                    : undefined,
+                    : errorCode,
                 retryable:
                   effectiveTerminalOutcome?.state === "failed"
                     ? effectiveTerminalOutcome.retryable
@@ -1377,27 +1404,18 @@ export async function instrumentAgentLoop(opts: {
         });
 
         for (const span of emittedToolSpans) {
-          const toolErrorMessage =
-            span.status === "error" &&
-            span.errorMessage &&
-            config.captureToolResults
-              ? sanitizeToolErrorMessage(span.errorMessage)
-              : undefined;
           const toolErrorDetail =
             span.status !== "error"
               ? undefined
-              : toolErrorMessage
-                ? toAiErrorDetail(toolErrorMessage)
-                : !config.captureToolResults
-                  ? {
-                      message:
-                        "error text withheld: captureToolResults is off for this app",
-                    }
-                  : undefined;
-          const toolOutputState = config.captureToolResults
-            ? (toolErrorMessage ??
-              (span.metadata as { output?: unknown } | null)?.output)
-            : "[tool result withheld: captureToolResults is off for this app]";
+              : toAiErrorDetail(undefined, {
+                  code: toolSpanErrorClass.get(span.id) ?? "tool_error",
+                });
+          const toolOutputState =
+            span.status === "error"
+              ? "[tool error message omitted from telemetry]"
+              : config.captureToolResults
+                ? (span.metadata as { output?: unknown } | null)?.output
+                : "[tool result withheld: captureToolResults is off for this app]";
 
           const requestingGeneration = toolSpanRoundTrip.get(span.id);
           emitAiSpanEvent({
@@ -1478,7 +1496,7 @@ export async function instrumentAgentLoop(opts: {
           const aggregateLlmSpan = await withAgentSpanContext(otelRunSpan, () =>
             startAgentSpan("llm.call", {}, otelRunSpan),
           );
-          endAgentSpan(aggregateLlmSpan, {
+          endRunTelemetrySpan(aggregateLlmSpan, {
             status: runStatus,
             errorMessage,
             attributes: {
@@ -1492,20 +1510,20 @@ export async function instrumentAgentLoop(opts: {
           });
         }
         for (const modelSpan of openOtelModelSpans) {
-          endAgentSpan(modelSpan, {
+          endRunTelemetrySpan(modelSpan, {
             status: "error",
             errorMessage: "Agent run ended before model_stream completed.",
           });
         }
         openOtelModelSpans.clear();
         for (const toolSpan of openOtelToolSpans) {
-          endAgentSpan(toolSpan, {
+          endRunTelemetrySpan(toolSpan, {
             status: "error",
             errorMessage: "Agent run ended before tool_done.",
           });
         }
         openOtelToolSpans.clear();
-        endAgentSpan(otelRunSpan, {
+        endRunTelemetrySpan(otelRunSpan, {
           status: runStatus,
           errorMessage,
           attributes: {
@@ -1522,7 +1540,7 @@ export async function instrumentAgentLoop(opts: {
               effectiveTerminalOutcome?.state === "failed" ||
               effectiveTerminalOutcome?.state === "input_required"
                 ? effectiveTerminalOutcome.code
-                : undefined,
+                : errorCode,
           },
         });
         // coercion-ok: OTel export must never break the run.
