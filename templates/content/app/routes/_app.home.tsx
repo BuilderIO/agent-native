@@ -69,6 +69,10 @@ function refreshAfterLanding(
   result: ContentLandingResult | ContentSpaceLandingResult,
 ) {
   if (!("welcomeCreated" in result) || !result.welcomeCreated) return;
+  refreshLandingCollections(queryClient);
+}
+
+function refreshLandingCollections(queryClient: QueryClient) {
   invalidateContentDatabaseNavigationQueries(queryClient, { parentId: null });
   void queryClient.invalidateQueries({
     queryKey: ["action", "get-content-recent"],
@@ -133,6 +137,7 @@ export default function HomeRoute() {
   const spaceId = searchParams.get("spaceId");
   const startedFor = useRef<string | null>(null);
   const landingRequestIdRef = useRef(0);
+  const mountedRef = useRef(true);
   const lastLocationHint = useLastLocationTitleHint();
   const lastLocationHintRef = useRef(lastLocationHint);
   lastLocationHintRef.current = lastLocationHint;
@@ -171,15 +176,21 @@ export default function HomeRoute() {
     startedFor.current = requestKey;
     const requestId = ++landingRequestIdRef.current;
     try {
-      // A failed early answer is asked again here, where its error shows.
       const early = spaceId
         ? null
-        : await takeEarlyContentLanding(location.key);
+        : await takeEarlyContentLanding(location.key, scope);
+      const current = () =>
+        mountedRef.current && requestId === landingRequestIdRef.current;
+      if (!current()) return;
       if (early?.ok) refreshAfterLanding(queryClient, early.result);
+      // A failed early answer is asked again here, where its error shows. Its
+      // request may still have created Welcome before the failure, and the
+      // answer that follows would only call it reused.
       const result = early?.ok
         ? early.result
         : await resolveLanding.mutateAsync(spaceId ? { spaceId } : {});
-      if (requestId !== landingRequestIdRef.current) return;
+      if (early && !early.ok) refreshLandingCollections(queryClient);
+      if (!current()) return;
       if ("target" in result) {
         if (!result.target) return;
         if (result.fallbackReason === "saved-document-unavailable") {
@@ -213,6 +224,7 @@ export default function HomeRoute() {
     navigate,
     queryClient,
     resolveLanding,
+    scope,
     spaceId,
     t,
   ]);
@@ -220,6 +232,14 @@ export default function HomeRoute() {
   useEffect(() => {
     void openLanding();
   }, [openLanding]);
+  // An answer that lands after /home has gone must not navigate. A ref, not a
+  // request id bump: StrictMode's replayed mount keeps the request in flight.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   if (resolveLanding.isError) {
     return (

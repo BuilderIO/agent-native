@@ -27,15 +27,22 @@ export type EarlyContentLanding =
 
 let earlyLanding: {
   locationKey: string;
+  scope: string | null;
   answer: Promise<EarlyContentLanding> | null;
 } | null = null;
 
 // A load of /home asks where it lands alongside the session check, as it reads
-// the likely page, instead of after the route mounts behind that check.
-export function startEarlyContentLanding(locationKey: string) {
+// the likely page, instead of after the route mounts behind that check. The
+// session is not known yet, so the answer is tied to the account `scope` this
+// browser last landed as, and only a session in that scope adopts it.
+export function startEarlyContentLanding(
+  locationKey: string,
+  scope: string | null,
+) {
   if (earlyLanding?.locationKey === locationKey) return;
   earlyLanding = {
     locationKey,
+    scope,
     answer: callAction<ContentLandingResult>(
       "resolve-content-landing",
       {},
@@ -52,10 +59,15 @@ export function startEarlyContentLanding(locationKey: string) {
 // first commit runs its effect before Root's and has already asked.
 export function takeEarlyContentLanding(
   locationKey: string,
+  scope: string | null,
 ): Promise<EarlyContentLanding> | null {
   const answer =
-    earlyLanding?.locationKey === locationKey ? earlyLanding.answer : null;
-  earlyLanding = { locationKey, answer: null };
+    earlyLanding?.locationKey === locationKey &&
+    scope !== null &&
+    earlyLanding.scope === scope
+      ? earlyLanding.answer
+      : null;
+  earlyLanding = { locationKey, scope: null, answer: null };
   return answer;
 }
 

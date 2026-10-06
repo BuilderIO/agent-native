@@ -31,6 +31,13 @@ export function readLastLocationHintForAnyAccount(): string | null {
   return readStored()?.documentId ?? null;
 }
 
+// The account and organization that wrote the hint, in the shape
+// `filesRootHintScope` gives a session.
+export function readLastLocationHintScope(): string | null {
+  const scope = readStored()?.scope;
+  return typeof scope === "string" ? scope : null;
+}
+
 export function rememberLastLocationHint(
   scope: string | null,
   documentId: string,
