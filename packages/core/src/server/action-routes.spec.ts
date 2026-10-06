@@ -1820,6 +1820,7 @@ describe("mountActionRoutes", () => {
       userEmail: "ticket-owner@example.com",
     });
     expect(run).toHaveBeenCalledOnce();
+    expect(mockNotifyActionChange).not.toHaveBeenCalled();
   });
 
   it("rejects a capability request for a different design", async () => {

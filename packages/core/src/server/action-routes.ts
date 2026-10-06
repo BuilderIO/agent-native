@@ -1105,7 +1105,10 @@ function mountActionRoutesInternal(
               }
               const result = await entry.run(params, runContext);
 
-              if (actionCallEmitsChange(entry, params, method === "GET")) {
+              if (
+                caller !== "mcp-widget" &&
+                actionCallEmitsChange(entry, params, method === "GET")
+              ) {
                 try {
                   await notifyActionChange({
                     actionName: name,
