@@ -1474,6 +1474,8 @@ export default {
     savingScreenshot: "स्क्रीनशॉट सहेजा जा रहा है…",
     screenshotDownloaded: "स्क्रीनशॉट डाउनलोड हो गया",
     screenshotSaveFailed: "स्क्रीनशॉट सहेजा नहीं जा सका",
+    screenshotUnsupportedAssets:
+      "स्क्रीनशॉट सहेजा नहीं गया: कुछ छवियों को सुरक्षित रूप से कैप्चर नहीं किया जा सका।",
     timeline: "इवेंट टाइमलाइन",
     replayTimeline: "रीप्ले टाइमलाइन",
     timelineDescription: "{{total}} में से {{count}} उपयोगी इवेंट दिखाए जा रहे हैं।",

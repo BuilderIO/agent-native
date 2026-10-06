@@ -95,7 +95,10 @@ import {
 } from "../../../shared/slow-request";
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
-import { downloadReplayScreenshot } from "./session-replay-screenshot";
+import {
+  downloadReplayScreenshot,
+  ReplayScreenshotAssetError,
+} from "./session-replay-screenshot";
 import {
   type SessionIssueMatch,
   SessionDevToolsPanel,
@@ -473,6 +476,7 @@ function ReplayWorkbench({
   const events = useReplayEvents(response);
   const appEvents = useLab(ANALYTICS_SESSIONS_TRIAGE_LAB);
   const [pageChangesCollapsed, setPageChangesCollapsed] = useState(false);
+  const [savingScreenshot, setSavingScreenshot] = useState(false);
   const pageVitalsLabel = t("sessions.markerPageVitals");
   const slowRequestLabel = t("sessions.markerSlowRequest");
   const allMarkers = useMemo(
@@ -521,11 +525,14 @@ function ReplayWorkbench({
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
         frictionLab={appEvents}
+        savingScreenshot={savingScreenshot}
+        setSavingScreenshot={setSavingScreenshot}
       />
       <ReplayTimeline
         markers={markers}
         isLoading={!response.isComplete}
         activeMarkerId={activeMarkerId}
+        disabled={savingScreenshot}
         onSeek={(ms) => seekRef.current(ms, true)}
         pageChanges={
           appEvents
@@ -548,6 +555,8 @@ function ReplayPlayer({
   onTimeUpdate,
   registerSeek,
   frictionLab,
+  savingScreenshot,
+  setSavingScreenshot,
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
@@ -556,6 +565,8 @@ function ReplayPlayer({
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
   frictionLab: boolean;
+  savingScreenshot: boolean;
+  setSavingScreenshot: (saving: boolean) => void;
 }) {
   const t = useT();
   const stageAreaRef = useRef<HTMLDivElement>(null);
@@ -566,7 +577,6 @@ function ReplayPlayer({
   const [status, setStatus] = useState<ReplayPlayerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [savingScreenshot, setSavingScreenshot] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
@@ -1012,7 +1022,8 @@ function ReplayPlayer({
   async function saveScreenshot() {
     const replayer = replayerRef.current;
     const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
-    if (!replayer || !iframe || savingScreenshot) return;
+    const stage = stageAreaRef.current;
+    if (!replayer || !iframe || !stage || savingScreenshot) return;
 
     const wasPlaying = playingRef.current;
     const captureAt = Number(
@@ -1025,14 +1036,21 @@ function ReplayPlayer({
 
     try {
       await downloadReplayScreenshot(
+        stage,
         iframe,
         `session-replay-${Math.floor(captureAt / 1000)
           .toString()
           .padStart(4, "0")}.png`,
       );
       toast.success(t("sessions.screenshotDownloaded"));
-    } catch {
-      toast.error(t("sessions.screenshotSaveFailed"));
+    } catch (error) {
+      toast.error(
+        t(
+          error instanceof ReplayScreenshotAssetError
+            ? "sessions.screenshotUnsupportedAssets"
+            : "sessions.screenshotSaveFailed",
+        ),
+      );
     } finally {
       setSavingScreenshot(false);
       if (wasPlaying) {
@@ -1046,7 +1064,7 @@ function ReplayPlayer({
     }
   }
 
-  const disabled = status !== "ready";
+  const disabled = status !== "ready" || savingScreenshot;
 
   return (
     <TooltipProvider>
@@ -1161,7 +1179,7 @@ function ReplayPlayer({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={disabled || savingScreenshot}
+                disabled={disabled}
                 onClick={() => void saveScreenshot()}
               >
                 <IconDownload className="me-1.5 h-4 w-4" />
@@ -1210,6 +1228,7 @@ function ReplayPlayer({
                       <DropdownMenuRadioItem
                         key={option}
                         value={String(option)}
+                        disabled={disabled}
                         className="tabular-nums"
                       >
                         {option}x
@@ -1228,6 +1247,7 @@ function ReplayPlayer({
                       skipInactive &&
                         "border-primary/40 bg-primary/10 text-primary",
                     )}
+                    disabled={disabled}
                     onClick={() => setSkipInactive((value) => !value)}
                     aria-pressed={skipInactive}
                   >
@@ -1251,7 +1271,7 @@ function ReplayPlayer({
                   !response.isComplete && "cursor-not-allowed opacity-50",
                 )}
                 onClick={() => setDevToolsOpen((value) => !value)}
-                disabled={!response.isComplete}
+                disabled={!response.isComplete || savingScreenshot}
                 aria-pressed={devToolsOpen}
                 aria-expanded={devToolsOpen}
               >
@@ -1476,12 +1496,14 @@ function ReplayTimeline({
   markers,
   isLoading,
   activeMarkerId,
+  disabled,
   onSeek,
   pageChanges,
 }: {
   markers: ReplayMarker[];
   isLoading: boolean;
   activeMarkerId: string | null;
+  disabled: boolean;
   onSeek: (ms: number) => void;
   pageChanges?: {
     collapsed: boolean;
@@ -1537,6 +1559,7 @@ function ReplayTimeline({
                     type="button"
                     variant={pageChanges.collapsed ? "secondary" : "ghost"}
                     size="icon-sm"
+                    disabled={disabled}
                     aria-pressed={pageChanges.collapsed}
                     aria-label={t("sessions.collapsePageChanges")}
                     onClick={() =>
@@ -1596,6 +1619,7 @@ function ReplayTimeline({
                     <button
                       type="button"
                       className="flex w-full min-w-0 gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50"
+                      disabled={disabled}
                       aria-expanded={expanded}
                       aria-current={active ? "true" : undefined}
                       onClick={() => {

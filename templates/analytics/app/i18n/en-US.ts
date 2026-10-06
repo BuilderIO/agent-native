@@ -1581,6 +1581,8 @@ export default {
     savingScreenshot: "Saving screenshot…",
     screenshotDownloaded: "Screenshot downloaded",
     screenshotSaveFailed: "Couldn't save screenshot",
+    screenshotUnsupportedAssets:
+      "Screenshot not saved: some images can't be captured securely.",
     timeline: "Event timeline",
     replayTimeline: "Replay timeline",
     timelineDescription: "Showing {{count}} of {{total}} useful events.",

@@ -1513,6 +1513,8 @@ export default {
     savingScreenshot: "スクリーンショットを保存中…",
     screenshotDownloaded: "スクリーンショットをダウンロードしました",
     screenshotSaveFailed: "スクリーンショットを保存できませんでした",
+    screenshotUnsupportedAssets:
+      "安全にキャプチャできない画像があるため、スクリーンショットは保存されませんでした。",
     timeline: "イベントタイムライン",
     replayTimeline: "リプレイタイムライン",
     timelineDescription:

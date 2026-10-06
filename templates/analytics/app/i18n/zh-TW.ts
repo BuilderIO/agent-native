@@ -1517,6 +1517,7 @@ export default {
     savingScreenshot: "正在儲存螢幕截圖…",
     screenshotDownloaded: "螢幕截圖已下載",
     screenshotSaveFailed: "無法儲存螢幕截圖",
+    screenshotUnsupportedAssets: "螢幕截圖未儲存：部分圖片無法安全擷取。",
     timeline: "事件時間線",
     replayTimeline: "回放時間線",
     timelineDescription: "顯示 {{count}} / {{total}} 個有用事件。",
