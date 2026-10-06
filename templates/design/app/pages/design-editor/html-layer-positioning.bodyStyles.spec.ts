@@ -431,6 +431,7 @@ describe("the body tag inside head scripts and comments", () => {
     <!-- <body style="color: green"> -->
     <script>document.write('<body style="color: red">');</script>
     <style>/* <body style="color: purple"> */</style>
+    <meta name="example" content='<body style="color: orange">'>
   </head><body style="background-color: blue"><p>x</p></body></html>`;
 
   it("reads the real body's styles", () => {

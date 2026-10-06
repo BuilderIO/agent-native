@@ -303,7 +303,8 @@ const zoomOf = () =>
   });
 async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
   const distance = async () => Math.log(((await zoomOf()) ?? 10) / target);
-  const giveUpAt = Date.now() + 30_000;
+  // A CI runner reads the zoom back several times slower than a laptop.
+  const giveUpAt = Date.now() + 60_000;
   while (Date.now() < giveUpAt) {
     const off = await distance();
     if (Math.abs(off) < 0.06) break;
@@ -315,7 +316,7 @@ async function zoomTo(target: number, x: number, y: number): Promise<boolean> {
       x,
       y,
       deltaX: 0,
-      deltaY: Math.sign(off) * Math.min(14, Math.max(2, Math.abs(off) * 40)),
+      deltaY: Math.sign(off) * Math.min(40, Math.max(2, Math.abs(off) * 40)),
       modifiers: 2,
     });
     await new Promise((resolve) => setTimeout(resolve, 16));

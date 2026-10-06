@@ -340,10 +340,11 @@ export function setCodeLayerAttributeInHtml(
   return `${content.slice(0, insertAt)}${replacement}${content.slice(insertAt)}`;
 }
 
-// A `<body` inside a comment or a script, style, textarea, or title is text, not
-// the document's body tag.
+// Reads whole tags with their quoted attributes, so a `<body` inside a comment,
+// an attribute value, or a script, style, textarea, or title is never taken
+// for the document's body tag.
 const BODY_OPEN_TAG_SCAN =
-  /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title)\b[\s\S]*?<\/\1\s*>|<body\b/gi;
+  /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title)\b[\s\S]*?<\/\1\s*>|<\/?[A-Za-z][^\s/>]*(?:"[^"]*"|'[^']*'|[^'">])*>/gi;
 
 function findBodyOpenTag(
   content: string,
@@ -351,25 +352,11 @@ function findBodyOpenTag(
   BODY_OPEN_TAG_SCAN.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = BODY_OPEN_TAG_SCAN.exec(content))) {
-    if (/^<body/i.test(match[0])) break;
-  }
-  if (!match) return null;
-  let quote: '"' | "'" | null = null;
-  for (let i = match.index; i < content.length; i += 1) {
-    const char = content[i]!;
-    if (quote) {
-      if (char === quote) quote = null;
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === ">") {
+    if (/^<body\b/i.test(match[0])) {
       return {
         start: match.index,
-        end: i + 1,
-        tag: content.slice(match.index, i + 1),
+        end: match.index + match[0].length,
+        tag: match[0],
       };
     }
   }
