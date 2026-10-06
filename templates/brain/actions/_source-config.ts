@@ -2,13 +2,13 @@ import { fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  normalizeZoomMeetingId,
-  normalizeZoomMeetingTopic,
-} from "../server/lib/zoom.js";
-import {
   describeSourceConfigIssues,
   validateSourceConfig,
 } from "../shared/source-config-validation.js";
+import {
+  normalizeZoomMeetingId,
+  normalizeZoomMeetingTopic,
+} from "../shared/zoom-meeting-filter.js";
 
 const zoomSourceConfigSchema = z
   .object({
