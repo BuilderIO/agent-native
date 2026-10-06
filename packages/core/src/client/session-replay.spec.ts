@@ -3146,7 +3146,7 @@ describe("session replay", () => {
     }
   });
 
-  it.each(["pagehide", "visibility-hidden"])(
+  it.each(["pagehide", "pagehide-persisted", "visibility-hidden"])(
     "does not start a %s upload too large for keepalive",
     async (reason) => {
       const { fetchMock, storage } = installBrowser(
@@ -3188,6 +3188,44 @@ describe("session replay", () => {
       expect(upload.sequence).toBe(0);
       expect(JSON.stringify(upload.events)).toContain("/leaving");
       expect(storedSequence()).toBe(1);
+    },
+  );
+
+  it.each(["visibility-hidden", "pagehide"])(
+    "does not start an upload too large for keepalive when %s arrives while it is compressed",
+    async (reason) => {
+      const { fetchMock, storage } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("CompressionStream", undefined);
+      const storedSequence = () =>
+        JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+          .sequence;
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const { startSessionReplay, flushSessionReplay } =
+        await freshSessionReplay();
+
+      await startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "/api/analytics/replay",
+        maxBatchBytes: 256 * 1024,
+        maxEventsPerBatch: 50,
+        flushIntervalMs: 100_000,
+      });
+      recordOptions.emit({
+        type: 3,
+        data: { href: "/leaving", text: "x".repeat(70 * 1024) },
+      });
+      const intervalFlush = flushSessionReplay("interval");
+      const leaveFlush = flushSessionReplay(reason);
+      await Promise.all([intervalFlush, leaveFlush]);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(storedSequence()).toBe(0);
     },
   );
 
