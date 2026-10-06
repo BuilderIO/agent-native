@@ -175,15 +175,15 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: Tokens ships behind a `design.tokens` lab in `shared/labs.ts` (like `DESIGN_TWEAKS`), read with `useLab` for the rail item and listed in Settings › Labs. It leaves the build switch; Assets and Tools keep it, and Code gets its own lab (CODE-05).
   - Prototype: Toggle “Labs: Tokens” in the review strip or Settings › Labs.
 - **TOK-03** · proposed
-  - Change: Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: groups Colors, Typography, Spacing & Layout, Radius, Shadows & Effects, Other, each collapsible. A row is swatch or type glyph, name, and value (TOK-19 covers where a token comes from).
+  - Change: Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: one collapsible group per + kind (TOK-05), with the menu's labels and order: Color, Font family, Font weight, Font size, Line height, Letter spacing, Spacing, Container, Breakpoint, Radius, Shadow, Opacity, then Other for variables no kind prefix matches. A row is swatch or type glyph, name, and value (TOK-19 covers where a token comes from).
 - **TOK-04** · proposed
   - Change: Click a row to edit its value in place (Enter saves, Esc cancels); color rows open a color picker instead (TOK-20). Edits restyle the canvas live, like `apply-design-token-edit`.
 - **TOK-05** · decided
   - Today: One create popover: Add one token is a CSS-variable field and a value field that defaults to `#000000`, and `classifyVar` guesses the group from the name and value.
-  - Change: + Add token is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels.
+  - Change: + Add token is a Nova menu of token kinds, which are also the panel's groups, in the same order and with the same labels: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels.
 - **TOK-06** · proposed
   - Today: The code's token types are color, typography, spacing, radius, shadow, motion, other.
-  - Change: Container, Breakpoint, and Opacity are new kinds. Spacing becomes “Spacing & Layout” to hold Container and Breakpoint; Opacity lands in Shadows & Effects. Container and Breakpoint tokens feed the frame's width presets and responsive rule thresholds (RESP-05).
+  - Change: Container, Breakpoint, and Opacity are new kinds. Each gets its own group, like every kind. Container and Breakpoint tokens feed the frame's width presets and responsive rule thresholds (RESP-05).
 - **TOK-07** · decided
   - Today: The same popover offers Import a set from text, Import from a file, Import from a folder, and Import from current design.
   - Change: Import (Tabler `download`) is a Nova menu like +, each item importing straight away with a toast of what changed: Paste Figma link, DTCG file…, CSS or Tailwind file…, Code folder…, Paste from clipboard, then Generate from design. The same parser runs underneath, and DTCG is detected by content.

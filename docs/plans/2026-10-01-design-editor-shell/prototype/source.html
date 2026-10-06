@@ -3104,7 +3104,6 @@ function restoreSelected() {
 }
 
 /* ───────── tokens (TokensPanel.tsx; actions index-design-tokens / apply-design-token-edit / import-design-tokens) ───────── */
-const TK_TYPES = [["color", "Colors", "palette"], ["typography", "Typography", "letter-case"], ["spacing", "Spacing & Layout", "spacing-vertical"], ["radius", "Radius", "ruler"], ["shadow", "Shadows & Effects", "shadow"], ["other", "Other", "brush"]];
 let TOKENS = [
   { name: "Primary", cssVar: "--color-primary", value: "#171717", type: "color", source: "Agent-Native brand" },
   { name: "On primary", cssVar: "--color-on-primary", value: "#ffffff", type: "color", source: "Agent-Native brand" },
@@ -3122,8 +3121,8 @@ let TOKENS = [
   { name: "Card", cssVar: "--shadow-card", value: "none", type: "shadow", source: "index.html" },
 ];
 const TK = { q: "", searching: false, editing: null, draft: null, collapsed: new Set() };
-// The + menu mirrors the panel's group order, so a new token lands where the menu said it would.
-// [kind, label, icon, panel group, CSS var prefix, starting value]
+// The panel's groups are these kinds, with the same labels and in the same order, so a new token lands under
+// the label you picked. [kind, label, icon, type, CSS var prefix, starting value]
 const TOKEN_KINDS = [
   ["color", "Color", "square", "color", "--color-", "#000000"],
   "-",
@@ -3180,7 +3179,7 @@ document.addEventListener("keydown", e => {
 function startTokenDraft(kind) {
   const [, label, icon, type, prefix, value] = TOKEN_KINDS.find(k => k[0] === kind);
   let slug = "new", n = 2; while (TOKENS.some(t => t.cssVar === prefix + slug)) slug = `new-${n++}`;
-  TK.q = ""; TK.searching = false; TK.editing = null; TK.collapsed.delete(type);
+  TK.q = ""; TK.searching = false; TK.editing = null; TK.collapsed.delete(kind);
   TK.draft = { kind, label, icon, type, prefix, slug, value };
   renderTokens();
 }
@@ -3190,7 +3189,7 @@ function commitTokenDraft(save) {
   const slug = ni.value.trim().toLowerCase().replace(/^--/, "").replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, ""), cssVar = slug.startsWith(d.prefix.slice(2)) ? "--" + slug : d.prefix + slug, value = vi.value.trim();
   if (save && TOKENS.some(t => t.cssVar === cssVar)) { toast(`${cssVar} already exists`); ni.focus(); return; }
   TK.draft = null;
-  if (save && value && slug) { TOKENS.push({ name: friendly(cssVar), cssVar, value, type: d.type, source: "index.html" }); applyTokens(); toast(`Added ${cssVar}`); }
+  if (save && value && slug) { TOKENS.push({ name: friendly(cssVar), cssVar, value, type: d.type, kind: d.kind, source: "index.html" }); applyTokens(); toast(`Added ${cssVar}`); }
   renderTokens();
 }
 const isColor = v => /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim()) || /^(rgba?|hsla?|oklch|color)\(/.test(v.trim());
@@ -3258,23 +3257,27 @@ function upsertTokens(list, source) {
   applyTokens(); return n;
 }
 const parseVars = text => [...text.matchAll(/(--[\w-]+)\s*:\s*([^;\n]+)/g)].map(m => [m[1], m[2].trim()]);
+// A token's kind is the one it was created as, or else the longest + menu prefix its variable starts with.
+const KINDS = TOKEN_KINDS.filter(k => k !== "-");
+const tokenKind = t => t.kind || (t.type === "color" ? "color" : KINDS.filter(k => t.cssVar.startsWith(k[4])).sort((a, b) => b[4].length - a[4].length)[0]?.[0]) || "other";
+const TOKEN_GROUPS = [...KINDS.map(([kind, label, icon]) => [kind, label, icon]), ["other", "Other", "brush"]];
 function renderTokens() {
   const el = $("#tokens"); if (S.panel !== "tokens") return;
   const q = TK.q.toLowerCase();
   const list = TOKENS.filter(t => !q || t.name.toLowerCase().includes(q) || t.cssVar.includes(q) || t.value.toLowerCase().includes(q));
   const head = TK.searching || TK.q ? searchHead("tk-q", "Search tokens", TK.q)
     : `<div class="ag-head"><span class="tk-count">${TOKENS.length} token${TOKENS.length === 1 ? "" : "s"}</span><button class="icon-btn" id="tk-search" title="Search tokens  ⌘F">${ic("search")}</button><button class="icon-btn" id="tk-import" title="Import tokens" aria-haspopup="menu" aria-expanded="false">${ic("download")}</button><button class="icon-btn" id="tk-new" aria-haspopup="menu" aria-expanded="false" title="Add token">${ic("plus")}</button></div>`;
-  const groups = TK_TYPES.map(([type, label, icon]) => [type, label, icon, list.filter(t => t.type === type)]).filter(g => g[3].length || TK.draft?.type === g[0]);
-  const body = groups.length ? groups.map(([type, label, icon, items], gi) => {
-    const open = !TK.collapsed.has(type);
-    return `<div class="sec-head ${gi ? "rule" : ""}"><button class="sec-toggle" data-tk-sec="${type}" aria-expanded="${open}"><span class="chev">${ic("chevron-down", "s12")}</span>${label}</button></div>
+  const groups = TOKEN_GROUPS.map(([kind, label, icon]) => [kind, label, icon, list.filter(t => tokenKind(t) === kind)]).filter(g => g[3].length || TK.draft?.kind === g[0]);
+  const body = groups.length ? groups.map(([kind, label, icon, items], gi) => {
+    const open = !TK.collapsed.has(kind);
+    return `<div class="sec-head ${gi ? "rule" : ""}"><button class="sec-toggle" data-tk-sec="${kind}" aria-expanded="${open}"><span class="chev">${ic("chevron-down", "s12")}</span>${label}</button></div>
       ${open ? `<div class="sec-block">${items.map(t => {
         const editing = TK.editing === t.cssVar;
         const lead = t.type === "color" && isColor(t.value) ? `<span class="tk-sw" style="background:${t.value}"></span>` : `<span class="tk-glyph">${ic(icon, "s14")}</span>`;
         const clash = tokenConflict(t);
         const picker = t.type === "color" ? ` aria-haspopup="dialog" aria-expanded="${TK.picking === t.cssVar}"` : "";
         return `<div class="row tk" data-tk="${t.cssVar}" title="${t.cssVar} · ${t.source}"${picker}><span class="slot ico">${lead}</span><span class="gap"></span><span class="label">${t.name}</span>${editing ? `<input class="tk-edit" id="tk-edit" value="${t.value}" spellcheck="false" aria-label="Value for ${t.name}">` : `${clash ? `<span class="tk-warn" title="${clash}">${ic("alert-triangle", "s14")}</span>` : ""}<span class="tk-val">${t.value}</span>`}</div>`;
-      }).join("")}${TK.draft?.type === type ? draftRow(TK.draft) : ""}</div>` : ""}`;
+      }).join("")}${TK.draft?.kind === kind ? draftRow(TK.draft) : ""}</div>` : ""}`;
   }).join("") : (q ? `<div class="tk-empty">No tokens match “${TK.q}”.</div>` : `<div class="tk-empty"><b>No tokens yet</b><span class="acts"><button class="btn secondary" data-tk-open-import>Import</button><button class="btn secondary" data-tk-gen>${ic("sparkles", "s14")}Generate from design</button></span></div>`);
   el.innerHTML = head + `<div class="ag-body">${body}</div>`;
   if (TK.editing) { const i = $("#tk-edit"); i.focus(); i.select(); }

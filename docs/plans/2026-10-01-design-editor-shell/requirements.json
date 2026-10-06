@@ -458,7 +458,7 @@
         {
           "id": "TOK-03",
           "status": "proposed",
-          "change": "Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: groups Colors, Typography, Spacing & Layout, Radius, Shadows & Effects, Other, each collapsible. A row is swatch or type glyph, name, and value (TOK-19 covers where a token comes from)."
+          "change": "Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: one collapsible group per + kind (TOK-05), with the menu's labels and order: Color, Font family, Font weight, Font size, Line height, Letter spacing, Spacing, Container, Breakpoint, Radius, Shadow, Opacity, then Other for variables no kind prefix matches. A row is swatch or type glyph, name, and value (TOK-19 covers where a token comes from)."
         },
         {
           "id": "TOK-04",
@@ -469,7 +469,7 @@
           "id": "TOK-05",
           "status": "decided",
           "today": "One create popover: Add one token is a CSS-variable field and a value field that defaults to `#000000`, and `classifyVar` guesses the group from the name and value.",
-          "change": "+ Add token is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels.",
+          "change": "+ Add token is a Nova menu of token kinds, which are also the panel's groups, in the same order and with the same labels: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels.",
           "refs": [
             "templates/design/actions/import-design-tokens.ts:130#classifyVar"
           ]
@@ -478,7 +478,7 @@
           "id": "TOK-06",
           "status": "proposed",
           "today": "The code's token types are color, typography, spacing, radius, shadow, motion, other.",
-          "change": "Container, Breakpoint, and Opacity are new kinds. Spacing becomes “Spacing & Layout” to hold Container and Breakpoint; Opacity lands in Shadows & Effects. Container and Breakpoint tokens feed the frame's width presets and responsive rule thresholds (RESP-05)."
+          "change": "Container, Breakpoint, and Opacity are new kinds. Each gets its own group, like every kind. Container and Breakpoint tokens feed the frame's width presets and responsive rule thresholds (RESP-05)."
         },
         {
           "id": "TOK-07",
