@@ -35,6 +35,7 @@ vi.mock("../../../design-system/index.js", async (importOriginal) => {
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
+import { SESSION_REPLAY_MASK_ATTRIBUTE } from "@agent-native/core/client/session-replay-privacy";
 
 import { getComposerDraftKey } from "../../../composer/draft-key.js";
 import {
@@ -85,19 +86,25 @@ describe("AgentActivityItem replay privacy", () => {
         const disclosure = container.querySelector<HTMLButtonElement>(
           "button[aria-expanded]",
         )!;
-        expect(disclosure.closest("[data-an-mask]")).toBeNull();
+        expect(
+          disclosure.closest(`[${SESSION_REPLAY_MASK_ATTRIBUTE}]`),
+        ).toBeNull();
         expect(
           container
             .querySelector(".agentkit-activity-label")
-            ?.closest("[data-an-mask]"),
+            ?.closest(`[${SESSION_REPLAY_MASK_ATTRIBUTE}]`),
         ).toBeNull();
         const detail = container.querySelector(".agentkit-activity-detail");
-        expect(detail?.hasAttribute("data-an-mask")).toBe(status === "failed");
+        expect(detail?.hasAttribute(SESSION_REPLAY_MASK_ATTRIBUTE)).toBe(
+          status === "failed",
+        );
         expect(detail?.hasAttribute("title")).toBe(status !== "failed");
         await act(async () => disclosure.click());
         const summary = container.querySelector(".agentkit-activity-summary");
         expect(summary?.textContent).toContain("Example Document diagnostics.");
-        expect(summary?.hasAttribute("data-an-mask")).toBe(status === "failed");
+        expect(summary?.hasAttribute(SESSION_REPLAY_MASK_ATTRIBUTE)).toBe(
+          status === "failed",
+        );
       } finally {
         await act(async () => root.unmount());
         await client.shutdown();
@@ -145,12 +152,14 @@ describe("AgentInteractionItem replay privacy", () => {
           ".agentkit-agent-interaction-detail",
         );
         expect(detail?.textContent).toBe("Example Person's example notes");
-        expect(detail?.hasAttribute("data-an-mask")).toBe(kind === "failed");
+        expect(detail?.hasAttribute(SESSION_REPLAY_MASK_ATTRIBUTE)).toBe(
+          kind === "failed",
+        );
         expect(detail?.hasAttribute("title")).toBe(kind !== "failed");
         expect(
           container
             .querySelector(".agentkit-agent-interaction-label")
-            ?.closest("[data-an-mask]"),
+            ?.closest(`[${SESSION_REPLAY_MASK_ATTRIBUTE}]`),
         ).toBeNull();
       } finally {
         await act(async () => root.unmount());

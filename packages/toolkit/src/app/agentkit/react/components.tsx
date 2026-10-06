@@ -1,4 +1,3 @@
-import { SESSION_REPLAY_MASK_PROPS } from "@agent-native/core/client/session-replay-privacy";
 import {
   IconActivity,
   IconAlertCircle,
@@ -135,6 +134,10 @@ import {
   type AgentRunFailureRenderProps,
 } from "./context.js";
 import { AgentStreamingText } from "./streaming-text.js";
+
+// AgentKit React installs without @agent-native/core, so it repeats core's
+// replay mask marker. Its specs assert core's attribute name.
+const SESSION_REPLAY_MASK_PROPS = { "data-an-mask": "" } as const;
 
 export interface AgentKitErrorBoundaryProps {
   children: ReactNode;
