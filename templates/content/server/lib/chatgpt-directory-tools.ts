@@ -13,6 +13,8 @@ export const CHATGPT_DIRECTORY_TOOL_NAMES = [
 
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
+  widgets: true,
+  widgetDomain: "https://content.agent-native.com",
   keyToolNames: [
     "search-documents",
     "get-document",

@@ -10132,6 +10132,11 @@ export function createProductionAgentHandler(
           const terminalized = await updateRunStatusIfRunning(runId, "errored");
           if (terminalized) {
             await setRunTerminalReason(runId, "run_preparation_failed");
+            await setRunError(
+              runId,
+              "run_preparation_failed",
+              error instanceof Error ? error.message : String(error),
+            );
           }
         }
         throw error;

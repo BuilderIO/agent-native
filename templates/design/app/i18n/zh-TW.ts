@@ -297,7 +297,7 @@ export default {
       tokenLabel: "Figma 存取權杖",
       tokenPlaceholder: "貼上 Figma 存取權杖",
       connecting: "正在連線…",
-      connect: "連線",
+      connect: "連結 Figma",
       getToken: "取得權杖",
       importFrame: "匯入畫框",
       chooseFrame: "選擇畫框",

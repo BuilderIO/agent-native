@@ -1,3 +1,4 @@
+import { lexAgentSql, readAgentSqlQuery } from "@agent-native/core/agent-sql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getScopedSettingRecord = vi.hoisted(() => vi.fn());
@@ -142,7 +143,7 @@ describe("first-party BigQuery backend", () => {
     expect(sql).toContain(
       "QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1",
     );
-    expect(sql).toContain("'owner''o@example.com'");
+    expect(sql).toContain("'owner\\'o@example.com'");
     expect(sql).toContain("'2026-08-05'");
   });
 
@@ -177,6 +178,262 @@ describe("first-party BigQuery backend", () => {
     );
 
     expect(sql).toContain("owner_email = 'owner@example.com'");
+    expect(sql).toContain("SELECT 'ends with \\\\' AS marker");
+  });
+
+  it.each([
+    "-- ignored $2 ?\r",
+    "/* outer /* inner $2 ? */ still ignored $2 ? */",
+  ])("binds only executable markers after %s", (comment) => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      `SELECT '$2 ?' AS marker ${comment} FROM analytics_events WHERE owner_email = $1`,
+      ["synthetic@example.test"],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain("SELECT '$2 ?' AS marker");
+    expect(sql).toContain("owner_email = 'synthetic@example.test'");
+    expect(
+      readAgentSqlQuery(sql, { dialect: "bigquery" }).sources,
+    ).toMatchObject([
+      {
+        name: "synthetic_events",
+        qualifiers: ["example-project", "analytics"],
+      },
+    ]);
+    expect(
+      lexAgentSql(sql, { dialect: "bigquery" }).some(
+        (token) => token.kind === "parameter",
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves literal FROM text while qualifying CTE inputs", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "WITH analytics_events AS (SELECT * FROM analytics_event_daily_rollups) SELECT 'FROM analytics_events' AS marker FROM analytics_events",
+      [],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain(
+      "SELECT 'FROM analytics_events' AS marker FROM analytics_events",
+    );
+    expect(
+      readAgentSqlQuery(sql, { dialect: "bigquery" }).sources,
+    ).toMatchObject([
+      {
+        name: "synthetic_events_daily_rollups",
+        qualifiers: ["example-project", "analytics"],
+        cte: false,
+      },
+      { name: "analytics_events", cte: true },
+    ]);
+  });
+
+  it("preserves PostgreSQL quote, backslash and multiline string content", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT 'can''t \\n\nFROM analytics_events' AS marker FROM analytics_events",
+      [],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain(
+      "SELECT 'can\\'t \\\\n\\nFROM analytics_events' AS marker",
+    );
+    expect(
+      readAgentSqlQuery(sql, { dialect: "bigquery" }).sources,
+    ).toHaveLength(1);
+  });
+
+  it("keeps translation syntax inside literal data unchanged", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT 'now()::date INTERVAL ''3 days'' event_date <= ''2026-08-05'' coalesce(a, b) ::jsonb ->> ''key''' AS marker FROM analytics_events",
+      [],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain(
+      String.raw`SELECT 'now()::date INTERVAL \'3 days\' event_date <= \'2026-08-05\' coalesce(a, b) ::jsonb ->> \'key\'' AS marker`,
+    );
+    expect(
+      readAgentSqlQuery(sql, { dialect: "bigquery" }).sources,
+    ).toHaveLength(1);
+  });
+
+  it("translates quoted identifiers without binding their marker text", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      'SELECT "$1?" AS marker FROM "analytics_events" WHERE owner_email = $1',
+      ["synthetic@example.test"],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain(
+      "SELECT `$1?` AS marker FROM `example-project.analytics.synthetic_events`",
+    );
+    expect(sql).toContain("owner_email = 'synthetic@example.test'");
+  });
+
+  it.each(['"has`backtick"', '"has\\backslash"'])(
+    "refuses an identifier that cannot be represented by the BigQuery reader: %s",
+    (identifier) => {
+      expect(() =>
+        renderFirstPartyAnalyticsBigQuerySql(
+          `SELECT ${identifier} FROM analytics_events`,
+          [],
+          {
+            projectId: "example-project",
+            datasetId: "analytics",
+            tableId: "synthetic_events",
+            fullyQualified: "example-project.analytics.synthetic_events",
+          },
+        ),
+      ).toThrow(FirstPartyAnalyticsUnsupportedSqlError);
+    },
+  );
+
+  it.each([
+    'WITH "analytics.analytics_events" AS (SELECT * FROM analytics_event_daily_rollups) SELECT * FROM "analytics.analytics_events"',
+    'WITH "Analytics_Events" AS (SELECT * FROM analytics_event_daily_rollups) SELECT * FROM analytics_events',
+    'WITH "A" AS (SELECT * FROM analytics_events), wrapper AS (WITH "a" AS (SELECT * FROM analytics_event_daily_rollups) SELECT * FROM "A") SELECT * FROM wrapper',
+  ])("refuses changed source bindings across dialects: %s", (query) => {
+    expect(() =>
+      renderFirstPartyAnalyticsBigQuerySql(query, [], {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      }),
+    ).toThrow(FirstPartyAnalyticsUnsupportedSqlError);
+  });
+
+  it("refuses PostgreSQL word/string adjacency that GoogleSQL reads as a raw literal", () => {
+    expect(() =>
+      renderFirstPartyAnalyticsBigQuerySql(
+        "SELECT r'path\\suffix' AS marker FROM analytics_events",
+        [],
+        {
+          projectId: "example-project",
+          datasetId: "analytics",
+          tableId: "synthetic_events",
+          fullyQualified: "example-project.analytics.synthetic_events",
+        },
+      ),
+    ).toThrow(FirstPartyAnalyticsUnsupportedSqlError);
+  });
+
+  it.each([
+    [
+      "SELECT DATE '2026-08-05' AS marker FROM ANALYTICS_EVENTS",
+      "DATE '2026-08-05'",
+    ],
+    [
+      "SELECT INTERVAL '3 days' AS marker FROM analytics_events",
+      "INTERVAL 3 DAY",
+    ],
+  ])(
+    "keeps separated typed literals and unquoted source folding: %s",
+    (query, literal) => {
+      const sql = renderFirstPartyAnalyticsBigQuerySql(query, [], {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      });
+
+      expect(sql).toContain(literal);
+      expect(sql).toContain(
+        "FROM `example-project.analytics.synthetic_events`",
+      );
+    },
+  );
+
+  it.each([
+    "E'escaped\\n'",
+    "B'0101'",
+    "X'ab'",
+    "N'national'",
+    "$$FROM analytics_events $1$$",
+  ])(
+    "refuses unsupported PostgreSQL literal %s before running BigQuery",
+    (literal) => {
+      expect(() =>
+        renderFirstPartyAnalyticsBigQuerySql(
+          `SELECT ${literal} AS marker FROM analytics_events WHERE owner_email = $1`,
+          ["synthetic@example.test"],
+          {
+            projectId: "example-project",
+            datasetId: "analytics",
+            tableId: "synthetic_events",
+            fullyQualified: "example-project.analytics.synthetic_events",
+          },
+        ),
+      ).toThrow(FirstPartyAnalyticsUnsupportedSqlError);
+      expect(runQuery).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps special scope values inside GoogleSQL literals through deduplication", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT * FROM (SELECT * FROM analytics_events WHERE owner_email = $1 AND org_id = $2 AND event_date <= $3) AS analytics_events",
+      [
+        "synthetic'\\) UNION ALL@example.test",
+        "synthetic'\\org\nline",
+        "2026-08-05",
+      ],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain(
+      "owner_email = 'synthetic\\'\\\\) UNION ALL@example.test'",
+    );
+    expect(sql).toContain("org_id = 'synthetic\\'\\\\org\\nline'");
+    expect(sql).toContain(
+      "event_date <= DATE '2026-08-05' QUALIFY ROW_NUMBER()",
+    );
+    expect(
+      readAgentSqlQuery(sql, { dialect: "bigquery" }).sources,
+    ).toHaveLength(1);
+    const tokens = lexAgentSql(sql, { dialect: "bigquery" });
+    expect(
+      tokens.filter(
+        (token) => token.kind === "word" && token.value === "union",
+      ),
+    ).toHaveLength(0);
+    expect(
+      tokens.filter(
+        (token) => token.kind === "word" && token.value === "qualify",
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps union branches separated after source deduplication", () => {
@@ -301,6 +558,10 @@ describe("first-party BigQuery backend", () => {
     [
       "SELECT properties::jsonb ->> 'page.title' AS v FROM analytics_events",
       `JSON_VALUE(properties, '$."page.title"')`,
+    ],
+    [
+      "SELECT properties::jsonb ->> 'owner''s\\key' AS v FROM analytics_events",
+      String.raw`JSON_VALUE(properties, '$."owner\'s\\\\key"')`,
     ],
     [
       "SELECT COALESCE(properties,'{}')::jsonb ->> 'k' AS v FROM analytics_events",

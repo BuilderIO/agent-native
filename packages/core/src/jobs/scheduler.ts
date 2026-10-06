@@ -1,3 +1,4 @@
+import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import {
   resourceGetByPath,
   resourceListAllOwners,
@@ -60,10 +61,12 @@ import {
   getRemoteAutomationStatus,
 } from "./remote-execution.js";
 import {
+  automationRunClaimLeaseMs,
   claimAutomationRun,
   finishAutomationRun,
   getAutomationRun,
   listAutomationRuns,
+  RUNS_RETAINED_PER_AUTOMATION,
 } from "./run-history.js";
 import {
   acquireAutomationSchedulerLease,
@@ -322,7 +325,11 @@ async function processRecurringJobsWithLease(
           ).toISOString();
         }
         if (await updateResource(resource, meta, body)) {
-          await recoverStaleAutomationHistory(resource.owner, resource.path);
+          await recoverStaleAutomationHistory(
+            resource.owner,
+            resource.path,
+            now,
+          );
         }
         continue;
       }
@@ -493,27 +500,60 @@ async function processRecurringJobsWithLease(
 async function recoverStaleAutomationHistory(
   owner: string,
   path: string,
+  now: Date,
 ): Promise<void> {
   const automation = path.replace(/^jobs\//, "").replace(/\.md$/, "");
+  const nowMs = now.getTime();
+  const livenessMs = resolveBackgroundRunHardTimeoutMs();
+  const claimLeaseMs = automationRunClaimLeaseMs();
   try {
-    const [run] = await listAutomationRuns({
+    // Settle every run the stopped worker left behind, not only the newest:
+    // a queued "Run now" can be newer than the run that actually stopped.
+    // Pruning bounds unfinished rows to this; a smaller batch could strand an
+    // older stopped row behind newer ones because this recovery runs once per
+    // stale lock.
+    const runs = await listAutomationRuns({
       owners: [owner],
       automation,
-      limit: 1,
+      limit: RUNS_RETAINED_PER_AUTOMATION,
     });
-    if (
-      !run ||
-      run.finishedAt !== null ||
-      (run.status !== "running" && run.status !== "interrupted")
-    ) {
-      return;
+    for (const run of runs) {
+      if (
+        run.finishedAt !== null ||
+        (run.status !== "running" && run.status !== "interrupted")
+      ) {
+        continue;
+      }
+      // A queued "Run now" inserts its history row before its worker starts.
+      // Until its claim lease passes, its worker (or the redelivery sweep) can
+      // still pick it up, so it is not stale however old the frontmatter lock
+      // it inherits is. This reads the stored claim, not the derived status: a
+      // row past the read-liveness ceiling still reports `interrupted`.
+      const lastQueueTouch = run.claimedAt ?? run.startedAt;
+      const dispatchIsClaimable =
+        run.dispatchPending &&
+        Number.isFinite(lastQueueTouch) &&
+        lastQueueTouch > nowMs - claimLeaseMs;
+      const runIsWithinLiveness =
+        Number.isFinite(run.startedAt) && run.startedAt > nowMs - livenessMs;
+      if (dispatchIsClaimable || runIsWithinLiveness) continue;
+      try {
+        await finishAutomationRun(
+          run.id,
+          "error",
+          "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.",
+          "background_automation_interrupted",
+          { expectedClaimedAt: run.claimedAt },
+        );
+      } catch (error) {
+        // One failed write must not strand the rest of the batch: the
+        // frontmatter is already reset and this recovery runs once per lock.
+        console.warn(
+          `[recurring-jobs] Could not record stale history for run "${run.id}":`,
+          error instanceof Error ? error.message : error,
+        );
+      }
     }
-    await finishAutomationRun(
-      run.id,
-      "error",
-      "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.",
-      "background_automation_interrupted",
-    );
   } catch (error) {
     console.warn(
       `[recurring-jobs] Could not record stale history for "${automation}":`,

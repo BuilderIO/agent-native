@@ -71,6 +71,9 @@ describe("new deck generation flow", () => {
     expect(flow.slice(createIndex, createIndex + 260)).toContain(
       "deferPersistence: true",
     );
+    expect(flow.slice(createIndex, createIndex + 260)).toContain(
+      "undoableCreation: false",
+    );
     expect(contextIndex).toBeGreaterThan(hydrationIndex);
     expect(latePersistenceIndex).toBeGreaterThan(contextIndex);
     expect(flow).toContain("if (sourceImprovementRequest)");

@@ -216,7 +216,7 @@ export default {
       tokenLabel: "Token de acesso do Figma",
       tokenPlaceholder: "Cole o token de acesso do Figma",
       connecting: "Conectando…",
-      connect: "Usar Builder.io",
+      connect: "Conectar ao Figma",
       getToken: "Obter token",
       importFrame: "Importar frame",
       chooseFrame: "Escolher frame",

@@ -87,6 +87,7 @@ export interface RuntimeStructureInsertRequest {
     pendingNodeId?: string | null;
   };
   placement: "before" | "after" | "inside";
+  dropMode?: "flow-insert" | "absolute-container";
   gridPlacement?: {
     column: number;
     columnEnd: number;

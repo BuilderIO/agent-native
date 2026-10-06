@@ -242,7 +242,7 @@ function replayChunkSeqsFromQuery(query: Record<string, unknown>): number[] {
 function verifyAgentReplayAccessToken(
   event: any,
   recordingId: string,
-): { token: string; viewerEmail: string } | null | false {
+): { token: string; viewerEmail?: string } | null | false {
   const token = readAgentReplayAccessToken(event);
   if (!token) return null;
   const access = resolveSessionReplayAgentAccess(recordingId, token);

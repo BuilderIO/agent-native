@@ -181,6 +181,7 @@ import {
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
   createBuilderRelayRequest,
+  getBuilderConnectCallbackOriginFromUrl,
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
@@ -208,6 +209,7 @@ import {
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
+import { createBuilderDesktopMessagesHandler } from "./builder-desktop-messages-route.js";
 import {
   BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
@@ -4722,6 +4724,14 @@ export function createCoreRoutesPlugin(
         ),
       );
 
+      // Desktop Code Agents speak Anthropic Messages locally, but Builder
+      // Gateway credentials live on the server. This same-origin route keeps
+      // their signed-in session as the only client-side credential.
+      getH3App(nitroApp).use(
+        `${P}/builder/desktop/messages`,
+        createBuilderDesktopMessagesHandler(),
+      );
+
       getH3App(nitroApp).use(
         `${P}/builder/run`,
         defineEventHandler(async (event: H3Event) => {
@@ -5121,7 +5131,8 @@ export function createCoreRoutesPlugin(
               queryState,
               liveStates ? liveStates.join(",") : rawStateCookie,
             );
-          const parentOrigin = getBuilderBrowserOriginForEvent(event);
+          let parentOrigin = getBuilderBrowserOriginForEvent(event);
+          let callbackOriginOverride: string | undefined;
           let callbackAttemptId = requestConnectAttemptId;
           // A finished attempt — succeeded or failed — must not leave its
           // state in the cookie, or the next restart resolves against two
@@ -5143,8 +5154,11 @@ export function createCoreRoutesPlugin(
             setCookie(event, BUILDER_CONNECT_STATE_COOKIE, remaining, {
               httpOnly: true,
               secure: (
-                resolveBuilderConnectCallbackUrl(event, finishedState) ??
-                parentOrigin
+                resolveBuilderConnectCallbackUrl(
+                  event,
+                  finishedState,
+                  callbackOriginOverride,
+                ) ?? parentOrigin
               ).startsWith("https://"),
               sameSite: "lax",
               path: "/",
@@ -5234,9 +5248,17 @@ export function createCoreRoutesPlugin(
             typeof pending.redirectUri === "string"
               ? pending.redirectUri
               : null;
+          const storedCallbackOrigin = redirectUri
+            ? getBuilderConnectCallbackOriginFromUrl(redirectUri)
+            : null;
+          if (storedCallbackOrigin) {
+            callbackOriginOverride = storedCallbackOrigin;
+            parentOrigin = storedCallbackOrigin;
+          }
           const expectedRedirectUri = resolveBuilderConnectCallbackUrl(
             event,
             state,
+            callbackOriginOverride,
           );
 
           if (
@@ -5247,7 +5269,11 @@ export function createCoreRoutesPlugin(
             !redirectUri ||
             !expectedRedirectUri ||
             redirectUri !== expectedRedirectUri ||
-            !isBuilderConnectCallbackUrlAllowed(redirectUri, event)
+            !isBuilderConnectCallbackUrlAllowed(
+              redirectUri,
+              event,
+              callbackOriginOverride,
+            )
           ) {
             if (Date.now() >= expiresAt) {
               await deleteSetting(`builder-connect-pending:${state}`).catch(

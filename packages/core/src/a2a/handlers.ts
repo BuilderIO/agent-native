@@ -13,6 +13,7 @@ import { trackingIdentityProperties } from "../observability/tracking-identity.j
 import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
+import { markExplicitPersonalOrgScope } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import { track } from "../tracking/registry.js";
@@ -38,9 +39,9 @@ import {
   pauseProcessingA2ATask,
   MAX_A2A_IDEMPOTENCY_KEY_CHARS,
   A2A_PERSONAL_OWNER_SCOPE,
+  A2A_ORG_ID_OWNER_SCOPE_PREFIX,
 } from "./task-store.js";
 import type {
-  A2AApprovedAction,
   A2ASourceContext,
   A2ASourceContextReference,
   A2AConfig,
@@ -52,44 +53,14 @@ import type {
   Artifact,
 } from "./types.js";
 
-const getA2ASecretByDomain: (typeof import("../org/context.js"))["getA2ASecretByDomain"] =
-  (...args) =>
-    import("../org/context.js").then(({ getA2ASecretByDomain }) =>
-      getA2ASecretByDomain(...args),
-    );
-
 const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
 const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
 const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
-const MAX_A2A_APPROVED_ACTIONS = 10;
 const MAX_A2A_DIRECT_ACTION_NAME_CHARS = 200;
 const MAX_A2A_DIRECT_ACTION_INPUT_BYTES = 64 * 1024;
 const A2A_READ_INVOKE_EVENT = "$a2a_read_invoke";
-
-function trustedApprovedActions(
-  value: unknown,
-  event: any,
-): A2AApprovedAction[] | undefined {
-  // Static API keys and unsigned requests do not prove which user authorized
-  // a consequential action. Only a verified identity-bearing JWT may carry
-  // chat authorization across the A2A boundary.
-  if (!event?.context?.__a2aVerifiedEmail || !Array.isArray(value)) {
-    return undefined;
-  }
-  const approved = value
-    .slice(0, MAX_A2A_APPROVED_ACTIONS)
-    .filter(
-      (candidate): candidate is A2AApprovedAction =>
-        !!candidate &&
-        typeof candidate === "object" &&
-        typeof (candidate as Record<string, unknown>).tool === "string" &&
-        !!(candidate as Record<string, unknown>).tool,
-    )
-    .map((candidate) => ({ tool: candidate.tool, input: candidate.input }));
-  return approved.length > 0 ? approved : undefined;
-}
 
 function sourceContextReference(
   value: unknown,
@@ -166,11 +137,19 @@ async function trustedSourceContext(
   const dispatch = await findWorkspaceDispatchAgent();
   if (!dispatch) return undefined;
   const orgDomain = event?.context?.__a2aOrgDomain as string | undefined;
+  const verifiedOrgId = event?.context?.__a2aVerifiedOrgId as
+    | string
+    | undefined;
   let orgSecret: string | undefined;
   if (orgDomain) {
-    try {
-      orgSecret = (await getA2ASecretByDomain(orgDomain)) ?? undefined;
-    } catch {}
+    const { resolveA2AOrganizationCredentialsByDomain } =
+      await import("../org/context.js");
+    const organization =
+      await resolveA2AOrganizationCredentialsByDomain(orgDomain);
+    if (!verifiedOrgId || organization?.orgId !== verifiedOrgId) {
+      return undefined;
+    }
+    orgSecret = organization.secret;
   }
 
   try {
@@ -349,7 +328,17 @@ export async function processA2ATaskFromQueue(
   const meta = (claimed.metadata ?? {}) as Record<string, unknown>;
   const processorMeta = (meta.__a2a_processor ?? {}) as Record<string, unknown>;
   const verifiedEmail = processorMeta.verifiedEmail as string | undefined;
+  const identityAssurance =
+    processorMeta.identityAssurance === "organization"
+      ? "organization"
+      : processorMeta.identityAssurance === "user"
+        ? "user"
+        : undefined;
   const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
+  const verifiedOrgId =
+    typeof processorMeta.verifiedOrgId === "string"
+      ? processorMeta.verifiedOrgId.trim()
+      : undefined;
   const requestOrigin =
     requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
   const contextId =
@@ -359,17 +348,20 @@ export async function processA2ATaskFromQueue(
       | Record<string, unknown>
       | null
       | undefined) ?? undefined;
-  const approvedActions = Array.isArray(processorMeta.approvedActions)
-    ? (processorMeta.approvedActions as A2AApprovedAction[])
-    : undefined;
   const sourceContext = processorMeta.sourceContext as
     | A2ASourceContext
     | undefined;
 
-  const resolvedOrgId = await resolveVerifiedA2AOrgId(
-    verifiedEmail,
-    orgDomainHint,
-  );
+  const resolvedOrgId = verifiedOrgId || undefined;
+  if (event?.context) {
+    if (verifiedEmail) event.context.__a2aVerifiedEmail = verifiedEmail;
+    if (identityAssurance) {
+      event.context.__a2aIdentityAssurance = identityAssurance;
+    }
+    if (orgDomainHint) event.context.__a2aOrgDomain = orgDomainHint;
+    if (verifiedOrgId) event.context.__a2aVerifiedOrgId = verifiedOrgId;
+    if (verifiedEmail && !resolvedOrgId) markExplicitPersonalOrgScope(event);
+  }
 
   const { runWithRequestContext } =
     await import("../server/request-context.js");
@@ -385,7 +377,11 @@ export async function processA2ATaskFromQueue(
     await runWithRequestContext(
       {
         userEmail: verifiedEmail,
-        orgId: resolvedOrgId,
+        ...(resolvedOrgId
+          ? { orgId: resolvedOrgId }
+          : verifiedEmail
+            ? { orgScope: "personal" as const }
+            : {}),
         ...(requestOrigin ? { requestOrigin } : {}),
       },
       () =>
@@ -396,7 +392,6 @@ export async function processA2ATaskFromQueue(
           contextId,
           callerMetadata,
           event,
-          approvedActions,
           sourceContext,
         ),
     );
@@ -492,7 +487,6 @@ function makeHandlerContext(
   contextId?: string,
   metadata?: Record<string, unknown>,
   event?: any,
-  approvedActions?: A2AApprovedAction[],
   sourceContext?: A2ASourceContext,
 ): {
   context: A2AHandlerContext;
@@ -504,7 +498,6 @@ function makeHandlerContext(
     contextId,
     metadata,
     event,
-    approvedActions,
     sourceContext,
     writeArtifact(name, content, mimeType) {
       const artifact: Artifact = {
@@ -539,46 +532,25 @@ async function withA2ARequestContext<T>(
 
   const verifiedEmail =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
-  const orgDomain =
-    (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
-
-  const resolvedOrgId = await resolveVerifiedA2AOrgId(verifiedEmail, orgDomain);
+  const verifiedOrgId =
+    (event?.context?.__a2aVerifiedOrgId as string | undefined) ?? undefined;
   const requestOrigin = requestOriginForContext(metadata, event);
+  if (event?.context && verifiedEmail && !verifiedOrgId) {
+    markExplicitPersonalOrgScope(event);
+  }
 
   return runWithRequestContext(
     {
       userEmail: verifiedEmail,
-      orgId: resolvedOrgId,
+      ...(verifiedOrgId
+        ? { orgId: verifiedOrgId }
+        : verifiedEmail
+          ? { orgScope: "personal" as const }
+          : {}),
       ...(requestOrigin ? { requestOrigin } : {}),
     },
     fn,
   ) as Promise<T>;
-}
-
-async function resolveVerifiedA2AOrgId(
-  verifiedEmail: string | undefined,
-  verifiedOrgDomain: string | undefined,
-): Promise<string | undefined> {
-  if (verifiedOrgDomain) {
-    try {
-      const { resolveOrgByDomain } = await import("../org/context.js");
-      const org = await resolveOrgByDomain(verifiedOrgDomain);
-      if (org) return org.orgId;
-    } catch {
-      // Org tables may not exist — continue without org context
-    }
-  }
-
-  if (verifiedEmail) {
-    try {
-      const { resolveOrgIdForEmail } = await import("../org/context.js");
-      return (await resolveOrgIdForEmail(verifiedEmail)) ?? undefined;
-    } catch {
-      // Org tables may not exist — continue without org context
-    }
-  }
-
-  return undefined;
 }
 
 async function runHandlerAndPersist(
@@ -588,7 +560,6 @@ async function runHandlerAndPersist(
   contextId: string | undefined,
   metadata: Record<string, unknown> | undefined,
   event?: any,
-  approvedActions?: A2AApprovedAction[],
   sourceContext?: A2ASourceContext,
 ): Promise<void> {
   const { context, artifacts } = makeHandlerContext(
@@ -596,7 +567,6 @@ async function runHandlerAndPersist(
     contextId,
     metadata,
     event,
-    approvedActions,
     sourceContext,
   );
   try {
@@ -665,14 +635,31 @@ function verifiedTaskOwner(event?: any): {
 } {
   const ownerEmail =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
+  const verifiedOrgId =
+    (event?.context?.__a2aVerifiedOrgId as string | undefined)
+      ?.trim()
+      .toLowerCase() ?? "";
+  const identityAssurance = event?.context?.__a2aIdentityAssurance;
   return {
     ownerEmail,
     ownerScope: ownerEmail
-      ? ((event?.context?.__a2aOrgDomain as string | undefined)
-          ?.trim()
-          .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE)
-      : null,
+      ? verifiedOrgId
+        ? `${A2A_ORG_ID_OWNER_SCOPE_PREFIX}${verifiedOrgId}`
+        : A2A_PERSONAL_OWNER_SCOPE
+      : identityAssurance === "organization" && verifiedOrgId
+        ? `${A2A_ORG_ID_OWNER_SCOPE_PREFIX}${verifiedOrgId}`
+        : null,
   };
+}
+
+function hasUnboundVerifiedOrgIdentity(event?: any): boolean {
+  const verifiedEmail =
+    (event?.context?.__a2aVerifiedEmail as string | undefined)?.trim() ?? "";
+  const verifiedOrgDomain =
+    (event?.context?.__a2aOrgDomain as string | undefined)?.trim() ?? "";
+  const verifiedOrgId =
+    (event?.context?.__a2aVerifiedOrgId as string | undefined)?.trim() ?? "";
+  return Boolean(verifiedEmail && verifiedOrgDomain && !verifiedOrgId);
 }
 
 async function handleSend(
@@ -691,10 +678,19 @@ async function handleSend(
       _id: 0,
     };
   }
+  if (hasUnboundVerifiedOrgIdentity(event)) {
+    return {
+      ...jsonRpcError(
+        0,
+        -32001,
+        "A stable verified organization identity is required",
+      ),
+      _id: 0,
+    };
+  }
 
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
-  const approvedActions = trustedApprovedActions(params.approvedActions, event);
   const sourceContext = await trustedSourceContext(
     metadata?.sourceContext,
     event,
@@ -703,7 +699,7 @@ async function handleSend(
   const { ownerEmail: ownerEmailForTask, ownerScope: ownerScopeForTask } =
     verifiedTaskOwner(event);
   let idempotencyKey: string | undefined;
-  if (ownerEmailForTask && params.idempotencyKey !== undefined) {
+  if (ownerScopeForTask && params.idempotencyKey !== undefined) {
     if (typeof params.idempotencyKey !== "string") {
       return {
         ...jsonRpcError(
@@ -768,11 +764,16 @@ async function handleSend(
       ...(safeMetadata ?? {}),
       __a2a_processor: {
         verifiedEmail,
+        ...(typeof event?.context?.__a2aIdentityAssurance === "string"
+          ? { identityAssurance: event.context.__a2aIdentityAssurance }
+          : {}),
         orgDomainHint,
+        ...(typeof event?.context?.__a2aVerifiedOrgId === "string"
+          ? { verifiedOrgId: event.context.__a2aVerifiedOrgId }
+          : {}),
         ...(requestOrigin ? { requestOrigin } : {}),
         contextId: contextId ?? null,
         callerMetadata: safeMetadata ?? null,
-        approvedActions: approvedActions ?? null,
         sourceContext: sourceContext ?? null,
       },
     };
@@ -826,7 +827,6 @@ async function handleSend(
       contextId,
       trustedA2AMetadata(metadata, event),
       event,
-      approvedActions,
       sourceContext,
     );
 
@@ -909,10 +909,22 @@ async function handleStream(
     res.end();
     return;
   }
+  if (hasUnboundVerifiedOrgIdentity(event)) {
+    res.write(
+      `data: ${JSON.stringify(
+        jsonRpcError(
+          0,
+          -32001,
+          "A stable verified organization identity is required",
+        ),
+      )}\n\n`,
+    );
+    res.end();
+    return;
+  }
 
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
-  const approvedActions = trustedApprovedActions(params.approvedActions, event);
   const sourceContext = await trustedSourceContext(
     metadata?.sourceContext,
     event,
@@ -936,7 +948,6 @@ async function handleStream(
       contextId,
       trustedA2AMetadata(metadata, event),
       event,
-      approvedActions,
       sourceContext,
     );
 
@@ -1073,17 +1084,76 @@ function authorizeTaskAccess(
     if (verifiedEmail.toLowerCase() !== taskOwnerEmail.toLowerCase()) {
       return jsonRpcError(0, -32001, "Task not found");
     }
-    if (taskOwnerScope) {
-      const verifiedScope =
-        (event?.context?.__a2aOrgDomain as string | undefined)
-          ?.trim()
-          .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE;
-      if (verifiedScope !== taskOwnerScope.toLowerCase()) {
+    const storedScope = taskOwnerScope?.trim().toLowerCase() ?? "";
+    if (!storedScope) {
+      // Legacy empty scopes cannot distinguish personal tasks from org tasks.
+      return jsonRpcError(0, -32001, "Task not found");
+    }
+    const verifiedOrgId =
+      (event?.context?.__a2aVerifiedOrgId as string | undefined)
+        ?.trim()
+        .toLowerCase() ?? "";
+    const verifiedOrgDomain =
+      (event?.context?.__a2aOrgDomain as string | undefined)?.trim() ?? "";
+    if (storedScope.startsWith(A2A_ORG_ID_OWNER_SCOPE_PREFIX)) {
+      if (
+        !verifiedOrgId ||
+        storedScope !== `${A2A_ORG_ID_OWNER_SCOPE_PREFIX}${verifiedOrgId}`
+      ) {
         return jsonRpcError(0, -32001, "Task not found");
       }
+    } else if (
+      storedScope === A2A_PERSONAL_OWNER_SCOPE &&
+      !verifiedOrgId &&
+      !verifiedOrgDomain
+    ) {
+      // A verified identity with no organization is in its personal scope.
+    } else {
+      // Legacy domain scopes cannot be safely rebound after a domain change.
+      return jsonRpcError(0, -32001, "Task not found");
     }
+  } else if (taskOwnerScope) {
+    const verifiedOrgId =
+      (event?.context?.__a2aVerifiedOrgId as string | undefined)
+        ?.trim()
+        .toLowerCase() ?? "";
+    const identityAssurance = event?.context?.__a2aIdentityAssurance;
+    if (
+      identityAssurance !== "organization" ||
+      !verifiedOrgId ||
+      taskOwnerScope.trim().toLowerCase() !==
+        `${A2A_ORG_ID_OWNER_SCOPE_PREFIX}${verifiedOrgId}`
+    ) {
+      return jsonRpcError(0, -32001, "Task not found");
+    }
+  } else if (event?.context?.__a2aIdentityAssurance === "organization") {
+    return jsonRpcError(0, -32001, "Task not found");
   }
   return null;
+}
+
+function taskAccessScope(
+  ownership: { ownerEmail: string | null; ownerScope: string | null },
+  event: any,
+) {
+  const verifiedEmail =
+    (event?.context?.__a2aVerifiedEmail as string | undefined)?.trim() ?? "";
+  if (!ownership.ownerEmail) {
+    const identityAssurance = event?.context?.__a2aIdentityAssurance;
+    const verifiedOrgId =
+      (event?.context?.__a2aVerifiedOrgId as string | undefined)
+        ?.trim()
+        .toLowerCase() ?? "";
+    const expectedOrgScope = verifiedOrgId
+      ? `${A2A_ORG_ID_OWNER_SCOPE_PREFIX}${verifiedOrgId}`
+      : "";
+    return identityAssurance === "organization" &&
+      ownership.ownerScope?.trim().toLowerCase() === expectedOrgScope
+      ? { ownerEmail: "", ownerScope: expectedOrgScope }
+      : undefined;
+  }
+  if (!verifiedEmail) return undefined;
+  return { ownerEmail: verifiedEmail, ownerScope: ownership.ownerScope };
 }
 
 async function handleGet(
@@ -1104,7 +1174,8 @@ async function handleGet(
   );
   if (denied) return denied;
 
-  const task = await getTask(id);
+  const accessScope = taskAccessScope(ownership, event);
+  const task = await getTask(id, accessScope);
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }
@@ -1117,7 +1188,7 @@ async function handleGet(
     return false;
   });
   if (taskChanged) {
-    const updated = await getTask(id);
+    const updated = await getTask(id, accessScope);
     if (updated) return jsonRpcResult(0, sanitizeTaskForResponse(updated));
   }
   return jsonRpcResult(0, sanitizeTaskForResponse(task));
@@ -1198,7 +1269,11 @@ async function handleCancel(
   );
   if (denied) return denied;
 
-  const task = await updateTask(id, { state: "canceled" });
+  const task = await updateTask(
+    id,
+    { state: "canceled" },
+    taskAccessScope(ownership, event),
+  );
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }
@@ -1239,6 +1314,13 @@ async function handleInvokeReadOnlyAction(
       0,
       -32001,
       "A verified, audience-bound user identity is required for direct action invocation",
+    );
+  }
+  if (hasUnboundVerifiedOrgIdentity(event)) {
+    return jsonRpcError(
+      0,
+      -32001,
+      "A stable verified organization identity is required for direct action invocation",
     );
   }
   if (!config.executeReadOnlyAction) {

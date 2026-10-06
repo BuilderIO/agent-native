@@ -102,6 +102,60 @@ describe("automation run history", () => {
     expect(run.status).toBe("running");
   });
 
+  it("guards the terminal write on the claim snapshot it read", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [row({ claimed_at: 1000 })] })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    await finishAutomationRun("run-1", "error", "stale", undefined, {
+      expectedClaimedAt: 1000,
+    });
+
+    const update = executeMock.mock.calls[1]?.[0] as DbExecStatement;
+    expect(update.sql).toContain("AND claimed_at IS NOT DISTINCT FROM ?");
+    expect(update.args.at(-1)).toBe(1000);
+  });
+
+  it("does not overwrite a run claimed after the stale snapshot", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [row({ claimed_at: 1000 })] })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+
+    await finishAutomationRun("run-1", "error", "stale", undefined, {
+      expectedClaimedAt: 1000,
+    });
+    const update = executeMock.mock.calls[1]?.[0] as DbExecStatement;
+
+    const pglite = await createTestPglite();
+    try {
+      await pglite.exec(`CREATE TABLE automation_runs (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        claimed_at BIGINT,
+        finished_at BIGINT,
+        error TEXT,
+        error_code TEXT,
+        failure_alert_state TEXT,
+        failure_alert_next_attempt_at BIGINT,
+        failure_alert_claimed_at BIGINT
+      )`);
+      await pglite.query(
+        `INSERT INTO automation_runs (id, status, claimed_at) VALUES ('run-1', 'running', 2000)`,
+      );
+
+      const overwritten = await pglite.query(update.sql, update.args);
+      expect(overwritten.rowCount).toBe(0);
+
+      await pglite.query(
+        `UPDATE automation_runs SET claimed_at = 1000 WHERE id = 'run-1'`,
+      );
+      const settled = await pglite.query(update.sql, update.args);
+      expect(settled.rowCount).toBe(1);
+    } finally {
+      await pglite.close();
+    }
+  });
+
   it("filters run history to the requesting app while keeping legacy rows", async () => {
     await listAutomationRuns({
       owners: ["alice@example.com"],
