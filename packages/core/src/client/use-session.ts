@@ -13,7 +13,10 @@ import {
 import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 
 export type { AuthSession };
-export { isSessionNavigationPending } from "../shared/ssr-session-bootstrap.js";
+export {
+  hasSessionHint,
+  isSessionNavigationPending,
+} from "../shared/ssr-session-bootstrap.js";
 
 /**
  * What the session endpoint said that the page acted on: a signed-out body,

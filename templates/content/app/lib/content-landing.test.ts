@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { writeClientAppState } = vi.hoisted(() => ({
   writeClientAppState: vi.fn(),
@@ -10,8 +10,10 @@ vi.mock("@agent-native/core/client/application-state", () => ({
 
 import {
   isPersonalLanding,
+  pageOpenedByLoad,
   rememberContentLandingDocument,
 } from "./content-landing";
+import { LAST_LOCATION_HINT_STORAGE_KEY } from "./last-location-hint";
 
 describe("rememberContentLandingDocument", () => {
   beforeEach(() => {
@@ -133,5 +135,46 @@ describe("isPersonalLanding", () => {
       false,
     );
     expect(isPersonalLanding({ ...home, pathname: "/page/inbox" })).toBe(false);
+  });
+});
+
+describe("pageOpenedByLoad", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function rememberLastPage(documentId: string) {
+    const stored = JSON.stringify({ scope: "[]", documentId });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) =>
+        key === LAST_LOCATION_HINT_STORAGE_KEY ? stored : null,
+    });
+  }
+
+  it("is the page a page URL names, whatever page /home would reopen", () => {
+    rememberLastPage("last-page");
+    expect(
+      pageOpenedByLoad({
+        pathname: "/page/NXqMwg3WOBAQ",
+        search: "?databaseId=db-1",
+      }),
+    ).toBe("NXqMwg3WOBAQ");
+  });
+
+  it("is the page /home likely reopens", () => {
+    rememberLastPage("last-page");
+    expect(pageOpenedByLoad({ pathname: "/home", search: "" })).toBe(
+      "last-page",
+    );
+    expect(
+      pageOpenedByLoad({ pathname: "/home", search: "?spaceId=space-1" }),
+    ).toBeFalsy();
+  });
+
+  it("is nothing for a load that opens no page", () => {
+    rememberLastPage("last-page");
+    for (const pathname of ["/page", "/page/", "/trash", "/settings/agent"]) {
+      expect(pageOpenedByLoad({ pathname, search: "" })).toBeFalsy();
+    }
   });
 });

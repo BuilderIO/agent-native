@@ -160,6 +160,11 @@ duplicate the provider transport, auth, quota, and cache implementation.
   it doesn't use is dropped. Content's `last-location-hint.ts` names the page
   `/home` will reopen, so that page's read starts before application state
   answers.
+- A read whose id is already in the URL starts from Root as the app hydrates,
+  alongside the session check rather than after it. Gate it on
+  `hasSessionHint()`: without a session the read is refused, and a refused
+  read makes the app check the session again. Content's `pageOpenedByLoad`
+  picks the page for a load of `/page/:id` or `/home`.
 
 ## 5. Poll cheaply; compute once
 

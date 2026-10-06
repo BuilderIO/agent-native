@@ -4,6 +4,9 @@ import {
   contentSpaceLastLocationStateKey,
   type ContentLastLocationState,
 } from "@shared/content-landing";
+import { matchPath } from "react-router";
+
+import { readLastLocationHintForAnyAccount } from "./last-location-hint";
 
 export const CONTENT_LANDING_PATH = "/home";
 
@@ -17,6 +20,17 @@ export function isPersonalLanding(location: {
     location.pathname === CONTENT_LANDING_PATH &&
     !new URLSearchParams(location.search).get("spaceId")
   );
+}
+
+// The page a load of this URL opens first, as far as it can be known before
+// the session: the page in the URL, or the page /home likely reopens.
+export function pageOpenedByLoad(location: {
+  pathname: string;
+  search: string;
+}) {
+  return isPersonalLanding(location)
+    ? readLastLocationHintForAnyAccount()
+    : matchPath("/page/:id", location.pathname)?.params.id;
 }
 
 let landingWriteQueue = Promise.resolve();

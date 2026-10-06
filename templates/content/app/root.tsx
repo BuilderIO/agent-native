@@ -9,6 +9,7 @@ import {
   useT,
 } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { hasSessionHint } from "@agent-native/core/client/use-session";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
@@ -63,8 +64,7 @@ import { startPageOpenDocumentReads } from "./hooks/use-documents";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
-import { isPersonalLanding } from "./lib/content-landing";
-import { readLastLocationHintForAnyAccount } from "./lib/last-location-hint";
+import { pageOpenedByLoad } from "./lib/content-landing";
 import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
 import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
@@ -396,17 +396,19 @@ export default function Root() {
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
   useEffect(() => {
-    // A load of /home reads its likely page alongside the session check
-    // rather than after the app mounts behind it.
-    if (!isPersonalLanding(location)) return;
-    const documentId = readLastLocationHintForAnyAccount();
+    // A load of a page, or of /home and the page it likely reopens, reads that
+    // page alongside the session check rather than after the app mounts
+    // behind it. Without the session hint the read would only be refused, and
+    // a refused read makes the app check the session again.
+    if (!hasSessionHint()) return;
+    const documentId = pageOpenedByLoad(location);
     if (!documentId) return;
     const search = new URLSearchParams(location.search);
     startPageOpenDocumentReads(queryClient, documentId, {
       databaseId: search.get("databaseId"),
       databaseDocumentId: search.get("databaseDocumentId"),
     });
-    // Only the load itself; navigating to /home later mounts it directly.
+    // Only the load itself; later navigations start their own reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useCommandMenuShortcut(
