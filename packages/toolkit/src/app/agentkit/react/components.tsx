@@ -136,8 +136,9 @@ import {
 import { AgentStreamingText } from "./streaming-text.js";
 
 // AgentKit React installs without @agent-native/core, so it repeats core's
-// replay mask marker. Its specs assert core's attribute name.
+// replay markers. Its specs assert core's attribute names.
 const SESSION_REPLAY_MASK_PROPS = { "data-an-mask": "" } as const;
+const SESSION_REPLAY_BLOCK_PROPS = { "data-an-block": "" } as const;
 
 export interface AgentKitErrorBoundaryProps {
   children: ReactNode;
@@ -1020,8 +1021,9 @@ export function AgentActivityItem({
         ) : null}
       </div>
       {open ? (
+        // Summary parts can render links, and replays keep their attributes.
         <div
-          {...(activity.status === "failed" ? SESSION_REPLAY_MASK_PROPS : {})}
+          {...(activity.status === "failed" ? SESSION_REPLAY_BLOCK_PROPS : {})}
           className="agentkit-activity-summary"
         >
           {activity.summary?.map((part, index) => {

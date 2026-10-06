@@ -272,8 +272,9 @@ agent answers about browser recordings in the Analytics template.
   remains active when an app supplies its own `maskTextSelector`; selectors
   extend this privacy baseline. Do not rely on name redaction for run errors.
   Masking covers text only; the recorder keeps attributes, so leave `title` off
-  masked failure text and wrap an errored tool's embedded frame, such as an MCP
-  App, in `SESSION_REPLAY_BLOCK_PROPS`.
+  masked failure text. Wrap failed content that can render links or embedded
+  frames, such as an MCP App or a failed activity summary, in
+  `SESSION_REPLAY_BLOCK_PROPS`.
 - Use `.an-block`, `.an-ignore`, `data-an-block`, or `data-an-ignore` for
   sensitive zones that should not be captured.
 - A definitive upload `409` abandons only the conflicted replay identity and

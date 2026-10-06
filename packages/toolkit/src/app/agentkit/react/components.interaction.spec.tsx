@@ -35,7 +35,10 @@ vi.mock("../../../design-system/index.js", async (importOriginal) => {
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
-import { SESSION_REPLAY_MASK_ATTRIBUTE } from "@agent-native/core/client/session-replay-privacy";
+import {
+  SESSION_REPLAY_BLOCK_ATTRIBUTE,
+  SESSION_REPLAY_MASK_ATTRIBUTE,
+} from "@agent-native/core/client/session-replay-privacy";
 
 import { getComposerDraftKey } from "../../../composer/draft-key.js";
 import {
@@ -48,7 +51,7 @@ import { AgentKitProvider } from "./context.js";
 
 describe("AgentActivityItem replay privacy", () => {
   it.each(["failed", "completed"] as const)(
-    "masks only failed activity diagnostics (%s)",
+    "hides only failed activity diagnostics (%s)",
     async (status) => {
       const client = new AgentKitClient({
         transport: {
@@ -76,6 +79,11 @@ describe("AgentActivityItem replay privacy", () => {
                   detail: "Example Person's example notes.",
                   summary: [
                     { type: "text", text: "Example Document diagnostics." },
+                    {
+                      type: "citation",
+                      title: "Example report",
+                      url: "https://example.test/report?person=example",
+                    },
                   ],
                 }}
                 threadId="thread-example"
@@ -102,9 +110,11 @@ describe("AgentActivityItem replay privacy", () => {
         await act(async () => disclosure.click());
         const summary = container.querySelector(".agentkit-activity-summary");
         expect(summary?.textContent).toContain("Example Document diagnostics.");
-        expect(summary?.hasAttribute(SESSION_REPLAY_MASK_ATTRIBUTE)).toBe(
-          status === "failed",
-        );
+        expect(
+          summary
+            ?.querySelector('a[href^="https://example.test/report"]')
+            ?.closest(`[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`) !== null,
+        ).toBe(status === "failed");
       } finally {
         await act(async () => root.unmount());
         await client.shutdown();
