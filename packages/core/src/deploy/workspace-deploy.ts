@@ -28,7 +28,10 @@ import {
   BUILTIN_AGENTS_ENV_KEY,
   workspaceBuiltinAgentsJson,
 } from "../server/builtin-agents.js";
-import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
+import {
+  normalizeFrameworkRoutePrefix,
+  toPublicFrameworkPath,
+} from "../shared/framework-route-prefix.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppHomePath,
@@ -700,7 +703,12 @@ function writeVercelBuildConfig(
     version: 3,
     routes,
     crons: vercelSweepCrons(
-      apps.map((app) => `/${app}${RECURRING_JOBS_SWEEP_PATH}`),
+      apps.map(
+        (app) =>
+          `/${app}${toPublicFrameworkPath(RECURRING_JOBS_SWEEP_PATH, {
+            publicPrefix: workspaceFrameworkRoutePrefix(),
+          })}`,
+      ),
     ),
   };
   fs.writeFileSync(

@@ -127,7 +127,9 @@ export function enterDatabaseRequestTelemetry(
   telemetry: DatabaseRequestTelemetry,
 ): boolean {
   const storage = getStorage();
-  if (storagesWithoutEnterWith.has(storage)) return false;
+  if (storage === NOOP_STORAGE || storagesWithoutEnterWith.has(storage)) {
+    return false;
+  }
   try {
     storage.enterWith(telemetry);
     return true;

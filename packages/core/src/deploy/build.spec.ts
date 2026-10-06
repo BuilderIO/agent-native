@@ -96,6 +96,7 @@ import {
   nitroServerCodeSplittingConfigForPreset,
   nitroServerCodeSplittingGroupsForPreset,
   patchCloudflareModuleNitroEntry,
+  publicRecurringJobsSweepPath,
   pruneServerlessFunctionDeadWeight,
   removeNetlifyStaticRootShell,
   resolveNitroBundledYjsEntry,
@@ -1046,6 +1047,83 @@ describe("Vercel sweep cron", () => {
         }),
       ).toThrow("AGENT_NATIVE_VERCEL_CRON_SCHEDULE");
     }
+  });
+
+  // cron-parser accepts all of these, but Vercel rejects the deployment.
+  it("rejects schedules outside Vercel's cron grammar", () => {
+    for (const [schedule, reason] of [
+      ["0 9 * * MON", "not names"],
+      ["0 9 * JAN *", "not names"],
+      ["0 9 1 * 1", "day of the month and a day of the week"],
+      ["0 9 * * 7", "weekdays 0-6"],
+      ["0 9 * * 1-7", "weekdays 0-6"],
+    ]) {
+      expect(() =>
+        resolveVercelSweepCronSchedule({
+          AGENT_NATIVE_VERCEL_CRON_SCHEDULE: schedule,
+        }),
+      ).toThrow(reason);
+    }
+    expect(
+      resolveVercelSweepCronSchedule({
+        AGENT_NATIVE_VERCEL_CRON_SCHEDULE: "*/15 9-17 * * 1-5",
+      }),
+    ).toBe("*/15 9-17 * * 1-5");
+  });
+
+  // A custom prefix 404s `/_agent-native/*` before any route runs, and the
+  // server is mounted under the base path.
+  it("points the cron at the public sweep path", () => {
+    const outputDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(outputDir, "config.json"),
+      JSON.stringify({ version: 3 }),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      addVercelSweepCron(outputDir, {
+        AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_framework",
+        VITE_APP_BASE_PATH: "/mail/",
+      });
+    } finally {
+      log.mockRestore();
+    }
+    const config = JSON.parse(
+      fs.readFileSync(path.join(outputDir, "config.json"), "utf8"),
+    );
+
+    expect(config.crons).toEqual([
+      { path: "/mail/_framework/jobs/_process-sweep", schedule: "* * * * *" },
+    ]);
+  });
+});
+
+describe("publicRecurringJobsSweepPath", () => {
+  it("keeps the internal path when nothing is configured", () => {
+    expect(publicRecurringJobsSweepPath({})).toBe(RECURRING_JOBS_SWEEP_PATH);
+  });
+
+  it("maps the sweep onto the public prefix and base path", () => {
+    expect(
+      publicRecurringJobsSweepPath({
+        AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: " /_framework ",
+      }),
+    ).toBe("/_framework/jobs/_process-sweep");
+    expect(publicRecurringJobsSweepPath({ APP_BASE_PATH: "/mail" })).toBe(
+      `/mail${RECURRING_JOBS_SWEEP_PATH}`,
+    );
+  });
+
+  it("bakes the public path into the Cloudflare sweep trigger", () => {
+    const entry = generateCloudflareModuleWorkerEntry({
+      AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_framework",
+      VITE_APP_BASE_PATH: "/mail",
+    });
+
+    expect(entry).toContain(
+      'const SWEEP_PATH = "/mail/_framework/jobs/_process-sweep";',
+    );
   });
 });
 

@@ -328,6 +328,20 @@ describe("workspace deploy", () => {
         ),
         expectedPrefix,
       );
+      // A custom prefix 404s `/_agent-native/*`, so the cron must name the
+      // public path or the sweep never runs.
+      const vercelConfig = JSON.parse(
+        fs.readFileSync(
+          path.join(tmpDir, ".vercel", "output", "config.json"),
+          "utf-8",
+        ),
+      );
+      expect(vercelConfig.crons).toEqual([
+        {
+          path: `/dispatch${expectedPrefix ?? "/_agent-native"}/jobs/_process-sweep`,
+          schedule: "* * * * *",
+        },
+      ]);
     }
   });
 

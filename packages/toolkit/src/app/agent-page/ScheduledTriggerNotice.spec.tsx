@@ -165,8 +165,11 @@ describe("ScheduledTriggerNotice", () => {
     const notice = render({ available: false, reason: "disabled-by-env" });
 
     expect(notice?.textContent).toContain(
-      "Event- and webhook-triggered automations and Run now still work",
+      "Webhook-triggered automations and Run now still work",
     );
+    // A Netlify build with recurring jobs off emits no scheduled function, so
+    // nothing drains the event queue there.
+    expect(notice?.textContent).not.toContain("Event-");
   });
 
   it("keeps the fix in a disclosure that starts closed", () => {

@@ -1051,7 +1051,7 @@ const messages = {
     scheduleUnavailableTitle: "Schedules won't run in this deploy",
     scheduleUnavailableLocalTitle: "Schedules don't run in local development",
     scheduleUnavailableDisabled:
-      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Event- and webhook-triggered automations and Run now still work.",
+      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Webhook-triggered automations and Run now still work.",
     scheduleUnavailableNoScheduler:
       "This deploy has no scheduler, so scheduled automations won't fire, event-triggered automations stay queued, and crashed runs aren't recovered. Webhook-triggered automations and Run now still work.",
     scheduleUnavailableMissingSecret:

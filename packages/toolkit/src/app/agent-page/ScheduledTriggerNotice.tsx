@@ -70,8 +70,8 @@ export function ScheduledTriggerNotice({
       detail = t("jobs.scheduleUnavailableDisabled", {
         defaultValue:
           "This app was built with recurring jobs turned off, so no scheduled " +
-          "automation will fire. Event- and webhook-triggered automations and " +
-          "Run now still work.",
+          "automation will fire. Webhook-triggered automations and Run now " +
+          "still work.",
       });
       fix = t("jobs.scheduleUnavailableDisabledFix", {
         defaultValue:

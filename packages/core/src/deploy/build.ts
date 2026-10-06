@@ -55,7 +55,10 @@ import {
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
-import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
+import {
+  normalizeFrameworkRoutePrefix,
+  toPublicFrameworkPath,
+} from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
@@ -440,11 +443,29 @@ export function shimCloudflarePagesModuleTimers(code: string): string {
 
 export const CLOUDFLARE_SWEEP_CRON = "* * * * *";
 
+/**
+ * The URL path a platform scheduler requests. Under a custom framework route
+ * prefix the request boundary 404s `/_agent-native/*` before any route runs,
+ * and the server is mounted under the app base path, so the internal sweep
+ * path alone never reaches the sweep.
+ */
+export function publicRecurringJobsSweepPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const basePath = normalizeAppBasePath(
+    env.VITE_APP_BASE_PATH || env.APP_BASE_PATH,
+  );
+  const publicPath = toPublicFrameworkPath(RECURRING_JOBS_SWEEP_PATH, {
+    publicPrefix: resolveBuildFrameworkRoutePrefix(env),
+  });
+  return `${basePath}${publicPath}`;
+}
+
 // The token format must match verifyInternalToken in
 // integrations/internal-token.ts.
-function cloudflareSweepTriggerScript(): string {
+function cloudflareSweepTriggerScript(sweepPath: string): string {
   return `const SWEEP_CRON = ${JSON.stringify(CLOUDFLARE_SWEEP_CRON)};
-const SWEEP_PATH = ${JSON.stringify(RECURRING_JOBS_SWEEP_PATH)};
+const SWEEP_PATH = ${JSON.stringify(sweepPath)};
 const SWEEP_TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
 
 async function sweepToken(secret) {
@@ -499,7 +520,9 @@ async function runSweep(h, env, ctx) {
 }`;
 }
 
-export function generateCloudflareModuleWorkerEntry(): string {
+export function generateCloudflareModuleWorkerEntry(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   return `let handler;
 
 async function loadHandler() {
@@ -511,7 +534,7 @@ ${cloudflareBindingsInitScript()}
 
 ${cloudflareModuleTimerRestoreScript()}
 
-${cloudflareSweepTriggerScript()}
+${cloudflareSweepTriggerScript(publicRecurringJobsSweepPath(env))}
 
 export default {
   async fetch(request, env, ctx) {
@@ -3454,6 +3477,29 @@ export function resolveKeepWarmSchedule(): string {
 
 const DEFAULT_VERCEL_SWEEP_CRON_SCHEDULE = "* * * * *";
 
+// Vercel accepts a narrower grammar than cron-parser, and a schedule outside
+// it fails the deployment rather than the build.
+function vercelCronScheduleProblem(raw: string): string | null {
+  const fields = raw.split(/\s+/);
+  if (fields.length !== 5 || !isValidCron(raw)) {
+    return `must be a 5-field cron expression (minute hour day month weekday); got "${raw}" (${fields.length} field(s))`;
+  }
+  if (!fields.every((field) => /^[\d*,/-]+$/.test(field))) {
+    return `must use numbers, not names such as MON or JAN, on Vercel; got "${raw}"`;
+  }
+  const [, , dayOfMonth, , dayOfWeek] = fields;
+  if (dayOfMonth !== "*" && dayOfWeek !== "*") {
+    return `cannot set both a day of the month and a day of the week on Vercel, so one must be "*"; got "${raw}"`;
+  }
+  const weekdays = dayOfWeek
+    .split(",")
+    .flatMap((part) => part.split("/")[0].split("-"));
+  if (weekdays.some((day) => day !== "*" && Number(day) > 6)) {
+    return `must number weekdays 0-6 (Sunday to Saturday) on Vercel; got "${raw}"`;
+  }
+  return null;
+}
+
 // Vercel Hobby rejects a deployment whose cron runs more than once a day, and
 // the build cannot see the team's plan, so the schedule is the operator's call.
 export function resolveVercelSweepCronSchedule(
@@ -3461,11 +3507,10 @@ export function resolveVercelSweepCronSchedule(
 ): string {
   const raw = env.AGENT_NATIVE_VERCEL_CRON_SCHEDULE?.trim();
   if (!raw) return DEFAULT_VERCEL_SWEEP_CRON_SCHEDULE;
-  const fields = raw.split(/\s+/);
-  if (fields.length !== 5 || !isValidCron(raw)) {
+  const problem = vercelCronScheduleProblem(raw);
+  if (problem) {
     throw new Error(
-      `AGENT_NATIVE_VERCEL_CRON_SCHEDULE must be a 5-field cron expression ` +
-        `(minute hour day month weekday); got "${raw}" (${fields.length} field(s)). ` +
+      `AGENT_NATIVE_VERCEL_CRON_SCHEDULE ${problem}. ` +
         `Example: "0 9 * * *" for once a day on Vercel Hobby.`,
     );
   }
@@ -3492,7 +3537,10 @@ export function addVercelSweepCron(
     crons?: Array<{ path: string; schedule: string }>;
     [key: string]: unknown;
   };
-  const [sweepCron] = vercelSweepCrons([RECURRING_JOBS_SWEEP_PATH], env);
+  const [sweepCron] = vercelSweepCrons(
+    [publicRecurringJobsSweepPath(env)],
+    env,
+  );
   config.crons = [
     ...(config.crons ?? []).filter((cron) => cron.path !== sweepCron.path),
     sweepCron,
@@ -3500,9 +3548,11 @@ export function addVercelSweepCron(
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   console.log(
     `[build] Added Vercel cron "${sweepCron.schedule}" for ${sweepCron.path}. ` +
-      "Vercel sends CRON_SECRET as its bearer, so set CRON_SECRET in the project. " +
-      "Hobby only allows daily crons: set AGENT_NATIVE_VERCEL_CRON_SCHEDULE " +
-      'to a daily expression such as "0 9 * * *" there.',
+      "Vercel sends CRON_SECRET as its bearer, so set CRON_SECRET in the project." +
+      (env.AGENT_NATIVE_VERCEL_CRON_SCHEDULE?.trim()
+        ? ""
+        : " Hobby only allows daily crons: set AGENT_NATIVE_VERCEL_CRON_SCHEDULE " +
+          'to a daily expression such as "0 9 * * *" there.'),
   );
 }
 
