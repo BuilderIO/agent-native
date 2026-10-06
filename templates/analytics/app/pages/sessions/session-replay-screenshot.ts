@@ -312,11 +312,13 @@ export async function assertRemoteImagesCapturable(
 
           image.crossOrigin = "anonymous";
           image.onload = () => {
+            const hasPositiveDimensions =
+              Math.sign(image.naturalWidth) === 1 &&
+              Math.sign(image.naturalHeight) === 1;
+            const pixelCount = image.naturalWidth * image.naturalHeight;
             if (
-              image.naturalWidth > 0 &&
-              image.naturalHeight > 0 &&
-              image.naturalWidth * image.naturalHeight <=
-                MAX_INLINE_IMAGE_PIXELS
+              hasPositiveDimensions &&
+              pixelCount <= MAX_INLINE_IMAGE_PIXELS
             ) {
               try {
                 const canvas = resource.document.createElement("canvas");
