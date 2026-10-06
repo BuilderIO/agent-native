@@ -340,10 +340,19 @@ export function setCodeLayerAttributeInHtml(
   return `${content.slice(0, insertAt)}${replacement}${content.slice(insertAt)}`;
 }
 
+// A `<body` inside a comment or a script, style, textarea, or title is text, not
+// the document's body tag.
+const BODY_OPEN_TAG_SCAN =
+  /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title)\b[\s\S]*?<\/\1\s*>|<body\b/gi;
+
 function findBodyOpenTag(
   content: string,
 ): { start: number; end: number; tag: string } | null {
-  const match = /<body\b/i.exec(content);
+  BODY_OPEN_TAG_SCAN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = BODY_OPEN_TAG_SCAN.exec(content))) {
+    if (/^<body/i.test(match[0])) break;
+  }
   if (!match) return null;
   let quote: '"' | "'" | null = null;
   for (let i = match.index; i < content.length; i += 1) {

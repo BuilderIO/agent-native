@@ -3257,6 +3257,8 @@ function classifyStructurePreservingEdit(
   const candidate = lastIndexStartingBefore(elements, prefix);
   if (candidate < 0) return null;
   const opening = elements[candidate]!;
+  // Their text is code, which only a full parse and validation can judge.
+  if (opening.tag === "script" || opening.tag === "style") return null;
   let target: ParsedElement | undefined;
   let nextAttributes: ParsedAttribute[] | undefined;
   if (removedEnd <= opening.openEnd - 1) {

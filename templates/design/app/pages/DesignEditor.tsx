@@ -20982,6 +20982,12 @@ function DesignEditor() {
       covered.size === 0 ? covered : new Set(),
     );
   }, [layersSearching]);
+  // The worklist restarts when a screen is added, removed, or replaced; edits
+  // keep their ids, so typing never restarts it.
+  const fileIdsKey = useMemo(
+    () => files.map((file) => file.id).join("\u0000"),
+    [files],
+  );
   useEffect(() => {
     if (!layersSearching || layerModelsCoverAll) return;
     let rankedQuery: string | null = null;
@@ -21025,7 +21031,7 @@ function DesignEditor() {
       }
       return next >= ranked.length;
     });
-  }, [files.length, layerModelsCoverAll, layersSearching]);
+  }, [fileIdsKey, layerModelsCoverAll, layersSearching]);
   const codeLayerModelByFileId = useMemo(
     () => new Map(codeLayerModelsByFile.map((model) => [model.fileId, model])),
     [codeLayerModelsByFile],

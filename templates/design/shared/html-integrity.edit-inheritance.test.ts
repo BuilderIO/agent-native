@@ -1,7 +1,10 @@
 import * as parse5 from "parse5";
 import { expect, it, vi } from "vitest";
 
-import { buildCodeLayerProjection } from "./code-layer";
+import {
+  buildCodeLayerProjection,
+  structurePreservingEditTarget,
+} from "./code-layer";
 import { assertDesignHtmlEditIntegrity } from "./html-integrity";
 
 vi.mock("parse5", async (importOriginal) => {
@@ -71,4 +74,24 @@ it("fully checks a style edit that unhides an x-cloak element", () => {
   expect(() =>
     edit(previous, previous.replace("display: none", "color: red")),
   ).toThrow();
+});
+
+it("never treats an edit inside a script or style block as structure-preserving", () => {
+  const page = doc(
+    "<style>main { color: red; }</style><script>let x = 1;</script><main>Hi</main>",
+  );
+  buildCodeLayerProjection(page);
+
+  expect(
+    structurePreservingEditTarget(
+      page,
+      page.replace("color: red", "color: blue"),
+    ),
+  ).toBeNull();
+  expect(
+    structurePreservingEditTarget(page, page.replace("let x = 1", "let x = 2")),
+  ).toBeNull();
+  expect(
+    structurePreservingEditTarget(page, page.replace(">Hi<", ">Hey<")),
+  ).not.toBeNull();
 });

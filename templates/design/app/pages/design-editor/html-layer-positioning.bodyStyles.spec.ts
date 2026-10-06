@@ -425,3 +425,22 @@ describe("getBodyInlineStyles", () => {
     expect(getBodyInlineStyles("<main>x</main>").backgroundColor).toBe("");
   });
 });
+
+describe("the body tag inside head scripts and comments", () => {
+  const decoys = `<!DOCTYPE html><html><head>
+    <!-- <body style="color: green"> -->
+    <script>document.write('<body style="color: red">');</script>
+    <style>/* <body style="color: purple"> */</style>
+  </head><body style="background-color: blue"><p>x</p></body></html>`;
+
+  it("reads the real body's styles", () => {
+    expect(getBodyInlineStyles(decoys).backgroundColor).toBe("blue");
+  });
+
+  it("writes to the real body", () => {
+    const next = setBodyInlineStyles(decoys, { backgroundColor: "red" })!;
+    expect(next).toContain('<body style="background-color: red">');
+    expect(next).toContain(`'<body style="color: red">'`);
+    expect(next).toContain('<!-- <body style="color: green"> -->');
+  });
+});
