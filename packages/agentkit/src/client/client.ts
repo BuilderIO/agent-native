@@ -672,6 +672,9 @@ function toolHistoryValueOmission(value: unknown): string | undefined {
 }
 
 function toolHistoryTextOmission(value: string): string | undefined {
+  if (value.length > MAX_TOOL_HISTORY_VALUE_BYTES) {
+    return "it exceeds 64 KiB";
+  }
   return new TextEncoder().encode(value).byteLength >
     MAX_TOOL_HISTORY_VALUE_BYTES
     ? "it exceeds 64 KiB"
@@ -740,6 +743,14 @@ function messagesWithToolCallHistory(
 
   for (let index = recentCalls.length - 1; index >= 0; index--) {
     const toolCall = recentCalls[index]!;
+    if (
+      toolHistoryTextOmission(toolCall.id) ||
+      toolHistoryTextOmission(toolCall.name)
+    ) {
+      omittedHistory = true;
+      omissionMessageId ??= toolCall.messageId;
+      continue;
+    }
 
     const parts = toolCallHistoryParts(toolCall);
     const candidate = { messageId: toolCall.messageId!, parts };
@@ -772,7 +783,7 @@ function messagesWithToolCallHistory(
     historyPartsByMessageId.set(messageId, historyParts);
   }
 
-  if (omittedHistory && selectedCalls.length && omissionMessageId) {
+  if (omittedHistory && omissionMessageId) {
     const historyParts = historyPartsByMessageId.get(omissionMessageId) ?? [];
     historyParts.push({
       type: "text",

@@ -767,6 +767,106 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it.each(["id", "name"] as const)(
+    "keeps an omission notice when every tool %s is too large for history",
+    async (field) => {
+      let runNumber = 0;
+      const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+        runId: `run-${++runNumber}`,
+      }));
+      const transport: AgentTransport = {
+        ...createTransport([]),
+        startRun,
+        async *subscribeToRun({ runId }) {
+          const event = (
+            sequence: number,
+            body: Omit<
+              AgentEvent,
+              "id" | "threadId" | "runId" | "sequence" | "occurredAt"
+            >,
+          ) =>
+            ({
+              ...body,
+              id: `${runId}-event-${sequence}`,
+              threadId: "thread-1",
+              runId,
+              sequence,
+              occurredAt: "2026-08-29T00:00:00.000Z",
+            }) as AgentEvent;
+          if (runId !== "run-1") {
+            yield event(1, { type: "run.started" });
+            yield event(2, { type: "run.completed" });
+            return;
+          }
+
+          const toolCall = {
+            id: field === "id" ? "x".repeat(64 * 1024 + 1) : "call-1",
+            name: field === "name" ? "x".repeat(64 * 1024 + 1) : "search",
+            messageId: "assistant-1",
+          };
+          yield event(1, { type: "run.started" });
+          yield event(2, {
+            type: "message.created",
+            message: {
+              id: "assistant-1",
+              role: "assistant",
+              status: "streaming",
+              parts: [{ type: "text", text: "I searched the document." }],
+            },
+          });
+          yield event(3, {
+            type: "tool.started",
+            toolCall: { ...toolCall, status: "running" },
+          });
+          yield event(4, {
+            type: "tool.updated",
+            toolCall: {
+              ...toolCall,
+              output: "Found one result.",
+              status: "completed",
+            },
+          });
+          yield event(5, {
+            type: "message.completed",
+            message: {
+              id: "assistant-1",
+              role: "assistant",
+              status: "complete",
+              parts: [{ type: "text", text: "I searched the document." }],
+            },
+          });
+          yield event(6, { type: "run.completed" });
+        },
+      };
+      const client = new AgentKitClient({ transport });
+
+      await (
+        await client.sendMessage({
+          threadId: "thread-1",
+          text: "Search the document",
+        })
+      ).completed;
+      await (
+        await client.sendMessage({
+          threadId: "thread-1",
+          text: "What did you find?",
+        })
+      ).completed;
+
+      const assistantMessage = startRun.mock.calls[1]![0].messages.find(
+        (message) => message.id === "assistant-1",
+      );
+      expect(assistantMessage?.parts).toContainEqual({
+        type: "text",
+        text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      });
+      expect(
+        assistantMessage?.parts.filter((part) => part.type === "data"),
+      ).toHaveLength(0);
+      await client.shutdown();
+    },
+  );
+
   it("marks the local message failed if its acknowledgement callback throws", async () => {
     const startRun = vi.fn<AgentTransport["startRun"]>();
     const client = new AgentKitClient({
