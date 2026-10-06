@@ -1,6 +1,6 @@
 ---
 title: "CV durable"
-description: "Lorsqu'une exécution d'un agent hébergé est interrompue et reprend, les appels d'outils à effets secondaires terminés ne sont pas réexécutés : un journal des appels d'outils dérivé du grand livre durable bloque les envois, les frais et les tickets en double."
+description: "Lorsqu'une exécution d'un agent hébergé est interrompue et reprend dans le même tour, un journal des appels d'outils dérivé du grand livre durable bloque les répétitions exactes d'appels d'écriture déjà terminés."
 ---
 
 # CV durable
@@ -94,9 +94,15 @@ Propriétés clés :
 - **À consommer une fois.** Chaque entrée terminée est réclamée lorsqu'elle correspond, de sorte que deux nouveaux appels identiques véritablement distincts au cours du même tour ne court-circuitent pas tous les deux lors d'une achèvement journalisée.
 - **Les nouveaux appels restent intacts.** Un appel au premier tour voit un journal vide ; rien ne change pour les exécutions normales.
 
-<Callout id="doc-block-fjhhyg" tone="success">
+<Callout id="doc-block-fjhhyg" tone="warning">
 
-Together the two layers mean an interrupted run that already had a real side effect resumes **without repeating it** — no duplicate emails, charges, or tickets — while genuinely new work still runs. Read-only actions are never blocked; re-reading is always safe.
+Le bloc dur n'arrête qu'une **répétition exacte** : le même outil d'écriture avec la même entrée, après qu'une tentative antérieure dans le même tour s'est terminée et a enregistré son résultat. Il n'exclut pas tous les e-mails, débits ou tickets en double :
+
+- **Une nouvelle tentative reformulée s'exécute.** Si le modèle modifie n'importe quel argument, comme le corps de l'e-mail, l'appel ne correspond plus et s'exécute à nouveau.
+- **Un plantage en plein envoi peut entraîner une répétition.** Si le processus s'arrête brutalement après que l'effet secondaire s'est produit, mais avant que son résultat ne soit enregistré, l'appel est considéré comme interrompu, et le bloc dur ne s'applique qu'aux appels terminés.
+- **Une exécution plantée ne reprend que s'il s'agit d'une exécution durable en arrière-plan.** Sinon, l'exécution se termine par une erreur, et **Continuer** démarre un nouveau tour avec un journal vide, si bien qu'aucune des deux couches ne s'applique. Voir [Exécutions durables en arrière-plan](/docs/durable-background-runs).
+
+Une action dont l'effet secondaire ne doit jamais se répéter a besoin de sa propre vérification d'idempotence. Les actions en lecture seule ne sont jamais bloquées ; relire est toujours sans risque.
 
 </Callout>
 

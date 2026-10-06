@@ -1,6 +1,6 @@
 ---
 title: "Currículum vitae duradero"
-description: "Cuando la ejecución de un agente alojado se interrumpe y se reanuda, las llamadas de herramientas de efectos secundarios completadas no se vuelven a ejecutar: un diario de llamadas de herramientas derivado del libro mayor duradero bloquea envíos, cargos y tickets duplicados."
+description: "Cuando la ejecución de un agente alojado se interrumpe y se reanuda en el mismo turno, un diario de llamadas de herramientas derivado del libro mayor duradero bloquea las repeticiones exactas de llamadas de escritura que ya se completaron."
 ---
 
 # Currículum vitae duradero
@@ -94,9 +94,15 @@ Propiedades clave:
 - **Consume una vez.** Cada entrada completada se reclama cuando coincide, por lo que dos llamadas nuevas idénticas genuinamente distintas en el mismo turno no provocan un cortocircuito en una finalización registrada.
 - **Nuevas llamadas intactas.** Una llamada de primer turno ve un diario vacío; nada cambia para ejecuciones normales.
 
-<Callout id="doc-block-fjhhyg" tone="success">
+<Callout id="doc-block-fjhhyg" tone="warning">
 
-Together the two layers mean an interrupted run that already had a real side effect resumes **without repeating it** — no duplicate emails, charges, or tickets — while genuinely new work still runs. Read-only actions are never blocked; re-reading is always safe.
+El bloque duro solo detiene una **repetición exacta**: la misma herramienta de escritura con la misma entrada, después de que un intento anterior en el mismo turno terminara y registrara su resultado. No descarta que se dupliquen correos electrónicos, cargos o tickets:
+
+- **Un reintento reformulado se ejecuta.** Si el modelo cambia cualquier argumento, como el cuerpo del correo electrónico, la llamada deja de coincidir y se ejecuta de nuevo.
+- **Un fallo a mitad del envío puede provocar una repetición.** Si el proceso se cae después de que el efecto secundario se produzca, pero antes de que se registre su resultado, la llamada cuenta como interrumpida, y el bloque duro solo se aplica a las llamadas completadas.
+- **Tras un fallo, una ejecución solo se reanuda si es una ejecución duradera en segundo plano.** De lo contrario, la ejecución termina con un error y **Continuar** inicia un nuevo turno con un diario vacío, por lo que no se aplica ninguna de las dos capas. Consulta [Ejecuciones duraderas en segundo plano](/docs/durable-background-runs).
+
+Una acción cuyo efecto secundario nunca deba repetirse necesita su propia comprobación de idempotencia. Las acciones de solo lectura nunca se bloquean; volver a leer siempre es seguro.
 
 </Callout>
 
