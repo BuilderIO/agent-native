@@ -28265,6 +28265,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         rejectInsert("anchor-is-subject");
         return;
       }
+      var insertContainer =
+        insertPlacement === "inside"
+          ? insertAnchor
+          : insertAnchor.parentElement;
+      var preserveAbsoluteInsert = Boolean(
+        e.data.dropMode === "absolute-container" &&
+        !insertGridPlacement &&
+        isAbsolutePrimitiveContainer(insertContainer),
+      );
       var insertTarget = {
         anchor: insertAnchor,
         placement: insertPlacement,
@@ -28274,8 +28283,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             : insertAnchor.parentElement!,
         ),
         dropMode:
-          insertPlacement === "inside" &&
-          isAbsolutePrimitiveContainer(insertAnchor)
+          preserveAbsoluteInsert ||
+          (insertPlacement === "inside" &&
+            isAbsolutePrimitiveContainer(insertAnchor))
             ? "absolute-container"
             : "flow-insert",
         gridPlacement: insertGridPlacement || undefined,
