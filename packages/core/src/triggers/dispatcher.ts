@@ -1007,6 +1007,7 @@ async function dispatchQueuedAutomationEvent(
   // Gateway) the run itself would use, with the same identity-aware check as
   // interactive chat — a raw provider API key is not how most owners are
   // actually authorized to call a model.
+  let classifierEngine: BackgroundAutomationDeps["engine"];
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
       { ownerEmail: identity.userEmail, orgId: identity.orgId },
@@ -1020,6 +1021,7 @@ async function dispatchQueuedAutomationEvent(
       );
       return "completed";
     }
+    classifierEngine = credentialCheck.engine;
   }
 
   let matches: boolean;
@@ -1035,7 +1037,7 @@ async function dispatchQueuedAutomationEvent(
             orgId: identity.orgId,
             appId: deps.appId,
           },
-          { deadlineAt: hardDeadlineAt },
+          { deadlineAt: hardDeadlineAt, engine: classifierEngine },
         ),
     );
   } catch (error) {
@@ -1109,6 +1111,7 @@ export async function dispatchAutomationWebhookTask(
   );
   if (!resolved.ok) throw new Error(resolved.reason);
   const identity = resolved.identity;
+  let classifierEngine: BackgroundAutomationDeps["engine"];
   if (meta.condition?.trim()) {
     const credentialCheck = await checkBackgroundAutomationCredentials(
       { ownerEmail: identity.userEmail, orgId: identity.orgId },
@@ -1120,6 +1123,7 @@ export async function dispatchAutomationWebhookTask(
         credentialCheck.failure.code,
       );
     }
+    classifierEngine = credentialCheck.engine;
   }
 
   if (isBackgroundAutomationRunActive(meta)) {
@@ -1130,11 +1134,16 @@ export async function dispatchAutomationWebhookTask(
     matches = await runWithRequestContext(
       { userEmail: identity.userEmail, orgId: identity.orgId },
       () =>
-        evaluateCondition(meta.condition, task.payload, {
-          userEmail: identity.userEmail,
-          orgId: identity.orgId,
-          appId: deps.appId,
-        }),
+        evaluateCondition(
+          meta.condition,
+          task.payload,
+          {
+            userEmail: identity.userEmail,
+            orgId: identity.orgId,
+            appId: deps.appId,
+          },
+          { engine: classifierEngine },
+        ),
     );
   } catch (err) {
     const reason =

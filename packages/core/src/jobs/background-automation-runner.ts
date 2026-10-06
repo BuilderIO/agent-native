@@ -790,13 +790,15 @@ async function resolveUsableBackgroundEngine(
 export async function checkBackgroundAutomationCredentials(
   identity: { ownerEmail: string; orgId?: string },
   deps: BackgroundAutomationDeps,
-): Promise<{ ok: true } | { ok: false; failure: AutomationFailure }> {
+): Promise<
+  { ok: true; engine: AgentEngine } | { ok: false; failure: AutomationFailure }
+> {
   try {
-    await runWithRequestContext(
+    const engine = await runWithRequestContext(
       { userEmail: identity.ownerEmail, orgId: identity.orgId },
       () => resolveUsableBackgroundEngine(identity, deps, () => undefined),
     );
-    return { ok: true };
+    return { ok: true, engine };
   } catch (error) {
     return { ok: false, failure: classifyAutomationFailure(error) };
   }
