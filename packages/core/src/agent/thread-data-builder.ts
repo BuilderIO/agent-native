@@ -1436,7 +1436,9 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
 export function applySubmittedUserMessage(
   repo: any,
   userMessage: UserMessage,
-  queuedMessage?: { id: string; claimId?: string; now?: number },
+  queuedMessage?:
+    | { kind?: "queued-message"; id: string; claimId?: string; now?: number }
+    | { kind: "background-operation"; id: string },
 ):
   | { status: "submitted" | "already_submitted"; repo: any }
   | { status: "already_claimed" | "claim_expired" } {
@@ -1483,6 +1485,16 @@ export function applySubmittedUserMessage(
           (message as Record<string, unknown>).id === queuedMessage.id,
       )
     : undefined;
+  if (queuedMessage.kind === "background-operation") {
+    if (queued) return { status: "claim_expired" };
+    return {
+      status: "submitted",
+      repo: upsertUserMessage(
+        claimQueuedMessage(repo, queuedMessage.id),
+        userMessage,
+      ),
+    };
+  }
   const claim = queued?.promotionClaim;
   if (
     !queued ||

@@ -4,9 +4,14 @@ import type * as Sentry from "@sentry/browser";
 import { recordTrackingEvent } from "../observability/tracing.js";
 import {
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  AGENT_SIGNALS_PAGEVIEW_PROPERTY,
+  AGENT_SIGNALS_VERSION,
   canonicalTrackingEvent,
   legacyLifecycleEvent,
   normalizeTrackingDimension,
+  PAGE_LOAD_PAGEVIEW_PROPERTY,
+  isWaitedActionResponse,
+  SLOW_ACTION_RESPONSE_MS,
   withCanonicalTrackingProperties,
   type AgentNativeLifecycleEventName,
 } from "../shared/analytics-events.js";
@@ -14,6 +19,8 @@ import {
   ANALYTICS_CLIENT_PLATFORM_PROPERTY,
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
+import { hasAttributionSource } from "../shared/attribution-source.js";
+import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import {
   classifyErrorNoise,
   type ErrorNoiseFrame,
@@ -28,6 +35,7 @@ import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import {
+  getAnalyticsPageLoadId,
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
@@ -48,11 +56,18 @@ import {
   installErrorCapture,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
+import { currentRouteTemplate } from "./route-template.js";
 import type {
   SessionReplayOptions,
   SessionReplayStartResult,
 } from "./session-replay.js";
 import { scrubUrl } from "./url-scrub.js";
+import {
+  installWebVitals,
+  type PageViewVitals,
+  type WebVitalsController,
+  type WebVitalsLocation,
+} from "./web-vitals.js";
 export { scrubUrl } from "./url-scrub.js";
 export {
   addErrorBreadcrumb,
@@ -113,6 +128,8 @@ type GetDefaultProps = (
 type PageviewTrackingState = {
   installed: boolean;
   lastPageviewKey: string | null;
+  webVitalsInstalled?: boolean;
+  webVitals?: WebVitalsController | null;
 };
 
 type AppEntryTrackingState = {
@@ -143,6 +160,7 @@ export type ConfigureTrackingOptions = {
   llmConnectionStatus?: boolean;
   authSessionRefresh?: boolean;
   pageviewTracking?: boolean;
+  webVitals?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   errorCapture?: boolean | ErrorCaptureConfigOptions;
 };
@@ -244,6 +262,8 @@ const FIRST_TOUCH_QUERY_FIELDS = [
   "gclid",
   "msclkid",
   "vector_source",
+  "site_referrer",
+  "site_landing_path",
 ] as const;
 const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "gclid",
@@ -258,8 +278,83 @@ const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "utm_term",
   "landing_path",
   "landing_referrer",
+  "site_referrer",
+  "site_landing_path",
   "landed_at",
 ] as const satisfies readonly (keyof FirstTouchAttribution)[];
+const LAST_TOUCH_STORAGE_KEY = "an_last_touch";
+const LAST_TOUCH_COOKIE_NAME = "an_lt";
+// Small enough that both cookies still fit the signup handoff header.
+const LAST_TOUCH_MAX_COOKIE_BYTES = 700;
+// What a sourced visit keeps as last touch, besides its path and time.
+const LAST_TOUCH_SOURCE_FIELDS = [
+  "ref",
+  "via",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "landing_referrer",
+  "site_referrer",
+] as const satisfies readonly (keyof LastTouchAttribution)[];
+// Which fields the cookie keeps first when they don't all fit.
+const LAST_TOUCH_COOKIE_FIELD_PRIORITY = [
+  "ref",
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "via",
+  "utm_content",
+  "utm_term",
+  "landing_referrer",
+  "site_referrer",
+  "landing_path",
+  "touched_at",
+  "site_landing_path",
+] as const satisfies readonly (keyof LastTouchAttribution)[];
+// The marketing site forwards its own last touch under these names when it
+// differs from the first touch it forwards as plain campaign params.
+const FORWARDED_LAST_TOUCH_FIELDS = {
+  last_ref: "ref",
+  last_via: "via",
+  last_utm_source: "utm_source",
+  last_utm_medium: "utm_medium",
+  last_utm_campaign: "utm_campaign",
+  last_utm_content: "utm_content",
+  last_utm_term: "utm_term",
+  last_gclid: "gclid",
+  last_msclkid: "msclkid",
+  last_vector_source: "vector_source",
+  last_referrer: "site_referrer",
+  last_landing_path: "site_landing_path",
+} as const satisfies Record<string, keyof LastTouchAttribution>;
+// When the site's latest sourced visit happened, so an older site visit can't
+// replace a newer one the app already has.
+const FORWARDED_LAST_TOUCH_AT_PARAM = "last_at";
+
+interface AttributionCookieSpec {
+  name: string;
+  maxBytes: number;
+  priority: readonly string[];
+}
+
+const FIRST_TOUCH_COOKIE: AttributionCookieSpec = {
+  name: FIRST_TOUCH_COOKIE_NAME,
+  maxBytes: FIRST_TOUCH_MAX_COOKIE_BYTES,
+  priority: FIRST_TOUCH_COOKIE_FIELD_PRIORITY,
+};
+const LAST_TOUCH_COOKIE: AttributionCookieSpec = {
+  name: LAST_TOUCH_COOKIE_NAME,
+  maxBytes: LAST_TOUCH_MAX_COOKIE_BYTES,
+  priority: LAST_TOUCH_COOKIE_FIELD_PRIORITY,
+};
 
 let _firstTouchCaptured = false;
 
@@ -276,7 +371,29 @@ export interface FirstTouchAttribution {
   vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
+  site_referrer?: string;
+  site_landing_path?: string;
   landed_at?: string;
+  capture_truncated?: string;
+}
+
+/** The latest visit that had a source; see `captureLastTouchAttribution`. */
+export interface LastTouchAttribution {
+  ref?: string;
+  via?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_content?: string;
+  utm_term?: string;
+  gclid?: string;
+  msclkid?: string;
+  vector_source?: string;
+  landing_referrer?: string;
+  site_referrer?: string;
+  site_landing_path?: string;
+  landing_path?: string;
+  touched_at?: string;
   capture_truncated?: string;
 }
 
@@ -590,7 +707,7 @@ function buildFirstTouchAttribution(): FirstTouchAttribution {
   return attribution;
 }
 
-function readFirstTouchCookie(): string | null {
+function readAttributionCookie(cookieName: string): string | null {
   if (typeof document === "undefined") return null;
   try {
     const cookies = document.cookie ? document.cookie.split(";") : [];
@@ -598,7 +715,7 @@ function readFirstTouchCookie(): string | null {
       const eq = part.indexOf("=");
       if (eq === -1) continue;
       const name = part.slice(0, eq).trim();
-      if (name === FIRST_TOUCH_COOKIE_NAME) {
+      if (name === cookieName) {
         return part.slice(eq + 1).trim();
       }
     }
@@ -608,30 +725,35 @@ function readFirstTouchCookie(): string | null {
   return null;
 }
 
-function firstTouchCookieAssignment(encodedValue: string): string {
+function attributionCookieAssignment(
+  cookieName: string,
+  encodedValue: string,
+): string {
   return (
-    `${FIRST_TOUCH_COOKIE_NAME}=${encodedValue}; path=/; ` +
+    `${cookieName}=${encodedValue}; path=/; ` +
     `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`
   );
 }
 
-function fitFirstTouchCookieValue(value: string): string {
-  const source = JSON.parse(value) as FirstTouchAttribution;
-  const compact: FirstTouchAttribution = {};
+function fitAttributionCookieValue(
+  value: string,
+  spec: AttributionCookieSpec,
+): string {
+  const source = JSON.parse(value) as Record<string, unknown>;
+  const compact: Record<string, string> = {};
   let truncated = false;
+  const fits = (encoded: string) =>
+    attributionCookieAssignment(spec.name, encoded).length <= spec.maxBytes;
 
-  for (const field of FIRST_TOUCH_COOKIE_FIELD_PRIORITY) {
+  for (const field of spec.priority) {
     const rawValue = source[field];
     if (typeof rawValue !== "string" || !rawValue) continue;
     const candidate = {
       ...compact,
       [field]: rawValue.slice(0, FIRST_TOUCH_MAX_FIELD_LENGTH),
     };
-    const encoded = encodeURIComponent(JSON.stringify(candidate));
-    if (
-      firstTouchCookieAssignment(encoded).length <= FIRST_TOUCH_MAX_COOKIE_BYTES
-    ) {
-      Object.assign(compact, { [field]: candidate[field] });
+    if (fits(encodeURIComponent(JSON.stringify(candidate)))) {
+      compact[field] = candidate[field];
     } else {
       truncated = true;
     }
@@ -640,85 +762,182 @@ function fitFirstTouchCookieValue(value: string): string {
   if (truncated) {
     compact.capture_truncated = "1";
     // Keep the auth handoff under its 4 KB header limit after re-encoding.
-    for (const field of [...FIRST_TOUCH_COOKIE_FIELD_PRIORITY].reverse()) {
+    for (const field of [...spec.priority].reverse()) {
       const encoded = encodeURIComponent(JSON.stringify(compact));
-      if (
-        firstTouchCookieAssignment(encoded).length <=
-        FIRST_TOUCH_MAX_COOKIE_BYTES
-      ) {
-        return encoded;
-      }
+      if (fits(encoded)) return encoded;
       delete compact[field];
     }
   }
 
   const encoded = encodeURIComponent(JSON.stringify(compact));
-  if (
-    firstTouchCookieAssignment(encoded).length > FIRST_TOUCH_MAX_COOKIE_BYTES
-  ) {
-    throw new Error("First-touch attribution exceeded the cookie budget");
+  if (!fits(encoded)) {
+    throw new Error(`Attribution exceeded the ${spec.name} cookie budget`);
   }
   return encoded;
 }
 
-function writeFirstTouchCookie(value: string): void {
+function writeAttributionCookie(
+  value: string,
+  spec: AttributionCookieSpec,
+): void {
   if (typeof document === "undefined") return;
-  const encodedValue = fitFirstTouchCookieValue(value);
+  const encodedValue = fitAttributionCookieValue(value, spec);
   try {
-    document.cookie = firstTouchCookieAssignment(encodedValue);
+    document.cookie = attributionCookieAssignment(spec.name, encodedValue);
   } catch {
     // best-effort
   }
 }
 
+function storeAttribution(
+  storageKey: string,
+  spec: AttributionCookieSpec,
+  attribution: object,
+): void {
+  const json = JSON.stringify(attribution);
+  safeStorageSet(storageKey, json);
+  writeAttributionCookie(json, spec);
+}
+
 /**
- * Capture the visitor's first-touch referral attribution exactly once. Reads
- * the current URL query params + landing info and, IF no attribution is
- * already stored (first-write-wins), persists it to both `localStorage`
- * (`an_attribution`) and the first-party `an_ft` cookie. Fully defensive and
- * SSR-safe — any failure is swallowed so it can never break app boot.
+ * Restore a cookie that expired or was cleared from its stored value, so the
+ * signup boundary still sees it.
+ */
+function backfillAttributionCookie(
+  storageKey: string,
+  spec: AttributionCookieSpec,
+): void {
+  if (readAttributionCookie(spec.name)) return;
+  const stored = safeStorageGet(storageKey);
+  if (!stored) return;
+  try {
+    writeAttributionCookie(stored, spec);
+  } catch {
+    // coercion-ok: localStorage still holds the value; only this page's
+    // signup handoff goes without it.
+  }
+}
+
+/**
+ * Capture the visitor's referral attribution once per page load, into both
+ * `localStorage` and a first-party cookie the signup boundary reads. Fully
+ * defensive and SSR-safe — any failure is swallowed so it can never break app
+ * boot.
+ *
+ * First touch (`an_attribution` / `an_ft`) is first-write-wins, except over a
+ * visit that had no source: the first visit that says where this person came
+ * from replaces it. Without that, an untagged first visit would hide every
+ * tagged visit after it.
  */
 function captureFirstTouchAttribution(): void {
   if (_firstTouchCaptured) return;
   _firstTouchCaptured = true;
   if (typeof window === "undefined") return;
   try {
-    const existing = safeStorageGet(FIRST_TOUCH_STORAGE_KEY);
-    if (existing) {
-      // Already captured in a prior visit. Backfill the cookie if it expired
-      // or was cleared so the signup boundary still sees first-touch data, but
-      // never overwrite the stored value itself (first-write-wins).
-      if (!readFirstTouchCookie()) {
-        try {
-          writeFirstTouchCookie(existing);
-        } catch {
-          // ignore
-        }
-      }
-      return;
+    const current = buildFirstTouchAttribution();
+    const existing = getFirstTouchAttribution();
+    if (
+      existing &&
+      (hasAttributionSource(existing) || !hasAttributionSource(current))
+    ) {
+      backfillAttributionCookie(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE);
+    } else {
+      storeAttribution(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE, current);
     }
-    const attribution = buildFirstTouchAttribution();
-    const json = JSON.stringify(attribution);
-    safeStorageSet(FIRST_TOUCH_STORAGE_KEY, json);
-    writeFirstTouchCookie(json);
+    captureLastTouchAttribution(current);
   } catch {
     // Attribution is best-effort telemetry; never let it break boot.
   }
 }
 
-export function getFirstTouchAttribution(): FirstTouchAttribution | null {
+/**
+ * Last touch (`an_last_touch` / `an_lt`) is the latest visit that had a
+ * source. When the marketing site forwards its own last touch, that visit is
+ * the one to keep, not the site's first touch riding on the same link. A site
+ * visit keeps the time it happened, and loses to a newer visit the app has
+ * already recorded.
+ */
+function captureLastTouchAttribution(current: FirstTouchAttribution): void {
+  const forwarded = readForwardedLastTouch();
+  const source = forwarded ?? (hasAttributionSource(current) ? current : null);
+  const forwardedAt = readForwardedLastTouchAt();
+  const existing = getLastTouchAttribution();
+  const existingAt = Date.parse(existing?.touched_at ?? "");
+  if (
+    !source ||
+    (forwardedAt &&
+      hasAttributionSource(existing) &&
+      existingAt > Date.parse(forwardedAt))
+  ) {
+    backfillAttributionCookie(LAST_TOUCH_STORAGE_KEY, LAST_TOUCH_COOKIE);
+    return;
+  }
+  const lastTouch: LastTouchAttribution = {};
+  for (const field of LAST_TOUCH_SOURCE_FIELDS) {
+    const value = source[field];
+    if (value) lastTouch[field] = value;
+  }
+  // As for first touch, `landing_path` is where the visitor entered this app
+  // and `site_landing_path` the marketing-site page the touch landed on.
+  if (current.landing_path) lastTouch.landing_path = current.landing_path;
+  if (source.site_landing_path) {
+    lastTouch.site_landing_path = source.site_landing_path;
+  }
+  lastTouch.touched_at = forwardedAt ?? current.landed_at;
+  storeAttribution(LAST_TOUCH_STORAGE_KEY, LAST_TOUCH_COOKIE, lastTouch);
+}
+
+function readForwardedLastTouchAt(): string | undefined {
+  const raw = new URLSearchParams(window.location.search).get(
+    FORWARDED_LAST_TOUCH_AT_PARAM,
+  );
+  const time = Date.parse(raw ?? "");
+  // A visit can't be in the future; a bad clock or value means "now".
+  if (!Number.isFinite(time) || time > Date.now()) return undefined;
+  return new Date(time).toISOString();
+}
+
+function readForwardedLastTouch(): LastTouchAttribution | null {
+  const params = new URLSearchParams(window.location.search);
+  const forwarded: LastTouchAttribution = {};
+  for (const [param, field] of Object.entries(FORWARDED_LAST_TOUCH_FIELDS)) {
+    const value = truncateFirstTouchField(params.get(param));
+    if (value) forwarded[field] = value;
+  }
+  return hasAttributionSource(forwarded) ? forwarded : null;
+}
+
+function readStoredAttribution<T>(storageKey: string): T | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = safeStorageGet(FIRST_TOUCH_STORAGE_KEY);
+    const raw = safeStorageGet(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
-    return parsed as FirstTouchAttribution;
+    return parsed as T;
   } catch {
     return null;
   }
+}
+
+export function getFirstTouchAttribution(): FirstTouchAttribution | null {
+  return readStoredAttribution<FirstTouchAttribution>(FIRST_TOUCH_STORAGE_KEY);
+}
+
+export function getLastTouchAttribution(): LastTouchAttribution | null {
+  return readStoredAttribution<LastTouchAttribution>(LAST_TOUCH_STORAGE_KEY);
+}
+
+/**
+ * Store the visitor's first and last touch now instead of in
+ * `configureTracking()`, for a page that reads them before tracking starts.
+ * It runs once per page load, so tracking's own capture is then a no-op.
+ */
+export function captureAttribution(): void {
+  if (isSyntheticBrowserTraffic()) return;
+  captureFirstTouchAttribution();
 }
 
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
@@ -1215,6 +1434,7 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     }
     if (options.pageviewTracking !== false) {
       installPageviewTracking();
+      if (options.webVitals !== false) installWebVitalsTracking();
     }
     maybeInstallSessionReplay(
       options.sessionReplay,
@@ -1741,6 +1961,12 @@ function inferTemplateName(properties: Record<string, unknown>): string | null {
   return app;
 }
 
+/**
+ * Events that name their page only by route template. A path can hold a slug
+ * or an email, so it never rides along, not even from an app's default props.
+ */
+const ROUTE_ONLY_EVENT_NAMES = new Set(["web_vitals"]);
+
 function resolveProps(
   name: string,
   params?: Record<string, unknown>,
@@ -1800,7 +2026,7 @@ function resolveProps(
   });
   const withIdentity = applyTrackingIdentity(standard);
   const identity = _trackingIdentity;
-  return {
+  const resolved: Record<string, unknown> = {
     ...withIdentity,
     ...(getTrackingUserId() ? { user_id: getTrackingUserId() } : {}),
     ...(identity?.userEmail ? { user_email: identity.userEmail } : {}),
@@ -1809,6 +2035,11 @@ function resolveProps(
       _configuredAnalyticsClientPlatform ?? undefined,
     ),
   };
+  if (ROUTE_ONLY_EVENT_NAMES.has(name)) {
+    delete resolved.url;
+    delete resolved.path;
+  }
+  return resolved;
 }
 
 function sessionReplayTrackingProperties(): Record<string, unknown> {
@@ -1841,6 +2072,8 @@ function pageviewProperties(reason: string): Record<string, unknown> {
     path: window.location.pathname,
     hostname: window.location.hostname,
     navigation_type: reason,
+    [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
+    [PAGE_LOAD_PAGEVIEW_PROPERTY]: getAnalyticsPageLoadId(),
   };
   if (_trackingContentCaptureEnabled && window.location.search) {
     properties.search = scrubUrl(window.location.search);
@@ -2014,6 +2247,7 @@ function installPageviewTracking(): void {
   window.history.pushState = function pushState(...args) {
     const result = originalPushState.apply(this, args);
     syncTrackingContentCaptureForLocation();
+    state.webVitals?.navigate("push");
     schedulePageview("pushState");
     return result;
   };
@@ -2021,14 +2255,47 @@ function installPageviewTracking(): void {
   window.history.replaceState = function replaceState(...args) {
     const result = originalReplaceState.apply(this, args);
     syncTrackingContentCaptureForLocation();
+    state.webVitals?.navigate("replace");
     schedulePageview("replaceState");
     return result;
   };
 
   window.addEventListener("popstate", () => {
     syncTrackingContentCaptureForLocation();
+    state.webVitals?.navigate("push");
     schedulePageview("popstate");
   });
+}
+
+function webVitalsLocation(): WebVitalsLocation {
+  return {
+    route: currentRouteTemplate(),
+    pathname: window.location.pathname,
+  };
+}
+
+function reportPageViewVitals(vitals: PageViewVitals): void {
+  _sessionReplayModuleForCapture?.emitSessionReplayWebVitals?.(vitals);
+  trackEvent("web_vitals", {
+    ...(vitals.route ? { route: vitals.route } : {}),
+    navigation_type: vitals.navigationType,
+    ttfb_ms: vitals.ttfbMs,
+    lcp_ms: vitals.lcpMs,
+    inp_ms: vitals.inpMs,
+    cls: vitals.cls,
+  });
+}
+
+function installWebVitalsTracking(): void {
+  const state = getPageviewTrackingState();
+  if (state.webVitalsInstalled) return;
+  state.webVitalsInstalled = true;
+  if (isLocalAnalyticsHostname(window.location.hostname)) return;
+  try {
+    state.webVitals = installWebVitals(webVitalsLocation, reportPageViewVitals);
+  } catch (error) {
+    console.warn("[analytics] Web Vitals capture is unavailable:", error);
+  }
 }
 
 function sendAgentNativeAnalytics(
@@ -2045,12 +2312,14 @@ function sendAgentNativeAnalytics(
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return;
 
-  const endpoint =
+  const endpoint = resolveLaneEndpoint(
     _agentNativeAnalyticsEndpoint ||
-    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
-    (import.meta.env as Record<string, string | undefined>)
-      ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
-    AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT;
+      window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
+      (import.meta.env as Record<string, string | undefined>)
+        ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+      AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT,
+    window.location.hostname,
+  );
   const userId =
     typeof properties.userId === "string" ? properties.userId : undefined;
   const body = JSON.stringify({
@@ -2113,6 +2382,7 @@ const REPLAY_UNMARKED_EVENT_NAMES = new Set([
   "session status",
   "session_status",
   "action.response",
+  "web_vitals",
   "agent_chat_lifecycle",
   "session_replay_started",
   "session replay upload rejected",
@@ -2120,7 +2390,18 @@ const REPLAY_UNMARKED_EVENT_NAMES = new Set([
   AGENT_NATIVE_EXCEPTION_EVENT_NAME,
 ]);
 
-function markTrackedEventInSessionReplay(name: string): void {
+function markTrackedEventInSessionReplay(
+  name: string,
+  props: Record<string, unknown>,
+): void {
+  if (
+    name === "action.response" &&
+    typeof props.duration_ms === "number" &&
+    props.duration_ms >= SLOW_ACTION_RESPONSE_MS &&
+    isWaitedActionResponse(props)
+  ) {
+    _sessionReplayModuleForCapture?.emitSessionReplaySlowRequest?.(props);
+  }
   if (REPLAY_UNMARKED_EVENT_NAMES.has(name)) return;
   _sessionReplayModuleForCapture?.emitSessionReplayAnalyticsEvent?.(name);
 }
@@ -2153,7 +2434,9 @@ function trackBrowserEvent(
       sendGtag: !gtagNameMatchesCanonical,
     });
   }
-  if (markInReplay) markTrackedEventInSessionReplay(canonical?.name ?? name);
+  if (markInReplay) {
+    markTrackedEventInSessionReplay(canonical?.name ?? name, props);
+  }
   void recordTrackingEvent(name, props, "client");
   const lifecycle = legacyLifecycleEvent(name, props);
   // The alias describes the same moment, so it gets no second replay marker.

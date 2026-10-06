@@ -290,6 +290,74 @@ export function resolveContextChipBackspaceAction(options: {
 }
 
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const FILE_COMPARISON_CHUNK_BYTES = 64 * 1024;
+const MAX_ATTACHMENT_COMPARISON_BYTES = 16 * 1024 * 1024;
+const MAX_ATTACHMENT_COMPARISONS = 128;
+
+type AttachmentComparisonBudget = {
+  remainingBytes: number;
+  remainingComparisons: number;
+};
+
+function normalizeAttachmentContentType(contentType: string | undefined) {
+  return contentType?.trim().toLowerCase() || "application/octet-stream";
+}
+
+async function haveSameFileContents(
+  first: Blob,
+  second: Blob,
+  budget: AttachmentComparisonBudget,
+) {
+  if (first === second) return true;
+  if (first.size !== second.size) return false;
+
+  for (
+    let offset = 0;
+    offset < first.size;
+    offset += FILE_COMPARISON_CHUNK_BYTES
+  ) {
+    const end = Math.min(offset + FILE_COMPARISON_CHUNK_BYTES, first.size);
+    const comparisonBytes = (end - offset) * 2;
+    if (comparisonBytes > budget.remainingBytes) return false;
+    budget.remainingBytes -= comparisonBytes;
+    const [firstChunk, secondChunk] = await Promise.all([
+      first.slice(offset, end).arrayBuffer(),
+      second.slice(offset, end).arrayBuffer(),
+    ]);
+    budget.remainingBytes +=
+      comparisonBytes - firstChunk.byteLength - secondChunk.byteLength;
+    const firstBytes = new Uint8Array(firstChunk);
+    const secondBytes = new Uint8Array(secondChunk);
+    if (firstBytes.some((byte, index) => byte !== secondBytes[index])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function haveSameAttachmentInput(
+  first: { file: Blob; name: string; contentType: string },
+  second: { file: Blob; name: string; contentType: string },
+  budget: AttachmentComparisonBudget,
+) {
+  if (budget.remainingComparisons === 0) return false;
+  budget.remainingComparisons -= 1;
+  const firstExtension = first.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? "";
+  const secondExtension =
+    second.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? "";
+  if (
+    firstExtension !== secondExtension ||
+    first.contentType !== second.contentType
+  ) {
+    return false;
+  }
+  return haveSameFileContents(first.file, second.file, budget);
+}
+
+function isBlob(value: unknown): value is Blob {
+  return typeof Blob !== "undefined" && value instanceof Blob;
+}
 
 function isSameComposerAttachment(
   current: { id: string; file?: unknown },
@@ -300,6 +368,13 @@ function isSameComposerAttachment(
     (current === submitted ||
       (submitted.file != null && current.file === submitted.file))
   );
+}
+
+function isSameComposerAttachmentSnapshot(
+  current: { id: string; file?: unknown },
+  snapshot: { id: string; file?: unknown },
+) {
+  return current.id === snapshot.id && current.file === snapshot.file;
 }
 
 function composerReferenceFromMentionItem(
@@ -1100,9 +1175,8 @@ export interface TiptapComposerProps {
    */
   providerConnectStatusEnabled?: boolean;
   /**
-   * Override the Builder.io connect action in the model picker. When provided,
-   * clicking "Use Builder.io" calls this instead of opening a browser popup.
-   * Used by the Electron desktop app to route through the native IPC handler.
+   * Handle the existing-account choice in the Builder chooser in the model
+   * picker. "Create and activate" always uses the shared one-click flow.
    */
   onConnectProvider?: () => void;
   /** Route local runtime setup through the host's native bridge. */
@@ -2250,59 +2324,20 @@ function ModelSelector({
                   <>
                     {showProviderActions && (
                       <>
-                        {showBuilderAction && (
+                        {showBuilderAction && BuilderConnectPopover ? (
                           <>
-                            {BuilderConnectPopover ? (
-                              <BuilderConnectPopover
-                                flow={builderFlow}
-                                onConnect={(provisionAccount) => {
-                                  if (onConnectProvider && !provisionAccount) {
-                                    onConnectProvider();
-                                  } else {
-                                    builderFlow.start({ provisionAccount });
-                                  }
-                                }}
-                              >
-                                <button
-                                  type="button"
-                                  disabled={builderFlow.connecting}
-                                  className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
-                                >
-                                  <IconPlugConnected className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block text-[12px] font-medium text-foreground">
-                                      {builderFlow.connecting
-                                        ? t("agentPanel.connectingBuilder", {
-                                            defaultValue:
-                                              "Setting up Builder.io…",
-                                          })
-                                        : t("agentPanel.connectBuilderIo", {
-                                            defaultValue: "Use Builder.io",
-                                          })}
-                                    </span>
-                                    <span className="block text-[11px] text-muted-foreground">
-                                      {t("agentPanel.builderModelCredits", {
-                                        defaultValue:
-                                          "Free credits for Claude, OpenAI & Gemini",
-                                      })}
-                                    </span>
-                                  </span>
-                                </button>
-                              </BuilderConnectPopover>
-                            ) : (
+                            <BuilderConnectPopover
+                              flow={builderFlow}
+                              onConnect={(provisionAccount) => {
+                                if (onConnectProvider && !provisionAccount) {
+                                  onConnectProvider();
+                                } else {
+                                  builderFlow.start({ provisionAccount });
+                                }
+                              }}
+                            >
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (onConnectProvider) {
-                                    onConnectProvider();
-                                  } else {
-                                    // Without the consent popover there is no
-                                    // terms line, so never create an account.
-                                    builderFlow.start({
-                                      provisionAccount: false,
-                                    });
-                                  }
-                                }}
                                 disabled={builderFlow.connecting}
                                 className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
                               >
@@ -2326,7 +2361,7 @@ function ModelSelector({
                                   </span>
                                 </span>
                               </button>
-                            )}
+                            </BuilderConnectPopover>
                             {!onConnectProvider && builderFlow.error && (
                               <p
                                 role="alert"
@@ -2336,7 +2371,7 @@ function ModelSelector({
                               </p>
                             )}
                           </>
-                        )}
+                        ) : null}
                         {showAddKeysAction && (
                           <button
                             type="button"
@@ -2982,21 +3017,226 @@ export function TiptapComposer({
   const draftKeyRef = useRef(draftKey);
   const draftScopeGenerationRef = useRef(0);
   const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
+  const attachmentAddQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const attachmentSubmissionBarrierRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
+  const submittingAttachmentIdsRef = useRef(new Set<string>());
+  const pendingAttachmentAddsRef = useRef(
+    new Map<number, Set<Promise<void>>>(),
+  );
+  const pendingAttachmentFilesRef = useRef(new Map<File, number>());
+  const staleAttachmentFilesRef = useRef(new Set<File>());
+  const staleAttachmentSnapshotsRef = useRef(
+    new Set<(typeof composerAttachments)[number]>(),
+  );
+  const cleanStaleAttachments = useCallback(async () => {
+    await attachmentCleanupRef.current;
+    for (const file of staleAttachmentFilesRef.current) {
+      const cleanup = attachmentCleanupRef.current.then(async () => {
+        const index = composerRuntime
+          .getState()
+          .attachments.findIndex((attachment) => attachment.file === file);
+        if (index === -1) return;
+        await composerRuntime.getAttachmentByIndex(index).remove();
+      });
+      attachmentCleanupRef.current = cleanup.catch((error) => {
+        console.error("Could not remove stale composer attachment", error);
+      });
+      await cleanup;
+      staleAttachmentFilesRef.current.delete(file);
+    }
+    for (const staleAttachment of staleAttachmentSnapshotsRef.current) {
+      const cleanup = attachmentCleanupRef.current.then(async () => {
+        const index = composerRuntime
+          .getState()
+          .attachments.findIndex((attachment) =>
+            isSameComposerAttachmentSnapshot(attachment, staleAttachment),
+          );
+        if (index === -1) return;
+        await composerRuntime.getAttachmentByIndex(index).remove();
+      });
+      attachmentCleanupRef.current = cleanup.catch((error) => {
+        console.error("Could not remove stale composer attachment", error);
+      });
+      await cleanup;
+      staleAttachmentSnapshotsRef.current.delete(staleAttachment);
+    }
+  }, [composerRuntime]);
+  const createAttachmentSubmissionBarrier = useCallback(() => {
+    const drain = async () => {
+      while (true) {
+        const pendingAdds = [
+          ...pendingAttachmentAddsRef.current.values(),
+        ].flatMap((additions) => [...additions]);
+        const addQueue = attachmentAddQueueRef.current;
+        await addQueue;
+        await Promise.all(pendingAdds);
+        await cleanStaleAttachments();
+        if (
+          staleAttachmentFilesRef.current.size > 0 ||
+          staleAttachmentSnapshotsRef.current.size > 0
+        ) {
+          throw new Error("Previous draft attachments could not be removed.");
+        }
+        const hasNewPendingAdds = [...pendingAttachmentAddsRef.current.values()]
+          .flatMap((additions) => [...additions])
+          .some((addition) => !pendingAdds.includes(addition));
+        if (addQueue !== attachmentAddQueueRef.current || hasNewPendingAdds) {
+          continue;
+        }
+        return composerRuntime.getState().attachments;
+      }
+    };
+    return drain();
+  }, [cleanStaleAttachments, composerRuntime]);
   const addAttachmentForCurrentScope = useCallback(
-    async (file: File) => {
+    (file: File) => {
       const scopeGeneration = draftScopeGenerationRef.current;
-      await attachmentCleanupRef.current;
-      if (draftScopeGenerationRef.current !== scopeGeneration) return;
-      return composerRuntime.addAttachment(file);
+      const submissionBarrier = attachmentSubmissionBarrierRef.current;
+      let resolveOperation!: () => void;
+      let rejectOperation!: (error: unknown) => void;
+      const operation = new Promise<void>((resolve, reject) => {
+        resolveOperation = resolve;
+        rejectOperation = reject;
+      });
+      const scopeBarrier = operation.then(
+        () => undefined,
+        () => undefined,
+      );
+      const scopeAdds =
+        pendingAttachmentAddsRef.current.get(scopeGeneration) ?? new Set();
+      scopeAdds.add(scopeBarrier);
+      pendingAttachmentAddsRef.current.set(scopeGeneration, scopeAdds);
+
+      const run = async () => {
+        const reservation = attachmentAddQueueRef.current.then(async () => {
+          await submissionBarrier;
+          const priorScopeAdds = [...pendingAttachmentAddsRef.current]
+            .filter(([generation]) => generation !== scopeGeneration)
+            .flatMap(([, additions]) => [...additions]);
+          await Promise.all(priorScopeAdds);
+          await cleanStaleAttachments();
+          if (draftScopeGenerationRef.current !== scopeGeneration) return false;
+
+          const existingFiles = composerRuntime
+            .getState()
+            .attachments.flatMap((attachment) => {
+              if (submittingAttachmentIdsRef.current.has(attachment.id))
+                return [];
+              return isBlob(attachment.file)
+                ? [
+                    {
+                      file: attachment.file,
+                      name: attachment.name,
+                      contentType: normalizeAttachmentContentType(
+                        attachment.contentType,
+                      ),
+                    },
+                  ]
+                : [];
+            });
+          const pendingFiles = [...pendingAttachmentFilesRef.current].flatMap(
+            ([pendingFile, pendingGeneration]) =>
+              pendingGeneration === scopeGeneration
+                ? [
+                    {
+                      file: pendingFile,
+                      name: pendingFile.name,
+                      contentType: normalizeAttachmentContentType(
+                        pendingFile.type,
+                      ),
+                    },
+                  ]
+                : [],
+          );
+          const filesToCompare = [...existingFiles, ...pendingFiles];
+          const candidate = {
+            file,
+            name: file.name,
+            contentType: normalizeAttachmentContentType(file.type),
+          };
+          const comparisonBudget = {
+            remainingBytes: MAX_ATTACHMENT_COMPARISON_BYTES,
+            remainingComparisons: MAX_ATTACHMENT_COMPARISONS,
+          };
+          for (const existingFile of filesToCompare) {
+            if (comparisonBudget.remainingComparisons === 0) break;
+            if (
+              await haveSameAttachmentInput(
+                candidate,
+                existingFile,
+                comparisonBudget,
+              )
+            ) {
+              return false;
+            }
+          }
+
+          pendingAttachmentFilesRef.current.set(file, scopeGeneration);
+          return true;
+        });
+        attachmentAddQueueRef.current = reservation.then(
+          () => undefined,
+          () => undefined,
+        );
+
+        try {
+          if (!(await reservation)) return;
+          if (draftScopeGenerationRef.current !== scopeGeneration) {
+            if (
+              pendingAttachmentFilesRef.current.get(file) === scopeGeneration
+            ) {
+              pendingAttachmentFilesRef.current.delete(file);
+            }
+            return;
+          }
+          const addition = composerRuntime.addAttachment(file);
+          const removeIfStale = async () => {
+            if (draftScopeGenerationRef.current === scopeGeneration) return;
+            staleAttachmentFilesRef.current.add(file);
+            await cleanStaleAttachments();
+          };
+          const settledAddition = addition.then(removeIfStale, removeIfStale);
+          try {
+            return await addition;
+          } finally {
+            await settledAddition;
+          }
+        } finally {
+          if (pendingAttachmentFilesRef.current.get(file) === scopeGeneration) {
+            pendingAttachmentFilesRef.current.delete(file);
+          }
+        }
+      };
+      void run().then(resolveOperation, rejectOperation);
+      void operation.then(
+        () => {
+          scopeAdds.delete(scopeBarrier);
+          if (scopeAdds.size === 0) {
+            pendingAttachmentAddsRef.current.delete(scopeGeneration);
+          }
+        },
+        () => {
+          scopeAdds.delete(scopeBarrier);
+          if (scopeAdds.size === 0) {
+            pendingAttachmentAddsRef.current.delete(scopeGeneration);
+          }
+        },
+      );
+      return operation;
     },
-    [composerRuntime],
+    [cleanStaleAttachments, composerRuntime],
   );
   useLayoutEffect(() => {
     if (draftKeyRef.current !== draftKey) {
       draftKeyRef.current = draftKey;
       draftScopeGenerationRef.current += 1;
+      for (const attachment of composerRuntime.getState().attachments) {
+        staleAttachmentSnapshotsRef.current.add(attachment);
+      }
     }
-  }, [draftKey]);
+  }, [composerRuntime, draftKey]);
   const draftEditorRef = useRef<ComposerDraftEditor | null>(null);
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelScheduledDraftPersist = useCallback(() => {
@@ -4170,6 +4410,42 @@ export function TiptapComposer({
         !areComposerContextItemsReady(contextItemsRef.current)
       )
         return false;
+
+      const attachmentScopeGeneration = draftScopeGenerationRef.current;
+      submitInFlightRef.current = true;
+      onSubmissionPendingChange?.(true);
+      const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
+      let attachmentSnapshot: typeof composerAttachments;
+      try {
+        attachmentSnapshot = await attachmentSubmissionBarrier;
+      } catch (error) {
+        if (
+          mountedRef.current &&
+          draftScopeGenerationRef.current === attachmentScopeGeneration
+        ) {
+          setContextSubmissionError(
+            formatAttachmentError(
+              error,
+              t("agentChat.composer.submitFailed", {
+                defaultValue: "Could not submit. Try again.",
+              }),
+            ),
+          );
+        }
+        return false;
+      } finally {
+        submitInFlightRef.current = false;
+        onSubmissionPendingChange?.(false);
+      }
+      if (
+        !isComposerEditorUsable(ed) ||
+        draftScopeGenerationRef.current !== attachmentScopeGeneration ||
+        draftKeyRef.current !== draftKey ||
+        submissionDisabledRef.current ||
+        !areComposerContextItemsReady(contextItemsRef.current)
+      ) {
+        return false;
+      }
       if (
         composerRuntime
           .getState()
@@ -4212,7 +4488,7 @@ export function TiptapComposer({
         draftScopeGenerationRef.current === submittingDraftGeneration;
       let { text: draftText, references } = syncComposerState();
       let text = textOverride ?? draftText;
-      let attachments = composerRuntime.getState().attachments;
+      let attachments = attachmentSnapshot;
       let submittedSlotReferences = slotReferencesRef.current;
       let submittedEditorDocument = ed.state.doc;
       let submittedDraftHtml = ed.getHTML();
@@ -4491,6 +4767,30 @@ export function TiptapComposer({
       }
 
       if (onBeforeSubmit && !clearedBeforePreflight) {
+        submitInFlightRef.current = true;
+        onSubmissionPendingChange?.(true);
+        let preflightAttachmentSnapshot: typeof composerAttachments;
+        try {
+          preflightAttachmentSnapshot =
+            await createAttachmentSubmissionBarrier();
+        } catch (error) {
+          restoreSubmittedDraft(true);
+          if (mountedRef.current && isCurrentDraftScope()) {
+            setContextSubmissionError(
+              formatAttachmentError(
+                error,
+                t("agentChat.composer.submitFailed", {
+                  defaultValue: "Could not submit. Try again.",
+                }),
+              ),
+            );
+          }
+          return false;
+        } finally {
+          submitInFlightRef.current = false;
+          onSubmissionPendingChange?.(false);
+        }
+
         const current = syncComposerState();
         if (textOverride === undefined) {
           text = current.text;
@@ -4499,7 +4799,7 @@ export function TiptapComposer({
         }
         references = current.references;
         submittedSlotReferences = slotReferencesRef.current;
-        attachments = composerRuntime.getState().attachments;
+        attachments = preflightAttachmentSnapshot;
         trimmed = text.trim();
         if (
           !text.trim() &&
@@ -4622,9 +4922,169 @@ export function TiptapComposer({
       if (currentOnSubmit) {
         if (submitInFlightRef.current) return false;
         const submittedAttachments = [...attachments];
+        const submittedScopeGeneration = draftScopeGenerationRef.current;
+        submittingAttachmentIdsRef.current = new Set(
+          submittedAttachments.map((attachment) => attachment.id),
+        );
         submitInFlightRef.current = true;
         let locallySubmitted = false;
         let settled = false;
+        let submittedAttachmentCleanup = Promise.resolve();
+        const clearSubmittedAttachmentIds = () => {
+          submittingAttachmentIdsRef.current = new Set();
+        };
+        const recordFailedAttachmentCleanup = () => {
+          const remainingAttachments = composerRuntime.getState().attachments;
+          setFailedAttachmentCleanupSnapshots((failed) => [
+            ...failed,
+            ...submittedAttachments.filter((submitted) =>
+              remainingAttachments.some((current) =>
+                isSameComposerAttachment(current, submitted),
+              ),
+            ),
+          ]);
+          setContextSubmissionError(
+            t("agentChat.composer.attachmentsRemainAfterSubmit", {
+              defaultValue:
+                "The message was sent, but some attachments remain. Remove them before sending again.",
+            }),
+          );
+        };
+        const reconcileFailedSubmissionAttachments = async () => {
+          let releaseBarrier!: () => void;
+          const submissionBarrier = new Promise<void>((resolve) => {
+            releaseBarrier = resolve;
+          });
+          const pendingAddQueue = attachmentAddQueueRef.current;
+          const pendingScopeAdds = [
+            ...(pendingAttachmentAddsRef.current.get(
+              submittedScopeGeneration,
+            ) ?? []),
+          ];
+          const failedDuplicateAttachments: (typeof composerAttachments)[number][] =
+            [];
+          attachmentSubmissionBarrierRef.current = submissionBarrier;
+          try {
+            await pendingAddQueue;
+            await Promise.all(pendingScopeAdds);
+            if (
+              !mountedRef.current ||
+              !isCurrentDraftScope() ||
+              draftScopeGenerationRef.current !== submittedScopeGeneration
+            )
+              return;
+
+            const retainedSubmittedAttachments = submittedAttachments.filter(
+              (submitted) =>
+                composerRuntime
+                  .getState()
+                  .attachments.some((current) =>
+                    isSameComposerAttachment(current, submitted),
+                  ),
+            );
+            const submittedFileInputs = retainedSubmittedAttachments.flatMap(
+              (attachment) =>
+                isBlob(attachment.file)
+                  ? [
+                      {
+                        file: attachment.file,
+                        name: attachment.name,
+                        contentType: normalizeAttachmentContentType(
+                          attachment.contentType,
+                        ),
+                      },
+                    ]
+                  : [],
+            );
+            const comparisonBudget = {
+              remainingBytes: MAX_ATTACHMENT_COMPARISON_BYTES,
+              remainingComparisons: MAX_ATTACHMENT_COMPARISONS,
+            };
+            let cleanupFailed = false;
+            let cleanupError: unknown;
+            for (const attachment of composerRuntime.getState().attachments) {
+              if (
+                submittedAttachments.some((submitted) =>
+                  isSameComposerAttachment(attachment, submitted),
+                ) ||
+                !isBlob(attachment.file)
+              )
+                continue;
+              const candidate = {
+                file: attachment.file,
+                name: attachment.name,
+                contentType: normalizeAttachmentContentType(
+                  attachment.contentType,
+                ),
+              };
+              let duplicatesSubmittedAttachment = false;
+              for (const submittedFile of submittedFileInputs) {
+                if (comparisonBudget.remainingComparisons === 0) break;
+                if (
+                  await haveSameAttachmentInput(
+                    candidate,
+                    submittedFile,
+                    comparisonBudget,
+                  )
+                ) {
+                  duplicatesSubmittedAttachment = true;
+                  break;
+                }
+              }
+              if (!duplicatesSubmittedAttachment) continue;
+              try {
+                const index = composerRuntime
+                  .getState()
+                  .attachments.findIndex((item) =>
+                    isSameComposerAttachment(item, attachment),
+                  );
+                if (index >= 0) {
+                  await composerRuntime.getAttachmentByIndex(index).remove();
+                }
+              } catch (error) {
+                cleanupFailed = true;
+                cleanupError ??= error;
+                failedDuplicateAttachments.push(attachment);
+              }
+            }
+            if (cleanupFailed) throw cleanupError;
+          } catch (error) {
+            if (mountedRef.current && isCurrentDraftScope()) {
+              const remainingFailedDuplicates =
+                failedDuplicateAttachments.filter((failedDuplicate) =>
+                  composerRuntime
+                    .getState()
+                    .attachments.some((current) =>
+                      isSameComposerAttachment(current, failedDuplicate),
+                    ),
+                );
+              if (remainingFailedDuplicates.length > 0) {
+                setFailedAttachmentCleanupSnapshots((failed) => [
+                  ...failed,
+                  ...remainingFailedDuplicates.filter(
+                    (candidate) =>
+                      !failed.some((current) =>
+                        isSameComposerAttachment(current, candidate),
+                      ),
+                  ),
+                ]);
+              }
+              onAttachmentErrorRef.current?.(
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+            console.error(
+              "Could not reconcile submitted composer attachments",
+              error,
+            );
+          } finally {
+            clearSubmittedAttachmentIds();
+            if (attachmentSubmissionBarrierRef.current === submissionBarrier) {
+              attachmentSubmissionBarrierRef.current = Promise.resolve();
+            }
+            releaseBarrier();
+          }
+        };
         onSubmissionPendingChange?.(true);
         const clearSubmittedComposer = () => {
           if (clearOnSubmit) {
@@ -4632,21 +5092,40 @@ export function TiptapComposer({
           }
           if (!mountedRef.current || !isCurrentDraftScope()) return;
           // Remove by captured identity; later uploads belong to the next draft.
-          void Promise.all(
-            attachments.map(async (attachment) => {
-              const index = composerRuntime
-                .getState()
-                .attachments.findIndex((item) => item.id === attachment.id);
-              return index < 0
-                ? undefined
-                : composerRuntime.getAttachmentByIndex(index).remove();
-            }),
-          ).catch((error) => {
-            if (mountedRef.current && isCurrentDraftScope()) {
-              onAttachmentErrorRef.current?.(error);
+          attachmentCleanupPendingRef.current += 1;
+          const cleanup = attachmentCleanupRef.current.then(async () => {
+            const results = await Promise.allSettled(
+              submittedAttachments.map(async (attachment) => {
+                const index = composerRuntime
+                  .getState()
+                  .attachments.findIndex((item) =>
+                    isSameComposerAttachment(item, attachment),
+                  );
+                return index < 0
+                  ? undefined
+                  : composerRuntime.getAttachmentByIndex(index).remove();
+              }),
+            );
+            const failedRemoval = results.find(
+              (result) => result.status === "rejected",
+            );
+            if (failedRemoval?.status === "rejected") {
+              throw failedRemoval.reason;
             }
-            console.error("Could not clear submitted attachments", error);
           });
+          submittedAttachmentCleanup = cleanup
+            .catch((error) => {
+              if (mountedRef.current && isCurrentDraftScope()) {
+                onAttachmentErrorRef.current?.(
+                  error instanceof Error ? error.message : String(error),
+                );
+                recordFailedAttachmentCleanup();
+              }
+              console.error("Could not clear submitted attachments", error);
+            })
+            .finally(() => {
+              attachmentCleanupPendingRef.current -= 1;
+            });
           if (!isComposerEditorUsable(ed)) return;
           if (!clearOnSubmit) {
             closePopover();
@@ -4705,6 +5184,8 @@ export function TiptapComposer({
         } catch (error) {
           if (locallySubmitted) {
             restoreSubmittedDraft(true);
+            await submittedAttachmentCleanup;
+            clearSubmittedAttachmentIds();
             return true;
           }
           restoreSubmittedDraft(true);
@@ -4718,6 +5199,7 @@ export function TiptapComposer({
               ),
             );
           }
+          await reconcileFailedSubmissionAttachments();
           return false;
         } finally {
           settled = true;
@@ -4727,6 +5209,8 @@ export function TiptapComposer({
 
         if (!isCurrentDraftScope()) {
           clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
+          if (locallySubmitted) await submittedAttachmentCleanup;
+          clearSubmittedAttachmentIds();
           return true;
         }
         if (!locallySubmitted) {
@@ -4743,13 +5227,9 @@ export function TiptapComposer({
               }
             },
           );
-          attachmentCleanupRef.current = clearSubmittedAttachments.catch(
-            (error) => {
-              console.error(
-                "Could not clear submitted composer attachments",
-                error,
-              );
-            },
+          attachmentCleanupRef.current = clearSubmittedAttachments.then(
+            () => undefined,
+            () => undefined,
           );
           if (clearOnSubmit && !clearOnSubmitImmediately) {
             cancelActiveVoice();
@@ -4765,26 +5245,15 @@ export function TiptapComposer({
           try {
             await clearSubmittedAttachments;
           } catch {
-            const remainingAttachments = composerRuntime.getState().attachments;
-            setFailedAttachmentCleanupSnapshots((failed) => [
-              ...failed,
-              ...submittedAttachments.filter((submitted) =>
-                remainingAttachments.some((current) =>
-                  isSameComposerAttachment(current, submitted),
-                ),
-              ),
-            ]);
-            setContextSubmissionError(
-              t("agentChat.composer.attachmentsRemainAfterSubmit", {
-                defaultValue:
-                  "The message was sent, but some attachments remain. Remove them before sending again.",
-              }),
-            );
+            recordFailedAttachmentCleanup();
             return true;
           } finally {
             attachmentCleanupPendingRef.current -= 1;
+            clearSubmittedAttachmentIds();
           }
         }
+        await submittedAttachmentCleanup;
+        clearSubmittedAttachmentIds();
         if (!clearOnSubmit) {
           closePopover();
           return true;
@@ -4809,6 +5278,8 @@ export function TiptapComposer({
       draftKey,
       editor,
       failedAttachmentCleanupSnapshots,
+      cleanStaleAttachments,
+      createAttachmentSubmissionBarrier,
       flushComposerDraft,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,

@@ -58,6 +58,7 @@ import React, {
 import { flushSync } from "react-dom";
 
 import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
+import type { BuilderConnectTransport } from "../settings/index.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   AGENT_CHAT_RUNNING_EVENT,
@@ -238,6 +239,7 @@ export interface AgentSidebarProps {
   onAgentChange?: AssistantChatProps["onAgentChange"];
   onConnectLocalRuntime?: AssistantChatProps["onConnectLocalRuntime"];
   onConnectProvider?: AssistantChatProps["onConnectProvider"];
+  builderConnectTransport?: BuilderConnectTransport;
   runtime?: AssistantChatProps["runtime"];
   adapterReloadKey?: AssistantChatProps["adapterReloadKey"];
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
@@ -266,6 +268,7 @@ export interface AgentSidebarProps {
   suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
   composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
   showMissingApiKeySetup?: AssistantChatProps["showMissingApiKeySetup"];
+  showGuidedQuestions?: AssistantChatProps["showGuidedQuestions"];
   openOnChatRunning?: boolean;
   onFullscreenRequest?: (threadId?: string) => void;
   onOpenSettings?: (section?: string) => void;
@@ -316,6 +319,7 @@ export function AgentSidebar({
   onAgentChange,
   onConnectLocalRuntime,
   onConnectProvider,
+  builderConnectTransport,
   runtime,
   adapterReloadKey,
   threadFooterSlot,
@@ -340,6 +344,7 @@ export function AgentSidebar({
   suppressInlineOpenApp,
   composerPlaceholder,
   showMissingApiKeySetup,
+  showGuidedQuestions,
   openOnChatRunning = false,
   onFullscreenRequest,
   onOpenSettings,
@@ -1146,6 +1151,7 @@ export function AgentSidebar({
             onAgentChange={effectiveOnAgentChange}
             hostedHarness={hostedHarnessEnabled}
             onConnectProvider={onConnectProvider}
+            builderConnectTransport={builderConnectTransport}
             onConnectLocalRuntime={onConnectLocalRuntime}
             runtime={runtime}
             adapterReloadKey={adapterReloadKey}
@@ -1158,6 +1164,7 @@ export function AgentSidebar({
             suppressInlineOpenApp={suppressInlineOpenApp}
             composerPlaceholder={composerPlaceholder}
             showMissingApiKeySetup={showMissingApiKeySetup}
+            showGuidedQuestions={showGuidedQuestions}
             missingApiKeySetupLayout="sidebar"
             defaultMode={defaultMode}
             onCollapse={() => setOpenPersisted(false)}

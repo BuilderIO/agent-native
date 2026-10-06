@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies the account action and available credits.
+
 ## 2026-10-01
 
 ### Improved

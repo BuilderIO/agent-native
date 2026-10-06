@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isAnalyticsSessionsRoute,
+  isSessionReplayRoute,
   resolveAskNavigationAction,
   shouldDefaultOpenAnalyticsSidebar,
 } from "./layout-route-policy";
@@ -14,6 +15,13 @@ describe("Analytics layout sidebar route policy", () => {
     expect(isAnalyticsSessionsRoute("/sessions/sr_123")).toBe(true);
     expect(shouldDefaultOpenAnalyticsSidebar("/sessions")).toBe(false);
     expect(shouldDefaultOpenAnalyticsSidebar("/sessions/sr_123")).toBe(false);
+  });
+
+  it("leaves the header, with its agent toggle, on sessions pages that are not one replay", () => {
+    expect(isSessionReplayRoute("/sessions/sr_123")).toBe(true);
+    expect(isSessionReplayRoute("/sessions")).toBe(false);
+    expect(isSessionReplayRoute("/sessions/performance")).toBe(false);
+    expect(isSessionReplayRoute("/sessions/events/")).toBe(false);
   });
 
   it("keeps the right agent sidebar closed on dashboard routes", () => {

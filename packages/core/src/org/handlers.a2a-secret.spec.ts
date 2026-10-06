@@ -8,6 +8,10 @@ const mockGetOrgSetting = vi.fn();
 const mockReadBody = vi.fn();
 const mockDiscoverAgents = vi.fn();
 const mockSignA2AToken = vi.fn();
+const mockSignA2AOrganizationToken = vi.fn();
+const mockCanonicalA2AAudience = vi.fn((url: string) =>
+  url.replace(/\/+$/, ""),
+);
 const mockSsrfSafeFetch = vi.fn();
 const mockFetch = vi.fn();
 
@@ -73,6 +77,12 @@ vi.mock("../server/agent-discovery.js", () => ({
 
 vi.mock("../a2a/client.js", () => ({
   signA2AToken: (...args: any[]) => mockSignA2AToken(...args),
+  signA2AOrganizationToken: (...args: any[]) =>
+    mockSignA2AOrganizationToken(...args),
+}));
+
+vi.mock("../a2a/audience.js", () => ({
+  canonicalA2AAudience: (...args: any[]) => mockCanonicalA2AAudience(...args),
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
@@ -145,6 +155,10 @@ describe("syncA2ASecretHandler", () => {
       },
     ]);
     mockSignA2AToken.mockResolvedValue("signed-jwt");
+    mockSignA2AOrganizationToken.mockResolvedValue("signed-jwt");
+    mockCanonicalA2AAudience.mockImplementation((url) =>
+      url.replace(/\/+$/, ""),
+    );
     mockSsrfSafeFetch.mockResolvedValue(new Response("ok", { status: 200 }));
   });
 
@@ -164,6 +178,15 @@ describe("syncA2ASecretHandler", () => {
       succeeded: 1,
       failed: 0,
     });
+    expect(mockSignA2AOrganizationToken).toHaveBeenCalledWith(
+      "example.test",
+      "local-secret",
+      undefined,
+      {
+        preferGlobalSecret: false,
+        audience: "https://remote.example.test",
+      },
+    );
     expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
       "https://remote.example.test/_agent-native/org/a2a-secret/receive",
       expect.objectContaining({

@@ -969,8 +969,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Sua página anterior não está mais disponível, então abrimos a página de boas-vindas.",
-  requestedPageUnavailable:
-    "Essa página não está disponível para sua conta, então abrimos a página de boas-vindas.",
   saveFailed: "Não foi possível salvar sua localização",
   workspaceWelcomeUnavailableTitle: "Ainda não há nada aberto aqui",
   workspaceWelcomeUnavailableDescription:
@@ -1091,6 +1089,10 @@ const exactEnglish = {
     iconPickerUploading: "Enviando…",
     suggestionAmendmentEmpty:
       "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
+    suggestionUnplaceable:
+      "O texto ao redor desta sugestão mudou, então ela não pode ser aplicada. Ela continua pendente: rejeite-a ou sugira a edição novamente.",
+    proposalUnplaceable:
+      "Uma destas sugestões não pode ser aplicada porque o texto ao redor dela mudou, então nenhuma foi aplicada. Todas continuam pendentes: aceite ou rejeite uma de cada vez.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
     suggestionAmendmentResolved:
       "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",
@@ -1379,6 +1381,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Nenhuma página selecionada",
+    pageNoAccess: "Você não tem acesso a esta página",
+    pageMissing: "Esta página não existe",
+    pageInTrash: "Esta página está na lixeira",
+    pageInTrashAskOwner: "Peça ao proprietário para restaurá-la.",
+    openTrash: "Abrir a lixeira",
+    goToMyPages: "Ir para minhas páginas",
     noPageDescription:
       "Selecione uma página na barra lateral ou crie uma nova.",
     newPage: "Nova página",

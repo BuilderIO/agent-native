@@ -5,6 +5,7 @@ type ViewRow = {
   dashboardId: string;
   name: string;
   filters: string;
+  isDefault: boolean;
   createdBy: string | null;
   createdAt: string;
 };
@@ -19,6 +20,7 @@ const state = vi.hoisted(() => ({
   legacyDashboard: null as Record<string, unknown> | null,
   orgLegacyAnalysis: null as Record<string, unknown> | null,
   orgLegacyDashboard: null as Record<string, unknown> | null,
+  rowLockModes: [] as string[],
   views: [] as ViewRow[],
 }));
 
@@ -52,9 +54,15 @@ function matches(predicate: unknown, row: Record<string, unknown>): boolean {
 
 function rowsResult(rows: unknown[]) {
   const copies = rows.map((row) => ({ ...(row as Record<string, unknown>) }));
-  const result = Promise.resolve(copies);
-  (result as Promise<unknown[]> & { limit?: () => Promise<unknown[]> }).limit =
-    async () => copies.slice(0, 1);
+  const result = Promise.resolve(copies) as Promise<unknown[]> & {
+    for?: (mode: string) => Promise<unknown[]>;
+    limit?: () => Promise<unknown[]>;
+  };
+  result.limit = async () => copies.slice(0, 1);
+  result.for = async (mode) => {
+    state.rowLockModes.push(mode);
+    return copies;
+  };
   return result;
 }
 
@@ -78,6 +86,7 @@ const dashboardViews = {
   dashboardId: column("dashboardId"),
   name: column("name"),
   filters: column("filters"),
+  isDefault: column("isDefault"),
   createdBy: column("createdBy"),
   createdAt: column("createdAt"),
 };
@@ -193,6 +202,9 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../db/index.js", () => ({
   schema,
   getDb: () => ({
+    transaction(callback: (tx: any) => Promise<unknown>) {
+      return callback(this);
+    },
     select: () => ({
       from: (table: unknown) => ({
         where: (predicate: unknown) => {
@@ -267,12 +279,14 @@ beforeEach(() => {
   state.legacyDashboard = null;
   state.orgLegacyAnalysis = null;
   state.orgLegacyDashboard = null;
+  state.rowLockModes = [];
   state.views = [
     {
       id: "existing",
       dashboardId: "dashboard-a",
       name: "Existing",
       filters: "{}",
+      isDefault: false,
       createdBy: "alice@example.com",
       createdAt: "2026-07-13T00:00:00.000Z",
     },
@@ -281,6 +295,7 @@ beforeEach(() => {
       dashboardId: "dashboard-b",
       name: "Other dashboard view",
       filters: "{}",
+      isDefault: false,
       createdBy: "bob@example.com",
       createdAt: "2026-07-13T00:00:00.000Z",
     },
@@ -368,7 +383,40 @@ describe("dashboard views", () => {
       dashboardId: "dashboard-a",
       name: "New view",
       filters: { f_status: "open" },
+      isDefault: false,
     });
+  });
+
+  it("sets one dashboard-wide default without changing another dashboard", async () => {
+    state.dashboardRow = { ...dashboard };
+    state.views[0]!.isDefault = true;
+    state.views[1]!.isDefault = true;
+
+    const result = await saveDashboardView(
+      "dashboard-a",
+      {
+        id: "existing",
+        name: "Recent 90 days",
+        filters: { f_timeRange: "90d" },
+        isDefault: true,
+      },
+      ctx,
+    );
+
+    expect(result).toMatchObject({
+      id: "existing",
+      isDefault: true,
+      filters: { f_timeRange: "90d" },
+    });
+    expect(state.rowLockModes).toEqual(["update"]);
+    expect(
+      state.views
+        .filter((view) => view.dashboardId === "dashboard-a" && view.isDefault)
+        .map((view) => view.id),
+    ).toEqual(["existing"]);
+    expect(state.views.find((view) => view.id === "same-name")?.isDefault).toBe(
+      true,
+    );
   });
 
   it("updates an existing view only within its dashboard", async () => {

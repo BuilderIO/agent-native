@@ -235,6 +235,29 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(result.current().questions?.length).toBe(1);
   });
 
+  it("hides a thread-scoped question until its owner thread is known", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123"
+            ? JSON.stringify({ ...payload, threadId: "chat-a" })
+            : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      refetchInterval: false,
+    });
+
+    expect(result.current().questions).toBeNull();
+    expect(result.current().payload).toBeNull();
+  });
+
   it("renders a payload with no threadId in any chat", async () => {
     vi.stubGlobal(
       "fetch",
@@ -399,6 +422,68 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     await flush();
 
     expect(deleted).toContain("guided-questions:tab123");
+  });
+
+  it("does not restore an in-flight read after clear", async () => {
+    let resolveRead: (() => void) | null = null;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "DELETE") {
+        return Promise.resolve(new Response("", { status: 200 }));
+      }
+      return new Promise<Response>((resolve) => {
+        resolveRead = () =>
+          resolve(
+            readResponse(url, (key) =>
+              key === "guided-questions" ? JSON.stringify(payload) : "",
+            ),
+          );
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    let latest: HookResult | null = null;
+    function Harness() {
+      const flow = useGuidedQuestionFlow({
+        providerStatusChecksEnabled: false,
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions"],
+        refetchInterval: false,
+      });
+      latest = flow;
+      return flow.questions ? (
+        <GuidedQuestionFlow
+          questions={flow.questions}
+          onSubmit={() => {}}
+          onSkip={() => {}}
+        />
+      ) : null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={client}>
+          <Harness />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+    for (let i = 0; i < 20 && !resolveRead; i += 1) await flush();
+    expect(resolveRead).toEqual(expect.any(Function));
+
+    await act(async () => {
+      latest!.clear();
+      expect(latest!.questions).toBeNull();
+      resolveRead!();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(latest!.questions).toBeNull();
+    expect(container.textContent).not.toContain("Which range?");
   });
 
   // The agent ids every question it asks `q1`, so an answer that travels as

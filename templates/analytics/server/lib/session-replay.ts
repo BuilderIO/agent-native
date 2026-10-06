@@ -40,6 +40,17 @@ import {
 } from "drizzle-orm";
 
 import {
+  isSessionFrictionSort,
+  type SessionFriction,
+  type SessionFrictionSignal,
+  type SessionFrictionSort,
+} from "../../shared/session-friction.js";
+import type {
+  SessionPerformanceSummary,
+  SessionRecordingPerformance,
+  SlowSessionFilter,
+} from "../../shared/session-performance.js";
+import {
   isFailedSessionReplayNetworkStatus,
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
@@ -49,10 +60,26 @@ import {
   resolveAnalyticsEventDimensions,
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
+import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
+import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
 } from "./session-event-index.js";
+import {
+  finalizeReplayFriction,
+  getSessionFrictionCoverageStart,
+  pruneSessionFriction,
+  recordReplayFriction,
+  sessionFrictionFilterConditions,
+  sessionFrictionSortOrder,
+} from "./session-friction.js";
+import {
+  getPerformanceCoverageStart,
+  getSessionPerformanceSummaries,
+  prunePerformanceAggregates,
+  slowSessionConditions,
+} from "./session-performance.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -105,7 +132,13 @@ export interface SessionReplayListFilters {
   hideInternal?: boolean;
   visitorType?: "internal" | "work" | "personal";
   emailDomain?: string;
-  sort?: "newest" | "longest" | "errors" | "events" | "rage";
+  sort?:
+    | "newest"
+    | "longest"
+    | "errors"
+    | "events"
+    | "rage"
+    | SessionFrictionSort;
   offset?: number;
   status?: "active" | "completed";
   limit?: number;
@@ -113,6 +146,12 @@ export interface SessionReplayListFilters {
   didEvents?: string[];
   /** Sessions that tracked none of these events. */
   didNotEvents?: string[];
+  /** Sessions with a poor Web Vital, a slow request, or either. */
+  slow?: SlowSessionFilter;
+  /** Attach each recording's performance summary and coverage start. */
+  includePerformance?: boolean;
+  /** Measured sessions that showed every one of these friction signals. */
+  frictionSignals?: SessionFrictionSignal[];
 }
 
 export interface SessionReplayEventReadOptions {
@@ -195,6 +234,10 @@ export interface SessionRecordingSummary {
   role?: SessionReplayAccessRole;
   canEdit?: boolean;
   canManage?: boolean;
+  /** Present when requested; null when the session was never measured. */
+  performance?: SessionPerformanceSummary | null;
+  /** Present only when the Sessions triage Lab asked for it. */
+  friction?: SessionFriction;
 }
 
 export interface AgentSessionRecordingSummary {
@@ -997,8 +1040,7 @@ function deriveReplaySignals({
 export function parseSessionReplayIngestPayload(
   raw: unknown,
 ): ParsedSessionReplayIngest {
-  const body =
-    typeof raw === "string" && raw.trim() ? JSON.parse(raw) : replayRecord(raw);
+  const body = replayRecord(parseIngestBody(raw));
   const publicKey =
     replayString(body.publicKey) ||
     replayString(body.writeKey) ||
@@ -1026,6 +1068,15 @@ export function parseSessionReplayIngestPayload(
     replayString(body.recording_id) ||
     replayString(body.replayId) ||
     sessionId;
+  if (
+    sessionId.length > MAX_SESSION_ID_LENGTH ||
+    clientRecordingId.length > MAX_SESSION_ID_LENGTH
+  ) {
+    throw replayError(
+      `Replay session and recording ids must be at most ${MAX_SESSION_ID_LENGTH} characters`,
+      400,
+    );
+  }
   const metadata = replayRecord(body.metadata);
   assertReplayMetadataCap(metadata);
 
@@ -1070,10 +1121,14 @@ export function parseSessionReplayIngestPayload(
     : null;
   const durationMs =
     replayInteger(body.durationMs ?? body.duration_ms) ?? computedDuration;
+  // The recorder sends an end time with every upload, so an explicit status
+  // wins; an end time alone marks only an upload that names no status.
   const status =
-    body.status === "completed" || body.completed === true || endedAt
+    body.status === "completed" || body.completed === true
       ? "completed"
-      : "active";
+      : body.status === "active" || !endedAt
+        ? "active"
+        : "completed";
   const userEmail =
     replayEmail(body.userEmail ?? body.user_email) ||
     replayEmail(properties.userEmail ?? properties.user_email) ||
@@ -1657,6 +1712,16 @@ export async function recordSessionReplayChunks(
     parseRecordingMetadata(recording),
     clampedInput.metadata,
   );
+  const errorCount = Math.max(
+    Number(recording.errorCount ?? 0),
+    clampedInput.errorCount,
+  );
+  const rageClickCount = Math.max(
+    Number(recording.rageClickCount ?? 0),
+    clampedInput.rageClickCount,
+  );
+  const recordingEnded =
+    clampedInput.status === "completed" || recording.status === "completed";
 
   await db
     .update(schema.sessionRecordings)
@@ -1675,18 +1740,12 @@ export async function recordSessionReplayChunks(
         Number(recording.pageCount ?? 0),
         clampedInput.pageCount,
       ),
-      errorCount: Math.max(
-        Number(recording.errorCount ?? 0),
-        clampedInput.errorCount,
-      ),
+      errorCount,
       networkErrorCount: Math.max(
         Number(recording.networkErrorCount ?? 0),
         clampedInput.networkErrorCount,
       ),
-      rageClickCount: Math.max(
-        Number(recording.rageClickCount ?? 0),
-        clampedInput.rageClickCount,
-      ),
+      rageClickCount,
       privacyMode:
         clampedInput.privacyMode !== "unknown"
           ? clampedInput.privacyMode
@@ -1698,15 +1757,28 @@ export async function recordSessionReplayChunks(
       referrer: clampedInput.referrer ?? recording.referrer ?? null,
       app: clampedInput.app ?? recording.app ?? null,
       template: clampedInput.template ?? recording.template ?? null,
-      status:
-        clampedInput.status === "completed" || recording.status === "completed"
-          ? "completed"
-          : "active",
+      status: recordingEnded ? "completed" : "active",
       metadata: JSON.stringify(metadata),
       updatedAt: ingestedAt,
       lastIngestedAt: ingestedAt,
     })
     .where(eq(schema.sessionRecordings.id, recording.id));
+
+  const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
+  await recordReplayFriction({
+    recordingId: recording.id,
+    sessionId: clampedInput.sessionId,
+    ownerEmail: key.ownerEmail,
+    orgId: key.orgId,
+    priorChunkCount: existingChunks.length,
+    newChunks: clampedInput.chunks
+      .filter((chunk) => insertedSeqs.has(chunk.seq))
+      .map((chunk) => ({ seq: chunk.seq, inlineData: chunk.inlineData })),
+    errorCount,
+    rageClickCount,
+    recordingEnded,
+    ingestedAt,
+  });
 
   await touchPublicKeyLastUsedAt(key.id, ingestedAt);
 
@@ -1741,7 +1813,10 @@ export async function listSessionRecordings(
     filters.sort ||
     filters.offset ||
     filters.didEvents?.length ||
-    filters.didNotEvents?.length
+    filters.didNotEvents?.length ||
+    filters.frictionSignals?.length ||
+    filters.slow ||
+    filters.includePerformance
   ) {
     return (await listSessionRecordingsPage(scope, filters)).recordings;
   }
@@ -1818,6 +1893,18 @@ export interface SessionRecordingPage {
   recordings: SessionRecordingSummary[];
   total: number;
   appCounts: Array<{ app: string; count: number }>;
+  /**
+   * Present when a friction filter or sort applied: when friction coverage
+   * began for the viewer's own tenants, or null when part of the range has
+   * no coverage at all. Sessions that started earlier never match a
+   * friction filter.
+   */
+  frictionCoverageStartedAt?: string | null;
+  /**
+   * With a slow filter or performance summaries: when the viewer's
+   * performance aggregates began, or null when they have not.
+   */
+  performanceCoverageStartedAt?: string | null;
 }
 
 const personalEmailDomains = [...FREE_EMAIL_PROVIDER_DOMAINS];
@@ -1848,6 +1935,71 @@ function sessionVisitorDomain() {
   const userId = schema.sessionRecordings.userId;
   const userKey = schema.sessionRecordings.userKey;
   return sql<string>`lower(split_part(case when ${userId} like '%@%' then ${userId} else ${userKey} end, '@', 2))`;
+}
+
+async function sessionRecordingPerformance(
+  scope: SessionReplayScope,
+  recordings: SessionRecordingSummary[],
+  options: { summaries: boolean },
+): Promise<{ coverageStartedAt: string | null }> {
+  const [coverageStartedAt, summaries] = await Promise.all([
+    getPerformanceCoverageStart(scope),
+    options.summaries
+      ? getSessionPerformanceSummaries(scope, recordings)
+      : Promise.resolve(null),
+  ]);
+  if (summaries) {
+    for (const recording of recordings) {
+      recording.performance = summaries.get(recording.id) ?? null;
+    }
+  }
+  return { coverageStartedAt };
+}
+
+/**
+ * Performance summaries for recordings the viewer can read, such as the rows
+ * of one list page, so speed hints load beside the list instead of in it.
+ */
+export async function getSessionRecordingPerformance(
+  scope: SessionReplayScope,
+  recordingIds: readonly string[],
+): Promise<SessionRecordingPerformance> {
+  const ids = [...new Set(recordingIds)];
+  const db = getDb() as any;
+  const r = schema.sessionRecordings;
+  const [recordings, coverageStartedAt] = await Promise.all([
+    ids.length
+      ? db
+          .select({
+            id: r.id,
+            sessionId: r.sessionId,
+            ownerEmail: r.ownerEmail,
+            orgId: r.orgId,
+          })
+          .from(r)
+          .where(
+            and(
+              accessFilter(r, schema.sessionRecordingShares, {
+                userEmail: scope.userEmail,
+                orgId: scope.orgId ?? undefined,
+              }),
+              inArray(r.id, ids),
+            ),
+          )
+          .limit(ids.length)
+      : Promise.resolve([]),
+    getPerformanceCoverageStart(scope),
+  ]);
+  const summaries = await getSessionPerformanceSummaries(scope, recordings);
+  return {
+    performance: Object.fromEntries(
+      recordings.map((recording: { id: string }) => [
+        recording.id,
+        summaries.get(recording.id) ?? null,
+      ]),
+    ),
+    coverageStartedAt,
+  };
 }
 
 export async function listSessionRecordingsPage(
@@ -1941,26 +2093,35 @@ export async function listSessionRecordingsPage(
   const search = replayListSearchCondition(filters.query);
   if (search) conditions.push(search);
   conditions.push(
-    ...(await sessionEventFilterConditions({
+    ...(await sessionEventFilterConditions(scope, {
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
     })),
+    ...(await slowSessionConditions(scope, filters.slow)),
+    ...(await sessionFrictionFilterConditions(scope, filters.frictionSignals)),
   );
   const appConditions = [...conditions];
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
-  const sortColumn = {
-    newest: schema.sessionRecordings.startedAt,
-    longest: schema.sessionRecordings.durationMs,
-    errors: schema.sessionRecordings.errorCount,
-    events: schema.sessionRecordings.eventCount,
-    rage: schema.sessionRecordings.rageClickCount,
-  }[filters.sort ?? "newest"];
-  const sortOrder =
-    filters.sort === "longest"
+  const sort = filters.sort ?? "newest";
+  const frictionApplied =
+    Boolean(filters.frictionSignals?.length) || isSessionFrictionSort(sort);
+  // Before the friction migration nothing is measured, so friction sorts
+  // fall back to newest rather than fail.
+  const sortOrder = isSessionFrictionSort(sort)
+    ? ((await sessionFrictionSortOrder(scope, sort)) ??
+      desc(schema.sessionRecordings.startedAt))
+    : sort === "longest"
       ? sql`${schema.sessionRecordings.durationMs} desc nulls last`
-      : desc(sortColumn);
-  const [totalRows, appRows] = await Promise.all([
+      : desc(
+          {
+            newest: schema.sessionRecordings.startedAt,
+            errors: schema.sessionRecordings.errorCount,
+            events: schema.sessionRecordings.eventCount,
+            rage: schema.sessionRecordings.rageClickCount,
+          }[sort],
+        );
+  const [totalRows, appRows, frictionCoverageStartedAt] = await Promise.all([
     db
       .select({ count: sql<number>`count(*)` })
       .from(schema.sessionRecordings)
@@ -1974,6 +2135,12 @@ export async function listSessionRecordingsPage(
       .where(and(...appConditions))
       .groupBy(schema.sessionRecordings.app)
       .orderBy(desc(sql`count(*)`)),
+    frictionApplied
+      ? getSessionFrictionCoverageStart(scope, {
+          from: filters.from,
+          to: filters.to,
+        })
+      : undefined,
   ]);
   if (totalRows.length !== 1) {
     throw new Error("Session recording total query returned no count");
@@ -2006,15 +2173,28 @@ export async function listSessionRecordingsPage(
           )
           .offset(offset)
       : [];
+  const recordings: SessionRecordingSummary[] = rows.map((row: any) =>
+    rowToSessionRecordingSummary(row),
+  );
+  const performance =
+    filters.slow || filters.includePerformance
+      ? await sessionRecordingPerformance(scope, recordings, {
+          summaries: filters.includePerformance === true,
+        })
+      : null;
   return {
-    recordings: rows.map((row: any) => rowToSessionRecordingSummary(row)),
+    recordings,
     total,
+    ...(performance
+      ? { performanceCoverageStartedAt: performance.coverageStartedAt }
+      : {}),
     appCounts: appRows
       .filter((row: { app: string | null }) => row.app)
       .map((row: { app: string; count: number }) => ({
         app: row.app,
         count: Number(row.count),
       })),
+    ...(frictionApplied ? { frictionCoverageStartedAt } : {}),
   };
 }
 
@@ -2097,7 +2277,7 @@ export async function resolveSessionReplayLink(
 
 export async function getSessionReplayTokenizedSummary(
   recordingId: string,
-  viewerEmail: string,
+  _viewerEmail?: string,
 ): Promise<SessionRecordingSummary> {
   const db = getDb() as any;
   // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
@@ -2156,7 +2336,7 @@ export async function getSessionReplayManifest(
 
 export async function getSessionReplayTokenizedManifest(
   recordingId: string,
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   chunks: Array<{
@@ -2235,7 +2415,7 @@ export async function readSessionReplayChunkBytes(
 export async function readSessionReplayTokenizedChunkBytes(
   recordingId: string,
   seq: number,
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   seq: number;
@@ -2483,7 +2663,7 @@ export async function readSessionReplayChunkBatch(
 export async function readSessionReplayTokenizedChunkBatch(
   recordingId: string,
   seqs: number[],
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<SessionReplayChunkBatchResult> {
   const recording = await getSessionReplayTokenizedSummary(
     recordingId,
@@ -2516,7 +2696,7 @@ export async function getSessionReplayEvents(
 
 export async function getSessionReplayTokenizedEvents(
   recordingId: string,
-  viewerEmail: string,
+  viewerEmail?: string,
   options: SessionReplayEventReadOptions = {},
 ): Promise<{
   recording: AgentSessionRecordingSummary;
@@ -2662,6 +2842,26 @@ export async function finalizeAbandonedSessionRecordings(
 
   let finalized = 0;
   for (const row of rows) {
+    try {
+      await finalizeReplayFriction(
+        {
+          id: row.id,
+          sessionId: row.sessionId,
+          ownerEmail: row.ownerEmail,
+          orgId: row.orgId ?? null,
+          chunkCount: Number(row.chunkCount ?? 0),
+          errorCount: Number(row.errorCount ?? 0),
+          rageClickCount: Number(row.rageClickCount ?? 0),
+        },
+        now.toISOString(),
+      );
+    } catch (error) {
+      console.warn(
+        "[session-replay] Replay friction finalize failed; the recording stays active until the next sweep:",
+        error,
+      );
+      continue;
+    }
     const endedAt = row.lastIngestedAt ?? row.updatedAt ?? row.startedAt;
     const started = Date.parse(row.startedAt);
     const ended = Date.parse(endedAt);
@@ -2768,6 +2968,16 @@ export async function runSessionReplayRetentionSweep(
     await pruneSessionEventIndex(replayRetentionDays(), now);
   } catch (err) {
     console.warn("[session-replay] Session event index pruning failed:", err);
+  }
+  try {
+    await pruneSessionFriction(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Session friction pruning failed:", err);
+  }
+  try {
+    await prunePerformanceAggregates(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Performance aggregate pruning failed:", err);
   }
   return {
     finalized: finalized.finalized,

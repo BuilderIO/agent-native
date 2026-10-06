@@ -2982,6 +2982,61 @@ describe("upsertUserMessage", () => {
     expect(result.repo.queuedMessages).toEqual([]);
   });
 
+  it("submits a background operation once and reports a later run as already claimed", () => {
+    const operation = {
+      kind: "background-operation" as const,
+      id: "operation-1",
+    };
+    const first = applySubmittedUserMessage(
+      {},
+      buildUserMessage({
+        text: "Suggest changes",
+        runId: "run-1",
+        queuedMessageId: operation.id,
+      }),
+      operation,
+    );
+    if (!("repo" in first)) throw new Error("Expected a submitted result.");
+
+    const retry = applySubmittedUserMessage(
+      first.repo,
+      buildUserMessage({
+        text: "Suggest changes",
+        runId: "run-2",
+        queuedMessageId: operation.id,
+      }),
+      operation,
+    );
+
+    expect(first.status).toBe("submitted");
+    expect(first.repo.messages).toHaveLength(1);
+    expect(retry).toEqual({ status: "already_claimed" });
+  });
+
+  it("holds a background operation id that names a queued message to its promotion claim", () => {
+    const repo = {
+      queuedMessages: [
+        {
+          id: "queued-1",
+          text: "Run once",
+          promotionClaim: { id: "tab-1", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    };
+
+    const result = applySubmittedUserMessage(
+      repo,
+      buildUserMessage({
+        text: "Run once",
+        runId: "run-1",
+        queuedMessageId: "queued-1",
+      }),
+      { kind: "background-operation", id: "queued-1" },
+    );
+
+    expect(result).toEqual({ status: "claim_expired" });
+  });
+
   it("persists submitted AgentKit and queue identities on a user message", () => {
     const message = buildUserMessage({
       text: "Run the report",

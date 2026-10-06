@@ -7,7 +7,7 @@ description: "長時間的代理聊天回合可以在獨立的 15 分鐘 Netlify
 
 > **適用對象：**部署 agent-native 應用、希望長時間多步驟代理回合在伺服器端完成的人，以及想了解 `AGENT_CHAT_DURABLE_BACKGROUND` 旗標和第二個 Netlify 函式用途的人。已部署到 Netlify 的應用預設啟用，這是框架內建功能，不需要撰寫任何應用程式碼。
 
-一般託管代理回合會在同步請求函式中執行，並受平台請求逾時限制（Netlify 免費方案約 10 秒，框架約 40 秒軟逾時，之後必須把控制權交回用戶端並「從上次中斷的地方繼續」）。這對快速回答沒有問題，但長時間的代理回合（許多工具呼叫、大量分析）會在多次由用戶端驅動的續跑之間來回跳轉。
+一般託管代理回合會在同步請求函式中執行，並受平台請求逾時限制（Netlify 為 60 秒，框架約 40 秒軟逾時，之後必須把控制權交回用戶端並「從上次中斷的地方繼續」）。這對快速回答沒有問題，但長時間的代理回合（許多工具呼叫、大量分析）會在多次由用戶端驅動的續跑之間來回跳轉。
 
 持久背景執行會把那個長回合移到**獨立的 Netlify 背景函式**，並提供 **15 分鐘**預算。該回合會在伺服器端的一次呼叫中執行完成；UI 只需要串流結果。
 
@@ -27,7 +27,7 @@ description: "長時間的代理聊天回合可以在獨立的 15 分鐘 Netlify
     <div class="diagram-box">
       前景聊天 POST <small class="diagram-muted">決定 + 分派</small>
     </div>
-    <small class="diagram-muted">約 10 秒逾時 &middot; 幾乎所有請求</small>
+    <small class="diagram-muted">60 秒逾時 &middot; 幾乎所有請求</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">
     &rarr;<br /><small>HMAC 202</small>
@@ -143,7 +143,9 @@ Netlify async function 會在**排入**呼叫的瞬間回傳 `202`；這不代�
 
 ## 成本與取捨 {#cost}
 
-Netlify 背景函式是**付費方案**功能（Personal / Pro，不含免費方案），並依運算時間計費（GB-hour）。因此多分鐘的代理回合會比短同步呼叫花費更多運算量；但它大致上**取代**了舊模式，也就是回合撞到約 40 秒限制後，用戶端重新送出多次續跑請求。這是把同一份工作合併到一次長呼叫中，不是純粹額外增加。
+Netlify 背景函式適用於所有以點數計費的 Netlify 方案（包含 Free）以及 Enterprise。它們以函式運算量計費，與同步函式使用同一個計量：依函式記憶體大小（預設 1 GB），每 GB-hour 執行時間 10 點。Free 方案每月 300 點是硬性上限，點數用完後 Netlify 會暫停該團隊的專案。舊版方案（2025 年 9 月 4 日前建立的帳戶）依請求次數計費函式，且舊版 Free 與 Starter 方案不含背景函式；請參閱 Netlify 的[函式用量與計費](https://docs.netlify.com/build/functions/usage-and-billing/)頁面。
+
+因此多分鐘的代理回合會比短同步呼叫花費更多運算量；但它大致上**取代**了舊模式，也就是回合撞到約 40 秒限制後，用戶端重新送出多次續跑請求。這是把同一份工作合併到一次長呼叫中，不是純粹額外增加。
 
 <Callout id="doc-block-2q0le" tone="info">
 

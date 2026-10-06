@@ -3,17 +3,59 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-02
+## 2026-10-05
 
 ### Fixed
 
+- Design frame labels apply truncation as soon as resizing ends.
+- The Recent tab shows loading placeholders until your designs are ready.
+
+## 2026-10-03
+
+### Fixed
+
+- Alt-drag can increase an oversized corner radius even when CSS did not normalize the radius map.
+- Corner-radius handles resize oversized radii without jumping
+- Cross-screen drops skip flex targets whose axis or item placement cannot be modeled.
+- Layers dropped into visible canvas space beyond a Screen now stay on the board.
+- Reopening a Visual Edit connection keeps screens in its saved project
+- Visible Screen overflow no longer routes drops to the canvas
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup now routes account activation through the one-click flow.
+
+### Fixed
+
+- Cross-screen auto-layout drops avoid guessing when direction comes from stylesheet rules
+- Cross-Screen grid drops preserve the selected cell and the layer's track span
+- Design drops now keep the chosen grid cell and follow reverse flex order when falling back to a fitting container
+- Editing a design source file now refreshes collaborators with that design open.
+- Grid drops avoid cells occupied by generated content
+- Grid drops avoid mis-targeting cells in scrolled grids
+- Layers that exceed a frame's width or height now fall back to the nearest container that fits
+- Oversized drops target the nearest container that can fit the dragged layer.
+- Oversized layers can now drop into a fitting ancestor when a nested frame is too small
+- Reverse auto-layout drops keep their visual and layer order aligned.
+- Drag-and-drop placement follows item size, spacing, and visible order in reversed layouts.
 - Cross-screen drag targets no longer jump when an earlier screen sends a late move.
 - Cross-screen drags continue when focus moves between screens
 
 ## 2026-10-01
 
+### Improved
+
+- Collaborators on the same screen now appear in the avatar bar in overview.
+- The Design home opens on Recent when designs are available, hides the empty Recent tab, and distinguishes designs you own from those shared with you.
+
 ### Fixed
 
+- Edits from collaborators now show up in an open design without a refresh, including frame moves and added or deleted screens.
+- PNG and PDF exports now preserve fonts, images, effects, and page framing in imported screens.
+- Two people editing different parts of the same screen no longer lose edits, and one person's undo no longer reverts the other's changes.
+- Viewers on a shared design now see an editor's changes within a few seconds instead of minutes.
 - A prompt you send before connecting AI is sent automatically once you connect.
 - Cross-Screen drags now apply modifier keys reliably when the source screen loses focus.
 - Cross-screen drops now respect modifier keys at release.
