@@ -4285,6 +4285,76 @@ describe("Brain connector smoke coverage", () => {
     );
   });
 
+  it("looks up a meeting when the account list omits transcript download URLs", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        requestedPaths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        const files = (withUrl: boolean) => [
+          { id: "mp4", file_type: "MP4", status: "completed" },
+          {
+            id: "transcript",
+            file_type: "TRANSCRIPT",
+            status: "completed",
+            ...(withUrl
+              ? { download_url: "https://zoom.us/rec/download/transcript" }
+              : {}),
+          },
+        ];
+        const meeting = {
+          uuid: "abc//def==",
+          id: 83124551552,
+          topic: "Marketing Standup",
+          start_time: "2026-10-06T15:29:38Z",
+        };
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [{ ...meeting, recording_files: files(false) }],
+          });
+        }
+        if (
+          url.pathname === "/v2/meetings/abc%252F%252Fdef%253D%253D/recordings"
+        ) {
+          return Response.json({ ...meeting, recording_files: files(true) });
+        }
+        if (url.pathname === "/rec/download/transcript") {
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Launch moves to Friday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-detail-lookup-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingTopics: ["Marketing Standup"] },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { transcriptsDownloaded: 1, transcriptsWithoutDownloadUrl: 0 },
+    });
+    expect(requestedPaths).toContain(
+      "/v2/meetings/abc%252F%252Fdef%253D%253D/recordings",
+    );
+  });
+
   it("imports only Zoom meetings matching the source meeting filter", async () => {
     const downloads: string[] = [];
     const recording = (uuid: string, id: number, topic: string) => ({

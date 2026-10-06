@@ -63,7 +63,11 @@ account is imported. `update-source` replaces the whole `zoom` object, so send
 every Zoom field you want to keep. Changing the filter or raising `lookbackDays` rewinds the next sync to
 the `lookbackDays` window, so newly included meetings are backfilled (raise
 `lookbackDays`, up to 30, to reach further back). Run stats report
-`meetingsSkippedByFilter` and `filterChanged`.
+`meetingsSkippedByFilter`, `filterChanged`, `transcriptsWithoutDownloadUrl`,
+`matchedMeetings` (ID, title, start, file types) and `skippedMeetings` (ID,
+start). The account-wide list omits download URLs, so a matched meeting with a
+finished transcript is looked up with `/meetings/{uuid}/recordings`
+(`cloud_recording:read:recording:admin`) to get the transcript URL.
 Sources auto-sync hourly; each run overlaps the previous one by one day to
 catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
 Captures use the organization audience. There are no Zoom webhooks.
