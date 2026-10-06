@@ -25,6 +25,7 @@ import {
   IconCheck,
   IconChevronRight,
   IconCopy,
+  IconDownload,
   IconExclamationCircle,
   IconKeyboard,
   IconMessageCircle,
@@ -52,6 +53,7 @@ import {
   type FormEvent,
 } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -93,6 +95,7 @@ import {
 } from "../../../shared/slow-request";
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
+import { downloadReplayScreenshot } from "./session-replay-screenshot";
 import {
   type SessionIssueMatch,
   SessionDevToolsPanel,
@@ -563,6 +566,7 @@ function ReplayPlayer({
   const [status, setStatus] = useState<ReplayPlayerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [savingScreenshot, setSavingScreenshot] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
@@ -1005,6 +1009,43 @@ function ReplayPlayer({
     }
   }
 
+  async function saveScreenshot() {
+    const replayer = replayerRef.current;
+    const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
+    if (!replayer || !iframe || savingScreenshot) return;
+
+    const wasPlaying = playingRef.current;
+    const captureAt = Number(
+      replayer.getCurrentTime?.() ?? currentTimeRef.current,
+    );
+    replayer.pause(captureAt);
+    setPlaying(false);
+    updateTime(captureAt);
+    setSavingScreenshot(true);
+
+    try {
+      await downloadReplayScreenshot(
+        iframe,
+        `session-replay-${Math.floor(captureAt / 1000)
+          .toString()
+          .padStart(4, "0")}.png`,
+      );
+      toast.success(t("sessions.screenshotDownloaded"));
+    } catch {
+      toast.error(t("sessions.screenshotSaveFailed"));
+    } finally {
+      setSavingScreenshot(false);
+      if (wasPlaying) {
+        try {
+          replayer.play(captureAt);
+          setPlaying(true);
+        } catch {
+          setPlaying(false);
+        }
+      }
+    }
+  }
+
   const disabled = status !== "ready";
 
   return (
@@ -1116,6 +1157,20 @@ function ReplayPlayer({
               >
                 <IconPlayerSkipForward className="h-4 w-4" />
               </ReplayIconButton>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled || savingScreenshot}
+                onClick={() => void saveScreenshot()}
+              >
+                <IconDownload className="me-1.5 h-4 w-4" />
+                {t(
+                  savingScreenshot
+                    ? "sessions.savingScreenshot"
+                    : "sessions.saveScreenshot",
+                )}
+              </Button>
 
               <span className="w-12 text-center font-mono text-xs text-muted-foreground">
                 {formatClock(currentTime)}

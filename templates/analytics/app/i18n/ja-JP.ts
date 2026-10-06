@@ -1509,6 +1509,10 @@ export default {
       "このリプレイを再構築するためのスコープ付きチャンクです。プロバイダー URL は非公開のままです。",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "スクリーンショットを保存",
+    savingScreenshot: "スクリーンショットを保存中…",
+    screenshotDownloaded: "スクリーンショットをダウンロードしました",
+    screenshotSaveFailed: "スクリーンショットを保存できませんでした",
     timeline: "イベントタイムライン",
     replayTimeline: "リプレイタイムライン",
     timelineDescription:
