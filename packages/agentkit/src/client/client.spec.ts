@@ -2179,10 +2179,8 @@ describe("AgentKitClient", () => {
         },
       ]);
     };
-    let lastOutput = "";
-    while (JSON.stringify(projectedHistory(lastOutput)).length <= byteLimit) {
-      lastOutput += "x";
-    }
+    const emptyProjectionBytes = JSON.stringify(projectedHistory("")).length;
+    const lastOutput = "x".repeat(byteLimit + 1 - emptyProjectionBytes);
     expect(JSON.stringify(projectedHistory(lastOutput)).length).toBe(
       byteLimit + 1,
     );

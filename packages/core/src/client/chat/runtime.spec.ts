@@ -573,6 +573,70 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
+  it("excludes the current prompt when a synthetic tool-history notice follows it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-tool-history-omission-prompt-boundary",
+      fetch: fetchMock as typeof fetch,
+    });
+    const prompt = "Which tools did you call?";
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "user-prior",
+          role: "user",
+          content: [{ type: "text", text: "Search the project brief" }],
+        },
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-document",
+              toolName: "get_document",
+              input: { documentId: "doc-1" },
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+        },
+        {
+          id: "agentkit-tool-history-omission",
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+            },
+          ],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.history).not.toContainEqual(
+      expect.objectContaining({ content: prompt }),
+    );
+    expect(body.structuredHistory).not.toContainEqual(
+      expect.objectContaining({
+        content: expect.arrayContaining([
+          expect.objectContaining({ type: "text", text: prompt }),
+        ]),
+      }),
+    );
+  });
+
   it("keeps assistant conclusion text after its tool result", async () => {
     const fetchMock = vi
       .fn()

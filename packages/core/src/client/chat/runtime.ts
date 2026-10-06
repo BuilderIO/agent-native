@@ -28,6 +28,9 @@ export type AgentChatRuntimeAwaitable<T> = T | Promise<T>;
 export const AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY =
   "agentNativeRunResumeState";
 
+const AGENTKIT_TOOL_HISTORY_OMISSION_MESSAGE_ID_PREFIX =
+  "agentkit-tool-history-omission";
+
 export type AgentChatRuntimeKind =
   | "agent-native"
   | "external-agent"
@@ -1607,6 +1610,16 @@ function runtimeMessageText(message: AgentChatRuntimeMessage): string {
     .join("\n");
 }
 
+function isSyntheticToolHistoryOmissionMessage(
+  message: AgentChatRuntimeMessage,
+): boolean {
+  return (
+    message.role === "assistant" &&
+    (message.id === AGENTKIT_TOOL_HISTORY_OMISSION_MESSAGE_ID_PREFIX ||
+      /^agentkit-tool-history-omission-\d+$/.test(message.id))
+  );
+}
+
 function priorNativeHistoryMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
@@ -1616,6 +1629,7 @@ function priorNativeHistoryMessages(
   if (currentPrompt.trim()) {
     for (let index = source.length - 1; index >= 0; index--) {
       const message = source[index]!;
+      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
       if (message.role !== "user" && message.role !== "assistant") continue;
       if (message.role === "user") {
         const match = runtimeMessageTextMatches(message, currentPrompt);
@@ -2357,6 +2371,7 @@ function boundedStructuredHistorySources(
       }
       visitedMessages++;
       const message = historyMessages[index]!;
+      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
       if (message.role !== "user" && message.role !== "assistant") continue;
       if (message.role === "user") {
         const match = runtimeMessageTextMatches(message, currentPrompt);
