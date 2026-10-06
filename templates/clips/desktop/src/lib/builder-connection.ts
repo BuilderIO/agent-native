@@ -10,7 +10,8 @@ export async function connectBuilderForVoiceCleanup(
     fetchImpl?: typeof fetch;
     openExternal: (url: string) => Promise<unknown>;
   },
-): Promise<"activated" | "browser"> {
+  options: { provisionAccount: boolean },
+): Promise<"activated" | "browser" | "account-exists"> {
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const statusResponse = await fetchImpl(
     `${base}/_agent-native/connection-status/builder`,
@@ -29,6 +30,13 @@ export async function connectBuilderForVoiceCleanup(
     : null;
   if (connectUrl && connectUrl.origin !== new URL(base).origin) {
     throw new Error("Builder.io returned a sign-in link for another server.");
+  }
+  if (!options.provisionAccount) {
+    if (!connectUrl) {
+      throw new Error("Couldn't prepare Builder.io sign-in. Try again.");
+    }
+    await dependencies.openExternal(connectUrl.href);
+    return "browser";
   }
   if (!status.agentNativeProvisioningEnabled) {
     throw new Error(
@@ -57,10 +65,7 @@ export async function connectBuilderForVoiceCleanup(
     code?: string;
     message?: string;
   } | null;
-  if (provision?.code === "account_exists" && connectUrl) {
-    await dependencies.openExternal(connectUrl.href);
-    return "browser";
-  }
+  if (provision?.code === "account_exists") return "account-exists";
   if (!provisionResponse.ok || !provision?.ok) {
     throw new Error(
       provision?.message ||

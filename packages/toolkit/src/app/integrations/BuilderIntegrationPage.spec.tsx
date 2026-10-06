@@ -37,6 +37,22 @@ vi.mock("../settings/deferred-builder-connect-popover.js", () => ({
     children: React.ReactElement<{ onClick?: () => void }>;
     onConnect: (provisionAccount: boolean) => void;
   }) => React.cloneElement(children, { onClick: () => onConnect(false) }),
+  DeferredBuilderConnectChoicePanel: ({
+    onCreateAndActivate,
+    onExistingAccount,
+  }: {
+    onCreateAndActivate: () => void;
+    onExistingAccount: () => void;
+  }) => (
+    <div>
+      <button type="button" onClick={onCreateAndActivate}>
+        Create and activate
+      </button>
+      <button type="button" onClick={onExistingAccount}>
+        I have a Builder.io account
+      </button>
+    </div>
+  ),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
@@ -277,10 +293,33 @@ describe("BuilderIntegrationPage", () => {
       container.querySelector('[data-builder-manage="personal"]'),
     ).not.toBeNull();
     await openMenu("personal");
-    const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
-    expect(items.map((item) => item.textContent?.trim())).toEqual([
-      "Disconnect",
-    ]);
+    expect(button("Disconnect", document.body)).not.toBeUndefined();
+  });
+
+  it("opens the account chooser before reconnecting from Manage", async () => {
+    const start = vi.fn();
+    flowMock.current = flow({
+      configured: true,
+      effective: "personal",
+      grants: {
+        personal: { connectedAt: 1, needsReconnect: false, restricted: false },
+      },
+      canConnect: { org: true, personal: true },
+      start,
+    });
+    await render(admin);
+
+    await openMenu("personal");
+    await act(async () => button("Reconnect", document.body)?.click());
+    expect(button("Create and activate", document.body)).toBeDefined();
+    expect(button("I have a Builder.io account", document.body)).toBeDefined();
+
+    await act(async () =>
+      button("Create and activate", document.body)?.click(),
+    );
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "personal", provisionAccount: true }),
+    );
   });
 
   it("confirms an organization disconnect with what stops working", async () => {
@@ -310,14 +349,7 @@ describe("BuilderIntegrationPage", () => {
     );
 
     await openMenu("org");
-    const disconnectItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Disconnect"));
-    await act(async () => {
-      disconnectItem?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
+    await act(async () => button("Disconnect", document.body)?.click());
 
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog?.textContent).toContain("Disconnect Builder.io?");
@@ -342,14 +374,7 @@ describe("BuilderIntegrationPage", () => {
 
   async function openOrgDisconnect() {
     await openMenu("org");
-    const disconnectItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Disconnect"));
-    await act(async () => {
-      disconnectItem?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
+    await act(async () => button("Disconnect", document.body)?.click());
     return document.querySelector('[role="alertdialog"]');
   }
 
@@ -428,14 +453,7 @@ describe("BuilderIntegrationPage", () => {
     await render(admin);
 
     await openMenu("org");
-    const disconnectItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Disconnect"));
-    await act(async () => {
-      disconnectItem?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
+    await act(async () => button("Disconnect", document.body)?.click());
     const dialog = document.querySelector('[role="alertdialog"]');
     await act(async () => button("Disconnect", dialog!)?.click());
 
@@ -457,14 +475,7 @@ describe("BuilderIntegrationPage", () => {
       "Connected. Only you use it.",
     );
     await openMenu("personal");
-    const disconnectItem = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Disconnect"));
-    await act(async () => {
-      disconnectItem?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
-      );
-    });
+    await act(async () => button("Disconnect", document.body)?.click());
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(disconnectMock).toHaveBeenCalledWith({ disconnect: "personal" });
     // Members don't get the Infrastructure footnote.

@@ -52,6 +52,45 @@ vi.mock("@agent-native/toolkit/design-system", async (importOriginal) => {
   };
 });
 
+vi.mock(
+  "../settings/deferred-builder-connect-popover.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../settings/deferred-builder-connect-popover.js")
+      >();
+    return {
+      ...actual,
+      DeferredBuilderConnectChoicePanel: ({
+        flow,
+        onCreateAndActivate,
+        onExistingAccount,
+      }: {
+        flow: { connecting: boolean };
+        onCreateAndActivate: () => void;
+        onExistingAccount: () => void;
+      }) => (
+        <div>
+          <button
+            type="button"
+            disabled={flow.connecting}
+            onClick={onCreateAndActivate}
+          >
+            Create and activate
+          </button>
+          <button
+            type="button"
+            disabled={flow.connecting}
+            onClick={onExistingAccount}
+          >
+            I have a Builder.io account
+          </button>
+        </div>
+      ),
+    };
+  },
+);
+
 describe("BuilderConnectCard", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -214,7 +253,7 @@ describe("BuilderConnectCard", () => {
     ).not.toBeNull();
   });
 
-  it("keeps cancellation available after reconnect closes the management menu", () => {
+  it("keeps cancellation available after reconnect closes the management menu", async () => {
     const flow = {
       configured: true,
       statusResolved: true,
@@ -259,7 +298,14 @@ describe("BuilderConnectCard", () => {
     const reconnect = Array.from(document.body.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Use Builder.io"),
     );
-    act(() => reconnect?.click());
+    await act(async () => {
+      reconnect?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const createAndActivate = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Create and activate"));
+    await act(async () => createAndActivate?.click());
 
     const cancel = container.querySelector<HTMLButtonElement>(
       "[data-testid='builder-connection-cancel']",
@@ -381,6 +427,23 @@ describe("BuilderConnectCard", () => {
       );
     }
 
+    async function openReconnectChooser() {
+      openMenu();
+      await act(async () => {
+        menuButton("Use Builder.io")?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+
+    async function chooseExistingAccount() {
+      const existingAccount = Array.from(
+        document.body.querySelectorAll("button"),
+      ).find((button) =>
+        button.textContent?.includes("I have a Builder.io account"),
+      );
+      await act(async () => existingAccount?.click());
+    }
+
     it("gives a member riding the org connection no Reconnect that would shadow it", () => {
       renderManaged(scopedFlow({}));
 
@@ -402,8 +465,12 @@ describe("BuilderConnectCard", () => {
       });
       renderManaged(flow);
 
-      openMenu();
-      act(() => menuButton("Use Builder.io")?.click());
+      await openReconnectChooser();
+      expect(document.body.textContent).toContain("Create and activate");
+      expect(document.body.textContent).toContain(
+        "I have a Builder.io account",
+      );
+      await chooseExistingAccount();
       expect(flow.start).toHaveBeenCalledWith(
         expect.objectContaining({ scope: "org", provisionAccount: false }),
       );
@@ -441,8 +508,8 @@ describe("BuilderConnectCard", () => {
       });
       renderManaged(flow, "personal");
 
-      openMenu();
-      act(() => menuButton("Use Builder.io")?.click());
+      await openReconnectChooser();
+      await chooseExistingAccount();
       expect(flow.start).toHaveBeenCalledWith(
         expect.objectContaining({ scope: "personal" }),
       );
@@ -481,8 +548,8 @@ describe("BuilderConnectCard", () => {
       });
       renderManaged(flow);
 
-      openMenu();
-      act(() => menuButton("Use Builder.io")?.click());
+      await openReconnectChooser();
+      await chooseExistingAccount();
       expect(flow.start).toHaveBeenCalledWith(
         expect.objectContaining({ scope: "org", provisionAccount: false }),
       );
@@ -500,7 +567,7 @@ describe("BuilderConnectCard", () => {
       );
     });
 
-    it("keeps the role-decided Reconnect for a caller without an organization", () => {
+    it("keeps the role-decided Reconnect for a caller without an organization", async () => {
       const flow = scopedFlow({
         grants: {
           personal: {
@@ -516,8 +583,8 @@ describe("BuilderConnectCard", () => {
       });
       renderManaged(flow);
 
-      openMenu();
-      act(() => menuButton("Use Builder.io")?.click());
+      await openReconnectChooser();
+      await chooseExistingAccount();
       expect(flow.start).toHaveBeenCalledWith(
         expect.not.objectContaining({ scope: expect.anything() }),
       );

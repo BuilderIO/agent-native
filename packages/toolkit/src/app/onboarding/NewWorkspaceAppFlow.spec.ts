@@ -450,7 +450,17 @@ describe("NewWorkspaceAppFlow", () => {
     act(() => {
       connectButton.click();
     });
-    expect(builderConnectFlowState.start).toHaveBeenCalledTimes(1);
+    expect(builderConnectFlowState.start).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Create and activate");
+    expect(document.body.textContent).toContain("I have a Builder.io account");
+
+    const activateButton = findButton(document.body, "Create and activate");
+    act(() => {
+      activateButton.click();
+    });
+    expect(builderConnectFlowState.start).toHaveBeenCalledWith({
+      provisionAccount: true,
+    });
   });
 
   it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {

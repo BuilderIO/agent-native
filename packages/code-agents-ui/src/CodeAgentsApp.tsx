@@ -51,6 +51,11 @@ import {
   AgentConversationMessageView,
   type AgentConversationMessage,
 } from "@agent-native/toolkit/app/chat/conversation";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+  type BuilderConnectFlow,
+} from "@agent-native/toolkit/app/settings";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconAlertCircle,
@@ -1393,6 +1398,13 @@ export default function CodeAgentsApp({
       });
     }
   }, [host, isActive]);
+
+  const builderConnectFlow = useBuilderConnectFlow({
+    enabled: isActive,
+    provisionAccount: true,
+    trackingSource: "desktop_code_agents",
+    trackingFlow: "code_provider_setup",
+  });
 
   const runComputerSetupAction = useCallback(
     async (action: CodeAgentComputerSetupAction) => {
@@ -3052,6 +3064,7 @@ export default function CodeAgentsApp({
                               providerGate.blocked &&
                               !isPortalCodeAgentRun(selectedRun)
                             }
+                            builderConnectFlow={builderConnectFlow}
                             builderConnecting={builderConnecting}
                             builderConnectMessage={builderConnectMessage}
                             onConnectBuilder={connectBuilderProvider}
@@ -3083,6 +3096,7 @@ export default function CodeAgentsApp({
                               providerGate.blocked && (
                                 <ProviderGateNotice
                                   description={providerGate.description}
+                                  builderConnectFlow={builderConnectFlow}
                                   connecting={builderConnecting}
                                   message={builderConnectMessage}
                                   bouncePulse={providerGateBouncePulse}
@@ -4232,6 +4246,7 @@ export function shouldShowCodeAgentCredentialCallout({
 
 function ProviderGateNotice({
   description,
+  builderConnectFlow,
   connecting,
   message,
   bouncePulse,
@@ -4241,6 +4256,7 @@ function ProviderGateNotice({
   onConnectLocalRuntime,
 }: {
   description: string;
+  builderConnectFlow: BuilderConnectFlow;
   connecting: boolean;
   message: string | null;
   bouncePulse?: number;
@@ -4256,11 +4272,12 @@ function ProviderGateNotice({
     <CodeProviderNotice
       className="code-agents-provider-gate"
       title="Connect AI"
-      description={message ?? description}
+      description={message ?? builderConnectFlow.error ?? description}
+      builderConnectFlow={builderConnectFlow}
       primaryActionLabel={
         connecting ? "Signing in to Builder.io…" : "Use Builder.io"
       }
-      primaryDisabled={connecting}
+      primaryDisabled={connecting || builderConnectFlow.connecting}
       onPrimaryAction={onConnectBuilder}
       bouncePulse={bouncePulse}
       localRuntimeOptions={localRuntimeOptions}
@@ -4294,10 +4311,11 @@ function ClaudeMark({ size }: { size: number }) {
   );
 }
 
-function CodeProviderNotice({
+export function CodeProviderNotice({
   className,
   title,
   description,
+  builderConnectFlow,
   primaryActionLabel,
   primaryDisabled,
   onPrimaryAction,
@@ -4310,6 +4328,7 @@ function CodeProviderNotice({
   className: string;
   title: string;
   description: string;
+  builderConnectFlow: BuilderConnectFlow;
   primaryActionLabel?: string;
   primaryDisabled?: boolean;
   onPrimaryAction?: () => void;
@@ -4345,14 +4364,32 @@ function CodeProviderNotice({
       </div>
       <div className="code-agents-provider-actions">
         {onPrimaryAction && primaryActionLabel && (
-          <button
-            type="button"
-            className="code-agents-button--primary"
-            onClick={onPrimaryAction}
-            disabled={primaryDisabled}
+          <BuilderConnectPopover
+            flow={builderConnectFlow}
+            onConnect={(provisionAccount) => {
+              if (provisionAccount) {
+                builderConnectFlow.start({ provisionAccount: true });
+              } else {
+                onPrimaryAction?.();
+              }
+            }}
           >
-            {primaryActionLabel}
-          </button>
+            <button
+              type="button"
+              className="code-agents-button--primary"
+              disabled={primaryDisabled || builderConnectFlow.connecting}
+            >
+              {builderConnectFlow.connecting ? (
+                <IconRefresh
+                  size={14}
+                  strokeWidth={1.8}
+                  className="code-agents-spin"
+                  aria-hidden="true"
+                />
+              ) : null}
+              {primaryActionLabel}
+            </button>
+          </BuilderConnectPopover>
         )}
         {showRuntimeMenu ? (
           <DropdownMenu>
@@ -5349,6 +5386,7 @@ function RunDetailCard({
   onApproveAlways,
   onDeny,
   providerBlocked,
+  builderConnectFlow,
   builderConnecting,
   builderConnectMessage,
   onConnectBuilder,
@@ -5378,6 +5416,7 @@ function RunDetailCard({
   onApproveAlways: () => void;
   onDeny: () => void;
   providerBlocked: boolean;
+  builderConnectFlow: BuilderConnectFlow;
   builderConnecting: boolean;
   builderConnectMessage: string | null;
   onConnectBuilder: () => void;
@@ -5460,12 +5499,14 @@ function RunDetailCard({
           title="Connect AI"
           description={
             builderConnectMessage ??
+            builderConnectFlow.error ??
             "Use Builder.io or add custom keys to continue coding."
           }
+          builderConnectFlow={builderConnectFlow}
           primaryActionLabel={
             builderConnecting ? "Signing in to Builder.io…" : "Use Builder.io"
           }
-          primaryDisabled={builderConnecting}
+          primaryDisabled={builderConnecting || builderConnectFlow.connecting}
           onPrimaryAction={onConnectBuilder}
           localRuntimeOptions={getLocalRuntimeOptions(modelOptions)}
           onConnectLocalRuntime={onConnectLocalRuntime}

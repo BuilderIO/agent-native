@@ -26,10 +26,14 @@ describe("connectBuilderForVoiceCleanup", () => {
     const openExternal = vi.fn(async () => {});
 
     await expect(
-      connectBuilderForVoiceCleanup("https://app.example", {
-        fetchImpl,
-        openExternal,
-      }),
+      connectBuilderForVoiceCleanup(
+        "https://app.example",
+        {
+          fetchImpl,
+          openExternal,
+        },
+        { provisionAccount: true },
+      ),
     ).resolves.toBe("activated");
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
@@ -43,7 +47,57 @@ describe("connectBuilderForVoiceCleanup", () => {
     expect(openExternal).not.toHaveBeenCalled();
   });
 
-  it("opens sign-in only when activation reports an existing account", async () => {
+  it("opens sign-in only when the existing-account option is chosen", async () => {
+    const connectUrl =
+      "https://app.example/_agent-native/builder/connect?_an_connect=signed-connect";
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ connectUrl }), { status: 200 }),
+      );
+    const openExternal = vi.fn(async () => {});
+
+    await expect(
+      connectBuilderForVoiceCleanup(
+        "https://app.example",
+        {
+          fetchImpl,
+          openExternal,
+        },
+        { provisionAccount: false },
+      ),
+    ).resolves.toBe("browser");
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledWith(new URL(connectUrl).href);
+  });
+
+  it("does not open OAuth when one-click setup is unavailable", async () => {
+    const connectUrl =
+      "https://app.example/_agent-native/builder/connect?_an_connect=signed-connect";
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ connectUrl }), { status: 200 }),
+      );
+    const openExternal = vi.fn(async () => {});
+
+    await expect(
+      connectBuilderForVoiceCleanup(
+        "https://app.example",
+        {
+          fetchImpl,
+          openExternal,
+        },
+        { provisionAccount: true },
+      ),
+    ).rejects.toThrow("One-click Builder.io setup isn't available");
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it("reports an existing account without opening a Builder window", async () => {
     const connectUrl =
       "https://app.example/_agent-native/builder/connect?_an_connect=signed-connect";
     const fetchImpl = vi
@@ -66,33 +120,13 @@ describe("connectBuilderForVoiceCleanup", () => {
     const openExternal = vi.fn(async () => {});
 
     await expect(
-      connectBuilderForVoiceCleanup("https://app.example", {
-        fetchImpl,
-        openExternal,
-      }),
-    ).resolves.toBe("browser");
+      connectBuilderForVoiceCleanup(
+        "https://app.example",
+        { fetchImpl, openExternal },
+        { provisionAccount: true },
+      ),
+    ).resolves.toBe("account-exists");
 
-    expect(openExternal).toHaveBeenCalledWith(connectUrl);
-  });
-
-  it("does not open OAuth when one-click setup is unavailable", async () => {
-    const connectUrl =
-      "https://app.example/_agent-native/builder/connect?_an_connect=signed-connect";
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ connectUrl }), { status: 200 }),
-      );
-    const openExternal = vi.fn(async () => {});
-
-    await expect(
-      connectBuilderForVoiceCleanup("https://app.example", {
-        fetchImpl,
-        openExternal,
-      }),
-    ).rejects.toThrow("One-click Builder.io setup isn't available");
-
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(openExternal).not.toHaveBeenCalled();
   });
 });

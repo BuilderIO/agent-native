@@ -1,3 +1,4 @@
+import { BuilderConnectPopover } from "@agent-native/toolkit/app/settings";
 import {
   IconAdjustmentsHorizontal,
   IconAlertTriangle,
@@ -6350,6 +6351,7 @@ function Setup({
   const [providerStatusRefreshVersion, setProviderStatusRefreshVersion] =
     useState(0);
   const [builderConnecting, setBuilderConnecting] = useState(false);
+  const [builderAccountExists, setBuilderAccountExists] = useState(false);
   const [builderConnectMessage, setBuilderConnectMessage] = useState<{
     kind: "ok" | "error";
     text: string;
@@ -6978,15 +6980,20 @@ function Setup({
     }
   }
 
-  async function connectBuilder() {
+  async function connectBuilder(provisionAccount: boolean) {
     if (builderConnecting) return;
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
     setBuilderConnecting(true);
     setBuilderConnectMessage(null);
+    if (!provisionAccount) setBuilderAccountExists(false);
     try {
-      const result = await connectBuilderForVoiceCleanup(base, {
-        openExternal,
-      });
+      const result = await connectBuilderForVoiceCleanup(
+        base,
+        {
+          openExternal,
+        },
+        { provisionAccount },
+      );
       if (result === "activated") {
         setProviderStatus((previous) =>
           previous
@@ -7003,6 +7010,8 @@ function Setup({
           kind: "ok",
           text: "Builder.io is ready for voice cleanup.",
         });
+      } else if (result === "account-exists") {
+        setBuilderAccountExists(true);
       } else {
         setBuilderConnectMessage({
           kind: "ok",
@@ -7021,6 +7030,14 @@ function Setup({
       setBuilderConnecting(false);
     }
   }
+
+  const builderConnectFlow = {
+    connecting: builderConnecting,
+    accountExists: builderAccountExists,
+    start: (options?: { provisionAccount?: boolean }) => {
+      void connectBuilder(options?.provisionAccount === true);
+    },
+  };
 
   const providerWarning: string | null = (() => {
     if (providerStatusLoading || !providerStatus) return null;
@@ -7887,13 +7904,14 @@ function Setup({
                   </p>
                 ) : null}
                 {selectedMode === "builder" && !providerStatus?.builder ? (
-                  <SettingsActionButton
-                    className="w-fit"
-                    onClick={() => void connectBuilder()}
-                    disabled={builderConnecting}
-                  >
-                    {builderConnecting ? "Setting up…" : "Use Builder.io"}
-                  </SettingsActionButton>
+                  <BuilderConnectPopover flow={builderConnectFlow}>
+                    <SettingsActionButton
+                      className="w-fit"
+                      disabled={builderConnecting}
+                    >
+                      {builderConnecting ? "Setting up…" : "Use Builder.io"}
+                    </SettingsActionButton>
+                  </BuilderConnectPopover>
                 ) : null}
               </>
             ) : null}

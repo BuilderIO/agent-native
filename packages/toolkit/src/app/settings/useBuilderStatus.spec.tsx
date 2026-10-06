@@ -1640,7 +1640,7 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).not.toContain("Couldn't reach Builder");
   });
 
-  it("retries status from a connect trigger without bypassing consent", async () => {
+  it("shows the chooser without navigating when status cannot be resolved", async () => {
     vi.mocked(fetch)
       .mockRejectedValueOnce(new Error("status unavailable"))
       .mockResolvedValueOnce(
@@ -1669,13 +1669,13 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(fetch).toHaveBeenCalledTimes(2);
     expect(
-      container.querySelector("[data-radix-popper-content-wrapper]"),
-    ).toBeNull();
+      document.querySelector("[data-radix-popper-content-wrapper]"),
+    ).not.toBeNull();
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it("honors a connect click made while the first status read is still in flight", async () => {
+  it("opens the chooser while the first status read is still in flight", async () => {
     const pending: Array<() => void> = [];
     vi.mocked(fetch).mockImplementation(
       () =>
@@ -1706,12 +1706,9 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(container.querySelector("button")?.getAttribute("aria-busy")).toBe(
-      "true",
-    );
     expect(
       document.querySelector("[data-radix-popper-content-wrapper]"),
-    ).toBeNull();
+    ).not.toBeNull();
 
     await act(async () => {
       for (const release of pending) release();
@@ -1723,12 +1720,10 @@ describe("useBuilderConnectFlow", () => {
     expect(
       document.querySelector("[data-radix-popper-content-wrapper]"),
     ).not.toBeNull();
-    expect(
-      container.querySelector("button")?.getAttribute("aria-busy"),
-    ).toBeNull();
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it("keeps surface callbacks on the legacy connection path", async () => {
+  it("routes the existing-account choice through the surface callback", async () => {
     const flow = {
       connecting: false,
       statusResolved: true,
@@ -1751,6 +1746,17 @@ describe("useBuilderConnectFlow", () => {
     await act(async () => {
       container.querySelector("button")?.click();
     });
+
+    const existingAccountAction = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        "[data-radix-popper-content-wrapper] button",
+      ),
+    ).find((button) =>
+      button.textContent?.includes("I have a Builder.io account"),
+    );
+    expect(existingAccountAction).toBeDefined();
+
+    await act(async () => existingAccountAction?.click());
 
     expect(onConnect).toHaveBeenCalledWith(false);
     expect(flow.start).not.toHaveBeenCalled();

@@ -1,4 +1,9 @@
-import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
+import {
+  BuilderConnectPopover,
+  SettingsGroup,
+  SettingsRow,
+  useBuilderConnectFlow,
+} from "@agent-native/toolkit/app/settings";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -178,6 +183,11 @@ export function CodeProviderSettings({
     useState<CodeAgentProviderId | null>(null);
   const [builderConnecting, setBuilderConnecting] = useState(false);
   const [providerMessage, setProviderMessage] = useState<string | null>(null);
+  const builderConnectFlow = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: "desktop_code_provider_settings",
+    trackingFlow: "code_provider_setup",
+  });
 
   const builderProvider = settings.providers.find(
     (provider) => provider.id === "builder",
@@ -340,17 +350,27 @@ export function CodeProviderSettings({
           }
           control={
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                className="settings-btn settings-btn--primary"
-                onClick={() => handleConnectBuilder()}
-                disabled={builderConnecting}
+              <BuilderConnectPopover
+                flow={builderConnectFlow}
+                onConnect={(provisionAccount) => {
+                  if (provisionAccount) {
+                    builderConnectFlow.start({ provisionAccount: true });
+                  } else {
+                    void handleConnectBuilder();
+                  }
+                }}
               >
-                {builderConnecting ? (
-                  <IconLoader2 size={14} className="settings-update-spin" />
-                ) : null}
-                Use Builder.io
-              </button>
+                <button
+                  type="button"
+                  className="settings-btn settings-btn--primary"
+                  disabled={builderConnecting || builderConnectFlow.connecting}
+                >
+                  {builderConnecting || builderConnectFlow.connecting ? (
+                    <IconLoader2 size={14} className="settings-update-spin" />
+                  ) : null}
+                  Use Builder.io
+                </button>
+              </BuilderConnectPopover>
               {builderSavedKeys ? (
                 <button
                   type="button"
@@ -479,6 +499,11 @@ export function CodeProviderSettings({
 
       <SubscriptionSettings />
 
+      {builderConnectFlow.error ? (
+        <p className="settings-provider-message" role="alert">
+          {builderConnectFlow.error}
+        </p>
+      ) : null}
       {providerMessage ? (
         <p className="settings-provider-message" role="status">
           {providerMessage}
