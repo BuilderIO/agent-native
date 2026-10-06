@@ -80,6 +80,7 @@ const BUILDER_LABEL = "Builder.io";
 const CHATGPT_LABEL = "ChatGPT";
 const POLICY_QUERY_KEY = ["action", "manage-provider-key-policy", {}] as const;
 const ENGINES_QUERY_KEY = ["action", "manage-agent-engine", { action: "list" }];
+const OPENAI_ENGINE = getAgentProviderOption("openai").engine;
 const LOOP_QUERY_KEY = [
   "action",
   "manage-agent-loop-settings",
@@ -291,6 +292,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
           chatgpt={chatgptModels}
           builder={builder}
           hasProvider={!needsProvider}
+          orgId={org.data?.orgId}
         />
       </div>
       <ProviderDialog
@@ -727,12 +729,14 @@ function OrganizationSettingsGroup({
   chatgpt,
   builder,
   hasProvider,
+  orgId,
 }: {
   listing: ModelProvidersListing;
   models: ModelsReadState;
   chatgpt: ChatGPTModelsState;
   builder: BuilderConnectFlow;
   hasProvider: boolean;
+  orgId?: string | null;
 }) {
   const t = useT();
   const hasOrg = listing.hasOrganization;
@@ -748,6 +752,7 @@ function OrganizationSettingsGroup({
         chatgpt={chatgpt}
         builder={builder}
         hasProvider={hasProvider}
+        orgId={orgId}
       />
       {hasOrg && listing.canManageOrg ? <RestrictKeysRow /> : null}
       <MaxIterationsRow />
@@ -761,12 +766,14 @@ function DefaultModelRow({
   chatgpt,
   builder,
   hasProvider,
+  orgId,
 }: {
   listing: ModelProvidersListing;
   models: ModelsReadState;
   chatgpt: ChatGPTModelsState;
   builder: BuilderConnectFlow;
   hasProvider: boolean;
+  orgId?: string | null;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -787,18 +794,55 @@ function DefaultModelRow({
     builderLabel: BUILDER_LABEL,
     chatgpt: chatgpt.status === "ready" ? chatgpt.catalog : undefined,
   });
+  const hasStoredOpenAiDefault =
+    listing.defaultModel?.engine === OPENAI_ENGINE &&
+    typeof listing.defaultModel.model === "string" &&
+    listing.defaultModel.model.length > 0;
+  const openAiDefaultOffered = groups.some(
+    (group) => group.engine === OPENAI_ENGINE,
+  );
+  const openAiReadiness = useQuery({
+    queryKey: [
+      ...ENGINES_QUERY_KEY,
+      "model-settings-default-readiness",
+      listing.defaultModelSource,
+      listing.hasOrganization ? (orgId ?? null) : null,
+    ],
+    enabled: hasStoredOpenAiDefault && !openAiDefaultOffered,
+    queryFn: () =>
+      callAction<{
+        engines?: Array<
+          ChatModelEngineEntry & { credentialRejected?: boolean }
+        >;
+      }>("manage-agent-engine" as never, { action: "list" } as never),
+    select: (result) =>
+      result.engines?.find((engine) => engine.name === OPENAI_ENGINE),
+  });
+  const configuredOpenAiDefault =
+    hasStoredOpenAiDefault &&
+    openAiReadiness.data?.configured === true &&
+    openAiReadiness.data.credentialRejected !== true &&
+    !openAiReadiness.data.configuredError;
   const stored = listing.defaultModel
     ? (() => {
         const group = groups.find(
           (candidate) => candidate.engine === listing.defaultModel?.engine,
         );
-        const model = listing.defaultModel.model ?? group?.models[0] ?? "";
+        const configuredOpenAi =
+          listing.defaultModel.engine === OPENAI_ENGINE &&
+          configuredOpenAiDefault
+            ? openAiReadiness.data
+            : undefined;
+        const supportedModels =
+          group?.models ?? configuredOpenAi?.supportedModels ?? [];
+        const preserveCustomModels =
+          group?.preserveCustomModels ?? configuredOpenAi?.preserveCustomModels;
+        const model = listing.defaultModel.model ?? supportedModels[0] ?? "";
         return {
           engine: listing.defaultModel.engine,
           model:
-            (group &&
-              !group.preserveCustomModels &&
-              upgradeModelToLatestSupportedVersion(model, group.models)) ||
+            (!preserveCustomModels &&
+              upgradeModelToLatestSupportedVersion(model, supportedModels)) ||
             model,
         };
       })()
@@ -806,7 +850,8 @@ function DefaultModelRow({
   const storedGroup = stored
     ? groups.find((group) => group.engine === stored.engine)
     : undefined;
-  const current = pending ?? (storedGroup ? stored : null);
+  const current =
+    pending ?? (storedGroup || configuredOpenAiDefault ? stored : null);
   const engineLabel = (engine: string) => {
     const provider = providerForEngine(engine);
     if (provider === "builder") return BUILDER_LABEL;
@@ -866,9 +911,11 @@ function DefaultModelRow({
   const retryRead =
     modelsRead.status === "error"
       ? modelsRead.retry
-      : chatgpt.status === "error"
-        ? chatgpt.retry
-        : null;
+      : openAiReadiness.isError
+        ? () => void openAiReadiness.refetch()
+        : chatgpt.status === "error"
+          ? chatgpt.retry
+          : null;
 
   return (
     <SettingsRow
@@ -880,12 +927,15 @@ function DefaultModelRow({
           : t(`${K}defaultModelDescription`)
       }
       control={
-        modelsRead.status === "loading" || chatgpt.status === "loading" ? (
+        modelsRead.status === "loading" ||
+        chatgpt.status === "loading" ||
+        openAiReadiness.isLoading ? (
           <Skeleton
             className="h-8 w-64 max-w-full"
             data-default-model-loading=""
           />
-        ) : modelsRead.status === "error" ? null : waitingForProvider ||
+        ) : modelsRead.status === "error" ||
+          openAiReadiness.isError ? null : waitingForProvider ||
           (listing.canUpdateDefault && allGroups.length === 0) ? (
           <Select disabled>
             <SelectTrigger
@@ -895,10 +945,10 @@ function DefaultModelRow({
             >
               <SelectValue
                 placeholder={
-                  waitingForProvider
-                    ? ""
-                    : current
-                      ? currentLabel
+                  current
+                    ? currentLabel
+                    : waitingForProvider
+                      ? ""
                       : t(`${K}chooseModel`)
                 }
               />

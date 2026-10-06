@@ -240,9 +240,26 @@ async function preserveCustomModelsForScope(
       ),
     ),
   ]);
-  const endpoint = endpoints.find((secret) => secret?.value);
-  if (isCustomOpenAiBaseUrl(endpoint?.value)) return true;
-  if (endpoint?.value || credentials.some((secret) => secret?.value)) {
+  for (const [endpointIndex, endpoint] of endpoints.entries()) {
+    if (!isCustomOpenAiBaseUrl(endpoint?.value)) continue;
+    for (const [credentialIndex, credential] of credentials.entries()) {
+      if (!credential?.value) continue;
+      try {
+        assertCredentialCanReachEndpoint(
+          credentialRefs[endpointIndex],
+          credentialRefs[credentialIndex],
+          PROVIDER_ENV_META.openai.envVar,
+        );
+        return true;
+      } catch (error) {
+        if (!(error instanceof CredentialEndpointMismatchError)) throw error;
+      }
+    }
+  }
+  if (
+    endpoints.some((secret) => secret?.value) ||
+    credentials.some((secret) => secret?.value)
+  ) {
     return false;
   }
 

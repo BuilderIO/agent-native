@@ -435,7 +435,7 @@ export function useChatModels({
             !selection.selectedEngine
               ? configuredGroups
               : groups;
-          const exactSelectedGroup = selectableGroups.find(
+          const exactSelectedGroups = selectableGroups.filter(
             (group) =>
               (group.models.includes(selection.selectedModel) ||
                 (selection.selectedEngine === group.engine &&
@@ -443,30 +443,43 @@ export function useChatModels({
               (!selection.selectedEngine ||
                 group.engine === selection.selectedEngine),
           );
-          const upgradedSelection = exactSelectedGroup
-            ? undefined
-            : selectableGroups
-                .filter(
-                  (group) =>
-                    !selection.selectedEngine ||
-                    group.engine === selection.selectedEngine,
-                )
-                .map((group) => ({
-                  group,
-                  model: group.preserveCustomModels
+          const exactSelectedGroup = selection.selectedEngine
+            ? exactSelectedGroups[0]
+            : new Set(exactSelectedGroups.map((group) => group.engine)).size ===
+                1
+              ? exactSelectedGroups[0]
+              : undefined;
+          const upgradeCandidates = exactSelectedGroup
+            ? []
+            : selectableGroups.flatMap((group) => {
+                if (
+                  selection.selectedEngine &&
+                  group.engine !== selection.selectedEngine
+                ) {
+                  return [];
+                }
+                const model =
+                  group.preserveCustomModels &&
+                  selection.selectedEngine === group.engine
                     ? selection.selectedModel
                     : upgradeModelToLatestSupportedVersion(
                         selection.selectedModel,
                         group.models,
-                      ),
-                }))
-                .find((candidate) => candidate.model);
+                      );
+                return model ? [{ group, model }] : [];
+              });
+          const upgradeCandidateKeys = new Set(
+            upgradeCandidates.map(({ group, model }) =>
+              JSON.stringify([group.engine, model]),
+            ),
+          );
+          const upgradedSelection =
+            upgradeCandidateKeys.size === 1 ? upgradeCandidates[0] : undefined;
           const selectedGroup = exactSelectedGroup ?? upgradedSelection?.group;
           if (selectedGroup) {
             const selectedModel =
               selectedGroup.preserveCustomModels &&
-              (!selection.selectedEngine ||
-                selection.selectedEngine === selectedGroup.engine)
+              selection.selectedEngine === selectedGroup.engine
                 ? selection.selectedModel
                 : (upgradedSelection?.model ??
                   upgradeModelToLatestSupportedVersion(

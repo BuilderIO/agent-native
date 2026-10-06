@@ -210,6 +210,39 @@ describe("selection scopes", () => {
     expect(row.models).toEqual(["gpt-5.6-luna"]);
   });
 
+  it("does not preserve custom models when a custom endpoint has no key", async () => {
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://gateway.example/v1",
+    );
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna"]);
+  });
+
+  it("does not preserve organization models for a personal key and org endpoint", async () => {
+    scopedSecrets.set(`user::${OWNER}::OPENAI_API_KEY`, "user-key-placeholder");
+    scopedSecrets.set(
+      `org::${ORG}::OPENAI_BASE_URL`,
+      "https://gateway.example/v1",
+    );
+
+    const row = await writeProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+      ["gpt-5.6-luna"],
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna"]);
+  });
+
   it("preserves user models when deployment credentials use a custom endpoint", async () => {
     deploymentEnv.set("OPENAI_API_KEY", "deployment-key-placeholder");
     deploymentEnv.set("OPENAI_BASE_URL", "https://gateway.example/v1");

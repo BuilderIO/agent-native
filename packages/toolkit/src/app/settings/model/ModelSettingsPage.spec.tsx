@@ -641,6 +641,11 @@ describe("ModelSettingsPage", () => {
     expect(document.getElementById("provider-org-builder")).toBeNull();
 
     const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(
+        defaultRow.querySelector("[data-default-model-loading]"),
+      ).toBeNull();
+    });
     expect(defaultRow.textContent).toContain(
       "Add a provider to choose a default model.",
     );
@@ -667,6 +672,104 @@ describe("ModelSettingsPage", () => {
       (button) => button.textContent === "Use Builder.io",
     );
     expect(builderButton?.disabled).toBe(false);
+  });
+
+  it("keeps a stored OpenAI default visible when deployment credentials configure OpenAI", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      canUpdateDefault: true,
+      defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
+    });
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    callActionMock.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          configured: true,
+          supportedModels: ["gpt-6-sol", "gpt-6.1-sol"],
+        },
+      ],
+    });
+    await render();
+
+    const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(defaultRow.textContent).toContain("gpt-6.1-sol · OpenAI");
+    });
+    expect(
+      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(row("llm").textContent).toContain("Add a model provider");
+  });
+
+  it("preserves a gateway's stored OpenAI model when configured metadata says it is custom", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      canUpdateDefault: true,
+      defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+    });
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    callActionMock.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          configured: true,
+          preserveCustomModels: true,
+          supportedModels: ["gpt-6-luna", "gpt-6.1-luna"],
+        },
+      ],
+    });
+    await render();
+
+    const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(defaultRow.textContent).toContain("gpt-5.6-luna · OpenAI");
+    });
+  });
+
+  it("keeps an OpenAI default hidden when the engine is not configured", async () => {
+    state.listing = listing({
+      canManageOrg: true,
+      canUpdateDefault: true,
+      defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
+    });
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
+    });
+    callActionMock.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          configured: false,
+          credentialRejected: false,
+        },
+      ],
+    });
+    await render();
+
+    const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(
+        defaultRow.querySelector("[data-default-model-loading]"),
+      ).toBeNull();
+    });
+    expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
+    expect(
+      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
+        ?.disabled,
+    ).toBe(true);
+    expect(row("llm").textContent).toContain("Add a model provider");
   });
 
   it("keeps custom OpenAI endpoint model IDs when displaying a stored default", async () => {
@@ -762,6 +865,11 @@ describe("ModelSettingsPage", () => {
 
     expect(row("provider-org-openai").textContent).toContain("rejected");
     const defaultRow = row("default-model");
+    await vi.waitFor(() => {
+      expect(
+        defaultRow.querySelector("[data-default-model-loading]"),
+      ).toBeNull();
+    });
     expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
     expect(
       defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
