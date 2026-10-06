@@ -675,6 +675,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     const directoryOnlyAction = defineAction({
       description: "A tool reserved for the ChatGPT directory profile.",
       parameters: {},
+      readOnly: true,
       mcpAnnotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -1770,6 +1771,30 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ).rejects.toThrow(/must declare boolean readOnlyHint/);
   });
 
+  it("rejects directory actions whose read-only hint disagrees with the action", async () => {
+    const configWithReadOnlyMismatch = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["mismatched-action"],
+      widgetDomain: "https://slides.agent-native.com",
+      actions: {
+        "mismatched-action": {
+          tool: { description: "Mismatched tool", parameters: {} },
+          mcpAnnotations: {
+            readOnlyHint: true,
+            destructiveHint: false,
+            openWorldHint: false,
+          },
+          run: async () => ({ ok: true }),
+        },
+      },
+    };
+
+    await expect(
+      createMCPServerForRequest(configWithReadOnlyMismatch as any, undefined),
+    ).rejects.toThrow(/readOnlyHint must match its readOnly action setting/);
+  });
+
   it("mints a directory widget embed ticket from an action link without a hidden tool", async () => {
     const createArtifact = defineAction({
       description: "Create one editable document.",
@@ -1877,7 +1902,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(wrongAudience).toMatchObject({ error: "Unauthorized" });
   });
 
-  it("mints an embed ticket for a read-only directory widget link", async () => {
+  it("does not mint an embed ticket for a read-only directory widget link", async () => {
     const readArtifact = defineAction({
       description: "Read one workspace document.",
       parameters: {},
@@ -1929,17 +1954,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(called.result.isError).not.toBe(true);
-    expect(called.result._meta["agent-native/embedStart"]).toMatchObject({
-      startUrl:
-        "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-picker-ticket&__an_mcp_chat_bridge=1",
-      expiresAt: 1735689600000,
-    });
-    expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledWith({
-      ownerEmail: "oauth@example.com",
-      orgId: undefined,
-      targetPath: "/documents/doc-1?__an_mcp_chat_bridge=1",
-      scope: null,
-    });
+    expect(called.result._meta).not.toHaveProperty("agent-native/embedStart");
+    expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
   });
 
   it("handles `initialize` without a 501", async () => {

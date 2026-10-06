@@ -191,11 +191,13 @@ describe("ChatGPT directory template profiles", () => {
       "agent-visible": {
         tool: { description: "An agent-visible action." },
         run: async () => ({ ok: true }),
+        readOnly: true,
         mcpAnnotations: annotations,
       },
       "mcp-only": {
         tool: { description: "An MCP-only action." },
         run: async () => ({ ok: true }),
+        readOnly: true,
         agentTool: false,
         mcpTool: true,
         mcpAnnotations: annotations,
@@ -203,6 +205,7 @@ describe("ChatGPT directory template profiles", () => {
       "ui-only": {
         tool: { description: "An action reserved for the UI." },
         run: async () => ({ ok: true }),
+        readOnly: true,
         uiOnly: true,
         mcpTool: true,
         mcpAnnotations: annotations,
@@ -210,6 +213,7 @@ describe("ChatGPT directory template profiles", () => {
       "disabled-group": {
         tool: { description: "An action in a disabled framework group." },
         run: async () => ({ ok: true }),
+        readOnly: true,
         frameworkGroup: "labs",
         mcpAnnotations: annotations,
       },

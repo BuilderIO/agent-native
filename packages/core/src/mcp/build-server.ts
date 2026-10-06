@@ -432,6 +432,11 @@ export function validateMcpDirectoryProfile(
         `[agent-native] MCP directory catalog action "${name}" must declare boolean readOnlyHint, destructiveHint, and openWorldHint values.`,
       );
     }
+    if (annotations.readOnlyHint !== (entry.readOnly === true)) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory catalog action "${name}" readOnlyHint must match its readOnly action setting.`,
+      );
+    }
   }
 
   for (const map of [
@@ -952,12 +957,20 @@ async function withServerMintedMcpAppEmbedStart(
   result: unknown,
   meta: MCPRequestMeta | undefined,
   directoryLinkUrl?: string,
+  suppressDirectoryReadOnlyEmbed = false,
 ): Promise<unknown> {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return result;
   }
 
   const out = result as Record<string, unknown>;
+  if (suppressDirectoryReadOnlyEmbed) {
+    const resultWithoutEmbedSession = { ...out };
+    delete resultWithoutEmbedSession.embedStartUrl;
+    delete resultWithoutEmbedSession.embedTargetPath;
+    delete resultWithoutEmbedSession.embedExpiresAt;
+    return resultWithoutEmbedSession;
+  }
   if (out.embed === false || (out.embed !== true && !directoryLinkUrl)) {
     return result;
   }
@@ -2454,6 +2467,7 @@ export async function createMCPServerForRequest(
                 projectedRawResult,
                 requestMeta,
                 directoryLinkUrl,
+                directoryCatalog && entry.readOnly === true,
               )
             : projectedRawResult;
           const {
