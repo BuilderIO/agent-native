@@ -3,14 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { signA2AToken } from "@agent-native/core/a2a";
+import { canonicalA2AAudience, signA2AToken } from "@agent-native/core/a2a";
 import { isActionContractError } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
-import {
-  getOrgA2ASecret,
-  getOrgDomain,
-  isWorkspaceAppAccessAllowed,
-} from "@agent-native/core/org";
+import { isWorkspaceAppAccessAllowed } from "@agent-native/core/org";
 import {
   CredentialStoreUnavailableError,
   FeatureNotConfiguredError,
@@ -1686,29 +1682,17 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
   const requestContext = getRequestContext();
   const authHeaders: Record<string, string> = {};
   if (requestContext?.userEmail) {
-    const [orgDomain, orgSecret] = requestContext.orgId
-      ? await Promise.all([
-          // coercion-ok: an unavailable org row falls back to the deployment secret.
-          getOrgDomain(requestContext.orgId).catch(() => null),
-          // coercion-ok: an unavailable org row falls back to the deployment secret.
-          getOrgA2ASecret(requestContext.orgId).catch(() => null),
-        ])
-      : [null, null];
-    const usableOrgSecret =
-      typeof orgSecret === "string" && orgSecret.trim().length > 0;
-    const usableOrgDomain =
-      typeof orgDomain === "string" && orgDomain.trim().length > 0;
     try {
       const token = await signA2AToken(
         requestContext.userEmail,
-        usableOrgDomain ? orgDomain.trim() : undefined,
-        usableOrgSecret ? orgSecret.trim() : undefined,
+        undefined,
+        undefined,
         {
           expiresIn: "1m",
           preferGlobalSecret: true,
-          // Keep the exact request scope even when the org-domain lookup is
-          // unavailable. The receiver must never infer a different org from
-          // the caller's email in that case.
+          audience: canonicalA2AAudience(baseUrl.toString()),
+          // Bind the active organization explicitly so the receiver does not
+          // infer a different org from the caller's email.
           ...(requestContext.orgId
             ? { extraClaims: { org_id: requestContext.orgId } }
             : {}),

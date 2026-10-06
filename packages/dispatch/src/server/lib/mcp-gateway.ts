@@ -2,6 +2,8 @@ import {
   A2AClient,
   canonicalA2AAudience,
   extractA2APersistedMutationReceipts,
+  getGlobalA2ASecret,
+  signA2AOrganizationToken,
   signA2AToken,
   stripA2APersistedArtifactMarkers,
   type A2APersistedMutationReceipt,
@@ -254,6 +256,7 @@ function dispatchAskAppTaskResult(
 async function createDispatchA2AClient(input: {
   targetUrl: string;
   userEmail: string;
+  orgId?: string;
   orgDomain?: string;
   orgSecret?: string;
   deadline?: number;
@@ -264,12 +267,21 @@ async function createDispatchA2AClient(input: {
   const apiKeys: string[] = [];
   const addSignedToken = async (preferGlobalSecret: boolean) => {
     try {
-      const token = await signA2AToken(
-        input.userEmail,
-        input.orgDomain,
-        input.orgSecret,
-        { preferGlobalSecret },
-      );
+      const audience = canonicalA2AAudience(input.targetUrl);
+      const token = preferGlobalSecret
+        ? await signA2AToken(input.userEmail, input.orgDomain, undefined, {
+            preferGlobalSecret: true,
+            audience,
+            ...(input.orgId ? { extraClaims: { org_id: input.orgId } } : {}),
+          })
+        : input.orgDomain && input.orgSecret
+          ? await signA2AOrganizationToken(
+              input.orgDomain,
+              input.orgSecret,
+              input.orgId,
+              { audience },
+            )
+          : undefined;
       if (token && !apiKeys.includes(token)) apiKeys.push(token);
     } catch {
       // A2A can still be configured for local/dev unauthenticated calls. If
@@ -277,7 +289,7 @@ async function createDispatchA2AClient(input: {
     }
   };
 
-  if (process.env.A2A_SECRET?.trim()) await addSignedToken(true);
+  if (getGlobalA2ASecret()) await addSignedToken(true);
   if (input.orgSecret) await addSignedToken(false);
 
   const metadata: Record<string, unknown> = {
@@ -828,6 +840,7 @@ export async function askGrantedDispatchMcpApp(
   const { client, metadata } = await createDispatchA2AClient({
     targetUrl: target.url,
     userEmail,
+    orgId: orgId ?? undefined,
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
     deadline: submissionDeadline,
@@ -876,6 +889,7 @@ export async function getGrantedDispatchMcpAppTask(
   const { client } = await createDispatchA2AClient({
     targetUrl: target.url,
     userEmail,
+    orgId: orgId ?? undefined,
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
   });
@@ -1174,6 +1188,7 @@ async function callTargetCreateEmbedSession(input: {
 
 async function createTargetMcpTokenAttempts(input: {
   ownerEmail: string;
+  orgId?: string;
   orgDomain?: string;
   orgSecret?: string;
   target: DispatchMcpAccessibleApp;
@@ -1181,19 +1196,22 @@ async function createTargetMcpTokenAttempts(input: {
   const attempts: TargetMcpTokenAttempt[] = [];
   const addAttempt = async (tokenInput: {
     strategy: TargetMcpTokenAttempt["strategy"];
-    secret?: string;
-    preferGlobalSecret: boolean;
   }) => {
-    const token = await signA2AToken(
-      input.ownerEmail,
-      input.orgDomain,
-      tokenInput.secret,
-      {
-        expiresIn: "5m",
-        audience: canonicalA2AAudience(appHomeBaseUrl(input.target)),
-        preferGlobalSecret: tokenInput.preferGlobalSecret,
-      },
-    );
+    const audience = canonicalA2AAudience(appHomeBaseUrl(input.target));
+    const token =
+      tokenInput.strategy === "org" && input.orgDomain && input.orgSecret
+        ? await signA2AOrganizationToken(
+            input.orgDomain,
+            input.orgSecret,
+            input.orgId,
+            { expiresIn: "5m", audience },
+          )
+        : await signA2AToken(input.ownerEmail, input.orgDomain, undefined, {
+            expiresIn: "5m",
+            audience,
+            preferGlobalSecret: true,
+            ...(input.orgId ? { extraClaims: { org_id: input.orgId } } : {}),
+          });
     if (!attempts.some((attempt) => attempt.token === token)) {
       attempts.push({ token, strategy: tokenInput.strategy });
     }
@@ -1202,22 +1220,18 @@ async function createTargetMcpTokenAttempts(input: {
   if (input.orgDomain && input.orgSecret) {
     await addAttempt({
       strategy: "org",
-      secret: input.orgSecret,
-      preferGlobalSecret: false,
     });
     // A target app may not have the org secret synced yet. The shared secret
     // is a bounded compatibility fallback, used only after the target rejects
     // the org-signed request and never after a non-authentication failure.
-    if (process.env.A2A_SECRET?.trim()) {
+    if (getGlobalA2ASecret()) {
       await addAttempt({
         strategy: "global",
-        preferGlobalSecret: true,
       });
     }
   } else {
     await addAttempt({
       strategy: "global",
-      preferGlobalSecret: true,
     });
   }
 
@@ -1394,6 +1408,7 @@ async function createEmbedSessionForResolvedApp(input: {
   const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
   const tokenAttempts = await createTargetMcpTokenAttempts({
     ownerEmail,
+    orgId,
     orgDomain: signedOrgDomain,
     orgSecret: usableOrgSecret ? orgSecret.trim() : undefined,
     target: target.app,

@@ -11,8 +11,6 @@ import {
   A2ATaskTimeoutError,
   MAX_A2A_CALLER_RESPONSE_CHARS,
   callAgent,
-  shouldPreferGlobalA2ASecret,
-  signA2AToken,
 } from "../a2a/client.js";
 import { MAX_A2A_DELEGATION_HOPS } from "../a2a/correlation.js";
 import { invokeAgentAction } from "../a2a/invoke.js";
@@ -22,7 +20,6 @@ import {
   resolveRemoteAgentToken,
 } from "../a2a/remote-agent-auth.js";
 import type {
-  A2AApprovedAction,
   A2ACorrelationMetadata,
   A2AHandlerResult,
   A2ASourceContext,
@@ -56,7 +53,6 @@ import { track } from "../tracking/registry.js";
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
 const NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS = 15_000;
-const INTEGRATION_A2A_TOKEN_TTL = "30m";
 const A2A_INVOCATION_EVENT = "$a2a_invocation";
 
 type A2AInvocationStatus = "success" | "pending" | "error";
@@ -634,19 +630,6 @@ export const tool: ActionTool = {
           "Complete input object for action. The target app validates it and refuses actions that are not explicitly exposed read-only operations. For a mutating request, omit action and use message.",
         additionalProperties: true,
       },
-      approvedActions: {
-        type: "array",
-        description:
-          "Exact downstream tool calls the current user explicitly authorized in this chat. Never infer authorization or include a broader/different action.",
-        items: {
-          type: "object",
-          properties: {
-            tool: { type: "string" },
-            input: { type: "object", additionalProperties: true },
-          },
-          required: ["tool", "input"],
-        },
-      },
       managedAgentConfirmations: {
         type: "array",
         description:
@@ -676,9 +659,6 @@ export async function run(
   const taskId = stringifyValue(args.taskId ?? "").trim();
   const action = stringifyValue(args.action ?? "").trim();
   const input = args.input ?? {};
-  const approvedActions = Array.isArray(args.approvedActions)
-    ? (args.approvedActions as A2AApprovedAction[])
-    : undefined;
   const parsedManagedAgentConfirmations = parseManagedAgentConfirmations(
     args.managedAgentConfirmations,
   );
@@ -918,25 +898,6 @@ export async function run(
         } catch {}
       }
 
-      let apiKey: string | undefined;
-      if (
-        !agent.auth &&
-        callerEmail &&
-        (callerOrgSecret || process.env.A2A_SECRET)
-      ) {
-        try {
-          apiKey = await signA2AToken(
-            callerEmail,
-            callerOrgDomain,
-            callerOrgSecret,
-            {
-              expiresIn: INTEGRATION_A2A_TOKEN_TTL,
-              preferGlobalSecret: shouldPreferGlobalA2ASecret(callerOrgSecret),
-            },
-          );
-        } catch {}
-      }
-
       if (!agent.auth && process.env.NODE_ENV === "production" && callerEmail) {
         try {
           const { listOAuthAccountsByOwner } =
@@ -1038,7 +999,7 @@ export async function run(
             ? NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS
             : undefined;
         responseText = await callAgent(agent.url, messageWithHint, {
-          apiKey: agent.auth ? hostedAgentToken : apiKey,
+          ...(agent.auth ? { apiKey: hostedAgentToken } : {}),
           ...(agent.auth
             ? {}
             : {
@@ -1049,7 +1010,6 @@ export async function run(
           ...(hostedAgentCardUrl(agent)
             ? { cardUrl: hostedAgentCardUrl(agent) }
             : {}),
-          approvedActions,
           ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
           contextId: context.threadId,
           correlation,
@@ -1226,7 +1186,6 @@ export async function run(
       ...(hostedAgentCardUrl(agent)
         ? { cardUrl: hostedAgentCardUrl(agent) }
         : {}),
-      approvedActions,
       ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
       contextId: context?.threadId,
       correlation,

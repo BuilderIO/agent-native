@@ -4,6 +4,7 @@ import * as jose from "jose";
 
 import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { resolveVercelDeploymentProtectionHeaders } from "../server/deployment-protection.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
@@ -14,7 +15,6 @@ import { canonicalA2AAudience } from "./audience.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import { RemoteAgentCredentialRejectedError } from "./remote-agent-auth.js";
 import type {
-  A2AApprovedAction,
   A2ACorrelationMetadata,
   A2ASourceContextReference,
   A2AReadOnlyActionResult,
@@ -199,9 +199,10 @@ export async function signA2AToken(
     extraClaims?: Record<string, unknown>;
   },
 ): Promise<string> {
+  const globalSecret = getGlobalA2ASecret();
   const secret = options?.preferGlobalSecret
-    ? process.env.A2A_SECRET || orgSecret
-    : orgSecret || process.env.A2A_SECRET;
+    ? globalSecret || orgSecret
+    : orgSecret || globalSecret;
   if (!secret) {
     throw new Error(
       "No A2A secret available. Set an org-level A2A secret in Team settings, " +
@@ -226,8 +227,67 @@ export async function signA2AToken(
   return jwt.sign(new TextEncoder().encode(secret));
 }
 
+export function getGlobalA2ASecret(): string | undefined {
+  return readDeployCredentialEnv("A2A_SECRET")?.trim() || undefined;
+}
+
+export async function signA2AOrganizationToken(
+  orgDomain: string | undefined,
+  orgSecret?: string,
+  orgId?: string,
+  options?: {
+    expiresIn?: string | number;
+    audience?: string | string[];
+    preferGlobalSecret?: boolean;
+    extraClaims?: Record<string, unknown>;
+  },
+): Promise<string> {
+  const domain = orgDomain?.trim().toLowerCase() || "";
+  const normalizedOrgId = orgId?.trim() || "";
+  const globalSecret = getGlobalA2ASecret();
+  const localOrgSecret = orgSecret?.trim();
+  const secret = domain
+    ? options?.preferGlobalSecret
+      ? globalSecret || localOrgSecret
+      : localOrgSecret || globalSecret
+    : globalSecret;
+  if ((!domain && !normalizedOrgId) || !secret) {
+    throw new Error(
+      "An organization domain or id and A2A secret are required.",
+    );
+  }
+
+  const extraClaims = { ...(options?.extraClaims ?? {}) };
+  for (const claim of [
+    "sub",
+    "email",
+    "email_verified",
+    "user_email",
+    "userEmail",
+    "user_id",
+    "userId",
+    "org_domain",
+    "org_id",
+  ]) {
+    delete extraClaims[claim];
+  }
+
+  const appUrl = getAppConfig().app.url ?? "http://localhost:3000";
+  const jwt = new jose.SignJWT({
+    ...extraClaims,
+    ...(domain ? { org_domain: domain } : {}),
+    ...(normalizedOrgId ? { org_id: normalizedOrgId } : {}),
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(appUrl)
+    .setIssuedAt()
+    .setExpirationTime(options?.expiresIn ?? "5m");
+  if (options?.audience) jwt.setAudience(options.audience);
+  return jwt.sign(new TextEncoder().encode(secret));
+}
+
 export function shouldPreferGlobalA2ASecret(orgSecret?: string): boolean {
-  return !!process.env.A2A_SECRET?.trim() || !orgSecret;
+  return !!getGlobalA2ASecret() || !orgSecret;
 }
 
 interface A2AEndpointCandidate {
@@ -589,7 +649,6 @@ export class A2AClient {
       contextId?: string;
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
-      approvedActions?: A2AApprovedAction[];
       requestTimeoutMs?: number;
       deadlineMs?: number;
       async?: boolean;
@@ -603,9 +662,6 @@ export class A2AClient {
         metadata: opts?.metadata,
         ...(opts?.idempotencyKey
           ? { idempotencyKey: opts.idempotencyKey }
-          : {}),
-        ...(opts?.approvedActions?.length
-          ? { approvedActions: opts.approvedActions }
           : {}),
         ...(opts?.async ? { async: true } : {}),
       },
@@ -669,7 +725,6 @@ export class A2AClient {
       contextId?: string;
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
-      approvedActions?: A2AApprovedAction[];
       timeoutMs?: number;
       submissionTimeoutMs?: number;
       pollIntervalMs?: number;
@@ -683,9 +738,6 @@ export class A2AClient {
       contextId: opts?.contextId,
       metadata: opts?.metadata,
       idempotencyKey: opts?.idempotencyKey,
-      ...(opts?.approvedActions?.length
-        ? { approvedActions: opts.approvedActions }
-        : {}),
       async: true,
       requestTimeoutMs: Math.min(
         this.requestTimeoutMs ?? DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS,
@@ -1851,10 +1903,10 @@ export async function callAgent(
     a2aVersion?: A2AProtocolVersion;
     contextId?: string;
     userEmail?: string;
+    orgId?: string;
     orgDomain?: string;
     orgSecret?: string;
     requestOrigin?: string;
-    approvedActions?: A2AApprovedAction[];
     sourceContext?: A2ASourceContextReference;
     correlation?: A2ACorrelationMetadata;
     idempotencyKey?: string;
@@ -1882,7 +1934,10 @@ export async function callAgent(
     parts: [{ type: "text", text }],
   };
 
-  const apiKeyAttempts = await buildA2AApiKeyAttempts(opts);
+  const apiKeyAttempts = await buildA2AApiKeyAttempts(
+    opts,
+    normalizeA2AAudience(url),
+  );
   let lastAuthError: unknown;
 
   for (let i = 0; i < apiKeyAttempts.length; i++) {
@@ -1908,9 +1963,6 @@ export async function callAgent(
               contextId: opts?.contextId,
               metadata,
               idempotencyKey: effectiveIdempotencyKey,
-              ...(opts?.approvedActions?.length
-                ? { approvedActions: opts.approvedActions }
-                : {}),
               timeoutMs: opts?.timeoutMs,
               submissionTimeoutMs: opts?.submissionTimeoutMs,
               pollIntervalMs: opts?.pollIntervalMs,
@@ -1924,9 +1976,6 @@ export async function callAgent(
           contextId: opts?.contextId,
           metadata,
           idempotencyKey: effectiveIdempotencyKey,
-          ...(opts?.approvedActions?.length
-            ? { approvedActions: opts.approvedActions }
-            : {}),
         });
       }
 
@@ -2014,6 +2063,7 @@ export async function callAction(
   opts?: {
     apiKey?: string;
     userEmail?: string;
+    orgId?: string;
     orgDomain?: string;
     orgSecret?: string;
     requestTimeoutMs?: number;
@@ -2072,6 +2122,7 @@ async function buildA2AApiKeyAttempts(
     apiKey?: string;
     apiKeyFallbacks?: string[];
     userEmail?: string;
+    orgId?: string;
     orgDomain?: string;
     orgSecret?: string;
   },
@@ -2083,36 +2134,29 @@ async function buildA2AApiKeyAttempts(
     attempts.push(token);
   };
 
+  const globalSecret = getGlobalA2ASecret();
+  if (opts?.userEmail && globalSecret) {
+    add(
+      await signA2AToken(opts.userEmail, opts.orgDomain, undefined, {
+        preferGlobalSecret: true,
+        audience,
+      }),
+    );
+  }
+
+  if (opts?.orgDomain && (opts.orgSecret || globalSecret)) {
+    add(
+      await signA2AOrganizationToken(
+        opts.orgDomain,
+        opts.orgSecret,
+        opts.orgId,
+        { audience, preferGlobalSecret: true },
+      ),
+    );
+  }
+
   add(opts?.apiKey);
   for (const fallback of opts?.apiKeyFallbacks ?? []) add(fallback);
-
-  if (opts?.userEmail && (opts.orgSecret || process.env.A2A_SECRET)) {
-    if (process.env.A2A_SECRET?.trim()) {
-      try {
-        add(
-          await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
-            preferGlobalSecret: true,
-            audience,
-          }),
-        );
-      } catch {
-        // Keep any explicit token attempt, then fall back below.
-      }
-    }
-
-    if (opts.orgSecret) {
-      try {
-        add(
-          await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
-            preferGlobalSecret: false,
-            audience,
-          }),
-        );
-      } catch {
-        // Fall through to the attempts we already have.
-      }
-    }
-  }
 
   if (attempts.length === 0) attempts.push(undefined);
   return attempts;

@@ -89,7 +89,41 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
-  it("accepts an ordinary A2A JWT signed with the caller org secret", async () => {
+  it("accepts an audience-bound ordinary A2A JWT for this MCP endpoint", async () => {
+    const resourceUrl = "https://assets.example.com/_agent-native/mcp";
+    const token = await sign({ sub: "a@example.com" }, SECRET, {
+      audience: resourceUrl,
+    });
+
+    const res = await verifyAuth(`Bearer ${token}`, undefined, { resourceUrl });
+
+    expect(res.authed).toBe(true);
+    expect(res.identity?.userEmail).toBe("a@example.com");
+  });
+
+  it("rejects an ordinary A2A JWT whose audience targets another app", async () => {
+    const token = await sign({ sub: "a@example.com" }, SECRET, {
+      audience: "https://design.example.com/_agent-native/mcp",
+    });
+
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://assets.example.com/_agent-native/mcp",
+    });
+
+    expect(res).toEqual({ authed: false });
+  });
+
+  it("rejects an audience-bound ordinary A2A JWT when the resource URL is unknown", async () => {
+    const token = await sign({ sub: "a@example.com" }, SECRET, {
+      audience: "https://assets.example.com/_agent-native/mcp",
+    });
+
+    const res = await verifyAuth(`Bearer ${token}`);
+
+    expect(res).toEqual({ authed: false });
+  });
+
+  it("accepts an org-secret A2A JWT without treating its subject as a user", async () => {
     process.env.A2A_SECRET = "different-global-secret";
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
       orgId: "org-builder",
@@ -107,7 +141,8 @@ describe("verifyAuth — connect-token revoke check", () => {
 
     expect(res.authed).toBe(true);
     expect(res.identity).toEqual({
-      userEmail: "a@example.com",
+      userEmail: undefined,
+      identityAssurance: "organization",
       orgId: "org-builder",
       orgDomain: "builder.io",
     });
@@ -115,21 +150,17 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(resolveA2AOrganizationCredentialsByDomainMock).toHaveBeenCalledWith(
       "builder.io",
     );
-    expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
-      "org-builder",
-      "a@example.com",
-    );
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
     expect(isJtiRevokedMock).not.toHaveBeenCalled();
   });
 
-  it("rejects an org-secret token asserting a user who belongs only to another org", async () => {
+  it("ignores a forged subject on an org-secret token", async () => {
     delete process.env.A2A_SECRET;
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
       orgId: "org-evil",
       orgDomain: "evil.example",
       secret: "org-evil-secret",
     });
-    isOrgMemberForA2AMock.mockResolvedValue(false);
     const token = await sign(
       { sub: "alice@acme", org_domain: "evil.example", org_id: "org-evil" },
       "org-evil-secret",
@@ -137,11 +168,12 @@ describe("verifyAuth — connect-token revoke check", () => {
 
     const res = await verifyAuth(`Bearer ${token}`, "alice@acme");
 
-    expect(res).toEqual({ authed: false });
-    expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
-      "org-evil",
-      "alice@acme",
-    );
+    expect(res).toMatchObject({
+      authed: true,
+      identity: { orgId: "org-evil", orgDomain: "evil.example" },
+    });
+    expect(res.identity?.userEmail).toBeUndefined();
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
   it("rejects org-secret tokens whose org_id differs from the verified domain org", async () => {
@@ -162,14 +194,11 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
-  it("preserves unreadable membership evidence instead of returning invalid auth", async () => {
+  it("preserves unavailable organization credential lookup instead of returning invalid auth", async () => {
     process.env.A2A_SECRET = "different-global-secret";
-    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
-      orgId: "org-evil",
-      orgDomain: "evil.example",
-      secret: "org-evil-secret",
-    });
-    isOrgMemberForA2AMock.mockRejectedValue(new Error("database unavailable"));
+    resolveA2AOrganizationCredentialsByDomainMock.mockRejectedValue(
+      new Error("database unavailable"),
+    );
     const token = await sign(
       { sub: "alice@acme", org_domain: "evil.example" },
       "org-evil-secret",
@@ -179,6 +208,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       authed: false,
       unavailable: true,
     });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
   it("rejects identity-scoped SSO JWTs on the MCP endpoint", async () => {
@@ -223,6 +253,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.authed).toBe(true);
     expect(res.identity).toEqual({
       userEmail: "a@example.com",
+      identityAssurance: "user",
       orgId: null,
       orgDomain: "builder.io",
     });
@@ -263,6 +294,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.authed).toBe(true);
     expect(res.identity).toEqual({
       userEmail: "ci@example.com",
+      identityAssurance: "user",
       orgId: "org_legacy",
       orgDomain: undefined,
     });
@@ -286,6 +318,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.authed).toBe(true);
     expect(res.identity).toEqual({
       userEmail: "ci@example.com",
+      identityAssurance: "user",
       orgId: null,
       orgDomain: undefined,
     });
@@ -404,6 +437,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.authed).toBe(true);
     expect(res.identity).toEqual({
       userEmail: "svc-ci@service.org_123",
+      identityAssurance: "service",
       orgId: "org_123",
       orgDomain: undefined,
     });
@@ -442,6 +476,7 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.fullSurface).toBe(true);
     expect(res.identity).toEqual({
       userEmail: "oauth@example.com",
+      identityAssurance: "user",
       orgId: "org_123",
       orgDomain: "builder.io",
       oauthScopes: ["mcp:read", "mcp:apps"],

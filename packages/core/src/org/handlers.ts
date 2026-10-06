@@ -1980,7 +1980,7 @@ export const syncA2ASecretHandler = defineEventHandler(
     }
     const orgRow = orgRes.rows[0] as any;
     const secret = String(orgRow.a2a_secret ?? "") || null;
-    const orgDomain = String(orgRow.allowed_domain ?? "") || null;
+    const orgDomain = String(orgRow.allowed_domain ?? "");
 
     if (!secret) {
       throw createError({
@@ -1999,7 +1999,11 @@ export const syncA2ASecretHandler = defineEventHandler(
     const signSecret = overrideSignSecret || secret;
 
     const { discoverAgents } = await import("../server/agent-discovery.js");
-    const { signA2AToken } = await import("../a2a/client.js");
+    const [{ signA2AOrganizationToken }, { canonicalA2AAudience }] =
+      await Promise.all([
+        import("../a2a/client.js"),
+        import("../a2a/audience.js"),
+      ]);
 
     const agents = await discoverAgents();
 
@@ -2015,9 +2019,16 @@ export const syncA2ASecretHandler = defineEventHandler(
     await Promise.all(
       agents.map(async (agent) => {
         try {
-          const token = await signA2AToken(ctx.email, orgDomain, signSecret);
-
           const target = `${agent.url.replace(/\/$/, "")}/_agent-native/org/a2a-secret/receive`;
+          const token = await signA2AOrganizationToken(
+            orgDomain,
+            signSecret,
+            ctx.orgId ?? undefined,
+            {
+              preferGlobalSecret: false,
+              audience: canonicalA2AAudience(agent.url),
+            },
+          );
           const protectionHeaders =
             resolveVercelDeploymentProtectionHeaders(target);
           const res = await ssrfSafeFetch(
@@ -2084,6 +2095,7 @@ export const receiveA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const { getRequestHeader } = await import("h3");
     const jose = await import("jose");
+    const { verifyA2AToken } = await import("../a2a/server.js");
 
     const authHeader = getRequestHeader(event, "authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -2154,12 +2166,23 @@ export const receiveA2ASecretHandler = defineEventHandler(
       });
     }
 
+    let verified;
     try {
-      await jose.jwtVerify(token, new TextEncoder().encode(existingSecret));
+      verified = await verifyA2AToken(token, event, {
+        globalSecretOnly: true,
+        verificationSecret: existingSecret,
+      });
     } catch {
+      verified = null;
+    }
+    if (
+      !verified ||
+      verified.orgId !== localOrgId ||
+      verified.orgDomain?.trim().toLowerCase() !== orgDomain
+    ) {
       throw createError({
         statusCode: 401,
-        message: "Invalid or expired JWT signature",
+        message: "Invalid or expired organization token",
       });
     }
 

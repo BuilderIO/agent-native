@@ -2,9 +2,13 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import { signA2AToken } from "./client.js";
+import {
+  getGlobalA2ASecret,
+  signA2AOrganizationToken,
+  signA2AToken,
+} from "./client.js";
 
-const DEFAULT_A2A_CALLER_TOKEN_TTL = "30m";
+const DEFAULT_A2A_CALLER_TOKEN_TTL = "5m";
 
 export interface A2ACallerAuth {
   apiKey?: string;
@@ -19,8 +23,10 @@ export interface A2ACallerAuth {
 export async function resolveA2ACallerAuth(options?: {
   expiresIn?: string | number;
   includeGoogleToken?: boolean;
+  audience?: string | string[];
 }): Promise<A2ACallerAuth> {
   const userEmail = getRequestUserEmail();
+  const globalSecret = getGlobalA2ASecret();
   const metadata: Record<string, unknown> = {};
   if (userEmail) metadata.userEmail = userEmail;
 
@@ -44,27 +50,23 @@ export async function resolveA2ACallerAuth(options?: {
     if (!token || apiKeyAttempts.includes(token)) return;
     apiKeyAttempts.push(token);
   };
-  if (userEmail && (orgSecret || process.env.A2A_SECRET)) {
-    if (process.env.A2A_SECRET?.trim()) {
-      try {
-        addApiKeyAttempt(
-          await signA2AToken(userEmail, orgDomain, orgSecret, {
-            expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
-            preferGlobalSecret: true,
-          }),
-        );
-      } catch {}
-    }
-    if (orgSecret) {
-      try {
-        addApiKeyAttempt(
-          await signA2AToken(userEmail, orgDomain, orgSecret, {
-            expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
-            preferGlobalSecret: false,
-          }),
-        );
-      } catch {}
-    }
+  if (userEmail && options?.audience && globalSecret) {
+    addApiKeyAttempt(
+      await signA2AToken(userEmail, orgDomain, undefined, {
+        expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
+        preferGlobalSecret: true,
+        audience: options?.audience,
+      }),
+    );
+  }
+  if (orgDomain && options?.audience && (orgSecret || globalSecret)) {
+    addApiKeyAttempt(
+      await signA2AOrganizationToken(orgDomain, orgSecret, orgId, {
+        expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
+        preferGlobalSecret: true,
+        audience: options?.audience,
+      }),
+    );
   }
 
   if (options?.includeGoogleToken) {

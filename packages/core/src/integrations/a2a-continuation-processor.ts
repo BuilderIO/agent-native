@@ -4,7 +4,8 @@ import {
   stripA2APersistedArtifactMarkers,
   type A2AArtifactIdentity,
 } from "../a2a/artifact-response.js";
-import { A2AClient, signA2AToken } from "../a2a/client.js";
+import { canonicalA2AAudience } from "../a2a/audience.js";
+import { A2AClient, getGlobalA2ASecret, signA2AToken } from "../a2a/client.js";
 import type { Task } from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
@@ -1311,46 +1312,26 @@ async function signFreshContinuationTokens(
   continuation: A2AContinuation,
 ): Promise<string[]> {
   let orgDomain: string | undefined;
-  let orgSecret: string | undefined;
   if (continuation.orgId) {
-    try {
-      const { getOrgDomain, getOrgA2ASecret } =
-        await import("../org/context.js");
-      orgDomain = (await getOrgDomain(continuation.orgId)) ?? undefined;
-      orgSecret = (await getOrgA2ASecret(continuation.orgId)) ?? undefined;
-    } catch {}
+    const { getOrgDomain } = await import("../org/context.js");
+    orgDomain = (await getOrgDomain(continuation.orgId)) ?? undefined;
+    if (!orgDomain) {
+      throw new Error(
+        "Cannot authenticate an A2A continuation without its organization domain.",
+      );
+    }
   }
 
-  if (!continuation.ownerEmail || !(orgSecret || process.env.A2A_SECRET)) {
+  if (!continuation.ownerEmail || !getGlobalA2ASecret()) {
     return [];
   }
-
-  const tokens: string[] = [];
-  const add = (token: string | undefined) => {
-    if (token && !tokens.includes(token)) tokens.push(token);
-  };
-
-  if (process.env.A2A_SECRET?.trim()) {
-    try {
-      add(
-        await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
-          expiresIn: "30m",
-          preferGlobalSecret: true,
-        }),
-      );
-    } catch {}
-  }
-  if (orgSecret) {
-    try {
-      add(
-        await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
-          expiresIn: "30m",
-          preferGlobalSecret: false,
-        }),
-      );
-    } catch {}
-  }
-  return tokens;
+  return [
+    await signA2AToken(continuation.ownerEmail, orgDomain, undefined, {
+      expiresIn: "5m",
+      preferGlobalSecret: true,
+      audience: canonicalA2AAudience(continuation.agentUrl),
+    }),
+  ];
 }
 
 async function resolveContinuationArtifactSecrets(
@@ -1361,7 +1342,7 @@ async function resolveContinuationArtifactSecrets(
     const value = secret?.trim();
     if (value && !secrets.includes(value)) secrets.push(value);
   };
-  add(process.env.A2A_SECRET);
+  add(getGlobalA2ASecret());
   if (continuation.orgId) {
     try {
       const { getOrgA2ASecret } = await import("../org/context.js");

@@ -863,6 +863,56 @@ describe("handleJsonRpc", () => {
     expect(cancel.error).toMatchObject({ code: -32001 });
   });
 
+  it("denies org-only callers access to legacy unscoped tasks", async () => {
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "legacy unscoped task" }],
+          },
+        },
+      },
+      mockEvent(),
+      customHandler,
+    );
+    const orgOnlyCaller = mockEvent();
+    orgOnlyCaller.context = {
+      __a2aIdentityAssurance: "organization",
+      __a2aVerifiedOrgId: "org-acme",
+    };
+
+    const get = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 33,
+        method: "tasks/get",
+        params: { id: created.result.id },
+      },
+      orgOnlyCaller,
+      customHandler,
+    );
+    const cancel = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 34,
+        method: "tasks/cancel",
+        params: { id: created.result.id },
+      },
+      orgOnlyCaller,
+      customHandler,
+    );
+
+    expect(get.error).toMatchObject({
+      code: -32001,
+      message: "Task not found",
+    });
+    expect(cancel.error).toMatchObject({ code: -32001 });
+  });
+
   it.each([null, ""])(
     "denies access to owner-backed legacy tasks without a stored scope (%s)",
     async (legacyScope) => {
@@ -2420,7 +2470,7 @@ describe("handleJsonRpc", () => {
     );
   });
 
-  it("preserves exact action grants across an authenticated async processor hop", async () => {
+  it("drops request-supplied approvals across an authenticated async processor hop", async () => {
     const contextConfig: A2AConfig = {
       ...customHandler,
       handler: async (_message, context) => ({
@@ -2429,7 +2479,9 @@ describe("handleJsonRpc", () => {
           parts: [
             {
               type: "text",
-              text: JSON.stringify(context.approvedActions ?? []),
+              text: JSON.stringify(
+                "approvedActions" in context ? "present" : [],
+              ),
             },
           ],
         },
@@ -2469,7 +2521,7 @@ describe("handleJsonRpc", () => {
       contextConfig,
     );
     expect(JSON.parse(followup.result.status.message.parts[0].text)).toEqual(
-      approvedActions,
+      [],
     );
     expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
   });
@@ -2541,7 +2593,7 @@ describe("handleJsonRpc", () => {
     expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
   });
 
-  it("drops action grants when the A2A caller has no verified user identity", async () => {
+  it("drops raw approval payloads before the synchronous handler", async () => {
     const contextConfig: A2AConfig = {
       ...customHandler,
       handler: async (_message, context) => ({
@@ -2550,7 +2602,9 @@ describe("handleJsonRpc", () => {
           parts: [
             {
               type: "text",
-              text: JSON.stringify(context.approvedActions ?? []),
+              text: JSON.stringify(
+                "approvedActions" in context ? "present" : [],
+              ),
             },
           ],
         },

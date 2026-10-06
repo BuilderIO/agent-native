@@ -111,6 +111,7 @@ vi.mock("../server/core-routes-plugin.js", () => ({
 
 vi.mock("../a2a/client.js", () => ({
   A2AClient: A2AClientMock,
+  getGlobalA2ASecret: () => process.env.A2A_SECRET,
   shouldPreferGlobalA2ASecret: (orgSecret?: string) =>
     !!process.env.A2A_SECRET?.trim() || !orgSecret,
   signA2AToken: signA2ATokenMock,
@@ -1933,7 +1934,11 @@ describe("A2A continuation processor", () => {
       "alice+qa@agent-native.test",
       undefined,
       undefined,
-      { expiresIn: "30m", preferGlobalSecret: true },
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: true,
+        audience: "https://slides.agent-native.test",
+      },
     );
     expect(A2AClientMock).toHaveBeenCalledWith(
       "https://slides.agent-native.test",
@@ -1943,7 +1948,7 @@ describe("A2A continuation processor", () => {
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
 
-  it("prefers the shared A2A secret for continuation polling when available", async () => {
+  it("uses the shared A2A secret and target audience for continuation polling", async () => {
     process.env.A2A_SECRET = "workspace-global-a2a-secret";
     signA2ATokenMock
       .mockResolvedValueOnce("shared-signed-a2a-token")
@@ -1967,20 +1972,17 @@ describe("A2A continuation processor", () => {
       1,
       "alice+qa@agent-native.test",
       "builder.io",
-      "builder-org-a2a-secret",
-      { expiresIn: "30m", preferGlobalSecret: true },
-    );
-    expect(signA2ATokenMock).toHaveBeenNthCalledWith(
-      2,
-      "alice+qa@agent-native.test",
-      "builder.io",
-      "builder-org-a2a-secret",
-      { expiresIn: "30m", preferGlobalSecret: false },
+      undefined,
+      {
+        expiresIn: "5m",
+        preferGlobalSecret: true,
+        audience: "https://slides.agent-native.test",
+      },
     );
     expect(A2AClientMock).toHaveBeenCalledWith(
       "https://slides.agent-native.test",
       "shared-signed-a2a-token",
-      { requestTimeoutMs: 8_000, fallbackApiKeys: ["org-signed-a2a-token"] },
+      { requestTimeoutMs: 8_000 },
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     vi.doUnmock("../org/context.js");

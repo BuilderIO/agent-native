@@ -963,11 +963,13 @@ async function mintFirstPartyMcpIdentityToken(
   trust: { orgId: string; appId: string; url: string } | null,
 ): Promise<string | null> {
   if (!trust) return null;
-  const [{ getRequestOrgId, getRequestUserEmail }, { signA2AToken }] =
-    await Promise.all([
-      import("../server/request-context.js"),
-      import("../a2a/client.js"),
-    ]);
+  const [
+    { getRequestOrgId, getRequestUserEmail },
+    { getGlobalA2ASecret, signA2AOrganizationToken, signA2AToken },
+  ] = await Promise.all([
+    import("../server/request-context.js"),
+    import("../a2a/client.js"),
+  ]);
   const userEmail = getRequestUserEmail();
   const requestOrgId = getRequestOrgId();
   if (requestOrgId && requestOrgId !== trust.orgId) {
@@ -978,24 +980,26 @@ async function mintFirstPartyMcpIdentityToken(
   if (!(await isFirstPartyTrustCached({ ...trust, orgId }))) return null;
 
   const { orgDomain, orgSecret } = await resolveOrgSigningContext(orgId);
-  const subject =
-    userEmail && requestOrgId
-      ? userEmail
-      : (await import("../mcp/connect-store.js")).serviceIdentityEmail(
-          "mcp-client",
-          orgId,
-        );
-
-  return signA2AToken(subject, orgDomain, orgSecret, {
+  const extraClaims = {
+    jti: randomJti(),
+    scope: "mcp-connect",
+    org_id: orgId,
+    agent_native_first_party_mcp: true,
+  };
+  const audience = firstPartyMcpAudienceForUrl(trust.url);
+  if (userEmail && requestOrgId && getGlobalA2ASecret()) {
+    return signA2AToken(userEmail, orgDomain, undefined, {
+      expiresIn: "5m",
+      audience,
+      preferGlobalSecret: true,
+      extraClaims,
+    });
+  }
+  return signA2AOrganizationToken(orgDomain, orgSecret, orgId, {
     expiresIn: "5m",
-    audience: firstPartyMcpAudienceForUrl(trust.url),
-    preferGlobalSecret: !orgSecret,
-    extraClaims: {
-      jti: randomJti(),
-      scope: "mcp-connect",
-      org_id: orgId,
-      agent_native_first_party_mcp: true,
-    },
+    audience,
+    preferGlobalSecret: true,
+    extraClaims,
   });
 }
 

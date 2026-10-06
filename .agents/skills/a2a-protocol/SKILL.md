@@ -124,28 +124,44 @@ section calls this on add and on open.
 ## Authentication
 
 A2A authenticates with a **short-lived JWT the caller signs**, not a stored
-bearer key. `Authorization: Bearer <jwt>`; claims carry the caller's email and
-org domain; HS256; 15-minute default TTL. There is no per-peer API key
-anywhere in the system, which is why the manifest has no field for one.
+bearer key. `Authorization: Bearer <jwt>`; HS256; 15-minute default TTL.
+There is no per-peer API key anywhere in the system, which is why the manifest
+has no field for one. A user identity assertion carries the authenticated
+caller's email and is signed only with the deployment `A2A_SECRET`. Mint it
+from authenticated request context; never accept an email from message params
+or metadata as identity.
 `verifyA2AToken` rejects MCP connect and OAuth tokens even though they can be
 signed with the same secret: they are long-lived MCP credentials, never A2A
-tokens.
+tokens. Callers bind signed tokens to the receiving endpoint with `aud`; every
+receiver, including a custom JWT verifier, must check that claim against its
+own canonical endpoint URL. Preserve compatibility for old tokens without
+`aud`, but reject an audience-bearing token when the receiver cannot derive or
+match its expected audience. A scoped resource route may require `aud` even
+for legacy callers; document and test that boundary when adding such a route.
 
-Two secrets can sign it:
+The framework supports two credential scopes:
 
 | Secret | Scope | How it is set |
 | --- | --- | --- |
-| `A2A_SECRET` | whole deployment | env var, **never auto-generated** |
-| org `a2a_secret` | one organization | auto-generated on org creation; Team page UI |
+| `A2A_SECRET` | User identity across a deployment | env var, **never auto-generated** |
+| org `a2a_secret` | Organization principal only | auto-generated on org creation; Team page UI |
 
-The org secret is the managed path: **Team page → A2A secret** (owner only)
-reveals, copies, regenerates, and pushes it to every discovered peer. Rotation
-is tolerated — the caller tries both secrets in order and sticks to whichever
-worked.
+An org-secret JWT proves only that the caller holds the organization's shared
+credential. Its `sub` or email claims are ignored; do not use it to read
+person-owned data, claim a user's task, invoke a user-scoped action, or carry a
+human approval. Organization-scoped operations can run with this principal.
+Use an `A2A_SECRET`-signed user identity for user-owned operations and
+approval continuations. MCP applies the same distinction.
+
+The org secret is managed at **Team page → A2A secret** (owner only), where it
+can be revealed, copied, regenerated, and pushed to discovered peers. It is a
+fallback for organization-scoped calls, not a fallback user identity.
 
 `A2A_SECRET` is the deploy-level path. `workspace-deploy` refuses a production
 workspace deploy without it and prints the generator command. Peers that must
-trust each other need the *same* value on both sides.
+trust user identity assertions need the *same* value on both sides. Keep it
+different from every org `a2a_secret`; a shared value cannot distinguish a
+user assertion from an organization credential.
 
 With no secret configured at all:
 

@@ -40,7 +40,9 @@ describe("resolveA2ACallerAuth", () => {
     await runWithRequestContext(
       { userEmail: "alice+qa@agent-native.test" },
       async () => {
-        const auth = await resolveA2ACallerAuth();
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
 
         expect(auth.metadata).toEqual({
           userEmail: "alice+qa@agent-native.test",
@@ -52,7 +54,10 @@ describe("resolveA2ACallerAuth", () => {
             new TextEncoder().encode("global-a2a-secret"),
           ),
         ).resolves.toMatchObject({
-          payload: { sub: "alice+qa@agent-native.test" },
+          payload: {
+            sub: "alice+qa@agent-native.test",
+            aud: "https://peer.example.test",
+          },
         });
       },
     );
@@ -64,7 +69,9 @@ describe("resolveA2ACallerAuth", () => {
     await runWithRequestContext(
       { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
       async () => {
-        const auth = await resolveA2ACallerAuth();
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
 
         expect(auth.orgDomain).toBe("builder.io");
         expect(auth.orgSecret).toBe("org-a2a-secret");
@@ -81,6 +88,7 @@ describe("resolveA2ACallerAuth", () => {
           payload: {
             sub: "alice+qa@agent-native.test",
             org_domain: "builder.io",
+            aud: "https://peer.example.test",
           },
         });
         await expect(
@@ -90,17 +98,22 @@ describe("resolveA2ACallerAuth", () => {
           ),
         ).rejects.toThrow();
         expect(auth.apiKeyFallbacks).toHaveLength(1);
+        const { payload: orgPrincipal } = await jose.jwtVerify(
+          auth.apiKeyFallbacks![0],
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(orgPrincipal).toMatchObject({
+          org_domain: "builder.io",
+          org_id: "org-qa",
+          aud: "https://peer.example.test",
+        });
+        expect(orgPrincipal).not.toHaveProperty("sub");
         await expect(
           jose.jwtVerify(
             auth.apiKeyFallbacks![0],
             new TextEncoder().encode("org-a2a-secret"),
           ),
-        ).resolves.toMatchObject({
-          payload: {
-            sub: "alice+qa@agent-native.test",
-            org_domain: "builder.io",
-          },
-        });
+        ).rejects.toThrow();
       },
     );
   });
@@ -111,21 +124,22 @@ describe("resolveA2ACallerAuth", () => {
     await runWithRequestContext(
       { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
       async () => {
-        const auth = await resolveA2ACallerAuth();
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
 
         expect(auth.orgDomain).toBe("builder.io");
         expect(auth.orgSecret).toBe("org-a2a-secret");
-        await expect(
-          jose.jwtVerify(
-            auth.apiKey!,
-            new TextEncoder().encode("org-a2a-secret"),
-          ),
-        ).resolves.toMatchObject({
-          payload: {
-            sub: "alice+qa@agent-native.test",
-            org_domain: "builder.io",
-          },
+        const { payload } = await jose.jwtVerify(
+          auth.apiKey!,
+          new TextEncoder().encode("org-a2a-secret"),
+        );
+        expect(payload).toMatchObject({
+          org_domain: "builder.io",
+          org_id: "org-qa",
+          aud: "https://peer.example.test",
         });
+        expect(payload).not.toHaveProperty("sub");
       },
     );
   });

@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   a2aConstructor: vi.fn(),
   a2aSend: vi.fn(),
   a2aGetTask: vi.fn(),
+  signA2AOrganizationToken: vi.fn(),
   signA2AToken: vi.fn(),
   canonicalA2AAudience: vi.fn((url: string) => url.replace(/\/+$/, "")),
   getOrgA2ASecret: vi.fn(),
@@ -86,7 +87,9 @@ vi.mock("@agent-native/core/a2a", async (importOriginal) => {
         return mocks.a2aGetTask(...args);
       }
     },
+    signA2AOrganizationToken: mocks.signA2AOrganizationToken,
     signA2AToken: mocks.signA2AToken,
+    getGlobalA2ASecret: () => process.env.A2A_SECRET?.trim(),
     canonicalA2AAudience: mocks.canonicalA2AAudience,
   };
 });
@@ -161,6 +164,7 @@ beforeEach(() => {
   mocks.a2aConstructor.mockReset();
   mocks.a2aSend.mockReset();
   mocks.a2aGetTask.mockReset();
+  mocks.signA2AOrganizationToken.mockReset();
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
   mocks.getBuiltinAgents.mockReturnValue([]);
@@ -190,6 +194,7 @@ beforeEach(() => {
     },
   });
   mocks.signA2AToken.mockResolvedValue("signed-token");
+  mocks.signA2AOrganizationToken.mockResolvedValue("signed-token");
   mocks.getOrgA2ASecret.mockResolvedValue(null);
   mocks.getOrgDomain.mockResolvedValue(null);
   mocks.isFeatureFlagEnabled.mockResolvedValue(true);
@@ -407,6 +412,12 @@ describe("askGrantedDispatchMcpApp", () => {
       "http://localhost:8086",
       "signed-token",
       { requestTimeoutMs: 10_000 },
+    );
+    expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
+      "builder.io",
+      "org-specific-secret",
+      "org-1",
+      { audience: "http://localhost:8086" },
     );
     expect(mocks.a2aSend).toHaveBeenCalledWith(
       {
@@ -1913,14 +1924,13 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         }),
     );
 
-    expect(mocks.signA2AToken).toHaveBeenCalledWith(
-      "owner@example.test",
+    expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
       "builder.io",
       "org-specific-secret",
+      "org-1",
       {
         expiresIn: "5m",
         audience: "http://localhost:8086",
-        preferGlobalSecret: false,
       },
     );
   });
@@ -1929,9 +1939,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     vi.stubEnv("A2A_SECRET", "shared-secret");
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
-    mocks.signA2AToken
-      .mockResolvedValueOnce("org-signed-token")
-      .mockResolvedValueOnce("global-signed-token");
+    mocks.signA2AOrganizationToken.mockResolvedValueOnce("org-signed-token");
+    mocks.signA2AToken.mockResolvedValueOnce("global-signed-token");
     mocks.managerCallTool
       .mockRejectedValueOnce(
         new Error(
@@ -1980,8 +1989,16 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         },
       }),
     );
-    expect(mocks.signA2AToken).toHaveBeenNthCalledWith(
-      2,
+    expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
+      "builder.io",
+      "org-specific-secret",
+      "org-1",
+      {
+        expiresIn: "5m",
+        audience: "http://localhost:8086",
+      },
+    );
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
       "owner@example.test",
       "builder.io",
       undefined,
@@ -1989,6 +2006,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         expiresIn: "5m",
         audience: "http://localhost:8086",
         preferGlobalSecret: true,
+        extraClaims: { org_id: "org-1" },
       },
     );
   });
@@ -2018,6 +2036,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         expiresIn: "5m",
         audience: "http://localhost:8086",
         preferGlobalSecret: true,
+        extraClaims: { org_id: "org-1" },
       },
     );
   });
@@ -2047,6 +2066,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         expiresIn: "5m",
         audience: "http://localhost:8086",
         preferGlobalSecret: true,
+        extraClaims: { org_id: "org-1" },
       },
     );
   });
