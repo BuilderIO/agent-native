@@ -669,6 +669,106 @@ describe("ModelSettingsPage", () => {
     expect(builderButton?.disabled).toBe(false);
   });
 
+  it("keeps custom OpenAI endpoint model IDs when displaying a stored default", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: true,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+      },
+      {
+        openai: {
+          org: {
+            scope: "org",
+            endpoint: "https://gateway.example/v1",
+            updatedAt: 1,
+          },
+        },
+      },
+    );
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+    });
+    state.models = {
+      providers: [
+        {
+          provider: "openai",
+          recommendedModels: ["gpt-5.6-luna", "gpt-6-luna"],
+          rows: {
+            org: { models: null, preserveCustomModels: true },
+          },
+        },
+      ],
+    };
+    await render();
+
+    const defaultRow = row("default-model");
+    expect(defaultRow.textContent).toContain("gpt-5.6-luna");
+    expect(defaultRow.textContent).not.toContain("gpt-6-luna");
+  });
+
+  it("keeps custom endpoint defaults for members who cannot see the endpoint", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: false,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+      },
+      {
+        openai: { org: { scope: "org", updatedAt: 1 } },
+      },
+    );
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+    });
+    state.models = {
+      providers: [
+        {
+          provider: "openai",
+          recommendedModels: ["gpt-5.6-luna", "gpt-6-luna"],
+          rows: {
+            org: { models: null, preserveCustomModels: true },
+          },
+        },
+      ],
+    };
+    await render();
+
+    const defaultRow = row("default-model");
+    expect(defaultRow.textContent).toContain("gpt-5.6-luna");
+    expect(defaultRow.textContent).not.toContain("gpt-6-luna");
+  });
+
+  it("hides a stored default whose provider key was rejected", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: true,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
+      },
+      {
+        openai: {
+          org: { scope: "org", rejectedAt: 1, updatedAt: 1 },
+        },
+      },
+    );
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+    });
+    await render();
+
+    expect(row("provider-org-openai").textContent).toContain("rejected");
+    const defaultRow = row("default-model");
+    expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
+    expect(
+      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
+        ?.disabled,
+    ).toBe(true);
+  });
+
   it("tells a restricted member with no provider to ask an admin", async () => {
     state.listing = listing({ personalKeysRestricted: true });
     state.builder = builderFlow({

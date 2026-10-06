@@ -604,6 +604,24 @@ describe("AgentEngine registry", () => {
       expect(normalizeModelForEngine(engine, "gpt-5-4")).toBe("gpt-5-5");
     });
 
+    it("preserves an exact supported non-GPT selection when a newer version is supported", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "builder",
+        defaultModel: "claude-sonnet-5",
+        supportedModels: [
+          "auto",
+          "claude-opus-4-8",
+          "claude-opus-5-5",
+          "claude-sonnet-5",
+        ],
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "claude-opus-4-8")).toBe(
+        "claude-opus-4-8",
+      );
+    });
+
     it("falls back unsupported models to the engine default when no version match exists", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {

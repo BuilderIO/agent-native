@@ -248,18 +248,20 @@ export function normalizeModelForEngine(
   );
   if (upgradedModel) return upgradedModel;
 
+  if (
+    candidate === "auto" ||
+    engine.supportedModels.includes(candidate) ||
+    engine.supportedModels.length === 0
+  ) {
+    return candidate;
+  }
+
   const versionMatch = findLatestSupportedVersionMatch(
     candidate,
     engine.supportedModels,
   );
   if (versionMatch && isNewerVersionedModel(candidate, versionMatch)) {
     return versionMatch;
-  }
-
-  if (engine.supportedModels.length === 0) return candidate;
-
-  if (candidate === "auto" || engine.supportedModels.includes(candidate)) {
-    return candidate;
   }
 
   if (engine.acceptsCustomModels || options.acceptsCustomModels) {

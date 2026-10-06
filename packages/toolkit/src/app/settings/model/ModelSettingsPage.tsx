@@ -797,12 +797,16 @@ function DefaultModelRow({
           engine: listing.defaultModel.engine,
           model:
             (group &&
+              !group.preserveCustomModels &&
               upgradeModelToLatestSupportedVersion(model, group.models)) ||
             model,
         };
       })()
     : null;
-  const current = pending ?? (hasProvider ? stored : null);
+  const storedGroup = stored
+    ? groups.find((group) => group.engine === stored.engine)
+    : undefined;
+  const current = pending ?? (storedGroup ? stored : null);
   const engineLabel = (engine: string) => {
     const provider = providerForEngine(engine);
     if (provider === "builder") return BUILDER_LABEL;
@@ -817,8 +821,8 @@ function DefaultModelRow({
         })
       : engineLabel(current.engine)
     : t(`${K}notSet`);
-  // A stored default no longer offered (personal, rejected, or unchecked)
-  // still shows as the value, so the select never reads blank.
+  // Keep a stored model visible if its provider is available but the model is
+  // no longer in that provider's checked list.
   const offered =
     current &&
     groups.some(
