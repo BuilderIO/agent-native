@@ -110,6 +110,8 @@ Multiple providers can be active simultaneously. All receive every event.
 
 Browser-side `trackEvent()` also forwards to Agent-Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent-Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
 
+An app served from a hosted beta host (`beta.*.agent-native.com`) reports to beta Analytics: `resolveLaneEndpoint` moves an endpoint on a production lane host to its beta lane for browser events, auth-page events, replay uploads, and server events. A new sender that reads the analytics endpoint must pass it through `resolveLaneEndpoint` too, or beta traffic splits. Beta and production Analytics share one database, so an ingest change runs on beta traffic first, and checking it on beta proves the merged code rather than production's. An endpoint on any other host is left as configured.
+
 ## Error Capture
 
 Exceptions fan out through `server/capture-error.ts` to every registered
@@ -197,12 +199,38 @@ providers build it.
 - **Browser outcomes are bounded, too.** `agent_run_outcome` is one event per
   run (`outcome`, legacy `code`, `terminal_source`,
   `verified_after_pipe_closed`, `resume_attempts`, `run_id`, `thread_id`):
-  every `interrupted` / `failed` / `unverified` run up to 30 per page, and
-  `succeeded` / `stopped` sampled at 10% with `sample_weight`.
+  every `interrupted` / `failed` / `unverified` run up to 30 per page, every
+  `stopped` run up to its own 30 (so stops never crowd out failures), and
+  `succeeded` sampled at 10% with `sample_weight`. A turn the server refuses
+  at its start (no model connected, a 5xx) is a `failed` run too, with
+  `terminal_source: local` and the refused turn's id. A failed or
+  interrupted run adds its `cause` from `AGENT_TROUBLE_CAUSES` when one fits
+  its `code`, and Analytics groups the rest by `code`. A code that is not
+  an identifier is sent as `unrecognized_code` (`agentErrorCodeForTelemetry`),
+  because a thrower's `data.code` can be a sentence. It never carries the
+  run's message, not even redacted: no pattern can tell an unquoted document
+  or person's name from the words around it, so a message stays out of every
+  event. A provider error is `provider_error` only when its code
+  came from a structured HTTP status (`http_5xx`, including a status on a
+  wrapped cause); a status that appears only in message text is not read. `agent_feedback_submitted` (`sentiment`,
+  `run_id`, `thread_id`) is the browser's copy of a thumbs rating, because
+  `$ai_feedback` has no browser session. Every `pageview` carries
+  `agent_signals: 1` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY`): clients before it
+  sampled stops at 10% and sent no ratings or `page_load_id`, so Analytics
+  reads a session's cancelled runs, thumbs-down, and quick backs as measured
+  only after seeing the marker and while no unmarked pageview or sampled stop
+  shares the session (tabs share one session id), and counts only stops sent
+  unsampled. Keep all three guarantees while the marker ships. Every
+  `pageview` also carries `page_load_id` (`PAGE_LOAD_PAGEVIEW_PROPERTY`),
+  the same until the page reloads, because quick backs compare pages only
+  within one page load.
   `session_navigation` is one event per document that left because of the
   session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
   `http_401`), never the destination. Both are emitted from the single place
-  that decides (`agentkit-protocol.ts`, `navigateForSession`), not the callers.
+  that decides (`agentkit-protocol.ts`, `navigateForSession`; a refused
+  start from the transport's start-run catch), not the callers.
+  `agent_chat_stuck_detected` fires once per run and only while the stuck
+  banner shows, so Analytics' stuck chats are ones the person saw.
 
 Symbolication is per-backend and not automatic: the framework uploads no source
 maps to PostHog, so minified browser stacks stay minified there. Known gap, not
@@ -280,7 +308,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 - Event: `pageview`
 - Fires on initial load, `history.pushState`, `history.replaceState`, and `popstate`
 - De-dupes repeated events for the same URL
-- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `app`, and inferred `template`
+- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `agent_signals`, `page_load_id`, `app`, and inferred `template`
 - Includes LLM connection context on browser events when known: `llm_connection` (`builder`, `anthropic`, `openai`, etc.), `llm_engine`, `llm_model`, `llm_connection_source`, and `llm_connection_configured`
 - Does not send first-party events from localhost/local dev
 
@@ -323,10 +351,31 @@ Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
 - `action.response` from the browser action transport, with action name,
+  the `route` template of the page that made the request (omitted when no
+  manifest route matches),
   browser-perceived duration and TTFB, response status/outcome, response size
   when known, and parsed `Server-Timing` phases for framework readiness and
   database work. Its `request_id` joins the exact browser and server events.
-  This separates server time from CDN/network/body overhead.
+  This separates server time from CDN/network/body overhead. One at or over
+  `SLOW_ACTION_RESPONSE_MS` (1 s) is never sampled. When someone waited for
+  it (`isWaitedActionResponse`: the page stayed visible and the request was
+  not cancelled), it is also marked on the session replay
+  (`agent-native.slow_request`) with its action, method, duration, status,
+  outcome, and `page_hidden`.
+- `web_vitals` once per page view, with the React Router `route` template
+  (`/sessions/:id`, never the ids; omitted when no manifest route matches,
+  because a normalized raw path still carries slugs and emails. It is the one
+  tracked event with no `url` or `path`, even from `getDefaultProps`:
+  `ROUTE_ONLY_EVENT_NAMES` in `client/analytics.ts` strips them),
+  `navigation_type` (`load`, `client`, or `resume` after the tab was
+  hidden, sent only when it saw an interaction or layout shift), and
+  `ttfb_ms`, `lcp_ms`, `inp_ms`, and `cls`. TTFB and LCP exist only for
+  document loads, a load in a background tab is not reported, and a metric the browser cannot measure (including CLS when
+  the layout-shift observer fails) is omitted rather than sent as 0. A page
+  view ends on `pushState`/`popstate` to another path or when the tab is
+  hidden; `replaceState` keeps it, so redirects land on the final route.
+  Measured with native `PerformanceObserver`s; `configureTracking({
+  webVitals: false })` turns it off. Each page view also marks the replay.
 - `http.response` from Nitro request/response hooks, with normalized path,
   status, request duration, first-request-in-isolate cold marker, process age,
   framework readiness wait, deploy/runtime fingerprint, database

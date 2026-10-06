@@ -9,7 +9,11 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-import { markdownSuggestionOperations } from "../../shared/suggestion-diff.js";
+import { canonicalizeNfm } from "../../shared/nfm.js";
+import {
+  markdownSuggestionOperations,
+  markdownSuggestionOperationsForEditorRevision,
+} from "../../shared/suggestion-diff.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -358,6 +362,87 @@ describe("Content suggested edits Blocks transaction", () => {
     await run();
   });
 
+  it("lets a commenter withdraw their own suggestion without touching the Page", async () => {
+    sequence += 1;
+    const documentId = `suggestion-withdraw-page-${sequence}`;
+    const commenterEmail = "commenter@example.com";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Withdraw page",
+      content: "The quick fox.",
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: `share-${documentId}`,
+        resourceId: documentId,
+        principalType: "user",
+        principalId: commenterEmail,
+        role: "commenter",
+        createdBy: ownerEmail,
+        createdAt: now,
+      });
+    const ctx = { caller: "cli" as const, userEmail: commenterEmail };
+    const proposals =
+      await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal");
+    const decisions =
+      await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion");
+    const lists =
+      await import("@agent-native/core/review/suggestions/actions/list-resource-suggestions");
+
+    await runWithRequestContext({ userEmail: commenterEmail }, async () => {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      const operations = markdownSuggestionOperations(
+        "The quick fox.",
+        "The slow fox.",
+      );
+      expect(operations).toHaveLength(1);
+      const created = await proposals.default.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: adapter.kind,
+          baseRevision: document.revision,
+          summary: "Suggest edits",
+          idempotencyKey: `content-withdraw-${documentId}`,
+          suggestions: [
+            {
+              summary: "Edit",
+              operations,
+            },
+          ],
+        },
+        ctx,
+      );
+      const suggestion = created.suggestions[0]!;
+      const withdrawn = await decisions.default.run(
+        {
+          id: suggestion.id,
+          decision: "withdrawn",
+          idempotencyKey: `withdraw:${suggestion.id}:${suggestion.revision}`,
+          observedBase: suggestion.baseRevision,
+          observedRevision: suggestion.revision,
+        },
+        ctx,
+      );
+      expect(withdrawn.suggestion?.status).toBe("withdrawn");
+      const listed = await lists.default.run(
+        { resourceType: "document", resourceId: documentId },
+        ctx,
+      );
+      expect(listed.suggestions.map((entry) => entry.status)).toEqual([
+        "withdrawn",
+      ]);
+      const after = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(after.content).toBe("The quick fox.");
+      expect(after.revision).toBe(document.revision);
+    });
+  });
+
   it("rolls back the first Content edit when the second proposal edit conflicts", async () => {
     sequence += 1;
     const documentId = `suggestion-conflict-page-${sequence}`;
@@ -415,7 +500,10 @@ describe("Content suggested edits Blocks transaction", () => {
           },
           ctx,
         ),
-      ).rejects.toThrow("proposal member is stale");
+      ).rejects.toMatchObject({
+        message: expect.stringContaining("proposal member is stale"),
+        errorCode: "suggestion_stale",
+      });
       const unchanged = await getDocumentAction.run({ id: documentId }, ctx);
       expect(unchanged.content).toBe(before);
       expect(unchanged.bodyRevision).toBe(0);
@@ -954,6 +1042,176 @@ describe("Content suggested edits Blocks transaction", () => {
       revision: after.revision,
       baseRevision: after.baseRevision,
       bodyRevision: 2,
+    });
+  });
+});
+
+describe("Content single suggestion decisions", () => {
+  const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+
+  async function seedPage(content: string) {
+    sequence += 1;
+    const documentId = `suggestion-single-page-${sequence}`;
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Single decisions",
+      content,
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return documentId;
+  }
+
+  // One editor session saves as one proposal, exactly as the browser does.
+  async function proposeSession(
+    documentId: string,
+    before: string,
+    after: string,
+    base: "revision" | "updatedAt" = "revision",
+  ) {
+    const document = await getDocumentAction.run({ id: documentId }, ctx);
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before,
+      after,
+      replacements: [],
+    });
+    await (
+      await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal")
+    ).default.run(
+      {
+        resourceType: "document",
+        resourceId: documentId,
+        adapterKind: adapter.kind,
+        baseRevision:
+          base === "revision" ? document.revision : document.updatedAt,
+        summary: "Session",
+        idempotencyKey: `session-${documentId}-${after.length}-${after}`,
+        suggestions: operations.map((operation, index) => ({
+          summary: `Edit ${index + 1}`,
+          operations: [operation],
+        })),
+      },
+      ctx,
+    );
+  }
+
+  async function listSuggestions(documentId: string) {
+    return (
+      await (
+        await import("@agent-native/core/review/suggestions/actions/list-resource-suggestions")
+      ).default.run({ resourceType: "document", resourceId: documentId }, ctx)
+    ).suggestions;
+  }
+
+  async function decide(
+    suggestion: { id: string; baseRevision: string; revision: number },
+    idempotencyKey: string,
+  ) {
+    return (
+      await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion")
+    ).default.run(
+      {
+        id: suggestion.id,
+        decision: "accepted",
+        idempotencyKey,
+        observedBase: suggestion.baseRevision,
+        observedRevision: suggestion.revision,
+      },
+      ctx,
+    );
+  }
+
+  it("lands separately saved suggestions on one heading in list order", async () => {
+    const base = canonicalizeNfm(
+      "# Notes\n\nThe first paragraph sets the scene.\n\n## Hand-drawn lines\n\nThese lines look wobbly.\n\nA closing paragraph sits here.",
+    );
+    const documentId = await seedPage(base);
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await proposeSession(
+        documentId,
+        base,
+        base
+          .replace("## Hand-drawn lines", "## Lines")
+          .replace("look wobbly", "look charming"),
+      );
+      await proposeSession(
+        documentId,
+        base,
+        base.replace(
+          "## Hand-drawn lines",
+          "## Hand-drawn lines worth keeping",
+        ),
+      );
+      const pending = await listSuggestions(documentId);
+      expect(pending.length).toBeGreaterThanOrEqual(3);
+      for (const suggestion of pending) {
+        const result = await decide(suggestion, `accept-${suggestion.id}`);
+        expect(result.suggestion.status).toBe("accepted");
+      }
+      const page = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(page.content).toContain("## Lines worth keeping");
+      expect(page.content).toContain("These lines look charming.");
+    });
+  });
+
+  it("rebases a suggestion based on the Page timestamp, as Comment AI saves them", async () => {
+    const base = canonicalizeNfm(
+      "## Hand-drawn lines\n\nThese lines look wobbly.\n\nA closing paragraph sits here.",
+    );
+    const documentId = await seedPage(base);
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await proposeSession(
+        documentId,
+        base,
+        base
+          .replace("## Hand-drawn lines", "## Lines")
+          .replace("look wobbly", "look charming"),
+      );
+      await proposeSession(
+        documentId,
+        base,
+        base.replace(
+          "## Hand-drawn lines",
+          "## Hand-drawn lines worth keeping",
+        ),
+        "updatedAt",
+      );
+      for (const suggestion of await listSuggestions(documentId)) {
+        const result = await decide(suggestion, `accept-${suggestion.id}`);
+        expect(result.suggestion.status).toBe("accepted");
+      }
+      const page = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(page.content).toContain("## Lines worth keeping");
+    });
+  });
+
+  it("leaves an unplaceable accept pending and reports a typed failure", async () => {
+    const base = "Alpha beta gamma.";
+    const documentId = await seedPage(base);
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await proposeSession(documentId, base, "Alpha BETA gamma.");
+      await proposeSession(documentId, base, "Alpha Beta gamma.");
+      const [first, second] = await listSuggestions(documentId);
+      await decide(first!, `accept-${first!.id}`);
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await expect(
+          decide(second!, `accept-${second!.id}`),
+        ).rejects.toMatchObject({
+          statusCode: 409,
+          errorCode: "suggestion_stale",
+        });
+      }
+      const page = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(page.content).toBe("Alpha BETA gamma.");
+      expect(page.bodyRevision).toBe(1);
+      const after = await listSuggestions(documentId);
+      expect(after.map((suggestion) => suggestion.status)).toEqual([
+        "accepted",
+        "pending",
+      ]);
+      expect(after[1]!.revision).toBe(second!.revision);
     });
   });
 });

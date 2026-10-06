@@ -1,7 +1,14 @@
+import {
+  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+  ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
+  STALE_CHUNK_RELOAD_AT_KEY,
+  STALE_CHUNK_RELOAD_COOLDOWN_MS,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
-const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
-const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
 const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
 
 /**
@@ -126,6 +133,78 @@ function hardNavigate(win: Window, href: string): void {
   }
 }
 
+function withChunkRecoveryCacheBuster(
+  win: Window,
+  href: string,
+  now = Date.now(),
+): string {
+  const url = new URL(href, win.location.href);
+  url.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, CHUNK_RECOVERY_QUERY_VALUE);
+  url.searchParams.set(
+    CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+    `${now.toString(36)}-${Math.random().toString(36).slice(2)}`,
+  );
+  return url.href;
+}
+
+function readRecoveryAttemptAt(win: Window): number {
+  const url = new URL(win.location.href);
+  if (
+    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) !==
+    CHUNK_RECOVERY_QUERY_VALUE
+  ) {
+    return 0;
+  }
+  const timestamp =
+    url.searchParams.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)?.split("-", 1)[0] ??
+    "";
+  if (!/^[0-9a-z]+$/i.test(timestamp)) return 0;
+  const parsed = Number.parseInt(timestamp, 36);
+  return Number.isSafeInteger(parsed) && parsed <= Date.now() ? parsed : 0;
+}
+
+function clearChunkRecoveryCacheBuster(win: Window): void {
+  const url = new URL(win.location.href);
+  if (
+    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) !==
+    CHUNK_RECOVERY_QUERY_VALUE
+  ) {
+    return;
+  }
+  // Keep the fixed marker as a cooldown when session storage is unavailable.
+  const recoveryStartedAt = readRecoveryAttemptAt(win);
+  if (markStaleChunkReload(win, recoveryStartedAt || Date.now()) !== true) {
+    return;
+  }
+  url.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
+  url.searchParams.delete(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  win.history.replaceState(
+    win.history.state,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+}
+
+function isModuleAssetLoadFailure(event: Event): boolean {
+  const target = event.target as
+    | (EventTarget & {
+        hasAttribute?: (name: string) => boolean;
+        getAttribute?: (name: string) => string | null;
+        rel?: string;
+        tagName?: string;
+        type?: string;
+      })
+    | null;
+  const tagName = target?.tagName?.toUpperCase();
+  if (tagName === "LINK" && target) {
+    if (target.hasAttribute?.(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)) return false;
+    return /(?:^|\s)modulepreload(?:\s|$)/i.test(
+      target.getAttribute?.("rel") ?? target.rel ?? "",
+    );
+  }
+  return tagName === "SCRIPT" && target?.type?.toLowerCase() === "module";
+}
+
 function isAgentNativeDesktop(win: Window): boolean {
   return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
 }
@@ -166,27 +245,37 @@ function isViteOptimizerFailureMessage(message: string): boolean {
 }
 
 function readStaleChunkReloadAt(win: Window): number {
+  const mem = (win as unknown as Record<string, unknown>)[
+    STALE_CHUNK_RELOAD_AT_KEY
+  ];
+  const fallback = Math.max(
+    typeof mem === "number" && Number.isFinite(mem) ? mem : 0,
+    readRecoveryAttemptAt(win),
+  );
   try {
     const raw = (
       win as unknown as { sessionStorage?: Storage }
     ).sessionStorage?.getItem(STALE_CHUNK_RELOAD_AT_KEY);
     const parsed = raw == null ? NaN : Number(raw);
-    if (Number.isFinite(parsed)) return parsed;
-  } catch {}
-  const mem = (win as unknown as Record<string, unknown>)[
-    STALE_CHUNK_RELOAD_AT_KEY
-  ];
-  return typeof mem === "number" ? mem : 0;
+    if (Number.isFinite(parsed)) return Math.max(fallback, parsed);
+  } catch {
+    return fallback;
+  }
+  return fallback;
 }
 
-function markStaleChunkReload(win: Window, now: number): void {
-  (win as unknown as Record<string, unknown>)[STALE_CHUNK_RELOAD_AT_KEY] = now;
+function markStaleChunkReload(win: Window, now: number): true | "unavailable" {
+  const winState = win as unknown as Record<string, unknown>;
+  winState[STALE_CHUNK_RELOAD_AT_KEY] = now;
   try {
-    (win as unknown as { sessionStorage?: Storage }).sessionStorage?.setItem(
-      STALE_CHUNK_RELOAD_AT_KEY,
-      String(now),
-    );
-  } catch {}
+    const storage = (win as unknown as { sessionStorage?: Storage })
+      .sessionStorage;
+    if (!storage) return "unavailable";
+    storage.setItem(STALE_CHUNK_RELOAD_AT_KEY, String(now));
+    return true;
+  } catch {
+    return "unavailable";
+  }
 }
 
 /** The recorded exhaustion for this page session, if recovery ever gave up. */
@@ -234,7 +323,12 @@ export function reloadForStaleChunk(
     return false;
   }
   markStaleChunkReload(win, now);
-  hardNavigate(win, win.location.href);
+  hardNavigate(
+    win,
+    hasViteDevRecovery(win) === true
+      ? win.location.href
+      : withChunkRecoveryCacheBuster(win, win.location.href, now),
+  );
   return true;
 }
 
@@ -270,7 +364,12 @@ function recoverToIntendedNavigation(
   try {
     win.history.replaceState(win.history.state, "", recoveryTarget);
   } catch {}
-  hardNavigate(win, recoveryTarget);
+  hardNavigate(
+    win,
+    hasViteDevRecovery(win) === true
+      ? recoveryTarget
+      : withChunkRecoveryCacheBuster(win, recoveryTarget),
+  );
   return true;
 }
 
@@ -356,6 +455,8 @@ export function installRouteChunkRecovery(
   if (installedTarget[INSTALL_KEY]) return;
   installedTarget[INSTALL_KEY] = true;
 
+  clearChunkRecoveryCacheBuster(win);
+
   const state = createRouteChunkRecoveryState();
 
   win.document.addEventListener(
@@ -363,6 +464,16 @@ export function installRouteChunkRecovery(
     (event) => {
       const href = intendedHrefFromClick(win, event);
       if (href) rememberIntendedNavigation(state, href);
+    },
+    true,
+  );
+
+  win.document.addEventListener(
+    "error",
+    (event) => {
+      if (isModuleAssetLoadFailure(event) && hasViteDevRecovery(win) !== true) {
+        reloadForStaleChunk(win);
+      }
     },
     true,
   );

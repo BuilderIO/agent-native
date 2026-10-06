@@ -15,6 +15,308 @@ import type {
   Point,
 } from "./types";
 
+export interface CrossScreenPathFrameHit {
+  sessionId: string;
+  screenId: string;
+  hit: CrossScreenHitTestResult;
+  parentHits?: CrossScreenHitTestResult[];
+}
+
+export interface CrossScreenPathFrameHitRequest {
+  requestSeq: number;
+  sessionId: string;
+  screenId: string;
+  ignoreAutoLayout: boolean;
+  hit: Promise<CrossScreenHitTestResult>;
+}
+
+export interface CrossScreenPathFrameHitRequestSnapshot {
+  releaseRequestSeq: number;
+  screenId: string;
+  sessionId: string;
+  pathFrame: CrossScreenPathFrameHit | null;
+  requests: CrossScreenPathFrameHitRequest[];
+}
+
+interface TrackedCrossScreenPathFrameHitRequest {
+  requestSeq: number;
+  ignoreAutoLayout: boolean;
+  pendingHit: Promise<CrossScreenHitTestResult> | null;
+  settledHit?: CrossScreenHitTestResult;
+  settled: boolean;
+}
+
+interface CrossScreenPathFrameHitScreenState {
+  sessionId: string;
+  screenId: string;
+  pathFrame: CrossScreenPathFrameHit | null;
+  pending: TrackedCrossScreenPathFrameHitRequest[];
+}
+
+function isCrossScreenPathFrameHitRequestAtOrBeforeRelease(
+  request: CrossScreenPathFrameHitRequest,
+  releaseRequestSeq: number,
+) {
+  return request.requestSeq <= releaseRequestSeq;
+}
+
+export class CrossScreenPathFrameHitTracker {
+  private generation = 0;
+  private readonly screenStates = new Map<
+    string,
+    CrossScreenPathFrameHitScreenState
+  >();
+
+  add(request: CrossScreenPathFrameHitRequest) {
+    let state = this.screenStates.get(request.screenId);
+    if (!state || state.sessionId !== request.sessionId) {
+      state = {
+        sessionId: request.sessionId,
+        screenId: request.screenId,
+        pathFrame: null,
+        pending: [],
+      };
+      this.screenStates.set(request.screenId, state);
+    }
+
+    const generation = this.generation;
+    const trackedRequest: TrackedCrossScreenPathFrameHitRequest = {
+      requestSeq: request.requestSeq,
+      ignoreAutoLayout: request.ignoreAutoLayout,
+      pendingHit: request.hit,
+      settled: false,
+    };
+    state.pending.push(trackedRequest);
+    void request.hit.then((hit) => {
+      if (
+        generation !== this.generation ||
+        this.screenStates.get(request.screenId) !== state
+      ) {
+        return;
+      }
+      trackedRequest.pendingHit = null;
+      trackedRequest.settledHit = hit;
+      trackedRequest.settled = true;
+      this.compactSettledRequests(state);
+    });
+  }
+
+  snapshot(
+    releaseRequestSeq: number,
+    screenId: string,
+    sessionId: string,
+  ): CrossScreenPathFrameHitRequestSnapshot {
+    const state = this.screenStates.get(screenId);
+    const matchingState = state?.sessionId === sessionId ? state : undefined;
+    return {
+      releaseRequestSeq,
+      screenId,
+      sessionId,
+      pathFrame: matchingState?.pathFrame ?? null,
+      requests: (matchingState?.pending ?? [])
+        .filter(({ requestSeq }) => requestSeq <= releaseRequestSeq)
+        .map(({ requestSeq, ignoreAutoLayout, pendingHit, settledHit }) => ({
+          requestSeq,
+          screenId,
+          sessionId,
+          ignoreAutoLayout,
+          hit: pendingHit ?? Promise.resolve(settledHit ?? {}),
+        })),
+    };
+  }
+
+  clear() {
+    this.generation += 1;
+    this.screenStates.clear();
+  }
+
+  private compactSettledRequests(state: CrossScreenPathFrameHitScreenState) {
+    while (state.pending[0]?.settled) {
+      const [{ ignoreAutoLayout, settledHit }] = state.pending.splice(0, 1);
+      if (settledHit) {
+        state.pathFrame = rememberCrossScreenPathFrameHit({
+          previous: state.pathFrame,
+          next: {
+            sessionId: state.sessionId,
+            screenId: state.screenId,
+            hit: settledHit,
+          },
+          ignoreAutoLayout,
+        });
+      }
+    }
+  }
+}
+
+export function getCrossScreenPreviewTimeoutResult(args: {
+  requestSeq: number;
+  generation: number;
+  cached?: {
+    requestSeq: number;
+    generation: number;
+    result: CrossScreenHitTestResult;
+  };
+}): CrossScreenHitTestResult {
+  const { requestSeq, generation, cached } = args;
+  return cached?.requestSeq === requestSeq && cached.generation === generation
+    ? cached.result
+    : {};
+}
+
+function isCrossScreenPathFrameHit(hit: CrossScreenHitTestResult): boolean {
+  return Boolean(
+    hit.anchorNodeId &&
+    hit.anchorParentNodeId &&
+    hit.placement === "inside" &&
+    hit.dropMode === "absolute-container" &&
+    !hit.gridPlacement,
+  );
+}
+
+export function rememberCrossScreenPathFrameHit(args: {
+  previous: CrossScreenPathFrameHit | null;
+  next: CrossScreenPathFrameHit;
+  ignoreAutoLayout?: boolean;
+}): CrossScreenPathFrameHit | null {
+  const { previous, next, ignoreAutoLayout = false } = args;
+  if (ignoreAutoLayout) return null;
+  if (!next.sessionId || !isCrossScreenPathFrameHit(next.hit)) {
+    return previous;
+  }
+  if (
+    previous?.sessionId === next.sessionId &&
+    previous.screenId === next.screenId
+  ) {
+    const pathHits = [previous.hit, ...(previous.parentHits ?? [])];
+    const existingHitIndex = pathHits.findIndex(
+      (hit) => hit.anchorNodeId === next.hit.anchorNodeId,
+    );
+    if (existingHitIndex >= 0) {
+      return {
+        ...previous,
+        parentHits: pathHits.slice(1, existingHitIndex + 1),
+      };
+    }
+    if (
+      pathHits[pathHits.length - 1]?.anchorParentNodeId ===
+      next.hit.anchorNodeId
+    ) {
+      return {
+        ...previous,
+        parentHits: [...(previous.parentHits ?? []), next.hit],
+      };
+    }
+  }
+  return next;
+}
+
+export async function resolveCrossScreenPathFrameHitAtRelease(args: {
+  requests: readonly CrossScreenPathFrameHitRequest[];
+  releaseRequestSeq: number;
+  sessionId: string;
+  screenId: string;
+  pathFrame?: CrossScreenPathFrameHit | null;
+  releaseHit: CrossScreenHitTestResult;
+  ignoreAutoLayout?: boolean;
+}): Promise<CrossScreenPathFrameHit | null> {
+  const {
+    requests,
+    releaseRequestSeq,
+    sessionId,
+    screenId,
+    pathFrame: previousPathFrame = null,
+    releaseHit,
+    ignoreAutoLayout = false,
+  } = args;
+  if (ignoreAutoLayout) return null;
+
+  const precedingRequests = requests
+    .filter(
+      (request) =>
+        isCrossScreenPathFrameHitRequestAtOrBeforeRelease(
+          request,
+          releaseRequestSeq,
+        ) &&
+        request.sessionId === sessionId &&
+        request.screenId === screenId,
+    )
+    .sort((a, b) => a.requestSeq - b.requestSeq);
+  const resolvedHits = await Promise.all(
+    precedingRequests.map(async (request) => ({
+      request,
+      hit: await request.hit,
+    })),
+  );
+
+  let pathFrame =
+    previousPathFrame?.sessionId === sessionId &&
+    previousPathFrame.screenId === screenId
+      ? previousPathFrame
+      : null;
+  for (const { request, hit } of resolvedHits) {
+    pathFrame = rememberCrossScreenPathFrameHit({
+      previous: pathFrame,
+      next: {
+        sessionId: request.sessionId,
+        screenId: request.screenId,
+        hit,
+      },
+      ignoreAutoLayout: request.ignoreAutoLayout,
+    });
+  }
+  return rememberCrossScreenPathFrameHit({
+    previous: pathFrame,
+    next: { sessionId, screenId, hit: releaseHit },
+  });
+}
+
+export function applyCrossScreenPathFrameDropTarget(args: {
+  hit: CrossScreenHitTestResult;
+  pathFrame: CrossScreenPathFrameHit | null;
+  sessionId: string;
+  screenId: string;
+  ignoreAutoLayout?: boolean;
+}): CrossScreenHitTestResult {
+  const {
+    hit,
+    pathFrame,
+    sessionId,
+    screenId,
+    ignoreAutoLayout = false,
+  } = args;
+  if (
+    ignoreAutoLayout ||
+    !pathFrame ||
+    pathFrame.sessionId !== sessionId ||
+    pathFrame.screenId !== screenId ||
+    hit.dropMode !== "absolute-container" ||
+    hit.placement !== "inside" ||
+    hit.gridPlacement ||
+    !hit.anchorNodeId
+  ) {
+    return hit;
+  }
+  const crossedFrame = [pathFrame.hit, ...(pathFrame.parentHits ?? [])].find(
+    (frameHit) =>
+      isCrossScreenPathFrameHit(frameHit) &&
+      frameHit.anchorParentNodeId === hit.anchorNodeId &&
+      frameHit.anchorNodeId !== hit.anchorNodeId,
+  );
+  if (!crossedFrame) return hit;
+  return {
+    ...hit,
+    targetAnchorProvenance: crossedFrame.targetAnchorProvenance,
+    anchorNodeId: crossedFrame.anchorNodeId,
+    anchorParentNodeId: crossedFrame.anchorParentNodeId,
+    pendingNodeId: crossedFrame.pendingNodeId,
+    anchorSelector: crossedFrame.anchorSelector,
+    placement: "after",
+    guidePlacement: "after",
+    dropMode: "absolute-container",
+    gridPlacement: undefined,
+  };
+}
+
 export function getCrossScreenSourceGeometry(args: {
   renderedGeometry?: FrameGeometry;
   persistedGeometry?: FrameGeometry;

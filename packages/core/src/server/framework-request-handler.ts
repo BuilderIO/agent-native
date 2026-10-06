@@ -752,6 +752,9 @@ function registerMiddleware(
       }
       return {
         error: e?.message || "Internal server error",
+        // Clients name a failure by its code (no model connected, run slot
+        // busy); a bare HTTP status reaches them as an unnamed "forbidden".
+        ...(typeof e?.data?.code === "string" ? { code: e.data.code } : {}),
         ...(status >= 500 &&
         process.env.AGENT_NATIVE_DEBUG_ERRORS === "1" &&
         e?.stack

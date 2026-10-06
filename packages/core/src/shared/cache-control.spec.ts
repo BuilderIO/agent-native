@@ -14,6 +14,7 @@ import {
   ssrCacheHeadersForPolicy,
   withSsrHtmlContentType,
 } from "./cache-control.js";
+import { CHUNK_RECOVERY_QUERY_PARAM } from "./route-chunk-recovery-bootstrap.js";
 
 function envWith(value: string | undefined) {
   return { [SSR_CACHE_ENV_VAR]: value };
@@ -198,11 +199,17 @@ describe("resolveSsrCacheHeaders", () => {
 describe("resolveSsrCacheKeyHeaders", () => {
   it("narrows query variation on Netlify", () => {
     expect(resolveSsrCacheKeyHeaders({ NETLIFY: "true" })).toEqual({
-      "netlify-vary": "query=_routes|index",
+      "netlify-vary": `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
     });
     expect(resolveSsrCacheKeyHeaders({ SITE_ID: "site-test" })).toEqual({
-      "netlify-vary": "query=_routes|index",
+      "netlify-vary": `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
     });
+  });
+
+  it("uses full query variation only when requested", () => {
+    expect(
+      resolveSsrCacheKeyHeaders({ NETLIFY: "true" }, { varyByQuery: true }),
+    ).toEqual({ "netlify-vary": "query" });
   });
 
   it("does not emit a Netlify header outside Netlify", () => {

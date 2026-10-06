@@ -75,7 +75,7 @@ export interface LayerMoveToScreenArgs {
     },
   ) => ApplyFileContentUpdateResult;
   boardFileId: string | undefined;
-  codeLayerOwnerByNodeId: Map<
+  codeLayerOwnerByNodeId: ReadonlyMap<
     string,
     {
       fileId: string;

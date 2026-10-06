@@ -29,8 +29,11 @@ export default defineAction({
     "'Make it real' upgrade flow. Returns { connected, builderEnabled, " +
     "connectUrl, appHost, branchProjectId } so the UI can render the correct " +
     "inline card without making a separate status fetch. " +
-    "When connected is false, direct the user to the connectUrl to start the " +
-    "Builder OAuth flow. When builderEnabled is true, the Builder cloud agent " +
+    "When connected is false, direct the user to the in-app 'Use Builder.io' " +
+    "choice. 'Create and activate' uses one-click provisioning; 'I have a " +
+    "Builder.io account' starts sign-in. Do not direct the user to open " +
+    "connectUrl; the UI uses it only for the existing-account choice. " +
+    "When builderEnabled is true, the Builder cloud agent " +
     "can accept a migration job via migrate-inline-design-to-app.",
   schema: z.object({
     designId: z
@@ -74,7 +77,7 @@ export default defineAction({
           connectUrl,
         },
         message:
-          "Builder is not connected (free tier available). Open connectUrl to start the OAuth flow.",
+          "Builder is not connected. Use the in-app Use Builder.io choice: Create and activate is one-click, or choose I have a Builder.io account to sign in.",
       };
     }
 

@@ -233,6 +233,33 @@ describe("framework request handler", () => {
     expect(debugSpy).not.toHaveBeenCalled();
   });
 
+  it("keeps a thrown error's code in the JSON error", async () => {
+    const nitroApp = createNitroApp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    getH3App(nitroApp).use("/_agent-native/agent-chat", () => {
+      throw createError({
+        statusCode: 403,
+        statusMessage: "Use Builder.io or a provider API key before chatting.",
+        data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+      });
+    });
+
+    let event: any;
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/agent-chat",
+      (e) => {
+        event = e;
+      },
+    );
+
+    expect(result).toEqual({
+      error: "Use Builder.io or a provider API key before chatting.",
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+    });
+    expect(event.res.status).toBe(403);
+  });
+
   it("treats a closed response as a client abort", async () => {
     const nitroApp = createNitroApp();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

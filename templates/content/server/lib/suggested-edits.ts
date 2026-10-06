@@ -13,6 +13,7 @@ import {
   prepareTransactionalChange,
   type TransactionalChange,
 } from "@agent-native/core/server";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
 import { drizzle } from "drizzle-orm/pg-proxy";
 
@@ -28,8 +29,9 @@ import {
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
-  SUPPORTED_SUGGESTION_BLOCKS,
   SUPPORTED_SUGGESTION_MARKS,
+  suggestionFrameShape,
+  suggestionNodeRole,
 } from "../../app/components/editor/suggestions/model.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
@@ -50,11 +52,12 @@ type MarkdownOperationPayload = {
   changedText?: string;
 };
 
-type MarkdownOperationAnchor = {
-  from: number;
-  to: number;
+type MarkdownRange = { from: number; to: number };
+
+type MarkdownOperationAnchor = MarkdownRange & {
   prefix: string;
   suffix: string;
+  siblingRanges?: MarkdownRange[];
 };
 
 function markdownPayload(
@@ -148,6 +151,63 @@ export function applyMarkdownSuggestionOperation(
   return `${currentMarkdown.slice(0, from)}${after.changedText}${currentMarkdown.slice(to)}`;
 }
 
+// Suggestions saved separately from the same Page text don't list each other
+// as siblings, so accepting one can remove the context another is anchored
+// to. Each accepted one is a range of that shared text whose bytes may now
+// differ; every other byte must still match for the placement to succeed.
+// Match on the operation's full before-text, not the base revision token:
+// the same text recurs under many body revisions, and Comment AI suggestions
+// carry the Page's updatedAt instead of a body token.
+async function acceptedRangesOnSameText(
+  tx: DbExec,
+  suggestion: { id: string; resourceId: string },
+  beforeMarkdown: string,
+): Promise<MarkdownRange[]> {
+  const rows = (
+    await tx.execute({
+      sql: `SELECT o.anchor_json FROM agent_review_suggestions s
+            INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
+            WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
+              AND s.status = 'accepted' AND s.id <> ?
+              AND (o.before_json::jsonb ->> 'markdown') = ?`,
+      args: [
+        suggestion.resourceId,
+        CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
+        suggestion.id,
+        beforeMarkdown,
+      ],
+    })
+  ).rows;
+  return rows.flatMap((row) => {
+    const anchor = JSON.parse(
+      String(row.anchor_json),
+    ) as Partial<MarkdownRange>;
+    return Number.isInteger(anchor.from) &&
+      Number.isInteger(anchor.to) &&
+      anchor.from! >= 0 &&
+      anchor.from! <= anchor.to! &&
+      anchor.to! <= beforeMarkdown.length
+      ? [{ from: anchor.from!, to: anchor.to! }]
+      : [];
+  });
+}
+
+function withSiblingRanges(
+  operation: SuggestionOperation,
+  ranges: MarkdownRange[],
+): SuggestionOperation {
+  const anchor = operationAnchor(operation);
+  const merged: MarkdownRange[] = [];
+  for (const range of [...(anchor.siblingRanges ?? []), ...ranges].sort(
+    (left, right) => left.from - right.from || left.to - right.to,
+  )) {
+    const last = merged[merged.length - 1];
+    if (last && range.from < last.to) last.to = Math.max(last.to, range.to);
+    else merged.push({ ...range });
+  }
+  return { ...operation, anchor: { ...anchor, siblingRanges: merged } };
+}
+
 function documentFromContext(ctx: Record<string, unknown> | undefined) {
   const access = ctx?.suggestionAccess as
     | { resource?: Record<string, unknown> }
@@ -215,8 +275,6 @@ type SuggestionDocumentJson = {
   content?: SuggestionDocumentJson[];
 };
 
-const SUPPORTED_SUGGESTION_INLINE_NODES = new Set(["hardBreak"]);
-
 function unsupportedNotionSpanAttrs(
   attrs: Record<string, unknown> | undefined,
 ) {
@@ -280,13 +338,20 @@ function unsupportedSuggestionStructure(
     }
     return result;
   }
-  if (
-    node.type !== "doc" &&
-    !SUPPORTED_SUGGESTION_INLINE_NODES.has(node.type ?? "") &&
-    !SUPPORTED_SUGGESTION_BLOCKS.has(node.type ?? "")
-  ) {
+  const role = suggestionNodeRole(node.type ?? "");
+  if (role === "frozen") {
     result.push({ path, node });
     return result;
+  }
+  if (role === "frame") {
+    result.push({
+      path,
+      frame: suggestionFrameShape(
+        node.type ?? "",
+        node.attrs,
+        (node.content ?? []).map((child) => child.type ?? ""),
+      ),
+    });
   }
   for (const child of node.content ?? []) {
     unsupportedSuggestionStructure(child, [...path, node.type ?? ""], result);
@@ -314,37 +379,53 @@ function unchangedSurround(before: string, after: string): string {
   return `${before.slice(0, prefix)}${before.slice(before.length - suffix)}`;
 }
 
-function unsupportedStructureKey(markdown: string): string {
+function unsupportedStructureKey(doc: ProseMirrorNode): string {
   return JSON.stringify(
-    unsupportedSuggestionStructure(
-      parseSuggestionMarkdown(markdown).toJSON() as SuggestionDocumentJson,
-    ),
+    unsupportedSuggestionStructure(doc.toJSON() as SuggestionDocumentJson),
   );
+}
+
+// The formatted text each frame holds, split at every frame edge. A change can
+// keep every frame's shape and still move, rewrite, or format text on both
+// sides of a cell or frame edge; it then changes two of these runs.
+function frameTextRuns(doc: ProseMirrorNode): string[] {
+  const runs = [""];
+  const visit = (node: ProseMirrorNode) => {
+    const frame = suggestionNodeRole(node.type.name) === "frame";
+    if (frame) runs.push("");
+    if (node.isText) runs[runs.length - 1] += JSON.stringify(node.toJSON());
+    else if (node.isLeaf) runs[runs.length - 1] += "\n";
+    node.forEach(visit);
+    if (node.isBlock) runs[runs.length - 1] += "\n";
+    if (frame) runs.push("");
+  };
+  visit(doc);
+  return runs;
 }
 
 function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
+  refusal: string,
 ) {
+  const before = parseSuggestionMarkdown(beforeMarkdown);
   const after = parseSuggestionMarkdown(afterMarkdown);
   const surround = unsupportedStructureKey(
-    unchangedSurround(beforeMarkdown, afterMarkdown),
+    parseSuggestionMarkdown(unchangedSurround(beforeMarkdown, afterMarkdown)),
   );
+  const afterRuns = frameTextRuns(after);
   if (
-    unsupportedStructureKey(beforeMarkdown) !== surround ||
-    unsupportedStructureKey(afterMarkdown) !== surround
-  ) {
-    throw new Error(
-      "Content v1 suggestions cannot add or change unsupported structures",
-    );
-  }
-  if (
+    unsupportedStructureKey(before) !== surround ||
+    unsupportedStructureKey(after) !== surround ||
+    frameTextRuns(before).filter((run, index) => run !== afterRuns[index])
+      .length > 1 ||
     JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
-    JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
+      JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
   ) {
-    throw new Error(
-      "Content v1 suggestions cannot add or change unsupported structures",
-    );
+    fail(refusal, {
+      statusCode: 422,
+      errorCode: "suggestion_structure_unsupported",
+    });
   }
   return after;
 }
@@ -579,15 +660,19 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       );
     }
     if (before.markdown.includes("<InlineDatabase")) {
-      throw new Error(
-        "Pages with inline databases cannot receive suggestions yet",
-      );
+      fail("Pages with inline databases cannot receive suggestions yet.", {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      });
     }
-    validateSuggestionStructure(before.markdown, after.markdown);
+    validateSuggestionStructure(
+      before.markdown,
+      after.markdown,
+      "Suggestions can change text inside tables, callouts, toggles, and columns, but not a table's rows or cells, a callout's icon, a toggle's title, the columns themselves, images, or other content or formatting they do not support yet. Suggest a change to the text instead.",
+    );
     return operations;
   },
   async coordinateDecision(context, run) {
-    if (context.decision === "rejected") return run();
     const sync = await prepareTransactionalChange({
       source: "action",
       type: "change",
@@ -661,13 +746,25 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       throw new Error("Externally linked Pages cannot accept suggestions yet");
     }
     const currentContent = String(current.content);
-    const nextContent = applyMarkdownSuggestionOperation(
+    let nextContent = applyMarkdownSuggestionOperation(
       currentContent,
       operation,
     );
     if (nextContent === null) {
+      const accepted = await acceptedRangesOnSameText(
+        tx,
+        context.suggestion,
+        markdownPayload(operation.before, "before").markdown,
+      );
+      if (accepted.length)
+        nextContent = applyMarkdownSuggestionOperation(
+          currentContent,
+          withSiblingRanges(operation, accepted),
+        );
+    }
+    if (nextContent === null) {
       const error = new Error(
-        "The Page changed after this suggestion was created",
+        "The text around this suggestion changed, so it can't be placed on the current Page. It's still pending: reject it, or suggest the edit again.",
       );
       error.name = "SuggestionStaleError";
       throw error;
@@ -675,11 +772,13 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     const nextDocument = validateSuggestionStructure(
       currentContent,
       nextContent,
+      "This suggestion changes a table's rows or cells, a callout's icon, a toggle's title, a column layout, an image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.",
     );
     if (currentContent.includes("<InlineDatabase")) {
-      throw new Error(
-        "Pages containing inline databases cannot accept suggestions yet",
-      );
+      fail("Pages containing inline databases cannot accept suggestions yet.", {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      });
     }
     const eligiblePrimaryIds = await assertSuggestionBodyTarget(
       tx,

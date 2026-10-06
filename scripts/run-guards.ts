@@ -6,6 +6,7 @@ import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
 const guards = [
   "guard:hooks-registered",
   "guard:agent-native-brand",
+  "guard:readme-link-tags",
   "guard:no-drizzle-push",
   "guard:mcp-registry",
   "guard:no-pnpm-patches",
@@ -68,6 +69,7 @@ const guards = [
   "guard:config-docs",
   "guard:no-legacy-config",
   "guard:no-silent-coercion",
+  "guard:no-source-reading-tests",
   "guard:no-major-changeset",
   "guard:no-raw-colors",
   "guard:persistent-compositing",

@@ -2075,7 +2075,9 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     headers.set(name, value);
   }
   const netlifyVary = varyByQuery
-    ? SSR_CACHE_KEY_HEADERS["netlify-vary"] ? "query" : undefined
+    ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
+      ? "query"
+      : undefined
     : SSR_CACHE_KEY_HEADERS["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");

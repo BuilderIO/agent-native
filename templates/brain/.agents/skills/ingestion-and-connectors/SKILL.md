@@ -47,10 +47,28 @@ specific access. Do not use `sync-source` for a manual source.
 Zoom sources import cloud-recording transcripts through a Server-to-Server
 OAuth app. Credentials are the vault secrets `ZOOM_ACCOUNT_ID`,
 `ZOOM_CLIENT_ID`, and `ZOOM_CLIENT_SECRET`; the app needs scopes
-`user:read:list_users:admin` and
-`cloud_recording:read:list_user_recordings:admin`. Config is
-`{"zoom":{"userIds":[...],"lookbackDays":7}}` — `userIds` is optional (up to
-50; omitted means every account user) and `lookbackDays` is 1-30, default 7.
+`cloud_recording:read:list_account_recordings:admin` and
+`cloud_recording:read:recording:admin`, plus
+`cloud_recording:read:list_recording_files:admin` for transcript download URLs. Config is
+`{"zoom":{"userIds":[...],"lookbackDays":7}}`. Without `userIds`, one
+account-wide recording list (`/accounts/me/recordings`, which needs only the `:admin` scope) covers every user.
+`userIds` (up to 50, user ID or email) narrows the import to those users and
+additionally needs `cloud_recording:read:list_user_recordings:admin`.
+`lookbackDays` is 1-30, default 7.
+`meetingIds` and `meetingTopics` (up to 100 each) limit the import to matching
+meetings; a meeting is kept if either matches. Prefer meeting IDs (spaces
+allowed, as Zoom displays them): recurring meetings keep one ID across
+occurrences. Topics match the whole title, case-insensitively, so a renamed
+meeting stops matching. With neither set, every cloud-recorded meeting in the
+account is imported. `update-source` replaces the whole `zoom` object, so send
+every Zoom field you want to keep. Changing the filter or raising `lookbackDays` rewinds the next sync to
+the `lookbackDays` window, so newly included meetings are backfilled (raise
+`lookbackDays`, up to 30, to reach further back). Run stats report
+`meetingsSkippedByFilter`, `filterChanged`, `transcriptsWithoutDownloadUrl`,
+`matchedMeetings` (ID, title, start, file types) and `skippedMeetings` (ID,
+start). The account-wide list omits download URLs, so a matched meeting with a
+finished transcript is looked up with `/meetings/{uuid}/recordings`
+(`cloud_recording:read:list_recording_files:admin`) to get the transcript URL.
 Sources auto-sync hourly; each run overlaps the previous one by one day to
 catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
 Captures use the organization audience. There are no Zoom webhooks.
@@ -158,7 +176,10 @@ connection, not creating a new one.
 ## Editing And Removing Sources
 
 - `update-source` edits title, config, cursor, status, or answer policy on an
-  existing source.
+  existing source. From chat, pass config as `configJson`, a JSON object
+  encoded as a string (`create-source` accepts it too); model gateways strip
+  the keys of the free-form `config` object. Top-level keys are merged into the
+  stored config, and a call with no changes is rejected.
 - `delete-source` is a hard delete — there's no soft-archive alternative
   exposed as an action; setting `status: "paused"` via `update-source` is the
   reversible way to stop a source without losing its captures.

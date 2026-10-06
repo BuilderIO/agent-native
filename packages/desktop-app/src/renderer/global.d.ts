@@ -164,7 +164,13 @@ type CodeAgentProviderStatus = {
   configuredKeys: CodeAgentProviderCredentialKey[];
   missingKeys: CodeAgentProviderCredentialKey[];
   savedKeys: CodeAgentProviderCredentialKey[];
-  source?: "desktop-settings" | "environment" | "mixed" | "local-codex";
+  source?:
+    | "desktop-settings"
+    | "desktop-managed"
+    | "environment"
+    | "mixed"
+    | "local-codex";
+  error?: string;
 };
 
 type CodeAgentProviderSettings = {
@@ -184,6 +190,62 @@ type CodeAgentProviderSettingsUpdateResult = {
   message: string;
   error?: string;
 };
+
+type CodeAgentBuilderConnectionStatus = {
+  configured: boolean;
+  builderEnabled: boolean;
+  connectUrl: string;
+  appHost: string;
+  apiHost: string;
+  publicKeyConfigured: boolean;
+  privateKeyConfigured: boolean;
+  grants?: {
+    org?: { connectedAt: number | null; needsReconnect: boolean };
+    personal?: {
+      connectedAt: number | null;
+      needsReconnect: boolean;
+      restricted: boolean;
+    };
+  } | null;
+  effective?: "personal" | "org" | "workspace" | "env" | null;
+  canConnect?: { org: boolean; personal: boolean };
+  canDisconnect?: boolean;
+  agentNativeProvisioningEnabled?: boolean;
+  agentNativeProvisioningToken?: string;
+  envManaged?: boolean;
+  credentialSource?: "user" | "org" | "workspace" | "env";
+  orgName?: string;
+  connectError?: { message: string; at: number; code?: string };
+  authError?: { message: string; at: number };
+};
+
+type CodeAgentBuilderConnectionResult =
+  | { state: "connected"; status: CodeAgentBuilderConnectionStatus }
+  | { state: "disconnected"; status: CodeAgentBuilderConnectionStatus }
+  | { state: "unavailable"; error: string };
+
+type CodeAgentBuilderActivationRequest = {
+  provisioningToken: string;
+  scope?: "org" | "personal";
+  connectToken?: string | null;
+  source?: string;
+  flow?: string;
+};
+
+type CodeAgentBuilderActivationResult =
+  | { ok: true; scope?: "org" | "personal" }
+  | { ok: false; code: string; message: string | null };
+
+type CodeAgentBuilderConnectOpenRequest = {
+  connectAttemptId: string;
+  scope?: "org" | "personal";
+  source?: string;
+  flow?: string;
+};
+
+type CodeAgentBuilderConnectOpenResult =
+  | { ok: true }
+  | { ok: false; error: string };
 
 type CodeAgentPromptAttachment = {
   name: string;
@@ -1027,7 +1089,15 @@ interface ElectronAPI {
     updateProviderSettings(
       request: CodeAgentProviderSettingsUpdate,
     ): Promise<CodeAgentProviderSettingsUpdateResult>;
-    connectBuilderProvider(): Promise<CodeAgentProviderSettingsUpdateResult>;
+    getBuilderConnectionStatus(
+      connectAttemptId?: string,
+    ): Promise<CodeAgentBuilderConnectionResult>;
+    activateBuilderAccount(
+      request: CodeAgentBuilderActivationRequest,
+    ): Promise<CodeAgentBuilderActivationResult>;
+    openBuilderConnectUrl(
+      request: CodeAgentBuilderConnectOpenRequest,
+    ): Promise<CodeAgentBuilderConnectOpenResult>;
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
   };
 
