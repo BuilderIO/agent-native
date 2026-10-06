@@ -35,6 +35,7 @@ import {
 import { OLLAMA_BASE_URL_ENV_VAR } from "./engine/openai-compatible-endpoint.js";
 import { PROVIDER_ENV_META } from "./engine/provider-env-vars.js";
 import { BUILDER_MODEL_CONFIG } from "./model-config.js";
+import { upgradeModelToLatestSupportedVersion } from "./model-version.js";
 
 export const PROVIDER_MODEL_SELECTION_KEY_PREFIX = "agent-provider-models";
 
@@ -172,7 +173,14 @@ export function normalizeSelectedModels(
     }
     seen.add(id);
   }
-  const normalized = [...seen];
+  const supportedModels = recommendedProviderModels(provider);
+  const normalized = [
+    ...new Set(
+      [...seen].map(
+        (id) => upgradeModelToLatestSupportedVersion(id, supportedModels) ?? id,
+      ),
+    ),
+  ];
   if (provider === "builder") {
     const catalog = new Set<string>(BUILDER_MODEL_CONFIG.supportedModels);
     const unknown = normalized.filter((id) => !catalog.has(id));
@@ -197,17 +205,28 @@ function parseRow(
   const models = stored.models.filter(
     (model): model is string => typeof model === "string" && !!model.trim(),
   );
+  const currentModels = [
+    ...new Set(
+      models.map(
+        (model) =>
+          upgradeModelToLatestSupportedVersion(
+            model,
+            recommendedProviderModels(provider),
+          ) ?? model,
+      ),
+    ),
+  ];
   return {
     provider,
     scope,
     models:
       provider === "builder"
-        ? models.filter((model) =>
+        ? currentModels.filter((model) =>
             (
               BUILDER_MODEL_CONFIG.supportedModels as readonly string[]
             ).includes(model),
           )
-        : models,
+        : currentModels,
     ...(typeof stored.updatedAt === "number" &&
     Number.isFinite(stored.updatedAt)
       ? { updatedAt: stored.updatedAt }
@@ -429,6 +448,11 @@ export async function resolveUncheckedDefaultModelReplacement(engine: {
     return undefined;
   }
   if (selection.state !== "selected") return undefined;
-  if (selection.models.includes(engine.defaultModel)) return undefined;
+  const currentDefault =
+    upgradeModelToLatestSupportedVersion(
+      engine.defaultModel,
+      recommendedProviderModels(provider),
+    ) ?? engine.defaultModel;
+  if (selection.models.includes(currentDefault)) return undefined;
   return selection.models[0];
 }

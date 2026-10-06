@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+import { upgradeModelToLatestSupportedVersion } from "../agent/model-version.js";
 
 export { DEFAULT_MODEL };
 import {
@@ -433,23 +434,66 @@ export function useChatModels({
             unavailableSelectionPolicy === "require-explicit"
               ? configuredGroups
               : groups;
-          const selectedGroup = selectableGroups.find(
+          const exactSelectedGroup = selectableGroups.find(
             (group) =>
               group.models.includes(selection.selectedModel) &&
               (!selection.selectedEngine ||
                 group.engine === selection.selectedEngine),
           );
+          const upgradedSelection = exactSelectedGroup
+            ? undefined
+            : selectableGroups
+                .filter(
+                  (group) =>
+                    !selection.selectedEngine ||
+                    group.engine === selection.selectedEngine,
+                )
+                .map((group) => ({
+                  group,
+                  model: upgradeModelToLatestSupportedVersion(
+                    selection.selectedModel,
+                    group.models,
+                  ),
+                }))
+                .find((candidate) => candidate.model);
+          const selectedGroup = exactSelectedGroup ?? upgradedSelection?.group;
           if (selectedGroup) {
+            const selectedModel =
+              upgradedSelection?.model ??
+              upgradeModelToLatestSupportedVersion(
+                selection.selectedModel,
+                selectedGroup.models,
+              ) ??
+              selection.selectedModel;
+            const nextSelection = {
+              ...selection,
+              selectedModel,
+              selectedEngine: selectedGroup.engine,
+            };
             unavailableSelectionRef.current = null;
             setUnavailableSelection(null);
-            if (selection.selectedEngine !== selectedGroup.engine) {
+            if (selectionRef.current.selectedEngine !== selectedGroup.engine) {
               setSelectedEngine(selectedGroup.engine);
             }
-            if (
-              selectionRef.current.selectedModel !== selection.selectedModel
-            ) {
-              setSelectedModel(selection.selectedModel);
-              setSelectedEffort(selection.selectedEffort);
+            if (selectionRef.current.selectedModel !== selectedModel) {
+              setSelectedModel(selectedModel);
+              setSelectedEffort(
+                resolveReasoningEffortSelection(
+                  selectedModel,
+                  selection.selectedEffort,
+                ),
+              );
+            }
+            if (selection.selectedModel !== selectedModel) {
+              selectionRef.current = nextSelection;
+              writePersisted(storageKey, {
+                model: selectedModel,
+                engine: selectedGroup.engine,
+                effort: resolveReasoningEffortSelection(
+                  selectedModel,
+                  selection.selectedEffort,
+                ),
+              });
             }
             finish();
             return;

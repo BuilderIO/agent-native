@@ -635,6 +635,47 @@ describe("AgentEngine registry", () => {
       expect(normalizeModelForEngine(engine, " ")).toBe("claude-sonnet-5");
     });
 
+    it("upgrades older GPT Sol and Luna selections to the newest supported models", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-6-luna",
+        supportedModels: [
+          "gpt-6-luna",
+          "gpt-5.6-luna",
+          "gpt-5.6-sol",
+          "gpt-6-sol",
+          "gpt-6.1-sol",
+          "openai/gpt-5.6-sol",
+          "openai/gpt-6.1-sol",
+        ],
+        preserveCustomModels: true,
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "gpt-5.6-luna")).toBe(
+        "gpt-6-luna",
+      );
+      expect(normalizeModelForEngine(engine, "gpt-5.6-sol")).toBe(
+        "gpt-6.1-sol",
+      );
+      expect(normalizeModelForEngine(engine, "gpt-6-sol")).toBe("gpt-6.1-sol");
+      expect(
+        normalizeModelForEngine(engine, "openai/gpt-5.6-sol", {
+          preserveCustomModels: true,
+        }),
+      ).toBe("openai/gpt-6.1-sol");
+      expect(
+        normalizeModelForEngine(
+          {
+            ...engine,
+            supportedModels: ["gpt-6-luna", "gpt-7-luna"],
+          },
+          "gpt-6-luna",
+          { preserveCustomModels: true },
+        ),
+      ).toBe("gpt-7-luna");
+    });
+
     it("normalizes removed non-Builder models when the engine declares supported models", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {

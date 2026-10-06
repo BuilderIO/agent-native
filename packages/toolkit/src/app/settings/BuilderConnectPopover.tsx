@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useOnboarding } from "@agent-native/core/client/onboarding/use-onboarding";
+import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
@@ -13,6 +13,7 @@ import {
   BuilderIncludedBenefitsDisclosure,
   getBuilderIncludedBenefitCapabilities,
 } from "./BuilderIncludedBenefitsDisclosure.js";
+import { currentTemplateId } from "./shell/app-identity.js";
 import type { BuilderConnectFlow } from "./useBuilderStatus.js";
 
 type BuilderConnectTrigger = React.ReactElement<{
@@ -39,6 +40,7 @@ export interface BuilderConnectPopoverProps {
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: React.MouseEventHandler<HTMLElement>;
   openOnMount?: boolean;
+  appId?: string;
   contentTestId?: string;
   primaryTestId?: string;
   secondaryTestId?: string;
@@ -49,6 +51,7 @@ export interface BuilderConnectChoicePanelProps {
   canProvisionAccount: boolean;
   onCreateAndActivate: () => void;
   onExistingAccount: () => void;
+  appId?: string;
   contentTestId?: string;
   primaryTestId?: string;
   secondaryTestId?: string;
@@ -59,6 +62,7 @@ export function BuilderConnectChoicePanel({
   canProvisionAccount,
   onCreateAndActivate,
   onExistingAccount,
+  appId,
   contentTestId,
   primaryTestId,
   secondaryTestId,
@@ -126,7 +130,7 @@ export function BuilderConnectChoicePanel({
           ) : null}
         </div>
       ) : null}
-      <BuilderConnectIncludedServices />
+      <BuilderConnectIncludedServices appId={appId} />
       <div className="flex flex-col gap-2">
         <Button
           type="button"
@@ -197,6 +201,7 @@ export function BuilderConnectPopover({
   onConnect,
   onTriggerClick,
   openOnMount = false,
+  appId,
   contentTestId,
   primaryTestId,
   secondaryTestId,
@@ -272,6 +277,7 @@ export function BuilderConnectPopover({
           }
           onCreateAndActivate={() => start(true)}
           onExistingAccount={() => start(false)}
+          appId={appId}
           contentTestId={contentTestId}
           primaryTestId={primaryTestId}
           secondaryTestId={secondaryTestId}
@@ -290,12 +296,14 @@ export function BuilderConnectPopover({
   );
 }
 
-function BuilderConnectIncludedServices() {
+function BuilderConnectIncludedServices({ appId }: { appId?: string }) {
   const t = useT();
-  const { profile, loading, error } = useOnboarding();
-  const capabilities = profile
-    ? getBuilderIncludedBenefitCapabilities(profile.capabilities)
-    : [];
+  const profile = getOnboardingAppProfileForId(
+    appId ?? currentTemplateId() ?? undefined,
+  );
+  const capabilities = getBuilderIncludedBenefitCapabilities(
+    profile.capabilities,
+  );
 
   return (
     <BuilderIncludedBenefitsDisclosure
@@ -306,13 +314,7 @@ function BuilderConnectIncludedServices() {
       creditsLabel={t("agentChat.onboarding.builderMonthlyCredits", {
         defaultValue: "60 monthly Agent Credits",
       })}
-      loading={loading}
       loadingLabel={t("agentChat.common.loading")}
-      error={
-        error || (!loading && !profile)
-          ? t("agentChat.common.chunkLoadFailed")
-          : null
-      }
       testId="builder-included-services"
     />
   );

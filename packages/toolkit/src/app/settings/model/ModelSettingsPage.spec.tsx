@@ -206,7 +206,7 @@ function models(): ProviderModelsRead {
       })),
       {
         provider: "builder",
-        recommendedModels: ["auto", "gpt-5.6-luna"],
+        recommendedModels: ["auto", "gpt-6-luna"],
         rows: { user: { models: null }, org: { models: null } },
       },
     ],
@@ -618,7 +618,7 @@ describe("ModelSettingsPage", () => {
     state.listing = listing({
       canManageOrg: true,
       canUpdateDefault: true,
-      defaultModel: null,
+      defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
     });
     state.builder = builderFlow({
       configured: false,
@@ -648,7 +648,10 @@ describe("ModelSettingsPage", () => {
       defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
         ?.disabled,
     ).toBe(true);
-    expect(defaultRow.textContent).not.toContain("Not set");
+    expect(defaultRow.textContent).not.toContain("gpt-5.6-sol");
+    expect(
+      defaultRow.querySelector('[role="combobox"]')?.textContent?.trim(),
+    ).toBe("");
 
     await act(async () => {
       (

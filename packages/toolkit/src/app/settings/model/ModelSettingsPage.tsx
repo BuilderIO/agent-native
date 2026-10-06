@@ -1,5 +1,6 @@
 import type { ProviderKeyPolicyStatus } from "@agent-native/core/agent/actions/manage-provider-key-policy";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
+import { upgradeModelToLatestSupportedVersion } from "@agent-native/core/agent/model-version";
 import {
   setAgentEngineDefaultModel,
   type AgentEngineKeyScope,
@@ -787,16 +788,21 @@ function DefaultModelRow({
     chatgpt: chatgpt.status === "ready" ? chatgpt.catalog : undefined,
   });
   const stored = listing.defaultModel
-    ? {
-        engine: listing.defaultModel.engine,
-        model:
-          listing.defaultModel.model ??
-          groups.find((group) => group.engine === listing.defaultModel?.engine)
-            ?.models[0] ??
-          "",
-      }
+    ? (() => {
+        const group = groups.find(
+          (candidate) => candidate.engine === listing.defaultModel?.engine,
+        );
+        const model = listing.defaultModel.model ?? group?.models[0] ?? "";
+        return {
+          engine: listing.defaultModel.engine,
+          model:
+            (group &&
+              upgradeModelToLatestSupportedVersion(model, group.models)) ||
+            model,
+        };
+      })()
     : null;
-  const current = pending ?? stored;
+  const current = pending ?? (hasProvider ? stored : null);
   const engineLabel = (engine: string) => {
     const provider = providerForEngine(engine);
     if (provider === "builder") return BUILDER_LABEL;
@@ -884,7 +890,13 @@ function DefaultModelRow({
               aria-label={t(DEFAULT_MODEL_LABEL)}
             >
               <SelectValue
-                placeholder={current ? currentLabel : t(`${K}chooseModel`)}
+                placeholder={
+                  waitingForProvider
+                    ? ""
+                    : current
+                      ? currentLabel
+                      : t(`${K}chooseModel`)
+                }
               />
             </SelectTrigger>
           </Select>

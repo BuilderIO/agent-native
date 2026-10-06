@@ -15,40 +15,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       ),
 }));
 
-vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
-  useOnboarding: () => ({
-    loading: false,
-    error: null,
-    profile: {
-      capabilities: [
-        {
-          id: "llm",
-          label: "AI model",
-          required: true,
-          builderIncluded: true,
-          service: "model",
-          keySummary: "Connect your own AI model",
-          why: "The agent uses a language model.",
-        },
-        {
-          id: "design-system-intelligence",
-          label: "Design system intelligence",
-          required: false,
-          builderIncluded: true,
-          service: "design-system-intelligence",
-        },
-        {
-          id: "background-agents",
-          label: "Background agents",
-          required: false,
-          builderIncluded: true,
-          service: "background-agents",
-        },
-      ],
-    },
-  }),
-}));
-
 import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import { getBuilderIncludedBenefitCapabilities } from "./BuilderIncludedBenefitsDisclosure.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
@@ -424,6 +390,7 @@ describe("BuilderConnectPopover", () => {
     const props = {
       flow,
       onConnect: vi.fn(),
+      appId: "calendar",
       contentTestId: "consent",
       primaryTestId: "create",
       secondaryTestId: "sign-in",
@@ -464,7 +431,7 @@ describe("BuilderConnectPopover", () => {
     ).toEqual([
       "Included free",
       "60 monthly Agent Credits",
-      "+ 2 more services",
+      "+ 8 more services",
     ]);
     click(servicesToggle!);
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");

@@ -182,6 +182,44 @@ describe("useChatModels", () => {
     expect(container.textContent).toContain("claude-sonnet-5:high:");
   });
 
+  it("upgrades a persisted GPT selection to the newest model in that engine", async () => {
+    const storageKey = "legacy-gpt-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "ai-sdk:openai",
+        model: "gpt-5.6-luna",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-6-luna"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENAI_API_KEY"],
+      current: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("gpt-6-luna");
+    expect(
+      JSON.parse(window.localStorage.getItem(storageKey) ?? "{}").model,
+    ).toBe("gpt-6-luna");
+  });
+
   it("replaces an unroutable default with a model the catalog can serve", async () => {
     stubCatalog({
       engines: [

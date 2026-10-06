@@ -110,10 +110,10 @@ describe("normalizeSelectedModels", () => {
   it("trims and de-duplicates in order", () => {
     expect(
       normalizeSelectedModels("openai", [" gpt-6-sol", "gpt-5.6-luna", ""]),
-    ).toEqual(["gpt-6-sol", "gpt-5.6-luna"]);
+    ).toEqual(["gpt-6.1-sol", "gpt-6-luna"]);
     expect(
       normalizeSelectedModels("openai", ["gpt-6-sol", "gpt-6-sol"]),
-    ).toEqual(["gpt-6-sol"]);
+    ).toEqual(["gpt-6.1-sol"]);
   });
 
   it("accepts ids outside the catalog for key providers", () => {
@@ -136,6 +136,20 @@ describe("normalizeSelectedModels", () => {
 });
 
 describe("selection scopes", () => {
+  it("upgrades saved model selections when newer provider models are available", async () => {
+    orgStore.set(`${ORG}::agent-provider-models:openai`, {
+      models: ["gpt-5.6-luna", "gpt-5.6-sol"],
+    });
+
+    const row = await readProviderModelSelection(
+      { userEmail: OWNER, orgId: ORG },
+      "openai",
+      "org",
+    );
+
+    expect(row.models).toEqual(["gpt-6-luna", "gpt-6.1-sol"]);
+  });
+
   it("lets an owner set the organization's models", async () => {
     await writeProviderModelSelection(
       { userEmail: OWNER, orgId: ORG },
@@ -148,7 +162,7 @@ describe("selection scopes", () => {
       "openai",
       "org",
     );
-    expect(row.models).toEqual(["gpt-6-sol"]);
+    expect(row.models).toEqual(["gpt-6.1-sol"]);
     expect(row.updatedBy).toBe(OWNER);
   });
 
@@ -188,7 +202,7 @@ describe("selection scopes", () => {
       "openai",
       "user",
     );
-    expect(org.models).toEqual(["gpt-6-sol", "gpt-5.6-luna"]);
+    expect(org.models).toEqual(["gpt-6.1-sol", "gpt-6-luna"]);
     expect(ownerPersonal.models).toBeNull();
   });
 
@@ -241,7 +255,7 @@ describe("resolveEffectiveProviderModelSelection", () => {
       state: "selected",
       provider: "openai",
       scope: "org",
-      models: ["gpt-6-sol"],
+      models: ["gpt-6.1-sol"],
     });
   });
 
@@ -255,7 +269,7 @@ describe("resolveEffectiveProviderModelSelection", () => {
     ).toMatchObject({
       state: "selected",
       scope: "user",
-      models: ["gpt-5.6-luna"],
+      models: ["gpt-6-luna"],
     });
   });
 
@@ -299,7 +313,11 @@ describe("resolveEffectiveProviderModelSelection", () => {
         userEmail: MEMBER,
         orgId: ORG,
       }),
-    ).toMatchObject({ state: "selected", scope: "org", models: ["gpt-6-sol"] });
+    ).toMatchObject({
+      state: "selected",
+      scope: "org",
+      models: ["gpt-6.1-sol"],
+    });
   });
 });
 
@@ -338,7 +356,7 @@ describe("resolveUncheckedDefaultModelReplacement", () => {
         name: "ai-sdk:openai",
         defaultModel: "gpt-5.6-luna",
       }),
-    ).toBe("gpt-6-sol");
+    ).toBe("gpt-6.1-sol");
   });
 
   it("keeps the engine default when the selection can't be read", async () => {

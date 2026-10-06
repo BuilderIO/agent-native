@@ -41,6 +41,11 @@ import {
   BUILDER_CLAUDE_SONNET_MODEL_ID,
   CLAUDE_SONNET_MODEL_ID,
 } from "../model-config.js";
+import {
+  findLatestSupportedVersionMatch,
+  isNewerVersionedModel,
+  upgradeModelToLatestSupportedVersion,
+} from "../model-version.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   AI_SDK_ANTHROPIC_DEFAULT_BASE_URL,
@@ -213,64 +218,6 @@ export function isAgentEnginePackageInstalled(
   return packageNames.every(canResolvePackage);
 }
 
-interface ParsedVersionedModelId {
-  family: string;
-  version: number[];
-  suffix: string;
-}
-
-function parseVersionedModelId(model: string): ParsedVersionedModelId | null {
-  const match =
-    /^(?<family>.+?)[-.](?<version>\d+(?:[-.]\d+)*)(?<suffix>(?:[-.][a-z][a-z0-9]*)*)$/i.exec(
-      model.trim().toLowerCase(),
-    );
-  const groups = match?.groups;
-  if (!groups?.family || !groups.version) return null;
-
-  const version = groups.version.split(/[-.]/).map((part) => Number(part));
-  if (version.some((part) => !Number.isSafeInteger(part))) return null;
-
-  return {
-    family: groups.family,
-    version,
-    suffix: groups.suffix ?? "",
-  };
-}
-
-function compareModelVersions(left: number[], right: number[]): number {
-  const length = Math.max(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    const delta = (left[index] ?? 0) - (right[index] ?? 0);
-    if (delta !== 0) return delta;
-  }
-  return 0;
-}
-
-function findLatestSupportedVersionMatch(
-  candidate: string,
-  supportedModels: readonly string[],
-): string | undefined {
-  const parsedCandidate = parseVersionedModelId(candidate);
-  if (!parsedCandidate) return undefined;
-
-  let best: { model: string; version: number[] } | undefined;
-  for (const supportedModel of supportedModels) {
-    const parsedSupported = parseVersionedModelId(supportedModel);
-    if (!parsedSupported) continue;
-    if (parsedSupported.family !== parsedCandidate.family) continue;
-    if (parsedSupported.suffix !== parsedCandidate.suffix) continue;
-    if (
-      best &&
-      compareModelVersions(parsedSupported.version, best.version) <= 0
-    ) {
-      continue;
-    }
-    best = { model: supportedModel, version: parsedSupported.version };
-  }
-
-  return best?.model;
-}
-
 export interface NormalizeModelOptions {
   preserveCustomModels?: boolean;
   acceptsCustomModels?: boolean;
@@ -291,8 +238,22 @@ export function normalizeModelForEngine(
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
+  const upgradedModel = upgradeModelToLatestSupportedVersion(
+    candidate,
+    engine.supportedModels,
+  );
+  if (upgradedModel) return upgradedModel;
+
   if (engine.preserveCustomModels || options.preserveCustomModels) {
     return candidate;
+  }
+
+  const versionMatch = findLatestSupportedVersionMatch(
+    candidate,
+    engine.supportedModels,
+  );
+  if (versionMatch && isNewerVersionedModel(candidate, versionMatch)) {
+    return versionMatch;
   }
 
   if (engine.supportedModels.length === 0) return candidate;
@@ -308,10 +269,6 @@ export function normalizeModelForEngine(
       : candidate;
   }
 
-  const versionMatch = findLatestSupportedVersionMatch(
-    candidate,
-    engine.supportedModels,
-  );
   if (versionMatch) return versionMatch;
 
   return engine.defaultModel;
