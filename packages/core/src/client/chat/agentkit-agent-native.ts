@@ -104,6 +104,16 @@ function protocolTurnId(metadata: unknown): string | undefined {
     : undefined;
 }
 
+function protocolInterruptedRunId(metadata: unknown): string | undefined {
+  const native = asRecord(
+    asRecord(metadata)?.[AGENT_NATIVE_PROTOCOL_METADATA_KEY],
+  );
+  const observability = asRecord(native?.observability);
+  return typeof observability?.interruptedRunId === "string"
+    ? observability.interruptedRunId
+    : undefined;
+}
+
 function scopeObject(scope: unknown): AgentObjectReference | undefined {
   const value = asRecord(scope);
   if (typeof value?.id !== "string" || typeof value.type !== "string") {
@@ -1578,6 +1588,7 @@ export function createAgentNativeAgentKitTransport(
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
   const promotionClaimIds = new Map<string, string>();
+  const durableAssistantMessageIdsByRun = new Map<string, string>();
   let transport: AgentKitProtocolAdapter;
 
   function promotionClaimId(threadId: string, messageId: string): string {
@@ -1909,14 +1920,20 @@ export function createAgentNativeAgentKitTransport(
     const stored = await fetchThread(threadId);
     const thread = stored ? projectThread(threadId, stored) : null;
     if (!stored || !thread) return thread;
-    if (options.runtime && !isAgentNativeChatRuntime(options.runtime)) {
-      return thread;
-    }
     const durableMessages = storedMessages(
       storedRepository(stored).messages,
       now,
       options.adapter?.textFormat,
     );
+    for (const message of durableMessages) {
+      if (message.role !== "assistant") continue;
+      for (const runId of durableRunIds(message)) {
+        durableAssistantMessageIdsByRun.set(runId, message.id);
+      }
+    }
+    if (options.runtime && !isAgentNativeChatRuntime(options.runtime)) {
+      return thread;
+    }
     const completedRunIds = completedDurableRunIds(durableMessages);
     const userStoppedRunIds = userStoppedDurableRunIds(durableMessages);
     const durableFailures = durableRunFailures(durableMessages);
@@ -2024,11 +2041,11 @@ export function createAgentNativeAgentKitTransport(
     const messagesForReplay = replayFromStart
       ? messages.filter((message) => {
           if (message.role !== "assistant") return true;
-          const runId = asRecord(message.metadata)?.runId;
           return !(
-            runId === discoveredRun?.id ||
+            durableRunIds(message).includes(discoveredRun?.id ?? "") ||
             replayedMessageIds.has(message.id) ||
-            (message.status === "streaming" && typeof runId !== "string")
+            (message.status === "streaming" &&
+              typeof asRecord(message.metadata)?.runId !== "string")
           );
         })
       : messages;
@@ -2654,9 +2671,6 @@ export function createAgentNativeAgentKitTransport(
       connectionRequests: true,
     },
     operations: {
-      ...options.operations,
-      persistThreadSnapshot:
-        options.operations?.persistThreadSnapshot ?? persistThreadSnapshot,
       getThread: async ({ threadId }) => {
         const thread = await snapshot(threadId);
         if (!thread) return null;
@@ -2968,6 +2982,8 @@ export function createAgentNativeAgentKitTransport(
         trackRunFeedback({ runId, threadId, positive: value === "positive" });
       },
       ...options.operations,
+      persistThreadSnapshot:
+        options.operations?.persistThreadSnapshot ?? persistThreadSnapshot,
     },
   });
   const protocolStartRun = protocolTransport.startRun.bind(protocolTransport);
@@ -3044,9 +3060,87 @@ export function createAgentNativeAgentKitTransport(
         runId: input.runId,
       });
       const assistantMessageIds = new Set<string>();
+      // Continuation runs keep the durable identity of their folded reply.
+      let durableAssistantMessageId =
+        durableAssistantMessageIdsByRun.get(input.runId) ??
+        `server-${input.runId}`;
+      durableAssistantMessageIdsByRun.set(
+        input.runId,
+        durableAssistantMessageId,
+      );
       let responseStarted = false;
       let turnId: string | undefined;
-      for await (const event of subscribeToRun(input)) {
+      for await (const sourceEvent of subscribeToRun(input)) {
+        const interruptedRunId = protocolInterruptedRunId(sourceEvent.metadata);
+        const inheritedMessageId = interruptedRunId
+          ? durableAssistantMessageIdsByRun.get(interruptedRunId)
+          : undefined;
+        if (inheritedMessageId) {
+          durableAssistantMessageId = inheritedMessageId;
+          durableAssistantMessageIdsByRun.set(input.runId, inheritedMessageId);
+        }
+        let event = sourceEvent;
+        if (isAgentNativeChatRuntime(runtime)) {
+          switch (sourceEvent.type) {
+            case "message.created":
+            case "message.completed":
+              if (sourceEvent.message.role === "assistant") {
+                event = {
+                  ...sourceEvent,
+                  message: {
+                    ...sourceEvent.message,
+                    id: durableAssistantMessageId,
+                  },
+                };
+              }
+              break;
+            case "message.delta":
+            case "reasoning.delta": {
+              event = {
+                ...sourceEvent,
+                messageId: durableAssistantMessageId,
+              };
+              break;
+            }
+            case "tool.started":
+            case "tool.updated": {
+              if (sourceEvent.toolCall.messageId) {
+                event = {
+                  ...sourceEvent,
+                  toolCall: {
+                    ...sourceEvent.toolCall,
+                    messageId: durableAssistantMessageId,
+                  },
+                };
+              }
+              break;
+            }
+            case "widget.created":
+            case "widget.updated":
+            case "annotation.created":
+            case "annotation.updated": {
+              if (sourceEvent.messageId) {
+                event = {
+                  ...sourceEvent,
+                  messageId: durableAssistantMessageId,
+                };
+              }
+              break;
+            }
+            case "action.started": {
+              if (sourceEvent.invocation.messageId) {
+                event = {
+                  ...sourceEvent,
+                  invocation: {
+                    ...sourceEvent.invocation,
+                    messageId: durableAssistantMessageId,
+                  },
+                };
+              }
+              break;
+            }
+          }
+        }
         turnId ??= protocolTurnId(event.metadata);
         if (event.type === "run.started" && turnId) {
           dispatchAgentChatRunning({

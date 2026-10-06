@@ -114,6 +114,63 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
   });
 
+  it("hides a folded durable reply while its AgentKit run is active", async () => {
+    const threadId = "thread-folded-active-reply";
+    const activeRunId = "run-continuation";
+    let active = true;
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith(`/threads/${threadId}`)) {
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "server-folded-answer",
+                  role: "assistant",
+                  content: [{ type: "text", text: "The final answer." }],
+                  status: { type: "complete", reason: "stop" },
+                  createdAt: "2026-10-01T00:00:01.000Z",
+                  metadata: {
+                    runId: "run-initial",
+                    custom: { foldedRunIds: ["run-initial", activeRunId] },
+                  },
+                },
+              },
+            ],
+            agentKit: { messages: [] },
+          }),
+        });
+      }
+      if (url.includes(`/runs/active?threadId=${threadId}`)) {
+        return json(
+          active
+            ? { active: true, status: "running", runId: activeRunId }
+            : { active: false, status: "completed", runId: activeRunId },
+        );
+      }
+      return json({ error: "Not found" }, 404);
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    const activeSnapshot = await transport.getThreadSnapshot?.({ threadId });
+    expect(activeSnapshot?.activeRunIds).toContain(activeRunId);
+    expect(activeSnapshot?.messages.map((message) => message.id)).not.toContain(
+      "server-folded-answer",
+    );
+
+    active = false;
+    const completedSnapshot = await transport.getThreadSnapshot?.({ threadId });
+    expect(completedSnapshot?.messages.map((message) => message.id)).toContain(
+      "server-folded-answer",
+    );
+    await transport.dispose();
+  });
+
   it("persists bounded snapshot deltas and retries smaller chunks after a 413", async () => {
     const largeResult = "x".repeat(60_000);
     const previousToolCalls = Array.from({ length: 50 }, (_, index) => ({
@@ -3506,7 +3563,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("restores an active server run into a fresh transport and resumes its stream", async () => {
+  it("restores an active continuation into the durable reply identity", async () => {
     const requestUrls: string[] = [];
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -3517,6 +3574,20 @@ describe("createAgentNativeAgentKitTransport", () => {
             id: "thread-resume",
             threadData: JSON.stringify({
               messages: [
+                {
+                  message: {
+                    id: "server-run-initial",
+                    role: "assistant",
+                    content: [{ type: "text", text: "Waiting for approval." }],
+                    status: { type: "complete", reason: "stop" },
+                    metadata: {
+                      runId: "run-initial",
+                      custom: {
+                        foldedRunIds: ["run-initial", "run-durable"],
+                      },
+                    },
+                  },
+                },
                 {
                   message: {
                     id: "server-user-run-durable",
@@ -3603,9 +3674,26 @@ describe("createAgentNativeAgentKitTransport", () => {
     ).toMatchObject({
       type: "message.completed",
       message: {
+        id: "server-run-initial",
         parts: [{ type: "text", text: "Recovered response" }],
       },
     });
+    expect(
+      events.flatMap((event) =>
+        (event.type === "message.created" ||
+          event.type === "message.completed") &&
+        event.message.role === "assistant"
+          ? [event.message.id]
+          : [],
+      ),
+    ).toEqual(["server-run-initial", "server-run-initial"]);
+    expect(
+      events.flatMap((event) =>
+        event.type === "message.delta" || event.type === "reasoning.delta"
+          ? [event.messageId]
+          : [],
+      ),
+    ).toEqual(["server-run-initial"]);
     expect(events.at(-1)?.type).toBe("run.completed");
     await transport.dispose();
   });
