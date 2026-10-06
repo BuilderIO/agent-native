@@ -400,7 +400,9 @@ is how long the page's read waited after the session arrived.
       reads it decides, not when the route mounts behind the session check:
       Content's `/home` asks `resolve-content-landing` from `root.tsx`. Such
       a read goes out before the session is known, so its answer names the
-      account it was resolved for and only that session adopts it.
+      account it was resolved for and only that session adopts it. The route
+      may never take the answer, so a request that can create something
+      refreshes what it changed itself.
 - [ ] No heavy recompute on every read; no aggressive polling of heavy endpoints.
 - [ ] Unbounded lists are paginated/windowed; large blobs aren't inlined on the hot path.
 - [ ] SSR HTML/`.data` path stays session-blind and cacheable — no `private`,

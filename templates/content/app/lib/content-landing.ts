@@ -6,6 +6,10 @@ import {
   type ContentLandingResult,
   type ContentLastLocationState,
 } from "@shared/content-landing";
+import type { QueryClient } from "@tanstack/react-query";
+
+import { invalidateContentDatabaseNavigationQueries } from "@/hooks/use-content-database";
+import { LIST_DOCUMENTS_QUERY_KEY } from "@/hooks/use-documents";
 
 export const CONTENT_LANDING_PATH = "/home";
 
@@ -30,10 +34,26 @@ let earlyLanding: {
   answer: Promise<EarlyContentLanding> | null;
 } | null = null;
 
+// Only a newly created Welcome page changes what other queries show, and
+// refreshing them aborts and restarts their startup reads.
+export function refreshLandingCollections(queryClient: QueryClient) {
+  invalidateContentDatabaseNavigationQueries(queryClient, { parentId: null });
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-content-recent"],
+  });
+  void queryClient.invalidateQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY });
+}
+
 // A load of /home asks where it lands alongside the session check, as it reads
 // the likely page, instead of after the route mounts behind that check. The
 // session is not known yet; the answer names the account it was resolved for.
-export function startEarlyContentLanding(locationKey: string) {
+// The answer may never be taken, since the user can leave /home first, so the
+// request refreshes what a Welcome page it created, or may have created before
+// failing, changes.
+export function startEarlyContentLanding(
+  queryClient: QueryClient,
+  locationKey: string,
+) {
   if (earlyLanding?.locationKey === locationKey) return;
   earlyLanding = {
     locationKey,
@@ -41,8 +61,14 @@ export function startEarlyContentLanding(locationKey: string) {
       "resolve-content-landing",
       {},
     ).then(
-      (result) => ({ ok: true, result }),
-      (error: unknown) => ({ ok: false, error }),
+      (result) => {
+        if (result.welcomeCreated) refreshLandingCollections(queryClient);
+        return { ok: true, result };
+      },
+      (error: unknown) => {
+        refreshLandingCollections(queryClient);
+        return { ok: false, error };
+      },
     ),
   };
 }

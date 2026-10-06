@@ -21,15 +21,12 @@ import { Header } from "@/components/layout/Header";
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
-import { invalidateContentDatabaseNavigationQueries } from "@/hooks/use-content-database";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
-import {
-  LIST_DOCUMENTS_QUERY_KEY,
-  startPageOpenDocumentReads,
-} from "@/hooks/use-documents";
+import { startPageOpenDocumentReads } from "@/hooks/use-documents";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
 import {
   isPersonalLanding,
+  refreshLandingCollections,
   takeEarlyContentLanding,
 } from "@/lib/content-landing";
 import {
@@ -62,22 +59,12 @@ export function meta() {
   ];
 }
 
-// Refreshing every read here aborts and restarts the startup reads; only a
-// newly created Welcome page changes what other queries show.
 function refreshAfterLanding(
   queryClient: QueryClient,
   result: ContentLandingResult | ContentSpaceLandingResult,
 ) {
   if (!("welcomeCreated" in result) || !result.welcomeCreated) return;
   refreshLandingCollections(queryClient);
-}
-
-function refreshLandingCollections(queryClient: QueryClient) {
-  invalidateContentDatabaseNavigationQueries(queryClient, { parentId: null });
-  void queryClient.invalidateQueries({
-    queryKey: ["action", "get-content-recent"],
-  });
-  void queryClient.invalidateQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY });
 }
 
 // The landing draws the page placeholder, so a page that opens here keeps its
@@ -174,9 +161,10 @@ export default function HomeRoute() {
   });
 
   const openLanding = useCallback(async () => {
-    // A session that changes while /home waits starts the landing over, so an
-    // answer asked for the previous account never navigates.
-    const requestKey = `${spaceId ?? "personal"}:${scope}`;
+    // A new visit, or a session that changes while /home waits, starts the
+    // landing over, so an answer asked for another visit or account never
+    // navigates.
+    const requestKey = `${spaceId ?? "personal"}:${scope}:${location.key}`;
     if (startedFor.current === requestKey) return;
     startedFor.current = requestKey;
     const requestId = ++landingRequestIdRef.current;
@@ -200,12 +188,11 @@ export default function HomeRoute() {
         ) === scope
           ? early.result
           : null;
-      // An early request that is not adopted, failed or answered for another
-      // account, may still have created Welcome, and every answer after it
+      // The early request refreshed for its own answer. One that failed may
+      // still be creating Welcome on the server, and every answer after it
       // would only call Welcome reused, so the refresh stays owed until an
       // answer arrives, across a failed retry.
-      if (early && !adopted) collectionsRefreshOwedRef.current = true;
-      if (adopted) refreshAfterLanding(queryClient, adopted);
+      if (early && !early.ok) collectionsRefreshOwedRef.current = true;
       const result =
         adopted ??
         (await resolveLanding.mutateAsync(spaceId ? { spaceId } : {}));
