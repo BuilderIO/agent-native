@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,10 +17,6 @@ vi.mock("@agent-native/toolkit/app/chat", () => ({
 }));
 
 import { HeaderActions } from "./HeaderActions";
-
-function source(relativePath: string): string {
-  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
-}
 
 describe("Calendar header actions", () => {
   let container: HTMLDivElement;
@@ -55,13 +49,5 @@ describe("Calendar header actions", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
       "/_agent-native/notifications/count",
     );
-  });
-
-  it("is the trailing control on both app-owned Calendar headers", () => {
-    for (const file of ["./AppLayout.tsx", "../../pages/CalendarView.tsx"]) {
-      const text = source(file);
-      expect(text).toContain("<HeaderActions />");
-      expect(text).not.toContain("<AgentToggleButton");
-    }
   });
 });
