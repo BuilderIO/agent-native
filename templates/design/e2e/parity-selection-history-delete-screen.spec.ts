@@ -183,7 +183,7 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
   ).toEqual([]);
 });
 
-test("marquee selection persists and deletes selected Screens over an old layer selection", async ({
+test("marquee selection persists and deletes Screens after a prior layer selection", async ({
   page,
 }) => {
   const id = await newThreeScreenDesign(page);
@@ -192,9 +192,19 @@ test("marquee selection persists and deletes selected Screens over an old layer 
     const cards = page.locator("[data-screen-card]");
     await expect(cards).toHaveCount(3);
 
-    const homeLayer = layerRow(page, "Home");
-    await homeLayer.click();
-    await expect(homeLayer).toHaveAttribute("aria-selected", "true");
+    const blueBoxButton = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ hasText: "Blue Box" });
+    await expect(blueBoxButton).toHaveCount(1);
+    const blueBoxId = await blueBoxButton.getAttribute("data-layer-node-id");
+    expect(blueBoxId).toBeTruthy();
+    const blueBoxRow = blueBoxButton.locator(
+      "xpath=ancestor::*[@role='treeitem'][1]",
+    );
+    await blueBoxButton.click();
+    await expect(blueBoxRow).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
 
     const canvas = await page
       .locator("[data-multi-screen-canvas-surface]")
