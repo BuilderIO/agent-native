@@ -155,6 +155,24 @@ export async function saveUnlessSuggestionChanged<Result>(
   }
 }
 
+// The server fingerprints an amendment with the revision it observed, so a
+// key repeats only for a retry of the same request. Undoing back to text an
+// earlier save already sent amends a newer revision and needs a new key.
+export function suggestionAmendmentIdempotencyKey(
+  keys: Map<string, string>,
+  suggestion: Pick<ResourceSuggestion, "id" | "revision">,
+  operationsKey: string,
+) {
+  const requestKey = JSON.stringify([
+    suggestion.id,
+    suggestion.revision,
+    operationsKey,
+  ]);
+  const key = keys.get(requestKey) ?? globalThis.crypto.randomUUID();
+  keys.set(requestKey, key);
+  return key;
+}
+
 export function createSuggestionDraftSession(input: {
   id: string;
   baseContent: string;

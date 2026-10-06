@@ -12,6 +12,7 @@ import {
   previewSuggestionDraft,
   recordSuggestionReplacementIntent,
   saveUnlessSuggestionChanged,
+  suggestionAmendmentIdempotencyKey,
   suggestionDraftOperations,
   suggestionOperationKey,
   suggestionSessionVisuals,
@@ -1129,6 +1130,21 @@ describe("suggestion draft session", () => {
         ),
       ).rejects.toBe(unreadable);
     });
+  });
+
+  it("gives an amendment a new key once the suggestion it observed advances", () => {
+    const keys = new Map<string, string>();
+    const at = (revision: number) => ({ id: "saved", revision });
+    const firstA = suggestionAmendmentIdempotencyKey(keys, at(1), "A");
+
+    expect(suggestionAmendmentIdempotencyKey(keys, at(1), "A")).toBe(firstA);
+    const b = suggestionAmendmentIdempotencyKey(keys, at(2), "B");
+    // Undoing B back to A amends revision 3; the server would reject A's
+    // first key as a different request.
+    const secondA = suggestionAmendmentIdempotencyKey(keys, at(3), "A");
+
+    expect(new Set([firstA, b, secondA]).size).toBe(3);
+    expect(suggestionAmendmentIdempotencyKey(keys, at(3), "A")).toBe(secondA);
   });
 });
 

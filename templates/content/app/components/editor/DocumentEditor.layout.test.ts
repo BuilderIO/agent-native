@@ -704,9 +704,19 @@ describe("document editor layout", () => {
       source.indexOf("const persistSuggestionDraft"),
       source.indexOf("const flushSuggestionDraft = "),
     );
+    const amendmentGate =
+      "if (suggestionAmendmentConflict || amendmentTargetIsResolved) {";
     const empty = persist.slice(
       persist.indexOf("if (base.existingSuggestion) {"),
-      persist.indexOf("const operationKey = JSON.stringify(operations);"),
+      persist.indexOf(amendmentGate),
+    );
+    // A rejection this tab already saw must not keep a reverted suggestion
+    // from ending: only the amendment after the withdrawal waits on it.
+    expect(persist.indexOf(amendmentGate)).toBeGreaterThan(
+      persist.indexOf("const withdrawn = await saveUnlessSuggestionChanged("),
+    );
+    expect(persist.slice(0, persist.indexOf("try {"))).not.toContain(
+      "amendmentTargetIsResolved",
     );
     expect(empty).toMatch(
       /if \(operations\.length === 0\) \{[\s\S]*?if \(keepMode\) \{[\s\S]*?return null;\s*\}\s*const withdrawn = await saveUnlessSuggestionChanged\(\s*existing,/,
@@ -723,6 +733,23 @@ describe("document editor layout", () => {
     expect(persist).not.toMatch(
       /base\.existingSuggestion && draft === base\.baseContent/,
     );
+  });
+
+  it("keys every suggestion amendment by the revision it observed", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const persist = source.slice(
+      source.indexOf("const persistSuggestionDraft"),
+      source.indexOf("const flushSuggestionDraft = "),
+    );
+    expect(
+      persist.match(
+        /idempotencyKey(?:: | = )suggestionAmendmentIdempotencyKey\(/g,
+      ),
+    ).toHaveLength(2);
+    expect(persist).not.toContain("suggestionAmendmentKeysRef.current.get(");
   });
 
   it("recognizes resolved amendment targets and action conflicts", () => {
@@ -757,7 +784,7 @@ describe("document editor layout", () => {
     expect(unchangedAmendment).toBeGreaterThan(-1);
     expect(unchangedAmendment).toBeLessThan(
       persist.search(
-        /suggestionAmendmentConflict \|\|\s*\(base\.existingSuggestion && amendmentTargetIsResolved\)/,
+        /suggestionAmendmentConflict \|\|\s*amendmentTargetIsResolved/,
       ),
     );
     expect(source).toMatch(

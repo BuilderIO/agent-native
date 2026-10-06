@@ -261,6 +261,7 @@ import {
   suggestionSessionVisuals,
   planSuggestionDraftPersistence,
   saveUnlessSuggestionChanged,
+  suggestionAmendmentIdempotencyKey,
   type DraftSuggestion,
   type SuggestionDraftSession,
   type SuggestionPersistenceEntry,
@@ -5059,13 +5060,7 @@ function PageEditorSessionBody({
       if (base.existingSuggestion && draft === base.initialContent) {
         return saved(new Map<string, ResourceSuggestion>());
       }
-      if (
-        suggestionAmendmentConflict ||
-        (base.existingSuggestion && amendmentTargetIsResolved)
-      ) {
-        setSuggestionAmendmentConflict(true);
-        return null;
-      }
+      if (!base.existingSuggestion && suggestionAmendmentConflict) return null;
       if (!autosave) setIsSubmittingSuggestions(true);
       try {
         type CreatedProposal = Awaited<
@@ -5163,15 +5158,20 @@ function PageEditorSessionBody({
             }
             return saved(new Map<string, ResourceSuggestion>());
           }
-          const operationKey = JSON.stringify(operations);
-          const idempotencyKey =
-            suggestionAmendmentKeysRef.current.get(operationKey) ??
-            globalThis.crypto.randomUUID();
-          suggestionAmendmentKeysRef.current.set(operationKey, idempotencyKey);
+          // Only an amendment waits on what this tab knows of the suggestion;
+          // the withdrawal above asks the server whether it is still pending.
+          if (suggestionAmendmentConflict || amendmentTargetIsResolved) {
+            setSuggestionAmendmentConflict(true);
+            return null;
+          }
           const amended = await updateSuggestion.mutateAsync({
-            id: base.existingSuggestion.id,
-            observedRevision: base.existingSuggestion.revision,
-            idempotencyKey,
+            id: existing.id,
+            observedRevision: existing.revision,
+            idempotencyKey: suggestionAmendmentIdempotencyKey(
+              suggestionAmendmentKeysRef.current,
+              existing,
+              JSON.stringify(operations),
+            ),
             operations,
             summary: t("editor.toolbar.suggestEdits"),
           });
@@ -5241,17 +5241,10 @@ function PageEditorSessionBody({
           const amended = await saveUnlessSuggestionChanged(
             target,
             async () => {
-              const amendmentKey = JSON.stringify([
-                target.id,
-                target.revision,
+              const idempotencyKey = suggestionAmendmentIdempotencyKey(
+                suggestionAmendmentKeysRef.current,
+                target,
                 amendment.key,
-              ]);
-              const idempotencyKey =
-                suggestionAmendmentKeysRef.current.get(amendmentKey) ??
-                globalThis.crypto.randomUUID();
-              suggestionAmendmentKeysRef.current.set(
-                amendmentKey,
-                idempotencyKey,
               );
               const suggestion = await updateSuggestion.mutateAsync({
                 id: target.id,
