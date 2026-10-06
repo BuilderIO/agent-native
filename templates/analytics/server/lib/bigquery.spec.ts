@@ -544,6 +544,44 @@ describe("runQuery cancellation", () => {
     ).toHaveProperty("useQueryCache", false);
   });
 
+  it("runs the query without caching when cache coordination is unavailable", async () => {
+    const originalExecute = execute.getMockImplementation();
+    if (!originalExecute)
+      throw new Error("Cache database mock is not configured");
+    execute.mockImplementation(
+      async (input: { sql: string; args: unknown[] }) => {
+        if (input.sql.startsWith("SELECT generation, fence_token")) {
+          throw new Error("cache database unavailable");
+        }
+        return originalExecute(input);
+      },
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "0",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runQuery("SELECT 1 AS cache_unavailable_test");
+    expect(result).toMatchObject({
+      rows: [],
+      totalRows: 0,
+    });
+    expect(result).not.toHaveProperty("cached");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      "[bigquery] Cache coordination failed; running query without cache:",
+      expect.any(Error),
+    );
+  });
+
   it("rechecks the fence when a forced refresh wins during an ordinary cache miss", async () => {
     useCacheDatabase();
     const read = pauseNextL2Read();

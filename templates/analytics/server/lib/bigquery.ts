@@ -652,27 +652,49 @@ export async function runQuery(
   const cacheKey = getCacheKey(cacheableSql, projectId, cacheScope);
   const forceRefresh = options.forceRefresh === true;
   let cacheFence: CacheFence | null = null;
-  if (forceRefresh) {
-    const acquired = await acquireForcedRefresh(cacheKey, cacheableSql, signal);
-    if ("result" in acquired) return { ...acquired.result, cached: true };
-    cacheFence = acquired.fence;
-    l1Cache.delete(cacheKey);
-  } else {
-    // Validate shared generation before L1 so another instance's refresh invalidates local entries.
-    cacheFence = await getCacheFence(cacheKey);
-    const l1Hit = getL1(cacheKey, cacheFence.generation, cacheFence.fenceToken);
-    if (l1Hit) {
-      return { ...l1Hit, cached: true };
+  try {
+    if (forceRefresh) {
+      const acquired = await acquireForcedRefresh(
+        cacheKey,
+        cacheableSql,
+        signal,
+      );
+      if ("result" in acquired) return { ...acquired.result, cached: true };
+      cacheFence = acquired.fence;
+      l1Cache.delete(cacheKey);
+    } else {
+      // Validate shared generation before L1 so another instance's refresh invalidates local entries.
+      cacheFence = await getCacheFence(cacheKey);
+      const l1Hit = getL1(
+        cacheKey,
+        cacheFence.generation,
+        cacheFence.fenceToken,
+      );
+      if (l1Hit) {
+        return { ...l1Hit, cached: true };
+      }
+      const l2Hit = await getL2(cacheKey);
+      if (l2Hit) {
+        setL1(cacheKey, l2Hit, cacheFence);
+        return { ...l2Hit, cached: true };
+      }
+      const acquired = await acquireCacheQuery(cacheKey, cacheableSql, signal);
+      if ("result" in acquired) return { ...acquired.result, cached: true };
+      cacheFence = acquired.fence;
+      l1Cache.delete(cacheKey);
     }
-    const l2Hit = await getL2(cacheKey);
-    if (l2Hit) {
-      setL1(cacheKey, l2Hit, cacheFence);
-      return { ...l2Hit, cached: true };
+  } catch (error) {
+    if (
+      signal?.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw error;
     }
-    const acquired = await acquireCacheQuery(cacheKey, cacheableSql, signal);
-    if ("result" in acquired) return { ...acquired.result, cached: true };
-    cacheFence = acquired.fence;
-    l1Cache.delete(cacheKey);
+    console.warn(
+      "[bigquery] Cache coordination failed; running query without cache:",
+      error,
+    );
+    cacheFence = null;
   }
 
   let jobId: string | null = null;
