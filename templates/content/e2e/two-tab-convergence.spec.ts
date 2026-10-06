@@ -14,11 +14,15 @@ import {
   EDITOR,
   EDITOR_BODY,
   expectEditorReady,
+  getDocument,
+  getPreviewDraft,
   integrityFailures,
   Markers,
+  noiseFailures,
   observeIntegrity,
+  postAction,
+  RequestGate,
   SaveGate,
-  SessionGate,
   TabSet,
   typeAtParagraphEnd,
   writeScenarioRecord,
@@ -30,11 +34,6 @@ import {
 test.describe.configure({ retries: 0, timeout: 300_000 });
 
 const BUILD = process.env.CONTENT_CONVERGENCE_BUILD ?? "local";
-
-// Main loses or duplicates text in these, so CI runs them in a step that
-// reports every run without failing the PR. The PR that fixes one drops its
-// tag, which moves the scenario into the required gate.
-const KNOWN_LOSS = { tag: "@known-loss" };
 
 // SESSION_RESULT_LIFETIME_MS in core's client-status-requests.ts.
 const SESSION_LIFETIME_MS = 30_000;
@@ -50,6 +49,8 @@ interface Scenario {
   markers: Markers;
   reader: Page;
   notes: Record<string, unknown>;
+  /** Noise the scenario causes on purpose, from `noiseFailures`. */
+  expectedNoise: string[];
 }
 
 async function runScenario(
@@ -69,6 +70,7 @@ async function runScenario(
     markers: new Markers(),
     reader,
     notes: {},
+    expectedNoise: [],
   };
   await body(scenario);
   const working = [...tabs.tabs.values()];
@@ -121,6 +123,15 @@ async function runScenario(
       "no save was timed under the latency",
     ).toBe(true);
   expect(integrityFailures(record), "lost or duplicated text").toEqual([]);
+  const noise = noiseFailures(record.tabs);
+  for (const expected of scenario.expectedNoise) {
+    const at = noise.indexOf(expected);
+    if (at >= 0) noise.splice(at, 1);
+  }
+  expect(
+    noise,
+    "recovery notices, error toasts or saves sent to History",
+  ).toEqual([]);
 }
 
 async function openPair(s: Scenario, latencyMs = SAVE_LATENCY_MS) {
@@ -151,41 +162,37 @@ async function alternate(s: Scenario) {
 }
 
 test.describe("two tabs editing one page at beta cadence", () => {
-  test(
-    "both tabs fall back to the 12 s poll when the stream answers 204",
-    KNOWN_LOSS,
-    async ({ context }, testInfo) => {
-      await runScenario("poll-cadence", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s, 0);
-        await s.tabs.showAll();
-        await delay(5_000);
-        const windowStart = Date.now();
-        await delay(30_000);
-        for (const page of [first, second]) {
-          const polls = s.tabs
-            .record(page)
-            .collabPollTimes.filter((at) => at >= windowStart).length;
-          s.notes[`collabPolls30s${s.tabs.record(page).label}`] = polls;
-          // 12 s polling makes two or three requests in 30 s; the 2 s
-          // fallback would make fifteen.
-          expect(polls, "collaboration polls in 30 s").toBeGreaterThanOrEqual(
-            1,
-          );
-          expect(polls, "collaboration polls in 30 s").toBeLessThanOrEqual(4);
-        }
-        await typeAtParagraphEnd(
-          first,
-          "Alpha paragraph",
-          ` ${s.markers.next("A")}`,
-        );
-        await typeAtParagraphEnd(
-          second,
-          "Charlie paragraph",
-          ` ${s.markers.next("B")}`,
-        );
-      });
-    },
-  );
+  test("both tabs fall back to the 12 s poll when the stream answers 204", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("poll-cadence", testInfo, context, async (s) => {
+      const { first, second } = await openPair(s, 0);
+      await s.tabs.showAll();
+      await delay(5_000);
+      const windowStart = Date.now();
+      await delay(30_000);
+      for (const page of [first, second]) {
+        const polls = s.tabs
+          .record(page)
+          .collabPollTimes.filter((at) => at >= windowStart).length;
+        s.notes[`collabPolls30s${s.tabs.record(page).label}`] = polls;
+        // 12 s polling makes two or three requests in 30 s; the 2 s
+        // fallback would make fifteen.
+        expect(polls, "collaboration polls in 30 s").toBeGreaterThanOrEqual(1);
+        expect(polls, "collaboration polls in 30 s").toBeLessThanOrEqual(4);
+      }
+      await typeAtParagraphEnd(
+        first,
+        "Alpha paragraph",
+        ` ${s.markers.next("A")}`,
+      );
+      await typeAtParagraphEnd(
+        second,
+        "Charlie paragraph",
+        ` ${s.markers.next("B")}`,
+      );
+    });
+  });
 
   test("a save landing in one tab keeps the other tab's newer unsaved edit", async ({
     context,
@@ -261,7 +268,7 @@ test.describe("two tabs editing one page at beta cadence", () => {
       async (s) => {
         const tab = await s.tabs.open("A", s.id);
         const saves = await SaveGate.install(tab);
-        const session = await SessionGate.install(tab);
+        const session = await RequestGate.session(tab);
         await s.tabs.showOnly(tab);
 
         saves.holdArrivals();
@@ -319,51 +326,155 @@ test.describe("two tabs editing one page at beta cadence", () => {
     );
   });
 
+  test("refreshing after a save was cut off reopens the editor without asking which version to keep", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("refresh-mid-save", testInfo, context, async (s) => {
+      const a = await s.tabs.open("A", s.id);
+      const b = await s.tabs.open("B", s.id);
+      const aSaves = await SaveGate.install(a);
+      const bSaves = await SaveGate.install(b);
+      const recoveries = await RequestGate.action(
+        a,
+        "resolve-preview-document-draft",
+      );
+      await s.tabs.showAll();
+      // A's save never reaches the server. B holds A's words through
+      // collaboration and saves them with its own, so the recovery draft A
+      // keeps for its failed save matches the page B leaves.
+      aSaves.holdArrivals();
+      bSaves.holdArrivals();
+      const aMarker = s.markers.next("A");
+      await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+      await aSaves.waitForHeld();
+      await s.tabs.waitForText(b, aMarker);
+      const bMarker = s.markers.next("B");
+      await typeAtParagraphEnd(b, "Charlie paragraph", ` ${bMarker}`);
+      await bSaves.waitForHeld();
+      await s.tabs.waitForText(a, bMarker);
+      aSaves.pass();
+      bSaves.pass();
+      await aSaves.cutOff();
+      await expect
+        .poll(
+          async () => (await getPreviewDraft(s.reader, s.id))?.content ?? "",
+          {
+            message: "A's failed save should leave a recovery draft",
+            timeout: 30_000,
+          },
+        )
+        .toContain(bMarker);
+      await bSaves.release();
+      await s.tabs.quiet();
+      // The chooser this scenario guards against offers these two as
+      // different versions.
+      const draft = await getPreviewDraft(s.reader, s.id);
+      const page = await getDocument(s.reader, s.id);
+      expect(
+        draft && { title: draft.title, content: draft.content },
+        "A's recovery draft should hold exactly the page B saved",
+      ).toEqual({ title: page.title, content: page.content });
+      // A's save was cut off on purpose, and that failed request reports once,
+      // before the refresh. The allowance covers only those entries, so the
+      // same notice after the refresh, or anything else A shows, still fails.
+      s.expectedNoise = [
+        'A showed "Something went wrong"',
+        'A toasted "Something went wrongAction update-document failed: Failed to fetch"',
+      ];
+      await expect
+        .poll(() => noiseFailures([s.tabs.record(a)]), {
+          message: "A should report its cut-off save once before the refresh",
+          timeout: 10_000,
+        })
+        .toEqual(s.expectedNoise);
+      const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
+      recoveries.hold();
+      await a.reload({ waitUntil: "domcontentloaded" });
+      let reopenedWith: "recovery" | "discarded" | null = null;
+      for (const until = Date.now() + 60_000; !reopenedWith; ) {
+        if (recoveries.queued) reopenedWith = "recovery";
+        else if (!(await getPreviewDraft(s.reader, s.id)))
+          reopenedWith = "discarded";
+        else if (Date.now() > until)
+          throw new Error("the reopened tab never settled its draft");
+        else await delay(200);
+      }
+      s.notes.reopenedWith = reopenedWith;
+      if (reopenedWith === "recovery") {
+        // The page moves on without a word changing while the reopened tab
+        // files the draft, as another tab's save of the same text does.
+        await postAction(s.reader, "update-document", {
+          id: s.id,
+          description: "Touched while the tab reopened",
+        });
+      }
+      await recoveries.release();
+      const chooser = a.getByText("Choose which version to keep");
+      await expect
+        .poll(
+          async () =>
+            (await chooser.isVisible()) ||
+            !(await getPreviewDraft(s.reader, s.id)),
+          {
+            message: "the reopened tab never settled its draft",
+            timeout: 30_000,
+          },
+        )
+        .toBe(true);
+      const afterRefresh = s.tabs
+        .record(a)
+        .recovery.slice(noticesBeforeRefresh);
+      s.notes.recoveryAfterRefresh = afterRefresh;
+      expect(
+        await chooser.isVisible(),
+        "the reopened tab asked which of two identical versions to keep",
+      ).toBe(false);
+      await expectEditorReady(a);
+      await typeAtParagraphEnd(a, "Bravo paragraph", ` ${s.markers.next("A")}`);
+    });
+  });
+
   test("alternating edits in different paragraphs keep both tabs' text", async ({
     context,
   }, testInfo) => {
     await runScenario("alternating", testInfo, context, alternate);
   });
 
-  test(
-    "alternating edits on a page an agent wrote keep both tabs' text",
-    KNOWN_LOSS,
-    async ({ context }, testInfo) => {
-      await runScenario(
-        "alternating-agent-page",
-        testInfo,
-        context,
-        alternate,
-        AGENT_MARKDOWN_BODY,
-      );
-    },
-  );
+  test("alternating edits on a page an agent wrote keep both tabs' text", async ({
+    context,
+  }, testInfo) => {
+    await runScenario(
+      "alternating-agent-page",
+      testInfo,
+      context,
+      alternate,
+      AGENT_MARKDOWN_BODY,
+    );
+  });
 
-  test(
-    "simultaneous edits in different paragraphs keep both tabs' text",
-    KNOWN_LOSS,
-    async ({ context }, testInfo) => {
-      await runScenario("simultaneous", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s);
-        await s.tabs.showAll();
-        for (let cycle = 1; cycle <= 4; cycle++) {
-          await Promise.all([
-            typeAtParagraphEnd(
-              first,
-              "Alpha paragraph",
-              ` ${s.markers.next("A")}`,
-            ),
-            typeAtParagraphEnd(
-              second,
-              "Charlie paragraph",
-              ` ${s.markers.next("B")}`,
-            ),
-          ]);
-          await first.waitForTimeout(400);
-        }
-      });
-    },
-  );
+  test("simultaneous edits in different paragraphs keep both tabs' text", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("simultaneous", testInfo, context, async (s) => {
+      const { first, second } = await openPair(s);
+      await s.tabs.showAll();
+      for (let cycle = 1; cycle <= 4; cycle++) {
+        await Promise.all([
+          typeAtParagraphEnd(
+            first,
+            "Alpha paragraph",
+            ` ${s.markers.next("A")}`,
+          ),
+          typeAtParagraphEnd(
+            second,
+            "Charlie paragraph",
+            ` ${s.markers.next("B")}`,
+          ),
+        ]);
+        await first.waitForTimeout(400);
+      }
+    });
+  });
 
   test("typing across the 500 ms autosave pause keeps every word", async ({
     context,
@@ -414,26 +525,24 @@ test.describe("two tabs editing one page at beta cadence", () => {
     });
   });
 
-  test(
-    "switching away and back ten times while typing keeps every word",
-    KNOWN_LOSS,
-    async ({ context }, testInfo) => {
-      await runScenario("switch-back-cycles", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s);
-        for (let cycle = 1; cycle <= 10; cycle++) {
-          await s.tabs.showOnly(first);
-          await typeAtParagraphEnd(
-            first,
-            "Alpha paragraph",
-            ` ${s.markers.next("A")}`,
-          );
-          await s.tabs.showOnly(second);
-          await second.waitForTimeout(300);
-        }
+  test("switching away and back ten times while typing keeps every word", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("switch-back-cycles", testInfo, context, async (s) => {
+      const { first, second } = await openPair(s);
+      for (let cycle = 1; cycle <= 10; cycle++) {
         await s.tabs.showOnly(first);
-      });
-    },
-  );
+        await typeAtParagraphEnd(
+          first,
+          "Alpha paragraph",
+          ` ${s.markers.next("A")}`,
+        );
+        await s.tabs.showOnly(second);
+        await second.waitForTimeout(300);
+      }
+      await s.tabs.showOnly(first);
+    });
+  });
 
   test("an agent edit between two open tabs keeps every author's text", async ({
     context,

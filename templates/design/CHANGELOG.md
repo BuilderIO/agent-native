@@ -3,10 +3,25 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-05
+## 2026-10-06
 
 ### Fixed
 
+- Dragging a selected nested frame now moves the frame and saves its new position
+
+## 2026-10-05
+
+### Improved
+
+- Builder setup starts from the in-app account choice, with one-click activation for new accounts.
+
+### Fixed
+
+- Agent links copied from a design are shorter, so Claude can fetch them without hitting its URL length limit.
+- Dropping a layer after crossing a nested frame places it in front of that frame.
+- Fixed layer placement after dragging across nested frames
+- Sending a prompt checks that AI is still connected.
+- Sign-in and signup pages now share the animated Agent-Native wave.
 - Design frame labels apply truncation as soon as resizing ends.
 - The Recent tab shows loading placeholders until your designs are ready.
 
@@ -78,6 +93,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Large designs stay responsive: zooming, selecting layers, typing, and changing text or fill colors no longer freeze the canvas
 - Add references through compact dropdown menus and find designs with the centered home search.
 - Visual edit handoffs copy complete source instructions by default, and editors can update screen URLs.
 - Design remembers your home library tab, so returning users can open straight to Recent.
