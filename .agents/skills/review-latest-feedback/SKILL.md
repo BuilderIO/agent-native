@@ -513,9 +513,12 @@ after merge.
 
 - **Fixed** / **Shipped** / **Live verified** - meet Phase 2's proof bars. A
   recorded live observation may be silent, except merged Slack fixes still get
-  the reply above. For a merged beta app fix, state the behavior changed and
-  that it'll be on beta in the next few hours; never say where or how it was
-  verified or report publisher/rollout status.
+  the reply above. For a merged beta app fix, follow the publisher gate above:
+  give the normal few-hours ETA only after the merge-triggered publisher
+  succeeds. If the run is missing or failed, state what is done and the exact
+  remaining action and owner, with an existing ticket link when available; do
+  not promise timing. Keep publisher results and verification details out of the
+  Slack reply.
   Use **Shipped** for upvoted improvements.
 - **In progress** — name the active work when it will continue beyond this run;
   acknowledge existing concrete ownership. Ask nothing.
