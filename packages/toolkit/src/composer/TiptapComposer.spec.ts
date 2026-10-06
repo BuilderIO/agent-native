@@ -969,6 +969,97 @@ describe("createTiptapComposerExtensions", () => {
     );
   });
 
+  it("serializes scope cleanup behind submitted attachment removal", async () => {
+    let releaseRemoval!: () => void;
+    let notifyRemovalStarted!: () => void;
+    const removalGate = new Promise<void>((resolve) => {
+      releaseRemoval = resolve;
+    });
+    const removalStarted = new Promise<void>((resolve) => {
+      notifyRemovalStarted = resolve;
+    });
+    const removeAttachment = vi.fn(async () => {
+      notifyRemovalStarted();
+      await removalGate;
+    });
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: file.name,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn();
+    let localRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({ draftScope }: { draftScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      localRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("finish submitted cleanup"));
+    await act(async () => {
+      await focusRef.current!.addAttachment(
+        new File(["submitted"], "submitted.txt", { type: "text/plain" }),
+      );
+    });
+
+    let submitting!: Promise<boolean>;
+    act(() => {
+      submitting = focusRef.current!.submit!();
+    });
+    await act(async () => {
+      await removalStarted;
+    });
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { draftScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(removeAttachment).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      releaseRemoval();
+      await submitting;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(removeAttachment).toHaveBeenCalledOnce();
+    expect(localRuntime!.thread.composer.getState().attachments).toEqual([]);
+  });
+
   it("waits for submitted attachment removal before accepting a same-file follow-up", async () => {
     let resolveSubmit!: () => void;
     const submission = new Promise<void>((resolve) => {

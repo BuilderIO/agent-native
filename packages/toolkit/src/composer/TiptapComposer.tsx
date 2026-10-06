@@ -5267,6 +5267,10 @@ export function TiptapComposer({
               }
             },
           );
+          attachmentCleanupRef.current = clearSubmittedAttachments.then(
+            () => undefined,
+            () => undefined,
+          );
           if (clearOnSubmit && !clearOnSubmitImmediately) {
             cancelActiveVoice();
             if (
