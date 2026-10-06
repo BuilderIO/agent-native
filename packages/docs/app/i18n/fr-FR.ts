@@ -2632,6 +2632,7 @@ const frFR = {
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
     deploymentOtherPlatforms: "Autres Plateformes",
     ssrCaching: "Mise en Cache SSR",
     deploymentEnvironmentVariables: "Déploiement : Variables d'Environnement",

@@ -116,6 +116,7 @@ describe("DocsSidebar", () => {
       "cloudflare",
       "render",
       "koyeb",
+      "deno-deploy",
     ]);
     const databaseGroup = deployment?.items.find(
       (item) => item.id === "database-providers",

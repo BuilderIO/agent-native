@@ -1,0 +1,216 @@
+---
+title: "Deno Deploy"
+description: "deno deploy CLI से किसी standalone Agent-Native ऐप को Deno Deploy पर deploy करें।"
+---
+
+# Deno Deploy
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+Deno Deploy आपके ऐप को Deno के global network पर चलाता है, इसलिए कोई server set
+up करने या चालू रखने की ज़रूरत नहीं होती। Build ऐप को एक Deno server में बदलता है,
+जो ऐप के pages और API संभालता है, और Deno Deploy ऐप को HTTPS के साथ एक public
+address देता है।
+
+यह guide शुरुआत से एक standalone ऐप deploy करने के चरण बताती है। आप ऐप बनाएंगे,
+उसे production database और auth secret देंगे, database तैयार करेंगे, उसे Deno के
+लिए build करेंगे, और फिर `deno deploy` command से तैयार build upload करेंगे।
+
+<Callout tone="info">
+
+Node.js `22.22+` आवश्यक है।
+
+</Callout>
+
+आपको एक Deno Deploy account और अपने computer पर installed [Deno](https://docs.deno.com/runtime/getting_started/installation/)
+भी चाहिए। इस guide के commands अपने computer पर चलाएं। आप ऐप को Node.js से build
+करते हैं, और `deno deploy` command तैयार build को Deno Deploy पर upload करता है।
+
+## चरण 1: ऐप बनाएं {#step-1-create-the-app}
+
+अपना नया standalone ऐप बनाएं। नीचे दिया गया उदाहरण Chat template से ऐप बनाता है,
+लेकिन आप किसी भी template से शुरू कर सकते हैं। ऐप के folder में जाएं और उसकी
+dependencies install करें। `corepack enable` वह `pnpm` version चालू करता है
+जिसकी ऐप को ज़रूरत है, इसलिए आपको `pnpm` खुद install करने की ज़रूरत नहीं है।
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+चाहें तो `my-app` को अपने ऐप के नाम से बदल दें। इस guide का बाकी हिस्सा मानता है
+कि आप ऐप के folder के अंदर हैं।
+
+## चरण 2: Environment secrets configure करें {#step-2-configure-environment-secrets}
+
+ऐप अपनी production settings environment variables से पढ़ता है:
+
+| Variable             | आवश्यक | उद्देश्य                                                       |
+| -------------------- | ------ | -------------------------------------------------------------- |
+| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है              |
+| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                     |
+| `BETTER_AUTH_URL`    | नहीं   | वह public address सेट करता है जिससे लोग आपके ऐप तक पहुंचते हैं |
+
+नीचे दिए गए exports से आगे के commands इस shell में काम करते हैं। Deploy करने
+से पहले, यही variables अपने host की project या service environment settings में
+save करें। चरण 5 बताता है कि उन्हें Deno Deploy में कैसे save करें।
+
+### Database URL {#database-url}
+
+Local development के दौरान, `DATABASE_URL` unset होने पर ऐप data को local
+database में store करता है। Deployed ऐप को एक असली PostgreSQL database चाहिए जो
+deploys के बीच अपना data बनाए रखे। Deno Deploy requests के बीच files नहीं रखता,
+इसलिए database को Deno Deploy के बाहर होना चाहिए। अपने provider से connection
+string copy करें और उसे export करें:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[Database provider guides](/docs/neon) बताती हैं कि हर provider के लिए connection
+string कहां मिलती है।
+
+<Callout tone="warning">
+
+एक persistent PostgreSQL provider चुनें: Neon, Supabase, Amazon RDS, आदि।
+
+</Callout>
+
+### Auth secret {#auth-secret}
+
+इसे एक बार generate करें और सभी deploys में इसे एक जैसा रखें।
+
+ऐप user sessions sign करने के लिए `BETTER_AUTH_SECRET` का उपयोग करता है। अगर यह
+बदलता है, तो हर signed-in user sign out हो जाता है। नीचे दिया गया command एक
+random value generate करता है:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Generate की गई value को किसी सुरक्षित जगह save करें, जैसे password manager में।
+हर बार deploy करते समय यही value इस्तेमाल करें।
+
+### Public URL {#public-url}
+
+वैकल्पिक। इसे तब सेट करें जब आप custom domain, reverse proxy, या ऐसा auth/OAuth
+flow इस्तेमाल करें जिसे fixed public origin चाहिए।
+
+`BETTER_AUTH_URL` वह public address है जिससे लोग आपके ऐप तक पहुंचते हैं। इसके
+बिना, ऐप हर incoming request से अपना address पता करता है। Deno Deploy के दिए गए
+address पर आमतौर पर यह ठीक रहता है, लेकिन custom domain connect करते समय इसे सेट
+करें, ताकि sign-in links और OAuth redirects उसी domain का इस्तेमाल करें।
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## चरण 3: Migrate करें {#step-3-migrate}
+
+Migrations आपके database में वे tables बनाती और update करती हैं जिनकी ऐप को
+ज़रूरत है। पहले deploy से पहले इसे चलाएं:
+
+```bash
+pnpm migrate:production
+```
+
+यह command आपके computer पर चलता है और चरण 2 में export किए गए `DATABASE_URL` से
+production database से connect करता है। ऐप upgrade करने के बाद, नया version
+deploy करने से पहले इसे फिर से चलाएं।
+
+## चरण 4: Build करें {#step-4-build}
+
+ऐप को Deno Deploy के लिए build करें:
+
+```bash
+NITRO_PRESET=deno_deploy pnpm build
+```
+
+`NITRO_PRESET=deno_deploy` ऐप को ऐसे Deno server के रूप में build करता है जो
+`Deno.serve()` का उपयोग करता है, जिसकी Deno Deploy को ज़रूरत है। Build, server को
+`.output/server/index.ts` में और static files को `.output/public` में लिखता है।
+यह ऐप की dependencies को server में bundle करता है, इसलिए `.output` folder कुछ भी
+install किए बिना अपने आप चलता है।
+
+## चरण 5: Deno Deploy पर ऐप बनाएं और secrets save करें {#step-5-create-the-app-on-deno-deploy-and-save-the-secrets}
+
+Build output में जाएं, फिर उसी folder से Deno Deploy पर ऐप बनाएं:
+
+```bash
+cd .output
+
+deno deploy create --source local --runtime-mode dynamic --entrypoint server/index.ts
+```
+
+यह command एक interactive setup खोलता है, जो आपको sign in करता है, पूछता है कि
+कौन-सा organization इस्तेमाल करना है, और ऐप का नाम पूछता है। `--source local`
+GitHub से build करने के बजाय current folder upload करता है। `--runtime-mode dynamic`
+और `--entrypoint server/index.ts` Deno Deploy को चरण 4 का server चलाने के लिए कहते
+हैं। Configure करने के लिए कोई build step नहीं है, क्योंकि आप ऐप पहले ही build कर
+चुके हैं।
+
+दोनों आवश्यक variables को ऐप पर secrets के रूप में save करें:
+
+```bash
+deno deploy env add DATABASE_URL "$DATABASE_URL" --secret
+
+deno deploy env add BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" --secret
+```
+
+हर command चरण 2 में export की गई value पढ़ता है और उसे Deno Deploy में save करता
+है, इसलिए आपको secrets हाथ से paste नहीं करने पड़ते। `--secret` हर value को secret
+के रूप में mark करता है। अगर आपने `BETTER_AUTH_URL` सेट किया है, तो उसे भी इसी तरह
+save करें। आप बाद में Deno Deploy dashboard पर ऐप की settings में भी ये values देख
+और बदल सकते हैं।
+
+## चरण 6: Deploy करें {#step-6-deploy}
+
+<Steps>
+
+### Production पर deploy करें
+
+`.output` folder से, build को अपने production address पर publish करें:
+
+```bash
+deno deploy --prod
+```
+
+Secrets save करने के बाद फिर से deploy करने से यह पक्का होता है कि चल रहे ऐप के
+पास वे secrets हों।
+
+### ऐप खोलें
+
+Command पूरा होने पर यह ऐप का address print करता है, जो
+`my-app.your-org.deno.net` जैसा दिखता है। उसे खोलें और पहला account बनाएं।
+
+</Steps>
+
+## Updates deploy करें {#deploy-updates}
+
+नया version ship करने के लिए, migrations चलाएं, फिर से build करें, और `.output`
+folder से deploy करें:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=deno_deploy pnpm build
+
+cd .output
+
+deno deploy --prod --org your-org --app my-app
+```
+
+हर build `.output` folder को बदल देता है, इसलिए organization और ऐप के नाम `--org`
+और `--app` से दें। Save किए गए secrets ऐप पर बने रहते हैं, इसलिए आपको चरण 5
+दोहराने की ज़रूरत नहीं है।
+
+## आगे क्या है {#whats-next}
+
+- [**Node.js**](/docs/node-js) - ऐप को ऐसी machine पर चलाएं जिसे आप manage करते हैं
+- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) - production settings की पूरी सूची
+- [**तैनाती**](/docs/deployment) - hosting targets और prerequisites की तुलना करें

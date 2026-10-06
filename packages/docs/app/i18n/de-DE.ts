@@ -2628,6 +2628,7 @@ const deDE = {
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
     deploymentOtherPlatforms: "Weitere Plattformen",
     ssrCaching: "SSR-Caching",
     deploymentEnvironmentVariables: "Deployment: Umgebungsvariablen",

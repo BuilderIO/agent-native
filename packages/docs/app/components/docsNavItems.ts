@@ -107,6 +107,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "deploymentKoyeb",
             slug: "koyeb",
           },
+          {
+            id: "deno-deploy",
+            labelKey: "deploymentDenoDeploy",
+            slug: "deno-deploy",
+          },
         ],
       },
       {

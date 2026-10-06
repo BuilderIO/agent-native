@@ -2613,6 +2613,7 @@ const ptBR = {
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
     deploymentOtherPlatforms: "Outras Plataformas",
     ssrCaching: "Cache de SSR",
     deploymentEnvironmentVariables: "Deploy: Variáveis de Ambiente",

@@ -1,0 +1,197 @@
+---
+title: "Deno Deploy"
+description: "使用 deno deploy CLI 将独立的 Agent-Native 应用部署到 Deno Deploy。"
+---
+
+# Deno Deploy
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+Deno Deploy 在 Deno 的全球网络上运行你的应用，因此无需搭建或维护服务器。构建会把
+应用转换为一个 Deno 服务器，由它处理应用的页面和 API，Deno Deploy 会为应用提供一个
+支持 HTTPS 的公共地址。
+
+本指南将从零开始演示如何部署一个独立应用。你将创建应用，为它配置生产数据库和
+身份验证密钥，准备好数据库，为 Deno 构建应用，然后使用 `deno deploy` 命令上传
+完成的构建产物。
+
+<Callout tone="info">
+
+需要 Node.js `22.22+`。
+
+</Callout>
+
+你还需要一个 Deno Deploy 账户，并在你的电脑上安装 [Deno](https://docs.deno.com/runtime/getting_started/installation/)。
+请在你自己的电脑上运行本指南中的命令。你使用 Node.js 构建应用，`deno deploy` 命令会
+把完成的构建产物上传到 Deno Deploy。
+
+## 第 1 步：创建应用 {#step-1-create-the-app}
+
+创建新的独立应用。下面的示例基于 Chat 模板创建应用，但你可以从任何模板开始。
+进入应用的文件夹并安装依赖。`corepack enable` 会启用应用所需的 `pnpm` 版本，
+因此你无需自己安装 `pnpm`。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+如果愿意，可以把 `my-app` 替换为你自己的应用名称。本指南的其余部分假定你位于
+应用的文件夹中。
+
+## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
+
+应用从环境变量中读取其生产设置：
+
+| 变量                 | 必填 | 用途                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
+| `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
+
+下面的 export 命令让后续命令能在当前 shell 中正常运行。部署之前，请把这些变量
+同样保存到主机的项目或服务环境设置中。第 5 步会介绍如何在 Deno Deploy 中保存它们。
+
+### 数据库 URL {#database-url}
+
+在本地开发期间，如果未设置 `DATABASE_URL`，应用会把数据存储在本地数据库中。
+已部署的应用需要一个真正的 PostgreSQL 数据库，在各次部署之间保留数据。Deno Deploy
+不会在各次请求之间保留文件，因此数据库必须位于 Deno Deploy 之外。从你的提供商处
+复制连接字符串并导出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[数据库提供商指南](/docs/neon)介绍了在每个提供商处查找连接字符串的位置。
+
+<Callout tone="warning">
+
+请选择持久的 PostgreSQL 提供商，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 身份验证密钥 {#auth-secret}
+
+只需生成一次，并在各次部署之间保持不变。
+
+应用使用 `BETTER_AUTH_SECRET` 为用户会话签名。如果它发生变化，所有已登录的用户
+都会被登出。下面的命令会生成一个随机值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+请把生成的值保存在安全的地方，例如密码管理器。每次部署时都使用相同的值。
+
+### 公共 URL {#public-url}
+
+可选。在使用自定义域名、反向代理，或需要固定公共源的身份验证/OAuth 流程时设置它。
+
+`BETTER_AUTH_URL` 是用户访问你的应用时使用的公共地址。如果不设置，应用会根据
+每个传入请求推断自己的地址。在 Deno Deploy 为你提供的地址上，这通常没有问题，但当你
+连接自定义域名时，请设置它，以便登录链接和 OAuth 重定向使用该域名。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 第 3 步：迁移 {#step-3-migrate}
+
+迁移会在你的数据库中创建和更新应用所需的表。请在首次部署之前运行此命令：
+
+```bash
+pnpm migrate:production
+```
+
+该命令在你的电脑上运行，并使用你在第 2 步中导出的 `DATABASE_URL` 连接到生产
+数据库。升级应用之后、部署新版本之前，请再次运行它。
+
+## 第 4 步：构建 {#step-4-build}
+
+为 Deno Deploy 构建应用：
+
+```bash
+NITRO_PRESET=deno_deploy pnpm build
+```
+
+`NITRO_PRESET=deno_deploy` 会把应用构建为一个使用 `Deno.serve()` 的 Deno 服务器，
+这是 Deno Deploy 的要求。构建会把服务器写入 `.output/server/index.ts`，并把静态文件
+写入 `.output/public`。它会把应用的依赖打包进服务器，因此 `.output` 文件夹无需安装
+任何内容即可独立运行。
+
+## 第 5 步：在 Deno Deploy 上创建应用并保存密钥 {#step-5-create-the-app-on-deno-deploy-and-save-the-secrets}
+
+进入构建输出目录，然后从该文件夹在 Deno Deploy 上创建应用：
+
+```bash
+cd .output
+
+deno deploy create --source local --runtime-mode dynamic --entrypoint server/index.ts
+```
+
+该命令会打开一个交互式设置流程，它会让你登录、询问要使用哪个组织，并询问应用的
+名称。`--source local` 会上传当前文件夹，而不是从 GitHub 构建。`--runtime-mode dynamic`
+和 `--entrypoint server/index.ts` 告诉 Deno Deploy 运行第 4 步中的服务器。由于你已经
+构建了应用，因此无需配置构建步骤。
+
+把两个必填变量作为密钥保存到应用上：
+
+```bash
+deno deploy env add DATABASE_URL "$DATABASE_URL" --secret
+
+deno deploy env add BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" --secret
+```
+
+每条命令都会读取你在第 2 步中导出的值并保存到 Deno Deploy，因此你无需手动粘贴密钥。
+`--secret` 会把每个值标记为密钥。如果你设置了 `BETTER_AUTH_URL`，请用同样的方式
+保存它。之后你也可以在 Deno Deploy 控制台的应用设置中查看和更改这些值。
+
+## 第 6 步：部署 {#step-6-deploy}
+
+<Steps>
+
+### 部署到生产环境
+
+在 `.output` 文件夹中，把构建产物发布到你的生产地址：
+
+```bash
+deno deploy --prod
+```
+
+在保存密钥之后再次部署，可以确保正在运行的应用获取到这些密钥。
+
+### 打开应用
+
+命令完成后，会输出应用的地址，形如 `my-app.your-org.deno.net`。打开它并创建
+第一个账户。
+
+</Steps>
+
+## 部署更新 {#deploy-updates}
+
+要发布新版本，请运行迁移，再次构建，然后在 `.output` 文件夹中部署：
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=deno_deploy pnpm build
+
+cd .output
+
+deno deploy --prod --org your-org --app my-app
+```
+
+每次构建都会替换 `.output` 文件夹，因此请使用 `--org` 和 `--app` 传入组织和应用的
+名称。已保存的密钥会保留在应用上，因此你无需重复第 5 步。
+
+## 下一步 {#whats-next}
+
+- [**Node.js**](/docs/node-js) - 在你管理的机器上运行应用
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产设置的完整列表
+- [**部署**](/docs/deployment) - 比较各个托管目标及其前提条件

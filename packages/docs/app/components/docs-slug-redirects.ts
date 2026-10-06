@@ -3,7 +3,6 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   frames: "agent-surfaces",
   "database-adapters": "deployment",
   "aws-lambda": "deployment",
-  "deno-deploy": "deployment",
   "azure-static-web-apps": "deployment",
   "other-platforms": "deployment",
   "aws-amplify": "deployment",

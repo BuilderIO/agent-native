@@ -1,0 +1,216 @@
+---
+title: "Deno Deploy"
+description: "Implante um app independente do Agent-Native no Deno Deploy com a CLI deno deploy."
+---
+
+# Deno Deploy
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+O Deno Deploy executa o seu app na rede global do Deno, então não há nenhum servidor para configurar
+ou manter em execução. O build transforma o app em um único servidor Deno que
+cuida das páginas e da API do app, e o Deno Deploy dá ao app um endereço público
+com HTTPS.
+
+Este guia mostra como implantar um app independente do zero. Você vai
+criar o app, dar a ele um banco de dados de produção e um segredo de autenticação, preparar o
+banco de dados, fazer o build para o Deno e, depois, enviar o build finalizado com o
+comando `deno deploy`.
+
+<Callout tone="info">
+
+É necessário o Node.js `22.22+`.
+
+</Callout>
+
+Você também precisa de uma conta do Deno Deploy e do [Deno](https://docs.deno.com/runtime/getting_started/installation/)
+instalado no seu computador. Execute os comandos deste guia no seu próprio computador.
+Você faz o build do app com o Node.js, e o comando `deno deploy` envia o
+build finalizado para o Deno Deploy.
+
+## Passo 1: Crie o app {#step-1-create-the-app}
+
+Crie o seu novo app independente. O exemplo abaixo cria um app a partir do template Chat,
+mas você pode começar de qualquer template. Entre na pasta do app e
+instale as dependências. `corepack enable` ativa a versão do `pnpm` que o app
+espera, então você não precisa instalar o `pnpm` por conta própria.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Se quiser, substitua `my-app` pelo nome do seu app. O restante deste guia
+considera que você está dentro da pasta do app.
+
+## Passo 2: Configure os segredos do ambiente {#step-2-configure-environment-secrets}
+
+O app lê as configurações de produção a partir de variáveis de ambiente:
+
+| Variável             | Obrigatória | Finalidade                                                           |
+| -------------------- | ----------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL                       |
+| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                                       |
+| `BETTER_AUTH_URL`    | Não         | Define o endereço público que as pessoas usam para acessar o seu app |
+
+Os exports abaixo fazem os comandos seguintes funcionarem neste shell. Antes de
+implantar, salve essas mesmas variáveis nas configurações de ambiente do projeto ou serviço do seu host.
+O Passo 5 mostra como salvá-las no Deno Deploy.
+
+### URL do banco de dados {#database-url}
+
+Durante o desenvolvimento local, o app armazena os dados em um banco de dados local quando
+`DATABASE_URL` não está definida. Um app implantado precisa de um banco de dados PostgreSQL real que
+mantenha os dados entre implantações. O Deno Deploy não mantém arquivos entre requisições,
+então o banco de dados precisa ficar fora do Deno Deploy. Copie a string de conexão
+do seu provedor e exporte-a:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Os [guias de provedores de banco de dados](/docs/neon) mostram onde encontrar a string de conexão
+de cada provedor.
+
+<Callout tone="warning">
+
+Escolha um provedor de PostgreSQL persistente, como Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Segredo de autenticação {#auth-secret}
+
+Gere este valor uma única vez e mantenha-o igual em todas as implantações.
+
+O app usa `BETTER_AUTH_SECRET` para assinar as sessões dos usuários. Se ele mudar, todos os
+usuários conectados são desconectados. O comando abaixo gera um valor aleatório:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Salve o valor gerado em um lugar seguro, como um gerenciador de senhas. Use o
+mesmo valor sempre que implantar.
+
+### URL pública {#public-url}
+
+É opcional. Defina-a ao usar um domínio personalizado, um proxy reverso ou um fluxo de autenticação ou OAuth
+que precise de uma origem pública fixa.
+
+`BETTER_AUTH_URL` é o endereço público que as pessoas usam para acessar o seu app. Sem
+ela, o app descobre o próprio endereço a partir de cada requisição recebida. Isso normalmente
+funciona bem no endereço que o Deno Deploy fornece, mas defina-a quando conectar um domínio
+personalizado, para que os links de login e os redirecionamentos de OAuth usem esse domínio.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Passo 3: Execute as migrações {#step-3-migrate}
+
+As migrações criam e atualizam as tabelas de que o app precisa no seu banco de dados. Execute
+isto antes da primeira implantação:
+
+```bash
+pnpm migrate:production
+```
+
+O comando é executado no seu computador e se conecta ao banco de dados de produção com
+a `DATABASE_URL` que você exportou no Passo 2. Execute-o novamente depois de atualizar o
+app e antes de implantar a nova versão.
+
+## Passo 4: Faça o build {#step-4-build}
+
+Faça o build do app para o Deno Deploy:
+
+```bash
+NITRO_PRESET=deno_deploy pnpm build
+```
+
+`NITRO_PRESET=deno_deploy` faz o build do app como um servidor Deno que usa
+`Deno.serve()`, como o Deno Deploy exige. O build grava o servidor em
+`.output/server/index.ts` e os arquivos estáticos em `.output/public`. Ele empacota
+as dependências do app dentro do servidor, então a pasta `.output` funciona sozinha
+sem instalar nada.
+
+## Passo 5: Crie o app no Deno Deploy e salve os segredos {#step-5-create-the-app-on-deno-deploy-and-save-the-secrets}
+
+Entre na saída do build e, depois, crie o app no Deno Deploy a partir dessa pasta:
+
+```bash
+cd .output
+
+deno deploy create --source local --runtime-mode dynamic --entrypoint server/index.ts
+```
+
+O comando abre uma configuração interativa que faz o seu login, pergunta qual
+organização usar e pede o nome do app. `--source local` envia a
+pasta atual em vez de fazer o build a partir do GitHub. `--runtime-mode dynamic` e
+`--entrypoint server/index.ts` dizem ao Deno Deploy para executar o servidor do Passo 4.
+Não há nenhuma etapa de build para configurar, porque você já fez o build do app.
+
+Salve as duas variáveis obrigatórias como segredos no app:
+
+```bash
+deno deploy env add DATABASE_URL "$DATABASE_URL" --secret
+
+deno deploy env add BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" --secret
+```
+
+Cada comando lê o valor que você exportou no Passo 2 e o salva no Deno
+Deploy, então você não precisa colar os segredos manualmente. `--secret` marca cada
+valor como segredo. Se você definir `BETTER_AUTH_URL`, salve-a da
+mesma forma. Você também pode ver e alterar esses valores depois nas configurações do app
+no painel do Deno Deploy.
+
+## Passo 6: Implante {#step-6-deploy}
+
+<Steps>
+
+### Implante em produção
+
+A partir da pasta `.output`, publique o build no seu endereço de produção:
+
+```bash
+deno deploy --prod
+```
+
+Implantar novamente depois de salvar os segredos garante que o app em execução
+tenha esses valores.
+
+### Abra o app
+
+Quando o comando termina, ele mostra o endereço do app, que se parece com
+`my-app.your-org.deno.net`. Abra-o e crie a primeira conta.
+
+</Steps>
+
+## Implante atualizações {#deploy-updates}
+
+Para publicar uma nova versão, execute as migrações, faça o build novamente e implante a partir da
+pasta `.output`:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=deno_deploy pnpm build
+
+cd .output
+
+deno deploy --prod --org your-org --app my-app
+```
+
+Cada build substitui a pasta `.output`, então informe os nomes da organização e do app
+com `--org` e `--app`. Os segredos salvos continuam no app, então você não precisa
+repetir o Passo 5.
+
+## O que vem a seguir {#whats-next}
+
+- [**Node.js**](/docs/node-js) - execute o app em uma máquina que você gerencia
+- [**Implantação: Variáveis de Ambiente**](/docs/deployment-environment-variables) - a lista completa de configurações de produção
+- [**Implantação**](/docs/deployment) - compare destinos de hospedagem e pré-requisitos

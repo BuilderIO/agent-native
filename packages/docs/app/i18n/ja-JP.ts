@@ -2600,6 +2600,7 @@ const jaJP = {
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
     deploymentOtherPlatforms: "その他のプラットフォーム",
     ssrCaching: "SSRキャッシュ",
     deploymentEnvironmentVariables: "デプロイ: 環境変数",

@@ -1,0 +1,170 @@
+---
+title: "Deno Deploy"
+description: "deno deploy CLI を使って、スタンドアロンの Agent-Native アプリを Deno Deploy にデプロイします。"
+---
+
+# Deno Deploy
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+Deno Deploy は Deno のグローバル ネットワーク上でアプリを実行するため、サーバーを用意したり動かし続けたりする必要はありません。ビルドによって、アプリはアプリのページと API を処理する 1 つの Deno サーバーに変換されます。また、Deno Deploy はアプリに HTTPS 対応の公開アドレスを割り当てます。
+
+このガイドでは、スタンドアロン アプリを 1 つ、ゼロからデプロイする手順を説明します。アプリを作成し、本番用のデータベースと認証シークレットを用意し、データベースを準備し、Deno 向けにビルドしてから、`deno deploy` コマンドで完成したビルドをアップロードします。
+
+<Callout tone="info">
+
+Node.js `22.22+` が必要です。
+
+</Callout>
+
+Deno Deploy アカウントと、自分のコンピューターにインストールした [Deno](https://docs.deno.com/runtime/getting_started/installation/) も必要です。このガイドのコマンドは自分のコンピューター上で実行してください。アプリは Node.js でビルドし、`deno deploy` コマンドが完成したビルドを Deno Deploy にアップロードします。
+
+## ステップ 1: アプリを作成する {#step-1-create-the-app}
+
+新しいスタンドアロン アプリを作成します。以下の例では Chat テンプレートからアプリを作成していますが、どのテンプレートから始めてもかまいません。アプリのフォルダーに移動し、依存関係をインストールします。`corepack enable` はアプリが想定する `pnpm` のバージョンを有効にするため、`pnpm` を自分でインストールする必要はありません。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+必要に応じて、`my-app` を自分のアプリ名に置き換えてください。このガイドの以降の手順は、アプリのフォルダー内にいることを前提としています。
+
+## ステップ 2: 環境シークレットを設定する {#step-2-configure-environment-secrets}
+
+アプリは本番用の設定を環境変数から読み取ります。
+
+| 変数                 | 必須   | 用途                                                 |
+| -------------------- | ------ | ---------------------------------------------------- |
+| `DATABASE_URL`       | はい   | アプリを PostgreSQL データベースに接続する           |
+| `BETTER_AUTH_SECRET` | はい   | ユーザー セッションに署名する                        |
+| `BETTER_AUTH_URL`    | いいえ | ユーザーがアプリにアクセスする公開アドレスを設定する |
+
+以下の export により、このシェルで後続のコマンドが動作するようになります。デプロイする前に、同じ変数をホストのプロジェクトまたはサービスの環境設定にも保存してください。Deno Deploy に保存する方法はステップ 5 で説明します。
+
+### データベース URL {#database-url}
+
+ローカル開発中、`DATABASE_URL` が設定されていない場合、アプリはデータをローカル データベースに保存します。デプロイしたアプリには、デプロイ後もデータを保持する本物の PostgreSQL データベースが必要です。Deno Deploy はリクエスト間でファイルを保持しないため、データベースは Deno Deploy の外に置く必要があります。プロバイダーから接続文字列をコピーし、export します。
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+各プロバイダーで接続文字列を確認する場所は、[データベース プロバイダー ガイド](/docs/neon)で説明しています。
+
+<Callout tone="warning">
+
+Neon、Supabase、Amazon RDS などの永続的な PostgreSQL プロバイダーを選択してください。
+
+</Callout>
+
+### 認証シークレット {#auth-secret}
+
+この値は一度だけ生成し、デプロイ間で変更しないでください。
+
+アプリは `BETTER_AUTH_SECRET` を使ってユーザー セッションに署名します。この値が変わると、サインイン中のすべてのユーザーがサインアウトされます。以下のコマンドでランダムな値を生成します。
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+生成した値は、パスワード マネージャーなど、安全な場所に保存してください。デプロイのたびに同じ値を使用します。
+
+### 公開 URL {#public-url}
+
+省略可能です。カスタム ドメイン、リバース プロキシ、または固定の公開オリジンを必要とする認証や OAuth のフローを使う場合に設定します。
+
+`BETTER_AUTH_URL` は、ユーザーがアプリにアクセスする公開アドレスです。設定しない場合、アプリは受信したリクエストごとに自身のアドレスを判断します。Deno Deploy が割り当てるアドレスでは通常それで問題ありませんが、カスタム ドメインを接続する場合は、サインイン リンクや OAuth のリダイレクトがそのドメインを使うように設定してください。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## ステップ 3: マイグレーション {#step-3-migrate}
+
+マイグレーションは、アプリに必要なテーブルをデータベースに作成し、更新します。最初のデプロイの前にこれを実行してください。
+
+```bash
+pnpm migrate:production
+```
+
+このコマンドは自分のコンピューター上で実行され、ステップ 2 で export した `DATABASE_URL` を使って本番データベースに接続します。アプリをアップグレードした後は、新しいバージョンをデプロイする前にもう一度実行してください。
+
+## ステップ 4: ビルド {#step-4-build}
+
+アプリを Deno Deploy 向けにビルドします。
+
+```bash
+NITRO_PRESET=deno_deploy pnpm build
+```
+
+`NITRO_PRESET=deno_deploy` は、Deno Deploy が必要とする `Deno.serve()` を使う Deno サーバーとしてアプリをビルドします。ビルドはサーバーを `.output/server/index.ts` に、静的ファイルを `.output/public` に書き出します。アプリの依存関係はサーバーにバンドルされるため、`.output` フォルダーは何もインストールせずに単独で動作します。
+
+## ステップ 5: Deno Deploy でアプリを作成してシークレットを保存する {#step-5-create-the-app-on-deno-deploy-and-save-the-secrets}
+
+ビルドの出力先に移動し、そのフォルダーから Deno Deploy 上にアプリを作成します。
+
+```bash
+cd .output
+
+deno deploy create --source local --runtime-mode dynamic --entrypoint server/index.ts
+```
+
+このコマンドは対話形式のセットアップを開き、サインインを行い、使用する組織とアプリの名前を尋ねます。`--source local` は、GitHub からビルドする代わりに現在のフォルダーをアップロードします。`--runtime-mode dynamic` と `--entrypoint server/index.ts` は、ステップ 4 のサーバーを実行するよう Deno Deploy に指示します。アプリはすでにビルド済みのため、ビルド ステップを設定する必要はありません。
+
+必須の 2 つの変数を、アプリのシークレットとして保存します。
+
+```bash
+deno deploy env add DATABASE_URL "$DATABASE_URL" --secret
+
+deno deploy env add BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET" --secret
+```
+
+各コマンドはステップ 2 で export した値を読み取って Deno Deploy に保存するため、シークレットを手で貼り付ける必要はありません。`--secret` は各値をシークレットとしてマークします。`BETTER_AUTH_URL` を設定した場合は、同じ方法で保存してください。これらの値は、後から Deno Deploy ダッシュボードのアプリの設定で確認したり変更したりすることもできます。
+
+## ステップ 6: デプロイ {#step-6-deploy}
+
+<Steps>
+
+### 本番環境にデプロイする
+
+`.output` フォルダーから、ビルドを本番アドレスに公開します。
+
+```bash
+deno deploy --prod
+```
+
+シークレットを保存した後にもう一度デプロイすることで、実行中のアプリにシークレットが確実に反映されます。
+
+### アプリを開く
+
+コマンドが完了すると、`my-app.your-org.deno.net` のようなアプリのアドレスが表示されます。そのアドレスを開き、最初のアカウントを作成します。
+
+</Steps>
+
+## 更新をデプロイする {#deploy-updates}
+
+新しいバージョンをリリースするには、マイグレーションを実行し、もう一度ビルドしてから、`.output` フォルダーからデプロイします。
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=deno_deploy pnpm build
+
+cd .output
+
+deno deploy --prod --org your-org --app my-app
+```
+
+ビルドのたびに `.output` フォルダーが置き換えられるため、組織名とアプリ名を `--org` と `--app` で指定します。保存したシークレットはアプリに残るため、ステップ 5 を繰り返す必要はありません。
+
+## 次のステップ {#whats-next}
+
+- [**Node.js**](/docs/node-js) - 自分で管理するマシンでアプリを実行する
+- [**デプロイ環境変数**](/docs/deployment-environment-variables) - 本番設定の完全な一覧
+- [**デプロイ**](/docs/deployment) - ホスティング ターゲットと前提条件を比較する

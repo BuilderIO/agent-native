@@ -2531,6 +2531,7 @@ const messages = {
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 快取",
     deploymentEnvironmentVariables: "部署：環境變數",

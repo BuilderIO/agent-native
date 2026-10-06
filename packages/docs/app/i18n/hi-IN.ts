@@ -2578,6 +2578,7 @@ const hiIN = {
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
     deploymentOtherPlatforms: "अन्य Platforms",
     ssrCaching: "SSR कैशिंग",
     deploymentEnvironmentVariables: "Deployment: पर्यावरण चर",

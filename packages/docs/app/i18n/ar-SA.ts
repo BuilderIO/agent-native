@@ -2574,6 +2574,7 @@ const arSA = {
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
     deploymentOtherPlatforms: "منصات أخرى",
     ssrCaching: "تخزين SSR المؤقت",
     deploymentEnvironmentVariables: "النشر: متغيرات البيئة",

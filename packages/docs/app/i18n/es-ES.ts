@@ -2621,6 +2621,7 @@ const esES = {
     deploymentCloudflare: "Cloudflare",
     deploymentRender: "Render",
     deploymentKoyeb: "Koyeb",
+    deploymentDenoDeploy: "Deno Deploy",
     deploymentOtherPlatforms: "Otras Plataformas",
     ssrCaching: "Caché de SSR",
     deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",
