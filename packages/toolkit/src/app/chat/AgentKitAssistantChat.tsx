@@ -62,7 +62,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
-import { invalidateClientStatusRequest } from "@agent-native/core/client/status-requests";
+import { expireClientStatusResult } from "@agent-native/core/client/status-requests";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
 import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "@agent-native/core/package-lifecycle/migration-message";
@@ -1164,14 +1164,31 @@ const AgentKitAssistantChatBody = forwardRef<
   const [submissionReadiness, setSubmissionReadiness] =
     useState<AgentEngineConfiguredState | null>(null);
   const readinessRequestIdRef = useRef(0);
+  const providerReadinessRequestRef = useRef<{
+    requestId: number;
+    promise: Promise<AgentEngineConfiguredState>;
+  } | null>(null);
+  const latestResolvedReadinessRef = useRef<{
+    requestId: number;
+    state: AgentEngineConfiguredState;
+  } | null>(null);
   const passiveReadinessRef = useRef(readiness.state);
-  const providerReadinessPassRef = useRef(false);
+  const providerReadinessPassRef = useRef<number | null>(null);
   const latestSubmissionReadinessRef = useRef(readiness.state);
   useEffect(() => {
     if (passiveReadinessRef.current !== readiness.state) {
+      const explicitReadinessPassed =
+        providerReadinessPassRef.current === readinessRequestIdRef.current &&
+        latestResolvedReadinessRef.current?.requestId ===
+          readinessRequestIdRef.current &&
+        latestResolvedReadinessRef.current.state === "configured";
+      if (readiness.state === "unavailable" && explicitReadinessPassed) {
+        return;
+      }
       passiveReadinessRef.current = readiness.state;
       readinessRequestIdRef.current += 1;
-      providerReadinessPassRef.current = false;
+      providerReadinessRequestRef.current = null;
+      providerReadinessPassRef.current = null;
       latestSubmissionReadinessRef.current = readiness.state;
       setSubmissionReadiness(null);
       return;
@@ -1880,22 +1897,59 @@ const AgentKitAssistantChatBody = forwardRef<
 
   const refreshProviderReadiness = useCallback(async () => {
     if (!providerChecksEnabled) return "configured";
-    const requestId = ++readinessRequestIdRef.current;
-    invalidateClientStatusRequest("/_agent-native/agent-engine/status");
-    const nextReadiness = await fetchAgentEngineConfiguredState(true);
-    if (requestId !== readinessRequestIdRef.current) {
+    let request = providerReadinessRequestRef.current;
+    if (!request || request.requestId !== readinessRequestIdRef.current) {
+      const requestId = ++readinessRequestIdRef.current;
+      providerReadinessPassRef.current = null;
+      expireClientStatusResult("/_agent-native/agent-engine/status");
+      request = {
+        requestId,
+        promise: fetchAgentEngineConfiguredState(true),
+      };
+      providerReadinessRequestRef.current = request;
+    }
+    let currentRequest = request;
+    while (true) {
+      const nextReadiness = await currentRequest.promise;
+      if (currentRequest.requestId === readinessRequestIdRef.current) {
+        if (providerReadinessRequestRef.current === currentRequest) {
+          providerReadinessRequestRef.current = null;
+        }
+        latestResolvedReadinessRef.current = {
+          requestId: currentRequest.requestId,
+          state: nextReadiness,
+        };
+        latestSubmissionReadinessRef.current = nextReadiness;
+        setSubmissionReadiness(nextReadiness);
+        return nextReadiness;
+      }
+      const latestRequest = providerReadinessRequestRef.current;
+      if (
+        latestRequest &&
+        latestRequest.requestId === readinessRequestIdRef.current &&
+        latestRequest.requestId > currentRequest.requestId
+      ) {
+        currentRequest = latestRequest;
+        continue;
+      }
+      const latestResolved = latestResolvedReadinessRef.current;
+      if (latestResolved?.requestId === readinessRequestIdRef.current) {
+        return latestResolved.state;
+      }
       return latestSubmissionReadinessRef.current;
     }
-    latestSubmissionReadinessRef.current = nextReadiness;
-    setSubmissionReadiness(nextReadiness);
-    return nextReadiness;
   }, [providerChecksEnabled]);
 
   const acquireSubmission = useCallback(
     async (useReadinessPass = false) => {
+      const readinessPass = providerReadinessPassRef.current;
       const hasReadinessPass =
-        useReadinessPass && providerReadinessPassRef.current;
-      if (useReadinessPass) providerReadinessPassRef.current = false;
+        useReadinessPass &&
+        readinessPass !== null &&
+        readinessPass === readinessRequestIdRef.current &&
+        latestResolvedReadinessRef.current?.requestId === readinessPass &&
+        latestResolvedReadinessRef.current.state === "configured";
+      if (useReadinessPass) providerReadinessPassRef.current = null;
       if (
         isRestoring ||
         props.composerDisabled ||
@@ -1930,7 +1984,7 @@ const AgentKitAssistantChatBody = forwardRef<
   );
 
   const beforeSubmit = useCallback(async () => {
-    providerReadinessPassRef.current = false;
+    providerReadinessPassRef.current = null;
     composerPreflightRunActiveRef.current = null;
     if (
       isRestoring ||
@@ -1941,16 +1995,31 @@ const AgentKitAssistantChatBody = forwardRef<
     const runWasActive = isThreadRunning();
     if (!providerChecksEnabled) {
       composerPreflightRunActiveRef.current = runWasActive;
-      providerReadinessPassRef.current = true;
       return true;
     }
-    const currentReadiness = await refreshProviderReadiness();
+    let currentReadiness = await refreshProviderReadiness();
+    let resolvedReadiness = latestResolvedReadinessRef.current;
+    while (
+      currentReadiness === "configured" &&
+      (!resolvedReadiness ||
+        resolvedReadiness.requestId !== readinessRequestIdRef.current ||
+        resolvedReadiness.state !== "configured")
+    ) {
+      currentReadiness = await refreshProviderReadiness();
+      resolvedReadiness = latestResolvedReadinessRef.current;
+    }
     if (currentReadiness !== "configured") {
       if (currentReadiness === "missing") reportMissingProvider();
       return false;
     }
+    if (
+      !resolvedReadiness ||
+      resolvedReadiness.requestId !== readinessRequestIdRef.current
+    ) {
+      return false;
+    }
     composerPreflightRunActiveRef.current = runWasActive;
-    providerReadinessPassRef.current = true;
+    providerReadinessPassRef.current = resolvedReadiness.requestId;
     return true;
   }, [
     isRestoring,

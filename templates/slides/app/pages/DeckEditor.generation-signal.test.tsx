@@ -478,6 +478,7 @@ describe("DeckEditor generation signal wiring", () => {
       ],
       {
         initialEntries: [
+          "/home",
           "/deck/deck-1?generating=1&generationSubmitId=submit-1",
         ],
       },
@@ -494,6 +495,11 @@ describe("DeckEditor generation signal wiring", () => {
     expect(router?.state.location.state).toEqual({
       retryPrompt: "Create a product launch deck",
     });
+
+    await act(async () => {
+      void router?.navigate(-1);
+    });
+    await waitFor(() => expect(router?.state.location.pathname).toBe("/home"));
   });
 
   it("keeps the empty generation deck open when saving before Home fails", async () => {

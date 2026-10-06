@@ -987,6 +987,7 @@ export default function DeckEditor() {
             ? generationContext.originalPrompt
             : undefined;
         void navigate("/home", {
+          replace: true,
           ...(retryPrompt ? { state: { retryPrompt } } : {}),
         });
       },

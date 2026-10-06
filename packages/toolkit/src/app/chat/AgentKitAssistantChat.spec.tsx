@@ -54,7 +54,7 @@ const chatMocks = vi.hoisted(() => ({
   requestComposerFocus: vi.fn(),
   readiness: { canChat: true, missing: false, state: "configured" },
   fetchProviderState: vi.fn(async () => chatMocks.readiness.state),
-  invalidateProviderStatus: vi.fn(),
+  expireProviderStatus: vi.fn(),
   fileUploadStatus: {
     data: { configured: true },
     isError: false,
@@ -504,7 +504,7 @@ vi.mock("@agent-native/core/client/status-requests", async (importOriginal) => {
     >();
   return {
     ...actual,
-    invalidateClientStatusRequest: chatMocks.invalidateProviderStatus,
+    expireClientStatusResult: chatMocks.expireProviderStatus,
   };
 });
 
@@ -775,7 +775,7 @@ beforeEach(() => {
   chatMocks.fetchProviderState
     .mockReset()
     .mockImplementation(async () => chatMocks.readiness.state);
-  chatMocks.invalidateProviderStatus.mockReset();
+  chatMocks.expireProviderStatus.mockReset();
   chatMocks.fileUploadStatus = {
     data: { configured: true },
     isError: false,
@@ -1957,7 +1957,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       await Promise.resolve();
     });
     expect(chatMocks.fetchProviderState).toHaveBeenCalledOnce();
-    expect(chatMocks.invalidateProviderStatus).toHaveBeenCalledWith(
+    expect(chatMocks.expireProviderStatus).toHaveBeenCalledWith(
       "/_agent-native/agent-engine/status",
     );
     expect(
@@ -2098,11 +2098,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
-  it("ignores an older missing readiness preflight that resolves after a configured result", async () => {
+  it("waits for the newest readiness result before authorizing a send", async () => {
     chatMocks.readiness = {
-      canChat: false,
+      canChat: true,
       missing: false,
-      state: "unknown",
+      state: "configured",
     };
     let resolveFirst!: (state: "configured" | "missing") => void;
     let resolveSecond!: (state: "configured" | "missing") => void;
@@ -2123,22 +2123,96 @@ describe("AgentKitAssistantChat host behavior", () => {
     let secondPreflight!: Promise<boolean>;
     await act(async () => {
       firstPreflight = chatMocks.composerProps.onBeforeSubmit();
+      await Promise.resolve();
+    });
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ providerStatusChecksEnabled: true })}
+        />,
+      );
+    });
+    await act(async () => {
       secondPreflight = chatMocks.composerProps.onBeforeSubmit();
       await Promise.resolve();
     });
+    expect(chatMocks.fetchProviderState).toHaveBeenCalledTimes(2);
 
     await act(async () => {
-      resolveSecond("configured");
-      await expect(secondPreflight).resolves.toBe(true);
+      resolveFirst("configured");
+      await Promise.resolve();
     });
+    let firstSettled = false;
+    void firstPreflight.then(() => {
+      firstSettled = true;
+    });
+    await flush();
+    expect(firstSettled).toBe(false);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+
     await act(async () => {
-      resolveFirst("missing");
-      await expect(firstPreflight).resolves.toBe(true);
+      resolveSecond("missing");
+      await expect(firstPreflight).resolves.toBe(false);
+      await expect(secondPreflight).resolves.toBe(false);
+    });
+
+    expect(chatMocks.composerProps.disabled).toBe(true);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+    expect(chatMocks.setupCardProps).toMatchObject({ attached: true });
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps a successful submit preflight through a transient passive failure", async () => {
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    let resolveReadiness!: (state: "configured" | "missing") => void;
+    chatMocks.fetchProviderState.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveReadiness = resolve;
+      }),
+    );
+    const props = baseProps({ providerStatusChecksEnabled: true });
+    await mount(props);
+
+    let preflight!: Promise<boolean>;
+    await act(async () => {
+      preflight = chatMocks.composerProps.onBeforeSubmit();
+      await Promise.resolve();
+    });
+    expect(chatMocks.fetchProviderState).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveReadiness("configured");
+      await expect(preflight).resolves.toBe(true);
+    });
+
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unavailable",
+    };
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...props} />);
     });
 
     expect(chatMocks.composerProps.disabled).toBe(false);
     expect(chatMocks.composerProps.submissionDisabled).toBe(false);
-    expect(chatMocks.setupCardProps).toBeNull();
+
+    await act(async () =>
+      chatMocks.composerProps.onSubmit("Send", [], [], {
+        intent: "immediate",
+      }),
+    );
+    expect(chatMocks.fetchProviderState).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
   });
 
   it("keeps the composer editable when the host blocks submission", async () => {
