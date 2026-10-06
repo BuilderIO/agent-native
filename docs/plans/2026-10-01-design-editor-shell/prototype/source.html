@@ -570,8 +570,10 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .fillrow .inp .hex { flex: 1; min-width: 0; text-align: left; text-transform: uppercase; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Only a hex reads in capitals; a gradient's type, Image, or a CSS color keeps its own case. */
 .fillrow .inp .hex.name { text-transform: none; }
+/* A P3 or OKLCH reading needs about 114px; at full opacity it takes the percent's room, and the percent shows once it isn't 100%. */
+.fillrow .inp .hex.wide { padding-right: 0; letter-spacing: -0.01em; }
 /* The color space, when a color is past sRGB: muted, like a field prefix. */
-.cpre { margin-right: 4px; color: var(--muted-fg); font-weight: 500; }
+.cpre { margin-right: 3px; color: var(--muted-fg); }
 .fillrow .inp .pct { color: var(--muted-fg); font-size: 11px; padding-right: 8px; }
 .wide-btn { height: 24px; border-radius: 6px; background: var(--muted); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11px; font-weight: 500; width: 100%; }
 .wide-btn:hover { background: var(--border); }
@@ -1801,7 +1803,7 @@ function renderInspector() {
       <div class="g5">${field("Line height", inp(ic("line-height", "s12"), p.lh))}${field("Letter spacing", inp(ic("letter-spacing", "s12"), p.ls), "c3")}</div>
       <div class="g5">${field("Align", segc(["align-left", "align-center", "align-right"], 1))}${field("&nbsp;", segc(["layout-align-top", "layout-align-middle", "layout-align-bottom"], 0), "c3")}<div class="c5" style="align-self:end">${act("adjustments-horizontal", "More type options")}</div></div>`) : ""}
     ${sec("fill", "Fill", act("layout-grid", "Styles") + act("plus", "Add fill"), `
-      <div class="fillrow"><div class="inp fillfield"><button class="fill-main" data-fill aria-haspopup="dialog" title="Edit fill"><span class="swatch" style="background:${fillSwatch(p)}"></span>${(ct => p.fillToken ? `<span class="tok-chip">${fillLabel(p)}</span><span class="pct">100%</span>` : ct ? `<span class="hex" title="${fillCss(p)}">${colorHTML(ct)}</span><span class="pct">${Math.round(ct.a * 100)}%</span>` : `<span class="hex name">${fillLabel(p)}</span><span class="pct">100%</span>`)(!p.fillToken && !isPaintCss(fillCss(p)) && colorText(fillCss(p)))}</button><button class="post" data-fill-menu aria-haspopup="menu" title="Color tokens">${ic("chevron-down", "s12")}</button></div>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
+      <div class="fillrow"><div class="inp fillfield"><button class="fill-main" data-fill aria-haspopup="dialog" title="Edit fill"><span class="swatch" style="background:${fillSwatch(p)}"></span>${(ct => p.fillToken ? `<span class="tok-chip">${fillLabel(p)}</span><span class="pct">100%</span>` : ct ? `<span class="hex${ct.pre && ct.a === 1 ? " wide" : ""}" title="${fillCss(p)}">${colorHTML(ct)}</span>${ct.pre && ct.a === 1 ? "" : `<span class="pct">${Math.round(ct.a * 100)}%</span>`}` : `<span class="hex name">${fillLabel(p)}</span><span class="pct">100%</span>`)(!p.fillToken && !isPaintCss(fillCss(p)) && colorText(fillCss(p)))}</button><button class="post" data-fill-menu aria-haspopup="menu" title="Color tokens">${ic("chevron-down", "s12")}</button></div>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
     ${sec("stroke", "Stroke", act("layout-grid", "Styles") + act("plus", "Add stroke"), "", { empty: true })}
     ${sec("effects", "Effects", act("layout-grid", "Styles") + act("plus", "Add effect"), "", { empty: true })}
     ${responsiveSection(id)}
@@ -3390,16 +3392,14 @@ const isColor = v => /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim()
 // A token whose files define it with different values gets a mark naming them (index-design-tokens returns sourceValues).
 const tokenConflict = t => { const e = Object.entries(t.sourceValues || {}); return new Set(e.map(([, v]) => v.toLowerCase())).size > 1 ? `Defined differently in ${e.map(([f, v]) => `${f} (${v})`).join(" and ")}` : ""; };
 // A fill is a hex (stored without #, as the inspector shows it), any CSS color the picker wrote, or a token.
-// Outside the picker a color reads as one short line whatever mode wrote it: its hex while it fits sRGB (most colors,
-// and what code and Figma show), the Display P3 hex past sRGB, and L C H past P3, with the space as a muted prefix.
-// The CSS keeps the notation it was written in; tooltips show it in full. Opacity reads separately, as a percent.
+// Outside the picker a color reads as one short line in the notation it's written in, with the same numbers as the
+// picker's fields: sRGB notations (hex, rgb, hsl, HSB) as the hex, which is the same color; Display P3 and OKLCH as their
+// own numbers after a muted P3 or OKLCH, since a designer working in them shouldn't see a hex. The tooltip has the full CSS.
 function colorText(v) {
   const c = parseColor(v); if (!c) return null;
-  const hex = ch => ch.map(x => Math.round(clamp01(x) * 255).toString(16).padStart(2, "0")).join("");
-  if (inSrgb(c.lin)) return { pre: "", text: hex(c.lin.map(toGam)), a: c.a };
-  if (inP3(c.lin)) return { pre: "P3", text: hex(linToP3(c.lin)), a: c.a };
-  const [L, C, H] = c.auth ? [c.auth[0], c.auth[1], c.auth[2]] : (o => [o[0] * 100, o[1], o[2]])(linToOklch(c.lin));
-  return { pre: "OKLCH", text: `${+L.toFixed(1)} ${+C.toFixed(3)} ${Math.round(H) % 360}`, a: c.a };
+  if (c.mode === "p3") return { pre: "P3", text: linToP3(fitGamut(c.lin, inP3)).map(clamp01).map(r3).join(" "), a: c.a };
+  if (c.mode === "oklch") { const [L, C, H] = c.auth || (o => [o[0] * 100, o[1], o[2]])(linToOklch(c.lin)); return { pre: "OKLCH", text: `${+L.toFixed(1)} ${r3(C)} ${Math.round(H) % 360}`, a: c.a }; }
+  return { pre: "", text: formatColor(c.lin, 1, "hex").slice(1, 7), a: c.a };
 }
 const colorHTML = (ct, hash = false) => `${ct.pre ? `<span class="cpre">${ct.pre}</span>` : hash ? "#" : ""}${ct.text}`;
 const fillCss = p => p.fillToken ? `var(${p.fillToken})` : parseHex(p.fill) && !String(p.fill).startsWith("#") ? "#" + p.fill : p.fill;
