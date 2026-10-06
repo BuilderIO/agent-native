@@ -50,7 +50,12 @@ export async function resolveA2ACallerAuth(options?: {
     if (!token || apiKeyAttempts.includes(token)) return;
     apiKeyAttempts.push(token);
   };
-  if (userEmail && options?.audience && globalSecret) {
+  if (
+    userEmail &&
+    options?.audience &&
+    globalSecret &&
+    (!orgId || orgDomain?.trim())
+  ) {
     addApiKeyAttempt(
       await signA2AToken(userEmail, orgDomain, undefined, {
         expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
@@ -61,7 +66,7 @@ export async function resolveA2ACallerAuth(options?: {
   }
   if (orgDomain && options?.audience && (orgSecret || globalSecret)) {
     addApiKeyAttempt(
-      await signA2AOrganizationToken(orgDomain, orgSecret, orgId, {
+      await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
         expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
         audience: options?.audience,
       }),

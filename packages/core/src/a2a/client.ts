@@ -2135,7 +2135,11 @@ async function buildA2AApiKeyAttempts(
   };
 
   const globalSecret = getGlobalA2ASecret();
-  if (opts?.userEmail && globalSecret) {
+  if (
+    opts?.userEmail &&
+    globalSecret &&
+    (!opts.orgId || opts.orgDomain?.trim())
+  ) {
     add(
       await signA2AToken(opts.userEmail, opts.orgDomain, undefined, {
         preferGlobalSecret: true,
@@ -2149,7 +2153,7 @@ async function buildA2AApiKeyAttempts(
       await signA2AOrganizationToken(
         opts.orgDomain,
         opts.orgSecret,
-        opts.orgId,
+        undefined,
         { audience },
       ),
     );

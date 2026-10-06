@@ -153,6 +153,13 @@ human approval. Organization-scoped operations can run with this principal.
 Use an `A2A_SECRET`-signed user identity for user-owned operations and
 approval continuations. MCP applies the same distinction.
 
+Organization IDs are local to each app's database. For calls to a peer app,
+bind the token to the trusted `org_domain` and the peer's canonical audience;
+do not put the caller app's local `org_id` in the token. The receiver resolves
+the domain to its own organization row and binds authorization to that local
+ID. An ID-only token is valid only when both sides intentionally share the same
+local organization ID, such as a credential scoped to one local database.
+
 The org secret is managed at **Team page → A2A secret** (owner only), where it
 can be revealed, copied, regenerated, and pushed to discovered peers. It is a
 fallback for organization-scoped calls, not a fallback user identity.

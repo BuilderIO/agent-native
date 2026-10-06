@@ -416,7 +416,7 @@ describe("askGrantedDispatchMcpApp", () => {
     expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
       "builder.io",
       "org-specific-secret",
-      "org-1",
+      undefined,
       { audience: "http://localhost:8086" },
     );
     expect(mocks.a2aSend).toHaveBeenCalledWith(
@@ -444,6 +444,27 @@ describe("askGrantedDispatchMcpApp", () => {
       taskId: "task-1",
       status: "completed",
     });
+  });
+
+  it("does not sign an unscoped A2A user token when the active org domain is unavailable", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-a2a-secret");
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-without-domain",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => askGrantedDispatchMcpApp("analytics", "Build a dashboard."),
+    );
+
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      "http://localhost:8086",
+      undefined,
+      { requestTimeoutMs: 10_000 },
+    );
   });
 
   it("reuses the MCP request identity for transport retries", async () => {
@@ -1927,12 +1948,37 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
       "builder.io",
       "org-specific-secret",
-      "org-1",
+      undefined,
       {
         expiresIn: "5m",
         audience: "http://localhost:8086/mcp",
       },
     );
+  });
+
+  it("does not fall back to a shared unscoped token when the active org domain is unavailable", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-without-domain",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(
+      "Cannot authenticate cross-app MCP access without the active organization domain.",
+    );
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
   });
 
   it("uses the verified user token first and falls back to the org principal", async () => {
@@ -1992,7 +2038,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
       "builder.io",
       "org-specific-secret",
-      "org-1",
+      undefined,
       {
         expiresIn: "5m",
         audience: "http://localhost:8086/mcp",
@@ -2006,7 +2052,6 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         expiresIn: "5m",
         audience: "http://localhost:8086/mcp",
         preferGlobalSecret: true,
-        extraClaims: { org_id: "org-1" },
       },
     );
   });
@@ -2036,37 +2081,6 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         expiresIn: "5m",
         audience: "http://localhost:8086/mcp",
         preferGlobalSecret: true,
-        extraClaims: { org_id: "org-1" },
-      },
-    );
-  });
-
-  it("falls back to the shared A2A secret when org signing inputs are incomplete", async () => {
-    mocks.getOrgDomain.mockResolvedValue(null);
-    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
-
-    await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        orgId: "org-1",
-        requestOrigin: "http://localhost:8092",
-      },
-      () =>
-        createGrantedDispatchMcpEmbedSession({
-          app: "analytics",
-          path: "/dashboards",
-        }),
-    );
-
-    expect(mocks.signA2AToken).toHaveBeenCalledWith(
-      "owner@example.test",
-      undefined,
-      undefined,
-      {
-        expiresIn: "5m",
-        audience: "http://localhost:8086/mcp",
-        preferGlobalSecret: true,
-        extraClaims: { org_id: "org-1" },
       },
     );
   });

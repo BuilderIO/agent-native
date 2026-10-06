@@ -286,6 +286,7 @@ async function resolveHostedWorkspaceAppAuth(
         )
       : null;
     const normalizedOrgDomain = orgDomain?.trim() || undefined;
+    if (orgId && !normalizedOrgDomain) return null;
     const signingSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
     if (!signingSecret) return null;
     const token = await signA2AToken(email, normalizedOrgDomain, undefined, {
@@ -294,7 +295,6 @@ async function resolveHostedWorkspaceAppAuth(
       audience: canonicalA2AAudience(configuredDirectory),
       extraClaims: {
         jti: randomUUID(),
-        ...(orgId ? { org_id: orgId } : {}),
       },
     });
 

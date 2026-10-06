@@ -379,7 +379,7 @@ async function resolveOrgDirectoryServiceAuth(
     if (getGlobalA2ASecret()) {
       try {
         addApiKeyAttempt(
-          await signA2AOrganizationToken(orgDomain, orgSecret, trimmedOrgId, {
+          await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
             expiresIn: "5m",
             preferGlobalSecret: true,
             audience,
@@ -390,7 +390,7 @@ async function resolveOrgDirectoryServiceAuth(
     if (orgSecret) {
       try {
         addApiKeyAttempt(
-          await signA2AOrganizationToken(orgDomain, orgSecret, trimmedOrgId, {
+          await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
             expiresIn: "5m",
             preferGlobalSecret: false,
             audience,

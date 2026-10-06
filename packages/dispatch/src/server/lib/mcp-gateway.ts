@@ -266,19 +266,19 @@ async function createDispatchA2AClient(input: {
 }> {
   const apiKeys: string[] = [];
   const addSignedToken = async (preferGlobalSecret: boolean) => {
+    if (input.orgId && !input.orgDomain?.trim()) return;
     try {
       const audience = canonicalA2AAudience(input.targetUrl);
       const token = preferGlobalSecret
         ? await signA2AToken(input.userEmail, input.orgDomain, undefined, {
             preferGlobalSecret: true,
             audience,
-            ...(input.orgId ? { extraClaims: { org_id: input.orgId } } : {}),
           })
         : input.orgDomain && input.orgSecret
           ? await signA2AOrganizationToken(
               input.orgDomain,
               input.orgSecret,
-              input.orgId,
+              undefined,
               { audience },
             )
           : undefined;
@@ -1194,6 +1194,11 @@ async function createTargetMcpTokenAttempts(input: {
   target: DispatchMcpAccessibleApp;
 }): Promise<TargetMcpTokenAttempt[]> {
   const attempts: TargetMcpTokenAttempt[] = [];
+  if (input.orgId && !input.orgDomain?.trim()) {
+    throw new Error(
+      "Cannot authenticate cross-app MCP access without the active organization domain.",
+    );
+  }
   const addAttempt = async (tokenInput: {
     strategy: TargetMcpTokenAttempt["strategy"];
   }) => {
@@ -1205,14 +1210,13 @@ async function createTargetMcpTokenAttempts(input: {
         ? await signA2AOrganizationToken(
             input.orgDomain,
             input.orgSecret,
-            input.orgId,
+            undefined,
             { expiresIn: "5m", audience },
           )
         : await signA2AToken(input.ownerEmail, input.orgDomain, undefined, {
             expiresIn: "5m",
             audience,
             preferGlobalSecret: true,
-            ...(input.orgId ? { extraClaims: { org_id: input.orgId } } : {}),
           });
     if (!attempts.some((attempt) => attempt.token === token)) {
       attempts.push({ token, strategy: tokenInput.strategy });

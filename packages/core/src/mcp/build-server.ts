@@ -2778,9 +2778,13 @@ async function verifyA2AJwtForMcp(
       const hasOrganizationClaim =
         Object.prototype.hasOwnProperty.call(payload, "org_id") &&
         payload.org_id !== null;
+      const hasOrganizationDomainClaim =
+        Object.prototype.hasOwnProperty.call(payload, "org_domain") &&
+        payload.org_domain !== null;
       const locallyIssuedConnectToken =
         tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp;
-      const unclaimedFirstPartyToken = firstPartyMcp && !hasOrganizationClaim;
+      const unclaimedFirstPartyToken =
+        firstPartyMcp && !hasOrganizationClaim && !hasOrganizationDomainClaim;
       if (locallyIssuedConnectToken || unclaimedFirstPartyToken) {
         return payload;
       }

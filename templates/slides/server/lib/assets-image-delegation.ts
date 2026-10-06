@@ -109,7 +109,11 @@ async function buildCallerTokens(
     if (token && !tokens.includes(token)) tokens.push(token);
   };
 
-  if (auth.userEmail && getGlobalA2ASecret()) {
+  if (
+    auth.userEmail &&
+    getGlobalA2ASecret() &&
+    (!auth.orgId || auth.orgDomain?.trim())
+  ) {
     add(
       await signA2AToken(auth.userEmail, auth.orgDomain, undefined, {
         preferGlobalSecret: true,
@@ -123,7 +127,7 @@ async function buildCallerTokens(
       await signA2AOrganizationToken(
         auth.orgDomain,
         auth.orgSecret,
-        auth.orgId,
+        undefined,
         { audience },
       ),
     );

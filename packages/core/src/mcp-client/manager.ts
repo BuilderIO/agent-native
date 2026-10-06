@@ -980,10 +980,10 @@ async function mintFirstPartyMcpIdentityToken(
   if (!(await isFirstPartyTrustCached({ ...trust, orgId }))) return null;
 
   const { orgDomain, orgSecret } = await resolveOrgSigningContext(orgId);
+  if (!orgDomain?.trim()) return null;
   const extraClaims = {
     jti: randomJti(),
     scope: "mcp-connect",
-    org_id: orgId,
     agent_native_first_party_mcp: true,
   };
   const audience = firstPartyMcpAudienceForUrl(trust.url);
@@ -995,7 +995,7 @@ async function mintFirstPartyMcpIdentityToken(
       extraClaims,
     });
   }
-  return signA2AOrganizationToken(orgDomain, orgSecret, orgId, {
+  return signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
     expiresIn: "5m",
     audience,
     extraClaims,

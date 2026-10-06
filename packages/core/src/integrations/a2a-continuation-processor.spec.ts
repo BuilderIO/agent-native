@@ -1989,7 +1989,7 @@ describe("A2A continuation processor", () => {
     expect(signA2AOrganizationTokenMock).toHaveBeenCalledWith(
       "builder.io",
       "builder-org-a2a-secret",
-      "builder_io",
+      undefined,
       {
         expiresIn: "5m",
         audience: "https://slides.agent-native.test",
@@ -2029,7 +2029,7 @@ describe("A2A continuation processor", () => {
     expect(signA2AOrganizationTokenMock).toHaveBeenCalledWith(
       "builder.io",
       "builder-org-a2a-secret",
-      "builder_io",
+      undefined,
       {
         expiresIn: "5m",
         audience: "https://slides.agent-native.test",

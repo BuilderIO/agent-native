@@ -104,9 +104,9 @@ describe("resolveA2ACallerAuth", () => {
         );
         expect(orgPrincipal).toMatchObject({
           org_domain: "builder.io",
-          org_id: "org-qa",
           aud: "https://peer.example.test",
         });
+        expect(orgPrincipal).not.toHaveProperty("org_id");
         expect(orgPrincipal).not.toHaveProperty("sub");
         await expect(
           jose.jwtVerify(
@@ -114,6 +114,23 @@ describe("resolveA2ACallerAuth", () => {
             new TextEncoder().encode("global-a2a-secret"),
           ),
         ).rejects.toThrow();
+      },
+    );
+  });
+
+  it("does not mint an unscoped user token when the active org has no domain", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgDomainMock.mockResolvedValueOnce(null);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
+
+        expect(auth.apiKey).toBeUndefined();
+        expect(auth.apiKeyFallbacks).toBeUndefined();
       },
     );
   });
@@ -136,9 +153,9 @@ describe("resolveA2ACallerAuth", () => {
         );
         expect(payload).toMatchObject({
           org_domain: "builder.io",
-          org_id: "org-qa",
           aud: "https://peer.example.test",
         });
+        expect(payload).not.toHaveProperty("org_id");
         expect(payload).not.toHaveProperty("sub");
       },
     );

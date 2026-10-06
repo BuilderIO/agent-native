@@ -347,7 +347,7 @@ describe("fetchOrgApps", () => {
       1,
       "acme.com",
       "org-secret",
-      "org-a",
+      undefined,
       {
         expiresIn: "5m",
         preferGlobalSecret: true,
@@ -358,7 +358,7 @@ describe("fetchOrgApps", () => {
       2,
       "acme.com",
       "org-secret",
-      "org-a",
+      undefined,
       {
         expiresIn: "5m",
         preferGlobalSecret: false,

@@ -1203,17 +1203,47 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
-  it("preserves Personal scope for an unclaimed first-party token with no local row", async () => {
-    resolveOrgByDomainMock.mockResolvedValue({
+  it("binds a domain-only first-party token to the receiver's local organization", async () => {
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
       orgId: "recipient-org-by-domain",
+      orgDomain: "builder.io",
     });
-    resolveOrgIdForEmailMock.mockResolvedValue("recipient-org-by-email");
+    const token = await sign(
+      {
+        sub: "a@example.com",
+        scope: "mcp-connect",
+        jti: "jti-first-party-domain-bound",
+        org_domain: "builder.io",
+        agent_native_first_party_mcp: true,
+      },
+      SECRET,
+      { audience: "https://assets.example.com/_agent-native/mcp" },
+    );
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://assets.example.com/_agent-native/mcp",
+    });
+    expect(res).toMatchObject({
+      authed: true,
+      identity: {
+        userEmail: "a@example.com",
+        orgId: "recipient-org-by-domain",
+        orgDomain: "builder.io",
+        firstPartyMcp: true,
+      },
+    });
+    expect(resolveA2AOrganizationMetadataByDomainMock).toHaveBeenCalledWith(
+      "builder.io",
+    );
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves Personal scope for an unclaimed first-party token without org claims", async () => {
     const token = await sign(
       {
         sub: "a@example.com",
         scope: "mcp-connect",
         jti: "jti-first-party-unclaimed",
-        org_domain: "builder.io",
         agent_native_first_party_mcp: true,
       },
       SECRET,
@@ -1226,6 +1256,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     await expect(
       resolveMcpIdentityOrgId(res.identity),
     ).resolves.toBeUndefined();
+    expect(resolveA2AOrganizationMetadataByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
     expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith(

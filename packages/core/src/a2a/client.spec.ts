@@ -1881,6 +1881,7 @@ describe("A2AClient", () => {
     await expect(
       callAgent("https://agent.test", "hello", {
         userEmail: "alice+qa@agent-native.test",
+        orgId: "sender-org-row",
         orgDomain: "builder.io",
         orgSecret: "org-a2a-secret",
         timeoutMs: 25,
@@ -1922,6 +1923,33 @@ describe("A2AClient", () => {
       ),
     ).rejects.toThrow();
     expect(jose.decodeJwt(calls[2]!.token)).not.toHaveProperty("sub");
+    expect(jose.decodeJwt(calls[2]!.token)).not.toHaveProperty("org_id");
+  });
+
+  it("does not sign an unscoped peer token when an org ID has no domain", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+    const authorizationHeaders: Array<string | null> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        authorizationHeaders.push(
+          new Headers(init?.headers).get("authorization"),
+        );
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        return completedResponse(JSON.parse(String(init.body)), "unscoped");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        userEmail: "alice@example.test",
+        orgId: "sender-org-row",
+      }),
+    ).resolves.toBe("unscoped");
+    expect(authorizationHeaders.filter(Boolean)).toEqual([]);
   });
 
   it("retries direct client requests with configured fallback bearer tokens", async () => {

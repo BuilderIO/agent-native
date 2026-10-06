@@ -1345,12 +1345,10 @@ async function signFreshContinuationTokens(
   }
   if (orgDomain && (orgSecret || globalSecret)) {
     tokens.push(
-      await signA2AOrganizationToken(
-        orgDomain,
-        orgSecret,
-        continuation.orgId ?? undefined,
-        { expiresIn: "5m", audience },
-      ),
+      await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
+        expiresIn: "5m",
+        audience,
+      }),
     );
   }
   return tokens;
