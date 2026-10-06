@@ -11,8 +11,10 @@ import type { Task, Message, TaskState, Artifact } from "./types.js";
 let _initPromise: Promise<void> | undefined;
 export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
+const A2A_ORG_IDEMPOTENCY_INDEX = "idx_a2a_tasks_org_scope_idempotency";
 const A2A_RECOVERY_INDEX = "idx_a2a_tasks_recovery_created";
 export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
+export const A2A_ORG_ID_OWNER_SCOPE_PREFIX = "__a2a_org_id__:";
 const MAX_TASK_LIST_PAGE_SIZE = 100;
 
 export interface A2ATaskListCursor {
@@ -43,6 +45,10 @@ export async function ensureTable(): Promise<void> {
       const createIdempotencyIndexSql =
         `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
         `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
+      const createOrgIdempotencyIndexSql =
+        `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_ORG_IDEMPOTENCY_INDEX} ` +
+        "ON a2a_tasks(owner_scope, idempotency_key) " +
+        "WHERE owner_email IS NULL AND idempotency_key IS NOT NULL";
       const createRecoveryIndexSql =
         `CREATE INDEX IF NOT EXISTS ${A2A_RECOVERY_INDEX} ` +
         "ON a2a_tasks(created_at) " +
@@ -82,6 +88,10 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
       );
       await ensureIndexExists(A2A_IDEMPOTENCY_INDEX, createIdempotencyIndexSql);
+      await ensureIndexExists(
+        A2A_ORG_IDEMPOTENCY_INDEX,
+        createOrgIdempotencyIndexSql,
+      );
       await ensureIndexExists(A2A_RECOVERY_INDEX, createRecoveryIndexSql);
       await ensureTableExists("a2a_approvals", createApprovalsSql);
     })().catch((err) => {
@@ -412,7 +422,11 @@ export async function createOrReuseTask(
   ownerScope: string | null,
   idempotencyKey: string | undefined,
 ): Promise<{ task: Task; reused: boolean }> {
-  if (!ownerEmail || !idempotencyKey) {
+  const normalizedOwner = ownerEmail?.trim().toLowerCase() || null;
+  const normalizedScope =
+    ownerScope?.trim().toLowerCase() ||
+    (normalizedOwner ? A2A_PERSONAL_OWNER_SCOPE : null);
+  if (!idempotencyKey || !normalizedScope) {
     return {
       task: await createTask(
         message,
@@ -430,16 +444,13 @@ export async function createOrReuseTask(
 
   await ensureTable();
   const client = getDbExec();
-  const normalizedOwner = ownerEmail.trim().toLowerCase();
-  const normalizedScope =
-    ownerScope?.trim().toLowerCase() || A2A_PERSONAL_OWNER_SCOPE;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const id = crypto.randomUUID();
     const now = Date.now();
     const timestamp = new Date().toISOString();
     await client.execute({
-      sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_email, owner_scope, idempotency_key) DO NOTHING`,
+      sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
       args: [
         id,
         contextId ?? null,
@@ -457,7 +468,7 @@ export async function createOrReuseTask(
     });
 
     const { rows } = await client.execute({
-      sql: `SELECT * FROM a2a_tasks WHERE owner_email = ? AND owner_scope = ? AND idempotency_key = ?`,
+      sql: `SELECT * FROM a2a_tasks WHERE owner_email IS NOT DISTINCT FROM ? AND owner_scope = ? AND idempotency_key = ?`,
       args: [normalizedOwner, normalizedScope, idempotencyKey],
     });
     if (rows.length === 0) {
@@ -483,6 +494,22 @@ export async function createOrReuseTask(
 export interface A2ATaskOwnership {
   ownerEmail: string | null;
   ownerScope: string | null;
+}
+
+export interface A2ATaskAccessScope {
+  ownerEmail: string;
+  ownerScope: string | null;
+}
+
+function taskAccessPredicate(scope: A2ATaskAccessScope | undefined): {
+  sql: string;
+  args: unknown[];
+} {
+  if (!scope) return { sql: "", args: [] };
+  return {
+    sql: " AND LOWER(COALESCE(owner_email, '')) = LOWER(?) AND LOWER(COALESCE(owner_scope, '')) = LOWER(?)",
+    args: [scope.ownerEmail, scope.ownerScope ?? ""],
+  };
 }
 
 export async function getTaskOwner(id: string): Promise<string | null> {
@@ -682,12 +709,16 @@ export async function failStuckQueuedA2ATask(
   return affected !== 0;
 }
 
-export async function getTask(id: string): Promise<Task | null> {
+export async function getTask(
+  id: string,
+  accessScope?: A2ATaskAccessScope,
+): Promise<Task | null> {
   await ensureTable();
   const client = getDbExec();
+  const predicate = taskAccessPredicate(accessScope);
   const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
-    args: [id],
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql}`,
+    args: [id, ...predicate.args],
   });
   if (rows.length === 0) return null;
   return taskFromRow(rows[0]);
@@ -700,13 +731,15 @@ export async function updateTask(
     message?: Message;
     artifacts?: Artifact[];
   },
+  accessScope?: A2ATaskAccessScope,
 ): Promise<Task | null> {
   await ensureTable();
   const client = getDbExec();
+  const predicate = taskAccessPredicate(accessScope);
 
   const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
-    args: [id],
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql}`,
+    args: [id, ...predicate.args],
   });
   if (rows.length === 0) return null;
 
@@ -729,8 +762,8 @@ export async function updateTask(
     task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
   }
 
-  await client.execute({
-    sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?`,
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql}`,
     args: [
       task.status.state,
       task.status.message ? JSON.stringify(task.status.message) : null,
@@ -739,8 +772,13 @@ export async function updateTask(
       JSON.stringify(task.artifacts),
       now,
       id,
+      ...predicate.args,
     ],
   });
+
+  if (accessScope && getAffectedRowCount(result) !== 1) {
+    return null;
+  }
 
   return task;
 }

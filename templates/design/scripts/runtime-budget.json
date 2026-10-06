@@ -1,0 +1,37 @@
+{
+  "copies": 6,
+  "iterations": 4,
+  "gates": {
+    "heapAfterLoadMB": {
+      "max": 260,
+      "why": "Measured 168-202 MB on the 48-screen board; main loaded at 652 MB."
+    },
+    "heapEndMB": {
+      "max": 700,
+      "why": "Measured 550-575 MB after 4 rounds; main reached 1,982 MB."
+    },
+    "heapGrowthPerIterationMB": {
+      "max": 80,
+      "why": "Measured 27-34 MB per round after warm-up; main grew ~320 MB."
+    },
+    "visibleRefreshes": {
+      "max": 0,
+      "why": "A visible screen never goes blank while its preview and editor swap."
+    },
+    "liveEditorsAfterSettle": {
+      "max": 4,
+      "why": "Three warm editors plus the active one; more means the pool leaks."
+    }
+  },
+  "reported": [
+    "editorBootsPerZoomCycle",
+    "previewRemountsPerZoomCycle",
+    "editorVisibleMs",
+    "selectWorstFrameMs",
+    "textEditWorstFrameMs",
+    "colorWorstFrameMs",
+    "duplicateWorstFrameMs",
+    "zoomCycleWorstFrameMs",
+    "visitsWorstFrameMs"
+  ]
+}

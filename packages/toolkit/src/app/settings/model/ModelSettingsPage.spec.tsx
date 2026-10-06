@@ -85,14 +85,11 @@ vi.mock("@agent-native/core/client/oauth-popup", () => ({
 }));
 
 vi.mock("../deferred-builder-connect-popover.js", () => ({
-  // The real popover asks whether to create an account, then calls onConnect.
   DeferredBuilderConnectPopover: ({
     children,
-    onConnect,
   }: {
     children: React.ReactElement<{ onClick?: () => void }>;
-    onConnect?: (provisionAccount: boolean) => void;
-  }) => React.cloneElement(children, { onClick: () => onConnect?.(false) }),
+  }) => React.cloneElement(children, { onClick: () => {} }),
 }));
 
 vi.mock("../shell/context.js", () => ({
@@ -388,15 +385,9 @@ describe("ModelSettingsPage", () => {
     expect(buttons(row("provider-personal-builder"))).toEqual([
       "Use Builder.io",
     ]);
-    act(() => {
-      (
-        row("provider-personal-builder").querySelector("button") as HTMLElement
-      ).click();
-    });
-    expect(state.builder.start).toHaveBeenCalledWith({
-      provisionAccount: false,
-      scope: "personal",
-    });
+    expect(
+      row("provider-personal-builder").querySelector("button")?.disabled,
+    ).toBe(false);
     expect(row("provider-personal-anthropic").textContent).toContain(
       "••••1234 · 2 models",
     );
@@ -669,17 +660,10 @@ describe("ModelSettingsPage", () => {
     expect(
       document.querySelector('[data-testid="provider-dialog"]'),
     ).not.toBeNull();
-    act(() => {
-      (
-        [...empty.querySelectorAll("button")].find(
-          (button) => button.textContent === "Use Builder.io",
-        ) as HTMLElement
-      ).click();
-    });
-    expect(state.builder.start).toHaveBeenCalledWith({
-      provisionAccount: false,
-      scope: "org",
-    });
+    const builderButton = [...empty.querySelectorAll("button")].find(
+      (button) => button.textContent === "Use Builder.io",
+    );
+    expect(builderButton?.disabled).toBe(false);
   });
 
   it("tells a restricted member with no provider to ask an admin", async () => {

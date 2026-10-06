@@ -31,6 +31,8 @@ export interface UseAgentEngineConfiguredResult {
 export interface FetchAgentEngineConfiguredStateOptions {
   /** Kept for API compatibility; readiness always comes from chatEligible. */
   missingFallback?: boolean;
+  /** Starts a new status read instead of joining an older in-flight probe. */
+  fresh?: boolean;
   timeoutMs?: number;
 }
 
@@ -109,11 +111,18 @@ export async function fetchAgentEngineConfiguredState(
     typeof options?.timeoutMs === "number" && options.timeoutMs > 0
       ? options.timeoutMs
       : undefined;
-  const engineResult = await waitForStatus(
-    fetchAgentEngineStatus(),
+  let engineResult = await waitForStatus(
+    fetchAgentEngineStatus({ fresh: options?.fresh }),
     "/_agent-native/agent-engine/status",
     timeoutMs,
   );
+  while (engineResult.state === "unavailable" && engineResult.stale) {
+    engineResult = await waitForStatus(
+      fetchAgentEngineStatus(),
+      "/_agent-native/agent-engine/status",
+      timeoutMs,
+    );
+  }
   if (
     engineResult.state !== "available" ||
     !hasChatEligibleFlag(engineResult.value)

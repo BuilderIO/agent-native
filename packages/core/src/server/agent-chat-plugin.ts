@@ -89,7 +89,6 @@ import {
   executeAgentToolCall,
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
-  toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
   abortTurnByRefDurably,
@@ -226,6 +225,7 @@ import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
+import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-session.js";
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
@@ -2755,9 +2755,6 @@ export function createAgentChatPlugin(
               // scope when a processor hop or alternate runner is involved.
               ownerEmail: userEmail,
               orgId: getRequestOrgId() ?? null,
-              approvedToolCalls: context.approvedActions?.map((approved) =>
-                toolCallCacheKey(approved.tool, approved.input),
-              ),
               executionMode: "act",
               runId: context.taskId,
               networkProtocol: "a2a",
@@ -3849,6 +3846,25 @@ export function createAgentChatPlugin(
               ? { refusedRetry: details.retryContext ?? {} }
               : {}),
           });
+          // Background agent sessions send their operation id as
+          // queuedMessageId (Content binds comment AI turns to it). It never
+          // enters the queue, so it has no promotion claim; the session's
+          // derived turn id is what marks the request as one.
+          const queuedMessage = !details.queuedMessageId
+            ? undefined
+            : details.turnId ===
+                backgroundAgentTurnIdForReceipt(
+                  threadId,
+                  details.queuedMessageId,
+                )
+              ? {
+                  kind: "background-operation" as const,
+                  id: details.queuedMessageId,
+                }
+              : {
+                  id: details.queuedMessageId,
+                  claimId: details.queuedMessageClaimId,
+                };
           let submissionFailure:
             | "already_claimed"
             | "claim_expired"
@@ -3877,12 +3893,7 @@ export function createAgentChatPlugin(
                 const result = applySubmittedUserMessage(
                   repo,
                   userMessage,
-                  details.queuedMessageId
-                    ? {
-                        id: details.queuedMessageId,
-                        claimId: details.queuedMessageClaimId,
-                      }
-                    : undefined,
+                  queuedMessage,
                 );
                 if (!("repo" in result)) {
                   submissionFailure = result.status;

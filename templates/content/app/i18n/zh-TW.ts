@@ -253,8 +253,6 @@ const overrides = {
   },
   landing: {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
-    requestedPageUnavailable:
-      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
     workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
     workspaceWelcomeUnavailableDescription:
@@ -312,6 +310,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未選取頁面",
+    pageNoAccess: "你沒有此頁面的存取權",
+    pageMissing: "此頁面不存在",
+    pageInTrash: "此頁面在垃圾桶中",
+    pageInTrashAskOwner: "請擁有者還原它。",
+    openTrash: "開啟垃圾桶",
+    goToMyPages: "前往我的頁面",
     noPageDescription: "從側邊欄選取頁面，或建立新頁面開始。",
     documentUnavailable: "檔案不可用",
     documentUnavailableDescription:
@@ -334,6 +338,10 @@ const overrides = {
     suggestionFormattingBaselineUnsupported:
       "頁面中的某些格式無法安全地建議變更。編輯者可以先更新這些格式，然後您再重試。",
     suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
+    suggestionUnplaceable:
+      "此建議周圍的文字已變更，因此無法套用。它仍在待處理狀態：請拒絕它，或重新建議此修改。",
+    proposalUnplaceable:
+      "其中一則建議周圍的文字已變更，無法套用，因此所有建議均未套用。它們仍在待處理狀態：請逐則接受或拒絕。",
     suggestionAmendmentFailed: "無法儲存建議",
     suggestionAmendmentResolved:
       "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",

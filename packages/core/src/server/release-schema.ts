@@ -169,6 +169,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       ),
   ],
   [
+    "IdentityRetiredEmails",
+    () => import("../identity/retired-emails.js").then((m) => m.ensureTable()),
+  ],
+  [
     "IdentitySso",
     () => import("./identity-sso-store.js").then((m) => m.ensureTable()),
   ],
@@ -288,6 +292,11 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       import("../integrations/remote-run-events-store.js").then((m) =>
         m.ensureTable(),
       ),
+  ],
+  [
+    "ResourceAccessRequests",
+    () =>
+      import("../sharing/access-request-store.js").then((m) => m.ensureTable()),
   ],
   [
     "ResourceChanges",

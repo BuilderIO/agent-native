@@ -854,11 +854,8 @@ export class DesktopIdentityBroker {
     const existing = this.pendingModernAppSessions.get(pendingKey);
     if (existing) return existing;
 
-    const operation = this.ensureModernAppSession(
-      appId,
-      generation,
-      expectedEmail,
-      options,
+    const operation = this.trackSessionCopy(
+      this.ensureModernAppSession(appId, generation, expectedEmail, options),
     );
     this.pendingModernAppSessions.set(pendingKey, operation);
     void operation.then(
@@ -1551,68 +1548,32 @@ export class DesktopIdentityBroker {
     }
 
     const remaining = orderedApps.filter((app) => app.id !== firstApp.id);
-    let resolveRequested: (succeeded: boolean) => void = () => {};
-    const requestedResult = new Promise<boolean>((resolve) => {
-      resolveRequested = resolve;
-    });
-    let requestedResultSettled = firstApp.id === appId;
-    if (requestedResultSettled) resolveRequested(true);
-
-    void (async () => {
-      const failedAppIds: string[] = [];
-      for (const app of remaining) {
-        let succeeded = false;
-        try {
-          succeeded = await this.ensureModernAppSessionDeduped(
-            app.id,
-            generation,
-            identityEmail,
-          );
-        } catch (error) {
-          console.warn("[desktop identity] app session fan-out failed", {
-            appId: app.id,
-            reason: error instanceof Error ? error.message : "unknown error",
-          });
-        }
-        if (succeeded && this.isCeremonyCurrent(generation)) {
-          this.completedModernAppSessions.add(
-            `${generation}:${app.id}:replace`,
-          );
-        }
-        if (app.id === appId && !requestedResultSettled) {
-          requestedResultSettled = true;
-          resolveRequested(succeeded && this.isCeremonyCurrent(generation));
-        }
-        if (!succeeded) failedAppIds.push(app.id);
-        if (!this.isCeremonyCurrent(generation)) {
-          if (!requestedResultSettled) {
-            requestedResultSettled = true;
-            resolveRequested(false);
-          }
-          return;
-        }
-      }
-      if (!requestedResultSettled) {
-        requestedResultSettled = true;
-        resolveRequested(firstApp.id === appId);
-      }
-      if (failedAppIds.length > 0) {
-        console.warn("[desktop identity] app session fan-out had failures", {
-          appIds: failedAppIds,
+    const failedAppIds: string[] = [];
+    for (const app of remaining) {
+      let succeeded = false;
+      try {
+        succeeded = await this.ensureModernAppSessionDeduped(
+          app.id,
+          generation,
+          identityEmail,
+        );
+      } catch (error) {
+        console.warn("[desktop identity] app session fan-out failed", {
+          appId: app.id,
+          reason: error instanceof Error ? error.message : "unknown error",
         });
       }
-    })().catch((error) => {
-      if (!requestedResultSettled) {
-        requestedResultSettled = true;
-        resolveRequested(false);
+      if (succeeded && this.isCeremonyCurrent(generation)) {
+        this.completedModernAppSessions.add(`${generation}:${app.id}:replace`);
       }
-      console.warn("[desktop identity] app session fan-out stopped", {
-        reason: error instanceof Error ? error.message : "unknown error",
-      });
-    });
+      if (!succeeded) failedAppIds.push(app.id);
+      if (!this.isCeremonyCurrent(generation)) return false;
+    }
 
-    const requestedSucceeded = await requestedResult;
-    if (!requestedSucceeded) {
+    if (failedAppIds.length > 0) {
+      console.warn("[desktop identity] app session fan-out had failures", {
+        appIds: failedAppIds,
+      });
       if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
         this.setStatus("failed");
       }
@@ -3589,12 +3550,13 @@ export class DesktopIdentityBroker {
     if (active && !active.isDestroyed()) active.close();
   }
 
-  private trackSessionCopy(operation: Promise<void>): Promise<void> {
-    this.activeSessionCopies.add(operation);
-    void operation.then(
-      () => this.activeSessionCopies.delete(operation),
-      () => this.activeSessionCopies.delete(operation),
+  private trackSessionCopy<T>(operation: Promise<T>): Promise<T> {
+    const settled = operation.then(
+      () => undefined,
+      () => undefined,
     );
+    this.activeSessionCopies.add(settled);
+    void settled.then(() => this.activeSessionCopies.delete(settled));
     return operation;
   }
 

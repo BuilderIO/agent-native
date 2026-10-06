@@ -5,6 +5,7 @@ import {
   markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForFindReplace,
   markdownSuggestionOperationsForReplacements,
+  suggestionDiffParts,
 } from "./suggestion-diff.js";
 import { suggestionMarkedSourceRanges } from "./suggestion-formatting.js";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
@@ -349,6 +350,129 @@ describe("suggestion decomposition", () => {
         ),
       ).toBe(true);
     }
+  });
+
+  describe("a rewritten phrase that shares letters with the original", () => {
+    const find = "So I save them:";
+    const replace = "With your own edits, I recommend:";
+    const sources = [
+      "Each edit marks a decision the skill couldn't make yet. So I save them:",
+      "Each edit marks a decision the skill couldn't make yet. So I save them:\n1. **Save the output before you touch it.**",
+    ];
+    const replaced = (source: string) => source.replace(find, replace);
+    const changes = (
+      operations: ReturnType<typeof markdownSuggestionOperations>,
+    ) =>
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]);
+
+    it.each(sources)("is one agent suggestion on %j", (before) => {
+      const operations = markdownSuggestionOperationsForFindReplace({
+        before,
+        find,
+        replace,
+        start: before.indexOf(find),
+      });
+      expect(changes(operations)).toEqual([
+        ["So I save them", "With your own edits, I recommend"],
+      ]);
+      expectIntactOperations(before, replaced(before), operations);
+    });
+
+    it.each(sources)("is one Suggesting-mode revision on %j", (before) => {
+      const start = before.indexOf(find);
+      expect(
+        changes(
+          markdownSuggestionOperationsForEditorRevision({
+            before,
+            after: replaced(before),
+            replacements: [],
+          }),
+        ),
+      ).toEqual([["So I save them", "With your own edits, I recommend"]]);
+      expect(
+        changes(
+          markdownSuggestionOperationsForEditorRevision({
+            before,
+            after: replaced(before),
+            replacements: [{ from: start, to: start + find.length }],
+          }),
+        ),
+      ).toEqual([[find, replace]]);
+    });
+
+    it("is one deletion and one insertion in the review card", () => {
+      expect(suggestionDiffParts(find, replace)).toEqual([
+        { type: "delete", text: "So I save them" },
+        { type: "insert", text: "With your own edits, I recommend" },
+        { type: "equal", text: ":" },
+      ]);
+    });
+  });
+
+  it("keeps a word whole when it also gains a trailing letter", () => {
+    const before = "Reorganise the files.";
+    const after = "reorganised the files.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([["Reorganise", "reorganised"]]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("joins adjacent rewritten words into one edit", () => {
+    const before = "A big dog barked.";
+    const after = "A small cat barked.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([["big dog", "small cat"]]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("reads a letter outside the Basic Multilingual Plane as a letter", () => {
+    const before = "Use 𐐀x𐐀 here.";
+    const after = "Use 𐐨x𐐨 here.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([["𐐀x𐐀", "𐐨x𐐨"]]);
+    expectIntactOperations(before, after, operations);
+    expect(
+      suggestionDiffParts(before, after)?.filter(
+        (part) => part.type !== "equal",
+      ),
+    ).toEqual([
+      { type: "delete", text: "𐐀x𐐀" },
+      { type: "insert", text: "𐐨x𐐨" },
+    ]);
+  });
+
+  it("never joins edits across a block boundary", () => {
+    const before = "Draft\nReady";
+    const after = "Final\nShip";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([
+      ["Draft", "Final"],
+      ["Ready", "Ship"],
+    ]);
+    expectIntactOperations(before, after, operations);
   });
 
   it("returns no edit for an unchanged replacement", () => {
