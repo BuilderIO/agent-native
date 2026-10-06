@@ -140,6 +140,31 @@ afterEach(async () => {
 });
 
 describe("manage-agent-engine set", () => {
+  it("uses the requesting app identity ahead of caller arguments", async () => {
+    const ctx = { userEmail: "admin@a.test", orgId: "org-a" };
+    for (const appId of ["calendar", "mail"]) {
+      await writeAgentAppModelDefaultSettings(ctx, appId, {
+        engine: "ai-sdk:openai",
+        model: `${appId}-model`,
+      });
+    }
+    const result = JSON.parse(
+      await as(ctx.userEmail, ctx.orgId, () =>
+        runManage(
+          { action: "set", engine: "ai-sdk:openai", appId: "mail" },
+          { ...ctx, appId: "calendar", caller: "tool" },
+        ),
+      ),
+    );
+    expect(result).toMatchObject({ ok: true, appId: "calendar" });
+    expect(
+      await readAgentAppModelDefaultSettings(ctx, "calendar"),
+    ).toMatchObject({ model: null });
+    expect(await readAgentAppModelDefaultSettings(ctx, "mail")).toMatchObject({
+      model: "mail-model",
+    });
+  });
+
   it.each([
     { userEmail: "admin@a.test", orgId: "org-a" },
     { userEmail: "solo@example.test", orgId: undefined },

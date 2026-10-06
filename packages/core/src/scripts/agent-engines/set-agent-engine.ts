@@ -243,7 +243,7 @@ export async function run(
 ): Promise<string> {
   const messages = await defaultModelMessagesForUser(getRequestUserEmail());
   const result = await selectDefaultAgentEngine(
-    { ...args, appId: args.appId || context?.appId },
+    { ...args, appId: context?.appId ?? args.appId },
     {
       actionName: context?.actionName ?? "manage-agent-engine",
       caller: context?.caller,

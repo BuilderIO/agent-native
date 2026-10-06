@@ -14,11 +14,11 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
-import { getSetting } from "../settings/store.js";
+import { getSetting, putSettingAndDeleteSettings } from "../settings/store.js";
 import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
-  resetAgentAppModelDefaultSettings,
+  agentAppModelDefaultSettingsKey,
 } from "./app-model-defaults.js";
 
 export const DEFAULT_AGENT_ENGINE_SETTING_KEY = "agent-engine";
@@ -190,20 +190,30 @@ export async function writeDefaultAgentEngineSelection(
   meta: DefaultAgentEngineChangeMeta,
   options: { appId?: string } = {},
 ): Promise<void> {
-  await writeScopedRow(authority, {
+  const value = {
     engine: selection.engine,
     model: selection.model,
     updatedAt: Date.now(),
     updatedBy: authority.userEmail,
-  });
+  };
   if (options.appId) {
-    await resetAgentAppModelDefaultSettings(
-      {
-        userEmail: authority.userEmail,
-        orgId: authority.scope === "org" ? authority.orgId : undefined,
-      },
-      options.appId,
+    const prefix =
+      authority.scope === "org"
+        ? `o:${authority.orgId}:`
+        : `u:${authority.userEmail.trim().toLowerCase()}:`;
+    const appKey = agentAppModelDefaultSettingsKey(options.appId);
+    const deleteKeys = [prefix + appKey];
+    if (authority.scope === "user") {
+      const legacyKey = `u:${authority.userEmail}:${appKey}`;
+      if (!deleteKeys.includes(legacyKey)) deleteKeys.push(legacyKey);
+    }
+    await putSettingAndDeleteSettings(
+      prefix + DEFAULT_AGENT_ENGINE_SETTING_KEY,
+      value,
+      deleteKeys,
     );
+  } else {
+    await writeScopedRow(authority, value);
   }
   await recordDefaultAgentEngineAudit({
     meta,

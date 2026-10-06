@@ -34,6 +34,7 @@ const {
   writeDefaultAgentEngineSelection,
 } = await import("./default-agent-engine.js");
 const { putSetting, getSetting } = await import("../settings/store.js");
+const { runWithRequestContext } = await import("../server/request-context.js");
 const { __resetAuditInitForTests, ensureAuditTables } =
   await import("../audit/store.js");
 
@@ -55,7 +56,7 @@ async function auditRows() {
   return rows as Array<Record<string, unknown>>;
 }
 
-async function adminAuthority(orgId: string, email: string) {
+async function adminAuthority(orgId: string | undefined, email: string) {
   const authority = await resolveDefaultAgentEngineAuthority({
     userEmail: email,
     orgId,
@@ -91,20 +92,31 @@ afterEach(async () => {
 });
 
 describe("default model scope", () => {
-  it("does not record success when clearing the winning app override fails", async () => {
-    await ensureAuditTables();
-    const authority = await adminAuthority(ORG_A, "admin-a@example.test");
-    await putSetting(`o:${ORG_A}:agent-app-model-default:calendar`, {
-      engine: "old-engine",
-      model: "old-model",
-    });
-    const execute = rawClient.execute.getMockImplementation()!;
-    rawClient.execute.mockImplementation(async (input) => {
-      if (typeof input !== "string" && /^DELETE FROM/i.test(input.sql))
-        throw new Error("app default write failed");
-      return execute(input);
-    });
-    try {
+  it.each([
+    { userEmail: "admin-a@example.test", orgId: ORG_A, prefix: `o:${ORG_A}:` },
+    {
+      userEmail: "Solo@Example.test",
+      orgId: undefined,
+      prefix: "u:solo@example.test:",
+    },
+  ])(
+    "keeps both settings unchanged when the app reset fails for $userEmail",
+    async (ctx) => {
+      await ensureAuditTables();
+      const authority = await adminAuthority(ctx.orgId, ctx.userEmail);
+      await putSetting(`${ctx.prefix}agent-engine`, {
+        engine: "old-engine",
+        model: "previous-default",
+      });
+      await putSetting(`${ctx.prefix}agent-app-model-default:calendar`, {
+        engine: "old-engine",
+        model: "old-model",
+      });
+      await pglite.exec(`CREATE FUNCTION reject_app_reset() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'app default write failed'; END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER reject_app_reset BEFORE DELETE ON settings
+      FOR EACH ROW EXECUTE FUNCTION reject_app_reset()`);
       await expect(
         writeDefaultAgentEngineSelection(
           authority,
@@ -115,11 +127,38 @@ describe("default model scope", () => {
       ).rejects.toThrow("app default write failed");
       expect(await auditRows()).toEqual([]);
       expect(
-        await getSetting(`o:${ORG_A}:agent-app-model-default:calendar`),
+        await getSetting(`${ctx.prefix}agent-app-model-default:calendar`),
       ).toMatchObject({ model: "old-model" });
-    } finally {
-      rawClient.execute.mockImplementation(execute);
+      expect(await getSetting(`${ctx.prefix}agent-engine`)).toMatchObject({
+        model: "previous-default",
+      });
+    },
+  );
+
+  it("clears canonical and legacy user app overrides in the request cache", async () => {
+    const userEmail = "Solo@Example.test";
+    const canonical = "u:solo@example.test:agent-app-model-default:calendar";
+    const legacy = `u:${userEmail}:agent-app-model-default:calendar`;
+    const defaultKey = "u:solo@example.test:agent-engine";
+    for (const key of [canonical, legacy, defaultKey]) {
+      await putSetting(key, { engine: "old-engine", model: "old-model" });
     }
+    await runWithRequestContext({ userEmail }, async () => {
+      for (const key of [canonical, legacy, defaultKey]) await getSetting(key);
+      await writeDefaultAgentEngineSelection(
+        await adminAuthority(undefined, userEmail),
+        { engine: "anthropic", model: "claude-sonnet-5-5" },
+        meta,
+        { appId: "calendar" },
+      );
+      expect(await getSetting(canonical)).toBeNull();
+      expect(await getSetting(legacy)).toBeNull();
+      expect(await getSetting(defaultKey)).toMatchObject({
+        model: "claude-sonnet-5-5",
+      });
+    });
+    expect(await getSetting(canonical)).toBeNull();
+    expect(await getSetting(legacy)).toBeNull();
   });
 
   it("an org A admin's change leaves org B's default alone", async () => {

@@ -224,6 +224,39 @@ export async function putSetting(
   });
 }
 
+export async function putSettingAndDeleteSettings(
+  key: string,
+  value: Record<string, unknown>,
+  deleteKeys: readonly string[],
+): Promise<void> {
+  if (deleteKeys.includes(key)) {
+    throw new Error("Cannot delete the setting being saved.");
+  }
+  if (deleteKeys.length === 0) return putSetting(key, value);
+  await ensureTable();
+  const table = settingsTable();
+  const raw = JSON.stringify(value);
+  // One statement also works on HTTP database adapters without interactive transactions.
+  await getDbExec().execute({
+    sql: `WITH deleted AS (
+      DELETE FROM ${table} WHERE key IN (${deleteKeys.map(() => "?").join(", ")})
+    )
+    INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
+    args: [...deleteKeys, key, raw, Date.now()],
+  });
+  const cache = requestSettingsCache();
+  cache?.set(key, raw);
+  for (const deletedKey of deleteKeys) cache?.set(deletedKey, null);
+  for (const changedKey of [key, ...deleteKeys]) {
+    settingsEmitter().emit("settings", {
+      source: "settings",
+      type: changedKey === key ? "change" : "delete",
+      key: changedKey,
+    });
+  }
+}
+
 export async function deleteSetting(
   key: string,
   options?: StoreWriteOptions,
