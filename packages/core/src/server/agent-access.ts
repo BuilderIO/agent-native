@@ -4,7 +4,8 @@ import {
   type AgentAccessResourceScope,
 } from "../shared/agent-access.js";
 import {
-  signShortLivedToken,
+  signCompactShortLivedToken,
+  verifyCompactShortLivedToken,
   verifyShortLivedToken,
   type VerifyResult,
 } from "./short-lived-token.js";
@@ -43,7 +44,7 @@ export function signScopedAgentAccessToken({
   agentLabel,
   ttlSeconds = DEFAULT_AGENT_ACCESS_TTL_SECONDS,
 }: ScopedAgentAccessTokenOptions): string {
-  return signShortLivedToken({
+  return signCompactShortLivedToken({
     resourceId: scopedAgentAccessResourceId(resourceKind, resourceId),
     viewerEmail,
     agentLabel,
@@ -56,10 +57,13 @@ export function verifyScopedAgentAccessToken(
   scope: AgentAccessResourceScope,
 ): VerifyResult {
   if (!token) return { ok: false, reason: "missing" };
-  return verifyShortLivedToken(
-    token,
-    scopedAgentAccessResourceId(scope.resourceKind, scope.resourceId),
+  const resourceId = scopedAgentAccessResourceId(
+    scope.resourceKind,
+    scope.resourceId,
   );
+  const compact = verifyCompactShortLivedToken(token, resourceId);
+  if (compact.ok || compact.reason !== "bad_signature") return compact;
+  return verifyShortLivedToken(token, resourceId);
 }
 
 export function createScopedAgentAccessGrant(

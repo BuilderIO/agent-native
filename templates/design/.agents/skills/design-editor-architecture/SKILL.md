@@ -50,6 +50,7 @@ exhaust your context before you find the code.
 | Export | `commands/render-png-blob.ts`, `download-pdf.ts`, `download-svg.ts`, `copy-as-figma-svg.ts` |
 | Save / persistence | `commands/save-file-content.ts`, `commands/apply-file-content-update.ts` |
 | Breakpoints | `responsive-breakpoints` skill; `derive/design-breakpoints.ts` |
+| Canvas speed, memory, previews vs editors | `design-editor-performance` skill; `multi-screen/culling.ts` |
 
 A `screen-` prefix means the command is addressed by an explicit `screenId`
 (overview canvas or board). The unprefixed twin acts on the focused screen.

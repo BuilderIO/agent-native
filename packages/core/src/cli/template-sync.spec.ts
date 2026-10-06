@@ -11,6 +11,7 @@ import {
   _fixWebManifestName,
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
+  _getOtelDependencyVersion,
   _getToolkitDependencyVersion,
   _postProcessStandalone,
   _renameGitignore,
@@ -297,11 +298,16 @@ describe("materializeTemplate", () => {
 
     const scaffoldFiles = scaffoldFileList(appDir);
     expect(scaffoldFiles.length).toBeGreaterThan(20);
-    // The workspace-only OTel wiring stays on the hosted site.
-    expect(scaffoldFiles).not.toContain("server/plugins/otel.ts");
-    expect(
+    // The OTel startup plugin ships with the scaffold and installs the
+    // published package, never the monorepo's workspace protocol.
+    expect(scaffoldFiles).toContain("server/plugins/otel.ts");
+    const scaffoldedPkg = JSON.parse(
       fs.readFileSync(path.join(appDir, "package.json"), "utf-8"),
-    ).not.toContain("@agent-native/otel");
+    );
+    expect(scaffoldedPkg.dependencies["@agent-native/otel"]).toBeTruthy();
+    expect(scaffoldedPkg.dependencies["@agent-native/otel"]).not.toMatch(
+      /^workspace:/,
+    );
     expect(scaffoldFileList(materialized.dir)).toEqual(scaffoldFiles);
     for (const rel of scaffoldFiles) {
       expect(
@@ -345,6 +351,7 @@ describe("materializeTemplate", () => {
       coreDependencyVersion: _getCoreDependencyVersion(),
       dispatchDependencyVersion: _getDispatchDependencyVersion(),
       toolkitDependencyVersion: _getToolkitDependencyVersion(),
+      otelDependencyVersion: _getOtelDependencyVersion(),
     });
     _fixPackageJsonName(appDir, "crm", "chat", {
       ...resolution,

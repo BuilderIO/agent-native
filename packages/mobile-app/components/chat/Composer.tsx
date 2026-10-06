@@ -548,6 +548,9 @@ export function Composer({
     mobileNavigation.push(`/app/chat?path=${encodeURIComponent(path)}`);
   };
 
+  const openBuilderSetup = () =>
+    openChatSettings("/settings/integrations/builder?builderConnect=1");
+
   const submit = () => {
     if (
       !canSend ||
@@ -806,7 +809,7 @@ export function Composer({
               <View className="flex-row flex-wrap gap-3">
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() => openChatSettings("/settings/agent")}
+                  onPress={openBuilderSetup}
                 >
                   <Text className="text-foreground text-[12px] font-medium">
                     {t("agentChat.setup.connectBuilder")}
@@ -1015,7 +1018,7 @@ export function Composer({
                   <View className="flex-row flex-wrap gap-x-3 gap-y-1">
                     <Pressable
                       accessibilityRole="button"
-                      onPress={() => openChatSettings("/settings#uploads")}
+                      onPress={openBuilderSetup}
                     >
                       <Text className="text-foreground text-[12px] font-medium">
                         {t("setup.connectBuilder")}

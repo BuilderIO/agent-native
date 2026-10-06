@@ -2091,6 +2091,34 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     text-align: center;
   }
   .auth-fallback p { opacity: 0.65; font-size: 0.8125rem; }
+  .auth-page {
+    --auth-wave-bg: #0a0a0a; /* guard:allow-raw-color - standalone auth canvas base */
+    --auth-wave-fg: #aeadac; /* guard:allow-raw-color - shared wave foreground */
+    --b-bg-page: var(--auth-wave-bg);
+    --b-hero-shader-fg: var(--auth-wave-fg);
+    --b-hero-shader-brightness: 3;
+    --b-hero-shader-opacity: 0.3;
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100svh;
+  }
+  .auth-page[data-auth-marketing="true"] {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+  .auth-page-content { position: relative; z-index: 1; width: 100%; }
+  .auth-wave-background {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
   .auth-centered {
     display: flex;
     justify-content: center;
@@ -2138,13 +2166,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     overflow: hidden;
     padding: 3rem 3.5rem;
   }
-  .auth-marketing-visual > [data-agent-native-marketing-background] {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    transform: none;
-  }
   .auth-marketing-visual .marketing-content {
     position: relative;
     z-index: 1;
@@ -2169,7 +2190,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .auth-marketing-home .form-panel > .card { margin-block: auto; }
   @media not all and (min-width: 901px) {
-    .auth-marketing-home .auth-marketing-screenshot-wrap { display: none; }
     body.has-marketing {
       align-items: flex-start;
       justify-content: flex-start;
@@ -2214,7 +2234,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     font-synthesis: none;
   }
   .auth-marketing-home {
-    background: var(--auth-marketing-right-bg);
+    background: transparent;
     color: var(--auth-marketing-foreground);
   }
   .auth-marketing-home .auth-marketing-top-right {
@@ -2236,43 +2256,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     border: 0;
   }
   .auth-marketing-home .marketing-panel {
-    background: var(--auth-marketing-left-bg);
+    background: transparent;
   }
   .auth-marketing-home .auth-marketing-visual {
     min-height: 100vh;
     padding: 4.5rem 5rem 4rem;
-    background: var(--auth-marketing-left-bg);
-  }
-  .auth-marketing-home .auth-marketing-screenshot-wrap {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    display: block;
-    width: 100%;
-    height: 100%;
-    max-width: none;
-    max-height: none;
-    margin: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-  .auth-marketing-home .auth-marketing-screenshot {
-    display: block;
-    width: 100%;
-    height: 100%;
-    max-width: none;
-    max-height: none;
-    filter: none;
-    background:
-      radial-gradient(ellipse 82% 72% at 80% 64%, color-mix(in srgb, var(--auth-marketing-foreground) 16%, transparent), transparent 72%),
-      radial-gradient(ellipse 48% 36% at 24% 26%, color-mix(in srgb, var(--auth-marketing-foreground) 8%, transparent), transparent 82%);
-  }
-  .auth-marketing-home [data-agent-native-marketing-background] {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    transform: translateY(-5vh);
+    background: transparent;
   }
   .auth-marketing-home .auth-marketing-visual .marketing-content {
     min-height: calc(100vh - 8.5rem);
@@ -2349,10 +2338,11 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .auth-marketing-home .form-panel {
     padding: 0 5rem;
-    background: var(--auth-marketing-right-bg);
+    background: transparent;
     border-inline-start: 1px solid var(--auth-marketing-border);
     position: relative;
     z-index: 1;
+    backdrop-filter: blur(10px);
   }
   .auth-marketing-home .form-panel > .card {
     width: min(27.5rem, 100%);
@@ -2403,17 +2393,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     text-decoration: underline;
     text-underline-offset: 0.125rem;
   }
-  .auth-marketing-home .auth-marketing-signup-wave {
-    height: clamp(10rem, 24vh, 15rem);
-    margin-top: 1.25rem;
-    opacity: 0.6;
-    overflow: hidden;
-    pointer-events: none;
-  }
-  .auth-marketing-home .auth-marketing-signup-wave-canvas {
-    width: 100%;
-    height: 100%;
-  }
   body.has-marketing .locale-picker {
     top: auto;
     bottom: max(1.25rem, env(safe-area-inset-bottom));
@@ -2421,20 +2400,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
-      --b-hero-ocean-opacity: 0.3;
-      --auth-marketing-left-bg: Canvas;
-      --auth-marketing-right-bg: Canvas;
-      --auth-marketing-foreground: CanvasText;
-      --auth-marketing-muted: GrayText;
-      --auth-marketing-subtle: GrayText;
-      --auth-marketing-border: color-mix(in srgb, CanvasText 18%, transparent);
-      --auth-marketing-badge-bg: color-mix(in srgb, CanvasText 7%, Canvas);
-      color-scheme: light;
+      --auth-marketing-border: color-mix(in srgb, var(--auth-marketing-foreground) 18%, transparent);
     }
     .auth-marketing-home .auth-marketing-visual,
     .auth-marketing-home .marketing-panel,
     .auth-marketing-home .form-panel {
-      background: Canvas;
+      background: transparent;
     }
     .auth-marketing-home .card input {
       color: var(--auth-marketing-foreground);
@@ -2452,9 +2423,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .auth-marketing-home .card .btn-primary,
     .auth-marketing-home .card button[type="submit"] {
       border: 1px solid var(--auth-marketing-border);
-    }
-    .auth-marketing-home .app-name img.brand-mark {
-      filter: grayscale(1) brightness(0);
     }
   }
   @media not all and (min-width: 901px) {

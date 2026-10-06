@@ -35,6 +35,23 @@ design with `overrideTransactionalEmail(id, render)` from a server plugin, never
 by editing `better-auth-instance.ts` call sites. See
 `/docs/deployment#email-templates`.
 
+## Hosted Sign-In Pages and the Shared Wave
+
+- First-party server auth plugins use `createToolkitAuthPlugin` from
+  `@agent-native/toolkit/app/auth/server`. It server-renders `AuthPage` and
+  `ResetPasswordPage` before hydration. Direct Core `createAuthPlugin` calls
+  leave generic fallback markup in the response and can flash before React
+  replaces it.
+- `AuthPage` uses Toolkit's full-page `WaveBackground` for every auth view.
+  The Agent-Native homepage hero and Calendar booking use the same renderer:
+  Calendar's animated FFT ocean wave with its WebGL fallback. Do not substitute
+  the older Starfield shader, a gradient, a signup-only strip, or a copied
+  renderer. `StarfieldBackground` is only a compatibility export for older
+  callers.
+- Hosted marketing apps keep auth enabled at `/` so the public root response
+  contains the full server-rendered sign-in page. Keep session decisions out of
+  public SSR; `RequireSession` resolves signed-in app navigation in the client.
+
 > **Never** use `local@localhost` as a fallback identity in app code
 > (`getRequestUserEmail() ?? "local@localhost"`, `session?.email ?? "local@localhost"`,
 > etc.). There is no dev auth shim. That pattern pools every unauthenticated
@@ -189,11 +206,19 @@ checklist, chat, and CLI stay usable during setup.
 
 ## A2A Identity
 
-Set `A2A_SECRET` (same value) on all apps that must verify each other's identity.
+Set a distinct `A2A_SECRET` (same value) on apps that must verify each other's
+user identity. Only this deployment secret may sign a per-user A2A assertion;
+mint it from the authenticated request context. The shared organization
+`a2a_secret` proves organization scope only. Its subject/email claims are
+ignored, so it cannot impersonate a member or carry human approval into A2A or
+MCP. Keep each organization's secret different from `A2A_SECRET`.
 
-- Outbound A2A calls are signed with JWTs
-- Inbound calls are verified cryptographically
-- Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev)
+- Outbound calls sign user assertions with `A2A_SECRET` and verify them
+  cryptographically at the receiver.
+- Organization-secret calls run as an organization principal without a user
+  email; user-owned reads, tasks, and approvals need a verified user assertion.
+- Without a verifiable credential, production rejects A2A calls; local dev can
+  remain open.
 
 ## Cross-App SSO (Dispatch identity hub)
 

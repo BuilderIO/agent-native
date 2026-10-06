@@ -22,6 +22,10 @@ type GetDocumentAction = typeof import("./get-document.js").default;
 type ListSuggestionsAction =
   typeof import("@agent-native/core/review/suggestions/actions/list-resource-suggestions").default;
 type UpdateDocumentAction = typeof import("./update-document.js").default;
+type GetSuggestionAction =
+  typeof import("@agent-native/core/review/suggestions/actions/get-resource-suggestion").default;
+type DecideSuggestionAction =
+  typeof import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion").default;
 
 let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
@@ -30,6 +34,8 @@ let createDocument: CreateDocumentAction;
 let getDocument: GetDocumentAction;
 let listResourceSuggestions: ListSuggestionsAction;
 let updateDocument: UpdateDocumentAction;
+let getResourceSuggestion: GetSuggestionAction;
+let decideResourceSuggestion: DecideSuggestionAction;
 
 const ctx = {
   caller: "cli" as const,
@@ -38,6 +44,7 @@ const ctx = {
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -53,6 +60,12 @@ beforeAll(async () => {
     await import("@agent-native/core/review/suggestions/actions/list-resource-suggestions")
   ).default;
   updateDocument = (await import("./update-document.js")).default;
+  getResourceSuggestion = (
+    await import("@agent-native/core/review/suggestions/actions/get-resource-suggestion")
+  ).default;
+  decideResourceSuggestion = (
+    await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion")
+  ).default;
 }, 60_000);
 
 afterAll(() => {
@@ -613,10 +626,7 @@ describe("suggest-document-edit", () => {
             item.operations[0]!.before.changedText,
             item.operations[0]!.after.changedText,
           ]),
-        ).toEqual([
-          ["Shared", "Edited"],
-          ["across orgs body", "body"],
-        ]);
+        ).toEqual([["Shared across orgs body", "Edited body"]]);
         // A suggestion proposes; it must not have rewritten the document.
         const unchanged = (await getDocument.run({ id }, ctx)) as {
           content: string;
@@ -783,32 +793,344 @@ describe("suggest-document-edit", () => {
     );
   });
 
-  it("refuses an edit inside a table cell with a typed error", async () => {
-    await runWithRequestContext(
-      { userEmail: ctx.userEmail, orgId: null },
-      async () => {
-        const { id, revision } = await createPage(
-          "Intro text.\n\n| Name | Value |\n| --- | --- |\n| alpha cell | beta |\n\nClosing text.",
-        );
-        await expect(
-          suggestDocumentEdit.run(
+  const TABLE_PAGE = [
+    "Intro text.",
+    "",
+    "| Name | Value |",
+    "| --- | --- |",
+    "| alpha cell | beta |",
+    "",
+    "Closing text.",
+  ].join("\n");
+  const CALLOUT_PAGE = [
+    '<callout icon="💡">',
+    "\tCallout alpha text",
+    "</callout>",
+  ].join("\n");
+  const TOGGLE_PAGE = [
+    "<details>",
+    "<summary>Title</summary>",
+    "\tToggle alpha text",
+    "</details>",
+  ].join("\n");
+  const COLUMNS_PAGE = [
+    "<columns>",
+    "\t<column>",
+    "\t\tLeft alpha text",
+    "\t</column>",
+    "\t<column>",
+    "\t\tRight text",
+    "\t</column>",
+    "</columns>",
+  ].join("\n");
+
+  it.each([
+    ["a table cell", TABLE_PAGE, "alpha cell", "omega cell"],
+    ["a callout", CALLOUT_PAGE, "alpha", "omega"],
+    ["a toggle", TOGGLE_PAGE, "alpha", "omega"],
+    ["a column", COLUMNS_PAGE, "alpha", "omega"],
+    [
+      "a callout's paragraphs",
+      CALLOUT_PAGE,
+      "Callout alpha text",
+      "Callout alpha text\n\tAdded paragraph.",
+    ],
+    [
+      "a toggle's paragraphs",
+      TOGGLE_PAGE,
+      "Toggle alpha text",
+      "Toggle alpha text\n\tAdded paragraph.",
+    ],
+    [
+      "a column's paragraphs",
+      COLUMNS_PAGE,
+      "Left alpha text",
+      "Left alpha text\n\t\tAdded paragraph.",
+    ],
+  ])(
+    "suggests and accepts an edit inside %s",
+    async (_block, content, find, replace) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const { id, revision } = await createPage(content);
+          const before = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          const result = (await suggestDocumentEdit.run(
             {
               id,
               baseRevision: revision,
-              idempotencyKey: `table-cell-${id}`,
-              find: "alpha cell",
-              replace: "omega cell",
+              idempotencyKey: `frame-text-${id}`,
+              find,
+              replace,
             },
             { caller: "mcp" as const, userEmail: ctx.userEmail },
-          ),
-        ).rejects.toMatchObject({
-          statusCode: 422,
-          errorCode: "suggestion_structure_unsupported",
-          message: expect.stringMatching(/cannot change tables/),
-        });
-      },
-    );
-  });
+          )) as { suggestionId: string; status: string };
+          expect(result.status).toBe("pending");
+          const suggestion = await getResourceSuggestion.run(
+            { id: result.suggestionId },
+            ctx,
+          );
+          const decision = await decideResourceSuggestion.run(
+            {
+              id: suggestion.id,
+              decision: "accepted",
+              idempotencyKey: `accept-${suggestion.id}`,
+              observedBase: suggestion.baseRevision,
+              observedRevision: suggestion.revision,
+            },
+            ctx,
+          );
+          expect(decision.suggestion?.status).toBe("accepted");
+          const after = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          expect(after.content).toBe(before.content.replace(find, replace));
+        },
+      );
+    },
+  );
+
+  it.each([
+    ["a table cell", "alpha cell", "omega cell"],
+    ["a callout", "Callout alpha text", "Callout omega text"],
+  ])(
+    "accepts an edit inside %s after someone opens a toggle on the page",
+    async (_block, find, replace) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const content = [TABLE_PAGE, CALLOUT_PAGE, TOGGLE_PAGE].join("\n\n");
+          const { id, revision } = await createPage(content);
+          const result = (await suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `frame-reopened-${id}`,
+              find,
+              replace,
+            },
+            { caller: "mcp" as const, userEmail: ctx.userEmail },
+          )) as { suggestionId: string };
+          const opened = canonicalizeNfm(content).replace(
+            "<details>",
+            "<details open>",
+          );
+          await updateDocument.run({ id, content: opened }, ctx);
+          const before = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          expect(before.content).toBe(opened);
+          const suggestion = await getResourceSuggestion.run(
+            { id: result.suggestionId },
+            ctx,
+          );
+          const decision = await decideResourceSuggestion.run(
+            {
+              id: suggestion.id,
+              decision: "accepted",
+              idempotencyKey: `accept-${suggestion.id}`,
+              observedBase: suggestion.baseRevision,
+              observedRevision: suggestion.revision,
+            },
+            ctx,
+          );
+          expect(decision.suggestion?.status).toBe("accepted");
+          const after = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          expect(after.content).toBe(opened.replace(find, replace));
+        },
+      );
+    },
+  );
+
+  it.each([
+    ["an agent wrote", (page: string) => page],
+    ["saved in canonical form", canonicalizeNfm],
+  ])(
+    "accepts a cell edit in its own row after someone edits that row on a page %s",
+    async (_form, form) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const row = (service: string) =>
+            `| Owned by Alice in the platform group | TBD | Waiting on the platform team to confirm | ${service} |`;
+          const content = form(
+            [
+              "| Owner | Status | Notes | Service |",
+              "| --- | --- | --- | --- |",
+              row("billing"),
+              row("search"),
+            ].join("\n"),
+          );
+          const { id, revision } = await createPage(content);
+          const createResourceSuggestion = (
+            await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+          ).default;
+          const { buildMarkdownSuggestionOperation } =
+            await import("./suggest-document-edit.js");
+          // The editor anchors a suggestion on the changed word alone.
+          const created = (await createResourceSuggestion.run(
+            {
+              resourceType: "document",
+              resourceId: id,
+              adapterKind: "content.document-markdown",
+              baseRevision: revision,
+              summary: "Mark billing done",
+              idempotencyKey: `row-edit-${id}`,
+              operations: [
+                buildMarkdownSuggestionOperation({
+                  content,
+                  find: "TBD",
+                  replace: "Done",
+                  start: content.indexOf("TBD"),
+                }),
+              ],
+            },
+            ctx,
+          )) as { id: string };
+          const edited = canonicalizeNfm(content).replace("Waiting", "Blocked");
+          await updateDocument.run({ id, content: edited }, ctx);
+          const suggestion = await getResourceSuggestion.run(
+            { id: created.id },
+            ctx,
+          );
+          const decision = await decideResourceSuggestion.run(
+            {
+              id: suggestion.id,
+              decision: "accepted",
+              idempotencyKey: `accept-${suggestion.id}`,
+              observedBase: suggestion.baseRevision,
+              observedRevision: suggestion.revision,
+            },
+            ctx,
+          );
+          expect(decision.suggestion?.status).toBe("accepted");
+          const after = (await getDocument.run({ id }, ctx)) as {
+            content: string;
+          };
+          expect(after.content).toBe(edited.replace("TBD", "Done"));
+        },
+      );
+    },
+  );
+
+  it.each([
+    [
+      "adds a table row",
+      TABLE_PAGE,
+      "| alpha cell | beta |",
+      "| alpha cell | beta |\n| new | row |",
+    ],
+    [
+      "adds a column",
+      COLUMNS_PAGE,
+      "\t\tRight text\n\t</column>",
+      "\t\tRight text\n\t</column>\n\t<column>\n\t\tMore\n\t</column>",
+    ],
+    ["changes a callout icon", CALLOUT_PAGE, 'icon="💡"', 'icon="🔥"'],
+    [
+      "changes a toggle title",
+      TOGGLE_PAGE,
+      "<summary>Title</summary>",
+      "<summary>New title</summary>",
+    ],
+  ])(
+    "refuses a suggestion that %s with a typed error",
+    async (_change, content, find, replace) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const { id, revision } = await createPage(content);
+          await expect(
+            suggestDocumentEdit.run(
+              {
+                id,
+                baseRevision: revision,
+                idempotencyKey: `frame-shape-${id}`,
+                find,
+                replace,
+              },
+              { caller: "mcp" as const, userEmail: ctx.userEmail },
+            ),
+          ).rejects.toMatchObject({
+            statusCode: 422,
+            errorCode: "suggestion_structure_unsupported",
+          });
+        },
+      );
+    },
+  );
+
+  // suggest-document-edit splits these into one suggestion per cell or
+  // column; a hand-built proposal can still send them as one operation.
+  it.each([
+    [
+      "changes text in two table cells",
+      TABLE_PAGE,
+      "alpha cell | beta",
+      "omega cell | gamma",
+    ],
+    [
+      "moves text across a table cell edge",
+      TABLE_PAGE,
+      "alpha cell | beta",
+      "alpha | cell beta",
+    ],
+    [
+      "bolds text in two table cells",
+      TABLE_PAGE,
+      "alpha cell | beta",
+      "**alpha cell** | **beta**",
+    ],
+    [
+      "moves a paragraph's text into a callout",
+      `${CALLOUT_PAGE}\n\nAfter the callout`,
+      "alpha text\n</callout>\n\nAfter the callout",
+      "alpha text After\n</callout>\n\nthe callout",
+    ],
+  ])(
+    "refuses one operation that %s",
+    async (change, content, find, replace) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const { id, revision } = await createPage(content);
+          const createResourceSuggestion = (
+            await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+          ).default;
+          const { buildMarkdownSuggestionOperation } =
+            await import("./suggest-document-edit.js");
+          await expect(
+            createResourceSuggestion.run(
+              {
+                resourceType: "document",
+                resourceId: id,
+                adapterKind: "content.document-markdown",
+                baseRevision: revision,
+                summary: change,
+                idempotencyKey: `cross-edge-${id}`,
+                operations: [
+                  buildMarkdownSuggestionOperation({
+                    content,
+                    find,
+                    replace,
+                    start: content.indexOf(find),
+                  }),
+                ],
+              },
+              ctx,
+            ),
+          ).rejects.toMatchObject({
+            statusCode: 422,
+            errorCode: "suggestion_structure_unsupported",
+          });
+        },
+      );
+    },
+  );
 
   it("rejects an ambiguous find", async () => {
     await runWithRequestContext(

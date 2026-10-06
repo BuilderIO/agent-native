@@ -40,6 +40,17 @@ import { RecoveryComparison } from "./RecoveryComparison";
 
 type DraftRecoveryFailure = "conflict" | "error";
 
+// A tab whose save fails keeps a draft of its text, and another tab holding
+// the same text through collaboration can still save it. Once the page holds
+// the draft, filing it in History or offering it in the chooser repeats the
+// page.
+function pageHoldsDraft(
+  draft: { title: string; content: string },
+  page: { title: string; content: string },
+): boolean {
+  return draft.title === page.title && draft.content === page.content;
+}
+
 export function PageDraftRecovery({
   document,
   children,
@@ -492,23 +503,49 @@ export function PageDraftRecovery({
           return;
         }
       }
-      const result = await updateDraft.mutateAsync({
-        operation: "delete",
-        documentId: document.id,
-        expectedVersion: draft.version,
-        expectedTitle: draft.title,
-        expectedContent: draft.content,
-        ...(draft.editorSessionId
-          ? { expectedEditorSessionId: draft.editorSessionId }
-          : {}),
-        ...(typeof draft.editGeneration === "number"
-          ? { expectedEditGeneration: draft.editGeneration }
-          : {}),
-      });
-      if (result.status !== "deleted")
-        throw new Error("The saved draft changed during recovery.");
-      await queryClient.refetchQueries(documentQueryFilter(document.id));
+      await discardDraft(draft);
+    } catch {
+      setFailure("error");
       await drafts.refetch();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function discardDraft(
+    settled: NonNullable<typeof draft>,
+    ifPageHoldsDraft = false,
+  ) {
+    const result = await updateDraft.mutateAsync({
+      operation: "delete",
+      documentId: document.id,
+      expectedVersion: settled.version,
+      expectedTitle: settled.title,
+      expectedContent: settled.content,
+      ...(settled.editorSessionId
+        ? { expectedEditorSessionId: settled.editorSessionId }
+        : {}),
+      ...(typeof settled.editGeneration === "number"
+        ? { expectedEditGeneration: settled.editGeneration }
+        : {}),
+      ...(ifPageHoldsDraft ? { ifPageHoldsDraft: true as const } : {}),
+    });
+    // A page that moved on since this tab read it is recovered against
+    // its newer version once both are read again.
+    if (result.status !== "deleted" && !ifPageHoldsDraft)
+      throw new Error("The saved draft changed during recovery.");
+    await queryClient.refetchQueries(documentQueryFilter(document.id));
+    await drafts.refetch();
+  }
+
+  // This tab's copy of the page can trail the server, and a rename shows
+  // before it saves, so the server checks the stored page before deleting.
+  async function discardHeldDraft(held: NonNullable<typeof draft>) {
+    if (busy) return;
+    setBusy(true);
+    setFailure(null);
+    try {
+      await discardDraft(held, true);
     } catch {
       setFailure("error");
       await drafts.refetch();
@@ -534,6 +571,10 @@ export function PageDraftRecovery({
           conflictDocument?.updatedAt ?? document.updatedAt,
       });
       if (result.status === "document_conflict") {
+        if (result.document && pageHoldsDraft(draft, result.document)) {
+          await discardDraft(draft, true);
+          return;
+        }
         setFailure("conflict");
         setConflictDocument(result.document ?? null);
         return;
@@ -602,6 +643,11 @@ export function PageDraftRecovery({
       return;
     const attempt = `${draft.editorSessionId}:${draft.editGeneration}:${draft.version}:${document.updatedAt}`;
     if (automaticRecoveryRef.current === attempt) return;
+    if (pageHoldsDraft(draft, document)) {
+      automaticRecoveryRef.current = attempt;
+      void discardHeldDraft(draft);
+      return;
+    }
     if (draft.baseDocumentUpdatedAt === document.updatedAt) {
       automaticRecoveryRef.current = attempt;
       void settleDraft(true);
