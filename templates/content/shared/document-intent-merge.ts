@@ -193,12 +193,16 @@ export function bodyHoldsChanges(
   holder: string,
   other: string,
 ): boolean {
-  const [baseText, holderText, otherText] = [base, holder, other].map(
-    (content) => {
-      const blocks = parseStableBlocks(content);
-      return blocks ? comparableText(content, blocks) : null;
-    },
-  );
+  // The base compares in the form an editor holds it, as in the merge.
+  const [baseText, holderText, otherText] = [
+    parsedForm(base),
+    holder,
+    other,
+  ].map((content) => {
+    if (content === null) return null;
+    const blocks = parseStableBlocks(content);
+    return blocks ? comparableText(content, blocks) : null;
+  });
   return (
     baseText !== null &&
     holderText !== null &&
