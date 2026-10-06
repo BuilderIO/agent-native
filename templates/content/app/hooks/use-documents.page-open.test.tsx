@@ -59,6 +59,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 import { markDocumentCreationPending } from "../lib/optimistic-document";
+import { PAGE_OPEN_READ_TTL_MS } from "../lib/page-open-reads";
 import { contentSyncInvalidatePredicate } from "./use-db-sync";
 import {
   ensurePreviewDocumentDraftRead,
@@ -212,11 +213,20 @@ describe("page open document reads", () => {
 
   it("asks the server again when the open's own reads run a second time", async () => {
     let served = 0;
-    server.respond = (name, params) =>
-      Promise.resolve({
-        ...pageOrDraft(name, params),
-        title: `Plan ${++served}`,
-      });
+    server.respond = (name, params) => {
+      const version = ++served;
+      return Promise.resolve(
+        name === "get-preview-document-draft"
+          ? { editable: true, draft: { version } }
+          : {
+              ...pageOrDraft(name, params),
+              title: `Plan ${version}`,
+              ...(params.includePreviewDraft
+                ? { previewDraft: { editable: true, draft: { version } } }
+                : {}),
+            },
+      );
+    };
     startPageOpenDocumentReads(queryClient, "doc-1");
     const pageKey = ["action", "get-document", { id: "doc-1" }];
     const draftKey = [
@@ -225,7 +235,10 @@ describe("page open document reads", () => {
       { documentId: "doc-1" },
     ];
     await vi.waitFor(() =>
-      expect(queryClient.getQueryState(draftKey)?.status).toBe("success"),
+      expect(queryClient.getQueryData(draftKey)).toEqual({
+        editable: true,
+        draft: { version: 1 },
+      }),
     );
 
     await queryClient.refetchQueries({ queryKey: pageKey, exact: true });
@@ -242,6 +255,10 @@ describe("page open document reads", () => {
       ["get-preview-document-draft", { documentId: "doc-1" }],
     ]);
     expect(queryClient.getQueryData<Document>(pageKey)?.title).toBe("Plan 4");
+    expect(queryClient.getQueryData(draftKey)).toEqual({
+      editable: true,
+      draft: { version: 5 },
+    });
   });
 
   it("does not show an early read after a peer changed the page before it mounted", async () => {
@@ -654,6 +671,39 @@ describe("draft recovery read", () => {
       editable: true,
       draft: { version: 2 },
     });
+  });
+
+  it("answers both reads from one new page read once the last open's reads expire", async () => {
+    let pageReads = 0;
+    server.respond = (name, params) =>
+      Promise.resolve(
+        name === "get-document"
+          ? {
+              ...pageOrDraft(name, params),
+              previewDraft: { editable: true, draft: { version: ++pageReads } },
+            }
+          : pageOrDraft(name, params),
+      );
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await draftLanded();
+    const now = Date.now();
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(now + PAGE_OPEN_READ_TTL_MS + 1);
+    try {
+      startPageOpenDocumentReads(queryClient, "doc-1");
+      await vi.waitFor(() =>
+        expect(queryClient.getQueryData(draftKey)).toEqual({
+          editable: true,
+          draft: { version: 2 },
+        }),
+      );
+    } finally {
+      clock.mockRestore();
+    }
+
+    expect(reads("get-document")).toBe(2);
+    expect(reads("get-preview-document-draft")).toBe(0);
   });
 
   it("still answers the draft from a page read cancelled for this open", async () => {

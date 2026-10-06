@@ -201,10 +201,10 @@ export default defineAction({
             getRequestOrgId() ?? "",
             doc.id,
           ).catch(
-            // coercion-ok: this page's access can come from its space, which
-            // the draft read never uses, so a refusal is no answer rather than
-            // "nothing to recover". Leaving previewDraft out sends the browser
-            // to get-preview-document-draft, which reports it.
+            // coercion-ok: a failure here is no answer, not "nothing to
+            // recover". This page's access can come from its space, which the
+            // draft read never uses. Leaving previewDraft out sends the browser
+            // to get-preview-document-draft, which asks again and reports it.
             () => undefined,
           )
         : undefined,
