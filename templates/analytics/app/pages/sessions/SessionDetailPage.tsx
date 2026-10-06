@@ -98,6 +98,7 @@ import {
   SessionDevToolsPanel,
 } from "./SessionDevToolsPanel";
 import { SessionFrictionPanel } from "./SessionFriction";
+import { SessionStartTime } from "./SessionStartTime";
 
 type SessionRecordingSummary = {
   id: string;
@@ -309,6 +310,11 @@ export default function SessionDetailPage() {
                 {recording.app ||
                   recording.template ||
                   t("sessions.unknownApp")}{" "}
+                ·{" "}
+                <SessionStartTime
+                  startedAt={recording.startedAt}
+                  showTimeZone
+                />{" "}
                 · {formatDuration(recording.durationMs)} ·{" "}
                 {t("sessions.eventCountCompact", {
                   count: formatNumber(recording.eventCount),

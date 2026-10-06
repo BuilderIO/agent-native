@@ -91,6 +91,7 @@ import {
   shouldShowZeroMinuteRecoveryAction,
   useDebouncedUrlFilter,
 } from "./SessionsPage";
+import { SessionStartTime } from "./SessionStartTime";
 
 type Range = "24h" | "7d" | "30d" | "90d" | "all" | "custom";
 type Sort = "newest" | "longest" | "errors" | "events" | "rage";
@@ -1111,7 +1112,7 @@ export function SessionsTriagePage() {
                               t("sessions.anonymous")}
                           </span>
                           <span className="block text-xs text-muted-foreground">
-                            {new Date(recording.startedAt).toLocaleString()}
+                            <SessionStartTime startedAt={recording.startedAt} />
                           </span>
                         </span>
                         <span className="min-w-0">
