@@ -10,6 +10,7 @@ import {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("session replay screenshot asset checks", () => {
@@ -27,6 +28,10 @@ describe("session replay screenshot asset checks", () => {
             pseudo === "::after"
               ? 'url("https://assets.example.test/after-mask.png")'
               : "none",
+          listStyleImage:
+            pseudo == null
+              ? 'url("https://assets.example.test/list-style.png")'
+              : "none",
           content:
             pseudo === "::after"
               ? 'url("https://assets.example.test/after-content.png")'
@@ -39,6 +44,7 @@ describe("session replay screenshot asset checks", () => {
         "https://assets.example.test/before.png",
         "https://assets.example.test/after-mask.png",
         "https://assets.example.test/after-content.png",
+        "https://assets.example.test/list-style.png",
       ]),
     );
 
@@ -53,6 +59,22 @@ describe("session replay screenshot asset checks", () => {
     );
     svgImage.setAttribute("href", "https://assets.example.test/inline.svg");
     svg.appendChild(svgImage);
+    const svgUse = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "use",
+    );
+    svgUse.setAttribute("href", "https://assets.example.test/symbol.svg#icon");
+    svg.appendChild(svgUse);
+    const filterImage = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "feImage",
+    );
+    filterImage.setAttributeNS(
+      "http://www.w3.org/1999/xlink",
+      "xlink:href",
+      "https://assets.example.test/filter.png",
+    );
+    svg.appendChild(filterImage);
 
     const childDocument = document.implementation.createHTMLDocument();
     const nestedAsset = childDocument.createElement("div");
@@ -86,6 +108,8 @@ describe("session replay screenshot asset checks", () => {
     expect(crossOriginImageUrls(document)).toEqual(
       expect.arrayContaining([
         "https://assets.example.test/inline.svg",
+        "https://assets.example.test/symbol.svg#icon",
+        "https://assets.example.test/filter.png",
         "https://assets.example.test/nested.png",
       ]),
     );
@@ -94,7 +118,7 @@ describe("session replay screenshot asset checks", () => {
   });
 
   it("rejects nested frames whose assets cannot be inspected", () => {
-    const frame = {
+    let frame = {
       contentDocument: null,
       getAttribute: () => "https://frame.example.test/",
     } as unknown as HTMLIFrameElement;
@@ -107,6 +131,23 @@ describe("session replay screenshot asset checks", () => {
             .createElement("div")
             .querySelectorAll(selector)) as typeof document.querySelectorAll);
 
+    expect(() => crossOriginImageUrls(document)).toThrow(
+      ReplayScreenshotAssetError,
+    );
+
+    frame = {
+      contentDocument: null,
+      getAttribute: () => null,
+    } as unknown as HTMLIFrameElement;
+    expect(() => crossOriginImageUrls(document)).toThrow(
+      ReplayScreenshotAssetError,
+    );
+
+    frame = {
+      contentDocument: null,
+      getAttribute: (name: string) =>
+        name === "srcdoc" ? "<p>embedded document</p>" : null,
+    } as unknown as HTMLIFrameElement;
     expect(() => crossOriginImageUrls(document)).toThrow(
       ReplayScreenshotAssetError,
     );
@@ -125,5 +166,82 @@ describe("session replay screenshot asset checks", () => {
     );
 
     video.remove();
+  });
+
+  it("times out remote asset checks instead of waiting indefinitely", async () => {
+    vi.useFakeTimers();
+    const image = document.createElement("img");
+    image.src = "https://assets.example.test/slow.png";
+    document.body.appendChild(image);
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const pending = assertRemoteImagesCapturable(document);
+    const rejection = expect(pending).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    await vi.advanceTimersByTimeAsync(8_000);
+    await rejection;
+
+    image.remove();
+  });
+
+  it("limits parallel checks and releases response bodies after reading headers", async () => {
+    const images = Array.from({ length: 9 }, (_, index) => {
+      const image = document.createElement("img");
+      image.src = `https://assets.example.test/${index}.png`;
+      document.body.appendChild(image);
+      return image;
+    });
+    let active = 0;
+    let maximumActive = 0;
+    const cancelBodies = vi.fn();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active -= 1;
+        return {
+          body: { cancel: cancelBodies },
+          headers: { get: () => "image/png" },
+          ok: true,
+        } as unknown as Response;
+      });
+
+    await expect(
+      assertRemoteImagesCapturable(document),
+    ).resolves.toBeUndefined();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(9);
+    expect(maximumActive).toBeLessThanOrEqual(4);
+    expect(cancelBodies).toHaveBeenCalledTimes(9);
+    images.forEach((image) => image.remove());
+  });
+
+  it("rejects when it cannot release a preflight response body", async () => {
+    const image = document.createElement("img");
+    image.src = "https://assets.example.test/cancel-fails.png";
+    document.body.appendChild(image);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      body: {
+        cancel: () => Promise.reject(new Error("body cancellation failed")),
+      },
+      headers: { get: () => "image/png" },
+      ok: true,
+    } as unknown as Response);
+
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+
+    image.remove();
   });
 });

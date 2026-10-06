@@ -5,6 +5,9 @@ export class ReplayScreenshotAssetError extends Error {
   }
 }
 
+const REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS = 8_000;
+const REMOTE_IMAGE_PREFLIGHT_CONCURRENCY = 4;
+
 function replayDocuments(document: Document): Document[] {
   const documents: Document[] = [];
   const visited = new Set<Document>();
@@ -16,11 +19,7 @@ function replayDocuments(document: Document): Document[] {
     for (const frame of current.querySelectorAll<HTMLIFrameElement>("iframe")) {
       const child = frame.contentDocument;
       if (!child?.documentElement) {
-        const source = frame.getAttribute("src");
-        if (source && new URL(source, current.baseURI).protocol !== "about:") {
-          throw new ReplayScreenshotAssetError();
-        }
-        continue;
+        throw new ReplayScreenshotAssetError();
       }
       visit(child);
     }
@@ -55,7 +54,7 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
     }
 
     for (const image of current.querySelectorAll<SVGImageElement>(
-      "svg image",
+      "svg image, svg use, svg feImage",
     )) {
       const source =
         image.getAttribute("href") ||
@@ -73,12 +72,14 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
       const view = current.defaultView ?? window;
       const styles = view.getComputedStyle(element);
       addCssUrls(styles.backgroundImage, current.baseURI);
+      addCssUrls(styles.listStyleImage, current.baseURI);
       addCssUrls(styles.maskImage, current.baseURI);
 
       for (const pseudo of ["::before", "::after"]) {
         const pseudoStyles = view.getComputedStyle(element, pseudo);
         addCssUrls(pseudoStyles.content, current.baseURI);
         addCssUrls(pseudoStyles.backgroundImage, current.baseURI);
+        addCssUrls(pseudoStyles.listStyleImage, current.baseURI);
         addCssUrls(pseudoStyles.maskImage, current.baseURI);
       }
     }
@@ -110,26 +111,50 @@ export async function assertRemoteImagesCapturable(
   }
 
   const urls = imageUrlsInDocuments(documents);
-  const checks = await Promise.all(
-    urls.map(async (url) => {
-      let response: Response;
+  let nextUrlIndex = 0;
+  let allCapturable = true;
+  const checkNextUrl = async () => {
+    while (allCapturable && nextUrlIndex < urls.length) {
+      const url = urls[nextUrlIndex++];
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(
+        () => controller.abort(),
+        REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS,
+      );
+      let response: Response | undefined;
       try {
         response = await fetch(url, {
           cache: "force-cache",
           credentials: "omit",
           mode: "cors",
+          signal: controller.signal,
         });
+        if (
+          !response.ok ||
+          !response.headers.get("content-type")?.startsWith("image/")
+        ) {
+          allCapturable = false;
+        }
       } catch {
-        throw new ReplayScreenshotAssetError();
+        allCapturable = false;
+      } finally {
+        window.clearTimeout(timeoutId);
+        try {
+          await response?.body?.cancel();
+        } catch {
+          allCapturable = false;
+        }
       }
-      return (
-        response.ok &&
-        response.headers.get("content-type")?.startsWith("image/")
-      );
-    }),
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(REMOTE_IMAGE_PREFLIGHT_CONCURRENCY, urls.length) },
+      () => checkNextUrl(),
+    ),
   );
 
-  if (checks.some((capturable) => !capturable)) {
+  if (!allCapturable) {
     throw new ReplayScreenshotAssetError();
   }
 }
