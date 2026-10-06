@@ -34,10 +34,7 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
   const urls = new Set<string>();
   const addUrl = (value: string, baseURI: string) => {
     const url = new URL(value, baseURI);
-    if (
-      (url.protocol === "https:" || url.protocol === "http:") &&
-      url.origin !== window.location.origin
-    ) {
+    if (url.protocol === "https:" || url.protocol === "http:") {
       urls.add(url.href);
     }
   };
@@ -119,7 +116,11 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
       }
     }
 
-    for (const element of current.querySelectorAll<Element>("*")) {
+    const styledElements = [
+      current.documentElement,
+      ...current.querySelectorAll<Element>("*"),
+    ];
+    for (const element of styledElements) {
       const view = current.defaultView ?? window;
       const styles = view.getComputedStyle(element);
       addCssUrls(styles.backgroundImage, current.baseURI);
@@ -149,7 +150,9 @@ function imageUrlsInDocuments(documents: Document[]): string[] {
 }
 
 export function crossOriginImageUrls(document: Document): string[] {
-  return imageUrlsInDocuments(replayDocuments(document));
+  return imageUrlsInDocuments(replayDocuments(document)).filter(
+    (url) => new URL(url).origin !== window.location.origin,
+  );
 }
 
 export async function assertRemoteImagesCapturable(
@@ -173,15 +176,20 @@ export async function assertRemoteImagesCapturable(
       const url = urls[nextUrlIndex++];
       let response: Response | undefined;
       try {
+        const sameOrigin = new URL(url).origin === window.location.origin;
         response = await fetch(url, {
           cache: "force-cache",
-          credentials: "omit",
+          credentials: sameOrigin ? "same-origin" : "omit",
           mode: "cors",
           signal: controller.signal,
         });
         if (
           !response.ok ||
-          !response.headers.get("content-type")?.startsWith("image/")
+          !response.headers.get("content-type")?.startsWith("image/") ||
+          (sameOrigin &&
+            (response.redirected ||
+              (response.url &&
+                new URL(response.url).origin !== window.location.origin)))
         ) {
           fail();
         }

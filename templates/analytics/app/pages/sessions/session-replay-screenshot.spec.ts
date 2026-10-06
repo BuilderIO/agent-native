@@ -52,6 +52,32 @@ describe("session replay screenshot asset checks", () => {
     element.remove();
   });
 
+  it("scans image styles attached to the document root", () => {
+    const root = document.documentElement;
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) =>
+        ({
+          backgroundImage:
+            element === root && pseudo == null
+              ? 'url("https://assets.example.test/root-background.png")'
+              : "none",
+          maskImage: "none",
+          listStyleImage: "none",
+          content:
+            element === root && pseudo === "::before"
+              ? 'url("https://assets.example.test/root-content.png")'
+              : "none",
+        }) as CSSStyleDeclaration,
+    );
+
+    expect(crossOriginImageUrls(document)).toEqual(
+      expect.arrayContaining([
+        "https://assets.example.test/root-background.png",
+        "https://assets.example.test/root-content.png",
+      ]),
+    );
+  });
+
   it("finds quoted image-set candidates and image-submit sources", () => {
     const input = document.createElement("input");
     input.type = "image";
@@ -318,6 +344,33 @@ describe("session replay screenshot asset checks", () => {
     );
     await vi.advanceTimersByTimeAsync(8_000);
     await rejection;
+
+    image.remove();
+  });
+
+  it("rejects same-origin image URLs that redirect off-origin", async () => {
+    const image = document.createElement("img");
+    image.src = "/redirected-image.png";
+    document.body.appendChild(image);
+    const cancelBody = vi.fn();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      body: { cancel: cancelBody },
+      headers: { get: () => "image/png" },
+      ok: true,
+      url: "https://cdn.example.test/redirected-image.png",
+    } as unknown as Response);
+
+    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
+      ReplayScreenshotAssetError,
+    );
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `${window.location.origin}/redirected-image.png`,
+      expect.objectContaining({
+        credentials: "same-origin",
+        mode: "cors",
+      }),
+    );
+    expect(cancelBody).toHaveBeenCalledOnce();
 
     image.remove();
   });
