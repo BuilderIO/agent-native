@@ -3297,6 +3297,9 @@ describe("createProductionAgentHandler", () => {
     expect(preparation).toContain(
       'setRunTerminalReason(runId, "run_preparation_failed")',
     );
+    expect(preparation).toMatch(
+      /setRunError\(\s*runId,\s*"run_preparation_failed",\s*error instanceof Error \? error\.message : String\(error\)/,
+    );
     expect(preparation).toContain("throw error");
   });
 });
