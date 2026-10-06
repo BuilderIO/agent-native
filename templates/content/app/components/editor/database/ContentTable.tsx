@@ -484,7 +484,7 @@ export function ContentTableConstraintBar({
           data-constraint-scroller=""
           data-overflow-start={overflow.start ? "" : undefined}
           data-overflow-end={overflow.end ? "" : undefined}
-          className="-m-0.5 min-w-0 flex-1 gap-[inherit] scroll-px-10 overflow-x-auto overscroll-x-contain p-0.5 [--constraint-fade-direction:to_right] [mask-image:linear-gradient(var(--constraint-fade-direction),transparent_calc(var(--constraint-fade-start,0px)/2),black_var(--constraint-fade-start,0px),black_calc(100%_-_var(--constraint-fade-end,0px)),transparent_calc(100%_-_var(--constraint-fade-end,0px)/2))] [scrollbar-width:none] data-[overflow-end]:[--constraint-fade-end:2.5rem] data-[overflow-start]:[--constraint-fade-start:2.5rem] rtl:[--constraint-fade-direction:to_left] sm:contents [&::-webkit-scrollbar]:hidden"
+          className="-m-0.5 min-w-0 flex-1 gap-[inherit] scroll-px-10 overflow-x-auto overscroll-x-contain p-0.5 [--constraint-fade-direction:to_right] [&:is([data-overflow-start],[data-overflow-end])]:[mask-image:linear-gradient(var(--constraint-fade-direction),transparent_calc(var(--constraint-fade-start,0px)/2),black_var(--constraint-fade-start,0px),black_calc(100%_-_var(--constraint-fade-end,0px)),transparent_calc(100%_-_var(--constraint-fade-end,0px)/2))] [scrollbar-width:none] data-[overflow-end]:[--constraint-fade-end:2.5rem] data-[overflow-start]:[--constraint-fade-start:2.5rem] rtl:[--constraint-fade-direction:to_left] sm:contents [&::-webkit-scrollbar]:hidden"
           onFocus={revealFocusedConstraint}
         >
           <div
