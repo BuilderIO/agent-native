@@ -609,6 +609,33 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_123",
       });
+
+      // A browser holding only a last touch still signs it into the link.
+      const lastTouch = encodeURIComponent(JSON.stringify({ ref: "steve" }));
+      await handler(
+        createJsonPostEvent(
+          "/_agent-native/auth/magic-link",
+          { email: "other@example.com", callbackURL: "/welcome" },
+          { cookie: `an_lt=${lastTouch}` },
+        ),
+      );
+      const lastOnly = new URL(
+        signInMagicLink.mock.calls[1]?.[0].body.newUserCallbackURL,
+      );
+      const lastOnlyVerification = new URL(verification);
+      lastOnlyVerification.searchParams.set(
+        "newUserCallbackURL",
+        lastOnly.toString(),
+      );
+      expect(
+        readMagicLinkSignupAttribution(lastOnlyVerification.toString(), secret),
+      ).toEqual({
+        attribution: {
+          referral_source: "direct",
+          last_touch_source: "steve",
+          last_touch_ref: "steve",
+        },
+      });
     });
 
     it("promotes tracking callbacks that Better Auth cannot accept relatively", async () => {
@@ -5441,6 +5468,148 @@ describe("server/auth", () => {
       expect(result).toBe("");
       expect(event.res.status).toBe(403);
       expect(event.res.headers.get("access-control-allow-origin")).toBeNull();
+    });
+
+    it.each([
+      "https://chatgpt.com",
+      "https://chat.openai.com",
+      "https://platform.openai.com",
+    ])("allows ChatGPT directory preflight from %s", async (origin) => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://unlisted.example");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/mcp/directory",
+        headers: {
+          origin,
+          "access-control-request-method": "POST",
+          "access-control-request-headers":
+            "authorization,content-type,accept,mcp-protocol-version,mcp-session-id,last-event-id",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      const result = await guard(event);
+
+      expect(result).toBe("");
+      expect(event.res.status).toBe(204);
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(origin);
+      expect(event.res.headers.get("access-control-allow-methods")).toBe(
+        "POST, GET, DELETE, OPTIONS",
+      );
+      expect(event.res.headers.get("access-control-allow-headers")).toBe(
+        "Authorization, Content-Type, Accept, MCP-Protocol-Version, MCP-Session-Id, Last-Event-Id",
+      );
+      expect(event.res.headers.get("vary")).toBe("Origin");
+    });
+
+    it.each([
+      "https://chatgpt.com",
+      "https://chat.openai.com",
+      "https://platform.openai.com",
+    ])("allows ChatGPT directory responses from %s", async (origin) => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://unlisted.example");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/mcp/directory",
+        headers: { origin },
+      });
+      event.req.method = "POST";
+      event.node.req.method = "POST";
+
+      await guard(event);
+
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(origin);
+      expect(event.res.headers.get("vary")).toBe("Origin");
+    });
+
+    it("rejects other origins on the MCP directory and leaves /mcp unchanged", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://unlisted.example");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const makePreflight = (path: string) => {
+        const event = createMockEvent({
+          path,
+          headers: {
+            origin: "https://unlisted.example",
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+          },
+        });
+        event.req.method = "OPTIONS";
+        event.node.req.method = "OPTIONS";
+        return event;
+      };
+
+      const directoryEvent = makePreflight("/mcp/directory");
+      const directoryResult = await guard(directoryEvent);
+
+      expect(directoryResult).toBe("");
+      expect(directoryEvent.res.status).toBe(403);
+      expect(
+        directoryEvent.res.headers.get("access-control-allow-origin"),
+      ).toBeNull();
+
+      const publicMcpEvent = createMockEvent({
+        path: "/mcp",
+        headers: {
+          origin: "https://chatgpt.com",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type",
+        },
+      });
+      publicMcpEvent.req.method = "OPTIONS";
+      publicMcpEvent.node.req.method = "OPTIONS";
+      const publicMcpResult = await guard(publicMcpEvent);
+
+      expect(publicMcpResult).toBe("");
+      expect(publicMcpEvent.res.status).toBe(403);
+      expect(
+        publicMcpEvent.res.headers.get("access-control-allow-origin"),
+      ).toBeNull();
+
+      const actualMcpRequest = createMockEvent({
+        path: "/mcp",
+        headers: { origin: "https://chatgpt.com" },
+      });
+      actualMcpRequest.req.method = "POST";
+      actualMcpRequest.node.req.method = "POST";
+      await guard(actualMcpRequest);
+      expect(
+        actualMcpRequest.res.headers.get("access-control-allow-origin"),
+      ).toBeNull();
     });
 
     it("allows explicitly configured public ingest preflights without credentials", async () => {

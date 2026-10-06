@@ -478,6 +478,85 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
   );
 });
 
+test("selects the Content two-tab convergence lane for its runtime dependencies", () => {
+  for (const path of [
+    "templates/content/app/components/editor/PageDraftRecovery.tsx",
+    "templates/content/app/hooks/use-db-sync.ts",
+    "templates/content/app/routes/page.$id.tsx",
+    "templates/content/app/root.tsx",
+    "templates/content/actions/update-document.ts",
+    "templates/content/server/db/schema.ts",
+    "templates/content/server/plugins/auth.ts",
+    "templates/content/shared/document-intent-merge.ts",
+    "templates/content/shared/content-editor-structural-schema.generated.json",
+    "templates/content/agent-native.config.ts",
+    "templates/content/package.json",
+    "templates/content/vite.config.ts",
+    "templates/content/e2e/two-tab-convergence.spec.ts",
+    "templates/content/e2e/helpers.ts",
+    "templates/content/e2e/convergence-summary.ts",
+    "templates/content/e2e/global-setup.ts",
+    "templates/content/e2e/playwright.config.ts",
+    "packages/core/src/collab/client.ts",
+    "packages/core/src/client/use-session.ts",
+    "packages/toolkit/src/editor/useCollabReconcile.ts",
+    "packages/toolkit/src/collab-ui/lead-client.ts",
+    "packages/toolkit/package.json",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.content_convergence, true, path);
+  }
+
+  // A toolkit-only change starts Content DB tests through this check alone.
+  const toolkit = classifyChangedPaths([
+    "packages/toolkit/src/editor/RichMarkdownEditor.tsx",
+  ]);
+  assert.equal(toolkit.checks.content, false);
+  assert.equal(toolkit.checks.content_convergence, true);
+
+  for (const path of [
+    "templates/content/app/components/editor/comment-anchors.spec.ts",
+    "templates/content/shared/nfm.spec.ts",
+    "templates/content/app/i18n/en-US.ts",
+    "templates/content/app/i18n-data.ts",
+    "templates/content/e2e/sidebar-delete.spec.ts",
+    "templates/content/evals/editing.eval.ts",
+    "templates/content/docs/product/capabilities/content.author.document-editor.md",
+    "templates/content/README.md",
+    "templates/design/app/components/MultiScreenCanvas.tsx",
+    "packages/toolkit/src/composer/PromptComposer.tsx",
+    "packages/toolkit/src/editor/useCollabReconcile.spec.ts",
+    "packages/creative-context/src/index.ts",
+    "packages/scheduling/src/index.ts",
+    "packages/dispatch/src/index.ts",
+    "docs/guide.md",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.content_convergence,
+      false,
+      path,
+    );
+  }
+
+  for (const path of [".github/workflows/ci.yml", "pnpm-lock.yaml"]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, true, path);
+    assert.equal(scope.checks.content_convergence, true, path);
+  }
+
+  for (const path of [
+    "scripts/guard-e2e-harness.mjs",
+    "AGENTS.md",
+    ".agents/skills/qa/SKILL.md",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.content_convergence,
+      false,
+      path,
+    );
+  }
+});
+
 test("runs shared coverage when core changes", () => {
   const scope = classifyChangedPaths(["packages/core/src/agent/engine/run.ts"]);
 

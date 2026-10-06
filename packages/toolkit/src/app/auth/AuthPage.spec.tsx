@@ -275,19 +275,23 @@ describe("AuthPage", () => {
     );
     expect(html).toContain(">Learn more</a>");
     expect(html).toContain('class="oss-badge"');
-    expect(html).not.toContain("data-agent-native-starfield");
+    expect(html).toContain('data-agent-native-wave="true"');
+    expect(html).not.toContain("data-agent-native-marketing-background");
   });
 
-  it("places a transparent animated wave after the signup legal notice", () => {
+  it("renders one full-page WebGL wave on login and signup", () => {
     const props = propsFromHtml(
       getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
     );
-    const html = renderToString(<AuthPage {...props} initialView="signup" />);
 
-    expect(html.indexOf('class="legal-note"')).toBeLessThan(
-      html.indexOf('data-agent-native-starfield-transparent="true"'),
-    );
-    expect(html).toContain('class="auth-marketing-signup-wave-canvas"');
+    for (const initialView of ["login", "signup"] as const) {
+      const html = renderToString(
+        <AuthPage {...props} initialView={initialView} />,
+      );
+      expect(html.match(/data-agent-native-wave="true"/g)).toHaveLength(1);
+      expect(html).toContain('class="auth-wave-background"');
+      expect(html).not.toContain("auth-marketing-signup-wave");
+    }
   });
 
   it("keeps the whole marketing panel in English when localized copy is incomplete", () => {
