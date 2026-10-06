@@ -1,5 +1,4 @@
 import {
-  AgentActionStopError,
   ActionContractError,
   defineAction,
   embedApp,
@@ -302,10 +301,11 @@ export default defineAction({
         slides.length >= targetSlideCount &&
         targetSlideCountOverride === undefined
       ) {
-        throw new AgentActionStopError(
-          `Cannot add a slide: this deck already has ${slides.length} slides and its requested target is ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
+        fail(
+          `No slide was added: this deck already has ${slides.length} slides against its requested target of ${targetSlideCount}. Re-read the deck. If the target is satisfied, stop authoring and finish the response; do not retry. Only add slides if the user explicitly asks for more and provides a new target.`,
           {
             errorCode: "target_slide_count_reached",
+            statusCode: 409,
             details: {
               deckId,
               currentSlideCount: slides.length,

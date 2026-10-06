@@ -794,6 +794,12 @@ describe("Slides prompt-led home", () => {
     expect(agentSubmit.mock.calls[0][1]).toContain(
       "Do not restore a workspace default",
     );
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "For a requested slide count, compare the slideCount returned by every add-slide result",
+    );
+    expect(agentSubmit.mock.calls[0][1]).toContain(
+      "If add-slide returns errorCode target_slide_count_reached, re-read get-deck once",
+    );
     expect(agentSubmit.mock.calls[0][1]).toContain("A restrained visual style");
     expect(agentSubmit.mock.calls[0][2]).toMatchObject({
       model: "test-model",
