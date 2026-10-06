@@ -2,7 +2,6 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
   frames: "agent-surfaces",
   "database-adapters": "deployment",
-  "aws-lambda": "deployment",
   "other-platforms": "deployment",
   "aws-amplify": "deployment",
   database: "server-database",

@@ -2580,6 +2580,7 @@ const koKR = {
     deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
+    deploymentAwsLambda: "AWS Lambda",
     deploymentOtherPlatforms: "기타 플랫폼",
     ssrCaching: "SSR 캐싱",
     deploymentEnvironmentVariables: "배포: 환경 변수",

@@ -117,6 +117,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "deploymentAzureStaticWebApps",
             slug: "azure-static-web-apps",
           },
+          {
+            id: "aws-lambda",
+            labelKey: "deploymentAwsLambda",
+            slug: "aws-lambda",
+          },
         ],
       },
       {

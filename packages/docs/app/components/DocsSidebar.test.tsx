@@ -118,6 +118,7 @@ describe("DocsSidebar", () => {
       "koyeb",
       "deno-deploy",
       "azure-static-web-apps",
+      "aws-lambda",
     ]);
     const databaseGroup = deployment?.items.find(
       (item) => item.id === "database-providers",
