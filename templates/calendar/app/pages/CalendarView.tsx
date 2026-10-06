@@ -2081,6 +2081,9 @@ export default function CalendarView({
                         the header actions, so the date names the view menu. */}
                     <span className="whitespace-nowrap sm:hidden">
                       {headerLabel}
+                      <span className="sr-only">
+                        , {viewModeLabels[viewMode]}
+                      </span>
                     </span>
                     <span className="hidden sm:inline">
                       {viewModeLabels[viewMode]}
