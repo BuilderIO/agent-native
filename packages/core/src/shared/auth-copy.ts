@@ -15,6 +15,9 @@ export interface NativeAuthCopy {
   welcomeTitle: string;
   welcomeToApp: string;
   welcomeSubtitle: string;
+  emailLinkContinueTitle: string;
+  emailLinkContinueMessage: string;
+  emailLinkContinueAction: string;
   email: string;
   emailPlaceholder: string;
   legalPrefix: string;
@@ -75,6 +78,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Welcome",
     welcomeToApp: "Welcome to {appName}",
     welcomeSubtitle: "Sign in or create your account",
+    emailLinkContinueTitle: "Continue signing in",
+    emailLinkContinueMessage: "Select Continue to finish signing in.",
+    emailLinkContinueAction: "Continue",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "By signing up, you accept our",
@@ -117,6 +123,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "欢迎",
     welcomeToApp: "欢迎使用 {appName}",
     welcomeSubtitle: "继续以登录或创建账户",
+    emailLinkContinueTitle: "继续登录",
+    emailLinkContinueMessage: "选择“继续”以完成登录。",
+    emailLinkContinueAction: "继续",
     email: "电子邮箱",
     emailPlaceholder: "you@example.com",
     legalPrefix: "注册即表示你接受我们的",
@@ -157,6 +166,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "歡迎",
     welcomeToApp: "歡迎使用 {appName}",
     welcomeSubtitle: "繼續以登入或建立帳戶",
+    emailLinkContinueTitle: "繼續登入",
+    emailLinkContinueMessage: "選擇「繼續」以完成登入。",
+    emailLinkContinueAction: "繼續",
     email: "電子郵件",
     emailPlaceholder: "you@example.com",
     legalPrefix: "註冊即表示你接受我們的",
@@ -197,6 +209,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Bienvenido",
     welcomeToApp: "Bienvenido a {appName}",
     welcomeSubtitle: "Continúa para iniciar sesión o crear tu cuenta",
+    emailLinkContinueTitle: "Continúa para iniciar sesión",
+    emailLinkContinueMessage:
+      "Selecciona Continuar para terminar de iniciar sesión.",
+    emailLinkContinueAction: "Continuar",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Al registrarte, aceptas nuestros",
@@ -238,6 +254,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Bienvenue",
     welcomeToApp: "Bienvenue sur {appName}",
     welcomeSubtitle: "Continuez pour vous connecter ou créer votre compte",
+    emailLinkContinueTitle: "Continuer la connexion",
+    emailLinkContinueMessage:
+      "Sélectionnez Continuer pour terminer la connexion.",
+    emailLinkContinueAction: "Continuer",
     email: "E-mail",
     emailPlaceholder: "you@example.com",
     legalPrefix: "En vous inscrivant, vous acceptez nos",
@@ -280,6 +300,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeToApp: "Willkommen bei {appName}",
     welcomeSubtitle:
       "Fahre fort, um dich anzumelden oder ein Konto zu erstellen",
+    emailLinkContinueTitle: "Anmeldung fortsetzen",
+    emailLinkContinueMessage: "Wähle Weiter, um die Anmeldung abzuschließen.",
+    emailLinkContinueAction: "Weiter",
     email: "E-Mail",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Mit der Registrierung akzeptierst du unsere",
@@ -322,6 +345,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "ようこそ",
     welcomeToApp: "{appName}へようこそ",
     welcomeSubtitle: "続けてサインインするか、アカウントを作成します",
+    emailLinkContinueTitle: "サインインを続ける",
+    emailLinkContinueMessage:
+      "「続行」を選択してサインインを完了してください。",
+    emailLinkContinueAction: "続行",
     email: "メール",
     emailPlaceholder: "you@example.com",
     legalPrefix: "登録すると、以下に同意したものとみなされます:",
@@ -364,6 +391,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "환영합니다",
     welcomeToApp: "{appName}에 오신 것을 환영합니다",
     welcomeSubtitle: "계속해서 로그인하거나 계정을 만드세요",
+    emailLinkContinueTitle: "로그인 계속하기",
+    emailLinkContinueMessage: "계속을 선택해 로그인을 완료하세요.",
+    emailLinkContinueAction: "계속",
     email: "이메일",
     emailPlaceholder: "you@example.com",
     legalPrefix: "가입하면 다음에 동의하게 됩니다:",
@@ -405,6 +435,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Bem-vindo",
     welcomeToApp: "Bem-vindo ao {appName}",
     welcomeSubtitle: "Continue para entrar ou criar sua conta",
+    emailLinkContinueTitle: "Continuar entrando",
+    emailLinkContinueMessage: "Selecione Continuar para concluir o acesso.",
+    emailLinkContinueAction: "Continuar",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Ao se cadastrar, você aceita nossos",
@@ -446,6 +479,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "स्वागत है",
     welcomeToApp: "{appName} में आपका स्वागत है",
     welcomeSubtitle: "साइन इन करने या अपना खाता बनाने के लिए जारी रखें",
+    emailLinkContinueTitle: "साइन इन जारी रखें",
+    emailLinkContinueMessage: "साइन इन पूरा करने के लिए जारी रखें चुनें।",
+    emailLinkContinueAction: "जारी रखें",
     email: "ईमेल",
     emailPlaceholder: "you@example.com",
     legalPrefix: "साइन अप करके, आप हमारी",
@@ -487,6 +523,9 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "مرحبًا",
     welcomeToApp: "مرحبًا بك في {appName}",
     welcomeSubtitle: "تابع لتسجيل الدخول أو إنشاء حسابك",
+    emailLinkContinueTitle: "متابعة تسجيل الدخول",
+    emailLinkContinueMessage: "اختر متابعة لإكمال تسجيل الدخول.",
+    emailLinkContinueAction: "متابعة",
     email: "البريد الإلكتروني",
     emailPlaceholder: "you@example.com",
     legalPrefix: "بالتسجيل، فإنك توافق على",

@@ -106,6 +106,7 @@ import {
   MissingAuthSecretError,
 } from "./deploy-settings.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import { emailAuthLinkLandingUrl } from "./email-auth-links.js";
 import {
   getDeploymentEmailReadiness,
   sendEmail,
@@ -2176,7 +2177,8 @@ async function createBetterAuthInstance(
           urlQueryKeys,
         });
       }
-      const deliveredMagicLinkUrl = desktopMagicLinkLandingUrl(url) ?? url;
+      const deliveredMagicLinkUrl =
+        desktopMagicLinkLandingUrl(url) ?? emailAuthLinkLandingUrl(url) ?? url;
       const { subject, html, text, appSender } = await renderTransactionalEmail(
         CORE_MAGIC_LINK_EMAIL_ID,
         {
@@ -2241,14 +2243,7 @@ async function createBetterAuthInstance(
       sendOnSignUp: requireEmailVerification,
       autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url, token }) => {
-        const verifyBasePath = (
-          process.env.VITE_APP_BASE_PATH ||
-          process.env.APP_BASE_PATH ||
-          ""
-        ).replace(/\/$/, "");
-        const verifyUrl = verifyBasePath
-          ? url.replace(/(\/\/[^/]+)(\/)/, `$1${verifyBasePath}$2`)
-          : url;
+        const deliveredVerifyUrl = emailAuthLinkLandingUrl(url) ?? url;
         const emailChange = await verifiedEmailChangeFromToken(
           token,
           secret,
@@ -2263,7 +2258,7 @@ async function createBetterAuthInstance(
           emailChange
             ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
             : CORE_VERIFY_SIGNUP_EMAIL_ID,
-          { email: user.email, verifyUrl },
+          { email: user.email, verifyUrl: deliveredVerifyUrl },
         );
         await sendEmail({
           to: user.email,
@@ -2529,6 +2524,8 @@ async function createBetterAuthInstance(
     },
     advanced: {
       cookiePrefix: cookieNamespace.betterAuthCookiePrefix,
+      // Keep callback URL validation active in test runs as well as production.
+      disableOriginCheck: false,
       ...(appUrl.startsWith("https://") || isBuilderPreviewHttpsEnvironment()
         ? {
             defaultCookieAttributes: {
