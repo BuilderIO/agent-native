@@ -1118,6 +1118,60 @@ describe("session friction on Postgres", () => {
     expect(details.get("r1")?.replay).toMatchObject({ dead_clicks: 3 });
   });
 
+  it("measures a finalized recording again when an upload advances the row during its remeasurement", async () => {
+    await migrateFriction(client);
+    await addRecording("r1", "s1", at(0), 2);
+    await replayBatch("r1", "s1", 0, deadClick(1_000), false);
+    let uploaded = false;
+    const readWithUpload: ReadStoredReplayChunks = async function* () {
+      if (!uploaded) {
+        uploaded = true;
+        await replayBatch("r1", "s1", 1, [serverError(65_000)], false);
+      }
+      yield* readStored("r1")();
+    };
+
+    await finalizeReplayFriction(
+      recordingInput("r1", "s1", 2),
+      at(60),
+      readWithUpload,
+    );
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r1", "s1", 2),
+    ]);
+    expect(details.get("r1")?.replay).toMatchObject({
+      dead_clicks: 1,
+      http_5xx: 1,
+      error_then_leave: 1,
+    });
+  });
+
+  it("fails finalizing while uploads keep advancing the row, so retention tries again", async () => {
+    await migrateFriction(client);
+    await addRecording("r1", "s1", at(0), 2);
+    await replayBatch("r1", "s1", 0, deadClick(1_000), false);
+    let next = 1;
+    const readWithUploads: ReadStoredReplayChunks = async function* () {
+      await replayBatch(
+        "r1",
+        "s1",
+        next,
+        deadClick(1_000 + next * 60_000),
+        false,
+      );
+      next += 1;
+      yield* readStored("r1")();
+    };
+
+    await expect(
+      finalizeReplayFriction(
+        recordingInput("r1", "s1", 2),
+        at(60),
+        readWithUploads,
+      ),
+    ).rejects.toThrow();
+  });
+
   it("leaves an ended recording unmeasured when a stored chunk cannot be read", async () => {
     await migrateFriction(client);
     await addRecording("r1", "s1", at(0), 3);

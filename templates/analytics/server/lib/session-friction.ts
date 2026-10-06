@@ -378,14 +378,29 @@ async function measureReplayFriction(
   if (!written && input.recordingEnded) await remeasureReplayFriction(input);
 }
 
+const REMEASURE_ATTEMPTS = 3;
+
 /**
  * Measures an ended recording from every chunk it stores, in sequence order.
  * A chunk that cannot be read leaves the row behind, which reads as
- * unmeasured.
+ * unmeasured. Throws while other writes keep advancing the row, so retention
+ * leaves the recording active and tries again.
  */
 async function remeasureReplayFriction(
   input: ReplayFrictionInput,
 ): Promise<void> {
+  for (let attempt = 0; attempt < REMEASURE_ATTEMPTS; attempt += 1) {
+    if ((await remeasureReplayFrictionOnce(input)) !== "lost") return;
+  }
+  throw new Error(
+    `Replay friction for recording ${input.recordingId} kept changing while it was remeasured`,
+  );
+}
+
+/** "lost" when another write advanced the row first, so nothing was saved. */
+async function remeasureReplayFrictionOnce(
+  input: ReplayFrictionInput,
+): Promise<"saved" | "unmeasurable" | "lost"> {
   const t = schema.sessionRecordingFriction;
   const [existing]: Array<ReplayFrictionRow | undefined> = await (
     getDb() as any
@@ -408,7 +423,7 @@ async function remeasureReplayFriction(
   let processedChunks = 0;
   for await (const chunk of input.readStoredChunks()) {
     const events = parseReplayChunks([chunk]);
-    if (!events) return;
+    if (!events) return "unmeasurable";
     const result = detectReplayFriction(
       events,
       progress ? progress.state : null,
@@ -420,8 +435,8 @@ async function remeasureReplayFriction(
     errorThenLeave = result.errorThenLeave;
     processedChunks += 1;
   }
-  if (!progress) return;
-  await writeReplayFriction(input, existing, {
+  if (!progress) return "unmeasurable";
+  const written = await writeReplayFriction(input, existing, {
     counts: {
       deadClicks: totals.deadClicks,
       errorToasts: totals.errorToasts,
@@ -435,6 +450,7 @@ async function remeasureReplayFriction(
     processedChunks,
     progress,
   });
+  return written ? "saved" : "lost";
 }
 
 /** Whether the row was written; false when another upload changed it first. */
