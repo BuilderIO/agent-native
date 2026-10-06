@@ -59,6 +59,46 @@ describe("server captureError", () => {
     }
   });
 
+  it("tells omitted run failures apart by code in flood summaries", () => {
+    resetCaptureErrorStateForTests();
+    vi.useFakeTimers();
+    const provider = vi.fn();
+    const unregister = registerErrorCaptureProvider(
+      "run-flood-codes",
+      provider,
+    );
+    try {
+      for (const errorCode of [
+        "provider_network_error",
+        "provider_network_error",
+        "provider_timeout",
+      ])
+        captureError(new Error("Jane Doe's notes are locked"), {
+          route: "/_agent-native/agent-chat",
+          errorMessagePolicy: "omit",
+          tags: { failureClass: "transient-database", errorCode },
+        });
+      vi.advanceTimersByTime(60_000);
+      expect(provider.mock.calls[1]?.[1].extra).toMatchObject({
+        suppressedCount: 2,
+        suppressedBreakdown: [
+          {
+            error: "Error [provider_network_error]: Internal Server Error",
+            count: 1,
+          },
+          {
+            error: "Error [provider_timeout]: Internal Server Error",
+            count: 1,
+          },
+        ],
+      });
+    } finally {
+      unregister();
+      resetCaptureErrorStateForTests();
+      vi.useRealTimers();
+    }
+  });
+
   it("no-ops when no capture provider is registered", () => {
     expect(captureError(new Error("boom"))).toBeUndefined();
   });

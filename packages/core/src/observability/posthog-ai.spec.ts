@@ -282,6 +282,33 @@ describe("toAiErrorDetail", () => {
 });
 
 describe("toPostHogMessages", () => {
+  it.each([
+    ["flagged", { isError: true, content: "Jane Doe's notes are locked" }],
+    [
+      "legacy unflagged",
+      { content: "Error running read-notes: Jane Doe's notes are locked" },
+    ],
+    ["successful", { isError: false, content: "Error rates for Jane Doe" }],
+  ])("omits only failed tool results (%s)", (kind, part) => {
+    const normalized = toPostHogMessages([
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_abc",
+            toolName: "read-notes",
+            ...part,
+          },
+        ],
+      },
+    ]);
+
+    expect(JSON.stringify(normalized).includes("Jane Doe")).toBe(
+      kind === "successful",
+    );
+  });
+
   it("lifts engine tool results out of the user turn into `tool` messages", () => {
     const normalized = toPostHogMessages([
       { role: "user", content: [{ type: "text", text: "make the report" }] },

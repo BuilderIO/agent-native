@@ -201,12 +201,18 @@ function emit(
 }
 
 function errorLabel(error: unknown): string {
-  const { name, message } = (error ?? {}) as {
+  const { name, message, errorCode } = (error ?? {}) as {
     name?: unknown;
     message?: unknown;
+    errorCode?: unknown;
   };
   const text = typeof message === "string" ? message : String(error);
-  return `${typeof name === "string" ? name : "Error"}: ${text}`.slice(0, 120);
+  // An omitted run failure's message is fixed text, so its code is what tells it apart.
+  const code = typeof errorCode === "string" ? ` [${errorCode}]` : "";
+  return `${typeof name === "string" ? name : "Error"}${code}: ${text}`.slice(
+    0,
+    120,
+  );
 }
 
 function recordSuppressed(state: FloodState, error: unknown): void {

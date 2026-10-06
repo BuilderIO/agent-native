@@ -1,4 +1,5 @@
 import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
+import { isToolDoneFailure } from "../agent/tool-done-error.js";
 import { sendPostHogEvent } from "../tracking/providers.js";
 
 export const MAX_AI_CONTENT_BYTES = 128 * 1024;
@@ -170,10 +171,12 @@ export function toPostHogMessages(value: unknown): unknown {
             ...(typeof part.toolName === "string"
               ? { name: part.toolName }
               : {}),
-            content:
-              part.isError === true
-                ? "[tool error message omitted from telemetry]"
-                : part.content,
+            content: isToolDoneFailure({
+              isError: part.isError,
+              result: part.content,
+            })
+              ? "[tool error message omitted from telemetry]"
+              : part.content,
           });
           break;
         case "tool-call":

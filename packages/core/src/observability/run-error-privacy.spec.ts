@@ -111,6 +111,53 @@ describe("run failure telemetry privacy", () => {
     ).toBe(true);
   });
 
+  it("labels OpenTelemetry tool and model failures by what failed", async () => {
+    capture();
+    const statuses = new Map<string, unknown>();
+    __setAgentTracerForTests({
+      startSpan: (name: string) => ({
+        setAttribute: () => {},
+        setAttributes: () => {},
+        setStatus: (status: unknown) => {
+          statuses.set(name, status);
+        },
+        recordException: () => {},
+        end: () => {},
+      }),
+    } as any);
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", tool: "read-notes", input: {} });
+        send({
+          type: "tool_done",
+          tool: "read-notes",
+          result: message,
+          isError: true,
+        });
+        send({ type: "model_stream", status: "start" });
+        throw new EngineError("upstream request failed", {
+          errorCode: "provider_config_error",
+        });
+      },
+      loopOpts,
+      runId: "run-otel-labels",
+      threadId: "thread-privacy",
+      userId: null,
+      config: {
+        ...observabilityConfig.parse({}),
+        enabled: true,
+        inferredSentimentEnabled: false,
+      },
+    }).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(statuses.get("tool.call")).toMatchObject({
+      message: "Tool call failed",
+    });
+    expect(statuses.get("llm.call")).toMatchObject({
+      message: "Agent run failed (provider_config_error)",
+    });
+  });
+
   it.each(["throw", "event", "outcome"] as const)(
     "omits named failure messages from generations and traces for %s",
     async (path) => {

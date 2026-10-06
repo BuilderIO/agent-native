@@ -38,15 +38,17 @@ import {
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
 
+type TelemetrySpanEnd = NonNullable<Parameters<typeof endAgentSpan>[1]>;
+
 function endRunTelemetrySpan(
   span: AgentSpan | null,
-  result: NonNullable<Parameters<typeof endAgentSpan>[1]>,
+  { errorCode, ...result }: TelemetrySpanEnd & { errorCode?: string },
 ): void {
   if (result.status !== "error") {
     endAgentSpan(span, result);
     return;
   }
-  const code = result.attributes?.["agent.terminal_code"];
+  const code = errorCode ?? result.attributes?.["agent.terminal_code"];
   const { error_code, error_cause } = runErrorTelemetryProperties(
     typeof code === "string" ? code : undefined,
     result.errorMessage,
@@ -60,6 +62,18 @@ function endRunTelemetrySpan(
       "agent.error_cause": error_cause,
     },
   });
+}
+
+function endToolTelemetrySpan(
+  span: AgentSpan | null,
+  result: TelemetrySpanEnd,
+): void {
+  endAgentSpan(
+    span,
+    result.status === "error"
+      ? { ...result, errorMessage: "Tool call failed" }
+      : result,
+  );
 }
 
 function spanId(): string {
@@ -558,6 +572,7 @@ export async function instrumentAgentLoop(opts: {
   type OtelModelSpanEndResult = {
     status: "success" | "error";
     errorMessage: string | null;
+    errorCode?: string;
     attributes: Record<string, string | number | boolean | null | undefined>;
     endTime?: number;
   };
@@ -627,12 +642,14 @@ export async function instrumentAgentLoop(opts: {
   };
   const finishAwaitingOtelModelSpans = (
     finalErrorMessage: string | null = null,
+    finalErrorCode?: string,
   ): void => {
     for (const tripIndex of modelSpansAwaitingFinalError) {
       finishOtelModelSpan(tripIndex, {
         status: "error",
         errorMessage:
           finalErrorMessage ?? "Model stream ended before completion.",
+        errorCode: finalErrorCode,
         attributes: modelSpanAttributes(tripIndex),
         endTime: modelRoundTrips[tripIndex]?.end,
       });
@@ -797,7 +814,7 @@ export async function instrumentAgentLoop(opts: {
         ).then((span) => {
           if (!span) return;
           if (entry.endResult) {
-            endRunTelemetrySpan(span, {
+            endToolTelemetrySpan(span, {
               status: entry.endResult.status,
               errorMessage: entry.endResult.errorMessage,
             });
@@ -883,7 +900,7 @@ export async function instrumentAgentLoop(opts: {
         };
         if (pending?.otelSpan) {
           openOtelToolSpans.delete(pending.otelSpan);
-          endRunTelemetrySpan(pending.otelSpan, {
+          endToolTelemetrySpan(pending.otelSpan, {
             status: otelEndResult.status,
             errorMessage: otelEndResult.errorMessage,
             attributes: { "tool.name": event.tool },
@@ -1024,7 +1041,7 @@ export async function instrumentAgentLoop(opts: {
           }
           if (pending.otelSpan) {
             openOtelToolSpans.delete(pending.otelSpan);
-            endRunTelemetrySpan(pending.otelSpan, {
+            endToolTelemetrySpan(pending.otelSpan, {
               status: "error",
               errorMessage: capturedInterruptedMessage,
               attributes: { "tool.name": pending.toolName },
@@ -1468,12 +1485,18 @@ export async function instrumentAgentLoop(opts: {
 
       writeTraceData(spans, summary, runId, config).catch(() => {});
 
+      const runTerminalCode =
+        effectiveTerminalOutcome?.state === "failed" ||
+        effectiveTerminalOutcome?.state === "input_required"
+          ? effectiveTerminalOutcome.code
+          : errorCode;
       try {
         if (interruptedModelRoundTrip !== null) {
           finishOtelModelSpan(interruptedModelRoundTrip, {
             status: "error",
             errorMessage:
               errorMessage ?? "Model stream interrupted before completion.",
+            errorCode: runTerminalCode,
             attributes: modelSpanAttributes(interruptedModelRoundTrip),
             endTime: runEnd,
           });
@@ -1488,7 +1511,7 @@ export async function instrumentAgentLoop(opts: {
             });
           }
         }
-        finishAwaitingOtelModelSpans(errorMessage);
+        finishAwaitingOtelModelSpans(errorMessage, runTerminalCode);
         await Promise.all(
           [...pendingOtelModelSpans.values()].map((entry) => entry.spanPromise),
         );
@@ -1499,6 +1522,7 @@ export async function instrumentAgentLoop(opts: {
           endRunTelemetrySpan(aggregateLlmSpan, {
             status: runStatus,
             errorMessage,
+            errorCode: runTerminalCode,
             attributes: {
               "llm.model": usage.model,
               "llm.input_tokens": usage.inputTokens,
@@ -1513,11 +1537,12 @@ export async function instrumentAgentLoop(opts: {
           endRunTelemetrySpan(modelSpan, {
             status: "error",
             errorMessage: "Agent run ended before model_stream completed.",
+            errorCode: runTerminalCode,
           });
         }
         openOtelModelSpans.clear();
         for (const toolSpan of openOtelToolSpans) {
-          endRunTelemetrySpan(toolSpan, {
+          endToolTelemetrySpan(toolSpan, {
             status: "error",
             errorMessage: "Agent run ended before tool_done.",
           });
@@ -1536,11 +1561,7 @@ export async function instrumentAgentLoop(opts: {
             "agent.output_tokens": usage?.outputTokens ?? 0,
             "agent.cost_cents_x100": costCentsX100,
             "agent.terminal_state": effectiveTerminalOutcome?.state,
-            "agent.terminal_code":
-              effectiveTerminalOutcome?.state === "failed" ||
-              effectiveTerminalOutcome?.state === "input_required"
-                ? effectiveTerminalOutcome.code
-                : errorCode,
+            "agent.terminal_code": runTerminalCode,
           },
         });
         // coercion-ok: OTel export must never break the run.

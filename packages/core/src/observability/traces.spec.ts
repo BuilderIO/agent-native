@@ -1547,7 +1547,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       const toolOtelSpan = spans.find((span) => span.name === "tool.call");
       expect(toolOtelSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-      expect(toolOtelSpan?.status?.message).toBe("Agent run failed (unknown)");
+      expect(toolOtelSpan?.status?.message).toBe("Tool call failed");
 
       const toolSpan = persistedSpans.find(
         (span) => span.runId === runId && span.spanType === "tool_call",
@@ -1963,7 +1963,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(readSpan?.ended).toBe(true);
     expect(readSpan?.parent).toBe(runSpan);
     expect(dbSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-    expect(dbSpan?.status?.message).toBe("Agent run failed (unknown)");
+    expect(dbSpan?.status?.message).toBe("Tool call failed");
     expect(dbSpan?.ended).toBe(true);
     expect(dbSpan?.parent).toBe(runSpan);
 
@@ -2025,7 +2025,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
       const toolSpan = spans.find((span) => span.name === "tool.call");
       expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-      expect(toolSpan?.status?.message).toBe("Agent run failed (unknown)");
+      expect(toolSpan?.status?.message).toBe("Tool call failed");
       expect(JSON.stringify(spans)).not.toContain("compound-secret");
       expect(JSON.stringify(spans)).not.toContain("compound-private-key");
     }
@@ -2267,7 +2267,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     const toolSpan = spans.find((span) => span.name === "tool.call");
     expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
-    expect(toolSpan?.status?.message).toBe("Agent run failed (unknown)");
+    expect(toolSpan?.status?.message).toBe("Tool call failed");
 
     const runSpan = spans.find((span) => span.name === "agent.run");
     expect(runSpan?.attributes["agent.tool_calls"]).toBe(2);
