@@ -564,7 +564,9 @@ describe("comments sidebar layout", () => {
       /const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
     );
     expect(source).toContain(
-      'showUtilityPanelOffColumn && commentSurfaces.list === "sheet"',
+      `showUtilityPanelOffColumn &&
+    (commentSurfaces.list === "sheet" ||
+      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"))`,
     );
     expect(source).toContain(
       'showUtilityPanelOffColumn && commentSurfaces.list === "region-list"',
