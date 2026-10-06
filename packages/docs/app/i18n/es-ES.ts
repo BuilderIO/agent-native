@@ -2624,6 +2624,7 @@ const esES = {
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "Otras Plataformas",
     ssrCaching: "Caché de SSR",
     deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",

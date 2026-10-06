@@ -2581,6 +2581,7 @@ const hiIN = {
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "अन्य Platforms",
     ssrCaching: "SSR कैशिंग",
     deploymentEnvironmentVariables: "Deployment: पर्यावरण चर",

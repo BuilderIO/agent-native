@@ -90,18 +90,17 @@ describe("resolveFragmentRedirect", () => {
     );
   });
 
-  it("sends removed AWS Amplify section anchors to the deployment targets", () => {
-    for (const fragment of [
-      "#build-with-nitro",
-      "#runtime-variables-and-cli",
-      "#configure-the-app",
-      "#cloudfront-caching",
-      "#streaming-requests",
-      "#verify-the-deployment",
-    ]) {
-      expect(resolveFragmentRedirect("deployment", fragment)).toBe(
-        "#supported-deployment-targets",
-      );
+  it("sends old AWS Amplify section anchors to their new sections", () => {
+    const expected: Record<string, string> = {
+      "#build-with-nitro": "#step-4-add-amplifys-build-settings",
+      "#runtime-variables-and-cli": "#step-2-configure-environment-secrets",
+      "#configure-the-app": "#step-2-configure-environment-secrets",
+      "#cloudfront-caching": "#caching",
+      "#streaming-requests": "#stream-agent-responses",
+      "#verify-the-deployment": "#step-6-open-the-app",
+    };
+    for (const [fragment, target] of Object.entries(expected)) {
+      expect(resolveFragmentRedirect("aws-amplify", fragment)).toBe(target);
     }
   });
 

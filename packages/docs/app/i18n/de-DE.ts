@@ -2631,6 +2631,7 @@ const deDE = {
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "Weitere Plattformen",
     ssrCaching: "SSR-Caching",
     deploymentEnvironmentVariables: "Deployment: Umgebungsvariablen",

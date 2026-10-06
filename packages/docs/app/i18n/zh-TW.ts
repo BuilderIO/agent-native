@@ -2534,6 +2534,7 @@ const messages = {
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 快取",
     deploymentEnvironmentVariables: "部署：環境變數",

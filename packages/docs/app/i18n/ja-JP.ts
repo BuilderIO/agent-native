@@ -2603,6 +2603,7 @@ const jaJP = {
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "その他のプラットフォーム",
     ssrCaching: "SSRキャッシュ",
     deploymentEnvironmentVariables: "デプロイ: 環境変数",

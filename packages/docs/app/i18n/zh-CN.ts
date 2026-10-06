@@ -2534,6 +2534,7 @@ const zhCN = {
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 缓存",
     deploymentEnvironmentVariables: "部署：环境变量",

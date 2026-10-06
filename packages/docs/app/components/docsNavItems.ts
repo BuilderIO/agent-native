@@ -122,6 +122,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "deploymentAwsLambda",
             slug: "aws-lambda",
           },
+          {
+            id: "aws-amplify",
+            labelKey: "deploymentAwsAmplify",
+            slug: "aws-amplify",
+          },
         ],
       },
       {

@@ -2591,6 +2591,7 @@ const enUS = {
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "Other Platforms",
     ssrCaching: "SSR Caching",
     deploymentEnvironmentVariables: "Deployment: Environment Variables",

@@ -1,0 +1,335 @@
+---
+title: "AWS Amplify"
+description: "Déployez une application Agent-Native autonome sur AWS Amplify Hosting à partir d'un dépôt Git."
+---
+
+# AWS Amplify
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+AWS Amplify Hosting construit votre application à partir d'un dépôt Git et
+l'héberge pour vous. Vous n'avez donc aucun serveur à configurer ni à maintenir
+en marche. Amplify sert les fichiers statiques de l'application via CloudFront,
+exécute le serveur de l'application pour ses pages et son API, et fournit à
+l'application une adresse publique en HTTPS.
+
+Ce guide présente le déploiement d'une application autonome depuis le début.
+Vous allez créer l'application et la pousser vers un dépôt Git, lui fournir une
+base de données de production et un secret d'authentification, préparer la base
+de données, ajouter les paramètres de build d'Amplify, puis créer l'application
+Amplify.
+
+<Callout tone="info">
+
+Node.js `22.22+` est requis.
+
+</Callout>
+
+Vous avez aussi besoin d'un compte AWS et d'un dépôt sur GitHub, GitLab,
+Bitbucket ou AWS CodeCommit. Exécutez les commandes de ce guide sur votre propre
+ordinateur. Amplify construit et exécute l'application à partir de votre dépôt.
+
+## Étape 1 : Créer l'application {#step-1-create-the-app}
+
+Créez votre nouvelle application autonome. L'exemple ci-dessous crée une
+application à partir du template Chat, mais vous pouvez partir de n'importe quel
+template. Placez-vous dans le dossier de l'application et installez ses
+dépendances. `corepack enable` active la version de `pnpm` attendue par
+l'application. Vous n'avez donc pas besoin d'installer `pnpm` vous-même.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Remplacez `my-app` par le nom de votre application si vous le souhaitez. La
+suite de ce guide suppose que vous vous trouvez dans le dossier de
+l'application.
+
+Amplify construit l'application à partir d'un dépôt Git. Poussez donc le dossier
+de l'application vers un nouveau dépôt avant de continuer. Vous ajoutez un
+fichier de plus à l'étape 4, puis vous poussez de nouveau.
+
+## Étape 2 : Configurer les secrets d'environnement {#step-2-configure-environment-secrets}
+
+L'application lit ses paramètres de production depuis des variables
+d'environnement :
+
+| Variable             | Requise | Rôle                                                                 |
+| -------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
+
+Les exports ci-dessous permettent aux commandes suivantes de fonctionner dans ce
+shell. Avant de déployer, enregistrez ces mêmes variables dans les paramètres
+d'environnement du projet ou du service chez votre hébergeur. L'étape 5 montre
+comment les enregistrer dans Amplify.
+
+<Callout tone="warning">
+
+Amplify transmet les variables d'environnement au build, mais pas au serveur en
+cours d'exécution. Pour les rendre disponibles, le build Agent-Native écrit les
+variables déclarées de l'application dans un fichier `.env` à l'intérieur du
+bundle serveur. Toute personne ayant accès aux artefacts de déploiement de
+l'application peut lire ce fichier. Limitez donc qui peut y accéder dans votre
+compte AWS.
+
+</Callout>
+
+### URL de la base de données {#database-url}
+
+En développement local, l'application stocke ses données dans une base de
+données locale lorsque `DATABASE_URL` n'est pas défini. Une application déployée
+a besoin d'une vraie base de données PostgreSQL qui conserve ses données d'un
+déploiement à l'autre. Amplify ne conserve pas de fichiers entre les requêtes.
+La base de données doit donc se trouver en dehors d'Amplify. Copiez la chaîne de
+connexion fournie par votre fournisseur et exportez-la :
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Les [guides des fournisseurs de bases de données](/docs/neon) indiquent où
+trouver la chaîne de connexion pour chaque fournisseur, y compris
+[Amazon RDS for PostgreSQL](/docs/aws-rds).
+
+<Callout tone="warning">
+
+Choisissez un fournisseur PostgreSQL persistant, par exemple Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Secret d'authentification {#auth-secret}
+
+Générez-le une seule fois et gardez-le identique d'un déploiement à l'autre.
+
+L'application utilise `BETTER_AUTH_SECRET` pour signer les sessions utilisateur.
+S'il change, tous les utilisateurs connectés sont déconnectés. La commande
+ci-dessous génère une valeur aléatoire :
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Conservez la valeur générée en lieu sûr, par exemple dans un gestionnaire de
+mots de passe. Utilisez la même valeur à chaque déploiement.
+
+### URL publique {#public-url}
+
+Facultatif. Définissez-la si vous utilisez un domaine personnalisé, un reverse
+proxy ou un flux d'authentification ou OAuth qui exige une origine publique
+fixe.
+
+`BETTER_AUTH_URL` est l'adresse publique utilisée pour accéder à votre
+application. Sans elle, l'application déduit son adresse de chaque requête
+entrante. Cela convient généralement avec l'adresse qu'Amplify vous fournit,
+mais définissez-la lorsque vous connectez un domaine personnalisé, afin que les
+liens de connexion et les redirections OAuth utilisent ce domaine.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Étape 3 : Migrer {#step-3-migrate}
+
+Les migrations créent et mettent à jour les tables dont l'application a besoin
+dans votre base de données. Exécutez cette commande avant le premier
+déploiement :
+
+```bash
+pnpm migrate:production
+```
+
+La commande s'exécute sur votre ordinateur et se connecte à la base de données
+de production avec la `DATABASE_URL` que vous avez exportée à l'étape 2.
+Exécutez-la de nouveau après une mise à niveau de l'application, avant de
+déployer la nouvelle version.
+
+## Étape 4 : Ajouter les paramètres de build d'Amplify {#step-4-add-amplifys-build-settings}
+
+Créez un fichier nommé `amplify.yml` dans le dossier racine de l'application, à
+côté de `package.json`, et copiez-y le contenu suivant :
+
+```yaml filename="amplify.yml"
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm install 24
+        - corepack enable
+        - pnpm install
+    build:
+      commands:
+        - NITRO_PRESET=aws_amplify pnpm build
+  artifacts:
+    baseDirectory: .amplify-hosting
+    files:
+      - "**/*"
+```
+
+Ce fichier indique à Amplify comment construire l'application :
+
+- **preBuild** fait passer le build à Node.js 24, active la version de `pnpm` de
+  l'application et installe les dépendances.
+- **build** construit l'application avec `NITRO_PRESET=aws_amplify`, le format
+  attendu par Amplify Hosting.
+- **artifacts** indique à Amplify de déployer le dossier `.amplify-hosting` que
+  crée le build.
+
+Le build écrit dans ce dossier tout ce dont Amplify a besoin :
+
+<FileTree
+  id="aws-amplify-build-output"
+  entries={[
+    {
+      path: ".amplify-hosting/static/",
+      note: "Les fichiers statiques de l'application, servis via CloudFront.",
+    },
+    {
+      path: ".amplify-hosting/compute/default/server.js",
+      note: "Démarre le serveur de l'application sur l'environnement de calcul d'Amplify.",
+    },
+    {
+      path: ".amplify-hosting/compute/default/.env",
+      note: "Les variables déclarées de l'application, copiées lors du build.",
+    },
+    {
+      path: ".amplify-hosting/deploy-manifest.json",
+      note: "Envoie les fichiers statiques à l'hébergement statique et toutes les autres requêtes au serveur.",
+    },
+  ]}
+/>
+
+Committez `amplify.yml` et poussez-le vers votre dépôt.
+
+## Étape 5 : Créer l'application Amplify {#step-5-create-the-amplify-app}
+
+Créez l'application dans la [console Amplify](https://console.aws.amazon.com/amplify/) :
+
+<Steps>
+
+### Connecter le dépôt
+
+Choisissez **Deploy an app**. Sur la page **Start building with Amplify**,
+choisissez votre fournisseur Git, puis choisissez **Next**. La première fois,
+Amplify demande l'autorisation de lire vos dépôts.
+
+### Choisir la branche
+
+Sur la page **Add repository branch**, choisissez le dépôt et la branche de
+l'étape 1, puis choisissez **Next**.
+
+### Vérifier les paramètres de build
+
+Sur la page **App settings**, Amplify lit les paramètres de build depuis
+`amplify.yml`. Vérifiez que **Build output directory** vaut `.amplify-hosting`.
+Choisissez **Create and use a new service role**.
+
+### Ajouter les variables d'environnement
+
+Sous **Advanced settings**, ajoutez `DATABASE_URL` et `BETTER_AUTH_SECRET` avec
+les valeurs que vous avez exportées à l'étape 2. Si vous avez défini
+`BETTER_AUTH_URL`, ajoutez-la de la même façon. Choisissez ensuite **Next**.
+
+### Déployer
+
+Sur la page **Review**, choisissez **Save and deploy**.
+
+</Steps>
+
+## Étape 6 : Ouvrir l'application {#step-6-open-the-app}
+
+Le premier build prend quelques minutes, et vous pouvez le suivre dans la
+console Amplify. Une fois terminé, ouvrez l'adresse de l'application, qui
+ressemble à `https://main.d1m7bkiki6tdw1.amplifyapp.com`, et créez le premier
+compte.
+
+Vérifiez ensuite que :
+
+- La page d'accueil se charge.
+- Un fichier sous `/assets/` se charge, ce qui montre que les fichiers statiques
+  sont servis.
+- Vous pouvez vous connecter, et les données que vous créez sont toujours là
+  après un rechargement.
+
+## Déployer les mises à jour {#deploy-updates}
+
+Amplify reconstruit et redéploie chaque fois que vous poussez vers la branche
+choisie à l'étape 5. Pour publier une nouvelle version, exécutez d'abord les
+migrations, puis poussez :
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+Le build copie les variables d'environnement dans le bundle serveur. Une
+modification de variable ne prend donc effet qu'après le build suivant. Après
+avoir modifié une variable dans la console Amplify, poussez un commit ou
+redéployez le dernier build.
+
+## Mise en cache {#caching}
+
+Amplify sert l'application via CloudFront. La coquille de page publique de
+l'application envoie cet en-tête `Cache-Control`, et Amplify le respecte :
+
+```txt
+public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+CloudFront garde la coquille à jour pendant dix minutes, peut servir une copie
+plus ancienne pendant qu'il en récupère une nouvelle, et peut la servir en cas
+d'erreur. Les données personnelles se chargent dans le navigateur après
+l'ouverture de la page. Elles ne se retrouvent donc jamais dans la coquille
+partagée. Les fichiers statiques sont mis en cache jusqu'à un an, et chaque
+nouveau déploiement vide le cache d'Amplify.
+
+Laissez activé le paramètre par défaut d'Amplify
+**Remove cookies from cache key**. N'ajoutez pas de règle `Cache-Control`
+globale dans `customHttp.yml`, car elle peut remplacer l'en-tête `no-store` des
+routes privées. Pour raccourcir ou désactiver le cache de la coquille, définissez
+`AGENT_NATIVE_SSR_CACHE`. [Mise en cache SSR](/docs/ssr-caching) explique la
+politique complète.
+
+## Diffuser les réponses de l'agent en streaming {#stream-agent-responses}
+
+Le chemin CloudFront d'Amplify peut retenir de petits morceaux d'une réponse.
+Les réponses du chat de l'agent peuvent donc arriver par à-coups au lieu de mot
+par mot. Pour les diffuser directement, Agent-Native peut ajouter une fonction
+Lambda distincte qui sert uniquement le flux du chat :
+
+```bash
+npx agent-native amplify-stream \
+  --amplify-app-id your-amplify-app-id \
+  --branch main \
+  --region us-east-1 \
+  --env-file .env
+```
+
+La commande construit le flux du chat sous forme de fonction Lambda Node.js 24,
+avec une URL de fonction en streaming et un délai d'expiration de 15 minutes.
+Elle enregistre l'adresse de la fonction sur la branche Amplify et lance une
+nouvelle version. Le navigateur continue d'utiliser l'application Amplify pour
+tout le reste et n'envoie que les requêtes du chat à la fonction.
+
+La commande lit les variables de l'application depuis le fichier que vous
+passez avec `--env-file`. Ce fichier doit donc contenir les mêmes valeurs
+`DATABASE_URL`, `BETTER_AUTH_SECRET` et autres que l'application Amplify. Elle a
+aussi besoin d'identifiants AWS CLI capables de gérer Lambda, IAM et Amplify.
+Ajoutez `--skip-release` pour enregistrer l'adresse sans lancer de nouvelle
+version. Si la fonction de streaming n'est pas disponible, le chat revient à la
+route Amplify normale.
+
+## Et ensuite {#whats-next}
+
+- [**Mise en cache SSR**](/docs/ssr-caching) - la politique de cache par défaut et comment la modifier
+- [**Variables d'environnement de déploiement**](/docs/deployment-environment-variables) - la liste complète des paramètres de production
+- [**Déploiement**](/docs/deployment) - comparer les cibles d'hébergement et les prérequis

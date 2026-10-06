@@ -119,6 +119,7 @@ describe("DocsSidebar", () => {
       "deno-deploy",
       "azure-static-web-apps",
       "aws-lambda",
+      "aws-amplify",
     ]);
     const databaseGroup = deployment?.items.find(
       (item) => item.id === "database-providers",

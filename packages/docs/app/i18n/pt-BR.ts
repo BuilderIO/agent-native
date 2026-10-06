@@ -2616,6 +2616,7 @@ const ptBR = {
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "Outras Plataformas",
     ssrCaching: "Cache de SSR",
     deploymentEnvironmentVariables: "Deploy: Variáveis de Ambiente",

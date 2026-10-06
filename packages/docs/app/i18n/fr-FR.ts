@@ -2635,6 +2635,7 @@ const frFR = {
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
     deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "Autres Plateformes",
     ssrCaching: "Mise en Cache SSR",
     deploymentEnvironmentVariables: "Déploiement : Variables d'Environnement",
