@@ -770,16 +770,15 @@ export function handleComposerFileDrop(options: {
   options.event.preventDefault();
   options.event.stopPropagation();
   if (options.attachmentsEnabled === false) return true;
-  const attachments = droppedFiles.map(uniquifyComposerImageFile);
   let errorReported = false;
   void Promise.all(
-    attachments.map(async (file) => {
+    droppedFiles.map(async (droppedFile) => {
       try {
-        await options.addAttachment(file);
+        await options.addAttachment(uniquifyComposerImageFile(droppedFile));
       } catch (error) {
         if (errorReported) return;
         errorReported = true;
-        options.onError?.(error, file.name);
+        options.onError?.(error, droppedFile.name);
       }
     }),
   );

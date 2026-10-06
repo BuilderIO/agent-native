@@ -68,6 +68,8 @@ import {
   Surface,
   TextField,
   agentSuggestionPrompt,
+  createChatAttachmentAdapter,
+  formatAttachmentError,
   type PromptComposerFile,
   type PromptComposerProps,
   type TiptapComposerHandle,
@@ -3893,6 +3895,10 @@ export function AgentKitComposer({
   }, []);
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerAttachmentAdapter = useMemo(
+    () => attachmentAdapter ?? createChatAttachmentAdapter(),
+    [attachmentAdapter],
+  );
   const executionMode = mode ?? uncontrolledMode;
   const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
@@ -3923,12 +3929,13 @@ export function AgentKitComposer({
         await composer.addAttachment(file);
         setAttachmentError(null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : labels.error;
-        reportAttachmentError(message);
+        reportAttachmentError(
+          `${file.name}: ${formatAttachmentError(error, labels.dropFileFailed)}`,
+        );
         throw error;
       }
     },
-    [labels.error, reportAttachmentError],
+    [labels.dropFileFailed, labels.error, reportAttachmentError],
   );
   useEffect(() => {
     const receiveAttachments = (event: Event) => {
@@ -4322,7 +4329,7 @@ export function AgentKitComposer({
         onInspectContextItem={onInspectContextItem}
         onRetryContextItem={onRetryContextItem}
         contextMenuItems={contextMenuItems}
-        attachmentAdapter={attachmentAdapter}
+        attachmentAdapter={composerAttachmentAdapter}
         inlineTextAttachments={inlineTextAttachments}
         rootClassName="agentkit-composer"
         className={
