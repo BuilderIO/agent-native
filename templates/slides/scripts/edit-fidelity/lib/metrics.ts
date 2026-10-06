@@ -466,6 +466,176 @@ export function outsideChangesFor(
       record.pptxRecordKey ? [[record.pptxRecordKey, record] as const] : [],
     ),
   );
+  const copiedMarkerRecords = () => {
+    const fragments = after.editedAuthoringFragmentRects ?? [];
+    const beforeObject = before.editedObjectRect;
+    const afterObject = after.editedObjectRect;
+    const objectUnchanged =
+      !!beforeObject &&
+      !!afterObject &&
+      (["x", "y", "width", "height"] as const).every(
+        (prop) => Math.abs(beforeObject[prop] - afterObject[prop]) <= 1,
+      );
+    if (
+      !before.editedObjectId ||
+      before.editedObjectId !== after.editedObjectId ||
+      before.editedParagraphId !== after.editedParagraphId ||
+      !objectUnchanged ||
+      fragments.length !== 1 ||
+      !after.editedTargetRect ||
+      !fragments.some((fragment) =>
+        (["x", "y", "width", "height"] as const).every(
+          (prop) =>
+            Math.abs(fragment[prop] - after.editedTargetRect![prop]) <= 1,
+        ),
+      )
+    ) {
+      return { missing: new Set<string>(), added: new Set<string>() };
+    }
+    const fragment = fragments[0]!;
+    const markerFitsFragment = (record: SnapRecord) =>
+      record.rect.x >= fragment.x - 1 &&
+      record.rect.y >= fragment.y - 1 &&
+      record.rect.x + record.rect.width <= fragment.x + fragment.width + 1 &&
+      record.rect.y + record.rect.height <= fragment.y + fragment.height + 1;
+    const beforeMarkers = before.records.filter(
+      (record) =>
+        record.slideObjectId === before.editedObjectId &&
+        record.styledBulletMarker,
+    );
+    const afterMarkers = after.records.filter(
+      (record) =>
+        record.slideObjectId === before.editedObjectId &&
+        record.styledBulletMarker,
+    );
+    const beforeTargetMarkers = beforeMarkers.filter(
+      (record) => record.pptxParagraph === before.editedParagraphId,
+    );
+    const afterTargetMarkers = afterMarkers.filter(
+      (record) => record.pptxParagraph === before.editedParagraphId,
+    );
+    const markersByParagraph = (records: SnapRecord[]) => {
+      const grouped = new Map<string, SnapRecord[]>();
+      for (const record of records) {
+        const paragraph = record.pptxParagraph;
+        if (!paragraph) return null;
+        const group = grouped.get(paragraph) ?? [];
+        group.push(record);
+        grouped.set(paragraph, group);
+      }
+      return grouped;
+    };
+    const beforeByParagraph = markersByParagraph(beforeMarkers);
+    const afterByParagraph = markersByParagraph(afterMarkers);
+    if (
+      !beforeByParagraph ||
+      !afterByParagraph ||
+      beforeTargetMarkers.length !== 1 ||
+      afterTargetMarkers.length !== 2 ||
+      afterMarkers.length !== beforeMarkers.length + 1
+    ) {
+      return { missing: new Set<string>(), added: new Set<string>() };
+    }
+    const sameMarkerAppearance = (previous: SnapRecord, current: SnapRecord) =>
+      previous.styledBulletMarker &&
+      current.styledBulletMarker &&
+      previous.slideObjectId === current.slideObjectId &&
+      previous.slideObjectId === before.editedObjectId &&
+      previous.tag === current.tag &&
+      previous.className === current.className &&
+      previous.inlineStyle === current.inlineStyle &&
+      previous.styledBulletMarkerText === current.styledBulletMarkerText &&
+      JSON.stringify(previous.props) === JSON.stringify(current.props);
+    const retainedMarkers = new Set<string>();
+    const retainedBeforeMarkers = new Set<string>();
+    for (const [paragraph, previousMarkers] of beforeByParagraph) {
+      const currentMarkers = afterByParagraph.get(paragraph) ?? [];
+      if (paragraph === before.editedParagraphId) {
+        if (
+          previousMarkers.length !== 1 ||
+          currentMarkers.length !== previousMarkers.length + 1
+        ) {
+          return { missing: new Set<string>(), added: new Set<string>() };
+        }
+        const previous = previousMarkers[0]!;
+        const retained = currentMarkers.filter(
+          (current) =>
+            sameMarkerAppearance(previous, current) &&
+            (["x", "y", "width", "height"] as const).every(
+              (prop) => Math.abs(previous.rect[prop] - current.rect[prop]) <= 1,
+            ),
+        );
+        if (retained.length !== 1) {
+          return { missing: new Set<string>(), added: new Set<string>() };
+        }
+        retainedMarkers.add(retained[0]!.key);
+        retainedBeforeMarkers.add(previous.key);
+        continue;
+      }
+      if (currentMarkers.length !== previousMarkers.length) {
+        return { missing: new Set<string>(), added: new Set<string>() };
+      }
+      for (const previous of previousMarkers) {
+        const matches = currentMarkers.filter(
+          (current) =>
+            sameMarkerAppearance(previous, current) &&
+            previous.pptxRecordKey &&
+            current.pptxRecordKey === previous.pptxRecordKey,
+        );
+        if (matches.length !== 1) {
+          return { missing: new Set<string>(), added: new Set<string>() };
+        }
+        retainedMarkers.add(matches[0]!.key);
+        retainedBeforeMarkers.add(previous.key);
+      }
+    }
+    const insertedMarkers = afterTargetMarkers.filter(
+      (record) => !retainedMarkers.has(record.key),
+    );
+    const sourceMarker = beforeTargetMarkers[0]!;
+    if (
+      insertedMarkers.length !== 1 ||
+      !markerFitsFragment(insertedMarkers[0]!) ||
+      !sameMarkerAppearance(sourceMarker, insertedMarkers[0]!)
+    ) {
+      return { missing: new Set<string>(), added: new Set<string>() };
+    }
+    const addedMarkers = outside.added.filter((change) => {
+      const record = afterRecordsByKey.get(change.key);
+      return (
+        !!record &&
+        record.slideObjectId === before.editedObjectId &&
+        record.styledBulletMarker
+      );
+    });
+    if (
+      addedMarkers.some(
+        (change) =>
+          !retainedMarkers.has(change.key) &&
+          change.key !== insertedMarkers[0]!.key,
+      )
+    ) {
+      return { missing: new Set<string>(), added: new Set<string>() };
+    }
+    const missingMarkers = outside.missing.filter((change) => {
+      const record = beforeRecords.get(change.key);
+      return (
+        !change.inside &&
+        !!record &&
+        record.slideObjectId === before.editedObjectId &&
+        record.styledBulletMarker
+      );
+    });
+    if (
+      missingMarkers.some((change) => !retainedBeforeMarkers.has(change.key))
+    ) {
+      return { missing: new Set<string>(), added: new Set<string>() };
+    }
+    return {
+      missing: new Set(missingMarkers.map((change) => change.key)),
+      added: new Set(addedMarkers.map((change) => change.key)),
+    };
+  };
   const followsNaturalReflow = (change: StyleDelta) => {
     const beforeRecord = beforeRecords.get(change.key);
     const afterRecord = beforeRecord?.stableKey
@@ -552,7 +722,7 @@ export function outsideChangesFor(
         previous.slideObjectId !== before.editedObjectId ||
         current.slideObjectId !== before.editedObjectId ||
         !Number.isSafeInteger(paragraph) ||
-        paragraph < targetParagraph
+        paragraph <= targetParagraph
       ) {
         return [];
       }
@@ -570,17 +740,43 @@ export function outsideChangesFor(
       insertedFragments.length > 0
         ? insertedFragmentBounds.bottom - insertedFragmentBounds.top
         : null;
+    const editedTargetIsInsertedFragment =
+      !!after.editedTargetRect &&
+      insertedFragments.some((fragment) =>
+        (["x", "y", "width", "height"] as const).every(
+          (prop) =>
+            Math.abs(fragment[prop] - after.editedTargetRect![prop]) <=
+            GEOMETRY_TOLERANCE,
+        ),
+      );
+    // A multi-block paste pushes the original text by the first block's offset
+    // plus the complete inserted run. A single split row uses its final edge.
     const insertedAfterTargetShift =
       targetTextShift !== null &&
       insertedFlowExtent !== null &&
       targetTextShift >= -GEOMETRY_TOLERANCE &&
       targetTextShift <= insertedFlowExtent + GEOMETRY_TOLERANCE
-        ? targetTextShift + insertedFlowExtent
+        ? insertedFragments.length > 1
+          ? targetTextShift + insertedFlowExtent
+          : editedTargetIsInsertedFragment && beforeTarget
+            ? insertedFragmentBounds.bottom -
+              (beforeTarget.y + beforeTarget.height)
+            : targetTextShift + insertedFlowExtent
         : null;
-    const insertedAfterTarget =
+    const downstreamAfterY = after.records
+      .filter(
+        (record) =>
+          record.slideObjectId === before.editedObjectId &&
+          Number.isSafeInteger(Number(record.pptxParagraph)) &&
+          Number(record.pptxParagraph) > targetParagraph,
+      )
+      .reduce((nearest, record) => Math.min(nearest, record.rect.y), Infinity);
+    const growsTarget =
+      targetGrowth > GEOMETRY_TOLERANCE &&
+      Math.abs(targetShift) <= GEOMETRY_TOLERANCE;
+    const insertedAfterTargetBase =
       !!beforeTarget &&
       !!afterTarget &&
-      !!afterRecord &&
       Math.abs(targetShift) <= GEOMETRY_TOLERANCE &&
       Math.abs(targetGrowth) <= GEOMETRY_TOLERANCE &&
       insertedFragments.length > 0 &&
@@ -588,14 +784,59 @@ export function outsideChangesFor(
         (fragment) =>
           fragment.y >=
             beforeTarget.y + beforeTarget.height - GEOMETRY_TOLERANCE &&
-          fragment.y + fragment.height <=
-            afterRecord.rect.y + GEOMETRY_TOLERANCE,
+          fragment.y + fragment.height <= downstreamAfterY + GEOMETRY_TOLERANCE,
       ) &&
       insertedAfterTargetShift !== null &&
       siblingYShifts.length > 0 &&
       siblingYShifts.every(
         (shift) => Math.abs(shift - siblingYShifts[0]!) <= GEOMETRY_TOLERANCE,
       );
+    const expectedFlowShift = growsTarget
+      ? targetGrowth
+      : insertedBeforeTarget
+        ? targetShift
+        : insertedAfterTargetBase
+          ? insertedAfterTargetShift
+          : null;
+    const flowMarkers = before.records.filter((record) => {
+      const paragraph = Number(record.pptxParagraph);
+      return (
+        record.slideObjectId === before.editedObjectId &&
+        record.styledBulletMarker &&
+        Number.isSafeInteger(paragraph) &&
+        (paragraph > targetParagraph ||
+          (insertedBeforeTarget && paragraph === targetParagraph))
+      );
+    });
+    const flowMarkersMatch =
+      expectedFlowShift === null ||
+      flowMarkers.every((previous) => {
+        if (!previous.pptxRecordKey || !previous.pptxParagraph) return false;
+        const matches = after.records.filter(
+          (current) =>
+            current.slideObjectId === before.editedObjectId &&
+            current.styledBulletMarker &&
+            current.pptxParagraph === previous.pptxParagraph &&
+            current.pptxRecordKey === previous.pptxRecordKey,
+        );
+        if (matches.length !== 1) return false;
+        const current = matches[0]!;
+        return (
+          previous.tag === current.tag &&
+          previous.className === current.className &&
+          previous.inlineStyle === current.inlineStyle &&
+          previous.styledBulletMarkerText === current.styledBulletMarkerText &&
+          JSON.stringify(previous.props) === JSON.stringify(current.props) &&
+          (["x", "width", "height"] as const).every(
+            (prop) =>
+              Math.abs(previous.rect[prop] - current.rect[prop]) <=
+              GEOMETRY_TOLERANCE,
+          ) &&
+          Math.abs(current.rect.y - previous.rect.y - expectedFlowShift) <=
+            GEOMETRY_TOLERANCE
+        );
+      });
+    const insertedAfterTarget = insertedAfterTargetBase && flowMarkersMatch;
     if (
       change.prop !== "y" ||
       !before.editedObjectId ||
@@ -613,11 +854,14 @@ export function outsideChangesFor(
       beforeRecord.slideObjectId !== before.editedObjectId ||
       afterRecord.slideObjectId !== before.editedObjectId ||
       !beforeRecord.pptxParagraph ||
-      beforeRecord.pptxParagraph !== afterRecord.pptxParagraph ||
+      !afterRecord.pptxParagraph ||
       !Number.isSafeInteger(targetParagraph) ||
       !Number.isSafeInteger(siblingParagraph) ||
+      !Number.isSafeInteger(Number(afterRecord.pptxParagraph)) ||
       siblingParagraph < targetParagraph ||
-      (siblingParagraph === targetParagraph && !insertedBeforeTarget) ||
+      (siblingParagraph === targetParagraph &&
+        !insertedBeforeTarget &&
+        !editedTargetIsInsertedFragment) ||
       (["x", "y", "width", "height"] as const).some(
         (prop) => Math.abs(beforeObject[prop] - afterObject[prop]) > 1,
       ) ||
@@ -627,21 +871,42 @@ export function outsideChangesFor(
     ) {
       return false;
     }
-    const growsTarget =
-      targetGrowth > GEOMETRY_TOLERANCE &&
-      Math.abs(targetShift) <= GEOMETRY_TOLERANCE;
     const siblingShift = Number(change.b) - Number(change.a);
+    const editedFragmentShift =
+      insertedAfterTarget &&
+      siblingParagraph === targetParagraph &&
+      editedTargetIsInsertedFragment
+        ? targetTextShift
+        : null;
     const expectedShift = growsTarget
       ? targetGrowth
       : insertedBeforeTarget
         ? targetShift
         : insertedAfterTarget
-          ? insertedAfterTargetShift
+          ? (editedFragmentShift ?? insertedAfterTargetShift)
           : null;
-    return (
-      expectedShift !== null &&
-      Math.abs(siblingShift - expectedShift) <= GEOMETRY_TOLERANCE
-    );
+    const afterParagraph = Number(afterRecord.pptxParagraph);
+    if (
+      expectedShift === null ||
+      !flowMarkersMatch ||
+      afterParagraph < targetParagraph ||
+      (siblingParagraph === targetParagraph &&
+        !insertedBeforeTarget &&
+        editedFragmentShift === null)
+    ) {
+      return false;
+    }
+    return Math.abs(siblingShift - expectedShift) <= GEOMETRY_TOLERANCE;
+  };
+  const copiedMarkers = copiedMarkerRecords();
+  const normalizedOutside = {
+    ...outside,
+    missing: outside.missing.filter(
+      (change) => !copiedMarkers.missing.has(change.key),
+    ),
+    added: outside.added.filter(
+      (change) => !copiedMarkers.added.has(change.key),
+    ),
   };
   const changes = [
     ...outside.deltas,
@@ -650,10 +915,10 @@ export function outsideChangesFor(
         !followsNaturalReflow(change) &&
         !followsImportedTextObjectReflow(change),
     ),
-    ...outside.missing,
-    ...outside.added,
+    ...normalizedOutside.missing,
+    ...normalizedOutside.added,
   ].filter((change) => !change.inside);
-  return { outside, changes };
+  return { outside: normalizedOutside, changes };
 }
 
 // ---------------------------------------------------------------- writes ---

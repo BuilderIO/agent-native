@@ -634,12 +634,18 @@ describe("outsideChangesFor", () => {
         height: number;
       }> = [],
       targetY = 20,
+      targetHeight = 20,
     ) => ({
       ...edited(records, { x: 20, y: 20, width: 100, height: 20 }, false),
       editedObjectId: "5",
       editedParagraphId: "1",
       editedObjectRect: object,
-      editedTargetRect: { x: 20, y: targetY, width: 100, height: 20 },
+      editedTargetRect: {
+        x: 20,
+        y: targetY,
+        width: 100,
+        height: targetHeight,
+      },
       editedFlowAnchorRect: {
         x: 20,
         y: anchorY,
@@ -670,9 +676,9 @@ describe("outsideChangesFor", () => {
     ).toEqual([]);
 
     const fragments = [
-      { x: 20, y: 42, width: 100, height: 24 },
-      { x: 20, y: 66, width: 100, height: 24 },
-      { x: 20, y: 90, width: 100, height: 24 },
+      { x: 20, y: 49, width: 100, height: 24 },
+      { x: 20, y: 73, width: 100, height: 24 },
+      { x: 20, y: 97, width: 100, height: 24 },
     ];
     const before = pasted(
       [paragraph("1", 20), paragraph("2", 44), paragraph("3", 60)],
@@ -688,6 +694,7 @@ describe("outsideChangesFor", () => {
       20,
       fragments,
       49,
+      24,
     );
     expect(outsideChangesFor(before, after).changes).toEqual([]);
     const mismatch = outsideChangesFor(
@@ -702,9 +709,47 @@ describe("outsideChangesFor", () => {
         20,
         fragments,
         49,
+        24,
       ),
     );
     expect(mismatch.changes).not.toEqual([]);
+
+    for (const delta of [-1, 1]) {
+      expect(
+        outsideChangesFor(
+          before,
+          pasted(
+            [
+              pastedParagraph,
+              paragraph("1", 20),
+              paragraph("2", 145 + delta),
+              paragraph("3", 161 + delta),
+            ],
+            20,
+            fragments,
+            49,
+            24,
+          ),
+        ).changes,
+      ).toEqual([]);
+    }
+    expect(
+      outsideChangesFor(
+        before,
+        pasted(
+          [
+            pastedParagraph,
+            paragraph("1", 20),
+            paragraph("2", 147),
+            paragraph("3", 163),
+          ],
+          20,
+          fragments,
+          49,
+          24,
+        ),
+      ).changes,
+    ).not.toEqual([]);
 
     const uniformlyShifted = outsideChangesFor(
       before,
@@ -718,9 +763,231 @@ describe("outsideChangesFor", () => {
         20,
         fragments,
         49,
+        24,
       ),
     );
     expect(uniformlyShifted.changes).toHaveLength(2);
+  });
+
+  it("allows an inserted paragraph to move only its downstream imported rows", () => {
+    const object = { x: 10, y: 20, width: 200, height: 180 };
+    const anchor = { x: 20, y: 20, width: 100, height: 20 };
+    const inserted = { x: 20, y: 49, width: 100, height: 40 };
+    const paragraph = (id: string, y: number): SnapRecord => ({
+      ...rec(`text:paragraph-${id}#0`, {}),
+      stableKey: `paragraph-${id}`,
+      pptxRecordKey: `5:${id}:p:text`,
+      slideObjectId: "5",
+      pptxParagraph: id,
+      rect: { ...rect, y },
+    });
+    const imported = (
+      records: SnapRecord[],
+      target: typeof anchor | typeof inserted,
+      fragments: (typeof inserted)[] = [],
+    ) => ({
+      ...edited(records, target, false),
+      editedObjectId: "5",
+      editedParagraphId: "1",
+      editedObjectRect: object,
+      editedTargetRect: target,
+      editedFlowAnchorRect: anchor,
+      editedAuthoringFragmentRects: fragments,
+      editedObjectPosition: "absolute",
+    });
+
+    const before = imported([paragraph("2", 40), paragraph("3", 60)], anchor);
+    const after = imported(
+      [paragraph("2", 89), paragraph("3", 109)],
+      inserted,
+      [inserted],
+    );
+    expect(outsideChangesFor(before, after).changes).toEqual([]);
+
+    const wrongShift = imported(
+      [paragraph("2", 91), paragraph("3", 111)],
+      inserted,
+      [inserted],
+    );
+    expect(outsideChangesFor(before, wrongShift).changes).toHaveLength(2);
+
+    const restyled = imported(
+      [
+        {
+          ...paragraph("2", 89),
+          props: { color: "rgb(0, 0, 0)" },
+        },
+        paragraph("3", 109),
+      ],
+      inserted,
+      [inserted],
+    );
+    expect(outsideChangesFor(before, restyled).changes).toHaveLength(1);
+  });
+
+  it("requires styled bullet markers to move with their downstream text", () => {
+    const object = { x: 10, y: 20, width: 200, height: 300 };
+    const anchor = { x: 20, y: 20, width: 100, height: 20 };
+    const fragments = [
+      { x: 20, y: 49, width: 100, height: 24 },
+      { x: 20, y: 73, width: 100, height: 24 },
+      { x: 20, y: 97, width: 100, height: 24 },
+    ];
+    const target = fragments[0]!;
+    const rowMarker = (paragraph: string, y: number): SnapRecord => ({
+      ...rec(`text:bullet#${paragraph}`, { color: "rgb(31, 78, 121)" }),
+      stableKey: `marker-${paragraph}`,
+      pptxRecordKey: `5:${paragraph}:span:0:text`,
+      slideObjectId: "5",
+      pptxParagraph: paragraph,
+      tag: "span",
+      className: "",
+      inlineStyle: "display: inline-block; width: 13.5px",
+      styledBulletMarker: true,
+      styledBulletMarkerText: "•",
+      rect: { x: 20, y, width: 6, height: 21 },
+    });
+    const paragraphText = (paragraph: string, y: number): SnapRecord => ({
+      ...rec(`text:paragraph-${paragraph}#0`, {}),
+      stableKey: `paragraph-${paragraph}`,
+      pptxRecordKey: `5:${paragraph}:p:text`,
+      slideObjectId: "5",
+      pptxParagraph: paragraph,
+      rect: { ...rect, x: 42, y },
+    });
+    const imported = (
+      records: SnapRecord[],
+      editedTargetRect: typeof target,
+    ) => ({
+      ...edited(records, editedTargetRect, false),
+      editedObjectId: "5",
+      editedParagraphId: "1",
+      editedObjectRect: object,
+      editedTargetRect,
+      editedFlowAnchorRect: anchor,
+      editedAuthoringFragmentRects: fragments,
+      editedObjectPosition: "absolute",
+    });
+    const before = imported(
+      [
+        rowMarker("1", 20),
+        rowMarker("2", 140),
+        paragraphText("2", 140),
+        rowMarker("3", 190),
+        paragraphText("3", 190),
+      ],
+      anchor,
+    );
+    const after = imported(
+      [
+        rowMarker("1", 20),
+        rowMarker("2", 140),
+        paragraphText("2", 241),
+        rowMarker("3", 190),
+        paragraphText("3", 291),
+      ],
+      target,
+    );
+
+    expect(outsideChangesFor(before, after).changes).not.toEqual([]);
+  });
+
+  it("allows one unchanged styled marker copied onto an inserted imported row", () => {
+    const object = { x: 84, y: 140, width: 360, height: 290 };
+    const anchor = { x: 95, y: 176, width: 338, height: 20 };
+    const fragment = { x: 95, y: 205, width: 338, height: 40 };
+    const markerStyle =
+      "display: inline-block; margin-left: -22.5px; width: 13.5px; color: #1F4E79";
+    const marker = (
+      key: string,
+      paragraph: string,
+      y: number,
+      style = markerStyle,
+      inside = false,
+    ): SnapRecord => ({
+      ...rec(`text:bullet#${key}`, { color: "rgb(31, 78, 121)" }, inside),
+      stableKey: `node-${key}`,
+      pptxRecordKey: `5:${paragraph}:span:0:text`,
+      slideObjectId: "5",
+      pptxParagraph: paragraph,
+      tag: "span",
+      className: "",
+      inlineStyle: style,
+      styledBulletMarker: true,
+      styledBulletMarkerText: "•",
+      rect: { x: 95, y, width: 6, height: 21 },
+    });
+    const imported = (
+      records: SnapRecord[],
+      target: typeof anchor | typeof fragment,
+      fragments: (typeof fragment)[] = [],
+    ) => ({
+      ...edited(records, target, false),
+      editedObjectId: "5",
+      editedParagraphId: "1",
+      editedObjectRect: object,
+      editedTargetRect: target,
+      editedFlowAnchorRect: anchor,
+      editedAuthoringFragmentRects: fragments,
+      editedObjectPosition: "absolute",
+    });
+    const before = imported(
+      [
+        marker("before-1", "1", 175),
+        marker("before-2", "2", 204),
+        marker("before-3", "3", 253),
+      ],
+      anchor,
+    );
+    const after = imported(
+      [
+        marker("after-1", "1", 175),
+        marker("after-copy", "1", 204),
+        marker("after-2", "2", 253),
+        marker("after-3", "3", 301),
+      ],
+      fragment,
+      [fragment],
+    );
+
+    expect(outsideChangesFor(before, after).changes).toEqual([]);
+
+    const missingSibling = imported(
+      [
+        marker("after-1", "1", 175),
+        marker("after-copy", "1", 204),
+        marker("after-3", "3", 301),
+      ],
+      fragment,
+      [fragment],
+    );
+    expect(outsideChangesFor(before, missingSibling).changes).not.toEqual([]);
+
+    const extraInsideMarker = imported(
+      [
+        marker("after-1", "1", 175),
+        marker("after-copy", "1", 204),
+        marker("after-duplicate", "1", 205, markerStyle, true),
+        marker("after-3", "3", 301),
+      ],
+      fragment,
+      [fragment],
+    );
+    expect(outsideChangesFor(before, extraInsideMarker).changes).not.toEqual(
+      [],
+    );
+
+    const restyledCopy = imported(
+      [
+        marker("after-1", "1", 175),
+        marker("after-copy", "1", 204, `${markerStyle}; color: red`),
+        marker("after-2", "2", 253),
+        marker("after-3", "3", 301),
+      ],
+      fragment,
+      [fragment],
+    );
+    expect(outsideChangesFor(before, restyledCopy).changes).not.toEqual([]);
   });
 
   it("still flags a sibling object or an unrelated in-object shift", () => {

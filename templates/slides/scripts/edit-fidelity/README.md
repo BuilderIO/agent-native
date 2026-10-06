@@ -72,9 +72,12 @@ It also checks fractional-height lists inside transformed, bottom-anchored
 absolute wrappers and roots, so subpixel size reservation cannot move the
 surrounding layout; the wrapper rect is checked within one 1/64 CSS-pixel step
 after each flow. Styled bullet-row markers keep a separate style check when the
-surrounding row is treated as the edited visual block. It saves and reloads
-each result and compares canonical markup plus outside-block style/geometry. On
-the largest corpus slide, it reports Event Timing keydown-to-paint p95 and warns
+surrounding row is treated as the edited visual block. Imported PPTX paragraphs
+may reflow within their fixed text object when authoring inserts a block; the
+gate allows only the measured downstream flow while keeping the object, its
+styles, and every other slide object fixed. It saves and reloads each result and
+compares canonical markup plus outside-block style/geometry. On the largest
+corpus slide, it reports Event Timing keydown-to-paint p95 and warns
 when it exceeds 16 ms. Since Event Timing
 omits entries below 16 ms, the report uses all keydowns and shows a `<=16 ms`
 bound when the p95 is below that threshold. It gates the p95 time from keydown

@@ -65,6 +65,9 @@ export interface SnapRecord {
   protectedRect?: Rect;
   /** Its presence is preserved when the authoring operation should keep the row. */
   protectedStructure?: boolean;
+  /** A leading span that supplies the marker for a styled bullet row. */
+  styledBulletMarker?: boolean;
+  styledBulletMarkerText?: string;
   downstreamFlow?: boolean;
   flexCrossAlignment?: {
     context: string;
@@ -1493,6 +1496,13 @@ export function installInPageHelpers(chromeSelector: string) {
         protectedMarker &&
         (protectedMarker === element || protectedMarker.contains(element)),
       );
+      const markerParent = element?.parentElement;
+      const styledBulletMarker = Boolean(
+        element &&
+        markerParent &&
+        markerParent.firstElementChild === element &&
+        isStyledBulletRow(markerParent),
+      );
       const visualBlockRect =
         protectedElement && visualEditBlock
           ? rectOf(visualEditBlock.getBoundingClientRect(), origin)
@@ -1527,6 +1537,12 @@ export function installInPageHelpers(chromeSelector: string) {
                     },
                   }
                 : {}),
+            }
+          : {}),
+        ...(styledBulletMarker
+          ? {
+              styledBulletMarker: true,
+              styledBulletMarkerText: norm(element?.textContent),
             }
           : {}),
         downstreamFlow: !!flow,

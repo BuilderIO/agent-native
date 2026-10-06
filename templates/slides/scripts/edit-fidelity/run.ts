@@ -3080,10 +3080,70 @@ async function runAuthoringCorpusQa(
     );
   const placeCaretAtBlockStart = async (editor: any) =>
     editor.evaluate((element: HTMLElement) => {
-      const markerSpans = Array.from(element.querySelectorAll("span")).filter(
+      const selection = window.getSelection();
+      const focus = selection?.focusNode;
+      if (!focus || !element.contains(focus)) return false;
+      const blockTags = new Set([
+        "ADDRESS",
+        "ARTICLE",
+        "ASIDE",
+        "BLOCKQUOTE",
+        "DD",
+        "DIV",
+        "DL",
+        "DT",
+        "FIGCAPTION",
+        "FIGURE",
+        "FOOTER",
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+        "HEADER",
+        "LI",
+        "OL",
+        "P",
+        "PRE",
+        "SECTION",
+        "TABLE",
+        "TBODY",
+        "TD",
+        "TFOOT",
+        "TH",
+        "THEAD",
+        "TR",
+        "UL",
+      ]);
+      let block: HTMLElement | null;
+      if (focus === element) {
+        const caretChild =
+          element.childNodes[selection.focusOffset] ??
+          element.childNodes[selection.focusOffset - 1];
+        if (!(caretChild instanceof HTMLElement)) return false;
+        block = caretChild;
+      } else {
+        block = focus instanceof HTMLElement ? focus : focus.parentElement;
+      }
+      let scope = element;
+      while (block && block !== element) {
+        const display = getComputedStyle(block).display;
+        if (
+          blockTags.has(block.tagName) &&
+          display !== "contents" &&
+          display !== "none" &&
+          !display.startsWith("inline")
+        ) {
+          scope = block;
+          break;
+        }
+        block = block.parentElement;
+      }
+      const markerSpans = Array.from(scope.querySelectorAll("span")).filter(
         (span) => /^[-*•●◦▪‣·⁃–—]+$/u.test(span.textContent?.trim() ?? ""),
       );
-      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         const text = node as Text;
         if (markerSpans.some((marker) => marker.contains(text))) continue;
@@ -3092,7 +3152,6 @@ async function runAuthoringCorpusQa(
         const range = document.createRange();
         range.setStart(text, offset);
         range.collapse(true);
-        const selection = window.getSelection();
         if (!selection) return false;
         selection.removeAllRanges();
         selection.addRange(range);
@@ -3995,6 +4054,14 @@ async function runAuthoringCorpusQa(
                   afterFlow: current?.downstreamFlow,
                   beforeRect: previous?.rect,
                   afterRect: current?.rect,
+                  beforeParagraph: previous?.pptxParagraph,
+                  afterParagraph: current?.pptxParagraph,
+                  beforePptxRecordKey: previous?.pptxRecordKey,
+                  afterPptxRecordKey: current?.pptxRecordKey,
+                  beforeStableKey: previous?.stableKey,
+                  afterStableKey: current?.stableKey,
+                  beforeYStyle: previous?.props.y,
+                  afterYStyle: current?.props.y,
                   beforeLayout: previous?.layoutPath?.slice(0, 4),
                   afterLayout: current?.layoutPath?.slice(0, 4),
                 };
@@ -4079,11 +4146,39 @@ async function runAuthoringCorpusQa(
               ...outside.missing
                 .filter((change) => !change.inside)
                 .slice(0, 4)
-                .map(() => ({ kind: "missing" })),
+                .map(({ key }) => {
+                  const record = beforeRecords.get(key);
+                  return {
+                    kind: "missing",
+                    element: record?.kind,
+                    tag: record?.tag,
+                    objectId: record?.slideObjectId,
+                    paragraph: record?.pptxParagraph,
+                    className: record?.className,
+                    inlineStyle: record?.inlineStyle,
+                    rect: record?.rect,
+                    protectedStyle: record?.protectedStyle,
+                    protectedStructure: record?.protectedStructure,
+                  };
+                }),
               ...outside.added
                 .filter((change) => !change.inside)
                 .slice(0, 4)
-                .map(() => ({ kind: "added" })),
+                .map(({ key }) => {
+                  const record = afterRecords.get(key);
+                  return {
+                    kind: "added",
+                    element: record?.kind,
+                    tag: record?.tag,
+                    objectId: record?.slideObjectId,
+                    paragraph: record?.pptxParagraph,
+                    className: record?.className,
+                    inlineStyle: record?.inlineStyle,
+                    rect: record?.rect,
+                    protectedStyle: record?.protectedStyle,
+                    protectedStructure: record?.protectedStructure,
+                  };
+                }),
             ].slice(0, 12);
             phaseProblems.push(
               `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect, beforeInFlow: before.editedInFlow, afterInFlow: after.editedInFlow })}): ${JSON.stringify(outsideSamples)}`,
