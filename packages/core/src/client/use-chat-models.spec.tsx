@@ -304,6 +304,77 @@ describe("useChatModels", () => {
     });
   });
 
+  it("persists the configured engine inferred for an unchanged unscoped model", async () => {
+    const storageKey = "legacy-model-without-engine";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ model: "claude-sonnet-5", effort: "high" }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "anthropic",
+        model: "claude-sonnet-5",
+        effort: "high",
+      },
+    );
+  });
+
+  it("preserves an unscoped model selected through a configured custom endpoint", async () => {
+    const storageKey = "legacy-custom-model-without-engine";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ model: "gpt-5.6-luna", effort: "high" }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-6-luna"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENAI_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("gpt-5.6-luna");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "ai-sdk:openai",
+        model: "gpt-5.6-luna",
+        effort: "high",
+      },
+    );
+  });
+
   it("replaces an unroutable default with a model the catalog can serve", async () => {
     stubCatalog({
       engines: [

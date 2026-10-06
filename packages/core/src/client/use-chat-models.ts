@@ -453,17 +453,20 @@ export function useChatModels({
                 )
                 .map((group) => ({
                   group,
-                  model: upgradeModelToLatestSupportedVersion(
-                    selection.selectedModel,
-                    group.models,
-                  ),
+                  model: group.preserveCustomModels
+                    ? selection.selectedModel
+                    : upgradeModelToLatestSupportedVersion(
+                        selection.selectedModel,
+                        group.models,
+                      ),
                 }))
                 .find((candidate) => candidate.model);
           const selectedGroup = exactSelectedGroup ?? upgradedSelection?.group;
           if (selectedGroup) {
             const selectedModel =
               selectedGroup.preserveCustomModels &&
-              selection.selectedEngine === selectedGroup.engine
+              (!selection.selectedEngine ||
+                selection.selectedEngine === selectedGroup.engine)
                 ? selection.selectedModel
                 : (upgradedSelection?.model ??
                   upgradeModelToLatestSupportedVersion(
@@ -490,7 +493,10 @@ export function useChatModels({
                 ),
               );
             }
-            if (selection.selectedModel !== selectedModel) {
+            if (
+              selection.selectedModel !== selectedModel ||
+              selection.selectedEngine !== selectedGroup.engine
+            ) {
               selectionRef.current = nextSelection;
               writePersisted(storageKey, {
                 model: selectedModel,

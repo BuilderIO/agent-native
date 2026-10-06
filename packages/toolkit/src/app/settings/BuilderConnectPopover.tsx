@@ -1,3 +1,4 @@
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { useT } from "@agent-native/core/client/i18n";
 import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
 import { Button } from "@agent-native/toolkit/ui/button";
@@ -299,7 +300,7 @@ export function BuilderConnectPopover({
 function BuilderConnectIncludedServices({ appId }: { appId?: string }) {
   const t = useT();
   const profile = getOnboardingAppProfileForId(
-    appId ?? currentTemplateId() ?? undefined,
+    appId ?? currentTemplateId() ?? injectedAgentNativeAppId() ?? undefined,
   );
   const capabilities = getBuilderIncludedBenefitCapabilities(
     profile.capabilities,

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
 import { WORKSPACE_SERVICES } from "@agent-native/core/onboarding/workspace-services";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import React, { act } from "react";
@@ -435,6 +436,31 @@ describe("BuilderConnectPopover", () => {
     ]);
     click(servicesToggle!);
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("uses the configured app profile outside template builds", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "assets");
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+    };
+
+    render(React.createElement(BuilderConnectPopover, { flow }, trigger()));
+    click(connectButton());
+
+    const expectedMoreCount = getBuilderIncludedBenefitCapabilities(
+      getOnboardingAppProfileForId("assets").capabilities,
+    ).filter(
+      (capability) => capability.id !== "llm" && capability.service !== "model",
+    ).length;
+    const servicesToggle = document.querySelector<HTMLButtonElement>(
+      "[data-testid='builder-included-services'] button[aria-expanded]",
+    );
+    expect(servicesToggle?.textContent?.replace(/\s+/g, " ").trim()).toContain(
+      `+ ${expectedMoreCount} more services`,
+    );
   });
 });
 
