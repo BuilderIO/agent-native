@@ -32,6 +32,8 @@ import {
 import {
   ZoomHttpError,
   downloadZoomTranscript,
+  getZoomMeetingRecordings,
+  isReadyZoomTranscript,
   fetchZoomAccessToken,
   listZoomRecordings,
   hasProcessingTranscript,
@@ -3030,6 +3032,8 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
 
 const ZOOM_MAX_LOOKBACK_DAYS = 30;
 const ZOOM_DEFAULT_LOOKBACK_DAYS = 7;
+const ZOOM_DIAGNOSTIC_LIMIT = 50;
+const ZOOM_DIAGNOSTIC_FILE_LIMIT = 10;
 const ZOOM_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function utcDate(ms: number): string {
@@ -3142,6 +3146,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     recordingListsScanned: 0,
     meetingsSeen: 0,
     meetingsSkippedByFilter: 0,
+    transcriptsWithoutDownloadUrl: 0,
     filterChanged,
     transcriptsDownloaded: 0,
     emptyTranscripts: 0,
@@ -3152,6 +3157,18 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     rateLimited: false,
   };
   const pendingMeetingStarts: string[] = [];
+  // Meeting IDs and file types (titles only for matched meetings) show why a
+  // meeting did or did not import.
+  const matchedMeetings: Array<{
+    id: string;
+    topic: string | null;
+    start: string;
+    files: string[];
+    filesOmitted?: number;
+  }> = [];
+  const skippedMeetings: Array<{ id: string; start: string }> = [];
+  stats.matchedMeetings = matchedMeetings;
+  stats.skippedMeetings = skippedMeetings;
 
   try {
     const accountId = await requireConnectorCredential(
@@ -3199,11 +3216,40 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       );
       stats.meetingsSkippedByFilter =
         Number(stats.meetingsSkippedByFilter) + listed.length - meetings.length;
+      for (const meeting of listed) {
+        if (skippedMeetings.length >= ZOOM_DIAGNOSTIC_LIMIT) break;
+        if (!zoomMeetingMatchesFilter(meeting, meetingFilter)) {
+          skippedMeetings.push({
+            id: String(meeting.id),
+            start: meeting.start_time,
+          });
+        }
+      }
       const imported = await importedZoomExternalIds(
         source.id,
         meetings.map(zoomExternalId),
       );
       for (const meeting of meetings) {
+        if (matchedMeetings.length < ZOOM_DIAGNOSTIC_LIMIT) {
+          const files = meeting.recording_files ?? [];
+          matchedMeetings.push({
+            id: String(meeting.id),
+            topic: meeting.topic ?? null,
+            start: meeting.start_time,
+            files: files
+              .slice(0, ZOOM_DIAGNOSTIC_FILE_LIMIT)
+              .map((file) =>
+                [
+                  file.file_type,
+                  file.status ?? "",
+                  file.download_url ? "url" : "no-url",
+                ].join(":"),
+              ),
+            ...(files.length > ZOOM_DIAGNOSTIC_FILE_LIMIT
+              ? { filesOmitted: files.length - ZOOM_DIAGNOSTIC_FILE_LIMIT }
+              : {}),
+          });
+        }
         if (hasProcessingTranscript(meeting)) {
           pendingMeetingStarts.push(meeting.start_time);
           stats.pendingTranscripts = Number(stats.pendingTranscripts) + 1;
@@ -3212,12 +3258,28 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           stats.alreadyImported = Number(stats.alreadyImported) + 1;
           continue;
         }
-        const transcripts = (meeting.recording_files ?? []).filter(
+        let recordingFiles = meeting.recording_files ?? [];
+        const readyTranscripts = recordingFiles.filter(isReadyZoomTranscript);
+        if (
+          readyTranscripts.length > 0 &&
+          readyTranscripts.every((file) => !file.download_url)
+        ) {
+          await renewRunLease(run);
+          const detail = await zoomCall(
+            "/meetings/{meetingUuid}/recordings",
+            () => getZoomMeetingRecordings(token, meeting.uuid),
+          );
+          recordingFiles = detail.recording_files ?? [];
+        }
+        const transcripts = recordingFiles.filter(
           (file): file is typeof file & { download_url: string } =>
-            file.file_type === "TRANSCRIPT" &&
-            file.status !== "processing" &&
-            Boolean(file.download_url),
+            isReadyZoomTranscript(file) && Boolean(file.download_url),
         );
+        stats.transcriptsWithoutDownloadUrl =
+          Number(stats.transcriptsWithoutDownloadUrl) +
+          recordingFiles.filter(
+            (file) => isReadyZoomTranscript(file) && !file.download_url,
+          ).length;
         for (const file of transcripts) {
           await renewRunLease(run);
           const vtt = await zoomCall("recording transcript download", () =>
