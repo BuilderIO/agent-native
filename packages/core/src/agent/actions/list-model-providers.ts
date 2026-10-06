@@ -21,6 +21,11 @@ import {
   resolveDefaultAgentEngineAuthority,
   type DefaultAgentEngineSource,
 } from "../default-agent-engine.js";
+import { registerBuiltinEngines } from "../engine/builtin.js";
+import {
+  getAgentEngineEntry,
+  isDeploymentEngineUsableForRequest,
+} from "../engine/registry.js";
 
 export type ModelProviderKeyScope = "user" | "org";
 
@@ -53,6 +58,8 @@ export interface ModelProviderKey {
 export interface ModelProviderEntry {
   provider: AgentProviderId;
   label: string;
+  /** A usable deployment-level credential for this request, without a saved key. */
+  deploymentConfigured: boolean;
   /** The organization's key, or null when it has none. */
   org: ModelProviderKey | null;
   /** The caller's own key, or null when they have none. */
@@ -221,19 +228,36 @@ export default defineAction({
 
     const role = orgId ? await readOrgMemberRole(orgId, email) : null;
     const manages = orgId ? canManageOrg(role) : false;
+    registerBuiltinEngines();
 
-    const [personal, org, restricted, defaultRead, authority] =
-      await Promise.all([
-        readScopeKeys("user", email, true),
-        orgId
-          ? readScopeKeys("org", orgId, manages)
-          : Promise.resolve(new Map<AgentProviderId, ModelProviderKey>()),
-        orgId
-          ? isPersonalProviderKeyUseRestricted({ email, orgId, role })
-          : Promise.resolve(false),
-        readDefaultAgentEngineSettingDetailed({ userEmail: email, orgId }),
-        resolveDefaultAgentEngineAuthority({ userEmail: email, orgId }),
-      ]);
+    const [
+      personal,
+      org,
+      restricted,
+      defaultRead,
+      authority,
+      deploymentStates,
+    ] = await Promise.all([
+      readScopeKeys("user", email, true),
+      orgId
+        ? readScopeKeys("org", orgId, manages)
+        : Promise.resolve(new Map<AgentProviderId, ModelProviderKey>()),
+      orgId
+        ? isPersonalProviderKeyUseRestricted({ email, orgId, role })
+        : Promise.resolve(false),
+      readDefaultAgentEngineSettingDetailed({ userEmail: email, orgId }),
+      resolveDefaultAgentEngineAuthority({ userEmail: email, orgId }),
+      Promise.all(
+        AGENT_PROVIDER_CATALOG.map(async (option) => {
+          const engine = getAgentEngineEntry(option.engine);
+          return [
+            option.id,
+            engine ? await isDeploymentEngineUsableForRequest(engine) : false,
+          ] as const;
+        }),
+      ),
+    ]);
+    const deploymentConfigured = new Map(deploymentStates);
 
     const stored = defaultRead.value;
     const engine =
@@ -249,6 +273,7 @@ export default defineAction({
       providers: AGENT_PROVIDER_CATALOG.map((option) => ({
         provider: option.id,
         label: option.label,
+        deploymentConfigured: deploymentConfigured.get(option.id) ?? false,
         org: org.get(option.id) ?? null,
         personal: personal.get(option.id) ?? null,
       })),

@@ -267,7 +267,7 @@ export function defaultModelGroups(input: {
   }
   for (const entry of listing.providers) {
     const key = scope === "org" ? entry.org : entry.personal;
-    if (!key || key.rejectedAt) continue;
+    if (key?.rejectedAt || (!key && !entry.deploymentConfigured)) continue;
     const checked = selectedModelsAt(models, entry.provider, scope) ?? [];
     if (checked.length === 0) continue;
     groups.push({

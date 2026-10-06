@@ -4127,6 +4127,62 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
+    it("reports deployment configuration only when the current request can use a valid deploy key", async () => {
+      process.env.ANTHROPIC_API_KEY = "sk-test-deployment-only"; // guard:allow-env-credential — exercises deployment model availability
+      let fallbackAllowed = true;
+      let authFailed = false;
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => undefined,
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import("../../server/credential-provider.js")
+          >()),
+          canUseDeployCredentialFallbackForRequest: vi.fn(
+            () => fallbackAllowed,
+          ),
+          readDeployCredentialEnv: vi.fn((key: string) =>
+            key === "ANTHROPIC_API_KEY"
+              ? process.env.ANTHROPIC_API_KEY // guard:allow-env-credential — reads this test's deployment fixture
+              : undefined,
+          ),
+          getProviderCredentialAuthFailure: vi.fn(async () =>
+            authFailed ? { fingerprint: "test" } : null,
+          ),
+        }),
+      );
+
+      const { isDeploymentEngineUsableForRequest } =
+        await import("./registry.js");
+      const entry = {
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "claude",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn(),
+      };
+
+      await expect(isDeploymentEngineUsableForRequest(entry)).resolves.toBe(
+        true,
+      );
+      authFailed = true;
+      await expect(isDeploymentEngineUsableForRequest(entry)).resolves.toBe(
+        false,
+      );
+      authFailed = false;
+      fallbackAllowed = false;
+      await expect(isDeploymentEngineUsableForRequest(entry)).resolves.toBe(
+        false,
+      );
+    });
+
     it("skips auth-failed deploy env keys during env auto-detect and falls back to Builder", async () => {
       vi.stubEnv("NODE_ENV", "production");
       const badDeployKey = "sk-deploy-rejected";

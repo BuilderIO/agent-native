@@ -483,6 +483,26 @@ async function usableEnvCredentialMatch(
   return null;
 }
 
+/** Whether a deployment credential can serve this engine for the current request. */
+export async function isDeploymentEngineUsableForRequest(
+  entry: AgentEngineEntry,
+): Promise<boolean> {
+  if (!isAgentEnginePackageInstalled(entry)) return false;
+  for (const set of envCredentialSetsForEntry(entry)) {
+    if (
+      !set.envVars.every(
+        (key) =>
+          canUseDeployCredentialFallbackForRequest(key) &&
+          !!readDeployCredentialEnv(key),
+      )
+    ) {
+      continue;
+    }
+    if (await isEnvCredentialSetUsable(set)) return true;
+  }
+  return false;
+}
+
 export async function detectEngineFromEnvForRequest(): Promise<AgentEngineEntry | null> {
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 

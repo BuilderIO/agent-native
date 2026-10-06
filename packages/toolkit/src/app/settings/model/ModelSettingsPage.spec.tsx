@@ -179,6 +179,7 @@ function listing(
     providers: PROVIDERS.map((provider) => ({
       provider,
       label: LABELS[provider],
+      deploymentConfigured: false,
       org: null,
       personal: null,
       ...entries[provider],
@@ -674,25 +675,26 @@ describe("ModelSettingsPage", () => {
     expect(builderButton?.disabled).toBe(false);
   });
 
-  it("keeps a stored OpenAI default visible when deployment credentials configure OpenAI", async () => {
-    state.listing = listing({
-      canManageOrg: true,
-      canUpdateDefault: true,
-      defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
-    });
+  it("keeps a stored deployment-configured provider default visible and upgrades it", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: true,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-sol" },
+      },
+      { openai: { deploymentConfigured: true } },
+    );
+    state.models = {
+      providers: models().providers.map((provider) =>
+        provider.provider === "openai"
+          ? { ...provider, recommendedModels: ["gpt-6-sol", "gpt-6.1-sol"] }
+          : provider,
+      ),
+    };
     state.builder = builderFlow({
       configured: false,
       grants: { org: null, personal: null },
       canConnect: { org: true, personal: true },
-    });
-    callActionMock.mockResolvedValue({
-      engines: [
-        {
-          name: "ai-sdk:openai",
-          configured: true,
-          supportedModels: ["gpt-6-sol", "gpt-6.1-sol"],
-        },
-      ],
     });
     await render();
 
@@ -703,30 +705,58 @@ describe("ModelSettingsPage", () => {
     expect(
       defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
         ?.disabled,
-    ).toBe(true);
-    expect(row("llm").textContent).toContain("Add a model provider");
+    ).toBe(false);
+    expect(row("llm").textContent).not.toContain("Add a model provider");
   });
 
-  it("preserves a gateway's stored OpenAI model when configured metadata says it is custom", async () => {
-    state.listing = listing({
-      canManageOrg: true,
-      canUpdateDefault: true,
-      defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
-    });
+  it("offers a deployment-configured provider when there is no saved key or default", async () => {
+    state.listing = listing(
+      { canManageOrg: true, canUpdateDefault: true, defaultModel: null },
+      { anthropic: { deploymentConfigured: true } },
+    );
     state.builder = builderFlow({
       configured: false,
       grants: { org: null, personal: null },
       canConnect: { org: true, personal: true },
     });
-    callActionMock.mockResolvedValue({
-      engines: [
-        {
-          name: "ai-sdk:openai",
-          configured: true,
-          preserveCustomModels: true,
-          supportedModels: ["gpt-6-luna", "gpt-6.1-luna"],
-        },
-      ],
+    await render();
+
+    expect(row("llm").textContent).not.toContain("Add a model provider");
+    const defaultRow = row("default-model");
+    expect(defaultRow.textContent).toContain("Choose a model");
+    expect(
+      defaultRow.querySelector<HTMLButtonElement>('[role="combobox"]')
+        ?.disabled,
+    ).toBe(false);
+  });
+
+  it("preserves a deployment OpenAI model when its saved model selection allows custom IDs", async () => {
+    state.listing = listing(
+      {
+        canManageOrg: true,
+        canUpdateDefault: true,
+        defaultModel: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+      },
+      { openai: { deploymentConfigured: true } },
+    );
+    state.models = {
+      providers: models().providers.map((provider) =>
+        provider.provider === "openai"
+          ? {
+              ...provider,
+              recommendedModels: ["gpt-6-luna", "gpt-6.1-luna"],
+              rows: {
+                ...provider.rows,
+                org: { models: null, preserveCustomModels: true },
+              },
+            }
+          : provider,
+      ),
+    };
+    state.builder = builderFlow({
+      configured: false,
+      grants: { org: null, personal: null },
+      canConnect: { org: true, personal: true },
     });
     await render();
 

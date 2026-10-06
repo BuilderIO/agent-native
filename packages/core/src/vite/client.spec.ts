@@ -2272,6 +2272,8 @@ describe("agent-native app config", () => {
 
 describe("MCP integrations config", () => {
   it("exposes the configured app identity to synchronous client behavior", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", " assigned-workspace-app ");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "vite-workspace-app");
     vi.stubEnv("AGENT_NATIVE_APP_ID", " configured-app ");
     vi.stubEnv("APP_ID", "fallback-app");
     vi.stubEnv("AGENT_APP", "legacy-app");
@@ -2281,6 +2283,18 @@ describe("MCP integrations config", () => {
       const config = defineConfig();
 
       expect(config.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("assigned-workspace-app"),
+      );
+
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+      const viteWorkspaceId = defineConfig();
+      expect(viteWorkspaceId.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("vite-workspace-app"),
+      );
+
+      vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
+      const configuredId = defineConfig();
+      expect(configuredId.define?.__AGENT_NATIVE_APP_ID__).toBe(
         JSON.stringify("configured-app"),
       );
 

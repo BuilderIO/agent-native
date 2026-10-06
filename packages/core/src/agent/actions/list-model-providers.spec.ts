@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   defaultValue: null as Record<string, unknown> | null,
   defaultSource: "none" as "org" | "user" | "legacy" | "none",
   authorityAllowed: true,
+  deploymentEngines: new Set<string>(),
 }));
 
 vi.mock("../../secrets/storage.js", () => ({
@@ -69,6 +70,16 @@ vi.mock("../default-agent-engine.js", () => ({
       : { allowed: false, reason: "not-admin", message: "no" },
 }));
 
+vi.mock("../engine/registry.js", () => ({
+  getAgentEngineEntry: (name: string) => ({ name }),
+  isDeploymentEngineUsableForRequest: async (entry: { name: string }) =>
+    mocks.deploymentEngines.has(entry.name),
+}));
+
+vi.mock("../engine/builtin.js", () => ({
+  registerBuiltinEngines: vi.fn(),
+}));
+
 const { default: action } = await import("./list-model-providers.js");
 
 function setSecret(scope: string, scopeId: string, key: string, value: string) {
@@ -106,6 +117,7 @@ beforeEach(() => {
   mocks.defaultValue = null;
   mocks.defaultSource = "none";
   mocks.authorityAllowed = true;
+  mocks.deploymentEngines.clear();
 });
 
 describe("list-model-providers", () => {
@@ -128,6 +140,20 @@ describe("list-model-providers", () => {
     expect(listing.providers.every((item) => !item.org && !item.personal)).toBe(
       true,
     );
+    expect(listing.providers.every((item) => !item.deploymentConfigured)).toBe(
+      true,
+    );
+  });
+
+  it("reports usable deployment providers without exposing credential values", async () => {
+    mocks.deploymentEngines.add("anthropic");
+    mocks.deploymentEngines.add("ai-sdk:google");
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").deploymentConfigured).toBe(true);
+    expect(entry(listing, "google").deploymentConfigured).toBe(true);
+    expect(entry(listing, "openai").deploymentConfigured).toBe(false);
+    expect(JSON.stringify(listing)).not.toContain("API_KEY");
   });
 
   it("shows admins the organization key's mask and gateway", async () => {
