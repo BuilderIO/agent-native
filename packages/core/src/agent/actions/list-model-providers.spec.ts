@@ -185,6 +185,16 @@ describe("list-model-providers", () => {
     expect(entry(listing, "anthropic").deploymentConfigured).toBe(true);
   });
 
+  it("does not advertise a deployment fallback when the default scope has only a provider endpoint", async () => {
+    mocks.deploymentEngines.add("ai-sdk:openai");
+    setSecret("org", "org-1", "OPENAI_BASE_URL", "https://gateway.example/v1");
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "openai").org).toBeNull();
+    expect(entry(listing, "openai").deploymentConfigured).toBe(false);
+  });
+
   it("shows admins the organization key's mask and gateway", async () => {
     setSecret("org", "org-1", "OPENAI_API_KEY", "sk-test-fake-1111");
     setSecret("org", "org-1", "OPENAI_BASE_URL", "https://gateway.example/v1");

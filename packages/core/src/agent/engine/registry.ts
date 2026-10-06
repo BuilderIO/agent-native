@@ -256,19 +256,19 @@ export function normalizeModelForEngine(
     return candidate;
   }
 
+  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
+    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
+      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
+      ? CLAUDE_SONNET_MODEL_ID
+      : candidate;
+  }
+
   const versionMatch = findLatestSupportedVersionMatch(
     candidate,
     engine.supportedModels,
   );
   if (versionMatch && isNewerVersionedModel(candidate, versionMatch)) {
     return versionMatch;
-  }
-
-  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
-    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
-      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
-      ? CLAUDE_SONNET_MODEL_ID
-      : candidate;
   }
 
   if (versionMatch) return versionMatch;
@@ -488,6 +488,19 @@ export async function isDeploymentEngineUsableForRequest(
   entry: AgentEngineEntry,
 ): Promise<boolean> {
   if (!isAgentEnginePackageInstalled(entry)) return false;
+  if (entry.name === "ai-sdk:ollama") {
+    const endpoint = canUseDeployCredentialFallbackForRequest(
+      OLLAMA_BASE_URL_ENV_VAR,
+    )
+      ? readDeployCredentialEnv(OLLAMA_BASE_URL_ENV_VAR)
+      : undefined;
+    if (!endpoint) return false;
+    await validateProviderBaseUrl(endpoint, {
+      allowPrivate: true,
+      isOllama: true,
+    });
+    return true;
+  }
   for (const set of envCredentialSetsForEntry(entry)) {
     if (
       !set.envVars.every(

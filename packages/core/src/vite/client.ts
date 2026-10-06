@@ -4351,6 +4351,11 @@ function createAgentNativeConfig(
           runtimeEnv.npm_package_name?.trim() ||
           "",
       ),
+      __AGENT_NATIVE_WORKSPACE_APP_ID__: JSON.stringify(
+        runtimeEnv.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          runtimeEnv.VITE_AGENT_NATIVE_WORKSPACE_APP_ID?.trim() ||
+          "",
+      ),
     },
     server: {
       ...(userConfig.server ?? {}),

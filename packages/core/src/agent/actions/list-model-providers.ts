@@ -118,6 +118,11 @@ interface StoredRow {
   scopeId: string;
 }
 
+interface ScopeProviderKeys {
+  keys: Map<AgentProviderId, ModelProviderKey>;
+  endpointProviders: Set<AgentProviderId>;
+}
+
 /**
  * The stored rows the credential resolver reads for one listing scope, in its
  * precedence order. Legacy `workspace` rows power chats like the first-class
@@ -142,7 +147,7 @@ async function readScopeKeys(
   scope: ModelProviderKeyScope,
   scopeId: string,
   reveal: boolean,
-): Promise<Map<AgentProviderId, ModelProviderKey>> {
+): Promise<ScopeProviderKeys> {
   const names = providerKeyNames();
   const keys = names.flatMap(({ primary, endpoint }) =>
     endpoint ? [...primary, endpoint] : primary,
@@ -158,8 +163,12 @@ async function readScopeKeys(
     endpoint: ReadSecretResult | null;
     legacy: boolean;
   }> = [];
+  const endpointProviders = new Set<AgentProviderId>();
   for (const entry of names) {
     for (const [index, rows] of reads.entries()) {
+      if (entry.endpoint && firstPresent(rows, [entry.endpoint])) {
+        endpointProviders.add(entry.option.id);
+      }
       const row = firstPresent(rows, entry.primary);
       if (!row) continue;
       found.push({
@@ -212,7 +221,7 @@ async function readScopeKeys(
       ...(legacy ? { legacyWorkspaceRow: true as const } : {}),
     });
   }
-  return result;
+  return { keys: result, endpointProviders };
 }
 
 export default defineAction({
@@ -241,7 +250,10 @@ export default defineAction({
       readScopeKeys("user", email, true),
       orgId
         ? readScopeKeys("org", orgId, manages)
-        : Promise.resolve(new Map<AgentProviderId, ModelProviderKey>()),
+        : Promise.resolve({
+            keys: new Map<AgentProviderId, ModelProviderKey>(),
+            endpointProviders: new Set<AgentProviderId>(),
+          }),
       orgId
         ? isPersonalProviderKeyUseRestricted({ email, orgId, role })
         : Promise.resolve(false),
@@ -259,10 +271,13 @@ export default defineAction({
     ]);
     const deploymentConfigured = new Map(
       deploymentStates.map(([provider, configured]) => {
-        const defaultScopeKey = orgId
-          ? org.get(provider)
-          : personal.get(provider);
-        return [provider, configured && !defaultScopeKey] as const;
+        const defaultScope = orgId ? org : personal;
+        return [
+          provider,
+          configured &&
+            !defaultScope.keys.has(provider) &&
+            !defaultScope.endpointProviders.has(provider),
+        ] as const;
       }),
     );
 
@@ -281,8 +296,8 @@ export default defineAction({
         provider: option.id,
         label: option.label,
         deploymentConfigured: deploymentConfigured.get(option.id) ?? false,
-        org: org.get(option.id) ?? null,
-        personal: personal.get(option.id) ?? null,
+        org: org.keys.get(option.id) ?? null,
+        personal: personal.keys.get(option.id) ?? null,
       })),
       hasOrganization: !!orgId,
       canManageOrg: manages,

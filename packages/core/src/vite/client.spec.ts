@@ -2285,10 +2285,16 @@ describe("MCP integrations config", () => {
       expect(config.define?.__AGENT_NATIVE_APP_ID__).toBe(
         JSON.stringify("assigned-workspace-app"),
       );
+      expect(config.define?.__AGENT_NATIVE_WORKSPACE_APP_ID__).toBe(
+        JSON.stringify("assigned-workspace-app"),
+      );
 
       vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", undefined);
       const viteWorkspaceId = defineConfig();
       expect(viteWorkspaceId.define?.__AGENT_NATIVE_APP_ID__).toBe(
+        JSON.stringify("vite-workspace-app"),
+      );
+      expect(viteWorkspaceId.define?.__AGENT_NATIVE_WORKSPACE_APP_ID__).toBe(
         JSON.stringify("vite-workspace-app"),
       );
 
@@ -2296,6 +2302,9 @@ describe("MCP integrations config", () => {
       const configuredId = defineConfig();
       expect(configuredId.define?.__AGENT_NATIVE_APP_ID__).toBe(
         JSON.stringify("configured-app"),
+      );
+      expect(configuredId.define?.__AGENT_NATIVE_WORKSPACE_APP_ID__).toBe(
+        JSON.stringify(""),
       );
 
       vi.stubEnv("AGENT_NATIVE_APP_ID", undefined);

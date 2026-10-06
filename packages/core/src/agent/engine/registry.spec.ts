@@ -719,6 +719,20 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("preserves custom non-GPT model versions for engines that accept custom models", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "anthropic",
+        defaultModel: "anthropic/claude-opus-4.8",
+        supportedModels: ["anthropic/claude-opus-4.8"],
+        acceptsCustomModels: true,
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "anthropic/claude-opus-4.7")).toBe(
+        "anthropic/claude-opus-4.7",
+      );
+    });
+
     it("keeps custom model strings for engines without a supported model list", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
@@ -4127,10 +4141,11 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
-    it("reports deployment configuration only when the current request can use a valid deploy key", async () => {
+    it("reports deployment configuration only when the current request can use a valid deploy credential", async () => {
       process.env.ANTHROPIC_API_KEY = "sk-test-deployment-only"; // guard:allow-env-credential — exercises deployment model availability
       let fallbackAllowed = true;
       let authFailed = false;
+      let ollamaEndpoint: string | undefined;
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => undefined,
@@ -4148,7 +4163,9 @@ describe("AgentEngine registry", () => {
           readDeployCredentialEnv: vi.fn((key: string) =>
             key === "ANTHROPIC_API_KEY"
               ? process.env.ANTHROPIC_API_KEY // guard:allow-env-credential — reads this test's deployment fixture
-              : undefined,
+              : key === "OLLAMA_BASE_URL"
+                ? ollamaEndpoint
+                : undefined,
           ),
           getProviderCredentialAuthFailure: vi.fn(async () =>
             authFailed ? { fingerprint: "test" } : null,
@@ -4176,6 +4193,26 @@ describe("AgentEngine registry", () => {
       await expect(isDeploymentEngineUsableForRequest(entry)).resolves.toBe(
         false,
       );
+
+      const ollamaEntry = {
+        ...entry,
+        name: "ai-sdk:ollama",
+        requiredEnvVars: [],
+      };
+      ollamaEndpoint = "http://127.0.0.1:11434";
+      fallbackAllowed = true;
+      await expect(
+        isDeploymentEngineUsableForRequest(ollamaEntry),
+      ).resolves.toBe(true);
+      fallbackAllowed = false;
+      await expect(
+        isDeploymentEngineUsableForRequest(ollamaEntry),
+      ).resolves.toBe(false);
+      fallbackAllowed = true;
+      ollamaEndpoint = undefined;
+      await expect(
+        isDeploymentEngineUsableForRequest(ollamaEntry),
+      ).resolves.toBe(false);
       authFailed = false;
       fallbackAllowed = false;
       await expect(isDeploymentEngineUsableForRequest(entry)).resolves.toBe(
