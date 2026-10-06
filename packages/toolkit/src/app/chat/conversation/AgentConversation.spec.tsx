@@ -6,6 +6,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clearToolRenderersForTests,
+  registerToolRenderer,
+} from "../chat/tool-render-registry.js";
+import {
   AgentConversation,
   AgentConversationMessageView,
 } from "./AgentConversation.js";
@@ -37,6 +41,7 @@ describe("AgentConversationMessageView", () => {
       root.unmount();
     });
     container.remove();
+    clearToolRenderersForTests();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -100,6 +105,44 @@ describe("AgentConversationMessageView", () => {
       ).toBeNull();
     },
   );
+
+  it("shows an errored tool through the masked fallback, not its renderer", () => {
+    registerToolRenderer({
+      id: "example-renderer",
+      match: "example-tool",
+      Component: ({ context }) => (
+        <div data-testid="example-renderer">{context.resultText}</div>
+      ),
+    });
+    act(() =>
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-example",
+            role: "assistant",
+            parts: [
+              {
+                id: "tool-example",
+                type: "tool",
+                tool: {
+                  id: "tool-example",
+                  name: "example-tool",
+                  state: "errored",
+                  result: "Example Document failed.",
+                },
+              },
+            ],
+          }}
+        />,
+      ),
+    );
+    expect(container.querySelector('[data-testid="example-renderer"]')).toBe(
+      null,
+    );
+    expect(
+      container.querySelector("pre span")?.hasAttribute("data-an-mask"),
+    ).toBe(true);
+  });
 
   it.each(["error", "info"] as const)(
     "masks only error notice text (%s)",

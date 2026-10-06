@@ -39,6 +39,7 @@ import type { AgentTransport } from "@agent-native/agentkit/protocol";
 import { getComposerDraftKey } from "../../../composer/draft-key.js";
 import {
   AgentActivityItem,
+  AgentInteractionItem,
   AgentKitChat,
   AgentMessageActions,
 } from "./components.js";
@@ -97,6 +98,60 @@ describe("AgentActivityItem replay privacy", () => {
         const summary = container.querySelector(".agentkit-activity-summary");
         expect(summary?.textContent).toContain("Example Document diagnostics.");
         expect(summary?.hasAttribute("data-an-mask")).toBe(status === "failed");
+      } finally {
+        await act(async () => root.unmount());
+        await client.shutdown();
+        container.remove();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+});
+
+describe("AgentInteractionItem replay privacy", () => {
+  it.each(["failed", "completed"] as const)(
+    "masks only failed interaction details (%s)",
+    async (kind) => {
+      const client = new AgentKitClient({
+        transport: {
+          async startRun() {
+            return { runId: "run-example" };
+          },
+          async *subscribeToRun() {},
+          async cancelRun() {},
+        },
+      });
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      try {
+        await act(async () =>
+          root.render(
+            <AgentKitProvider controller={client} threadId="thread-example">
+              <AgentInteractionItem
+                value={{
+                  id: "interaction-example",
+                  kind,
+                  agentId: "agent-example",
+                  detail: "Example Person's example notes",
+                }}
+                threadId="thread-example"
+              />
+            </AgentKitProvider>,
+          ),
+        );
+        const detail = container.querySelector(
+          ".agentkit-agent-interaction-detail",
+        );
+        expect(detail?.textContent).toBe("Example Person's example notes");
+        expect(detail?.hasAttribute("data-an-mask")).toBe(kind === "failed");
+        expect(detail?.hasAttribute("title")).toBe(kind !== "failed");
+        expect(
+          container
+            .querySelector(".agentkit-agent-interaction-label")
+            ?.closest("[data-an-mask]"),
+        ).toBeNull();
       } finally {
         await act(async () => root.unmount());
         await client.shutdown();

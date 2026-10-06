@@ -918,7 +918,12 @@ export function AgentInteractionItem({
       {object ? (
         <ObjectRenderer value={object} threadId={threadId} />
       ) : detail ? (
-        <span className="agentkit-agent-interaction-detail" title={detail}>
+        <span
+          {...(interaction.kind === "failed"
+            ? SESSION_REPLAY_MASK_PROPS
+            : { title: detail })}
+          className="agentkit-agent-interaction-detail"
+        >
           {detail}
         </span>
       ) : null}

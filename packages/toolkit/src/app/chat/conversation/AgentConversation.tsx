@@ -413,9 +413,11 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
     chatUI: tool.chatUI,
   };
   const NativeToolRenderer =
-    resolveBuiltinActionChatRenderer(nativeToolContext) ??
-    resolveToolRenderer(nativeToolContext) ??
-    resolveBuiltinFallbackToolRenderer(nativeToolContext);
+    tool.state === "errored"
+      ? null
+      : (resolveBuiltinActionChatRenderer(nativeToolContext) ??
+        resolveToolRenderer(nativeToolContext) ??
+        resolveBuiltinFallbackToolRenderer(nativeToolContext));
   if (NativeToolRenderer) {
     return (
       <ActionChatUiSurface
