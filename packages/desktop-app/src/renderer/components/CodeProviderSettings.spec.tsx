@@ -83,12 +83,6 @@ function click(element: HTMLElement) {
   });
 }
 
-async function finishLazyLoad() {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  });
-}
-
 describe("CodeProviderSettings Builder setup", () => {
   it("opens the shared chooser; only the existing-account choice starts local sign-in", async () => {
     Object.defineProperty(window, "electronAPI", {
@@ -118,9 +112,15 @@ describe("CodeProviderSettings Builder setup", () => {
       );
     expect(getTrigger()).toBeDefined();
     click(getTrigger()!);
-    await finishLazyLoad();
-    expect(document.body.textContent).toContain("Create and activate");
-    expect(document.body.textContent).toContain("I have a Builder.io account");
+    await vi.waitFor(
+      () => {
+        expect(document.body.textContent).toContain("Create and activate");
+        expect(document.body.textContent).toContain(
+          "I have a Builder.io account",
+        );
+      },
+      { timeout: 5_000 },
+    );
     expect(builderConnectFlow.start).not.toHaveBeenCalled();
     expect(connectBuilderProvider).not.toHaveBeenCalled();
     expect(openBuilder).not.toHaveBeenCalled();
