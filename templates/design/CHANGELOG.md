@@ -7,6 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Design frame labels apply truncation as soon as resizing ends.
 - The Recent tab shows loading placeholders until your designs are ready.
 
 ## 2026-10-03

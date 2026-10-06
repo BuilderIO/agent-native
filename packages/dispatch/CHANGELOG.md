@@ -1,5 +1,21 @@
 # @agent-native/dispatch
 
+## 0.40.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [88908c5]
+- Updated dependencies [cc3c820]
+- Updated dependencies [a78f2a0]
+- Updated dependencies [bdb9e68]
+- Updated dependencies [bb72f96]
+- Updated dependencies
+- Updated dependencies [5d05eb6]
+- Updated dependencies [cbfea3c]
+- Updated dependencies [b88b078]
+  - @agent-native/toolkit@0.201.1
+
 ## 0.40.12
 
 ### Patch Changes
@@ -1120,12 +1136,5 @@
 - 907dfa3: Hide redundant Agent-Native SSO controls inside embedded workspace app views while preserving the app's normal login and signup controls.
 - 907dfa3: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
 - 907dfa3: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
-
-## 0.27.6
-
-### Patch Changes
-
-- 9e73795: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
-- 9e73795: Preserve organization Google-only policies during shared sign-in by marking only Dispatch identities with a verified Google account link, while keeping existing local accounts and sessions additive.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
