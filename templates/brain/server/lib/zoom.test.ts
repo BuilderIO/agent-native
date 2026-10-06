@@ -314,6 +314,21 @@ describe("Zoom error detail", () => {
     );
   });
 
+  it("tells the admin to use a Server-to-Server OAuth app on unsupported_grant_type", () => {
+    const error = new ZoomHttpError(
+      400,
+      null,
+      "token request",
+      "unsupported_grant_type",
+      "The application does not support account_credentials",
+    );
+
+    expect(error.message).toContain(
+      "not from a Zoom Server-to-Server OAuth app",
+    );
+    expect(error.message).toContain("ZOOM_CLIENT_SECRET");
+  });
+
   it("names the user-list step and the missing scope", async () => {
     vi.stubGlobal(
       "fetch",

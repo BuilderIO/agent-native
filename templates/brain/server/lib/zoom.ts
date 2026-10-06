@@ -16,8 +16,19 @@ export class ZoomHttpError extends Error {
   ) {
     const code = zoomCode ? " (code " + zoomCode + ")" : "";
     const reason = zoomReason ? ": " + zoomReason : "";
+    const hint =
+      zoomCode === "unsupported_grant_type"
+        ? " These credentials are not from a Zoom Server-to-Server OAuth app. Create one in the Zoom App Marketplace and replace ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET."
+        : "";
     super(
-      "Zoom " + step + " failed with status " + status + code + reason + ".",
+      "Zoom " +
+        step +
+        " failed with status " +
+        status +
+        code +
+        reason +
+        "." +
+        hint,
     );
     this.name = "ZoomHttpError";
   }

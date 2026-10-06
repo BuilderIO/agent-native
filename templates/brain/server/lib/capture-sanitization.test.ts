@@ -285,6 +285,23 @@ describe("capture sanitization", () => {
     },
   );
 
+  it.each([
+    ["jev-timeout", "timed out after 3 attempts", 600_000],
+    ["jev-http-503", "returned HTTP 503 after 3 attempts", 600_000],
+    ["jev-credential-unavailable", "no Builder connection", null],
+    ["jev-http-401", "rejected the source owner", null],
+  ])(
+    "explains a %s failure in plain language",
+    (reason, phrase, retryAfterMs) => {
+      const error = new BrainClassifierUnavailableError(reason);
+
+      expect(error.message).toContain(phrase);
+      expect(error.message).toContain("Nothing was stored or lost");
+      expect(error.message).not.toContain(reason);
+      expect(error.retryAfterMs).toBe(retryAfterMs);
+    },
+  );
+
   it("stores a routine Slack message verbatim when Jev allows it", async () => {
     const content = "lunch at noon, see you there";
     mocks.classifyWithJev.mockResolvedValueOnce({
