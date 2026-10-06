@@ -2014,16 +2014,24 @@ function boundedJsonStringify(
 
       addRaw("{");
       let emitted = 0;
-      // JavaScript exposes own keys eagerly; the budget below limits the value walk, not Proxy traps.
-      const propertyKeys = Object.keys(current);
-      if (
-        propertyKeys.length >
-        (MAX_TOOL_HISTORY_SERIALIZATION_STEPS - steps) / 2
-      ) {
-        throw TOOL_HISTORY_SERIALIZATION_STEP_LIMIT_EXCEEDED;
+      const prototype = Object.getPrototypeOf(current);
+      let inheritedEnumerableKeys = prototype !== null;
+      if (prototype === Object.prototype) {
+        inheritedEnumerableKeys = false;
+        for (const _propertyKey in Object.prototype) {
+          inheritedEnumerableKeys = true;
+          break;
+        }
       }
-      for (const propertyKey of propertyKeys) {
+      // This avoids an Object.keys array, though engines may still enumerate internally and Proxy traps remain synchronous.
+      for (const propertyKey in current) {
         countStep();
+        if (
+          inheritedEnumerableKeys &&
+          !Object.prototype.hasOwnProperty.call(current, propertyKey)
+        ) {
+          continue;
+        }
         writeValue(
           undefined,
           propertyKey,

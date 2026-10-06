@@ -930,6 +930,14 @@ describe("createAgentNativeChatRuntime", () => {
         return "late value";
       },
     });
+    const objectKeys = Object.keys;
+    const objectKeysSpy = vi.spyOn(Object, "keys");
+    objectKeysSpy.mockImplementation((value: object) => {
+      if (value === omittedProperties) {
+        throw new Error("Object.keys must not materialize bounded input keys");
+      }
+      return objectKeys(value);
+    });
 
     let deeplyNested: unknown = "leaf";
     for (let index = 0; index < 600; index++) {
@@ -993,7 +1001,11 @@ describe("createAgentNativeChatRuntime", () => {
         },
       ],
     });
-    await drain(turn.events);
+    try {
+      await drain(turn.events);
+    } finally {
+      objectKeysSpy.mockRestore();
+    }
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     const parts = (
@@ -1090,6 +1102,59 @@ describe("createAgentNativeChatRuntime", () => {
     expect(toolCall).toMatchObject({
       id: "call-proxy-input",
       input: JSON.parse(expected!),
+    });
+  });
+
+  it("keeps inherited properties out of bounded tool JSON", async () => {
+    const input = Object.assign(Object.create({ inherited: "omit" }), {
+      own: "keep",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-inherited-tool-property",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "assistant-tools",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-inherited-property",
+              toolName: "search",
+              input,
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const toolCall = (
+      body.structuredHistory as Array<{
+        content: Array<{ type: string; id?: string; input?: unknown }>;
+      }>
+    )
+      .flatMap((message) => message.content)
+      .find((part) => part.type === "tool-call");
+
+    expect(toolCall).toMatchObject({
+      id: "call-inherited-property",
+      input: { own: "keep" },
     });
   });
 

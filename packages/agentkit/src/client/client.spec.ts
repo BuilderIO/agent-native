@@ -21,6 +21,7 @@ import {
   AgentRunHandle,
   AgentKitRunSlotBusyError,
 } from "./client.js";
+import type { AgentThreadState } from "./state.js";
 
 function protocolEvent(
   sequence: number,
@@ -64,12 +65,25 @@ async function assistantPartsAfterToolHistory(input: {
   afterToolEvents?: AgentEventBody[];
   createdParts?: AgentMessage["parts"];
   omitToolStarted?: boolean;
+  toolInput?: unknown;
+  toolOutput?: unknown;
+  beforeFollowup?: (client: AgentKitClient) => void;
+  beforeStartRun?: (client: AgentKitClient) => void;
   finalParts: AgentMessage["parts"];
 }): Promise<AgentMessage[]> {
+  const toolInput = Object.prototype.hasOwnProperty.call(input, "toolInput")
+    ? input.toolInput
+    : { query: "release" };
+  const toolOutput = Object.prototype.hasOwnProperty.call(input, "toolOutput")
+    ? input.toolOutput
+    : "The release is ready.";
+  let client!: AgentKitClient;
   let runNumber = 0;
-  const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
-    runId: `run-${++runNumber}`,
-  }));
+  const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+    const nextRunNumber = ++runNumber;
+    if (nextRunNumber > 1) input.beforeStartRun?.(client);
+    return { runId: `run-${nextRunNumber}` };
+  });
   const transport: AgentTransport = {
     ...createTransport([]),
     startRun,
@@ -109,7 +123,7 @@ async function assistantPartsAfterToolHistory(input: {
           toolCall: {
             id: "call-search",
             name: "search",
-            input: { query: "release" },
+            input: toolInput,
             messageId: "assistant-1",
             status: "running",
           },
@@ -120,8 +134,8 @@ async function assistantPartsAfterToolHistory(input: {
         toolCall: {
           id: "call-search",
           name: "search",
-          input: { query: "release" },
-          output: "The release is ready.",
+          input: toolInput,
+          output: toolOutput,
           messageId: "assistant-1",
           status: "completed",
         },
@@ -141,11 +155,12 @@ async function assistantPartsAfterToolHistory(input: {
       yield event(sequence, { type: "run.completed" });
     },
   };
-  const client = new AgentKitClient({ transport });
+  client = new AgentKitClient({ transport });
 
   await (
     await client.sendMessage({ threadId: "thread-1", text: "Search" })
   ).completed;
+  input.beforeFollowup?.(client);
   await (
     await client.sendMessage({
       threadId: "thread-1",
@@ -159,6 +174,364 @@ async function assistantPartsAfterToolHistory(input: {
 }
 
 describe("AgentKitClient", () => {
+  it("bounds nested tool-history values before serializing them", async () => {
+    const messages = await assistantPartsAfterToolHistory({
+      toolInput: { nested: { text: "x".repeat(1024 * 1024) } },
+      toolOutput: { nested: { text: "\u0000".repeat(12_000) } },
+      createdParts: [{ type: "text", text: "Search" }],
+      finalParts: [{ type: "text", text: "Search" }],
+    });
+    const assistantMessage = messages.find(
+      (message) => message.id === "assistant-1",
+    );
+
+    expect(assistantMessage?.parts).toEqual(
+      expect.arrayContaining([
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-call",
+          data: {
+            id: "call-search",
+            name: "search",
+            inputText:
+              "Tool input omitted from history because it exceeds 64 KiB.",
+          },
+        },
+        {
+          type: "data",
+          mediaType: "application/x-agent-native-tool-result",
+          data: {
+            id: "call-search",
+            name: "search",
+            resultText:
+              "Tool output omitted from history because it exceeds 64 KiB.",
+          },
+        },
+      ]),
+    );
+  });
+
+  it("fails closed for cyclic and BigInt tool-history values", async () => {
+    const cyclicInput: Record<string, unknown> = {};
+    cyclicInput.self = cyclicInput;
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        const thread = client.getThread("thread-1");
+        const toolCall = {
+          id: "call-search",
+          name: "search",
+          messageId: "assistant-1",
+          input: cyclicInput,
+          output: { value: 1n },
+          status: "completed" as const,
+        };
+        thread.events = [
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, {
+            type: "message.created",
+            message: {
+              id: "assistant-1",
+              role: "assistant",
+              status: "streaming",
+              parts: [{ type: "text", text: "Search" }],
+            },
+          }),
+          protocolEvent(3, {
+            type: "tool.started",
+            toolCall: { ...toolCall, status: "running" },
+          }),
+          protocolEvent(4, {
+            type: "tool.updated",
+            toolCall,
+          }),
+        ];
+        thread.tools = { [toolCall.id]: toolCall };
+      },
+      beforeStartRun(client) {
+        const thread = client.getThread("thread-1");
+        thread.events = [];
+        thread.tools = {};
+      },
+      finalParts: [{ type: "text", text: "Search" }],
+    });
+    const assistantMessage = messages.find(
+      (message) => message.id === "assistant-1",
+    );
+
+    expect(assistantMessage?.parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          mediaType: "application/x-agent-native-tool-call",
+          data: {
+            id: "call-search",
+            name: "search",
+            inputText:
+              "Tool input omitted from history because it could not be serialized.",
+          },
+        }),
+        expect.objectContaining({
+          mediaType: "application/x-agent-native-tool-result",
+          data: {
+            id: "call-search",
+            name: "search",
+            resultText:
+              "Tool output omitted from history because it could not be serialized.",
+          },
+        }),
+      ]),
+    );
+  });
+
+  it("shares a bounded work budget across nested omitted properties", async () => {
+    let propertyReads = 0;
+    let nested: Record<string, unknown> = {};
+    for (let depth = 0; depth < 80; depth += 1) {
+      const value: Record<string, unknown> = {};
+      if (depth > 0) value.child = nested;
+      for (let index = 0; index < 1_000; index += 1) {
+        value[`omitted-${index}`] = undefined;
+      }
+      nested = new Proxy(value, {
+        getOwnPropertyDescriptor(target, property) {
+          propertyReads += 1;
+          return Reflect.getOwnPropertyDescriptor(target, property);
+        },
+      });
+    }
+
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        const thread = client.getThread("thread-1");
+        const toolCall = {
+          id: "call-search",
+          name: "search",
+          messageId: "assistant-1",
+          input: nested,
+          output: "The release is ready.",
+          status: "completed" as const,
+        };
+        thread.events = [
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, {
+            type: "message.created",
+            message: {
+              id: "assistant-1",
+              role: "assistant",
+              status: "streaming",
+              parts: [{ type: "text", text: "Search" }],
+            },
+          }),
+          protocolEvent(3, {
+            type: "tool.started",
+            toolCall: { ...toolCall, status: "running" },
+          }),
+          protocolEvent(4, { type: "tool.updated", toolCall }),
+        ];
+        thread.tools = { [toolCall.id]: toolCall };
+      },
+      beforeStartRun(client) {
+        const thread = client.getThread("thread-1");
+        thread.events = [];
+        thread.tools = {};
+      },
+      finalParts: [{ type: "text", text: "Search" }],
+    });
+    const assistantMessage = messages.find(
+      (message) => message.id === "assistant-1",
+    );
+
+    expect(propertyReads).toBeLessThan(150_000);
+    expect(assistantMessage?.parts).toContainEqual({
+      type: "data",
+      mediaType: "application/x-agent-native-tool-call",
+      data: {
+        id: "call-search",
+        name: "search",
+        inputText:
+          "Tool input omitted from history because it could not be serialized.",
+      },
+    });
+  });
+
+  it("caps source reads for retained tool events", async () => {
+    let eventReads = 0;
+    let eventTypeReads = 0;
+    let originalEvents: AgentEvent[] = [];
+    let originalMessages: AgentMessage[] = [];
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        const thread = client.getThread("thread-1");
+        originalEvents = thread.events;
+        originalMessages = thread.messages;
+        thread.messages = [
+          {
+            id: "assistant-first",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "Earlier answer." }],
+          },
+          ...thread.messages,
+        ];
+        const instrument = (event: AgentEvent) =>
+          new Proxy(event, {
+            get(target, property, receiver) {
+              if (property === "type") eventTypeReads += 1;
+              return Reflect.get(target, property, receiver);
+            },
+          });
+        const filler = instrument(protocolEvent(1, { type: "run.started" }));
+        const toolCall = {
+          id: "call-search",
+          name: "search",
+          input: { query: "release" },
+          messageId: "assistant-1",
+          status: "completed" as const,
+          output: "The release is ready.",
+        };
+        const started = instrument(
+          protocolEvent(1, {
+            type: "tool.started",
+            toolCall: { ...toolCall, status: "running" },
+          }),
+        );
+        const updated = instrument(
+          protocolEvent(1, { type: "tool.updated", toolCall }),
+        );
+        const assistantCreated = instrument(
+          protocolEvent(1, {
+            type: "message.created",
+            message: {
+              id: "assistant-1",
+              role: "assistant",
+              status: "streaming",
+              parts: [{ type: "text", text: "Search" }],
+            },
+          }),
+        );
+        thread.events = new Proxy([] as AgentEvent[], {
+          get(target, property, receiver) {
+            if (property === "length") return 100_000;
+            if (typeof property === "string" && /^\d+$/.test(property)) {
+              eventReads += 1;
+              if (property === "99999") return updated;
+              if (property === "99998") return started;
+              if (property === "99997") return assistantCreated;
+              return filler;
+            }
+            return Reflect.get(target, property, receiver);
+          },
+        });
+      },
+      beforeStartRun(client) {
+        client.getThread("thread-1").events = originalEvents;
+        client.getThread("thread-1").messages = originalMessages;
+      },
+      finalParts: [{ type: "text", text: "Search" }],
+    });
+
+    expect(eventReads).toBeLessThanOrEqual(2_048);
+    expect(eventTypeReads).toBeLessThanOrEqual(4_096);
+    expect(
+      messages.find((message) => message.id === "assistant-first")?.parts,
+    ).toContainEqual({
+      type: "text",
+      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+    });
+  });
+
+  it("keeps an omission notice when no assistant history boundary remains", async () => {
+    let originalEvents: AgentEvent[] = [];
+    let originalMessages: AgentMessage[] = [];
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        const thread = client.getThread("thread-1");
+        originalEvents = thread.events;
+        originalMessages = thread.messages;
+        thread.messages = [];
+        const filler = protocolEvent(1, { type: "run.started" });
+        thread.events = new Proxy([] as AgentEvent[], {
+          get(target, property, receiver) {
+            if (property === "length") return 100_000;
+            if (typeof property === "string" && /^\d+$/.test(property)) {
+              return filler;
+            }
+            return Reflect.get(target, property, receiver);
+          },
+        });
+      },
+      beforeStartRun(client) {
+        const thread = client.getThread("thread-1");
+        thread.events = originalEvents;
+        thread.messages = originalMessages;
+      },
+      finalParts: [{ type: "text", text: "Search" }],
+    });
+    const omissionIndex = messages.findIndex(
+      (message) =>
+        message.role === "assistant" &&
+        message.parts.some(
+          (part) =>
+            part.type === "text" &&
+            part.text ===
+              "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+        ),
+    );
+    const userMessageIndex = messages.findIndex(
+      (message) => message.role === "user",
+    );
+
+    expect(omissionIndex).toBeGreaterThanOrEqual(0);
+    expect(omissionIndex).toBeLessThan(userMessageIndex);
+  });
+
+  it("caps source reads for retained tool entries", async () => {
+    let statusReads = 0;
+    const tools: Record<string, unknown> = Object.create(null) as Record<
+      string,
+      unknown
+    >;
+    for (let index = 0; index < 5_000; index += 1) {
+      const id = `call-${index}`;
+      Object.defineProperty(tools, id, {
+        enumerable: true,
+        value: {
+          id,
+          name: "search",
+          messageId: "assistant-1",
+          input: { index },
+          output: { found: true },
+          get status() {
+            statusReads += 1;
+            return "completed";
+          },
+        },
+      });
+    }
+    let originalEvents: AgentEvent[] = [];
+    let originalTools: AgentThreadState["tools"];
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        const thread = client.getThread("thread-1");
+        originalEvents = thread.events;
+        originalTools = thread.tools;
+        thread.events = [];
+        thread.tools = tools as typeof thread.tools;
+      },
+      beforeStartRun(client) {
+        const thread = client.getThread("thread-1");
+        thread.events = originalEvents;
+        thread.tools = originalTools;
+      },
+      finalParts: [{ type: "text", text: "Search" }],
+    });
+
+    expect(statusReads).toBeLessThanOrEqual(4_096);
+    expect(messages.at(-2)?.parts).toContainEqual({
+      type: "text",
+      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+    });
+  });
+
   it.each(["accepted", "rejected"])(
     "acknowledges the recoverable local message before a %s startRun settles",
     async (outcome) => {
@@ -1135,7 +1508,7 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("retains sanitized JSON projections for stateful tool values", async () => {
+  it("fails closed for stateful JSON serialization hooks", async () => {
     const statefulJsonValue = (projection: Record<string, unknown>) => {
       let calls = 0;
       const toJSON = vi.fn(() => {
@@ -1231,20 +1604,18 @@ describe("AgentKitClient", () => {
     ).completed;
 
     const secondRequest = startRun.mock.calls[1]![0];
-    const serializedRequest = JSON.stringify(secondRequest);
-    if (serializedRequest === undefined) {
-      throw new Error("Follow-up request was not JSON serializable.");
-    }
-    const parsedRequest = JSON.parse(serializedRequest) as {
-      messages: AgentMessage[];
-    };
-    const assistantMessage = parsedRequest.messages.find(
+    const assistantMessage = secondRequest.messages.find(
       (message) => message.id === "assistant-1",
     );
     expect(assistantMessage?.parts).toContainEqual({
       type: "data",
       mediaType: "application/x-agent-native-tool-call",
-      data: { id: "call-stateful", name: "search", input: { safe: "input" } },
+      data: {
+        id: "call-stateful",
+        name: "search",
+        inputText:
+          "Tool input omitted from history because it could not be serialized.",
+      },
     });
     expect(assistantMessage?.parts).toContainEqual({
       type: "data",
@@ -1252,11 +1623,12 @@ describe("AgentKitClient", () => {
       data: {
         id: "call-stateful",
         name: "search",
-        result: { safe: "output" },
+        resultText:
+          "Tool output omitted from history because it could not be serialized.",
       },
     });
-    expect(input.toJSON).toHaveBeenCalledOnce();
-    expect(output.toJSON).toHaveBeenCalledOnce();
+    expect(input.toJSON).not.toHaveBeenCalled();
+    expect(output.toJSON).not.toHaveBeenCalled();
     await client.shutdown();
   });
 
