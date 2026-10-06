@@ -5,7 +5,12 @@ import {
   type A2AArtifactIdentity,
 } from "../a2a/artifact-response.js";
 import { canonicalA2AAudience } from "../a2a/audience.js";
-import { A2AClient, getGlobalA2ASecret, signA2AToken } from "../a2a/client.js";
+import {
+  A2AClient,
+  getGlobalA2ASecret,
+  signA2AOrganizationToken,
+  signA2AToken,
+} from "../a2a/client.js";
 import type { Task } from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
@@ -1312,9 +1317,13 @@ async function signFreshContinuationTokens(
   continuation: A2AContinuation,
 ): Promise<string[]> {
   let orgDomain: string | undefined;
+  let orgSecret: string | undefined;
   if (continuation.orgId) {
-    const { getOrgDomain } = await import("../org/context.js");
-    orgDomain = (await getOrgDomain(continuation.orgId)) ?? undefined;
+    const { getOrgA2ASecret, getOrgDomain } = await import("../org/context.js");
+    [orgDomain, orgSecret] = await Promise.all([
+      getOrgDomain(continuation.orgId).then((value) => value ?? undefined),
+      getOrgA2ASecret(continuation.orgId).then((value) => value ?? undefined),
+    ]);
     if (!orgDomain) {
       throw new Error(
         "Cannot authenticate an A2A continuation without its organization domain.",
@@ -1322,16 +1331,29 @@ async function signFreshContinuationTokens(
     }
   }
 
-  if (!continuation.ownerEmail || !getGlobalA2ASecret()) {
-    return [];
+  const globalSecret = getGlobalA2ASecret();
+  const audience = canonicalA2AAudience(continuation.agentUrl);
+  const tokens: string[] = [];
+  if (continuation.ownerEmail && globalSecret) {
+    tokens.push(
+      await signA2AToken(continuation.ownerEmail, orgDomain, undefined, {
+        expiresIn: "5m",
+        preferGlobalSecret: true,
+        audience,
+      }),
+    );
   }
-  return [
-    await signA2AToken(continuation.ownerEmail, orgDomain, undefined, {
-      expiresIn: "5m",
-      preferGlobalSecret: true,
-      audience: canonicalA2AAudience(continuation.agentUrl),
-    }),
-  ];
+  if (orgDomain && (orgSecret || globalSecret)) {
+    tokens.push(
+      await signA2AOrganizationToken(
+        orgDomain,
+        orgSecret,
+        continuation.orgId ?? undefined,
+        { expiresIn: "5m", audience },
+      ),
+    );
+  }
+  return tokens;
 }
 
 async function resolveContinuationArtifactSecrets(

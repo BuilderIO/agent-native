@@ -2023,7 +2023,7 @@ export const syncA2ASecretHandler = defineEventHandler(
           const token = await signA2AOrganizationToken(
             orgDomain,
             signSecret,
-            ctx.orgId ?? undefined,
+            undefined,
             {
               preferGlobalSecret: false,
               audience: canonicalA2AAudience(agent.url),

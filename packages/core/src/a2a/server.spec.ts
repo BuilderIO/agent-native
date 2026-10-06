@@ -972,6 +972,32 @@ describe("verifyA2AToken (exported)", () => {
     });
   });
 
+  it("binds a domain-only org-secret token to the receiver's local org id", async () => {
+    delete process.env.A2A_SECRET;
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
+      orgId: "org-receiver",
+      orgDomain: "builder.io",
+      secret: "org-a2a-secret",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("org-a2a-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+    });
+
+    await expect(
+      verifyA2AToken(token, undefined, {
+        globalSecretOnly: true,
+        verificationSecret: "org-a2a-secret",
+      }),
+    ).resolves.toEqual({
+      email: null,
+      orgDomain: "builder.io",
+      orgId: "org-receiver",
+      identityAssurance: "organization",
+    });
+  });
+
   it("rejects an org-secret token whose signed org_id differs from its domain org", async () => {
     delete process.env.A2A_SECRET;
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({

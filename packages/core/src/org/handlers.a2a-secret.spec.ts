@@ -181,7 +181,7 @@ describe("syncA2ASecretHandler", () => {
     expect(mockSignA2AOrganizationToken).toHaveBeenCalledWith(
       "example.test",
       "local-secret",
-      "org_1",
+      undefined,
       {
         preferGlobalSecret: false,
         audience: "https://remote.example.test",
