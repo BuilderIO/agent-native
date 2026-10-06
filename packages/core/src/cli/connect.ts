@@ -14,6 +14,8 @@ import {
   configPathFor,
   jsonMcpConfigKeyForClient,
   removeSameUrlDuplicatesForClient,
+  tomlQuote,
+  unescapeTomlBasicString,
   writeCodexBlock,
   writeHttpEntryForClient,
   writeJsonMcpEntryForClient,
@@ -726,9 +728,9 @@ async function validateOAuthMcpServer(
 }
 
 /**
- * A server-reported name becomes a key in client configs, Codex's TOML among
- * them, so a name carrying quotes, brackets, or newlines could rewrite the
- * file around its own entry.
+ * A server chooses this name before anyone has signed in, and it becomes the
+ * entry's key in every client config and the label each client shows, so only
+ * the identifier shape first-party server names use is accepted.
  */
 const PLAIN_SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
@@ -1126,12 +1128,8 @@ function readJsonMcpServerEntry(
   }
 }
 
-function tomlQuoteForRead(s: string): string {
-  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 function codexHeadersForRead(name: string): string[] {
-  const headers = [`[mcp_servers.${tomlQuoteForRead(name)}]`];
+  const headers = [`[mcp_servers.${tomlQuote(name)}]`];
   if (/^[A-Za-z0-9_-]+$/.test(name)) headers.push(`[mcp_servers.${name}]`);
   return headers;
 }
@@ -1201,10 +1199,6 @@ function writeSavedMcpEntry(
   writeJsonMcpEntryForClient(client, file, serverName, saved.entry);
 }
 
-function unescapeTomlString(value: string): string {
-  return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-}
-
 function parseCodexHeaders(block: string): Record<string, string> {
   const line = block
     .split(/\r?\n/)
@@ -1216,7 +1210,9 @@ function parseCodexHeaders(block: string): Record<string, string> {
   const pairRe = /"((?:\\.|[^"])*)"\s*=\s*"((?:\\.|[^"])*)"/g;
   let pair: RegExpExecArray | null;
   while ((pair = pairRe.exec(match[1]))) {
-    headers[unescapeTomlString(pair[1])] = unescapeTomlString(pair[2]);
+    headers[unescapeTomlBasicString(pair[1])] = unescapeTomlBasicString(
+      pair[2],
+    );
   }
   return headers;
 }
@@ -1227,7 +1223,7 @@ function savedEntryUrl(saved: SavedMcpEntry | undefined): string | undefined {
     return typeof saved.entry.url === "string" ? saved.entry.url : undefined;
   }
   const match = saved.block.match(/^\s*url\s*=\s*"((?:\\.|[^"])*)"/m);
-  return match ? unescapeTomlString(match[1]) : undefined;
+  return match ? unescapeTomlBasicString(match[1]) : undefined;
 }
 
 interface ExistingMcpEntry {
@@ -1271,7 +1267,7 @@ function readJsonMcpServerEntries(
 function parseCodexMcpServerName(line: string): string | undefined {
   const trimmed = line.trim();
   const quoted = trimmed.match(/^\[mcp_servers\."((?:\\.|[^"])*)"\]$/);
-  if (quoted) return unescapeTomlString(quoted[1]);
+  if (quoted) return unescapeTomlBasicString(quoted[1]);
   const bare = trimmed.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]$/);
   return bare?.[1];
 }
