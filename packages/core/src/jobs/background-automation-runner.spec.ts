@@ -113,7 +113,7 @@ const testEngine = {
 } as any;
 
 describe("default selection reaches new chats and background runs", () => {
-  it("replaces the app default for unpinned runs and preserves an automation pin", async () => {
+  it("preserves app overrides on shared changes, honors app changes and resets only explicitly", async () => {
     const { registerAgentEngine, resolveEngine, getStoredModelForEngine } =
       await import("../agent/engine/index.js");
     const { unregisterAgentEngine } =
@@ -124,6 +124,8 @@ describe("default selection reaches new chats and background runs", () => {
     } = await import("../agent/app-model-defaults.js");
     const { selectDefaultAgentEngine } =
       await import("../scripts/agent-engines/set-agent-engine.js");
+    const { run: manageEngine } =
+      await import("../scripts/agent-engines/manage-agent-engine.js");
     const { runWithRequestContext } =
       await import("../server/request-context.js");
     const { runAgentLoopDirectWithSoftTimeout } =
@@ -133,7 +135,7 @@ describe("default selection reaches new chats and background runs", () => {
       ...testEngine,
       name: "default-model-fixture",
       defaultModel: "claude-sonnet-5-5",
-      supportedModels: ["claude-sonnet-5-5", "gpt-6-luna"],
+      supportedModels: ["claude-sonnet-5-5", "gpt-6-luna", "app-choice"],
     };
     registerAgentEngine({
       ...fakeEngine,
@@ -162,11 +164,31 @@ describe("default selection reaches new chats and background runs", () => {
             },
             { actionName: "manage-agent-engine", caller: "tool" },
           ),
-        ).toMatchObject({ status: "selected" });
+        ).toMatchObject({
+          status: "selected",
+          scope: "user",
+          effective: { model: "gpt-6-luna", source: "app-default" },
+        });
         const newChatEngine = await resolveEngine({ appId: "calendar" });
         expect(
           await getStoredModelForEngine(newChatEngine, { appId: "calendar" }),
+        ).toBe("gpt-6-luna");
+        const inheritingEngine = await resolveEngine({ appId: "mail" });
+        expect(
+          await getStoredModelForEngine(inheritingEngine, { appId: "mail" }),
         ).toBe("claude-sonnet-5-5");
+        const changed = JSON.parse(
+          await manageEngine({
+            action: "set-app-default",
+            appId: "calendar",
+            engine: fakeEngine.name,
+            model: "app-choice",
+          }),
+        );
+        expect(changed).toMatchObject({
+          requestedScope: "app",
+          model: "app-choice",
+        });
       });
       for (const pinned of [false, true]) {
         vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
@@ -201,9 +223,26 @@ describe("default selection reaches new chats and background runs", () => {
           vi.mocked(runAgentLoopDirectWithSoftTimeout).mock.calls.at(-1)?.[0],
         ).toMatchObject({
           engine: { name: fakeEngine.name },
-          model: pinned ? "gpt-6-luna" : "claude-sonnet-5-5",
+          model: pinned ? "gpt-6-luna" : "app-choice",
         });
       }
+      await runWithRequestContext(ctx, async () => {
+        const reset = JSON.parse(
+          await manageEngine({
+            action: "reset-app-default",
+            appId: "calendar",
+          }),
+        );
+        expect(reset).toMatchObject({
+          requestedScope: "app",
+          engine: null,
+          model: null,
+        });
+        const inheritedEngine = await resolveEngine({ appId: "calendar" });
+        expect(
+          await getStoredModelForEngine(inheritedEngine, { appId: "calendar" }),
+        ).toBe("claude-sonnet-5-5");
+      });
     } finally {
       unregisterAgentEngine(fakeEngine.name);
       await resetAgentAppModelDefaultSettings(ctx, "calendar");

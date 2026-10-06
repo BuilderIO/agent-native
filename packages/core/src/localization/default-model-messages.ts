@@ -7,8 +7,11 @@ import {
 } from "./shared.js";
 
 interface DefaultModelMessages {
-  configurationConflict: string;
-  selected: string;
+  configurationOverride: string;
+  configurationUnavailable: string;
+  organizationSelected: string;
+  userSelected: string;
+  appOverridePreserved: string;
 }
 
 export const DEFAULT_MODEL_MESSAGES: Record<
@@ -16,70 +19,132 @@ export const DEFAULT_MODEL_MESSAGES: Record<
   DefaultModelMessages
 > = {
   "en-US": {
-    configurationConflict:
-      "App configuration overrides this selection. Change agent.engine or agent.model in the app configuration before setting a different default.",
-    selected:
-      "Default model set to {{model}} via {{engine}}. Explicit chat and automation models and other apps' defaults are unchanged.",
+    configurationOverride:
+      "App configuration currently uses {{model}} via {{engine}}.",
+    configurationUnavailable:
+      "App configuration currently has no usable model; it remains unchanged.",
+    organizationSelected:
+      "Organization default set to {{model}} via {{engine}}. All app overrides and explicit chat and automation models are unchanged.",
+    userSelected:
+      "Personal default set to {{model}} via {{engine}}. All app overrides and explicit chat and automation models are unchanged.",
+    appOverridePreserved:
+      "{{appId}} currently uses {{model}} via {{engine}}. Its app override is preserved.",
   },
   "es-ES": {
-    configurationConflict:
-      "La configuración de la aplicación tiene prioridad sobre esta selección. Cambia agent.engine o agent.model en la configuración antes de establecer otro modelo predeterminado.",
-    selected:
-      "Modelo predeterminado establecido en {{model}} mediante {{engine}}. Los modelos explícitos de chats y automatizaciones y los valores predeterminados de otras aplicaciones no cambian.",
+    configurationOverride:
+      "La configuración de la aplicación usa actualmente {{model}} mediante {{engine}}.",
+    configurationUnavailable:
+      "La configuración de la aplicación no tiene un modelo utilizable actualmente; no cambia.",
+    organizationSelected:
+      "Modelo predeterminado de la organización establecido en {{model}} mediante {{engine}}. Todos los valores propios de las aplicaciones y los modelos explícitos de chats y automatizaciones no cambian.",
+    userSelected:
+      "Modelo predeterminado personal establecido en {{model}} mediante {{engine}}. Todos los valores propios de las aplicaciones y los modelos explícitos de chats y automatizaciones no cambian.",
+    appOverridePreserved:
+      "{{appId}} usa actualmente {{model}} mediante {{engine}}. Se conserva su valor propio de aplicación.",
   },
   "fr-FR": {
-    configurationConflict:
-      "La configuration de l’application remplace cette sélection. Modifiez agent.engine ou agent.model dans la configuration avant de définir un autre modèle par défaut.",
-    selected:
-      "Modèle par défaut défini sur {{model}} via {{engine}}. Les modèles explicites des conversations et automatisations et les valeurs par défaut des autres applications restent inchangés.",
+    configurationOverride:
+      "La configuration de l’application utilise actuellement {{model}} via {{engine}}.",
+    configurationUnavailable:
+      "La configuration de l’application ne dispose actuellement d’aucun modèle utilisable ; elle reste inchangée.",
+    organizationSelected:
+      "Modèle par défaut de l’organisation défini sur {{model}} via {{engine}}. Tous les réglages propres aux applications et les modèles explicites des conversations et automatisations restent inchangés.",
+    userSelected:
+      "Modèle par défaut personnel défini sur {{model}} via {{engine}}. Tous les réglages propres aux applications et les modèles explicites des conversations et automatisations restent inchangés.",
+    appOverridePreserved:
+      "{{appId}} utilise actuellement {{model}} via {{engine}}. Son réglage propre est conservé.",
   },
   "de-DE": {
-    configurationConflict:
-      "Die App-Konfiguration hat Vorrang vor dieser Auswahl. Ändere agent.engine oder agent.model in der App-Konfiguration, bevor du einen anderen Standard festlegst.",
-    selected:
-      "Standardmodell auf {{model}} über {{engine}} gesetzt. Explizite Chat- und Automationsmodelle sowie die Standards anderer Apps bleiben unverändert.",
+    configurationOverride:
+      "Die App-Konfiguration verwendet derzeit {{model}} über {{engine}}.",
+    configurationUnavailable:
+      "Die App-Konfiguration hat derzeit kein verwendbares Modell; sie bleibt unverändert.",
+    organizationSelected:
+      "Organisationsstandard auf {{model}} über {{engine}} gesetzt. Alle App-Einstellungen und expliziten Chat- und Automationsmodelle bleiben unverändert.",
+    userSelected:
+      "Persönlicher Standard auf {{model}} über {{engine}} gesetzt. Alle App-Einstellungen und expliziten Chat- und Automationsmodelle bleiben unverändert.",
+    appOverridePreserved:
+      "{{appId}} verwendet derzeit {{model}} über {{engine}}. Die eigene App-Einstellung bleibt erhalten.",
   },
   "pt-BR": {
-    configurationConflict:
-      "A configuração do aplicativo tem prioridade sobre esta seleção. Altere agent.engine ou agent.model na configuração antes de definir outro padrão.",
-    selected:
-      "Modelo padrão definido como {{model}} via {{engine}}. Os modelos explícitos de chats e automações e os padrões de outros aplicativos permanecem inalterados.",
+    configurationOverride:
+      "A configuração do aplicativo usa atualmente {{model}} via {{engine}}.",
+    configurationUnavailable:
+      "A configuração do aplicativo não tem um modelo utilizável no momento; ela permanece inalterada.",
+    organizationSelected:
+      "Modelo padrão da organização definido como {{model}} via {{engine}}. Todos os padrões específicos de aplicativos e modelos explícitos de chats e automações permanecem inalterados.",
+    userSelected:
+      "Modelo padrão pessoal definido como {{model}} via {{engine}}. Todos os padrões específicos de aplicativos e modelos explícitos de chats e automações permanecem inalterados.",
+    appOverridePreserved:
+      "{{appId}} usa atualmente {{model}} via {{engine}}. Seu padrão específico é preservado.",
   },
   "zh-CN": {
-    configurationConflict:
-      "应用配置会覆盖此选择。设置其他默认模型前，请先修改应用配置中的 agent.engine 或 agent.model。",
-    selected:
-      "默认模型已通过 {{engine}} 设置为 {{model}}。聊天和自动化中明确指定的模型以及其他应用的默认值保持不变。",
+    configurationOverride: "应用配置当前通过 {{engine}} 使用 {{model}}。",
+    configurationUnavailable: "应用配置当前没有可用模型；其设置保持不变。",
+    organizationSelected:
+      "组织默认模型已通过 {{engine}} 设置为 {{model}}。所有应用的独立设置以及聊天和自动化中明确指定的模型保持不变。",
+    userSelected:
+      "个人默认模型已通过 {{engine}} 设置为 {{model}}。所有应用的独立设置以及聊天和自动化中明确指定的模型保持不变。",
+    appOverridePreserved:
+      "{{appId}} 当前通过 {{engine}} 使用 {{model}}。其应用独立设置已保留。",
   },
   "zh-TW": {
-    configurationConflict:
-      "應用程式設定會覆蓋此選擇。設定其他預設模型前，請先修改應用程式設定中的 agent.engine 或 agent.model。",
-    selected:
-      "預設模型已透過 {{engine}} 設為 {{model}}。聊天和自動化中明確指定的模型以及其他應用程式的預設值保持不變。",
+    configurationOverride: "應用程式設定目前透過 {{engine}} 使用 {{model}}。",
+    configurationUnavailable: "應用程式設定目前沒有可用模型；其設定保持不變。",
+    organizationSelected:
+      "組織預設模型已透過 {{engine}} 設為 {{model}}。所有應用程式的獨立設定以及聊天和自動化中明確指定的模型保持不變。",
+    userSelected:
+      "個人預設模型已透過 {{engine}} 設為 {{model}}。所有應用程式的獨立設定以及聊天和自動化中明確指定的模型保持不變。",
+    appOverridePreserved:
+      "{{appId}} 目前透過 {{engine}} 使用 {{model}}。其應用程式獨立設定已保留。",
   },
   "ja-JP": {
-    configurationConflict:
-      "アプリの設定がこの選択より優先されます。別の既定モデルを設定する前に、アプリ設定の agent.engine または agent.model を変更してください。",
-    selected:
-      "既定モデルを {{engine}} 経由で {{model}} に設定しました。チャットや自動化で明示的に指定したモデルと、他のアプリの既定値は変更されません。",
+    configurationOverride:
+      "アプリの設定は現在 {{engine}} 経由で {{model}} を使用しています。",
+    configurationUnavailable:
+      "アプリの設定には現在利用可能なモデルがありません。設定は変更されません。",
+    organizationSelected:
+      "組織の既定モデルを {{engine}} 経由で {{model}} に設定しました。すべてのアプリ固有設定と、チャットや自動化で明示的に指定したモデルは変更されません。",
+    userSelected:
+      "個人の既定モデルを {{engine}} 経由で {{model}} に設定しました。すべてのアプリ固有設定と、チャットや自動化で明示的に指定したモデルは変更されません。",
+    appOverridePreserved:
+      "{{appId}} は現在 {{engine}} 経由で {{model}} を使用しています。アプリ固有設定は保持されます。",
   },
   "ko-KR": {
-    configurationConflict:
-      "앱 설정이 이 선택보다 우선합니다. 다른 기본 모델을 설정하기 전에 앱 설정의 agent.engine 또는 agent.model을 변경하세요.",
-    selected:
-      "{{engine}}을 통해 기본 모델을 {{model}}로 설정했습니다. 채팅과 자동화에서 명시적으로 지정한 모델 및 다른 앱의 기본값은 변경되지 않습니다.",
+    configurationOverride:
+      "앱 설정은 현재 {{engine}}을 통해 {{model}}을 사용합니다.",
+    configurationUnavailable:
+      "앱 설정에는 현재 사용 가능한 모델이 없습니다. 설정은 변경되지 않습니다.",
+    organizationSelected:
+      "{{engine}}을 통해 조직 기본 모델을 {{model}}로 설정했습니다. 모든 앱별 설정과 채팅 및 자동화에서 명시적으로 지정한 모델은 변경되지 않습니다.",
+    userSelected:
+      "{{engine}}을 통해 개인 기본 모델을 {{model}}로 설정했습니다. 모든 앱별 설정과 채팅 및 자동화에서 명시적으로 지정한 모델은 변경되지 않습니다.",
+    appOverridePreserved:
+      "{{appId}}은(는) 현재 {{engine}}을 통해 {{model}}을 사용합니다. 앱별 설정은 유지됩니다.",
   },
   "hi-IN": {
-    configurationConflict:
-      "ऐप का कॉन्फ़िगरेशन इस चयन को ओवरराइड करता है। कोई दूसरा डिफ़ॉल्ट सेट करने से पहले ऐप के कॉन्फ़िगरेशन में agent.engine या agent.model बदलें।",
-    selected:
-      "{{engine}} के माध्यम से डिफ़ॉल्ट मॉडल {{model}} सेट किया गया। चैट और ऑटोमेशन के स्पष्ट मॉडल और दूसरे ऐप के डिफ़ॉल्ट नहीं बदले हैं।",
+    configurationOverride:
+      "ऐप का कॉन्फ़िगरेशन अभी {{engine}} के माध्यम से {{model}} इस्तेमाल करता है।",
+    configurationUnavailable:
+      "ऐप के कॉन्फ़िगरेशन में अभी कोई उपयोग योग्य मॉडल नहीं है; वह नहीं बदला है।",
+    organizationSelected:
+      "{{engine}} के माध्यम से संगठन का डिफ़ॉल्ट मॉडल {{model}} सेट किया गया। सभी ऐप के अपने सेटिंग और चैट तथा ऑटोमेशन के स्पष्ट मॉडल नहीं बदले हैं।",
+    userSelected:
+      "{{engine}} के माध्यम से व्यक्तिगत डिफ़ॉल्ट मॉडल {{model}} सेट किया गया। सभी ऐप के अपने सेटिंग और चैट तथा ऑटोमेशन के स्पष्ट मॉडल नहीं बदले हैं।",
+    appOverridePreserved:
+      "{{appId}} अभी {{engine}} के माध्यम से {{model}} इस्तेमाल करता है। उसकी अपनी ऐप सेटिंग सुरक्षित है।",
   },
   "ar-SA": {
-    configurationConflict:
-      "تتجاوز إعدادات التطبيق هذا الاختيار. غيّر agent.engine أو agent.model في إعدادات التطبيق قبل تعيين نموذج افتراضي مختلف.",
-    selected:
-      "تم تعيين النموذج الافتراضي إلى {{model}} عبر {{engine}}. لم تتغير النماذج المحددة صراحةً للمحادثات والأتمتة ولا الإعدادات الافتراضية للتطبيقات الأخرى.",
+    configurationOverride:
+      "تستخدم إعدادات التطبيق حاليًا {{model}} عبر {{engine}}.",
+    configurationUnavailable:
+      "لا تحتوي إعدادات التطبيق حاليًا على نموذج قابل للاستخدام؛ وهي لم تتغير.",
+    organizationSelected:
+      "تم تعيين النموذج الافتراضي للمؤسسة إلى {{model}} عبر {{engine}}. لم تتغير أي إعدادات خاصة بالتطبيقات ولا النماذج المحددة صراحةً للمحادثات والأتمتة.",
+    userSelected:
+      "تم تعيين النموذج الافتراضي الشخصي إلى {{model}} عبر {{engine}}. لم تتغير أي إعدادات خاصة بالتطبيقات ولا النماذج المحددة صراحةً للمحادثات والأتمتة.",
+    appOverridePreserved:
+      "يستخدم {{appId}} حاليًا {{model}} عبر {{engine}}. تم الحفاظ على إعداده الخاص بالتطبيق.",
   },
 };
 

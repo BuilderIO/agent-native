@@ -4,18 +4,28 @@
  */
 
 import { ActionContractError, type ActionRunContext } from "../../action.js";
-import { normalizeAgentAppModelDefaultAppId } from "../../agent/app-model-defaults.js";
+import {
+  normalizeAgentAppModelDefaultAppId,
+  readAgentAppModelDefaultSettings,
+} from "../../agent/app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../../agent/chatgpt-subscription-contract.js";
 import {
   recordDefaultAgentEngineRefusal,
+  readDefaultAgentEngineSettingDetailed,
   resolveDefaultAgentEngineAuthority,
   writeDefaultAgentEngineSelection,
   type DefaultAgentEngineChangeMeta,
   type DefaultAgentEngineContext,
 } from "../../agent/default-agent-engine.js";
+import {
+  resolveAgentEngineStatus,
+  type AgentEngineStatusResult,
+} from "../../agent/engine-status.js";
 import { listChatGPTSubscriptionModels } from "../../agent/engine/chatgpt-subscription-engine.js";
 import {
   listAgentEngines,
+  detectEngineFromEnv,
+  detectEngineFromUserSecrets,
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
@@ -36,7 +46,7 @@ import {
 
 export const tool: ActionTool = {
   description:
-    "Set the organization's default AI engine and model and clear the current app's override so new chats and unpinned automations use it. Other apps' overrides and explicit chat/automation models stay unchanged. Deployment configuration that conflicts with the selection is an error. Only organization owners and admins can change it; a user with no organization sets their own. Use manage-agent-engine with action=\"list\" first to see available options and whether you can change the default (canUpdateDefault).",
+    'Set only the organization\'s default AI engine and model (or a no-organization user\'s personal default). Preserve every app override and explicit chat/automation model. For an app default, use manage-agent-engine with action="set-app-default"; inheritance requires action="reset-app-default". If the user\'s requested scope is ambiguous, clarify organization/personal versus app before changing anything. The result separates the saved default from the current app\'s effective model. Only organization owners and admins can change it. Use manage-agent-engine with action="list" first to see options and canUpdateDefault.',
   parameters: {
     type: "object",
     properties: {
@@ -67,11 +77,94 @@ export type SelectDefaultAgentEngineResult =
       label: string;
       scope: "org" | "user";
       appId?: string;
+      effective: Pick<
+        AgentEngineStatusResult,
+        "configured" | "engine" | "model"
+      > & {
+        source?:
+          | "configuration"
+          | "app-default"
+          | "org"
+          | "user"
+          | "legacy"
+          | "app_secrets"
+          | "env";
+      };
     }
   | { status: "refused"; message: string }
   | { status: "invalid"; message: string }
   | { status: "missing-credentials"; message: string }
   | { status: "unavailable"; message: string };
+
+export async function resolveDefaultModelEffective(
+  ctx: DefaultAgentEngineContext,
+  appId: string | null,
+  planned: {
+    sharedDefault?: { engine: string; model: string };
+    appDefault?: { engine: string; model: string } | null;
+  } = {},
+): Promise<
+  Extract<SelectDefaultAgentEngineResult, { status: "selected" }>["effective"]
+> {
+  const credentialIdentity = ctx.userEmail
+    ? { userEmail: ctx.userEmail, orgId: ctx.orgId }
+    : undefined;
+  const shared: { source: "org" | "user" | "legacy" | "none" } = {
+    source: ctx.orgId ? "org" : "user",
+  };
+  const status = await resolveAgentEngineStatus({
+    lookupEntry: getAgentEngineEntry,
+    readStoredEngine: async () => {
+      if (planned.sharedDefault) return planned.sharedDefault;
+      const stored = await readDefaultAgentEngineSettingDetailed(ctx);
+      shared.source = stored.source;
+      return stored.value;
+    },
+    readAppDefault: async () => {
+      if (planned.appDefault !== undefined) return planned.appDefault;
+      if (!appId) return null;
+      const stored = await readAgentAppModelDefaultSettings(ctx, appId);
+      return stored.engine && stored.model
+        ? { engine: stored.engine, model: stored.model }
+        : null;
+    },
+    readOpenAiBaseUrlConfigured: () => false,
+    isStoredEngineUsable: (stored, entry) =>
+      isStoredEngineUsableForRequest(stored, entry, { credentialIdentity }),
+    detectFromUserSecrets: () =>
+      detectEngineFromUserSecrets(credentialIdentity),
+    detectFromEnv: detectEngineFromEnv,
+  });
+  return {
+    configured: status.configured,
+    engine: status.engine,
+    model: status.model,
+    source:
+      status.selectionSource === "shared-default"
+        ? shared.source === "none"
+          ? undefined
+          : shared.source
+        : status.selectionSource,
+  };
+}
+
+export function effectiveConfigurationMessage(
+  effective: Extract<
+    SelectDefaultAgentEngineResult,
+    { status: "selected" }
+  >["effective"],
+  messages: { configurationOverride: string; configurationUnavailable: string },
+): string {
+  if (effective.source !== "configuration") return "";
+  return (
+    " " +
+    (effective.configured
+      ? messages.configurationOverride
+          .replace("{{model}}", effective.model!)
+          .replace("{{engine}}", effective.engine!)
+      : messages.configurationUnavailable)
+  );
+}
 
 /**
  * Validate an engine/model pair and save it as the default for the caller's
@@ -201,18 +294,6 @@ export async function selectDefaultAgentEngine(
   });
 
   const config = getAppConfig();
-  if (
-    (config.agent.engine && config.agent.engine !== engineName) ||
-    (config.agent.model &&
-      config.agent.model !== "auto" &&
-      normalizeModelForEngine(entry, config.agent.model, {
-        acceptsCustomModels,
-        preserveCustomModels,
-      }) !== resolvedModel)
-  ) {
-    const messages = await defaultModelMessagesForUser(ctx.userEmail);
-    return { status: "invalid", message: messages.configurationConflict };
-  }
   const appIdInput =
     input.appId ?? config.app.id ?? config.app.template ?? config.app.slug;
   const appId = normalizeAgentAppModelDefaultAppId(appIdInput);
@@ -220,11 +301,14 @@ export async function selectDefaultAgentEngine(
     return { status: "invalid", message: "A valid appId is required." };
   }
 
+  const effective = await resolveDefaultModelEffective(ctx, appId, {
+    sharedDefault: { engine: engineName, model: resolvedModel },
+  });
+
   await writeDefaultAgentEngineSelection(
     authority,
     { engine: engineName, model: resolvedModel },
     meta,
-    { appId: appId ?? undefined },
   );
   return {
     status: "selected",
@@ -233,6 +317,7 @@ export async function selectDefaultAgentEngine(
     requestedModel,
     label: entry.label,
     scope: authority.scope,
+    effective,
     ...(appId ? { appId } : {}),
   };
 }
@@ -273,11 +358,26 @@ export async function run(
     model: result.model,
     requestedModel: result.requestedModel,
     scope: result.scope,
+    requestedScope: result.scope,
     appId: result.appId,
-    appDefaultReset: !!result.appId,
-    preservedOverrides: ["other-apps", "chat-models", "automation-models"],
-    message: messages.selected
-      .replace("{{model}}", result.model)
-      .replace("{{engine}}", result.label),
+    appDefaultReset: false,
+    preservedOverrides: ["app-models", "chat-models", "automation-models"],
+    effective: result.effective,
+    message:
+      (result.scope === "org"
+        ? messages.organizationSelected
+        : messages.userSelected
+      )
+        .replace("{{model}}", result.model)
+        .replace("{{engine}}", result.label) +
+      (result.effective.source === "configuration"
+        ? effectiveConfigurationMessage(result.effective, messages)
+        : result.appId && result.effective.source === "app-default"
+          ? " " +
+            messages.appOverridePreserved
+              .replace("{{appId}}", result.appId)
+              .replace("{{model}}", result.effective.model!)
+              .replace("{{engine}}", result.effective.engine!)
+          : ""),
   });
 }

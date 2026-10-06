@@ -14,12 +14,9 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
-import { getSetting, putSettingAndDeleteSettings } from "../settings/store.js";
+import { getSetting } from "../settings/store.js";
 import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
-import {
-  canUpdateAgentAppModelDefaultSettings,
-  agentAppModelDefaultSettingsKey,
-} from "./app-model-defaults.js";
+import { canUpdateAgentAppModelDefaultSettings } from "./app-model-defaults.js";
 
 export const DEFAULT_AGENT_ENGINE_SETTING_KEY = "agent-engine";
 
@@ -182,39 +179,19 @@ async function writeScopedRow(
 
 /**
  * Save the default for the authority's scope. Validate the engine first; this
- * stores it, clears the named app's override, and records the change.
+ * stores only that scope and records the change.
  */
 export async function writeDefaultAgentEngineSelection(
   authority: Extract<DefaultAgentEngineAuthority, { allowed: true }>,
   selection: DefaultAgentEngineSelection,
   meta: DefaultAgentEngineChangeMeta,
-  options: { appId?: string } = {},
 ): Promise<void> {
-  const value = {
+  await writeScopedRow(authority, {
     engine: selection.engine,
     model: selection.model,
     updatedAt: Date.now(),
     updatedBy: authority.userEmail,
-  };
-  if (options.appId) {
-    const prefix =
-      authority.scope === "org"
-        ? `o:${authority.orgId}:`
-        : `u:${authority.userEmail.trim().toLowerCase()}:`;
-    const appKey = agentAppModelDefaultSettingsKey(options.appId);
-    const deleteKeys = [prefix + appKey];
-    if (authority.scope === "user") {
-      const legacyKey = `u:${authority.userEmail}:${appKey}`;
-      if (!deleteKeys.includes(legacyKey)) deleteKeys.push(legacyKey);
-    }
-    await putSettingAndDeleteSettings(
-      prefix + DEFAULT_AGENT_ENGINE_SETTING_KEY,
-      value,
-      deleteKeys,
-    );
-  } else {
-    await writeScopedRow(authority, value);
-  }
+  });
   await recordDefaultAgentEngineAudit({
     meta,
     userEmail: authority.userEmail,
@@ -222,7 +199,6 @@ export async function writeDefaultAgentEngineSelection(
     status: "success",
     operation: "set",
     selection,
-    appId: options.appId,
   });
 }
 
@@ -275,7 +251,6 @@ async function recordDefaultAgentEngineAudit(input: {
   status: "success" | "denied";
   operation: "set" | "clear";
   selection?: { engine: string; model?: string };
-  appId?: string;
   reason?: string;
 }): Promise<void> {
   const { meta, userEmail, orgId, status, operation, selection } = input;
@@ -299,7 +274,6 @@ async function recordDefaultAgentEngineAudit(input: {
     args: {
       operation,
       ...(selection ?? {}),
-      ...(input.appId ? { appId: input.appId, appDefaultReset: true } : {}),
       ...(input.reason ? { reason: input.reason } : {}),
     },
     threadId: meta.threadId,

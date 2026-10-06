@@ -100,7 +100,7 @@ describe("default model scope", () => {
       prefix: "u:solo@example.test:",
     },
   ])(
-    "keeps both settings unchanged when the app reset fails for $userEmail",
+    "writes only the shared scope even when app deletion is forbidden for $userEmail",
     async (ctx) => {
       await ensureAuditTables();
       const authority = await adminAuthority(ctx.orgId, ctx.userEmail);
@@ -122,20 +122,19 @@ describe("default model scope", () => {
           authority,
           { engine: "anthropic", model: "claude-sonnet-5-5" },
           meta,
-          { appId: "calendar" },
         ),
-      ).rejects.toThrow("app default write failed");
-      expect(await auditRows()).toEqual([]);
+      ).resolves.toBeUndefined();
+      expect(await auditRows()).toHaveLength(1);
       expect(
         await getSetting(`${ctx.prefix}agent-app-model-default:calendar`),
       ).toMatchObject({ model: "old-model" });
       expect(await getSetting(`${ctx.prefix}agent-engine`)).toMatchObject({
-        model: "previous-default",
+        model: "claude-sonnet-5-5",
       });
     },
   );
 
-  it("clears canonical and legacy user app overrides in the request cache", async () => {
+  it("preserves canonical and legacy user app overrides in the request cache", async () => {
     const userEmail = "Solo@Example.test";
     const canonical = "u:solo@example.test:agent-app-model-default:calendar";
     const legacy = `u:${userEmail}:agent-app-model-default:calendar`;
@@ -149,16 +148,15 @@ describe("default model scope", () => {
         await adminAuthority(undefined, userEmail),
         { engine: "anthropic", model: "claude-sonnet-5-5" },
         meta,
-        { appId: "calendar" },
       );
-      expect(await getSetting(canonical)).toBeNull();
-      expect(await getSetting(legacy)).toBeNull();
+      expect(await getSetting(canonical)).toMatchObject({ model: "old-model" });
+      expect(await getSetting(legacy)).toMatchObject({ model: "old-model" });
       expect(await getSetting(defaultKey)).toMatchObject({
         model: "claude-sonnet-5-5",
       });
     });
-    expect(await getSetting(canonical)).toBeNull();
-    expect(await getSetting(legacy)).toBeNull();
+    expect(await getSetting(canonical)).toMatchObject({ model: "old-model" });
+    expect(await getSetting(legacy)).toMatchObject({ model: "old-model" });
   });
 
   it("an org A admin's change leaves org B's default alone", async () => {
