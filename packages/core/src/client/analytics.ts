@@ -4,9 +4,12 @@ import type * as Sentry from "@sentry/browser";
 import { recordTrackingEvent } from "../observability/tracing.js";
 import {
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  AGENT_SIGNALS_PAGEVIEW_PROPERTY,
+  AGENT_SIGNALS_VERSION,
   canonicalTrackingEvent,
   legacyLifecycleEvent,
   normalizeTrackingDimension,
+  PAGE_LOAD_PAGEVIEW_PROPERTY,
   withCanonicalTrackingProperties,
   type AgentNativeLifecycleEventName,
 } from "../shared/analytics-events.js";
@@ -30,6 +33,7 @@ import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import {
+  getAnalyticsPageLoadId,
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
@@ -2044,6 +2048,8 @@ function pageviewProperties(reason: string): Record<string, unknown> {
     path: window.location.pathname,
     hostname: window.location.hostname,
     navigation_type: reason,
+    [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
+    [PAGE_LOAD_PAGEVIEW_PROPERTY]: getAnalyticsPageLoadId(),
   };
   if (_trackingContentCaptureEnabled && window.location.search) {
     properties.search = scrubUrl(window.location.search);

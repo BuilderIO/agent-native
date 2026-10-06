@@ -323,3 +323,94 @@ export function legacyLifecycleEvent(
 
   return null;
 }
+
+/**
+ * The named reasons an agent run fails, recorded as `cause` on the browser's
+ * `agent_run_outcome` event. Analytics groups agent trouble by these and by
+ * error code for everything else, so a new name here is a product decision,
+ * not a refactor.
+ */
+export const AGENT_TROUBLE_CAUSES = [
+  "no_model_connected",
+  "rate_limit",
+  "context_overflow",
+  "provider_error",
+] as const;
+
+export type AgentTroubleCause = (typeof AGENT_TROUBLE_CAUSES)[number];
+
+export function isAgentTroubleCause(
+  value: unknown,
+): value is AgentTroubleCause {
+  return (
+    typeof value === "string" &&
+    (AGENT_TROUBLE_CAUSES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Telemetry's copy of a run error code. A code is whatever its thrower set,
+ * such as a route error's `data.code`, so one could be a sentence naming a
+ * person or a document: only an identifier is sent as itself.
+ */
+export const UNRECOGNIZED_AGENT_ERROR_CODE = "unrecognized_code";
+
+const AGENT_ERROR_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+export function agentErrorCodeForTelemetry(
+  code: string | null | undefined,
+): string | null {
+  if (!code) return null;
+  return AGENT_ERROR_CODE_PATTERN.test(code)
+    ? code
+    : UNRECOGNIZED_AGENT_ERROR_CODE;
+}
+
+/** The named cause of a run error code, or null when no name fits it. */
+export function agentTroubleCauseForCode(
+  code: string | null | undefined,
+): AgentTroubleCause | null {
+  const normalized = code?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized === "missing_credentials" ||
+    normalized === "missing_api_key" ||
+    normalized === "agent_chat_ai_setup_required"
+  )
+    return "no_model_connected";
+  if (normalized === "http_429" || normalized.includes("rate_limit"))
+    return "rate_limit";
+  if (
+    normalized.includes("context_length") ||
+    normalized.includes("input_too_long")
+  )
+    return "context_overflow";
+  if (
+    normalized.startsWith("provider_") ||
+    normalized.startsWith("builder_gateway_") ||
+    normalized === "overloaded_error" ||
+    normalized === "authentication_error" ||
+    /^http_5\d\d$/.test(normalized)
+  )
+    return "provider_error";
+  return null;
+}
+
+/**
+ * Every pageview carries `agent_signals: AGENT_SIGNALS_VERSION` from a client
+ * that reports each stopped run unsampled and each thumbs rating as
+ * `agent_feedback_submitted`, and a `page_load_id` on every pageview.
+ * Older clients sampled stops, sent no ratings, and sent no page load id, so
+ * Analytics counts a session's cancelled runs, thumbs-down, and quick backs as
+ * measured only once it has seen the marker.
+ */
+export const AGENT_SIGNALS_PAGEVIEW_PROPERTY = "agent_signals";
+export const AGENT_SIGNALS_VERSION = 1;
+
+/**
+ * Every pageview carries an id that stays the same for one page load. One
+ * analytics session spans every tab, so Analytics follows each page load's
+ * navigation on its own to tell a return to the previous page from a page
+ * another tab opened.
+ */
+export const PAGE_LOAD_PAGEVIEW_PROPERTY = "page_load_id";
