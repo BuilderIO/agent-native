@@ -4355,6 +4355,51 @@ describe("Brain connector smoke coverage", () => {
     );
   });
 
+  it("caps the file summaries recorded for each matched Zoom meeting", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              {
+                uuid: "many-files",
+                id: 83124551552,
+                topic: "Marketing Standup",
+                start_time: "2026-10-06T15:29:38Z",
+                recording_files: Array.from({ length: 12 }, (_, i) => ({
+                  id: "mp4-" + i,
+                  file_type: "MP4",
+                  status: "completed",
+                })),
+              },
+            ],
+          });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-file-cap-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingTopics: ["Marketing Standup"] },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+    const [matched] = (
+      result.stats as { matchedMeetings: Array<Record<string, unknown>> }
+    ).matchedMeetings;
+
+    expect(matched.files).toHaveLength(10);
+    expect(matched.filesOmitted).toBe(2);
+  });
+
   it("imports only Zoom meetings matching the source meeting filter", async () => {
     const downloads: string[] = [];
     const recording = (uuid: string, id: number, topic: string) => ({

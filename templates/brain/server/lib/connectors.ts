@@ -3033,6 +3033,7 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
 const ZOOM_MAX_LOOKBACK_DAYS = 30;
 const ZOOM_DEFAULT_LOOKBACK_DAYS = 7;
 const ZOOM_DIAGNOSTIC_LIMIT = 50;
+const ZOOM_DIAGNOSTIC_FILE_LIMIT = 10;
 const ZOOM_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function utcDate(ms: number): string {
@@ -3163,6 +3164,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     topic: string | null;
     start: string;
     files: string[];
+    filesOmitted?: number;
   }> = [];
   const skippedMeetings: Array<{ id: string; start: string }> = [];
   stats.matchedMeetings = matchedMeetings;
@@ -3229,17 +3231,23 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       );
       for (const meeting of meetings) {
         if (matchedMeetings.length < ZOOM_DIAGNOSTIC_LIMIT) {
+          const files = meeting.recording_files ?? [];
           matchedMeetings.push({
             id: String(meeting.id),
             topic: meeting.topic ?? null,
             start: meeting.start_time,
-            files: (meeting.recording_files ?? []).map((file) =>
-              [
-                file.file_type,
-                file.status ?? "",
-                file.download_url ? "url" : "no-url",
-              ].join(":"),
-            ),
+            files: files
+              .slice(0, ZOOM_DIAGNOSTIC_FILE_LIMIT)
+              .map((file) =>
+                [
+                  file.file_type,
+                  file.status ?? "",
+                  file.download_url ? "url" : "no-url",
+                ].join(":"),
+              ),
+            ...(files.length > ZOOM_DIAGNOSTIC_FILE_LIMIT
+              ? { filesOmitted: files.length - ZOOM_DIAGNOSTIC_FILE_LIMIT }
+              : {}),
           });
         }
         if (hasProcessingTranscript(meeting)) {
