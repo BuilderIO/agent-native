@@ -286,7 +286,6 @@ describe("chat thread store", () => {
         updated_at: 2,
       };
     };
-
     await updateThreadData(
       "thread-1",
       JSON.stringify({ messages: [userMessage] }),
@@ -302,6 +301,84 @@ describe("chat thread store", () => {
     ]);
     expect(row!.message_count).toBe(2);
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("rechecks annotation delta baselines after a cross-process CAS conflict", async () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const snapshotEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Snapshot edit",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Concurrent edit",
+      },
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [],
+      agentKit: { annotations: [baseline] },
+    });
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          messages: [],
+          agentKit: { annotations: [concurrentEdit] },
+        }),
+        updated_at: 2,
+      };
+    };
+    const annotationConflicts: Array<{
+      messageId: string;
+      annotationId?: string;
+      operation: "upsert" | "remove";
+    }> = [];
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          annotations: [],
+          annotationUpserts: [{ entry: snapshotEdit, baseline }],
+        },
+      }),
+      "Thread",
+      "",
+      0,
+      {
+        onAnnotationConflict: (conflict) => annotationConflicts.push(conflict),
+      },
+    );
+
+    expect(JSON.parse(row!.thread_data).agentKit.annotations).toEqual([
+      concurrentEdit,
+    ]);
+    expect(JSON.parse(row!.thread_data).agentKit).not.toHaveProperty(
+      "annotationUpserts",
+    );
+    expect(annotationConflicts).toEqual([
+      {
+        messageId: "assistant-1",
+        annotationId: "source-1",
+        operation: "upsert",
+      },
+    ]);
   });
 
   it("counts AgentKit-only messages when saving thread history", async () => {
@@ -324,6 +401,36 @@ describe("chat thread store", () => {
       "Thread",
       "Done.",
       0,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts unique messages across merged legacy and AgentKit history", async () => {
+    const legacyMessage = {
+      id: "legacy-user",
+      role: "user",
+      content: [{ type: "text", text: "Old prompt." }],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: legacyMessage, parentId: null }],
+      agentKit: { _mergeRootMessages: true, messages: [] },
+    });
+    row!.message_count = 1;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          _mergeRootMessages: true,
+          messages: [{ id: "new-assistant", role: "assistant", parts: [] }],
+        },
+      }),
+      "Thread",
+      "Done.",
+      2,
     );
 
     expect(row!.message_count).toBe(2);

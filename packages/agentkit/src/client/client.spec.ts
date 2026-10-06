@@ -457,6 +457,89 @@ describe("AgentKitClient", () => {
     });
   });
 
+  it("reloads the durable annotation after a concurrent snapshot update", async () => {
+    const original = {
+      id: "annotation-1",
+      kind: "source",
+      label: "Original source",
+    };
+    const snapshotEdit = {
+      id: "annotation-1",
+      kind: "source",
+      label: "Snapshot edit",
+    };
+    const concurrentEdit = {
+      id: "annotation-1",
+      kind: "source",
+      label: "Concurrent edit",
+    };
+    let persistedSnapshot: AgentThreadSnapshot = {
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      messages: [],
+      annotations: [{ messageId: "assistant-1", annotation: original }],
+    };
+    const transport = createTransport([
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [],
+          status: "streaming",
+        },
+      }),
+      protocolEvent(3, {
+        type: "annotation.updated",
+        messageId: "assistant-1",
+        annotation: snapshotEdit,
+      }),
+      protocolEvent(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer." }],
+          status: "complete",
+        },
+      }),
+      protocolEvent(5, { type: "run.completed" }),
+    ]);
+    const observedAnnotations: string[] = [];
+    const getThreadSnapshot = vi.fn(async () => {
+      observedAnnotations.push(
+        persistedSnapshot.annotations?.[0]?.annotation.label ?? "",
+      );
+      return persistedSnapshot;
+    });
+    transport.getThreadSnapshot = getThreadSnapshot;
+    let persistedAnnotations: AgentThreadSnapshot["annotations"];
+    transport.persistThreadSnapshot = async ({ snapshot }) => {
+      persistedAnnotations = snapshot.annotations;
+      // Simulate the server preserving a later annotation edit on CAS retry.
+      persistedSnapshot = {
+        ...snapshot,
+        annotations: [{ messageId: "assistant-1", annotation: concurrentEdit }],
+      };
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await run.completed;
+
+    expect(persistedAnnotations).toEqual([
+      { messageId: "assistant-1", annotation: snapshotEdit },
+    ]);
+    expect(getThreadSnapshot).toHaveBeenCalledTimes(2);
+    expect(observedAnnotations).toEqual(["Original source", "Concurrent edit"]);
+    expect(client.getThread("thread-1").annotations).toEqual({
+      "annotation-1": concurrentEdit,
+    });
+  });
+
   it("reports snapshot persistence failures without failing the completed run", async () => {
     const transport = createTransport([
       protocolEvent(1, { type: "run.started" }),

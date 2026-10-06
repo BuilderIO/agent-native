@@ -114,9 +114,736 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
   });
 
+  it("persists bounded snapshot deltas and retries smaller chunks after a 413", async () => {
+    const largeResult = "x".repeat(60_000);
+    const previousToolCalls = Array.from({ length: 50 }, (_, index) => ({
+      id: "previous-tool-" + index,
+      name: "stored-result",
+      output: largeResult,
+      status: "completed" as const,
+    }));
+    const incomingToolCalls = Array.from({ length: 72 }, (_, index) => ({
+      id: "new-tool-" + index,
+      name: "new-result",
+      output: largeResult,
+      status: "completed" as const,
+    }));
+    let repository: Record<string, any> = {
+      messages: [],
+      agentKit: { toolCalls: previousToolCalls },
+    };
+    const attemptedSizes: number[] = [];
+    const acceptedSizes: number[] = [];
+    const sentToolCallIds = new Set<string>();
+    const responseLimit = 1_000_000;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith("/threads/large-history") && method === "GET") {
+          return json({
+            id: "large-history",
+            title: "Large history",
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.endsWith("/threads/large-history") && method === "PUT") {
+          const body = String(init?.body);
+          const byteLength = new TextEncoder().encode(body).byteLength;
+          attemptedSizes.push(byteLength);
+          const incoming = JSON.parse(JSON.parse(body).threadData);
+          for (const toolCall of incoming.agentKit.toolCalls ?? []) {
+            sentToolCallIds.add(toolCall.id);
+          }
+          if (byteLength > responseLimit) {
+            return json({ error: "Request too large" }, 413);
+          }
+          acceptedSizes.push(byteLength);
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "large-history",
+      snapshot: {
+        id: "large-history",
+        title: "Large history",
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:01.000Z",
+        messages: [
+          {
+            id: "new-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The run completed." }],
+          },
+        ],
+        toolCalls: incomingToolCalls,
+      },
+    });
+
+    expect(attemptedSizes.length).toBeGreaterThan(2);
+    expect(Math.max(...attemptedSizes)).toBeLessThanOrEqual(4 * 1024 * 1024);
+    expect(Math.max(...acceptedSizes)).toBeLessThanOrEqual(responseLimit);
+    expect(sentToolCallIds.size).toBe(incomingToolCalls.length);
+    expect([...sentToolCallIds].every((id) => id.startsWith("new-tool-"))).toBe(
+      true,
+    );
+    expect(repository.agentKit.toolCalls).toHaveLength(
+      previousToolCalls.length + incomingToolCalls.length,
+    );
+    expect(repository.agentKit.messages).toMatchObject([
+      { id: "new-answer", role: "assistant" },
+    ]);
+  });
+
+  it("keeps event and annotation history when 413 retries split annotation upserts", async () => {
+    const largeLabel = "x".repeat(110_000);
+    const threadId = "split-history";
+    const messageId = "assistant-history";
+    const runId = "run-history";
+    let repository: Record<string, any> = {
+      messages: [],
+      agentKit: {
+        messages: [
+          {
+            id: messageId,
+            role: "assistant",
+            parts: [{ type: "text", text: "The answer." }],
+          },
+        ],
+        events: [
+          {
+            id: "old-event",
+            threadId,
+            runId,
+            sequence: 1,
+            occurredAt: "2026-10-01T00:00:00.000Z",
+            type: "run.started",
+          },
+        ],
+        annotations: Array.from({ length: 20 }, (_, index) => ({
+          messageId,
+          annotation: {
+            id: `old-annotation-${index}`,
+            kind: "source",
+            label: "Old source",
+          },
+        })),
+      },
+    };
+    const requests: Array<Record<string, any>> = [];
+    const acceptedRequests: Array<Record<string, any>> = [];
+    const responseLimit = 300_000;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            title: "History",
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const body = String(init?.body);
+          const incoming = JSON.parse(JSON.parse(body).threadData);
+          requests.push(incoming.agentKit);
+          if (new TextEncoder().encode(body).byteLength > responseLimit) {
+            return json({ error: "Request too large" }, 413);
+          }
+          acceptedRequests.push(incoming.agentKit);
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        title: "History",
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:01.000Z",
+        messages: [
+          {
+            id: messageId,
+            role: "assistant",
+            parts: [{ type: "text", text: "The answer." }],
+          },
+        ],
+        events: Array.from({ length: 20 }, (_, index) => ({
+          id: `event-${index}`,
+          threadId,
+          runId,
+          sequence: index + 1,
+          occurredAt: new Date(
+            Date.UTC(2026, 9, 1, 0, 0, index + 1),
+          ).toISOString(),
+          type: "activity.started" as const,
+          activity: {
+            id: `activity-${index}`,
+            kind: "tool",
+            label: largeLabel,
+            status: "running",
+          },
+        })),
+        annotations: Array.from({ length: 20 }, (_, index) => ({
+          messageId,
+          annotation: {
+            id: `annotation-${index}`,
+            kind: "source" as const,
+            label: largeLabel,
+          },
+        })),
+      },
+    });
+
+    expect(
+      requests.some(
+        (agentKit) =>
+          agentKit.events?.length > 0 && agentKit.events.length < 20,
+      ),
+    ).toBe(true);
+    expect(
+      requests.some(
+        (agentKit) =>
+          agentKit.annotationMessageIdsToReplace?.some(
+            (entry: any) => entry.messageId === messageId,
+          ) && (agentKit.annotationUpserts?.length ?? 0) < 20,
+      ),
+    ).toBe(true);
+    expect(
+      requests.some(
+        (agentKit) =>
+          agentKit.annotationUpserts?.length > 0 &&
+          !agentKit.annotationMessageIdsToReplace?.some(
+            (entry: any) => entry.messageId === messageId,
+          ),
+      ),
+    ).toBe(true);
+    const lastAnnotationChunk = acceptedRequests.reduce(
+      (last, agentKit, index) =>
+        (agentKit.annotationUpserts?.length ?? 0) > 0 ? index : last,
+      -1,
+    );
+    const replacementChunk = acceptedRequests.findIndex((agentKit) =>
+      agentKit.annotationMessageIdsToReplace?.some(
+        (entry: any) => entry.messageId === messageId,
+      ),
+    );
+    expect(replacementChunk).toBeGreaterThanOrEqual(lastAnnotationChunk);
+    expect(requests.every((agentKit) => agentKit._snapshotDelta === true)).toBe(
+      true,
+    );
+    expect(repository.agentKit.events).toHaveLength(21);
+    expect(
+      repository.agentKit.events.map((event: { id: string }) => event.id),
+    ).toEqual([
+      "old-event",
+      ...Array.from({ length: 20 }, (_, index) => `event-${index}`),
+    ]);
+    expect(repository.agentKit.annotations).toHaveLength(20);
+    expect(
+      repository.agentKit.annotations.every((entry: any) =>
+        entry.annotation.id.startsWith("annotation-"),
+      ),
+    ).toBe(true);
+    expect(repository.agentKit).not.toHaveProperty("_snapshotDelta");
+    expect(repository.agentKit).not.toHaveProperty(
+      "annotationMessageIdsToReplace",
+    );
+    await transport.dispose();
+  });
+
+  it("keeps existing annotations if a later replacement chunk fails", async () => {
+    const threadId = "failed-annotation-replacement";
+    const message = {
+      id: "assistant-annotation",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Answer." }],
+    };
+    let repository: Record<string, any> = {
+      messages: [],
+      agentKit: {
+        messages: [message],
+        annotations: [
+          {
+            messageId: message.id,
+            annotation: { id: "old-annotation", kind: "source" },
+          },
+        ],
+      },
+    };
+    const label = "x".repeat(80_000);
+    const responseLimit = 180_000;
+    let acceptedAnnotationChunks = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            title: "Annotations",
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.includes("/runs/active")) return json({ active: false });
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const body = String(init?.body);
+          const incoming = JSON.parse(JSON.parse(body).threadData);
+          if (new TextEncoder().encode(body).byteLength > responseLimit) {
+            return json({ error: "Request too large" }, 413);
+          }
+          if ((incoming.agentKit.annotationUpserts?.length ?? 0) > 0) {
+            acceptedAnnotationChunks += 1;
+            if (acceptedAnnotationChunks >= 2) {
+              return json({ error: "Temporary persistence failure" }, 503);
+            }
+          }
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.persistThreadSnapshot?.({
+        threadId,
+        snapshot: {
+          id: threadId,
+          title: "Annotations",
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:01.000Z",
+          messages: [message],
+          annotations: Array.from({ length: 4 }, (_, index) => ({
+            messageId: message.id,
+            annotation: {
+              id: `new-annotation-${index}`,
+              kind: "source" as const,
+              label,
+            },
+          })),
+        },
+      }),
+    ).rejects.toThrow();
+
+    expect(acceptedAnnotationChunks).toBeGreaterThanOrEqual(2);
+    expect(
+      repository.agentKit.annotations.some(
+        (entry: any) => entry.annotation.id === "old-annotation",
+      ),
+    ).toBe(true);
+    await transport.dispose();
+  });
+
+  it("keeps an oversized annotation removal marker out of the request", async () => {
+    const threadId = "large-annotation-replacement";
+    const message = {
+      id: "assistant-large-annotation-set",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Answer." }],
+    };
+    const annotationIds = Array.from(
+      { length: 64 },
+      (_, index) => `annotation-${index}-${"x".repeat(2_048)}`,
+    );
+    const previousAnnotationIds = Array.from(
+      { length: 64 },
+      (_, index) => `previous-${index}-${"x".repeat(2_048)}`,
+    );
+    let repository: Record<string, any> = {
+      messages: [],
+      agentKit: {
+        messages: [message],
+        annotations: previousAnnotationIds.map((id) => ({
+          messageId: message.id,
+          annotation: { id, kind: "source" },
+        })),
+      },
+    };
+    let savedSnapshot: Record<string, any> | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.includes("/runs/active")) return json({ active: false });
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const incoming = JSON.parse(
+            JSON.parse(String(init?.body)).threadData,
+          );
+          savedSnapshot = incoming.agentKit;
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:01.000Z",
+        messages: [message],
+        annotations: annotationIds.map((id) => ({
+          messageId: message.id,
+          annotation: { id, kind: "source" as const },
+        })),
+      },
+    });
+
+    expect(savedSnapshot?.annotationMessageIdsToReplace).toEqual([]);
+    expect(repository.agentKit.annotations).toHaveLength(
+      annotationIds.length + previousAnnotationIds.length,
+    );
+    expect(
+      repository.agentKit.annotations.some(
+        (entry: any) => entry.annotation.id === previousAnnotationIds[0],
+      ),
+    ).toBe(true);
+    await transport.dispose();
+  });
+
+  it("surfaces annotation conflicts after preserving the concurrent value", async () => {
+    const threadId = "annotation-conflict";
+    const message = {
+      id: "assistant-annotation-conflict",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "Answer." }],
+    };
+    const baseline = {
+      messageId: message.id,
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const desired = {
+      messageId: message.id,
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Snapshot edit",
+      },
+    };
+    const concurrent = {
+      messageId: message.id,
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Concurrent edit",
+      },
+    };
+    let repository: Record<string, any> = {
+      messages: [],
+      agentKit: { messages: [message], annotations: [baseline] },
+    };
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const incoming = JSON.parse(
+            JSON.parse(String(init?.body)).threadData,
+          );
+          repository = {
+            ...repository,
+            agentKit: {
+              ...repository.agentKit,
+              annotations: [concurrent],
+            },
+          };
+          const annotationConflicts: Array<Record<string, unknown>> = [];
+          repository = mergeThreadDataForClientSave(repository, incoming, {
+            onAnnotationConflict: (conflict) =>
+              annotationConflicts.push(conflict),
+          });
+          return json({ ok: true, annotationConflicts });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.persistThreadSnapshot?.({
+        threadId,
+        snapshot: {
+          id: threadId,
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:01.000Z",
+          messages: [message],
+          annotations: [desired],
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: "AgentAnnotationSaveConflictError",
+      message: expect.stringContaining("reload the thread"),
+    });
+
+    expect(repository.agentKit.annotations).toEqual([concurrent]);
+    await transport.dispose();
+  });
+
+  it("packs thousands of small lifecycle events without resending saved history", async () => {
+    const threadId = "many-events";
+    let repository: Record<string, any> = { messages: [], agentKit: {} };
+    let putCount = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          putCount++;
+          const incoming = JSON.parse(
+            JSON.parse(String(init?.body)).threadData,
+          );
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:01.000Z",
+        messages: [],
+        events: Array.from({ length: 5_000 }, (_, index) => ({
+          id: `event-${index}`,
+          threadId,
+          runId: "run-many-events",
+          sequence: index + 1,
+          occurredAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index)).toISOString(),
+          type: "run.status" as const,
+          status: "running" as const,
+        })),
+      },
+    });
+
+    expect(putCount).toBe(1);
+    expect(repository.agentKit.events).toHaveLength(5_000);
+    expect(repository.agentKit.events[4_999]).toMatchObject({
+      id: "event-4999",
+      sequence: 5_000,
+    });
+    await transport.dispose();
+  });
+
+  it("keeps legacy top-level messages visible beside a partial AgentKit history", async () => {
+    const threadId = "legacy-snapshot";
+    const legacyMessage = {
+      id: "legacy-user",
+      role: "user",
+      content: "The old prompt.",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    let repository: Record<string, any> = {
+      messages: [legacyMessage],
+      agentKit: {},
+    };
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            title: "Legacy history",
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.includes("/runs/active")) return json({ active: false });
+        if (url.endsWith(`/threads/${threadId}/fork`) && method === "POST") {
+          const body = JSON.parse(String(init?.body));
+          return json({
+            id: body.id,
+            title: body.source.title,
+            threadData: body.source.threadData,
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const incoming = JSON.parse(
+            JSON.parse(String(init?.body)).threadData,
+          );
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+    const loaded = await transport.getThreadSnapshot?.({ threadId });
+    const nextMessage = {
+      id: "new-assistant",
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text: "A new reply." }],
+      createdAt: "2026-10-01T00:00:01.000Z",
+    };
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        ...loaded!,
+        messages: [...loaded!.messages, nextMessage],
+      },
+    });
+    const reloaded = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(repository.agentKit.messages).toMatchObject([
+      { id: "new-assistant", role: "assistant" },
+    ]);
+    expect(reloaded?.messages.map((message) => message.id)).toEqual([
+      "legacy-user",
+      "new-assistant",
+    ]);
+    const fork = await transport.forkThread?.({
+      threadId,
+      fromMessageId: "legacy-user",
+    });
+    const forkRequest = fetcher.mock.calls.find(([input, init]) =>
+      String(input).endsWith(`/threads/${threadId}/fork`),
+    );
+    const forkSource = JSON.parse(String(forkRequest?.[1]?.body)).source;
+    expect(forkSource.messageCount).toBe(1);
+    expect(
+      JSON.parse(forkSource.threadData).agentKit.messages.map(
+        (message: { id: string }) => message.id,
+      ),
+    ).toEqual(["legacy-user"]);
+    expect(fork?.messages.map((message) => message.id)).toEqual([
+      "legacy-user",
+    ]);
+    await transport.dispose();
+  });
+
+  it("sizes escaped snapshot entries and retries a transient chunk failure", async () => {
+    const threadId = "escaped-events";
+    const largeLabel = '"\\'.repeat(150_000);
+    let repository: Record<string, any> = { messages: [], agentKit: {} };
+    const attemptedSizes: number[] = [];
+    let failOnce = true;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify(repository),
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          const body = String(init?.body);
+          attemptedSizes.push(new TextEncoder().encode(body).byteLength);
+          if (failOnce) {
+            failOnce = false;
+            return json({ error: "Temporary storage failure" }, 503);
+          }
+          const incoming = JSON.parse(JSON.parse(body).threadData);
+          repository = mergeThreadDataForClientSave(repository, incoming);
+          return json({ ok: true });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:01.000Z",
+        messages: [],
+        events: Array.from({ length: 4 }, (_, index) => ({
+          id: `event-${index}`,
+          threadId,
+          runId: "run-escaped",
+          sequence: index + 1,
+          occurredAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index)).toISOString(),
+          type: "activity.started" as const,
+          activity: {
+            id: `activity-${index}`,
+            kind: "tool",
+            label: largeLabel,
+            status: "running",
+          },
+        })),
+      },
+    });
+
+    expect(attemptedSizes).toHaveLength(3);
+    expect(attemptedSizes[0]).toBe(attemptedSizes[1]);
+    expect(Math.max(...attemptedSizes)).toBeLessThanOrEqual(4 * 1024 * 1024);
+    expect(repository.agentKit.events).toHaveLength(4);
+    await transport.dispose();
+  });
+
   it("merges the incoming snapshot into a thread after concurrent create returns 409", async () => {
     const requests: Array<{ url: string; method: string }> = [];
     let threadReads = 0;
+    let serverThreadData: string | undefined;
     let savedThreadData: string | undefined;
     let savedMessageCount: number | undefined;
     const fetcher = vi.fn(
@@ -130,66 +857,73 @@ describe("createAgentNativeAgentKitTransport", () => {
             if (threadReads === 1) {
               return json({ error: "Thread not found" }, 404);
             }
+            serverThreadData = JSON.stringify({
+              messages: [
+                {
+                  id: "legacy-only-prompt",
+                  role: "user",
+                  content: "Keep the legacy prompt",
+                },
+              ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "saved-prompt",
+                    role: "user",
+                    parts: [{ type: "text", text: "Stale prompt text" }],
+                  },
+                  {
+                    id: "stored-only-prompt",
+                    role: "user",
+                    parts: [{ type: "text", text: "Keep stored history" }],
+                  },
+                ],
+                toolCalls: [
+                  {
+                    id: "shared-tool",
+                    name: "old-tool-name",
+                    input: { version: "stored" },
+                    status: "running",
+                    messageId: "saved-prompt",
+                  },
+                  {
+                    id: "stored-only-tool",
+                    name: "keep-tool",
+                    output: { kept: true },
+                    status: "completed",
+                  },
+                ],
+                widgets: [
+                  {
+                    messageId: "saved-prompt",
+                    widget: {
+                      id: "saved-widget",
+                      kind: "test.action",
+                      data: {
+                        toolCallId: "saved-tool",
+                        toolName: "create-release",
+                      },
+                      title: "Saved action",
+                    },
+                  },
+                ],
+              },
+            });
             return json({
               id: "raced-thread",
               title: "Typed prompt",
-              threadData: JSON.stringify({
-                messages: [
-                  {
-                    id: "legacy-only-prompt",
-                    role: "user",
-                    content: "Keep the legacy prompt",
-                  },
-                ],
-                agentKit: {
-                  messages: [
-                    {
-                      id: "saved-prompt",
-                      role: "user",
-                      parts: [{ type: "text", text: "Stale prompt text" }],
-                    },
-                    {
-                      id: "stored-only-prompt",
-                      role: "user",
-                      parts: [{ type: "text", text: "Keep stored history" }],
-                    },
-                  ],
-                  toolCalls: [
-                    {
-                      id: "shared-tool",
-                      name: "old-tool-name",
-                      input: { version: "stored" },
-                      status: "running",
-                      messageId: "saved-prompt",
-                    },
-                    {
-                      id: "stored-only-tool",
-                      name: "keep-tool",
-                      output: { kept: true },
-                      status: "completed",
-                    },
-                  ],
-                  widgets: [
-                    {
-                      messageId: "saved-prompt",
-                      widget: {
-                        id: "saved-widget",
-                        kind: "test.action",
-                        data: {
-                          toolCallId: "saved-tool",
-                          toolName: "create-release",
-                        },
-                        title: "Saved action",
-                      },
-                    },
-                  ],
-                },
-              }),
+              threadData: serverThreadData,
             });
           }
           if (method === "PUT") {
             const body = JSON.parse(String(init?.body));
-            savedThreadData = body.threadData;
+            serverThreadData = JSON.stringify(
+              mergeThreadDataForClientSave(
+                JSON.parse(serverThreadData ?? "{}"),
+                JSON.parse(body.threadData),
+              ),
+            );
+            savedThreadData = serverThreadData;
             savedMessageCount = body.messageCount;
             return json({ ok: true });
           }
@@ -252,12 +986,12 @@ describe("createAgentNativeAgentKitTransport", () => {
       "PUT",
     ]);
     const saved = JSON.parse(savedThreadData ?? "{}");
-    expect(saved.messages).toEqual([
-      expect.objectContaining({
+    expect(saved.messages.map((entry: any) => entry.message)).toEqual([
+      {
         id: "legacy-only-prompt",
         role: "user",
         content: "Keep the legacy prompt",
-      }),
+      },
     ]);
     expect(saved.agentKit.messages).toEqual([
       expect.objectContaining({
@@ -277,16 +1011,6 @@ describe("createAgentNativeAgentKitTransport", () => {
           expect.objectContaining({
             type: "text",
             text: "Keep stored history",
-          }),
-        ],
-      }),
-      expect.objectContaining({
-        id: "legacy-only-prompt",
-        role: "user",
-        parts: [
-          expect.objectContaining({
-            type: "text",
-            text: "Keep the legacy prompt",
           }),
         ],
       }),
@@ -616,7 +1340,10 @@ describe("createAgentNativeAgentKitTransport", () => {
           return json({ active: false });
         }
         if (url.endsWith("/threads/thread-history") && init?.method === "PUT") {
-          threadData = JSON.parse(String(init.body)).threadData;
+          const incoming = JSON.parse(JSON.parse(String(init.body)).threadData);
+          threadData = JSON.stringify(
+            mergeThreadDataForClientSave(JSON.parse(threadData), incoming),
+          );
           return json({ ok: true });
         }
         if (url.endsWith("/threads/thread-history")) {
@@ -879,10 +1606,17 @@ describe("createAgentNativeAgentKitTransport", () => {
     });
     const saved = JSON.parse(threadData);
 
-    expect(saved.messages).toEqual(repository.messages);
+    expect(saved.messages.map((entry: any) => entry.message)).toEqual(
+      repository.messages,
+    );
     expect(saved.retained).toBe(true);
-    expect(saved.queuedMessages).toBeUndefined();
+    expect(saved.queuedMessages).toEqual(repository.queuedMessages);
     expect(saved.agentKit.messages).toEqual([
+      {
+        id: "assistant-stale",
+        role: "assistant",
+        parts: [{ type: "text", text: "Old response." }],
+      },
       {
         id: "user-approval",
         role: "user",
@@ -1029,6 +1763,11 @@ describe("createAgentNativeAgentKitTransport", () => {
     );
     expect(restored?.messages).toEqual([
       {
+        id: "assistant-stale",
+        role: "assistant",
+        parts: [{ type: "text", text: "Old response." }],
+      },
+      {
         id: "user-approval",
         role: "user",
         parts: [
@@ -1096,12 +1835,8 @@ describe("createAgentNativeAgentKitTransport", () => {
         },
       },
     ]);
-    expect(restored?.suggestions).toEqual([
-      { id: "release-summary", label: "Summarize this release" },
-    ]);
-    expect(saved.agentKit.suggestions).toEqual([
-      { id: "release-summary", label: "Summarize this release" },
-    ]);
+    expect(restored?.suggestions).toEqual([]);
+    expect(saved.agentKit.suggestions).toEqual([]);
   });
 
   it("rejects non-JSON tool results instead of hiding snapshot data loss", async () => {

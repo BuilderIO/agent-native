@@ -1405,6 +1405,13 @@ function chooseMergedHeadId(
 export interface MergeThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
+  onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
+}
+
+export interface ThreadAnnotationSnapshotConflict {
+  messageId: string;
+  annotationId?: string;
+  operation: "upsert" | "remove";
 }
 
 const CLAIMED_QUEUED_MESSAGE_IDS_KEY = "_claimedQueuedMessageIds";
@@ -1908,23 +1915,259 @@ export function foldThreadRunSuggestions(
   };
 }
 
+function mergeAgentKitEvents(
+  existing: unknown,
+  incoming: unknown,
+): unknown[] | undefined {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
+  const merged = Array.isArray(existing) ? [...existing] : [];
+  const positions = new Map<string, number>();
+  merged.forEach((event, index) => {
+    if (typeof event?.id === "string" && !positions.has(event.id)) {
+      positions.set(event.id, index);
+    }
+  });
+  for (const event of Array.isArray(incoming) ? incoming : []) {
+    if (typeof event?.id !== "string") {
+      merged.push(event);
+      continue;
+    }
+    const index = positions.get(event.id);
+    if (index === undefined) {
+      positions.set(event.id, merged.length);
+      merged.push(event);
+    } else {
+      merged[index] = event;
+    }
+  }
+
+  const positionsByRun = new Map<string, number[]>();
+  merged.forEach((event, index) => {
+    if (typeof event?.runId !== "string") return;
+    const runPositions = positionsByRun.get(event.runId) ?? [];
+    runPositions.push(index);
+    positionsByRun.set(event.runId, runPositions);
+  });
+  for (const runPositions of positionsByRun.values()) {
+    const runEvents = runPositions.map((index, order) => ({
+      event: merged[index],
+      index,
+      order,
+      sequence:
+        typeof merged[index]?.sequence === "number" &&
+        Number.isFinite(merged[index].sequence)
+          ? merged[index].sequence
+          : Number.NaN,
+    }));
+    runEvents.sort((left, right) => {
+      if (
+        Number.isFinite(left.sequence) &&
+        Number.isFinite(right.sequence) &&
+        left.sequence !== right.sequence
+      ) {
+        return left.sequence - right.sequence;
+      }
+      return left.order - right.order;
+    });
+    runPositions.forEach((index, order) => {
+      merged[index] = { ...runEvents[order].event, sequence: order + 1 };
+    });
+  }
+  return merged;
+}
+
+function mergeAgentKitAnnotations(
+  existing: unknown,
+  incoming: unknown,
+  replaceMessageIds: ReadonlySet<string>,
+  removalValuesByMessage: ReadonlyMap<string, ReadonlyMap<string, string>>,
+  conditionalUpserts?: unknown,
+  onConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void,
+): unknown[] | undefined {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
+  const annotationKey = (entry: any) => {
+    const id = entry?.annotation?.id;
+    return typeof id === "string"
+      ? JSON.stringify(["id", id])
+      : JSON.stringify(["value", entry]);
+  };
+  const merged = (Array.isArray(existing) ? existing : []).filter((entry) => {
+    const messageId = entry?.messageId;
+    if (replaceMessageIds.has(messageId)) return false;
+    const removalValues = removalValuesByMessage.get(messageId);
+    const baseline = removalValues?.get(annotationKey(entry));
+    if (baseline === undefined) return true;
+    if (JSON.stringify(entry) === baseline) return false;
+    if (typeof messageId === "string") {
+      const annotationId = entry?.annotation?.id;
+      onConflict?.({
+        messageId,
+        ...(typeof annotationId === "string" ? { annotationId } : {}),
+        operation: "remove",
+      });
+    }
+    return true;
+  });
+  const positions = new Map<string, number>();
+  merged.forEach((entry, index) => {
+    if (typeof entry?.messageId !== "string") return;
+    const key = JSON.stringify([entry.messageId, annotationKey(entry)]);
+    if (!positions.has(key)) positions.set(key, index);
+  });
+  if (Array.isArray(conditionalUpserts)) {
+    for (const update of conditionalUpserts) {
+      if (
+        !update ||
+        typeof update !== "object" ||
+        !update.entry ||
+        typeof update.entry !== "object" ||
+        Array.isArray(update.entry) ||
+        (update.baseline !== null &&
+          (!update.baseline ||
+            typeof update.baseline !== "object" ||
+            Array.isArray(update.baseline)))
+      ) {
+        continue;
+      }
+      const entry = update.entry;
+      if (typeof entry.messageId !== "string") {
+        merged.push(entry);
+        continue;
+      }
+      const key = JSON.stringify([entry.messageId, annotationKey(entry)]);
+      const index = positions.get(key);
+      if (index === undefined) {
+        if (update.baseline === null) {
+          positions.set(key, merged.length);
+          merged.push(entry);
+        } else {
+          const annotationId = entry.annotation?.id;
+          onConflict?.({
+            messageId: entry.messageId,
+            ...(typeof annotationId === "string" ? { annotationId } : {}),
+            operation: "upsert",
+          });
+        }
+        continue;
+      }
+      if (JSON.stringify(merged[index]) === JSON.stringify(entry)) continue;
+      if (
+        update.baseline !== null &&
+        JSON.stringify(merged[index]) === JSON.stringify(update.baseline)
+      ) {
+        merged[index] = entry;
+      } else {
+        const annotationId = entry.annotation?.id;
+        onConflict?.({
+          messageId: entry.messageId,
+          ...(typeof annotationId === "string" ? { annotationId } : {}),
+          operation: "upsert",
+        });
+      }
+    }
+  } else
+    for (const entry of Array.isArray(incoming) ? incoming : []) {
+      if (typeof entry?.messageId !== "string") {
+        merged.push(entry);
+        continue;
+      }
+      const key = JSON.stringify([entry.messageId, annotationKey(entry)]);
+      const index = positions.get(key);
+      if (index === undefined) {
+        positions.set(key, merged.length);
+        merged.push(entry);
+      } else {
+        merged[index] = entry;
+      }
+    }
+  return merged;
+}
+
 function mergeAgentKitHistory(
   existing: unknown,
   incoming: unknown,
   promptRunIds: Map<string, string>,
+  onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void,
 ): unknown {
-  if (
-    !existing ||
-    typeof existing !== "object" ||
-    Array.isArray(existing) ||
-    !incoming ||
-    typeof incoming !== "object" ||
-    Array.isArray(incoming)
-  ) {
-    return incoming ?? existing;
+  const incomingIsRecord =
+    incoming !== null &&
+    typeof incoming === "object" &&
+    !Array.isArray(incoming);
+  if (!incomingIsRecord) return incoming ?? existing;
+  const next = incoming as Record<string, unknown>;
+  const existingIsRecord =
+    existing !== null &&
+    typeof existing === "object" &&
+    !Array.isArray(existing);
+  const snapshotDelta = next._snapshotDelta === true;
+  const annotationMessageIdsToReplace = new Set<string>();
+  const annotationRemovalValuesByMessage = new Map<
+    string,
+    Map<string, string>
+  >();
+  for (const replacement of Array.isArray(next.annotationMessageIdsToReplace)
+    ? next.annotationMessageIdsToReplace
+    : []) {
+    if (typeof replacement === "string") {
+      annotationMessageIdsToReplace.add(replacement);
+      continue;
+    }
+    if (
+      !replacement ||
+      typeof replacement !== "object" ||
+      typeof replacement.messageId !== "string" ||
+      !Array.isArray(replacement.annotationsToRemove)
+    ) {
+      continue;
+    }
+    const removalValues = new Map<string, string>();
+    for (const removal of replacement.annotationsToRemove) {
+      if (
+        !removal ||
+        typeof removal !== "object" ||
+        typeof removal.key !== "string" ||
+        !removal.baseline ||
+        typeof removal.baseline !== "object" ||
+        Array.isArray(removal.baseline)
+      ) {
+        continue;
+      }
+      const baseline = JSON.stringify(removal.baseline);
+      if (typeof baseline === "string") {
+        removalValues.set(removal.key, baseline);
+      }
+    }
+    if (removalValues.size > 0) {
+      annotationRemovalValuesByMessage.set(
+        replacement.messageId,
+        removalValues,
+      );
+    }
+  }
+  if (!existingIsRecord) {
+    const initial = { ...next };
+    if (snapshotDelta) {
+      if (Array.isArray(initial.messages) && initial.messages.length === 0) {
+        delete initial.messages;
+      }
+      const events = mergeAgentKitEvents(undefined, next.events);
+      if (events) initial.events = events;
+      const annotations = mergeAgentKitAnnotations(
+        undefined,
+        next.annotations,
+        annotationMessageIdsToReplace,
+        annotationRemovalValuesByMessage,
+        next.annotationUpserts,
+        onAnnotationConflict,
+      );
+      if (annotations) initial.annotations = annotations;
+    }
+    delete initial._snapshotDelta;
+    delete initial.annotationMessageIdsToReplace;
+    delete initial.annotationUpserts;
+    return initial;
   }
   const previous = existing as Record<string, unknown>;
-  const next = incoming as Record<string, unknown>;
   const merged: Record<string, unknown> = { ...previous, ...next };
   const runs = new Map<string, AgentRunSnapshot>();
   for (const run of [
@@ -1992,6 +2235,40 @@ function mergeAgentKitHistory(
     );
     if (entries) merged[key] = entries;
   }
+  if (
+    snapshotDelta &&
+    Array.isArray(next.messages) &&
+    next.messages.length === 0 &&
+    !Array.isArray(previous.messages)
+  ) {
+    delete merged.messages;
+  }
+  if (snapshotDelta) {
+    const events = mergeAgentKitEvents(previous.events, next.events);
+    if (events) merged.events = events;
+  } else if (Array.isArray(next.events)) {
+    merged.events = next.events;
+  }
+  delete merged._snapshotDelta;
+  if (
+    snapshotDelta ||
+    annotationMessageIdsToReplace.size > 0 ||
+    annotationRemovalValuesByMessage.size > 0
+  ) {
+    const annotations = mergeAgentKitAnnotations(
+      previous.annotations,
+      next.annotations,
+      annotationMessageIdsToReplace,
+      annotationRemovalValuesByMessage,
+      next.annotationUpserts,
+      onAnnotationConflict,
+    );
+    if (annotations) merged.annotations = annotations;
+  } else if (Array.isArray(next.annotations)) {
+    merged.annotations = next.annotations;
+  }
+  delete merged.annotationMessageIdsToReplace;
+  delete merged.annotationUpserts;
   return merged;
 }
 
@@ -2056,6 +2333,7 @@ export function mergeThreadDataForClientSave(
       existingNormalized?.agentKit,
       merged.agentKit,
       promptRunIds,
+      options.onAnnotationConflict,
     );
   }
 

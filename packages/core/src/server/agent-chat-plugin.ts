@@ -127,6 +127,7 @@ import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   type ThreadSuggestionRun,
+  type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
 import { attachToolSearch } from "../agent/tool-search.js";
@@ -6987,6 +6988,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   typeof body.preview === "string"
                     ? body.preview
                     : thread.preview;
+                const annotationConflicts: ThreadAnnotationSnapshotConflict[] =
+                  [];
                 const preserveTitleOverride = (repo: unknown) => {
                   if (
                     repo &&
@@ -6999,23 +7002,38 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     if (meta.title) nextTitle = meta.title;
                   }
                 };
-                // Merge the incoming full-thread blob over the current SQL
-                // copy. Periodic saves can be stale relative to server-side
-                // run completion, and threadRuntime.export() does not carry
-                // queuedMessages.
+                // Merge the incoming snapshot delta over the current SQL copy.
+                // Let updateThreadData apply delta markers to each latest
+                // revision if its compare-and-swap needs to retry.
                 if (body.threadData) {
                   try {
                     const existing = JSON.parse(thread.threadData);
                     const incoming = JSON.parse(newThreadData);
-                    const merged = mergeThreadDataForClientSave(
-                      existing,
-                      incoming,
-                    );
-                    newThreadData = JSON.stringify(merged);
-                    if (Array.isArray(merged.messages)) {
-                      newMessageCount = merged.messages.length;
+                    const incomingAgentKit =
+                      incoming &&
+                      typeof incoming === "object" &&
+                      !Array.isArray(incoming)
+                        ? (incoming as Record<string, unknown>).agentKit
+                        : undefined;
+                    const isSnapshotDelta =
+                      incomingAgentKit !== null &&
+                      typeof incomingAgentKit === "object" &&
+                      !Array.isArray(incomingAgentKit) &&
+                      (incomingAgentKit as Record<string, unknown>)
+                        ._snapshotDelta === true;
+                    if (isSnapshotDelta) {
+                      preserveTitleOverride(existing);
+                    } else {
+                      const merged = mergeThreadDataForClientSave(
+                        existing,
+                        incoming,
+                      );
+                      newThreadData = JSON.stringify(merged);
+                      if (Array.isArray(merged.messages)) {
+                        newMessageCount = merged.messages.length;
+                      }
+                      preserveTitleOverride(merged);
                     }
-                    preserveTitleOverride(merged);
                   } catch {
                     // Invalid JSON in either side — fall back to raw body blob.
                   }
@@ -7032,6 +7050,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   nextTitle,
                   nextPreview,
                   newMessageCount,
+                  {
+                    onAnnotationConflict: (conflict) =>
+                      annotationConflicts.push(conflict),
+                  },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.
@@ -7049,7 +7071,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "editor",
                   { orgId },
                 );
-                return { ok: true, scope: saved?.scope ?? null };
+                return {
+                  ok: true,
+                  scope: saved?.scope ?? null,
+                  ...(annotationConflicts.length > 0
+                    ? { annotationConflicts }
+                    : {}),
+                };
               });
             }
 

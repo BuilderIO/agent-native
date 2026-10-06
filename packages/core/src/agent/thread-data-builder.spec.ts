@@ -1655,6 +1655,259 @@ describe("buildUserMessage", () => {
 });
 
 describe("mergeThreadDataForClientSave", () => {
+  it("upserts event deltas, restores contiguous run sequences, and keeps annotations", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        events: [
+          {
+            id: "event-1",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 1,
+            occurredAt: "2026-10-01T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-2",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 2,
+            occurredAt: "2026-10-01T00:00:01.000Z",
+            type: "run.status",
+            status: "running",
+          },
+        ],
+        annotations: [
+          {
+            messageId: "assistant-1",
+            annotation: {
+              id: "source-1",
+              kind: "source",
+              label: "First source",
+            },
+          },
+        ],
+      },
+    };
+    const delta = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        annotationMessageIdsToReplace: [
+          {
+            messageId: "assistant-1",
+            annotationsToRemove: [],
+          },
+        ],
+        events: [
+          {
+            id: "event-1",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 1,
+            occurredAt: "2026-10-01T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-2",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 2,
+            occurredAt: "2026-10-01T00:00:01.000Z",
+            type: "run.status",
+            status: "running",
+          },
+          {
+            id: "event-3",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 3,
+            occurredAt: "2025-10-01T00:00:02.000Z",
+            type: "run.completed",
+          },
+        ],
+        annotations: [
+          {
+            messageId: "assistant-1",
+            annotation: {
+              id: "source-1",
+              kind: "source",
+              label: "First source",
+            },
+          },
+          {
+            messageId: "assistant-1",
+            annotation: {
+              id: "source-2",
+              kind: "source",
+              label: "Second source",
+            },
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, delta);
+    const retried = mergeThreadDataForClientSave(merged, delta);
+    const initialized = mergeThreadDataForClientSave({}, delta);
+
+    expect(retried.agentKit.events).toMatchObject([
+      { id: "event-1", sequence: 1 },
+      { id: "event-2", sequence: 2 },
+      { id: "event-3", sequence: 3 },
+    ]);
+    expect(retried.agentKit.annotations).toHaveLength(2);
+    expect(initialized.agentKit).not.toHaveProperty("_snapshotDelta");
+    expect(initialized.agentKit).not.toHaveProperty(
+      "annotationMessageIdsToReplace",
+    );
+  });
+
+  it("does not remove annotations changed or added during a snapshot retry", () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const removal = {
+      key: JSON.stringify(["id", "source-1"]),
+      baseline,
+    };
+    const delta = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        annotationMessageIdsToReplace: [
+          {
+            messageId: "assistant-1",
+            annotationsToRemove: [removal],
+          },
+        ],
+        annotations: [],
+      },
+    };
+    const concurrentAddition = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-2",
+        kind: "source",
+        label: "Concurrent source",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Updated source",
+      },
+    };
+
+    const added = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [baseline, concurrentAddition] } },
+      delta,
+    );
+    const edited = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          annotations: [concurrentEdit, concurrentAddition],
+        },
+      },
+      delta,
+    );
+
+    expect(added.agentKit.annotations).toEqual([concurrentAddition]);
+    expect(edited.agentKit.annotations).toEqual([
+      concurrentEdit,
+      concurrentAddition,
+    ]);
+  });
+
+  it("does not overwrite an annotation changed or added after its snapshot", () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const desired = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Snapshot edit",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Concurrent edit",
+      },
+    };
+    const delta = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        annotations: [],
+        annotationUpserts: [{ entry: desired, baseline }],
+      },
+    };
+    const added = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [concurrentEdit] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          annotations: [],
+          annotationUpserts: [{ entry: desired, baseline: null }],
+        },
+      },
+    );
+    const annotationConflicts: Array<{
+      messageId: string;
+      annotationId?: string;
+      operation: "upsert" | "remove";
+    }> = [];
+    const edited = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [concurrentEdit] } },
+      delta,
+      {
+        onAnnotationConflict: (conflict) => annotationConflicts.push(conflict),
+      },
+    );
+    const applied = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [baseline] } },
+      delta,
+    );
+    const retried = mergeThreadDataForClientSave(applied, delta);
+    const concurrentlyDeleted = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [] } },
+      delta,
+    );
+
+    expect(added.agentKit.annotations).toEqual([concurrentEdit]);
+    expect(edited.agentKit.annotations).toEqual([concurrentEdit]);
+    expect(annotationConflicts).toEqual([
+      {
+        messageId: "assistant-1",
+        annotationId: "source-1",
+        operation: "upsert",
+      },
+    ]);
+    expect(applied.agentKit.annotations).toEqual([desired]);
+    expect(retried.agentKit.annotations).toEqual([desired]);
+    expect(concurrentlyDeleted.agentKit.annotations).toEqual([]);
+    expect(applied.agentKit).not.toHaveProperty("annotationUpserts");
+  });
+
   it("preserves a saved run duration when a later client copy omits it", () => {
     const existing = {
       messages: [

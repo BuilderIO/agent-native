@@ -6,6 +6,7 @@ import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
+  type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
@@ -408,6 +409,28 @@ function normalizeForkSourceSnapshot(
 function countThreadMessages(value: unknown, fallback: number): number {
   const repo = normalizeThreadRepository(value);
   if (!repo || typeof repo !== "object") return fallback;
+  if (repo.agentKit?._mergeRootMessages === true) {
+    const messageIds = new Set<string>();
+    let unkeyedMessages = 0;
+    for (const entry of [
+      ...(Array.isArray(repo.messages) ? repo.messages : []),
+      ...(Array.isArray(repo.agentKit.messages) ? repo.agentKit.messages : []),
+    ]) {
+      const outer =
+        entry && typeof entry === "object" && !Array.isArray(entry)
+          ? (entry as Record<string, unknown>)
+          : undefined;
+      const message =
+        outer?.message &&
+        typeof outer.message === "object" &&
+        !Array.isArray(outer.message)
+          ? (outer.message as Record<string, unknown>)
+          : outer;
+      if (typeof message?.id === "string") messageIds.add(message.id);
+      else unkeyedMessages += 1;
+    }
+    return messageIds.size + unkeyedMessages;
+  }
   const repoMessageCount = Array.isArray(repo.messages)
     ? repo.messages.length
     : undefined;
@@ -1314,6 +1337,7 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
+  onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
   transformThreadData?: (
     currentThreadData: string,
   ) => string | { threadData: string; preview?: string };
@@ -1360,6 +1384,7 @@ export async function updateThreadData(
           : (transformed?.threadData ?? threadData);
       let nextThreadData = incomingThreadData;
       let nextMessageCount = messageCount;
+      const annotationConflicts: ThreadAnnotationSnapshotConflict[] = [];
       try {
         const merged = mergeThreadDataForClientSave(
           parseThreadData(current.threadData),
@@ -1369,6 +1394,8 @@ export async function updateThreadData(
               options.preserveExistingQueuedMessages ?? true,
             preserveExistingTopLevelKeys:
               options.preserveExistingTopLevelKeys ?? true,
+            onAnnotationConflict: (conflict) =>
+              annotationConflicts.push(conflict),
           },
         );
         nextThreadData = JSON.stringify(merged);
@@ -1404,6 +1431,9 @@ export async function updateThreadData(
       });
 
       if (result.rowsAffected > 0) {
+        for (const conflict of annotationConflicts) {
+          options.onAnnotationConflict?.(conflict);
+        }
         emitChatThreadChange(id);
         return;
       }

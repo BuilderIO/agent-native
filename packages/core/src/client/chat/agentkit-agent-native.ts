@@ -76,8 +76,17 @@ interface ActiveRunStatus {
   terminalReason?: unknown;
 }
 
+interface SnapshotAnnotationConflict {
+  messageId: string;
+  annotationId?: string;
+  operation: "upsert" | "remove";
+}
+
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
+const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
+const MAX_THREAD_SNAPSHOT_RETRIES = 2;
+const MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES = 64 * 1024;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -1282,6 +1291,74 @@ function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
   });
 }
 
+function changedSnapshotEntries<T>(
+  incoming: T[],
+  previous: unknown,
+  getId: (entry: T) => string | undefined,
+): T[] {
+  const previousById = new Map<string, unknown>();
+  for (const entry of Array.isArray(previous) ? previous : []) {
+    const id = getId(entry as T);
+    if (id) previousById.set(id, entry);
+  }
+  return incoming.filter((entry) => {
+    const id = getId(entry);
+    if (!id || !previousById.has(id)) return true;
+    return JSON.stringify(previousById.get(id)) !== JSON.stringify(entry);
+  });
+}
+
+function samePersistedMessageContent(
+  left: AgentMessage,
+  right: AgentMessage,
+): boolean {
+  return (
+    left.role === right.role &&
+    JSON.stringify(left.parts) === JSON.stringify(right.parts) &&
+    JSON.stringify(left.status) === JSON.stringify(right.status) &&
+    JSON.stringify(left.metadata) === JSON.stringify(right.metadata)
+  );
+}
+
+function snapshotEntryId(value: unknown): string | undefined {
+  const entry = asRecord(value);
+  return typeof entry?.id === "string" ? entry.id : undefined;
+}
+
+function snapshotWidgetId(value: unknown): string | undefined {
+  const entry = asRecord(value);
+  const widget = asRecord(entry?.widget);
+  return typeof entry?.messageId === "string" && typeof widget?.id === "string"
+    ? JSON.stringify([entry.messageId, widget.id])
+    : undefined;
+}
+
+function snapshotAnnotationKey(value: unknown): string {
+  const entry = asRecord(value);
+  const annotation = asRecord(entry?.annotation);
+  return typeof annotation?.id === "string"
+    ? JSON.stringify(["id", annotation.id])
+    : JSON.stringify(["value", value]);
+}
+
+function threadSnapshotBody(input: {
+  stored: StoredThread;
+  title?: string;
+  snapshotMessages: AgentMessage[];
+  agentKit: Record<string, unknown>;
+}): string {
+  const repository = { messages: [], agentKit: input.agentKit };
+  return JSON.stringify({
+    threadData: JSON.stringify(repository),
+    title:
+      input.title ??
+      (typeof input.stored.title === "string" ? input.stored.title : ""),
+    preview:
+      typeof input.stored.preview === "string" ? input.stored.preview : "",
+    messageCount: input.snapshotMessages.length,
+  });
+}
+
 function storedMessageId(value: unknown): string | undefined {
   const outer = asRecord(value);
   const message = asRecord(outer?.message ?? outer);
@@ -1445,6 +1522,37 @@ function isRetryableHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
+function snapshotAnnotationConflicts(
+  value: unknown,
+): SnapshotAnnotationConflict[] {
+  const response = asRecord(value);
+  if (!response || response.ok !== true) {
+    throw new TypeError("Agent chat thread save response must be an object.");
+  }
+  if (response.annotationConflicts === undefined) return [];
+  if (!Array.isArray(response.annotationConflicts)) {
+    throw new TypeError("Agent chat annotation conflicts must be an array.");
+  }
+  return response.annotationConflicts.map((value) => {
+    const conflict = asRecord(value);
+    if (
+      typeof conflict?.messageId !== "string" ||
+      (conflict.operation !== "upsert" && conflict.operation !== "remove") ||
+      (conflict.annotationId !== undefined &&
+        typeof conflict.annotationId !== "string")
+    ) {
+      throw new TypeError("Agent chat annotation conflict is invalid.");
+    }
+    return {
+      messageId: conflict.messageId,
+      ...(typeof conflict.annotationId === "string"
+        ? { annotationId: conflict.annotationId }
+        : {}),
+      operation: conflict.operation,
+    };
+  });
+}
+
 function scopedThreadEndpoint(
   endpoint: string,
   options: CreateAgentNativeAgentKitTransportOptions,
@@ -1554,7 +1662,12 @@ export function createAgentNativeAgentKitTransport(
           updatedAt,
           metadata: asRecord(stored.metadata) ?? undefined,
           messages: Array.isArray(agentKit.messages)
-            ? agentKit.messages
+            ? agentKit._mergeRootMessages === true
+              ? mergeStoredAndIncomingMessages(
+                  storedMessageProjection,
+                  agentKit.messages as AgentMessage[],
+                )
+              : agentKit.messages
             : storedMessageProjection,
           events: agentKit.events,
           runs: agentKit.runs,
@@ -1996,24 +2109,6 @@ export function createAgentNativeAgentKitTransport(
         )
       : input.snapshot.widgets;
     const compactEvents = persistedHistoryEvents(input.snapshot.events);
-    const compactRunIds = new Set(compactEvents.map((event) => event.runId));
-    const eventsById = new Map<string, unknown>();
-    const previousEvents = Array.isArray(previousAgentKit.events)
-      ? previousAgentKit.events
-      : [];
-    for (const event of previousEvents) {
-      const record = asRecord(event);
-      if (
-        typeof record?.id === "string" &&
-        typeof record.runId === "string" &&
-        !compactRunIds.has(record.runId)
-      ) {
-        eventsById.set(record.id, event);
-      }
-    }
-    for (const event of compactEvents) {
-      eventsById.set(event.id, event);
-    }
     const runsById = new Map<string, unknown>();
     const previousRuns = Array.isArray(previousAgentKit.runs)
       ? previousAgentKit.runs
@@ -2025,50 +2120,356 @@ export function createAgentNativeAgentKitTransport(
     const snapshotMessageIds = new Set(
       snapshotMessages.map((message) => message.id),
     );
+    const previousAgentKitMessageIds = new Set(
+      (Array.isArray(previousAgentKit.messages)
+        ? previousAgentKit.messages
+        : []
+      ).flatMap((message) => {
+        const id = snapshotEntryId(message);
+        return id ? [id] : [];
+      }),
+    );
+    const topLevelMessageProjections = new Map(
+      persistedMessages(
+        Array.isArray(repository.messages)
+          ? storedMessages(
+              repository.messages,
+              now,
+              options.adapter?.textFormat,
+            )
+          : [],
+      ).map((message) => [message.id, message]),
+    );
+    const persistedSnapshotMessages = persistedMessages(snapshotMessages);
+    const changedMessages = changedSnapshotEntries(
+      persistedSnapshotMessages,
+      previousAgentKit.messages,
+      snapshotEntryId,
+    ).filter((message) => {
+      if (previousAgentKitMessageIds.has(message.id)) return true;
+      const topLevelMessage = topLevelMessageProjections.get(message.id);
+      return (
+        !topLevelMessage ||
+        !samePersistedMessageContent(topLevelMessage, message)
+      );
+    });
+    const mergeRootMessages =
+      previousAgentKit._mergeRootMessages === true ||
+      persistedSnapshotMessages.some((message) => {
+        const topLevelMessage = topLevelMessageProjections.get(message.id);
+        return (
+          !previousAgentKitMessageIds.has(message.id) &&
+          topLevelMessage !== undefined &&
+          samePersistedMessageContent(topLevelMessage, message)
+        );
+      });
+    const changedWidgets = changedSnapshotEntries(
+      persistedActionWidgets(snapshotWidgets, snapshotMessageIds),
+      previousAgentKit.widgets,
+      snapshotWidgetId,
+    );
+    const changedToolCalls = changedSnapshotEntries(
+      persistedToolCalls(snapshotToolCalls),
+      previousAgentKit.toolCalls,
+      snapshotEntryId,
+    );
+    const previousEventsByRun = new Map<string, unknown[]>();
+    for (const event of Array.isArray(previousAgentKit.events)
+      ? previousAgentKit.events
+      : []) {
+      const runId = asRecord(event)?.runId;
+      if (typeof runId !== "string") continue;
+      const events = previousEventsByRun.get(runId);
+      if (events) events.push(event);
+      else previousEventsByRun.set(runId, [event]);
+    }
+    const incomingEventsByRun = new Map<string, AgentEvent[]>();
+    for (const event of compactEvents) {
+      const events = incomingEventsByRun.get(event.runId);
+      if (events) events.push(event);
+      else incomingEventsByRun.set(event.runId, [event]);
+    }
+    const changedEventRunIds = new Set<string>();
+    for (const [runId, events] of incomingEventsByRun) {
+      if (
+        JSON.stringify(previousEventsByRun.get(runId) ?? []) ===
+        JSON.stringify(events)
+      ) {
+        continue;
+      }
+      changedEventRunIds.add(runId);
+    }
+    const changedEvents = compactEvents.filter((event) =>
+      changedEventRunIds.has(event.runId),
+    );
+    const persistedRuns = [...runsById.values()].map((run) => {
+      const record = asRecord(run);
+      return record && record.error !== undefined
+        ? { ...record, error: persistedError(record.error) }
+        : run;
+    });
+    const changedRuns = changedSnapshotEntries(
+      persistedRuns,
+      previousAgentKit.runs,
+      snapshotEntryId,
+    );
     const annotations =
       input.snapshot.annotations ??
       (Array.isArray(previousAgentKit.annotations)
         ? (previousAgentKit.annotations as AgentAnnotationSnapshot[])
         : []);
-    const agentKit = {
-      ...previousAgentKit,
-      messages: persistedMessages(snapshotMessages),
-      widgets: persistedActionWidgets(snapshotWidgets, snapshotMessageIds),
-      toolCalls: persistedToolCalls(snapshotToolCalls),
-      events: [...eventsById.values()],
-      runs: [...runsById.values()].map((run) => {
-        const record = asRecord(run);
-        return record && record.error !== undefined
-          ? { ...record, error: persistedError(record.error) }
-          : run;
-      }),
+    const persistedSnapshotAnnotations = persistedAnnotations(
+      annotations,
+      snapshotMessageIds,
+    );
+    const previousAnnotationsByMessage = new Map<string, unknown[]>();
+    for (const annotation of Array.isArray(previousAgentKit.annotations)
+      ? previousAgentKit.annotations
+      : []) {
+      const messageId = asRecord(annotation)?.messageId;
+      if (typeof messageId !== "string") continue;
+      const messageAnnotations = previousAnnotationsByMessage.get(messageId);
+      if (messageAnnotations) messageAnnotations.push(annotation);
+      else previousAnnotationsByMessage.set(messageId, [annotation]);
+    }
+    const incomingAnnotationsByMessage = new Map<
+      string,
+      AgentAnnotationSnapshot[]
+    >();
+    for (const annotation of persistedSnapshotAnnotations) {
+      const messageAnnotations = incomingAnnotationsByMessage.get(
+        annotation.messageId,
+      );
+      if (messageAnnotations) messageAnnotations.push(annotation);
+      else incomingAnnotationsByMessage.set(annotation.messageId, [annotation]);
+    }
+    const annotationMessageIdsToReplace: Array<{
+      messageId: string;
+      annotationsToRemove: Array<{ key: string; baseline: unknown }>;
+    }> = [];
+    const changedAnnotations: Array<{
+      entry: AgentAnnotationSnapshot;
+      baseline: unknown | null;
+    }> = [];
+    const annotationMessageIds = new Set([
+      ...previousAnnotationsByMessage.keys(),
+      ...incomingAnnotationsByMessage.keys(),
+    ]);
+    for (const messageId of annotationMessageIds) {
+      const previous = previousAnnotationsByMessage.get(messageId) ?? [];
+      const incoming = incomingAnnotationsByMessage.get(messageId) ?? [];
+      const previousByKey = new Map(
+        previous.map((annotation) => [
+          snapshotAnnotationKey(annotation),
+          annotation,
+        ]),
+      );
+      const incomingKeys = new Set(incoming.map(snapshotAnnotationKey));
+      const annotationsToRemove = previous.flatMap((annotation) => {
+        const key = snapshotAnnotationKey(annotation);
+        return incomingKeys.has(key) ? [] : [{ key, baseline: annotation }];
+      });
+      const changedIncoming = incoming.flatMap((annotation) => {
+        const previousAnnotation = previousByKey.get(
+          snapshotAnnotationKey(annotation),
+        );
+        if (
+          previousAnnotation !== undefined &&
+          JSON.stringify(previousAnnotation) === JSON.stringify(annotation)
+        ) {
+          return [];
+        }
+        return [
+          {
+            entry: annotation,
+            baseline: previousAnnotation ?? null,
+          },
+        ];
+      });
+      if (annotationsToRemove.length === 0 && changedIncoming.length === 0) {
+        continue;
+      }
+      const replacement = {
+        messageId,
+        annotationsToRemove,
+      };
+      if (
+        annotationsToRemove.length > 0 &&
+        new TextEncoder().encode(JSON.stringify(replacement)).byteLength <=
+          MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES
+      ) {
+        annotationMessageIdsToReplace.push(replacement);
+      }
+      changedAnnotations.push(...changedIncoming);
+    }
+    const updates = [
+      ...changedMessages.map((entry) => ({ key: "messages", entry })),
+      ...changedWidgets.map((entry) => ({ key: "widgets", entry })),
+      ...changedToolCalls.map((entry) => ({ key: "toolCalls", entry })),
+      ...changedEvents.map((entry) => ({ key: "events", entry })),
+      ...changedAnnotations.map((entry) => ({
+        key: "annotationUpserts",
+        entry,
+      })),
+      ...annotationMessageIdsToReplace.map((entry) => ({
+        key: "annotationMessageIdsToReplace",
+        entry,
+      })),
+      ...changedRuns.map((entry) => ({ key: "runs", entry })),
+    ];
+    const fixedAgentKit = {
       activeRunIds: input.snapshot.activeRunIds ?? [],
       suggestions: input.snapshot.suggestions ?? previousAgentKit.suggestions,
-      annotations: persistedAnnotations(annotations, snapshotMessageIds),
+      _snapshotDelta: true,
+      ...(mergeRootMessages ? { _mergeRootMessages: true } : {}),
+      messages: [],
+      widgets: [],
+      toolCalls: [],
+      events: [],
+      annotationMessageIdsToReplace: [],
+      annotations: [],
+      annotationUpserts: [],
+      runs: [],
     };
     const requestHeaders = await headers({ sessionId: input.threadId });
     requestHeaders.set("content-type", "application/json");
-    const snapshotRepository = { ...repository };
-    delete snapshotRepository.queuedMessages;
-    const response = await fetcher(
-      scopedThreadEndpoint(
-        `${apiUrl}/threads/${encodeURIComponent(input.threadId)}`,
-        options,
-      ),
-      {
-        method: "PUT",
-        headers: requestHeaders,
-        body: JSON.stringify({
-          threadData: JSON.stringify({ ...snapshotRepository, agentKit }),
-          title:
-            input.snapshot.title ??
-            (typeof stored.title === "string" ? stored.title : ""),
-          preview: typeof stored.preview === "string" ? stored.preview : "",
-          messageCount: snapshotMessages.length,
-        }),
-      },
+    const bodyFor = (entries: typeof updates) => {
+      const agentKit: Record<string, unknown> = { ...fixedAgentKit };
+      for (const key of [
+        "messages",
+        "widgets",
+        "toolCalls",
+        "events",
+        "annotationMessageIdsToReplace",
+        "annotations",
+        "annotationUpserts",
+        "runs",
+      ]) {
+        agentKit[key] = [];
+      }
+      for (const { key, entry } of entries) {
+        (agentKit[key] as unknown[]).push(entry);
+      }
+      return threadSnapshotBody({
+        stored,
+        title: input.snapshot.title,
+        snapshotMessages,
+        agentKit,
+      });
+    };
+    const chunks: Array<typeof updates> = [];
+    let chunk: typeof updates = [];
+    const encoder = new TextEncoder();
+    const baseBodyBytes = encoder.encode(bodyFor([])).byteLength;
+    let chunkBytes = baseBodyBytes;
+    const chunkKeyCounts = new Map<string, number>();
+    for (const update of updates) {
+      const entryBytes =
+        encoder.encode(bodyFor([update])).byteLength - baseBodyBytes;
+      const addition = entryBytes + (chunkKeyCounts.has(update.key) ? 1 : 0);
+      if (chunkBytes + addition > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
+        if (chunk.length === 0) {
+          throw new RangeError(
+            "An Agent chat snapshot entry exceeds the persistence request size limit.",
+          );
+        }
+        chunks.push(chunk);
+        chunk = [];
+        chunkBytes = baseBodyBytes;
+        chunkKeyCounts.clear();
+      }
+      const firstEntryBytes =
+        entryBytes + (chunkKeyCounts.has(update.key) ? 1 : 0);
+      if (chunkBytes + firstEntryBytes > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
+        throw new RangeError(
+          "An Agent chat snapshot entry exceeds the persistence request size limit.",
+        );
+      }
+      chunk.push(update);
+      chunkBytes += firstEntryBytes;
+      chunkKeyCounts.set(update.key, (chunkKeyCounts.get(update.key) ?? 0) + 1);
+    }
+    if (chunk.length > 0 || chunks.length === 0) chunks.push(chunk);
+
+    const threadUrl = scopedThreadEndpoint(
+      apiUrl + "/threads/" + encodeURIComponent(input.threadId),
+      options,
     );
-    if (!response.ok) throw await responseError(response);
+    const persistChunk = async (
+      entries: typeof updates,
+    ): Promise<SnapshotAnnotationConflict[]> => {
+      const body = bodyFor(entries);
+      if (encoder.encode(body).byteLength > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
+        if (entries.length > 1) {
+          const middle = Math.floor(entries.length / 2);
+          return [
+            ...(await persistChunk(entries.slice(0, middle))),
+            ...(await persistChunk(entries.slice(middle))),
+          ];
+        }
+        throw new RangeError(
+          "An Agent chat snapshot entry exceeds the persistence request size limit.",
+        );
+      }
+      for (let attempt = 0; ; attempt += 1) {
+        let response: Response;
+        try {
+          response = await fetcher(threadUrl, {
+            method: "PUT",
+            headers: requestHeaders,
+            body,
+          });
+        } catch (error) {
+          if (asRecord(error)?.name === "AbortError") throw error;
+          if (attempt >= MAX_THREAD_SNAPSHOT_RETRIES) throw error;
+          await new Promise((resolve) =>
+            setTimeout(resolve, 100 * 2 ** attempt),
+          );
+          continue;
+        }
+        if (response.status === 413 && entries.length > 1) {
+          const middle = Math.floor(entries.length / 2);
+          return [
+            ...(await persistChunk(entries.slice(0, middle))),
+            ...(await persistChunk(entries.slice(middle))),
+          ];
+        }
+        if (!response.ok) {
+          const error = await responseError(response);
+          if (
+            asRecord(error)?.retryable !== true ||
+            attempt >= MAX_THREAD_SNAPSHOT_RETRIES
+          ) {
+            throw error;
+          }
+          await new Promise((resolve) =>
+            setTimeout(resolve, 100 * 2 ** attempt),
+          );
+          continue;
+        }
+        return snapshotAnnotationConflicts(await response.json());
+      }
+    };
+    const annotationConflicts = new Map<string, SnapshotAnnotationConflict>();
+    for (const entries of chunks) {
+      for (const conflict of await persistChunk(entries)) {
+        annotationConflicts.set(
+          JSON.stringify([
+            conflict.messageId,
+            conflict.annotationId ?? null,
+            conflict.operation,
+          ]),
+          conflict,
+        );
+      }
+    }
+    if (annotationConflicts.size > 0) {
+      const error = new Error(
+        "An annotation changed in another save. The latest saved value was preserved; reload the thread before retrying.",
+      );
+      error.name = "AgentAnnotationSaveConflictError";
+      throw error;
+    }
   }
 
   type QueueMutation =
@@ -2445,9 +2846,12 @@ export function createAgentNativeAgentKitTransport(
         if (fromMessageId) {
           const repository = storedRepository(source);
           const agentKit = asRecord(repository.agentKit);
-          const sourceMessages = Array.isArray(agentKit?.messages)
-            ? agentKit.messages
-            : repository.messages;
+          const sourceMessages =
+            agentKit?._mergeRootMessages === true
+              ? projectThread(threadId, source).messages
+              : Array.isArray(agentKit?.messages)
+                ? agentKit.messages
+                : repository.messages;
           if (!Array.isArray(sourceMessages)) {
             throw new Error(
               "The Agent-Native thread cannot be forked from a message without durable history.",
