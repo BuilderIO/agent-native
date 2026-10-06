@@ -6,7 +6,7 @@ export interface AuthoredContentBase {
 }
 
 // Forgetting an older observation only keeps the base held, which keeps text.
-const MAX_SEEN_WHILE_SAVING = 16;
+const MAX_SEEN = 16;
 
 /**
  * A save the server merged with another writer's text confirms a body this
@@ -23,8 +23,10 @@ export function createAuthoredContentBase() {
   // editor receives that text.
   let editorContent: string | null = null;
   // The other writer's text can arrive and be deleted here before the save's
-  // answer names the body that holds it.
-  let seenWhileSaving: string[] = [];
+  // answer names the body that holds it. Saves queue, so one save's answer
+  // leaves these for the next. Text seen before this tab's edit doesn't hold
+  // that edit, so it can't release a later save.
+  let seen: string[] = [];
   // The other writer's text can reach the editor before the save's answer,
   // or alongside typing here, so an exact match with the saved body misses
   // an editor that already holds it.
@@ -42,14 +44,12 @@ export function createAuthoredContentBase() {
       authoredOn: AuthoredContentBase | null;
     }) {
       const { saved, sentContent, authoredOn } = args;
-      const seen = seenWhileSaving;
-      seenWhileSaving = [];
-      if (editorContent !== null) seen.push(editorContent);
       if (!saved.revision) return;
+      const shown = editorContent === null ? seen : [...seen, editorContent];
       unheld =
         authoredOn &&
         saved.content !== sentContent &&
-        !seen.some((content) => holds(content, saved, authoredOn))
+        !shown.some((content) => holds(content, saved, authoredOn))
           ? { revision: saved.revision, base: authoredOn }
           : null;
     },
@@ -64,9 +64,8 @@ export function createAuthoredContentBase() {
     /** The editor's text changed without an edit here, as a peer's arrives. */
     observed(content: string, saved: AuthoredContentBase) {
       editorContent = content;
-      seenWhileSaving.push(content);
-      if (seenWhileSaving.length > MAX_SEEN_WHILE_SAVING)
-        seenWhileSaving.shift();
+      seen.push(content);
+      if (seen.length > MAX_SEEN) seen.shift();
       if (!unheld || unheld.revision !== saved.revision) return;
       if (holds(content, saved, unheld.base)) unheld = null;
     },
@@ -78,7 +77,7 @@ export function createAuthoredContentBase() {
     reset() {
       unheld = null;
       editorContent = null;
-      seenWhileSaving = [];
+      seen = [];
     },
   };
 }
