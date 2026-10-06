@@ -951,7 +951,7 @@ export default function ChatTab() {
                 chatEligibility={chat.chatEligibility}
                 canChat={chat.canChat}
                 refreshChatEligibility={chat.refreshChatEligibility}
-                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenSettings={openBuilderSetup}
               />
             ) : chat.historyLoading ? (
               <View className="flex-1 items-center justify-center">
