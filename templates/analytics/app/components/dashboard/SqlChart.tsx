@@ -1288,7 +1288,6 @@ export function SqlChart({
     isLoading: queryIsLoading,
     isFetching: queryIsFetching,
     error: queryError,
-    refetch,
   } = useSqlQuery(
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
