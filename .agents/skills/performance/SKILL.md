@@ -395,7 +395,10 @@ is how long the page's read waited after the session arrived.
 - [ ] Every hot-path `WHERE` / `ORDER BY` column is indexed (owner/org/sort,
       shares `resource_id`, child FKs, status filters) via a `db.ts` migration.
 - [ ] No N+1; independent queries parallelized; counts via SQL `count()`.
-- [ ] Client fires independent queries in parallel, not a waterfall.
+- [ ] Client fires independent queries in parallel, not a waterfall. A read
+      that decides where a route goes starts as the app hydrates, beside the
+      reads it decides, not when the route mounts behind the session check:
+      Content's `/home` asks `resolve-content-landing` from `root.tsx`.
 - [ ] No heavy recompute on every read; no aggressive polling of heavy endpoints.
 - [ ] Unbounded lists are paginated/windowed; large blobs aren't inlined on the hot path.
 - [ ] SSR HTML/`.data` path stays session-blind and cacheable — no `private`,

@@ -5,7 +5,7 @@ import type {
   ContentSpaceLandingResult,
 } from "@shared/content-landing";
 import { contentRecentHref } from "@shared/content-personal-navigation";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   Link,
@@ -28,7 +28,10 @@ import {
   startPageOpenDocumentReads,
 } from "@/hooks/use-documents";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
-import { isPersonalLanding } from "@/lib/content-landing";
+import {
+  isPersonalLanding,
+  takeEarlyContentLanding,
+} from "@/lib/content-landing";
 import {
   landingOptimisticTitle,
   stashLandingTitleHint,
@@ -57,6 +60,20 @@ export function meta() {
     { name: "twitter:title", content: SEO_TITLE },
     { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
+}
+
+// Refreshing every read here aborts and restarts the startup reads; only a
+// newly created Welcome page changes what other queries show.
+function refreshAfterLanding(
+  queryClient: QueryClient,
+  result: ContentLandingResult | ContentSpaceLandingResult,
+) {
+  if (!("welcomeCreated" in result) || !result.welcomeCreated) return;
+  invalidateContentDatabaseNavigationQueries(queryClient, { parentId: null });
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-content-recent"],
+  });
+  void queryClient.invalidateQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY });
 }
 
 // The landing draws the page placeholder, so a page that opens here keeps its
@@ -144,21 +161,8 @@ export default function HomeRoute() {
     ContentLandingResult | ContentSpaceLandingResult,
     { spaceId?: string }
   >("resolve-content-landing", {
-    // Refreshing every read here aborts and restarts the startup reads; only
-    // a newly created Welcome page changes what other queries show.
     skipActionQueryInvalidation: true,
-    onSuccess: (result) => {
-      if (!("welcomeCreated" in result) || !result.welcomeCreated) return;
-      invalidateContentDatabaseNavigationQueries(queryClient, {
-        parentId: null,
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "get-content-recent"],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: LIST_DOCUMENTS_QUERY_KEY,
-      });
-    },
+    onSuccess: (result) => refreshAfterLanding(queryClient, result),
   });
 
   const openLanding = useCallback(async () => {
@@ -167,9 +171,14 @@ export default function HomeRoute() {
     startedFor.current = requestKey;
     const requestId = ++landingRequestIdRef.current;
     try {
-      const result = await resolveLanding.mutateAsync(
-        spaceId ? { spaceId } : {},
-      );
+      // A failed early answer is asked again here, where its error shows.
+      const early = spaceId
+        ? null
+        : await takeEarlyContentLanding(location.key);
+      if (early?.ok) refreshAfterLanding(queryClient, early.result);
+      const result = early?.ok
+        ? early.result
+        : await resolveLanding.mutateAsync(spaceId ? { spaceId } : {});
       if (requestId !== landingRequestIdRef.current) return;
       if ("target" in result) {
         if (!result.target) return;
@@ -197,7 +206,16 @@ export default function HomeRoute() {
     } catch (error) {
       console.error("Failed to resolve the Content landing page", error);
     }
-  }, [location.hash, location.search, navigate, resolveLanding, spaceId, t]);
+  }, [
+    location.hash,
+    location.key,
+    location.search,
+    navigate,
+    queryClient,
+    resolveLanding,
+    spaceId,
+    t,
+  ]);
 
   useEffect(() => {
     void openLanding();

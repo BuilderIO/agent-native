@@ -1,7 +1,9 @@
 import { writeClientAppState } from "@agent-native/core/client/application-state";
+import { callAction } from "@agent-native/core/client/hooks";
 import {
   CONTENT_LAST_LOCATION_STATE_KEY,
   contentSpaceLastLocationStateKey,
+  type ContentLandingResult,
   type ContentLastLocationState,
 } from "@shared/content-landing";
 
@@ -17,6 +19,44 @@ export function isPersonalLanding(location: {
     location.pathname === CONTENT_LANDING_PATH &&
     !new URLSearchParams(location.search).get("spaceId")
   );
+}
+
+export type EarlyContentLanding =
+  | { ok: true; result: ContentLandingResult }
+  | { ok: false; error: unknown };
+
+let earlyLanding: {
+  locationKey: string;
+  answer: Promise<EarlyContentLanding> | null;
+} | null = null;
+
+// A load of /home asks where it lands alongside the session check, as it reads
+// the likely page, instead of after the route mounts behind that check.
+export function startEarlyContentLanding(locationKey: string) {
+  if (earlyLanding?.locationKey === locationKey) return;
+  earlyLanding = {
+    locationKey,
+    answer: callAction<ContentLandingResult>(
+      "resolve-content-landing",
+      {},
+    ).then(
+      (result) => ({ ok: true, result }),
+      (error: unknown) => ({ ok: false, error }),
+    ),
+  };
+}
+
+// Only /home's mount for the same load adopts the answer, once: a later visit
+// to /home must ask again, since the last page opened has moved since. Taking
+// also closes the load to an early start, because a route that mounts in the
+// first commit runs its effect before Root's and has already asked.
+export function takeEarlyContentLanding(
+  locationKey: string,
+): Promise<EarlyContentLanding> | null {
+  const answer =
+    earlyLanding?.locationKey === locationKey ? earlyLanding.answer : null;
+  earlyLanding = { locationKey, answer: null };
+  return answer;
 }
 
 let landingWriteQueue = Promise.resolve();
