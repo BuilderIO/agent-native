@@ -65,16 +65,23 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
   });
 
   it("keeps support files out of the visual screen layer list and Cmd+A", () => {
+    const selectAllFrames = editorSource.slice(
+      editorSource.indexOf("const handleSelectAllFrames = useCallback"),
+      editorSource.indexOf("const shouldHandleEditorHotkey"),
+    );
     expect(editorSource).toContain(
       "new Set(overviewScreens.map((screen) => screen.id))",
     );
     expect(editorSource).toContain(
       ".filter((file) => visualScreenFileIds.has(file.id))",
     );
-    expect(editorSource).toContain(
-      "setOverviewSelectedScreenIds(overviewScreens.map((screen) => screen.id))",
+    expect(selectAllFrames).toContain(
+      "const selectedScreenIds = overviewScreens.map((screen) => screen.id);",
     );
-    expect(editorSource).not.toContain(
+    expect(selectAllFrames).toContain(
+      "setOverviewSelectedScreenIds(selectedScreenIds);",
+    );
+    expect(selectAllFrames).not.toContain(
       "setOverviewSelectedScreenIds(files.map((file) => file.id))",
     );
   });
