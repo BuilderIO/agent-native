@@ -850,17 +850,58 @@ export function startPageOpenDocumentReads(
   const queryKey = documentQueryKey(documentId, context);
   const cached = queryClient.getQueryData<Document>(queryKey);
   if (cached && isDocumentCreationPending(cached)) return;
-  startPageOpenRead(queryClient, documentId, {
+  const readsDraft = previewDocumentDraftIsRead(cached);
+  // One request answers the page and its draft, so the draft read cannot hold
+  // the page back on its own. Each read takes that answer once: a refetch
+  // through either key sends its own request rather than replaying this one.
+  let pageRead: Promise<PageOpenDocumentRead> | null = null;
+  const readPage = () =>
+    (pageRead ??= callAction<PageOpenDocumentRead>(
+      "get-document",
+      {
+        ...documentReadParams(documentId, context),
+        ...(readsDraft ? { includePreviewDraft: true } : {}),
+      },
+      { method: "GET" },
+    ));
+  let documentTaken = false;
+  const documentReadStarted = startPageOpenRead(queryClient, documentId, {
     queryKey,
-    queryFn: ({ signal }) =>
-      callAction<Document>(
-        "get-document",
-        documentReadParams(documentId, context),
-        { method: "GET", signal },
-      ),
+    queryFn: ({ signal }) => {
+      if (documentTaken) {
+        return callAction<Document>(
+          "get-document",
+          documentReadParams(documentId, context),
+          { method: "GET", signal },
+        );
+      }
+      documentTaken = true;
+      return readPage().then(
+        ({ previewDraft: _previewDraft, ...document }) => document,
+      );
+    },
     retry: false,
   });
-  startPreviewDocumentDraftRead(queryClient, documentId, cached);
+  if (readsDraft) {
+    const draftRead = previewDocumentDraftReadOptions(
+      documentId,
+      cached?.createdAt,
+    );
+    let draftTaken = !documentReadStarted;
+    startPageOpenRead(queryClient, documentId, {
+      ...draftRead,
+      queryFn: (context) => {
+        if (draftTaken) return draftRead.queryFn(context);
+        draftTaken = true;
+        // A server without the combined answer, or a page read that failed,
+        // leaves the draft to its own request.
+        return readPage().then(
+          (read) => read.previewDraft ?? draftRead.queryFn(context),
+          () => draftRead.queryFn(context),
+        );
+      },
+    });
+  }
   if (cached?.source?.mode !== "local-files") {
     startPageOpenReviewReads(queryClient, documentId);
   }
@@ -910,6 +951,10 @@ export interface PreviewDocumentDraftResponse {
   editable: boolean;
 }
 
+type PageOpenDocumentRead = Document & {
+  previewDraft?: PreviewDocumentDraftResponse;
+};
+
 function previewDocumentDraftReadOptions(
   documentId: string,
   createdAt?: string | null,
@@ -940,22 +985,24 @@ export function usePreviewDocumentDraft(
   });
 }
 
+// A page that is known not to need recovery skips the draft read.
+function previewDocumentDraftIsRead(known?: Document) {
+  return !(
+    known &&
+    (isDocumentCreationPending(known) ||
+      known.canEdit === false ||
+      known.source?.mode === "local-files")
+  );
+}
+
 // Starts the draft read that page recovery verifies, alongside the document
-// read instead of after it. A page that is known not to need recovery skips
-// it.
+// read instead of after it.
 export function startPreviewDocumentDraftRead(
   queryClient: QueryClient,
   documentId: string,
   known?: Document,
 ) {
-  if (
-    known &&
-    (isDocumentCreationPending(known) ||
-      known.canEdit === false ||
-      known.source?.mode === "local-files")
-  ) {
-    return;
-  }
+  if (!previewDocumentDraftIsRead(known)) return;
   startPageOpenRead(
     queryClient,
     documentId,

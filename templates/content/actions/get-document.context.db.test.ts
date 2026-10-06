@@ -453,3 +453,58 @@ describe("get-document context and properties", () => {
     ]);
   });
 });
+
+describe("get-document preview draft", () => {
+  function read(id: string, includePreviewDraft?: boolean) {
+    return readAs(OWNER, () =>
+      getDocumentAction.run({ id, includePreviewDraft }, {
+        userEmail: OWNER,
+      } as any),
+    );
+  }
+
+  it("carries the reader's own draft only when asked, and none to a reader who cannot edit", async () => {
+    await addDocument({ id: "drafted-page" });
+    await addDocument({ id: "viewed-drafted-page", ownerEmail: OTHER });
+    await shareWithOwner("viewed-drafted-page");
+    await getDb()
+      .insert(schema.documentPreviewDrafts)
+      .values([
+        {
+          id: "own-draft",
+          ownerEmail: OWNER,
+          documentId: "drafted-page",
+          title: "Draft title",
+          content: "unsaved body",
+        },
+        {
+          id: "other-draft",
+          ownerEmail: OTHER,
+          documentId: "drafted-page",
+          title: "Not mine",
+          content: "another reader's body",
+        },
+        {
+          id: "viewer-draft",
+          ownerEmail: OWNER,
+          documentId: "viewed-drafted-page",
+          title: "Old draft",
+          content: "written while it was editable",
+        },
+      ]);
+
+    expect(await read("drafted-page")).not.toHaveProperty("previewDraft");
+    expect((await read("drafted-page", true)).previewDraft).toEqual({
+      editable: true,
+      draft: expect.objectContaining({
+        documentId: "drafted-page",
+        title: "Draft title",
+        content: "unsaved body",
+      }),
+    });
+    expect((await read("viewed-drafted-page", true)).previewDraft).toEqual({
+      editable: false,
+      draft: null,
+    });
+  });
+});

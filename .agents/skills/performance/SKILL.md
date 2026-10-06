@@ -158,6 +158,13 @@ duplicate the provider transport, auth, quota, and cache implementation.
   it doesn't use is dropped. Content's `last-location-hint.ts` names the page
   `/home` will reopen, so that page's read starts before application state
   answers.
+- When the page cannot be shown until a second read answers, carry that answer
+  in the page read instead of sending it alongside. A page open fires about
+  twenty requests at once, any of which can land on a cold instance (§9), so
+  each separate gate is one more way to wait seconds after the page has
+  arrived. Content's page open asks `get-document` for the reader's unsaved
+  draft (`includePreviewDraft`), so recovery knows there is nothing to recover
+  when the page lands.
 
 ## 5. Poll cheaply; compute once
 

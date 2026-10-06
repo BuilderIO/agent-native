@@ -14,12 +14,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const server = vi.hoisted(() => ({
   calls: [] as Array<{ name: string; params: unknown }>,
   respond: (name: string, params: any): Promise<unknown> =>
-    Promise.resolve(
-      name === "get-document"
-        ? { id: params.id, title: "Plan", canEdit: true }
-        : { editable: true, draft: null },
-    ),
+    Promise.resolve(pageOrDraft(name, params)),
 }));
+
+// Mirrors the server: a page read asked for the draft carries its answer.
+function pageOrDraft(name: string, params: any) {
+  if (name !== "get-document") return { editable: true, draft: null };
+  return {
+    id: params.id,
+    title: "Plan",
+    canEdit: true,
+    ...(params.includePreviewDraft
+      ? { previewDraft: { editable: true, draft: null } }
+      : {}),
+  };
+}
 
 vi.mock("@agent-native/core/client/hooks", () => {
   const callAction = (name: string, params: unknown) => {
@@ -117,11 +126,7 @@ describe("page open document reads", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     server.calls = [];
     server.respond = (name, params) =>
-      Promise.resolve(
-        name === "get-document"
-          ? { id: params.id, title: "Plan", canEdit: true }
-          : { editable: true, draft: null },
-      );
+      Promise.resolve(pageOrDraft(name, params));
     seen.length = 0;
     queryClient = new QueryClient();
     container = document.createElement("div");
@@ -144,7 +149,10 @@ describe("page open document reads", () => {
 
     expect(seen[0]).toEqual({ fetchedForThisOpen: true, title: "Plan" });
     expect(reads("get-document")).toBe(1);
-    expect(reads("get-preview-document-draft")).toBe(1);
+    expect(reads("get-preview-document-draft")).toBe(0);
+    expect(
+      queryClient.getQueryData(["action", "get-document", { id: "doc-1" }]),
+    ).not.toHaveProperty("previewDraft");
   });
 
   it("joins a read that is still in flight when the page mounts", async () => {
@@ -200,6 +208,40 @@ describe("page open document reads", () => {
 
     expect(seen[0].fetchedForThisOpen).toBe(false);
     await vi.waitFor(() => expect(reads("get-document")).toBe(2));
+  });
+
+  it("asks the server again when the open's own reads run a second time", async () => {
+    let served = 0;
+    server.respond = (name, params) =>
+      Promise.resolve({
+        ...pageOrDraft(name, params),
+        title: `Plan ${++served}`,
+      });
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    const pageKey = ["action", "get-document", { id: "doc-1" }];
+    const draftKey = [
+      "action",
+      "get-preview-document-draft",
+      { documentId: "doc-1" },
+    ];
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryState(draftKey)?.status).toBe("success"),
+    );
+
+    await queryClient.refetchQueries({ queryKey: pageKey, exact: true });
+    await queryClient.refetchQueries({ queryKey: draftKey, exact: true });
+
+    expect(server.calls.map((call) => [call.name, call.params])).toEqual([
+      ["get-document", { id: "doc-1", includePreviewDraft: true }],
+      ["list-comments", { documentId: "doc-1" }],
+      [
+        "list-resource-suggestions",
+        { resourceType: "document", resourceId: "doc-1" },
+      ],
+      ["get-document", { id: "doc-1" }],
+      ["get-preview-document-draft", { documentId: "doc-1" }],
+    ]);
+    expect(queryClient.getQueryData<Document>(pageKey)?.title).toBe("Plan 4");
   });
 
   it("does not show an early read after a peer changed the page before it mounted", async () => {
@@ -456,8 +498,10 @@ describe("page open document reads", () => {
     });
 
     expect(server.calls.map((call) => [call.name, call.params])).toEqual([
-      ["get-document", { id: "known-page", databaseId: "db-1" }],
-      [expect.any(String), { documentId: "known-page" }],
+      [
+        "get-document",
+        { id: "known-page", databaseId: "db-1", includePreviewDraft: true },
+      ],
       ["list-comments", { documentId: "known-page" }],
       [
         "list-resource-suggestions",
@@ -482,24 +526,70 @@ describe("page open document reads", () => {
 describe("draft recovery read", () => {
   let queryClient: QueryClient;
 
+  const draftKey = [
+    "action",
+    "get-preview-document-draft",
+    { documentId: "doc-1" },
+  ];
+  const draftLanded = () =>
+    vi.waitFor(() =>
+      expect(queryClient.getQueryState(draftKey)?.status).toBe("success"),
+    );
+
   beforeEach(() => {
     server.calls = [];
-    server.respond = () => Promise.resolve({ editable: true, draft: null });
+    server.respond = (name, params) =>
+      Promise.resolve(pageOrDraft(name, params));
     queryClient = new QueryClient();
   });
 
-  it("verifies against the draft read made alongside the page read", async () => {
+  it("verifies against the draft answer the page read carried", async () => {
     startPageOpenDocumentReads(queryClient, "doc-1");
-    await vi.waitFor(() => expect(reads("get-preview-document-draft")).toBe(1));
-    await vi.waitFor(() =>
-      expect(
-        queryClient.getQueryState([
-          "action",
-          "get-preview-document-draft",
-          { documentId: "doc-1" },
-        ])?.status,
-      ).toBe("success"),
-    );
+    await draftLanded();
+
+    await ensurePreviewDocumentDraftRead(queryClient, "doc-1");
+
+    expect(reads("get-document")).toBe(1);
+    expect(reads("get-preview-document-draft")).toBe(0);
+  });
+
+  it("fails verification when the page read says the reader cannot edit", async () => {
+    server.respond = (name, params) =>
+      Promise.resolve({
+        ...pageOrDraft(name, params),
+        previewDraft: { editable: false, draft: null },
+      });
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await draftLanded();
+
+    await expect(
+      ensurePreviewDocumentDraftRead(queryClient, "doc-1"),
+    ).rejects.toThrow("no longer editable");
+    expect(reads("get-preview-document-draft")).toBe(0);
+  });
+
+  it("reads the draft on its own when the page read carries no answer", async () => {
+    server.respond = (name, params) =>
+      Promise.resolve(
+        name === "get-document"
+          ? { id: params.id, title: "Plan", canEdit: true }
+          : { editable: true, draft: null },
+      );
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await draftLanded();
+
+    await ensurePreviewDocumentDraftRead(queryClient, "doc-1");
+
+    expect(reads("get-preview-document-draft")).toBe(1);
+  });
+
+  it("reads the draft on its own when the page read fails", async () => {
+    server.respond = (name, params) =>
+      name === "get-document"
+        ? Promise.reject(new Error("cold start timed out"))
+        : Promise.resolve(pageOrDraft(name, params));
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await draftLanded();
 
     await ensurePreviewDocumentDraftRead(queryClient, "doc-1");
 
@@ -508,22 +598,14 @@ describe("draft recovery read", () => {
 
   it("reads again when another tab wrote a draft after the early read", async () => {
     startPageOpenDocumentReads(queryClient, "doc-1");
-    await vi.waitFor(() =>
-      expect(
-        queryClient.getQueryState([
-          "action",
-          "get-preview-document-draft",
-          { documentId: "doc-1" },
-        ])?.status,
-      ).toBe("success"),
-    );
+    await draftLanded();
 
     await deliverSyncEvents(queryClient, "/home", [
       "update-preview-document-draft",
     ]);
     await ensurePreviewDocumentDraftRead(queryClient, "doc-1");
 
-    expect(reads("get-preview-document-draft")).toBe(2);
+    expect(reads("get-preview-document-draft")).toBe(1);
   });
 
   it("reads once when no read was made for this open", async () => {
@@ -534,7 +616,12 @@ describe("draft recovery read", () => {
   });
 
   it("fails verification when the reader can no longer edit the page", async () => {
-    server.respond = () => Promise.resolve({ editable: false, draft: null });
+    server.respond = (name, params) =>
+      Promise.resolve(
+        name === "get-document"
+          ? pageOrDraft(name, params)
+          : { editable: false, draft: null },
+      );
 
     await expect(
       ensurePreviewDocumentDraftRead(queryClient, "doc-1"),
