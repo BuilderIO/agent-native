@@ -843,6 +843,7 @@ export interface CrossScreenHitTestAnchorRect {
 export interface CrossScreenHitTestResult {
   targetAnchorProvenance?: SourceNodeProvenance;
   anchorNodeId?: string;
+  anchorParentNodeId?: string;
   pendingNodeId?: string;
   anchorSelector?: string;
   placement?: CrossScreenDropPlacement;

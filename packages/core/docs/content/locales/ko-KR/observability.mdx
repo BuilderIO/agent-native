@@ -336,13 +336,28 @@ export default defineAppConfig({
 
 에이전트 루프는 세 가지 범위 종류를 내보냅니다.
 
-| 스팬        | 언제                  | 속성                                                              |
-| ----------- | --------------------- | ----------------------------------------------------------------- |
-| `agent.run` | 에이전트 실행당 한 번 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | 액션 호출당 한 번     | `tool.name` 및 성공/오류 상태                                     |
-| `llm.call`  | 모델 호출당           | 타이밍 + 정상/오류 상태                                           |
+| 스팬                  | 언제                  | 속성                                                                                                      |
+| --------------------- | --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | 에이전트 실행당 한 번 | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | 액션 호출당 한 번     | `gen_ai.tool.name` 및 성공/오류 상태                                                                      |
+| `chat {model}`        | 모델 호출당           | `gen_ai.provider.name`, 타이밍 + 정상/오류 상태                                                           |
 
 스팬은 OK/ERROR 상태로 완료되고 실패 시 오류 메시지를 기록합니다. 0/감시 속성 값은 정리되어 범위가 노이즈로 인해 복잡해지지 않습니다. 이 OTel 레이어는 위의 대시보드를 구동하는 내부 `agent_trace_spans`/`agent_trace_summaries` 테이블에 순전히 추가됩니다. 둘 다 동일한 실행 이벤트에서 생성됩니다.
+
+### 메트릭 {#otel-metrics}
+
+호스트가 `@agent-native/core/server`의 `registerObservabilityProvider()`로 미터 프로바이더를 등록하면 Core는 메트릭도 기록합니다. 메트릭은 샘플링 없이 모든 요청과 실행에 대해 기록됩니다.
+
+| 계측기                                  | 속성                                                                                         |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+메트릭에서 `gen_ai.tool.name`은 프레임워크 액션 이름 또는 `other`이며, `gen_ai.request.model`은 엔진이 지원 모델로 등록한 경우에만 모델 ID이고 그렇지 않으면 `_OTHER`입니다. 따라서 앱에서 정의한 도구나 호출자가 지정한 모델 ID가 시리즈를 무한정 늘릴 수 없으며, 스팬에는 정확한 값이 남습니다.
 
 ## 오류 보고(Sentry) {#sentry}
 

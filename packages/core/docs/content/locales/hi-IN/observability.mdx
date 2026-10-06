@@ -336,13 +336,28 @@ export default defineAppConfig({
 
 एजेंट लूप तीन प्रकार के स्पैन उत्सर्जित करता है:
 
-| विस्तार     | कब                         | गुण                                                               |
-| ----------- | -------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | प्रति एजेंट एक बार चलाएं   | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | प्रति क्रिया एक बार आह्वान | `tool.name`, प्लस सफलता/त्रुटि स्थिति                             |
-| `llm.call`  | प्रति मॉडल कॉल             | समय + ठीक/त्रुटि स्थिति                                           |
+| विस्तार               | कब                         | गुण                                                                                                       |
+| --------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | प्रति एजेंट एक बार चलाएं   | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | प्रति क्रिया एक बार आह्वान | `gen_ai.tool.name`, प्लस सफलता/त्रुटि स्थिति                                                              |
+| `chat {model}`        | प्रति मॉडल कॉल             | `gen_ai.provider.name`, समय + ठीक/त्रुटि स्थिति                                                           |
 
 ओके/ERROR स्थिति के साथ स्पैन समाप्त हो जाते हैं और विफलता पर त्रुटि संदेश रिकॉर्ड करते हैं। शून्य/प्रहरी विशेषता मानों को काट दिया जाता है ताकि स्पैन शोर से अव्यवस्थित न हों। यह ओटेल परत पूरी तरह से इन-हाउस `agent_trace_spans` / `agent_trace_summaries` तालिकाओं से जुड़ी हुई है जो ऊपर डैशबोर्ड को शक्ति प्रदान करती हैं - दोनों एक ही रन इवेंट से निर्मित होते हैं।
+
+### मेट्रिक्स {#otel-metrics}
+
+जब होस्ट `@agent-native/core/server` से `registerObservabilityProvider()` के साथ एक मीटर प्रोवाइडर रजिस्टर करता है, तो Core मेट्रिक्स भी रिकॉर्ड करता है। मेट्रिक्स हर अनुरोध और हर रन के लिए, बिना सैंपलिंग के, रिकॉर्ड किए जाते हैं:
+
+| इंस्ट्रूमेंट                            | एट्रिब्यूट्स                                                                                 |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+मेट्रिक्स में, `gen_ai.tool.name` किसी फ़्रेमवर्क एक्शन का नाम या `other` होता है, और `gen_ai.request.model` मॉडल ID तभी होता है जब इंजन उसे समर्थित के रूप में सूचीबद्ध करता है, अन्यथा `_OTHER`। इसलिए ऐप-परिभाषित टूल और कॉलर द्वारा दिए गए मॉडल ID असीमित सीरीज़ नहीं बना सकते; स्पैन सटीक मान रखते हैं।
 
 ## त्रुटि रिपोर्टिंग (Sentry) {#sentry}
 

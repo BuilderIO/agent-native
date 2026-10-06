@@ -293,9 +293,9 @@ describe("call-agent action", () => {
     expect(result).not.toContain("in session");
   });
 
-  it("forwards the user's exact downstream action authorization", async () => {
+  it("does not forward caller-supplied downstream approvals", async () => {
     callAgentMock.mockResolvedValueOnce("sent");
-    const { run } = await import("./call-agent.js");
+    const { run, tool } = await import("./call-agent.js");
     const approvedActions = [
       { tool: "send-email", input: { to: "alice@example.org" } },
     ];
@@ -309,14 +309,19 @@ describe("call-agent action", () => {
     expect(callAgentMock).toHaveBeenCalledWith(
       "https://slides.agent-native.test",
       expect.stringContaining("send it"),
-      expect.objectContaining({ approvedActions }),
+      expect.any(Object),
     );
+    expect(tool.parameters.properties).not.toHaveProperty("approvedActions");
     expect(callAgentMock.mock.calls[0]?.[1]).toContain(
       "Return a concise caller-ready synthesis rather than raw tool output or full transcripts",
     );
     expect(callAgentMock.mock.calls[0]?.[1]).toContain("<a2a-caller-hint>");
     expect(callAgentMock.mock.calls[0]?.[1]).toContain("</a2a-caller-hint>");
+    expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty(
+      "approvedActions",
+    );
     expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty("cardUrl");
+    expect(callAgentMock.mock.calls[0]?.[2]).toMatchObject({ orgId: "org-qa" });
   });
 
   it("labels an ordinary peer's rejected A2A credentials clearly", async () => {
@@ -1001,7 +1006,7 @@ describe("call-agent action", () => {
       expect.stringContaining(
         "Source Slack thread: https://example-workspace.slack.com/archives/C123/p123456",
       ),
-      expect.any(Object),
+      expect.objectContaining({ orgId: "org-qa" }),
     );
   });
 
