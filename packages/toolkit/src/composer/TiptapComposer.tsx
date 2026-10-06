@@ -2965,24 +2965,14 @@ export function TiptapComposer({
   }, [allSlashSkills, popover]);
 
   // Keep refs in sync with state
-  const mentionItemsRef = useRef(filteredMentionItems);
-  mentionItemsRef.current = filteredMentionItems;
   // Results for an earlier query are stale until the search for this one
-  // settles, so neither auto-close nor Enter may treat them as final. Host
-  // mention items carry no readiness signal (they may still be loading), so
-  // only a settled default search can end a query as "nothing matches".
+  // settles, so auto-close may not treat them as final. Host mention items
+  // carry no readiness signal (they may still be loading), so only a settled
+  // default search can end a query as "nothing matches".
   const mentionSearchSettled =
     includeDefaultMentionSearch &&
     !mentionsLoading &&
     settledMentionQuery === mentionQuery;
-  // A failed search is unknown, not empty: it keeps the popover open, but
-  // Enter still sends because there is nothing to pick.
-  const mentionSearchFinished =
-    !includeDefaultMentionSearch ||
-    mentionSearchSettled ||
-    (!mentionsLoading && mentionsError !== null);
-  const mentionSearchFinishedRef = useRef(mentionSearchFinished);
-  mentionSearchFinishedRef.current = mentionSearchFinished;
   const filteredCommandsRef = useRef(filteredCommands);
   filteredCommandsRef.current = filteredCommands;
   const filteredSkillsRef = useRef(filteredSkills);
@@ -3309,17 +3299,6 @@ export function TiptapComposer({
 
         // Handle popover keyboard nav
         if (pop) {
-          if (event.key === " " && pop.type === "@" && pop.query) {
-            const exact = findExactMentionItem(
-              mentionItemsRef.current,
-              pop.query,
-            );
-            if (exact) {
-              event.preventDefault();
-              selectMention(view, pop, exact);
-              return true;
-            }
-          }
           if (event.key === "ArrowUp") {
             event.preventDefault();
             popoverRef.current?.moveUp();
@@ -3330,14 +3309,17 @@ export function TiptapComposer({
             popoverRef.current?.moveDown();
             return true;
           }
-          if (
-            event.key === "Enter" &&
-            pop.type === "@" &&
-            mentionSearchFinishedRef.current &&
-            !popoverRef.current?.getSelectedMention()
-          ) {
-            // Nothing to pick, so the "@" is plain text and Enter submits.
+          // A mention comes only from an explicit pick of a highlighted row. With
+          // nothing highlighted, even while a search is pending, the "@" is
+          // plain text: Enter submits it and a late result changes nothing.
+          const highlighted =
+            pop.type === "@" ? popoverRef.current?.getSelectedMention() : null;
+          if (event.key === "Enter" && pop.type === "@" && !highlighted) {
             closePopover();
+          } else if (event.key === "Tab" && !event.shiftKey && highlighted) {
+            event.preventDefault();
+            selectMention(view, pop, highlighted);
+            return true;
           } else if (event.key === "Enter") {
             event.preventDefault();
             const idx = popoverRef.current?.getSelectedIndex() ?? 0;

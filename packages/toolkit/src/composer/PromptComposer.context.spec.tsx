@@ -129,10 +129,13 @@ describe("controlled composer context", () => {
     }
   }
   async function pressEnter(editor: HTMLElement) {
+    await pressKey(editor, "Enter");
+  }
+  async function pressKey(editor: HTMLElement, key: string) {
     await act(async () => {
       editor.dispatchEvent(
         new KeyboardEvent("keydown", {
-          key: "Enter",
+          key,
           bubbles: true,
           cancelable: true,
         }),
@@ -246,7 +249,37 @@ describe("controlled composer context", () => {
       expect(onSubmit.mock.calls[0]![0]).toBe("Reply @x");
     },
   );
-  it("turns a typed @ query into a mention when one is picked", async () => {
+  it.each(["Enter", "Tab"])(
+    "turns a typed @ query into a mention when %s picks it",
+    async (key) => {
+      const onReferencesChange = vi.fn();
+      const { onSubmit } = await mount({
+        initialText: "",
+        contextMenuItems: [],
+        includeDefaultMentionSearch: false,
+        onReferencesChange,
+        mentionItems: [slidesAgent],
+      });
+      const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+      await act(async () => editor.focus());
+
+      await typeInto(editor, "Ask @Sli");
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      expect(
+        document.querySelector('[data-mention-index="0"]')?.textContent,
+      ).toContain("Slides");
+      await pressKey(editor, key);
+
+      expect(editor.textContent).toContain("Ask ");
+      expect(editor.textContent).toContain("Slides");
+      expect(editor.textContent).not.toContain("@Sli");
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ refType: "agent", refId: "slides" }),
+      ]);
+      expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+  it("keeps an exactly matching @name followed by Space as text", async () => {
     const onReferencesChange = vi.fn();
     const { onSubmit } = await mount({
       initialText: "",
@@ -258,20 +291,15 @@ describe("controlled composer context", () => {
     const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
     await act(async () => editor.focus());
 
-    await typeInto(editor, "Ask @Sli");
-    expect(document.querySelector('[role="menu"]')).toBeNull();
-    expect(
-      document.querySelector('[data-mention-index="0"]')?.textContent,
-    ).toContain("Slides");
-    await pressEnter(editor);
+    await typeInto(editor, "Ask @Slides rock");
 
-    expect(editor.textContent).toContain("Ask ");
-    expect(editor.textContent).toContain("Slides");
-    expect(editor.textContent).not.toContain("@Sli");
-    expect(onReferencesChange).toHaveBeenLastCalledWith([
-      expect.objectContaining({ refType: "agent", refId: "slides" }),
+    expect(editor.textContent).toBe("Ask @Slides rock");
+    expect(onReferencesChange).not.toHaveBeenCalledWith([
+      expect.objectContaining({ refId: "slides" }),
     ]);
-    expect(onSubmit).not.toHaveBeenCalled();
+    await pressKey(editor, "Escape");
+    await pressEnter(editor);
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ask @Slides rock");
   });
   it("suggests host context sources for a typed @ and attaches the one picked", async () => {
     const onSelect = vi.fn();
@@ -426,6 +454,45 @@ describe("controlled composer context", () => {
     ).toBeNull();
     await pressEnter(editor);
     expect(onSubmit.mock.calls[0]![0]).toBe("Ping a @builder.io email");
+  });
+  it("sends a typed @ on Enter while its search is pending, ignoring a late match", async () => {
+    const pending: Array<() => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) =>
+            pending.push(() =>
+              resolve(
+                new Response(
+                  JSON.stringify({
+                    items: [{ ...slidesAgent, label: "Alice" }],
+                  }) + "\n",
+                  { status: 200 },
+                ),
+              ),
+            ),
+          ),
+      ),
+    );
+    const onReferencesChange = vi.fn();
+    const { onSubmit } = await mount({ initialText: "", onReferencesChange });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ask @Ali");
+    await pressEnter(editor);
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]![0]).toBe("Ask @Ali");
+
+    await act(async () => {
+      pending.splice(0).forEach((release) => release());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onReferencesChange).not.toHaveBeenCalledWith([
+      expect.objectContaining({ refId: "slides" }),
+    ]);
   });
   it("opens the shared Add menu from + without inserting a mention", async () => {
     const onSelect = vi.fn();
