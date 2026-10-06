@@ -115,8 +115,12 @@ describe("useSqlQuery refresh", () => {
     });
   });
 
-  it("does not restart a lazy query when refresh enables it", async () => {
+  it("forces a refresh when enabling a cached lazy query", async () => {
     mocks.callAction.mockResolvedValue({ rows: [{ value: 42 }], schema: [] });
+    queryClient.setQueryData(["sql", "SELECT 1"], {
+      rows: [{ value: 17 }],
+      schema: [],
+    });
 
     const render = (enabled: boolean, refreshToken: number) =>
       root.render(
@@ -136,6 +140,46 @@ describe("useSqlQuery refresh", () => {
     await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(container.textContent).toBe("loaded"));
 
+    expect(mocks.callAction.mock.calls[0]?.[1]).toEqual({
+      query: "SELECT 1",
+      source: "bigquery",
+      forceRefresh: true,
+    });
+  });
+
+  it("does not duplicate the forced initial request when enabling a lazy query", async () => {
+    let resolveAction!: (result: {
+      rows: { value: number }[];
+      schema: [];
+    }) => void;
+    mocks.callAction.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAction = resolve;
+        }),
+    );
+
+    const render = (enabled: boolean, refreshToken: number) =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <QueryProbe
+            enabled={enabled}
+            refreshToken={refreshToken}
+            sql="SELECT 1"
+          />
+        </QueryClientProvider>,
+      );
+
+    await act(async () => render(false, 0));
+    await act(async () => render(true, 1));
+    await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      resolveAction({ rows: [{ value: 42 }], schema: [] });
+    });
+    await vi.waitFor(() => expect(container.textContent).toBe("loaded"));
+
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
     expect(mocks.callAction.mock.calls[0]?.[1]).toEqual({
       query: "SELECT 1",
       source: "bigquery",

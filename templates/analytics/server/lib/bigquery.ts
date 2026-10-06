@@ -133,6 +133,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_L1_ENTRIES = 200;
 const STALE_REFRESH_MS = 5 * 60 * 1000;
 const CACHE_CANCEL_TIMEOUT_MS = 5_000;
+const JOB_SUBMISSION_TIMEOUT_MS = 10_000;
 
 const l1Cache = new Map<string, L1Entry>();
 
@@ -151,9 +152,10 @@ function getCacheKey(
   // Scope by caller as well as project so a warm server process cannot serve
   // cached warehouse results across tenants that happen to query the same
   // project/table names.
-  return createHash("sha256")
+  // Isolate fenced cache rows from old instances that still write unconditionally.
+  return `v2:${createHash("sha256")
     .update(`${cacheScope}\n${projectId}\n${sql}`)
-    .digest("hex");
+    .digest("hex")}`;
 }
 
 function addUtcDateCacheKey(sql: string): string {
@@ -712,6 +714,7 @@ export async function runQuery(
     // Keep submission alive long enough to read the job location for cancellation.
     const res = await fetch(url, {
       method: "POST",
+      signal: AbortSignal.timeout(JOB_SUBMISSION_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",

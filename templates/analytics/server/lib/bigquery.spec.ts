@@ -263,6 +263,7 @@ describe("runQuery cancellation", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("stops an incomplete job's poll wait immediately when the agent run aborts", async () => {
@@ -342,10 +343,76 @@ describe("runQuery cancellation", () => {
 
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("signal");
+    expect(fetchMock.mock.calls[0]?.[1]).toHaveProperty(
+      "signal",
+      expect.any(AbortSignal),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).not.toBe(controller.signal);
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       `https://bigquery.googleapis.com/bigquery/v2/projects/test-project/jobs/${jobId}/cancel?location=US`,
     );
+  });
+
+  it("bounds a stalled job submission and cancels a possibly accepted job", async () => {
+    const cache = useCacheDatabase();
+    const submissionTimeoutController = new AbortController();
+    const cancellationTimeoutController = new AbortController();
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((milliseconds) => {
+        if (milliseconds === 10_000) return submissionTimeoutController.signal;
+        if (milliseconds === 5_000) return cancellationTimeoutController.signal;
+        throw new Error(`Unexpected timeout: ${milliseconds}`);
+      });
+    let signalSubmissionStarted!: () => void;
+    const submissionStarted = new Promise<void>((resolve) => {
+      signalSubmissionStarted = resolve;
+    });
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          signalSubmissionStarted();
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              const error = new Error("job submission timed out");
+              error.name = "AbortError";
+              reject(error);
+            });
+          });
+        }
+        return jsonResponse({});
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = runQuery("SELECT 1 AS stalled_job_submission_test");
+    await submissionStarted;
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringContaining("/jobs"),
+      expect.objectContaining({
+        signal: submissionTimeoutController.signal,
+        method: "POST",
+      }),
+    );
+    expect([...cache.values()][0]?.refreshInProgress).toBe(true);
+
+    submissionTimeoutController.abort();
+    await expect(pending).rejects.toThrow("job submission timed out");
+
+    const cancellationRequest = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("/cancel"),
+    );
+    expect(cancellationRequest?.[1]).toMatchObject({
+      signal: cancellationTimeoutController.signal,
+      method: "POST",
+    });
+    expect(String(cancellationRequest?.[0])).toMatch(
+      /\/projects\/test-project\/jobs\/agent_native_[a-f0-9]+\/cancel$/,
+    );
+    expect([...cache.values()][0]?.refreshInProgress).toBe(false);
+    expect(timeout).toHaveBeenCalledWith(10_000);
+    expect(timeout).toHaveBeenCalledWith(5_000);
   });
 
   it("cancels an incomplete job after the polling limit is reached", async () => {
@@ -542,6 +609,10 @@ describe("runQuery cancellation", () => {
       JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)).configuration
         .query,
     ).toHaveProperty("useQueryCache", false);
+    const fenceRead = execute.mock.calls.find(([input]) =>
+      input.sql.startsWith("SELECT generation, fence_token"),
+    );
+    expect(fenceRead?.[0].args[0]).toMatch(/^v2:/);
   });
 
   it("runs the query without caching when cache coordination is unavailable", async () => {
@@ -584,12 +655,14 @@ describe("runQuery cancellation", () => {
 
   it("bounds job cancellation so a stalled request releases its cache fence", async () => {
     const cache = useCacheDatabase();
-    const timeoutController = new AbortController();
+    const submissionTimeoutController = new AbortController();
+    const cancellationTimeoutController = new AbortController();
     const timeout = vi
       .spyOn(AbortSignal, "timeout")
       .mockImplementation((milliseconds) => {
-        expect(milliseconds).toBe(5_000);
-        return timeoutController.signal;
+        if (milliseconds === 10_000) return submissionTimeoutController.signal;
+        if (milliseconds === 5_000) return cancellationTimeoutController.signal;
+        throw new Error(`Unexpected timeout: ${milliseconds}`);
       });
     let signalCancellationStarted!: () => void;
     const cancellationStarted = new Promise<void>((resolve) => {
@@ -629,12 +702,12 @@ describe("runQuery cancellation", () => {
     expect(fetchMock).toHaveBeenLastCalledWith(
       expect.stringContaining("/cancel"),
       expect.objectContaining({
-        signal: timeoutController.signal,
+        signal: cancellationTimeoutController.signal,
         method: "POST",
       }),
     );
 
-    timeoutController.abort();
+    cancellationTimeoutController.abort();
     await expect(pending).rejects.toThrow(
       "BigQuery poll error 503: BigQuery poll unavailable",
     );

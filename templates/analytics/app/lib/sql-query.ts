@@ -206,6 +206,7 @@ export function useSqlQuery(
   const refreshToken = options?.refreshToken ?? 0;
   const enabled = options?.enabled ?? true;
   const latestRefreshToken = useRef(refreshToken);
+  const latestStartedRefreshToken = useRef(refreshToken);
   latestRefreshToken.current = refreshToken;
   const previousRefreshToken = useRef(refreshToken);
   const previousEnabled = useRef(enabled);
@@ -214,6 +215,7 @@ export function useSqlQuery(
     queryKey,
     queryFn: async ({ signal }) => {
       const currentRefreshToken = latestRefreshToken.current;
+      latestStartedRefreshToken.current = currentRefreshToken;
       const forceRefresh = currentRefreshToken > successfulRefreshToken.current;
       const result = await executeSqlQuery(sql, source, signal, {
         reportScreenshot: options?.reportScreenshot,
@@ -238,13 +240,24 @@ export function useSqlQuery(
   useEffect(() => {
     const wasEnabled = previousEnabled.current;
     previousEnabled.current = enabled;
-    if (refreshToken <= previousRefreshToken.current) return;
+    const refreshTokenChanged = refreshToken > previousRefreshToken.current;
     previousRefreshToken.current = refreshToken;
-    if (!wasEnabled || !enabled) return;
+    if (!enabled) return;
+    const enablingPendingRefresh =
+      !wasEnabled && refreshToken > successfulRefreshToken.current;
+    if (
+      (!refreshTokenChanged && !enablingPendingRefresh) ||
+      refreshToken <= successfulRefreshToken.current
+    ) {
+      return;
+    }
+    if (query.isFetching && latestStartedRefreshToken.current >= refreshToken) {
+      return;
+    }
     void queryClient
       .cancelQueries({ queryKey, exact: true })
       .then(() => refetch());
-  }, [enabled, queryClient, queryKey, refetch, refreshToken]);
+  }, [enabled, query.isFetching, queryClient, queryKey, refetch, refreshToken]);
 
   return query;
 }
