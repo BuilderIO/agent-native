@@ -46,6 +46,12 @@ pnpm install
 Se quiser, substitua `my-app` pelo nome do seu app. O restante deste guia
 considera que você está dentro da pasta do app.
 
+<Callout tone="info">
+
+Se esses comandos falharem com erros de dependências peer, a causa pode ser uma cópia desatualizada de um pacote no seu cache do npx. Execute `npx clear-npx-cache` para limpar o cache e depois execute os comandos novamente.
+
+</Callout>
+
 ## Passo 2: Crie o Dockerfile {#step-2-create-dockerfile}
 
 Um app novo não inclui um `Dockerfile`, então você mesmo precisa adicioná-lo. Você também adiciona

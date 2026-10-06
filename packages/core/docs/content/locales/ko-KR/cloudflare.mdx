@@ -35,6 +35,12 @@ pnpm install
 
 원한다면 `my-app`을 원하는 앱 이름으로 바꾸세요. 이 가이드의 나머지 부분은 앱 폴더 안에 있다고 가정합니다.
 
+<Callout tone="info">
+
+이 명령이 피어 종속성 오류로 실패한다면 npx 캐시에 있는 오래된 패키지가 원인일 수 있습니다. `npx clear-npx-cache`를 실행해 캐시를 지운 다음 명령을 다시 실행하세요.
+
+</Callout>
+
 ## 2단계: 환경 시크릿 구성하기 {#step-2-configure-environment-secrets}
 
 앱은 프로덕션 설정을 환경 변수에서 읽습니다.

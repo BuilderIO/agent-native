@@ -52,6 +52,12 @@ repositório no GitHub, GitLab ou Bitbucket antes de continuar. Inclua também o
 `pnpm-lock.yaml` no commit, porque o build instala as versões exatas que
 ele lista.
 
+<Callout tone="info">
+
+Se esses comandos falharem com erros de dependências peer, a causa pode ser uma cópia desatualizada de um pacote no seu cache do npx. Execute `npx clear-npx-cache` para limpar o cache e depois execute os comandos novamente.
+
+</Callout>
+
 ## Passo 2: Configure os segredos do ambiente {#step-2-configure-environment-secrets}
 
 O app lê as configurações de produção a partir de variáveis de ambiente:

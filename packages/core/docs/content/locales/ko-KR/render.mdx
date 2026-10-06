@@ -37,6 +37,12 @@ pnpm install
 
 Render는 Git 저장소에서 앱을 빌드하므로, 계속하기 전에 앱 폴더를 GitHub, GitLab, Bitbucket 중 한 곳의 새 저장소에 푸시하세요. 빌드는 `pnpm-lock.yaml` 파일에 적힌 정확한 버전을 설치하므로 이 파일도 함께 커밋하세요.
 
+<Callout tone="info">
+
+이 명령이 피어 종속성 오류로 실패한다면 npx 캐시에 있는 오래된 패키지가 원인일 수 있습니다. `npx clear-npx-cache`를 실행해 캐시를 지운 다음 명령을 다시 실행하세요.
+
+</Callout>
+
 ## 2단계: 환경 시크릿 구성하기 {#step-2-configure-environment-secrets}
 
 앱은 프로덕션 설정을 환경 변수에서 읽습니다.

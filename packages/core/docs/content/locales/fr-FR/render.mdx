@@ -55,6 +55,12 @@ de l'application vers un nouveau dépôt sur GitHub, GitLab ou Bitbucket avant d
 continuer. Committez aussi le fichier `pnpm-lock.yaml`, car le build installe
 exactement les versions qu'il indique.
 
+<Callout tone="info">
+
+Si ces commandes échouent avec des erreurs de dépendances pairs, une copie obsolète d'un paquet dans votre cache npx peut en être la cause. Exécutez `npx clear-npx-cache` pour vider le cache, puis relancez les commandes.
+
+</Callout>
+
 ## Étape 2 : Configurer les secrets d'environnement {#step-2-configure-environment-secrets}
 
 L'application lit ses paramètres de production depuis des variables

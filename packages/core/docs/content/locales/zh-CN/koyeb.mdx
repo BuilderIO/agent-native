@@ -48,6 +48,12 @@ Koyeb 会从 GitHub 构建应用，因此在继续之前，请把应用的文件
 `packageManager` 字段，使用 `pnpm` 安装应用。它还会从 `package.json` 的 `engines`
 字段读取 Node.js 版本。新应用已经设置了这两个字段。
 
+<Callout tone="info">
+
+如果这些命令因对等依赖错误而失败，原因可能是 npx 缓存中有过时的软件包副本。运行 `npx clear-npx-cache` 清除缓存，然后重新运行这些命令。
+
+</Callout>
+
 ## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
 
 应用从环境变量中读取其生产设置：

@@ -50,6 +50,12 @@ considera que você está dentro da pasta do app.
 O Amplify faz o build do app a partir de um repositório Git, então envie a pasta do app para um novo
 repositório antes de continuar. No Passo 4, você adiciona mais um arquivo e faz o push novamente.
 
+<Callout tone="info">
+
+Se esses comandos falharem com erros de dependências peer, a causa pode ser uma cópia desatualizada de um pacote no seu cache do npx. Execute `npx clear-npx-cache` para limpar o cache e depois execute os comandos novamente.
+
+</Callout>
+
 ## Passo 2: Configure os segredos do ambiente {#step-2-configure-environment-secrets}
 
 O app lê as configurações de produção a partir de variáveis de ambiente:

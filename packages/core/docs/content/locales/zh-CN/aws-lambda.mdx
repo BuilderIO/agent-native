@@ -55,6 +55,12 @@ pnpm install
 如果愿意，可以把 `my-app` 替换为你自己的应用名称。本指南的其余部分假定你位于
 应用的文件夹中。
 
+<Callout tone="info">
+
+如果这些命令因对等依赖错误而失败，原因可能是 npx 缓存中有过时的软件包副本。运行 `npx clear-npx-cache` 清除缓存，然后重新运行这些命令。
+
+</Callout>
+
 ## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
 
 应用从环境变量中读取其生产设置：

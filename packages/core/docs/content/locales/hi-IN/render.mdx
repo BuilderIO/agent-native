@@ -52,6 +52,12 @@ folder को GitHub, GitLab, या Bitbucket पर एक नई repository �
 `pnpm-lock.yaml` file को भी commit करें, क्योंकि build उसमें दिए गए exact
 versions install करता है।
 
+<Callout tone="info">
+
+अगर ये commands peer dependency errors के साथ fail होते हैं, तो इसकी वजह आपके npx cache में किसी package की पुरानी copy हो सकती है। Cache साफ़ करने के लिए `npx clear-npx-cache` चलाएं, फिर commands दोबारा चलाएं।
+
+</Callout>
+
 ## चरण 2: Environment secrets configure करें {#step-2-configure-environment-secrets}
 
 ऐप अपनी production settings environment variables से पढ़ता है:

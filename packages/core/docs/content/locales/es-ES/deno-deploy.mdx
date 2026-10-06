@@ -48,6 +48,12 @@ pnpm install
 Si quieres, reemplaza `my-app` por el nombre de tu aplicación. El resto de esta guía
 supone que estás dentro de la carpeta de la aplicación.
 
+<Callout tone="info">
+
+Si estos comandos fallan con errores de dependencias peer, la causa puede ser una copia desactualizada de un paquete en tu caché de npx. Ejecuta `npx clear-npx-cache` para vaciar la caché y vuelve a ejecutar los comandos.
+
+</Callout>
+
 ## Paso 2: Configura los secretos del entorno {#step-2-configure-environment-secrets}
 
 La aplicación lee su configuración de producción desde variables de entorno:

@@ -51,6 +51,14 @@ assumes you are inside the app's folder.
 Amplify builds the app from a Git repository, so push the app's folder to a new
 repository before you continue. You add one more file in Step 4 and push again.
 
+<Callout tone="info">
+
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
+
+</Callout>
+
 ## Step 2: Configure environment secrets
 
 The app reads its production settings from environment variables:

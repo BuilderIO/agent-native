@@ -48,6 +48,12 @@ pnpm install
 Ersetzen Sie `my-app` bei Bedarf durch Ihren eigenen App-Namen. Der Rest dieser
 Anleitung geht davon aus, dass Sie sich im Ordner der App befinden.
 
+<Callout tone="info">
+
+Wenn diese Befehle mit Fehlern zu Peer-Abhängigkeiten fehlschlagen, liegt das möglicherweise an einer veralteten Kopie eines Pakets in Ihrem npx-Cache. Führen Sie `npx clear-npx-cache` aus, um den Cache zu leeren, und führen Sie die Befehle dann erneut aus.
+
+</Callout>
+
 ## Schritt 2: Umgebungs-Secrets konfigurieren {#step-2-configure-environment-secrets}
 
 Die App liest ihre Produktionseinstellungen aus Umgebungsvariablen:

@@ -53,6 +53,14 @@ uses it, together with the `packageManager` field in `package.json`, to install
 the app with `pnpm`. It also reads the Node.js version from the `engines` field
 in `package.json`. A new app already sets both fields.
 
+<Callout tone="info">
+
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
+
+</Callout>
+
 ## Step 2: Configure environment secrets
 
 The app reads its production settings from environment variables:

@@ -47,6 +47,12 @@ Render 会从 Git 仓库构建应用，因此在继续之前，请把应用的�
 GitLab 或 Bitbucket 上的一个新仓库。也请提交 `pnpm-lock.yaml` 文件，因为构建会
 安装其中列出的确切版本。
 
+<Callout tone="info">
+
+如果这些命令因对等依赖错误而失败，原因可能是 npx 缓存中有过时的软件包副本。运行 `npx clear-npx-cache` 清除缓存，然后重新运行这些命令。
+
+</Callout>
+
 ## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
 
 应用从环境变量中读取其生产设置：

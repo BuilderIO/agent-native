@@ -47,6 +47,14 @@ pnpm install
 Replace `my-app` with your own app name if you like. The rest of this guide
 assumes you are inside the app's folder.
 
+<Callout tone="info">
+
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
+
+</Callout>
+
 ## Step 2: Create Dockerfile
 
 A new app does not include a `Dockerfile`, so you add one yourself. You also add

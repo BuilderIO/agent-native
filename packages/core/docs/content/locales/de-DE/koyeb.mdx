@@ -55,6 +55,12 @@ GitHub-Repository, bevor Sie fortfahren. Committen Sie auch die Datei
 Node.js-Version aus dem Feld `engines` in `package.json`. Eine neue App setzt
 beide Felder bereits.
 
+<Callout tone="info">
+
+Wenn diese Befehle mit Fehlern zu Peer-Abhängigkeiten fehlschlagen, liegt das möglicherweise an einer veralteten Kopie eines Pakets in Ihrem npx-Cache. Führen Sie `npx clear-npx-cache` aus, um den Cache zu leeren, und führen Sie die Befehle dann erneut aus.
+
+</Callout>
+
 ## Schritt 2: Umgebungs-Secrets konfigurieren {#step-2-configure-environment-secrets}
 
 Die App liest ihre Produktionseinstellungen aus Umgebungsvariablen:

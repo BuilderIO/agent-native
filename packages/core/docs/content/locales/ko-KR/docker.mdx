@@ -35,6 +35,12 @@ pnpm install
 
 원한다면 `my-app`을 원하는 앱 이름으로 바꾸세요. 이 가이드의 나머지 부분은 앱 폴더 안에 있다고 가정합니다.
 
+<Callout tone="info">
+
+이 명령이 피어 종속성 오류로 실패한다면 npx 캐시에 있는 오래된 패키지가 원인일 수 있습니다. `npx clear-npx-cache`를 실행해 캐시를 지운 다음 명령을 다시 실행하세요.
+
+</Callout>
+
 ## 2단계: Dockerfile 만들기 {#step-2-create-dockerfile}
 
 새 앱에는 `Dockerfile`이 포함되어 있지 않으므로 직접 추가해야 합니다. 로컬 파일이 이미지에 들어가지 않도록 하는 `.dockerignore` 파일도 함께 추가합니다. 두 파일 모두 앱의 루트 폴더, 즉 `package.json`과 같은 위치에 만드세요.
