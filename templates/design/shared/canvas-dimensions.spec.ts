@@ -14,6 +14,8 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     ["Use exact dimensions: 96 by 96", { width: 96, height: 96 }],
     ["Create a 1,200 x 675 pixel email banner", { width: 1200, height: 675 }],
     ["Create an email header at 1200x400", { width: 1200, height: 400 }],
+    ["Create an Instagram post: 1080x1080", { width: 1080, height: 1080 }],
+    ["Make a banner, 728x90", { width: 728, height: 90 }],
     ["Create an image at 1080x1080", { width: 1080, height: 1080 }],
     ["Create a 1080x1080 image", { width: 1080, height: 1080 }],
     ["Create a screen at 1080px × 1080px", { width: 1080, height: 1080 }],
@@ -124,6 +126,21 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         "Create an Instagram post at 1080x1080 with a 300x250px image",
       ),
     ).toEqual({ width: 1080, height: 1080 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 300x250 ad that includes a 1080x1080 image",
+      ),
+    ).toEqual({ width: 300, height: 250 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 1200x800 screen for a dashboard. Add a 300x250px hero image",
+      ),
+    ).toEqual({ width: 1200, height: 800 });
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 300x250 ad with the image exactly 1080x1080",
+      ),
+    ).toEqual({ width: 300, height: 250 });
   });
 
   it("rejects invalid dimensions when they describe the requested output", () => {
