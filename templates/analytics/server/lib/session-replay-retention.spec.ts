@@ -1,5 +1,7 @@
 import { gzipSync } from "node:zlib";
 
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
@@ -32,8 +34,12 @@ import {
   finalizeAbandonedSessionRecordings,
 } from "./session-replay";
 
-function createDbMock(selectResults: unknown[][]) {
-  const updates: Array<{ table: unknown; values: unknown }> = [];
+function createDbMock(
+  selectResults: unknown[][],
+  updateResults: unknown[][] = [],
+) {
+  const updates: Array<{ table: unknown; values: unknown; where: unknown }> =
+    [];
   const deletes: Array<{ table: unknown }> = [];
   const db = {
     select: vi.fn(() => ({
@@ -51,8 +57,14 @@ function createDbMock(selectResults: unknown[][]) {
     })),
     update: vi.fn((table: unknown) => ({
       set: vi.fn((values: unknown) => ({
-        where: vi.fn(async () => {
-          updates.push({ table, values });
+        where: vi.fn((where: unknown) => {
+          updates.push({ table, values, where });
+          const updated = updateResults.shift() ?? [{}];
+          return {
+            returning: vi.fn(async () => updated),
+            then: (resolve: (value: undefined) => void) =>
+              Promise.resolve(undefined).then(resolve),
+          };
         }),
       })),
     })),
@@ -124,6 +136,40 @@ describe("session replay retention", () => {
       "2026-01-01T01:00:00.000Z",
       expect.any(Function),
     );
+  });
+
+  it("leaves a recording active when an upload reopens it during finalization", async () => {
+    const { db, updates } = createDbMock(
+      [
+        [
+          {
+            id: "rec_1",
+            sessionId: "session_1",
+            ownerEmail: "owner@example.com",
+            orgId: null,
+            chunkCount: 3,
+            status: "active",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:20:00.000Z",
+            lastIngestedAt: "2026-01-01T00:05:00.000Z",
+          },
+        ],
+      ],
+      [[]],
+    );
+    getDbMock.mockReturnValue(db);
+
+    const result = await finalizeAbandonedSessionRecordings(
+      new Date("2026-01-01T01:00:00.000Z"),
+    );
+
+    expect(result).toEqual({ finalized: 0 });
+    const condition = new PgDialect().sqlToQuery(updates[0]!.where as SQL);
+    expect(condition.params).toEqual([
+      "rec_1",
+      "active",
+      "2026-01-01T00:20:00.000Z",
+    ]);
   });
 
   it("leaves a recording active for the next sweep when its friction cannot be finalized", async () => {
@@ -227,6 +273,10 @@ describe("session replay retention", () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("Could not read a stored replay chunk"),
       expect.any(Error),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("no readable storage reference"),
+      expect.objectContaining({ seq: 23 }),
     );
     warn.mockRestore();
   });

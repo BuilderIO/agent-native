@@ -2313,7 +2313,13 @@ async function readStoredReplayChunkText(row: any): Promise<string | null> {
   }
   const ref =
     row.storageKind === "blob" ? decodeReplayBlobRef(row.storageRef) : null;
-  if (!ref) return null;
+  if (!ref) {
+    console.warn(
+      "[session-replay] A stored replay chunk has no readable storage reference; its recording reads as unmeasured:",
+      { recordingId: row.recordingId, seq: row.seq },
+    );
+    return null;
+  }
   try {
     const blob = await readPrivateBlob(ref.handle);
     return gunzipSync(Buffer.from(blob.data)).toString("utf8");
@@ -2922,7 +2928,9 @@ export async function finalizeAbandonedSessionRecordings(
       Number.isFinite(started) && Number.isFinite(ended)
         ? Math.max(0, ended - started)
         : (row.durationMs ?? null);
-    await db
+    // Reading a recording that fell behind can take a while, and an upload
+    // in the meantime reopens it; that recording stays active.
+    const completed = await db
       .update(schema.sessionRecordings)
       .set({
         status: "completed",
@@ -2930,8 +2938,15 @@ export async function finalizeAbandonedSessionRecordings(
         durationMs,
         updatedAt: now.toISOString(),
       })
-      .where(eq(schema.sessionRecordings.id, row.id));
-    finalized++;
+      .where(
+        and(
+          eq(schema.sessionRecordings.id, row.id),
+          eq(schema.sessionRecordings.status, "active"),
+          eq(schema.sessionRecordings.updatedAt, row.updatedAt),
+        ),
+      )
+      .returning({ id: schema.sessionRecordings.id });
+    if (completed.length) finalized++;
   }
 
   return { finalized };
