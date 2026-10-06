@@ -218,7 +218,7 @@ export default {
       tokenLabel: "Figma アクセストークン",
       tokenPlaceholder: "Figma アクセストークンを貼り付け",
       connecting: "接続中…",
-      connect: "Builder.io を使う",
+      connect: "Figmaに接続",
       getToken: "トークンを取得",
       importFrame: "フレームをインポート",
       chooseFrame: "フレームを選択",

@@ -1499,7 +1499,6 @@ describe("buildUserContentWithAttachments", () => {
               taskId: { type: "string" },
               action: { type: "string" },
               input: { type: "object" },
-              approvedActions: { type: "array" },
             },
             required: ["agent"],
           },
@@ -3297,6 +3296,9 @@ describe("createProductionAgentHandler", () => {
     expect(preparation).toContain('updateRunStatusIfRunning(runId, "errored")');
     expect(preparation).toContain(
       'setRunTerminalReason(runId, "run_preparation_failed")',
+    );
+    expect(preparation).toMatch(
+      /setRunError\(\s*runId,\s*"run_preparation_failed",\s*error instanceof Error \? error\.message : String\(error\)/,
     );
     expect(preparation).toContain("throw error");
   });

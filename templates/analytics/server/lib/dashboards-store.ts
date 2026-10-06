@@ -3150,16 +3150,21 @@ export interface DashboardViewRecord {
   dashboardId: string;
   name: string;
   filters: Record<string, string>;
+  isDefault: boolean;
   createdBy: string | null;
   createdAt: string;
 }
 
 function rowToView(row: any): DashboardViewRecord {
+  if (typeof row.isDefault !== "boolean") {
+    throw new Error("Dashboard view is missing its default status");
+  }
   return {
     id: row.id,
     dashboardId: row.dashboardId,
     name: row.name,
     filters: safeJsonParse(row.filters, {} as Record<string, string>),
+    isDefault: row.isDefault,
     createdBy: row.createdBy ?? null,
     createdAt: row.createdAt,
   };
@@ -3213,7 +3218,12 @@ export async function listDashboardViews(
 
 export async function saveDashboardView(
   dashboardId: string,
-  view: { id?: string; name: string; filters: Record<string, string> },
+  view: {
+    id?: string;
+    name: string;
+    filters: Record<string, string>;
+    isDefault?: boolean;
+  },
   ctx: AccessCtx,
 ): Promise<DashboardViewRecord> {
   await assertAccess("dashboard", dashboardId, "editor", {
@@ -3221,55 +3231,80 @@ export async function saveDashboardView(
     orgId: ctx.orgId ?? undefined,
   });
   const db = getDb() as any;
-  let id = view.id ?? nanoidFallback();
-  let existing = false;
-  if (view.id) {
-    const [existingRow] = await db
-      .select({
-        id: schema.dashboardViews.id,
-        dashboardId: schema.dashboardViews.dashboardId,
-      })
-      .from(schema.dashboardViews)
-      .where(eq(schema.dashboardViews.id, view.id))
-      .limit(1);
-    if (existingRow?.dashboardId === dashboardId) {
-      existing = true;
-    } else if (existingRow) {
-      id = nanoidFallback();
+  const row = await db.transaction(async (tx: any) => {
+    if (view.isDefault) {
+      await tx
+        .select({ id: schema.dashboards.id })
+        .from(schema.dashboards)
+        .where(eq(schema.dashboards.id, dashboardId))
+        .for("update");
+      await tx
+        .update(schema.dashboardViews)
+        .set({ isDefault: false })
+        .where(
+          and(
+            eq(schema.dashboardViews.dashboardId, dashboardId),
+            eq(schema.dashboardViews.isDefault, true),
+          ),
+        );
     }
-  }
 
-  if (existing) {
-    await db
-      .update(schema.dashboardViews)
-      .set({ name: view.name, filters: JSON.stringify(view.filters) })
+    let id = view.id ?? nanoidFallback();
+    let existing = false;
+    if (view.id) {
+      const [existingRow] = await tx
+        .select({
+          id: schema.dashboardViews.id,
+          dashboardId: schema.dashboardViews.dashboardId,
+        })
+        .from(schema.dashboardViews)
+        .where(eq(schema.dashboardViews.id, view.id))
+        .limit(1);
+      if (existingRow?.dashboardId === dashboardId) {
+        existing = true;
+      } else if (existingRow) {
+        id = nanoidFallback();
+      }
+    }
+
+    if (existing) {
+      await tx
+        .update(schema.dashboardViews)
+        .set({
+          name: view.name,
+          filters: JSON.stringify(view.filters),
+          ...(view.isDefault ? { isDefault: true } : {}),
+        })
+        .where(
+          and(
+            eq(schema.dashboardViews.id, id),
+            eq(schema.dashboardViews.dashboardId, dashboardId),
+          ),
+        );
+    } else {
+      await tx.insert(schema.dashboardViews).values({
+        id,
+        dashboardId,
+        name: view.name,
+        filters: JSON.stringify(view.filters),
+        isDefault: view.isDefault === true,
+        createdBy: ctx.email || null,
+      });
+    }
+    const [saved] = await tx
+      .select()
+      .from(schema.dashboardViews)
       .where(
         and(
           eq(schema.dashboardViews.id, id),
           eq(schema.dashboardViews.dashboardId, dashboardId),
         ),
       );
-  } else {
-    await db.insert(schema.dashboardViews).values({
-      id,
-      dashboardId,
-      name: view.name,
-      filters: JSON.stringify(view.filters),
-      createdBy: ctx.email || null,
-    });
-  }
-  const [row] = await db
-    .select()
-    .from(schema.dashboardViews)
-    .where(
-      and(
-        eq(schema.dashboardViews.id, id),
-        eq(schema.dashboardViews.dashboardId, dashboardId),
-      ),
-    );
-  if (!row) {
-    throw new Error("Dashboard view was not persisted");
-  }
+    if (!saved) {
+      throw new Error("Dashboard view was not persisted");
+    }
+    return saved;
+  });
   const dash = await getDashboard(dashboardId, ctx);
   if (dash) {
     recordScopedChange(

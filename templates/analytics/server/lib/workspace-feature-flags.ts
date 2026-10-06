@@ -278,7 +278,7 @@ async function delegatedToken(
       expiresIn: "120s",
       preferGlobalSecret: true,
       audience: origin,
-      extraClaims: { org_id: admin.orgId, scope, jti: randomUUID() },
+      extraClaims: { scope, jti: randomUUID() },
     });
   } catch {
     throw new TargetCallFailure("token-generation");

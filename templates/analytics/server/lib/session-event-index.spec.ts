@@ -228,7 +228,14 @@ describe("session event index on Postgres", () => {
     const rows = await db
       .select({ id: r.id })
       .from(r)
-      .where(and(...(await sessionEventFilterConditions(filters))))
+      .where(
+        and(
+          ...(await sessionEventFilterConditions(
+            { userEmail: OWNER, orgId: ORG },
+            filters,
+          )),
+        ),
+      )
       .orderBy(asc(r.id));
     return rows.map((row: { id: string }) => row.id);
   }
@@ -525,6 +532,29 @@ describe("session event index on Postgres", () => {
     expect(
       await matchingRecordings({ didEvents: ["recording_started"] }),
     ).toEqual([]);
+  });
+
+  it("never filters a recording shared from another tenant by its events", async () => {
+    const other = { ownerEmail: "someone@other.test", orgId: "org_other" };
+    await index(
+      [
+        event({
+          eventName: "recording_started",
+          sessionId: "s1",
+          timestamp: "2026-09-20T10:01:00.000Z",
+          ...other,
+        }),
+      ],
+      "2026-09-20T10:00:00.000Z",
+    );
+    await addRecording("r-shared", "s1", "2026-09-20T10:00:30.000Z", other);
+
+    expect(
+      await matchingRecordings({ didEvents: ["recording_started"] }),
+    ).toEqual([]);
+    expect(await matchingRecordings({ didNotEvents: ["clip_viewed"] })).toEqual(
+      [],
+    );
   });
 
   it("accumulates counts across batches and lists names in range", async () => {

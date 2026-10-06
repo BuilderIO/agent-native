@@ -131,12 +131,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
   "onboarding.builderIncludedFreeWithAccount": "Builder.io 계정에 무료로 포함",
   "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
+  "onboarding.builderIncludedFree": "무료 포함",
+  "onboarding.builderMoreServices": "+ 서비스 {{count}}개 더",
+  "onboarding.builderIncludedServices": "포함된 서비스",
   "onboarding.builderActivateTitle": "무료 크레딧 활성화",
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
   "onboarding.builderAccountExistsDescription":
     "계정을 사용하려면 로그인하세요.",
   "onboarding.builderActivationDescription":
-    "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
+    "한 번의 클릭으로 Builder.io 계정을 만들거나 연결해 무료 크레딧을 받으세요.",
   "onboarding.builderOrgActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 만들어 조직에서 사용할 수 있도록 합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
@@ -158,6 +161,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "Background Agent 설정 열기",
   "onboarding.capability.llm.keySummary": "자체 AI 모델 연결",
   "onboarding.capability.fileStorage.keySummary": "파일 업로드 및 저장소",
+  "onboarding.capability.llm.why":
+    "에이전트는 언어 모델을 사용해 요청을 이해하고 답변을 작성합니다.",
+  "onboarding.capability.fileStorage.why":
+    "업로드한 이미지와 파일을 저장해 에이전트가 대화에서 다시 사용할 수 있도록 합니다.",
   "onboarding.fileStorage.title": "파일 업로드를 위해 저장소 연결",
   "onboarding.fileStorage.statusUnavailable": "저장소를 확인할 수 없습니다",
   "onboarding.fileStorage.description":
@@ -174,6 +181,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "임베딩",
   "onboarding.capability.embeddings.why":
     "임베딩은 의미 검색을 개선합니다. 임베딩 없이도 키워드 검색은 작동합니다.",
+  "onboarding.capability.systemOne.why":
+    "Jev는 에이전트의 첫 모델 요청 전에 관련 도구와 스킬을 선택하도록 돕는 선택형 의사결정 모델입니다.",
   "onboarding.capability.assetsImageGeneration.label": "이미지 생성",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder 크레딧 또는 이미지 제공업체 키",
@@ -483,6 +492,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
+  "composer.unsupportedFileType": "지원되지 않는 파일 형식입니다.",
   "composer.useAttachedContext": "첨부된 컨텍스트를 사용하세요.",
   "mentions.commands": "명령",
   "mentions.learnMore": "자세히 알아보기",
@@ -1092,11 +1102,10 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "{{count}}개 대기 중 — 후속 메시지 보내기...",
   "queue.remove": "대기열에서 제거",
   "queue.sendNow": "지금 보내기",
-  "queue.sendNowHint": "지금 보내기(현재 응답 중지)",
-  "queue.steer": "조정",
-  "queue.steerHint": "이 메시지를 다음에 보내기",
+  "queue.sendNowHint": "현재 응답을 중지한 다음 이 메시지를 보냅니다",
+  "queue.sendNext": "다음에 보내기",
+  "queue.sendNextHint": "현재 응답이 끝난 후 보내기",
   "queue.moreActions": "추가 작업",
-  "queue.moveToTop": "맨 위로 이동",
   "recovery.connectingBuilder": "Builder.io 설정 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
@@ -1190,6 +1199,53 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.keyProvider": "API 키 제공업체",
   "setup.keySaveFailed": "키를 저장할 수 없습니다.",
   "setup.storedSecurely": "이 앱에서만 사용하도록 안전하게 저장됩니다.",
+  "accessGate.deniedTitle": "접근 권한이 없습니다",
+  "accessGate.deniedDescription": "소유자에게 공유를 요청하세요.",
+  "accessGate.missingTitle": "존재하지 않는 항목입니다",
+  "accessGate.missingDescription":
+    "링크가 잘못되었거나 삭제되었을 수 있습니다.",
+  "accessGate.trashedTitle": "휴지통에 있는 항목입니다",
+  "accessGate.trashedDescription": "복원하면 다시 열 수 있습니다.",
+  "accessGate.signedOutTitle": "계속하려면 로그인하세요",
+  "accessGate.signedOutDescription": "접근 권한이 있는 계정으로 로그인하세요.",
+  "accessGate.signIn": "로그인",
+  "accessGate.signedInAs": "로그인한 계정: {{email}}",
+  "accessGate.switchAccount": "계정 전환",
+  "accessGate.requestDescription":
+    "접근 권한을 요청하면 소유자에게 알림이 전송됩니다.",
+  "accessGate.requestSent":
+    "요청을 보냈습니다. 소유자에게 알림이 전송되었습니다.",
+  "accessGate.requestAccess": "접근 권한 요청",
+  "accessGate.requestNoteLabel": "메모(선택 사항)",
+  "accessGate.requestNotePlaceholder": "소유자에게 전달할 메모를 추가하세요",
+  "accessGate.sendRequest": "요청 보내기",
+  "accessGate.cancel": "취소",
+  "accessGate.requestRateLimited":
+    "현재 요청이 너무 많습니다. 나중에 다시 시도하세요.",
+  "accessGate.requestFailed": "요청을 보내지 못했습니다. 다시 시도하세요.",
+  "accessGate.signedOutRequestDescription":
+    "접근 권한을 요청하려면 로그인하세요.",
+  "accessRequest.title": "{{name}}님이 접근 권한을 요청했습니다",
+  "accessRequest.approvedTitle": "접근이 허용되었습니다",
+  "accessRequest.declinedTitle": "요청이 거부되었습니다",
+  "accessRequest.allow": "허용",
+  "accessRequest.decline": "거부",
+  "accessRequest.unavailableTitle": "이 요청을 검토할 수 없습니다",
+  "accessRequest.unavailableDescription":
+    "요청이 철회되었거나 이 계정에 접근 관리 권한이 없을 수 있습니다.",
+  "accessRequest.loadFailed": "이 요청을 불러올 수 없습니다.",
+  "accessRequest.retry": "다시 시도",
+  "accessRequest.decisionFailed":
+    "결정을 저장하지 못했습니다. 다시 시도하세요.",
+  "accessRequest.stale":
+    "다른 사람이 이미 이 요청을 처리했거나 요청이 변경되었습니다.",
+  "share.accessRequests": "접근 권한 요청",
+  "share.accessRequestsLoadFailed": "접근 권한 요청을 불러올 수 없습니다.",
+  "share.accessRequestsNewest": "최근 요청 {{count}}개를 표시합니다.",
+  "accessRequest.emailFailed":
+    "{{name}}님에게 접근 권한을 부여했지만 이메일을 보내지 못했습니다.",
+  "share.allowRequestFrom": "{{name}} 허용",
+  "share.declineRequestFrom": "{{name}} 거부",
   "share.add": "추가",
   "share.addPeopleEmail": "이메일로 사용자 추가",
   "share.addPeopleOrganization": "조직에서 사용자 추가",
@@ -1276,6 +1332,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "오류 세부 정보가 없습니다.",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",
+  "tool.identifierHidden": "[식별자 숨김]",
+  "tool.contentOmitted": "[내용 생략]",
+  "tool.circularReference": "[순환 참조]",
   "tool.interrupted":
     "완료 보고 전에 중단되었습니다. 작업이 완료되었을 수도 있고 아닐 수도 있습니다. 다시 시도하기 전에 확인하세요.",
   "tool.longRunning":

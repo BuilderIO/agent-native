@@ -98,6 +98,7 @@ describe("startDeckGeneration", () => {
     };
     const navigate = vi.fn();
     const agentSubmit = vi.fn();
+    const createDeck = vi.fn(() => deck);
 
     await expect(
       startDeckGeneration({
@@ -105,7 +106,7 @@ describe("startDeckGeneration", () => {
         prompt: "Create a deck",
         files: [],
         designSystems: [],
-        createDeck: vi.fn(() => deck),
+        createDeck,
         ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
         deleteDeck: vi.fn(),
         navigate,
@@ -115,6 +116,13 @@ describe("startDeckGeneration", () => {
         onPersistenceFailure: vi.fn(),
       }),
     ).resolves.toBe("started");
+
+    expect(createDeck).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        noDefaultSlides: true,
+      }),
+    );
 
     const route = new URL(
       String(navigate.mock.calls[0]?.[0] ?? ""),
