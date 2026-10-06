@@ -539,6 +539,9 @@ export function BuilderIntegrationPage({
   context,
 }: BuilderIntegrationPageProps) {
   const t = useT();
+  const openConnectChoicesOnMount =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("builderConnect") === "1";
   const org = useOrg();
   const header = useMemo(
     () => ({
@@ -659,7 +662,10 @@ export function BuilderIntegrationPage({
       flow={flow}
       scope="org"
       onStart={onStart}
-      openOnMount={openProvisionRecoveryFor("org")}
+      openOnMount={
+        openProvisionRecoveryFor("org") ||
+        (openConnectChoicesOnMount && !solo && context.isAdmin)
+      }
     />
   );
 
@@ -697,7 +703,12 @@ export function BuilderIntegrationPage({
       flow={flow}
       scope="personal"
       onStart={onStart}
-      openOnMount={openProvisionRecoveryFor("personal")}
+      openOnMount={
+        openProvisionRecoveryFor("personal") ||
+        (openConnectChoicesOnMount &&
+          !solo &&
+          (!context.isAdmin || !flow.canConnect.org))
+      }
     />
   ) : null;
 
@@ -718,14 +729,18 @@ export function BuilderIntegrationPage({
         canReconnect
         onStart={onStart}
         onDisconnect={() => void disconnectPersonal()}
-        openOnMount={openProvisionRecoveryFor(undefined)}
+        openOnMount={
+          openProvisionRecoveryFor(undefined) || openConnectChoicesOnMount
+        }
       />
     ) : null
   ) : (
     <ConnectButton
       flow={flow}
       onStart={onStart}
-      openOnMount={openProvisionRecoveryFor(undefined)}
+      openOnMount={
+        openProvisionRecoveryFor(undefined) || openConnectChoicesOnMount
+      }
     />
   );
 

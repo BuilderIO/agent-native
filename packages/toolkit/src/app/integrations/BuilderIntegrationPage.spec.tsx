@@ -33,10 +33,22 @@ vi.mock("../settings/deferred-builder-connect-popover.js", () => ({
   DeferredBuilderConnectPopover: ({
     children,
     onConnect,
+    openOnMount,
   }: {
     children: React.ReactElement<{ onClick?: () => void }>;
     onConnect: (provisionAccount: boolean) => void;
-  }) => React.cloneElement(children, { onClick: () => onConnect(false) }),
+    openOnMount?: boolean;
+  }) => (
+    <>
+      {React.cloneElement(children, { onClick: () => onConnect(false) })}
+      {openOnMount ? (
+        <div data-testid="open-builder-connect">
+          <button type="button">Create and activate</button>
+          <button type="button">I have a Builder.io account</button>
+        </div>
+      ) : null}
+    </>
+  ),
   DeferredBuilderConnectChoicePanel: ({
     canProvisionAccount,
     onCreateAndActivate,
@@ -170,6 +182,7 @@ describe("BuilderIntegrationPage", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    window.history.replaceState({}, "", "/settings/integrations/builder");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -241,6 +254,25 @@ describe("BuilderIntegrationPage", () => {
     expect(flowMock.current.start).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "personal", provisionAccount: false }),
     );
+  });
+
+  it("opens the two-choice chooser for Builder setup deep links", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/settings/integrations/builder?builderConnect=1",
+    );
+    flowMock.current = flow({
+      canConnect: { org: false, personal: true },
+      agentNativeProvisioningEnabled: true,
+    });
+    await render(member);
+
+    const chooser = container.querySelector(
+      '[data-testid="open-builder-connect"]',
+    );
+    expect(chooser?.textContent).toContain("Create and activate");
+    expect(chooser?.textContent).toContain("I have a Builder.io account");
   });
 
   it("tells a member their connection is unused while personal keys are restricted", async () => {
