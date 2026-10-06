@@ -14,11 +14,15 @@ const mocks = vi.hoisted(() => ({
   data: undefined as ResourceAccessGateStatus | undefined,
   refetch: vi.fn(),
   useActionQuery: vi.fn(),
+  mutateAsync: vi.fn(),
+  mutationError: null as Error | null,
+  useActionMutation: vi.fn(),
   forgetAuthFailures: vi.fn(),
 }));
 
 vi.mock("../use-action.js", () => ({
   useActionQuery: mocks.useActionQuery,
+  useActionMutation: mocks.useActionMutation,
 }));
 vi.mock("../embed-auth.js", () => ({
   forgetAuthFailures: mocks.forgetAuthFailures,
@@ -29,8 +33,10 @@ describe("useResourceAccessGate", () => {
   let root: Root;
   const onAccessGranted = vi.fn();
 
+  let gate: ReturnType<typeof useResourceAccessGate> | null = null;
+
   function Harness(props: ResourceAccessGateOptions) {
-    useResourceAccessGate(props);
+    gate = useResourceAccessGate(props);
     return null;
   }
 
@@ -65,7 +71,16 @@ describe("useResourceAccessGate", () => {
       isError: false,
       refetch: mocks.refetch,
     }));
+    mocks.mutateAsync.mockReset();
+    mocks.mutationError = null;
+    mocks.useActionMutation.mockReset();
+    mocks.useActionMutation.mockImplementation(() => ({
+      mutateAsync: mocks.mutateAsync,
+      isPending: false,
+      error: mocks.mutationError,
+    }));
     onAccessGranted.mockReset();
+    gate = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -151,5 +166,63 @@ describe("useResourceAccessGate", () => {
     });
 
     expect(mocks.refetch).not.toHaveBeenCalled();
+  });
+
+  it("checks every half minute only while the viewer's request is open", () => {
+    render({ state: "denied", canRequest: true });
+    const options = mocks.useActionQuery.mock.calls[0][2];
+
+    expect(
+      options.refetchInterval({
+        state: {
+          data: {
+            state: "denied",
+            request: { state: "pending", requestedAt: "2026-10-02T12:00:00Z" },
+          },
+        },
+      }),
+    ).toBe(30_000);
+    expect(
+      options.refetchInterval({ state: { data: { state: "denied" } } }),
+    ).toBe(false);
+  });
+
+  it("asks for access with a trimmed note, then checks the status again", async () => {
+    render({ state: "denied", canRequest: true });
+
+    await act(async () => {
+      await gate!.requestAccess("  For Friday  ");
+    });
+
+    expect(mocks.useActionMutation).toHaveBeenCalledWith(
+      "request-resource-access",
+    );
+    expect(mocks.mutateAsync).toHaveBeenCalledWith({
+      resourceType: "document",
+      resourceId: "doc-1",
+      note: "For Friday",
+    });
+    expect(mocks.refetch).toHaveBeenCalledWith({ cancelRefetch: false });
+
+    await act(async () => {
+      await gate!.requestAccess("   ");
+    });
+    expect(mocks.mutateAsync).toHaveBeenLastCalledWith({
+      resourceType: "document",
+      resourceId: "doc-1",
+    });
+  });
+
+  it("explains a failed request with its code and retry time", () => {
+    mocks.mutationError = Object.assign(new Error("Too many"), {
+      errorCode: "access_request_rate_limited",
+      details: { retryAt: "2026-10-03T12:00:00.000Z" },
+    });
+    render({ state: "denied", canRequest: true });
+
+    expect(gate!.requestError).toEqual({
+      errorCode: "access_request_rate_limited",
+      retryAt: "2026-10-03T12:00:00.000Z",
+    });
   });
 });

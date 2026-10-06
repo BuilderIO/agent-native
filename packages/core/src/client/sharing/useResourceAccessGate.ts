@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { forgetAuthFailures } from "../embed-auth.js";
-import { useActionQuery } from "../use-action.js";
+import { useActionMutation, useActionQuery } from "../use-action.js";
 
 /** Mirrors the server's `ResourceAccessState`. */
 export type ResourceAccessGateState =
@@ -18,10 +18,28 @@ export type ResourceAccessGateRole =
   | "commenter"
   | "viewer";
 
+/** The viewer's own open request for access. */
+export interface ResourceAccessGateRequest {
+  state: "pending";
+  requestedAt: string;
+}
+
 export interface ResourceAccessGateStatus {
   state: ResourceAccessGateState;
   /** The viewer's role, only when they can open the resource. */
   role?: ResourceAccessGateRole;
+  /** Whether the viewer can ask for access now. Only for `denied`. */
+  canRequest?: boolean;
+  /** The viewer's open request. Only for `denied`. */
+  request?: ResourceAccessGateRequest;
+}
+
+/** Why asking for access failed, for the screen to explain. */
+export interface ResourceAccessRequestFailure {
+  /** The server's error code, such as `access_request_rate_limited`. */
+  errorCode: string | null;
+  /** When the viewer can try again, if the server said. */
+  retryAt: string | null;
 }
 
 export interface ResourceAccessGateOptions {
@@ -32,7 +50,8 @@ export interface ResourceAccessGateOptions {
    * Called once when the status says the viewer can open the resource: either
    * the read that failed should be tried again, or the owner shared it while
    * this screen was open. The status is checked again whenever the window
-   * regains focus, including switching back from another browser window.
+   * regains focus, including switching back from another browser window, and
+   * every half minute while the viewer's request is open.
    */
   onAccessGranted?: () => void;
 }
@@ -42,6 +61,32 @@ export interface ResourceAccessGateController {
   isLoading: boolean;
   isError: boolean;
   refetch: () => Promise<unknown>;
+  /**
+   * Asks the owner for access, with an optional note. Resolves once the
+   * request is stored and the status shows it; rejects when it fails, with
+   * the reason in `requestError`.
+   */
+  requestAccess: (note?: string) => Promise<void>;
+  isRequesting: boolean;
+  requestError: ResourceAccessRequestFailure | null;
+}
+
+// While a request is open, approving it should open the resource without a
+// manual reload, even when the window never loses focus.
+const PENDING_REQUEST_POLL_MS = 30_000;
+
+function requestFailure(error: Error): ResourceAccessRequestFailure {
+  const failure = error as Error & {
+    errorCode?: unknown;
+    details?: { retryAt?: unknown };
+  };
+  return {
+    errorCode: typeof failure.errorCode === "string" ? failure.errorCode : null,
+    retryAt:
+      typeof failure.details?.retryAt === "string"
+        ? failure.details.retryAt
+        : null,
+  };
 }
 
 /**
@@ -62,8 +107,18 @@ export function useResourceAccessGate({
   const query = useActionQuery<ResourceAccessGateStatus>(
     "get-resource-access-status",
     params,
-    { enabled, refetchOnWindowFocus: "always", staleTime: 0 },
+    {
+      enabled,
+      refetchOnWindowFocus: "always",
+      staleTime: 0,
+      refetchInterval: (current) =>
+        current.state.data?.request ? PENDING_REQUEST_POLL_MS : false,
+    },
   );
+  const request = useActionMutation<
+    unknown,
+    { resourceType: string; resourceId: string; note?: string }
+  >("request-resource-access");
   const state = query.data?.state;
   const onAccessGrantedRef = useRef(onAccessGranted);
   onAccessGrantedRef.current = onAccessGranted;
@@ -96,10 +151,27 @@ export function useResourceAccessGate({
     return () => window.removeEventListener("focus", refetch);
   }, [enabled]);
 
+  const { mutateAsync: requestAsync } = request;
+  const requestAccess = useCallback(
+    async (note?: string) => {
+      const trimmed = note?.trim();
+      await requestAsync({
+        resourceType,
+        resourceId,
+        ...(trimmed ? { note: trimmed } : {}),
+      });
+      await refetchRef.current({ cancelRefetch: false });
+    },
+    [requestAsync, resourceId, resourceType],
+  );
+
   return {
     status: query.data,
     isLoading: query.isLoading,
     isError: query.isError,
     refetch: query.refetch,
+    requestAccess,
+    isRequesting: request.isPending,
+    requestError: request.error ? requestFailure(request.error) : null,
   };
 }

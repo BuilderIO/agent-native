@@ -27,6 +27,8 @@ proof_requirements:
 evidence:
   [
     "../../../../../packages/core/src/sharing/access-status.spec.ts",
+    "../../../../../packages/core/src/sharing/access-requests.spec.ts",
+    "../../../../../packages/toolkit/src/app/sharing/AccessRequestApprovalPage.spec.tsx",
     "../../../app/components/editor/DocumentAccessScreen.test.tsx",
     "../../../e2e/unreadable-page-link.spec.ts",
   ]
@@ -48,6 +50,7 @@ An author publishes a Page that references internal research. Public readers see
 
 - Search, traversal, Queries, Views, links, embeds, exports, public projections, and agents operate only over authorized closure.
 - A direct link may tell a signed-in person holding it that the target exists and they can't open it, so they know to ask for access. It never reveals the target's title, owner, visibility, or workspace. A trashed target reads as missing to anyone who couldn't open it, and a signed-out visitor learns nothing about existence.
+- That person can request access with an optional note. The owner and the target's admins are notified and choose the role, starting at view; approval follows the same sharing rules as the Share dialog and never lowers a stronger role. Opening the request link never decides anything, and someone who can't manage access learns nothing from it.
 - Ambient lists and derived results do not confirm a target's existence.
 - Closure applies recursively to relationship endpoints and transcluded content before rendering or calculating.
 - Caches, previews, snippets, errors, counts, and pagination preserve the same boundary.
@@ -68,6 +71,10 @@ Given a Page with a reference or transclusion to a private neighbor, when an una
 ### Differentiate denial from absence
 
 Given a signed-in person without access has a direct private URL, when they open it, then they're told they don't have access, without the target's title, owner, visibility, or workspace, rather than a successful empty result that callers may mistake for normal absence. A link to a target that doesn't exist, or is in the trash, says it doesn't exist.
+
+### Request access from a denied link
+
+Given a signed-in person told they don't have access, when they request access, then the owner and the target's admins are notified with a link to review it. The requester sees that the request was sent, even after a reload, and the target opens for them once someone allows it. Asking again while the request is open notifies no one twice.
 
 ## Current evidence
 

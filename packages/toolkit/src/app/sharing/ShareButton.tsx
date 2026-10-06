@@ -57,6 +57,7 @@ import type {
   UIEvent as ReactUIEvent,
 } from "react";
 
+import { AccessRequestsSection } from "./AccessRequestsSection.js";
 import { AgentShareSection } from "./AgentShareSection.js";
 
 export interface ShareButtonProps {
@@ -468,6 +469,12 @@ function SharePanel(
   const generalAccessLabel =
     props.generalAccessLabel ??
     t("agentChat.share.generalAccess", { defaultValue: "General access" });
+  const accessRequests = canManage ? (
+    <AccessRequestsSection
+      resourceType={props.resourceType}
+      resourceId={props.resourceId}
+    />
+  ) : null;
   const shareLinks = (
     <>
       {props.shareUrl ? (
@@ -592,7 +599,10 @@ function SharePanel(
 
       <div className={cn("mb-4 space-y-4", props.agentTabContent && "order-1")}>
         {!props.agentTabContent ? (
-          <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+          <>
+            {accessRequests}
+            <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+          </>
         ) : null}
         {canManage ? (
           <div className="space-y-2">
@@ -717,7 +727,10 @@ function SharePanel(
         ) : null}
 
         {props.agentTabContent ? (
-          <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+          <>
+            {accessRequests}
+            <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+          </>
         ) : null}
         <ul className="flex list-none flex-col gap-1 p-0 m-0">
           {data?.ownerEmail ? (
