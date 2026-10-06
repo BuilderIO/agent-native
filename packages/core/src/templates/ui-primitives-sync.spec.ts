@@ -56,7 +56,6 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "design",
     "line-variant tabs with underline active state for Design home filters",
   ],
-
   [
     "tabs.tsx",
     "slides",
