@@ -18,6 +18,7 @@ describe("agent design-system context", () => {
     expect(run).toHaveBeenCalledWith({ id: "ds-1", compact: "true" });
     expect(context).toEqual({
       status: "available",
+      purpose: "selected",
       scope: "summary",
       id: "ds-1",
       title: "Acme",
@@ -27,6 +28,34 @@ describe("agent design-system context", () => {
     expect(formatAgentDesignSystemContext(context)).toContain(
       "Use --brand-accent: #123456.",
     );
+  });
+
+  it("preserves reference purpose through full-context follow-up reads", async () => {
+    const run = vi.fn(async () => ({
+      title: "Acme",
+      agentContext: "Linked tokens are advisory.",
+    }));
+
+    const context = await loadAgentDesignSystemContext(
+      "ds-1",
+      { run },
+      { purpose: "reference" },
+    );
+
+    expect(run).toHaveBeenCalledWith({
+      id: "ds-1",
+      compact: "true",
+      purpose: "reference",
+    });
+    expect(context).toMatchObject({
+      status: "available",
+      purpose: "reference",
+      next: expect.stringContaining('purpose: "reference"'),
+    });
+    const formatted = formatAgentDesignSystemContext(context).join("\n");
+    expect(formatted).toContain("### Linked design system (reference default)");
+    expect(formatted).toContain("only when no separate system is selected");
+    expect(formatted).not.toContain("(authoritative)");
   });
 
   it("reads the full context on request, with no next pointer", async () => {
@@ -42,7 +71,11 @@ describe("agent design-system context", () => {
     );
 
     expect(run).toHaveBeenCalledWith({ id: "ds-1", compact: "false" });
-    expect(context).toMatchObject({ status: "available", scope: "full" });
+    expect(context).toMatchObject({
+      status: "available",
+      purpose: "selected",
+      scope: "full",
+    });
     expect(context).not.toHaveProperty("next");
   });
 
@@ -53,7 +86,11 @@ describe("agent design-system context", () => {
 
     const context = await loadAgentDesignSystemContext("ds-1", { run });
 
-    expect(context).toMatchObject({ status: "unavailable", id: "ds-1" });
+    expect(context).toMatchObject({
+      status: "unavailable",
+      purpose: "selected",
+      id: "ds-1",
+    });
     expect(formatAgentDesignSystemContext(context).join("\n")).toContain(
       "Do not retry get-design-system",
     );
@@ -70,6 +107,31 @@ describe("agent design-system context", () => {
     expect(context).toMatchObject({ status: "unavailable", id: "ds-1" });
     expect(formatAgentDesignSystemContext(context).join("\n")).toContain(
       "do not invent a replacement style",
+    );
+  });
+
+  it("keeps a reference-purpose retry scoped when a read temporarily fails", async () => {
+    const run = vi.fn(async () => {
+      throw new Error("not readable");
+    });
+
+    const context = await loadAgentDesignSystemContext(
+      "ds-1",
+      { run },
+      { purpose: "reference" },
+    );
+
+    expect(run).toHaveBeenCalledWith({
+      id: "ds-1",
+      compact: "true",
+      purpose: "reference",
+    });
+    expect(context).toMatchObject({
+      status: "unavailable",
+      purpose: "reference",
+    });
+    expect(formatAgentDesignSystemContext(context).join("\n")).toContain(
+      'purpose: "reference"',
     );
   });
 

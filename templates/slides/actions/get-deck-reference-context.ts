@@ -163,6 +163,7 @@ export default defineAction({
     const designSystem = await loadAgentDesignSystemContext(
       designSystemId,
       getDesignSystem,
+      { purpose: "reference" },
     );
 
     return {

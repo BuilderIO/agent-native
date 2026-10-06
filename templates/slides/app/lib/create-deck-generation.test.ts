@@ -359,8 +359,9 @@ describe("startDeckGeneration", () => {
     mockCallAction.mockImplementation(async (name: string) =>
       name === "get-deck-reference-context"
         ? {
+            designSystemId: "ds-reference",
             agentContext:
-              "REFERENCE_STYLE_CONTEXT\n### Linked design system (authoritative)\nUse --brand-accent: #123456.",
+              "REFERENCE_STYLE_CONTEXT\n### Linked design system (reference default)\nUse --brand-accent: #123456.",
           }
         : undefined,
     );
@@ -393,11 +394,78 @@ describe("startDeckGeneration", () => {
 
     const context = agentSubmit.mock.calls[0]?.[1] as string;
     expect(context).toContain("REFERENCE_STYLE_CONTEXT");
-    expect(context).toContain("### Linked design system (authoritative)");
+    expect(context).toContain("### Linked design system (reference default)");
     expect(context).toContain("Use --brand-accent: #123456.");
-    expect(context).toContain("Follow its measured visual language");
+    expect(context).toContain(
+      "The reference deck's linked design system controls tokens and slide defaults",
+    );
+    expect(context).not.toContain(
+      "Follow its measured visual language as the styling source of truth",
+    );
     expect(context).not.toContain("Before generating a bare or on-brand deck");
     expect(context).not.toContain("use a light warm-neutral canvas");
+  });
+
+  it("keeps the selected target system ahead of a reference deck's linked system", async () => {
+    mockCallAction.mockImplementation(async (name: string) => {
+      if (name === "get-deck-reference-context") {
+        return {
+          designSystemId: "ds-reference",
+          agentContext:
+            "REFERENCE_STYLE_CONTEXT\n### Linked design system (reference default)\nReference system A tokens.",
+        };
+      }
+      if (name === "get-design-system") {
+        return { agentContext: "SELECTED_TARGET_SYSTEM_B_CONTEXT" };
+      }
+      return undefined;
+    });
+    const deck = {
+      id: "deck-selected-target-system",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const createDeck = vi.fn(() => deck);
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create an about us deck",
+        files: [],
+        selectedDesignSystemId: "ds-target-b",
+        selectedReferenceDeckId: "reference-deck-1",
+        designSystems: [],
+        createDeck,
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    expect(createDeck).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ designSystemId: "ds-target-b" }),
+    );
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "get-design-system",
+      { id: "ds-target-b" },
+      { method: "GET" },
+    );
+    const context = agentSubmit.mock.calls[0]?.[1] as string;
+    expect(context).toContain("SELECTED_TARGET_SYSTEM_B_CONTEXT");
+    expect(context).toContain(
+      "overriding reference-deck linked systems and measured reference styling",
+    );
+    expect(context).not.toContain(
+      "The reference deck's linked design system controls tokens and slide defaults",
+    );
   });
 
   it("keeps a reference-import file out of source-preserving mode", async () => {
@@ -754,7 +822,9 @@ describe("startDeckGeneration", () => {
     const context = agentSubmit.mock.calls[0]?.[1] as string;
     expect(context).toContain("56pt GT Super bold #f7f5ef");
     expect(context).toContain("#0b1020");
-    expect(context).toContain("Follow its measured visual language");
+    expect(context).toContain(
+      "Use the attached reference's measured visual language for tokens and slide defaults",
+    );
     expect(context).not.toContain("use a light warm-neutral canvas");
     expect(context).not.toContain("Before generating a bare or on-brand deck");
     expect(context).not.toContain(

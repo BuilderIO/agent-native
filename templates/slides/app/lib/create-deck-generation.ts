@@ -71,12 +71,18 @@ async function loadDesignSystemGenerationContext(
 
 interface ReferenceDeckContextResult {
   agentContext?: string;
+  designSystemId?: string | null;
+}
+
+interface LoadedReferenceDeckContext {
+  agentContext: string;
+  designSystemId: string | null;
 }
 
 async function loadReferenceDeckGenerationContext(
   referenceDeckId?: string | null,
-): Promise<string> {
-  if (!referenceDeckId) return "";
+): Promise<LoadedReferenceDeckContext> {
+  if (!referenceDeckId) return { agentContext: "", designSystemId: null };
   try {
     const result = (await callAction(
       "get-deck-reference-context",
@@ -84,24 +90,33 @@ async function loadReferenceDeckGenerationContext(
       { method: "GET" },
     )) as ReferenceDeckContextResult | undefined;
     if (result?.agentContext?.trim()) {
-      return `\n${result.agentContext.trim()}`;
+      return {
+        agentContext: `\n${result.agentContext.trim()}`,
+        designSystemId: result.designSystemId ?? null,
+      };
     }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "unknown loading error";
-    return [
+    return {
+      agentContext: [
+        "",
+        "## Reference Deck",
+        `The user picked deck "${referenceDeckId}" as a style reference, but it could not be loaded before generation: ${message}`,
+        "Before adding slides, call `get-deck-reference-context` for this id. If it still fails, tell the user the reference deck is unavailable instead of inventing a style.",
+      ].join("\n"),
+      designSystemId: null,
+    };
+  }
+  return {
+    agentContext: [
       "",
       "## Reference Deck",
-      `The user picked deck "${referenceDeckId}" as a style reference, but it could not be loaded before generation: ${message}`,
-      "Before adding slides, call `get-deck-reference-context` for this id. If it still fails, tell the user the reference deck is unavailable instead of inventing a style.",
-    ].join("\n");
-  }
-  return [
-    "",
-    "## Reference Deck",
-    `The user picked deck "${referenceDeckId}" as a style reference, but it returned no usable context.`,
-    `Call \`get-deck --id ${referenceDeckId}\` before generating. If that deck is empty, tell the user instead of silently generating without a reference.`,
-  ].join("\n");
+      `The user picked deck "${referenceDeckId}" as a style reference, but it returned no usable context.`,
+      `Call \`get-deck --id ${referenceDeckId}\` before generating. If that deck is empty, tell the user instead of silently generating without a reference.`,
+    ].join("\n"),
+    designSystemId: null,
+  };
 }
 
 export function isSourceImprovementRequest(
@@ -382,7 +397,7 @@ export async function startDeckGeneration({
   flushSync(() => {
     deck = createDeck(undefined, {
       noDefaultSlides: true,
-      designSystemId: selectedDesignSystem?.id ?? null,
+      designSystemId,
     });
   });
   if (!deck) return "failed";
@@ -455,17 +470,18 @@ export async function startDeckGeneration({
           "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
         ].join("\n")
       : "";
-  const [referenceDeckContext, hydratedDesignSystemContext] = await Promise.all(
-    [
+  const [loadedReferenceDeckContext, hydratedDesignSystemContext] =
+    await Promise.all([
       loadReferenceDeckGenerationContext(referenceDeckId),
-      loadDesignSystemGenerationContext(selectedDesignSystem?.id),
-    ],
-  );
-  const designSystemContext = selectedDesignSystem
+      loadDesignSystemGenerationContext(designSystemId),
+    ]);
+  const referenceDeckContext = loadedReferenceDeckContext.agentContext;
+  const referenceDeckDesignSystemId = loadedReferenceDeckContext.designSystemId;
+  const designSystemContext = designSystemId
     ? [
         "",
         "Design system selection:",
-        `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
+        `- Use "${selectedDesignSystem?.title ?? designSystemId}" (id: ${designSystemId}).`,
         "- The deck has already been linked to this design system.",
         "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
         hydratedDesignSystemContext,
@@ -475,15 +491,41 @@ export async function startDeckGeneration({
         "",
         "Design system selection:",
         "- No design system was selected in the picker.",
-        ...(referenceDeckId || hasHydratedReferenceDesign
+        ...(referenceDeckId
           ? [
-              "- A reference deck or attached reference document is selected above. Follow its measured visual language — type scale, weights, colors, alignment, margins, page proportions — as the styling source of truth. Do not call `get-workspace-defaults`, apply a workspace default design system, or substitute a generic look.",
+              "- Use the reference deck's linked system and measured styling according to the visual-style precedence below. Do not call `get-workspace-defaults` or apply a workspace default.",
             ]
-          : [
-              "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
-              "- If no workspace default exists, establish one deliberate deck-level visual contract before the first slide: choose a background family, readable text and surface roles, one accent, a type pairing, spacing, radius, and image treatment that fit the subject. Record those choices as semantic --deck-* values on every fmd-slide wrapper and reuse them exactly; never alternate light and dark canvases, swap fonts, or invent a new palette per slide.",
-            ]),
+          : hasHydratedReferenceDesign
+            ? [
+                "- Use the attached reference's measured styling according to the visual-style precedence below. Do not call `get-workspace-defaults` or apply a workspace default.",
+              ]
+            : [
+                "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
+                "- If no workspace default exists, establish one deliberate deck-level visual contract before the first slide: choose a background family, readable text and surface roles, one accent, a type pairing, spacing, radius, and image treatment that fit the subject. Record those choices as semantic --deck-* values on every fmd-slide wrapper and reuse them exactly; never alternate light and dark canvases, swap fonts, or invent a new palette per slide.",
+              ]),
       ].join("\n");
+  const visualStylePrecedence = designSystemId
+    ? [
+        "## Visual style precedence",
+        `The design system explicitly selected for this new deck (id: ${designSystemId}) controls its tokens and slide defaults, overriding reference-deck linked systems and measured reference styling. Reference samples guide composition and markup only.`,
+      ].join("\n")
+    : referenceDeckId
+      ? [
+          "## Visual style precedence",
+          referenceDeckDesignSystemId
+            ? "No separate system was selected for this new deck. The reference deck's linked design system controls tokens and slide defaults; use measured styling only where it does not conflict with that system. Reference samples guide composition and markup."
+            : "No target or linked design system was selected. Use the reference deck's measured visual language for tokens and slide defaults; its samples guide composition and markup.",
+          "Do not call `get-workspace-defaults` or apply a workspace default.",
+        ].join("\n")
+      : hasHydratedReferenceDesign
+        ? [
+            "## Visual style precedence",
+            "No design system was selected. Use the attached reference's measured visual language for tokens and slide defaults.",
+          ].join("\n")
+        : [
+            "## Visual style precedence",
+            "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction and lock it before authoring: one canvas/background family, text and surface roles, type pairing, spacing scale, radius, and accent treatment. Express the contract with semantic --deck-* values on every fmd-slide wrapper.",
+          ].join("\n");
   const referenceSource = referenceSelection.referenceSource;
   const referenceSourceContext = referenceSource
     ? [
@@ -546,9 +588,7 @@ export async function startDeckGeneration({
     "An explicit theme or brand instruction in the original brief overrides the background, palette, and styling of an uploaded/reference image or source page. Preserve source content and imagery, but do not copy a white wireframe background when the requested theme is dark.",
     "Do not report completion until the persisted generationContext targetSlideCount is reached, or, when sourceCoverage is present for source-preserving mode, get-deck compact=true reports it complete for the ordered source manifest. If the current deck is short, finish the missing requested slides before adding unrelated content.",
     "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 800x412px available inside standard 64px 80px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
-    hasHydratedReferenceDesign
-      ? "The attached reference document's measured visual language above is the styling source of truth for this deck. Match its type scale, weights, colors, alignment, and margins instead of a generic light-card layout — a deck built from a style reference must not be indistinguishable from one built without it."
-      : "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction and lock it before authoring: one canvas/background family, text and surface roles, type pairing, spacing scale, radius, and accent treatment. Express the contract with semantic --deck-* values on every fmd-slide wrapper. Keep the canvas and type system consistent across slides; vary layout, rhythm, and meaningful visual structure instead of adding colorful cards, decorative rectangles, gradient text, or filler bullets.",
+    visualStylePrecedence,
     "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
     "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
   ].join("\n");

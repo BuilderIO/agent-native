@@ -10,11 +10,21 @@ vi.mock("../server/db/index.js", () => ({}));
 
 vi.mock("./get-design-system.js", () => ({
   default: {
-    run: vi.fn(async ({ id }: { id: string }) => ({
-      id,
-      title: "Acme",
-      agentContext: "Use --brand-accent: #123456.",
-    })),
+    run: vi.fn(
+      async ({
+        id,
+        purpose,
+      }: {
+        id: string;
+        purpose?: "selected" | "reference";
+      }) => ({
+        id,
+        title: "Acme",
+        purpose: purpose ?? "selected",
+        agentContext:
+          '## Linked Design System Context (reference summary)\nUse "Acme" (id: ds-in-data) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.\nUse --brand-accent: #123456.',
+      }),
+    ),
   },
 }));
 
@@ -22,6 +32,7 @@ import action, {
   buildReferenceDeckContext,
   pickLayoutPatterns,
 } from "./get-deck-reference-context.js";
+import getDesignSystem from "./get-design-system.js";
 
 const slides = [
   { id: "a", layout: "title", content: "<h1>Q3 Review</h1>" },
@@ -120,6 +131,7 @@ describe("get-deck-reference-context action", () => {
     expect(result.designSystemId).toBe("ds-in-data");
     expect(result.designSystem).toMatchObject({
       status: "available",
+      purpose: "reference",
       id: "ds-in-data",
     });
     expect(result.agentContext).toContain(
@@ -127,7 +139,16 @@ describe("get-deck-reference-context action", () => {
     );
     expect(result.agentContext).toContain("Use --brand-accent: #123456.");
     expect(result.agentContext).toContain(
-      'Call get-design-system { id: "ds-in-data" } once before the first slide',
+      "advisory visual guidance only when no separate design system is selected",
     );
+    expect(result.agentContext).not.toContain("visual source of truth");
+    expect(result.agentContext).toContain(
+      'Call get-design-system { id: "ds-in-data", purpose: "reference" } once before the first slide or screen',
+    );
+    expect(getDesignSystem.run).toHaveBeenCalledWith({
+      id: "ds-in-data",
+      compact: "true",
+      purpose: "reference",
+    });
   });
 });

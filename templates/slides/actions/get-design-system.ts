@@ -133,6 +133,7 @@ function buildDesignSystemAgentContext({
   assets,
   customInstructions,
   builder,
+  purpose,
 }: {
   id: string;
   title: string;
@@ -141,12 +142,20 @@ function buildDesignSystemAgentContext({
   assets?: string | null;
   customInstructions?: string | null;
   builder: BuilderGenerationContext | null;
+  purpose: "selected" | "reference";
 }): string {
-  const lines: string[] = [
-    "## Selected Design System Context",
-    `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
-    "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
-  ];
+  const lines: string[] =
+    purpose === "reference"
+      ? [
+          "## Linked Design System Context (reference)",
+          `Use "${title}" (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+          "When this linked system applies, use its tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
+        ]
+      : [
+          "## Selected Design System Context",
+          `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
+          "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
+        ];
 
   if (description?.trim()) {
     lines.push("", "Description:", description.trim());
@@ -216,6 +225,7 @@ function buildCompactDesignSystemAgentContext({
   data,
   customInstructions,
   builderDesignSystemId,
+  purpose,
 }: {
   id: string;
   title: string;
@@ -223,11 +233,18 @@ function buildCompactDesignSystemAgentContext({
   data?: string | null;
   customInstructions?: string | null;
   builderDesignSystemId: string | null;
+  purpose: "selected" | "reference";
 }): string {
-  const lines: string[] = [
-    "## Selected Design System Context (summary)",
-    `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
-  ];
+  const lines: string[] =
+    purpose === "reference"
+      ? [
+          "## Linked Design System Context (reference summary)",
+          `Use "${title}" (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+        ]
+      : [
+          "## Selected Design System Context (summary)",
+          `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
+        ];
 
   if (description?.trim()) {
     lines.push("", "Description:", description.trim());
@@ -261,9 +278,15 @@ function buildCompactDesignSystemAgentContext({
 
 export default defineAction({
   description:
-    "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. compact='true' returns only the bounded summary that deck and design reads already include.",
+    "Get a design system by ID. Returns the full design system (colors, typography, spacing, assets, Builder docs) and its agentContext for generation; call it once before the first slide or screen you author and reuse it for every later write. Use purpose='reference' only for a system linked to a style-reference deck; that guidance remains advisory to a separately selected target system. compact='true' returns only the bounded summary that deck and design reads already include.",
   schema: z.object({
     id: z.string().describe("Design system ID"),
+    purpose: z
+      .enum(["selected", "reference"])
+      .optional()
+      .describe(
+        "Use 'reference' for a system linked to a style-reference deck; its guidance applies only when no separate target system is selected.",
+      ),
     compact: z
       .enum(["true", "false"])
       .optional()
@@ -278,7 +301,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: true,
   },
-  run: async ({ id, compact }) => {
+  run: async ({ id, compact, purpose = "selected" }) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {
       throw Object.assign(new Error("Design system not found"), {
@@ -305,6 +328,7 @@ export default defineAction({
           customInstructions: row.customInstructions,
           builderDesignSystemId:
             builderReference?.builderDesignSystemId ?? null,
+          purpose,
         }),
       };
     }
@@ -348,6 +372,7 @@ export default defineAction({
         assets: row.assets,
         customInstructions: row.customInstructions,
         builder,
+        purpose,
       }),
     };
   },
