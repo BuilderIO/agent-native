@@ -132,18 +132,24 @@ describe("classifyToolCallJournal", () => {
     expect(isJournalEmpty(journal)).toBe(true);
   });
 
-  it("drops not-yet-completed starts on a clear event (discarded partial output)", () => {
+  it("preserves unknown outcomes across a draft clear until a matching result", () => {
     const events: AgentChatEvent[] = [
       start("sendEmail", { to: "a@example.com" }),
       { type: "clear" },
-      start("sendEmail", { to: "a@example.com" }),
-      done("sendEmail", "sent"),
     ];
 
     const journal = classifyToolCallJournal(events);
 
-    expect(journal.completed).toHaveLength(1);
-    expect(journal.interrupted).toHaveLength(0);
+    expect(journal.completed).toHaveLength(0);
+    expect(journal.interrupted).toHaveLength(1);
+    expect(journal.interrupted[0]?.tool).toBe("sendEmail");
+
+    const settled = classifyToolCallJournal([
+      ...events,
+      done("sendEmail", "sent"),
+    ]);
+    expect(settled.completed).toHaveLength(1);
+    expect(settled.interrupted).toHaveLength(0);
   });
 
   it("ignores a tool_done with no matching open start", () => {

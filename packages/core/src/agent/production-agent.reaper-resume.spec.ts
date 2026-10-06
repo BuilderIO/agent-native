@@ -247,4 +247,38 @@ describe("reaper successor resume context", () => {
     expect(result.sendEmail).not.toHaveBeenCalled();
     expect(result.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
   });
+
+  it("preserves an unknown write across a draft clear and tool-history elision", async () => {
+    const largeInput = { query: "x".repeat(80_000) };
+    const result = await recover(
+      [
+        START,
+        { type: "clear" },
+        {
+          type: "tool_start",
+          id: "large-read",
+          tool: "check-email",
+          input: largeInput,
+        },
+        {
+          type: "tool_done",
+          id: "large-read",
+          tool: "check-email",
+          input: largeInput,
+          result: "Provider receipt is inconclusive",
+        },
+      ],
+      true,
+    );
+    expect(
+      result.seen[0]!.flatMap((message) => message.content).some(
+        (part) => part.type === "tool-result",
+      ),
+    ).toBe(false);
+    expect(result.sendEmail).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.seen[0])).toContain(
+      "Interrupted / unknown outcome",
+    );
+    expect(result.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+  });
 });
