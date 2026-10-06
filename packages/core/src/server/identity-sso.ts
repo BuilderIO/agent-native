@@ -110,7 +110,6 @@ function redirect(event: H3Event, location: string): Response {
   return queryEchoSafeRedirect(
     event,
     new Response("", { status: 302, headers }),
-    getOrigin(event),
   );
 }
 

@@ -1008,7 +1008,6 @@ export function oauthCallbackResponse(
   const response = queryEchoSafeRedirect(
     event,
     new Response(null, { status: 302, headers }),
-    getOrigin(event),
   );
   if (response.status === 302) {
     setResponseStatus(event, 302);

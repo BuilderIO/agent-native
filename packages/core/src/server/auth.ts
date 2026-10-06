@@ -6424,7 +6424,7 @@ async function mountBetterAuthRoutes(
       }
 
       return isResponse
-        ? queryEchoSafeRedirect(event, response as Response, getOrigin(event))
+        ? queryEchoSafeRedirect(event, response as Response)
         : response;
     }),
   );
@@ -6511,7 +6511,6 @@ async function mountBetterAuthRoutes(
       return queryEchoSafeRedirect(
         event,
         redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302),
-        getOrigin(event),
       );
     }),
   );

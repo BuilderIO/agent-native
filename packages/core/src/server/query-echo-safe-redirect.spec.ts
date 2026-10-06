@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 
@@ -19,21 +19,28 @@ function eventFor(
   } as unknown as H3Event;
 }
 
-function redirect(location: string): Response {
+function redirect(location: string, status = 302): Response {
   const headers = new Headers({ location });
   headers.append("set-cookie", "an_session=abc; Path=/; HttpOnly");
   headers.append("set-cookie", "an_session_hint=1; Path=/");
-  return new Response(null, { status: 302, headers });
+  return new Response(null, { status, headers });
+}
+
+async function landingUrl(response: Response): Promise<string | undefined> {
+  return (await response.text()).match(/content="0;url=([^"]*)"/)?.[1];
 }
 
 describe("queryEchoSafeRedirect", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("lands a navigation on the bare callback with a page Netlify passes through untouched", async () => {
     const response = queryEchoSafeRedirect(
       eventFor(VERIFY),
       redirect(`${ORIGIN}/page/doc_1`),
-      ORIGIN,
     );
-    const html = await response.text();
+    const html = await response.clone().text();
 
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
@@ -43,19 +50,35 @@ describe("queryEchoSafeRedirect", () => {
     ]);
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(html).toContain(
-      `<meta http-equiv="refresh" content="0;url=${ORIGIN}/page/doc_1">`,
-    );
+    expect(await landingUrl(response)).toBe(`${ORIGIN}/page/doc_1`);
     expect(html).not.toContain("one-time-token");
   });
 
-  it("keeps a path Location working when the request named no usable host", () => {
+  it("lands on another app's bare URL, which the edge would also append to", async () => {
     const response = queryEchoSafeRedirect(
-      eventFor(VERIFY),
-      redirect("/"),
-      "https://",
+      eventFor("/_agent-native/identity/bootstrap/activate?activation=spent"),
+      redirect("https://content.agent-native.com/page/doc_1"),
     );
     expect(response.status).toBe(200);
+    expect(await landingUrl(response)).toBe(
+      "https://content.agent-native.com/page/doc_1",
+    );
+  });
+
+  // Workspace mounts and the dev gateway add the prefix only to a 3xx Location.
+  it("carries the app base path the mount would have added to the redirect", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/calendar");
+    const event = eventFor("/calendar/_agent-native/google/callback?code=x");
+
+    expect(await landingUrl(queryEchoSafeRedirect(event, redirect("/")))).toBe(
+      "/calendar",
+    );
+    expect(
+      await landingUrl(queryEchoSafeRedirect(event, redirect("/settings"))),
+    ).toBe("/calendar/settings");
+    expect(
+      await landingUrl(queryEchoSafeRedirect(event, redirect("/calendar/day"))),
+    ).toBe("/calendar/day");
   });
 
   it("keeps the 302 when the edge would not copy a query onto it", () => {
@@ -64,42 +87,31 @@ describe("queryEchoSafeRedirect", () => {
       queryEchoSafeRedirect(
         eventFor(VERIFY),
         redirect("/?error=INVALID_TOKEN"),
-        ORIGIN,
       ),
-      queryEchoSafeRedirect(
-        eventFor("/_agent-native/auth/x"),
-        redirect("/"),
-        ORIGIN,
-      ),
-      queryEchoSafeRedirect(
-        eventFor(VERIFY),
-        redirect("https://accounts.google.com/o/oauth2/v2/auth"),
-        ORIGIN,
-      ),
+      queryEchoSafeRedirect(eventFor("/_agent-native/auth/x"), redirect("/")),
       queryEchoSafeRedirect(
         eventFor(VERIFY, { "sec-fetch-mode": "cors" }),
         redirect("/"),
-        ORIGIN,
       ),
     ];
     for (const response of unchanged) expect(response.status).toBe(302);
   });
 
-  it("does not take a path the URL parser reads as another host for a same-origin one", () => {
-    // The parser drops the tab, leaving a scheme-relative URL.
-    const response = queryEchoSafeRedirect(
-      eventFor(VERIFY),
-      redirect("/\t/evil.test"),
-      ORIGIN,
-    );
-    expect(response.status).toBe(302);
+  it("keeps the 302 for destinations a navigating page must not run", () => {
+    const unchanged = [
+      // A 302 refuses these; `location.replace` would run the script.
+      queryEchoSafeRedirect(eventFor(VERIFY), redirect("javascript:alert(1)")),
+      queryEchoSafeRedirect(eventFor(VERIFY), redirect("agentnative://auth")),
+      // The parser drops the tab, leaving a scheme-relative URL.
+      queryEchoSafeRedirect(eventFor(VERIFY), redirect("/\t/evil.test")),
+    ];
+    for (const response of unchanged) expect(response.status).toBe(302);
   });
 
   it("keeps a method-preserving redirect, which a navigating page would turn into a GET", () => {
     const response = queryEchoSafeRedirect(
       eventFor(VERIFY),
-      new Response(null, { status: 307, headers: { location: "/" } }),
-      ORIGIN,
+      redirect("/", 307),
     );
     expect(response.status).toBe(307);
   });

@@ -23,7 +23,6 @@ import {
   getAppBasePath,
   getAppUrl,
   encodeOAuthState,
-  getOrigin,
   oauthErrorPage,
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
@@ -768,7 +767,6 @@ async function handleMcpOAuthCallback(
       event,
       getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
     ),
-    getOrigin(event),
   );
 }
 

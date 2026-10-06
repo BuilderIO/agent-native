@@ -1,6 +1,8 @@
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
+import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+
 function requestHasQuery(event: H3Event): boolean {
   if (event.url?.search) return true;
   const raw =
@@ -18,21 +20,36 @@ function isDocumentNavigation(event: H3Event): boolean {
 
 const PATH_BASE = "http://an.invalid";
 
-// A path Location is same-origin whatever host the request named, so it must
-// not depend on `origin` parsing. It is resolved rather than pattern-matched:
-// the URL parser drops tabs and newlines, so `/\t/evil.test` names another host.
-function isSameOriginBareLocation(location: string, origin: string): boolean {
+// The page navigates with `location.replace`, which runs a `javascript:` URL
+// that a 302 would refuse, so only http(s) destinations qualify. A path is
+// resolved rather than pattern-matched: the URL parser drops tabs and
+// newlines, so `/\t/evil.test` names another host.
+function bareHttpDestination(location: string): string | null {
   try {
     if (location.startsWith("/")) {
       const target = new URL(location, PATH_BASE);
-      return target.origin === PATH_BASE && !target.search;
+      if (target.origin !== PATH_BASE || target.search) return null;
+      return withAppBasePath(location);
     }
     const target = new URL(location);
-    return target.origin === new URL(origin).origin && !target.search;
+    if (target.protocol !== "https:" && target.protocol !== "http:") {
+      return null;
+    }
+    return target.search ? null : location;
     // coercion-ok: a Location the URL parser rejects is not ours to rewrite.
   } catch {
-    return false;
+    return null;
   }
+}
+
+// Workspace mounts and the dev gateway prefix an app's path Locations with its
+// base path, but only on 3xx responses; the page has to carry the prefix.
+function withAppBasePath(path: string): string {
+  const base = getAppBasePathFromViteEnv();
+  if (!base) return path;
+  const pathname = path.split(/[?#]/, 1)[0] || path;
+  if (pathname === base || pathname.startsWith(`${base}/`)) return path;
+  return pathname === "/" ? `${base}${path.slice(1)}` : `${base}${path}`;
 }
 
 function escapeHtmlAttr(value: string): string {
@@ -54,20 +71,16 @@ function escapeHtmlAttr(value: string): string {
 export function queryEchoSafeRedirect(
   event: H3Event,
   response: Response,
-  origin: string,
 ): Response {
   // 307 and 308 replay the request method; a page that navigates would turn a
   // POST into a GET.
   if (![301, 302, 303].includes(response.status)) return response;
   const location = response.headers.get("location");
-  if (
-    !location ||
-    !requestHasQuery(event) ||
-    !isDocumentNavigation(event) ||
-    !isSameOriginBareLocation(location, origin)
-  ) {
+  if (!location || !requestHasQuery(event) || !isDocumentNavigation(event)) {
     return response;
   }
+  const destination = bareHttpDestination(location);
+  if (!destination) return response;
 
   const headers = new Headers();
   for (const [key, value] of response.headers.entries()) {
@@ -89,8 +102,8 @@ export function queryEchoSafeRedirect(
   headers.set("content-type", "text/html; charset=utf-8");
   headers.set("referrer-policy", "no-referrer");
 
-  const href = escapeHtmlAttr(location);
-  const script = JSON.stringify(location).replace(/</g, "\\u003c");
+  const href = escapeHtmlAttr(destination);
+  const script = JSON.stringify(destination).replace(/</g, "\\u003c");
   return new Response(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="refresh" content="0;url=${href}"><script>location.replace(${script})</script></head><body></body></html>`,
     { status: 200, headers },

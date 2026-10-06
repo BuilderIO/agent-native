@@ -41,7 +41,6 @@ import {
   decodeOAuthState,
   encodeOAuthState,
   getAppUrl,
-  getOrigin,
   logOAuthStateDecodeFailure,
   oauthErrorPage,
   resolveOAuthRedirectUri,
@@ -565,7 +564,6 @@ export async function handleWorkspaceProviderOAuthCallback(
       return queryEchoSafeRedirect(
         event,
         redirectWithStagedCookies(event, getAppUrl(event, returnPath)),
-        getOrigin(event),
       );
     },
   );
