@@ -81,6 +81,28 @@ interface LoadedReferenceDeckContext {
   designSystemId: string | null;
 }
 
+function getLinkedDesignSystemStatus(
+  result: ReferenceDeckContextResult,
+): "available" | "unavailable" | "none" | null {
+  const { designSystemId, linkedDesignSystemStatus } = result;
+  const normalizedId =
+    typeof designSystemId === "string" && designSystemId.trim()
+      ? designSystemId.trim()
+      : null;
+
+  if (linkedDesignSystemStatus === "none" && designSystemId === null) {
+    return "none";
+  }
+  if (
+    (linkedDesignSystemStatus === "available" ||
+      linkedDesignSystemStatus === "unavailable") &&
+    normalizedId
+  ) {
+    return linkedDesignSystemStatus;
+  }
+  return null;
+}
+
 async function loadReferenceDeckGenerationContext(
   referenceDeckId?: string | null,
 ): Promise<LoadedReferenceDeckContext> {
@@ -94,16 +116,28 @@ async function loadReferenceDeckGenerationContext(
       { method: "GET" },
     )) as ReferenceDeckContextResult | undefined;
     if (result?.agentContext?.trim()) {
-      const linkedDesignSystemStatus = result.designSystemId
-        ? (result.linkedDesignSystemStatus ?? "unavailable")
-        : "none";
+      const linkedDesignSystemStatus = getLinkedDesignSystemStatus(result);
+      if (linkedDesignSystemStatus !== null) {
+        const designSystemId =
+          typeof result.designSystemId === "string"
+            ? result.designSystemId.trim()
+            : null;
+        return {
+          status: "loaded",
+          agentContext: `\n${result.agentContext.trim()}`,
+          designSystemId:
+            linkedDesignSystemStatus === "available" ? designSystemId : null,
+        };
+      }
       return {
-        status: "loaded",
-        agentContext: `\n${result.agentContext.trim()}`,
-        designSystemId:
-          linkedDesignSystemStatus === "available"
-            ? (result.designSystemId ?? null)
-            : null,
+        status: "unavailable",
+        agentContext: [
+          "",
+          "## Reference Deck",
+          `The user picked deck "${referenceDeckId}" as a style reference, but the reference action returned incomplete linked-system status.`,
+          "Retry `get-deck-reference-context`; if it still fails, stop instead of generating with an assumed style.",
+        ].join("\n"),
+        designSystemId: null,
       };
     }
   } catch (error) {

@@ -18,6 +18,7 @@ const MAX_SUMMARY_CONTEXT_CHARS = 1_500;
 const MAX_SUMMARY_TOKEN_VALUES = 16;
 const MAX_SUMMARY_INSTRUCTIONS_CHARS = 600;
 const MAX_SUMMARY_DESCRIPTION_CHARS = 600;
+const MAX_PROMPT_TITLE_CHARS = 120;
 
 interface BuilderGenerationContext {
   builderDesignSystemId: string;
@@ -40,6 +41,18 @@ interface BuilderGenerationContext {
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
+}
+
+function formatDesignSystemPromptTitle(title: string): string {
+  const normalized = title
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const bounded =
+    normalized.length <= MAX_PROMPT_TITLE_CHARS
+      ? normalized
+      : `${normalized.slice(0, MAX_PROMPT_TITLE_CHARS - 1).trimEnd()}…`;
+  return JSON.stringify(bounded || "Untitled design system") ?? '""';
 }
 
 // list-design-systems only ever reads the docCount baked into row.data at
@@ -144,16 +157,17 @@ function buildDesignSystemAgentContext({
   builder: BuilderGenerationContext | null;
   purpose: "selected" | "reference";
 }): string {
+  const promptTitle = formatDesignSystemPromptTitle(title);
   const lines: string[] =
     purpose === "reference"
       ? [
           "## Linked Design System Context (reference)",
-          `Use "${title}" (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+          `Use ${promptTitle} (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
           "When this linked system applies, use its tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
         ]
       : [
           "## Selected Design System Context",
-          `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
+          `Use ${promptTitle} (id: ${id}) as the visual source of truth for this deck.`,
           "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, slide defaults, or component language.",
         ];
 
@@ -235,15 +249,16 @@ function buildCompactDesignSystemAgentContext({
   builderDesignSystemId: string | null;
   purpose: "selected" | "reference";
 }): string {
+  const promptTitle = formatDesignSystemPromptTitle(title);
   const lines: string[] =
     purpose === "reference"
       ? [
           "## Linked Design System Context (reference summary)",
-          `Use "${title}" (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
+          `Use ${promptTitle} (id: ${id}) as advisory visual guidance only when no separate design system is selected for this deck; an explicitly selected target system takes precedence.`,
         ]
       : [
           "## Selected Design System Context (summary)",
-          `Use "${title}" (id: ${id}) as the visual source of truth for this deck.`,
+          `Use ${promptTitle} (id: ${id}) as the visual source of truth for this deck.`,
         ];
 
   if (description?.trim()) {

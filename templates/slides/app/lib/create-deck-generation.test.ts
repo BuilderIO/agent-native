@@ -78,6 +78,43 @@ describe("getUploadedImageAgentOptions", () => {
 });
 
 describe("startDeckGeneration", () => {
+  async function generateWithReferenceContext(
+    referenceContext: unknown,
+  ): Promise<string> {
+    mockCallAction.mockReset();
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "get-deck-reference-context" ? referenceContext : undefined,
+    );
+    const deck = {
+      id: "deck-reference-status",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create an about us deck",
+        files: [],
+        referenceSelection: { referenceDeckId: "reference-deck-status" },
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    return agentSubmit.mock.calls[0]?.[1] as string;
+  }
+
   it("extracts an explicit target slide count for continuation", () => {
     expect(requestedSlideCount("Create a dark 6-slide presentation")).toBe(6);
     expect(requestedSlideCount("Create exactly 8 slides about launches")).toBe(
@@ -515,6 +552,55 @@ describe("startDeckGeneration", () => {
     );
     expect(context).not.toContain(
       "The reference deck's readable linked design system controls tokens and slide defaults",
+    );
+  });
+
+  it.each([
+    [
+      "none status with an id",
+      {
+        designSystemId: "ds-reference",
+        linkedDesignSystemStatus: "none",
+      },
+    ],
+    [
+      "available status without an id",
+      { designSystemId: null, linkedDesignSystemStatus: "available" },
+    ],
+    [
+      "unavailable status with a blank id",
+      { designSystemId: "  ", linkedDesignSystemStatus: "unavailable" },
+    ],
+    ["missing status", { designSystemId: null }],
+  ] as const)(
+    "stops when linked-system status metadata is inconsistent (%s)",
+    async (_case, metadata) => {
+      const context = await generateWithReferenceContext({
+        ...metadata,
+        agentContext: "REFERENCE_STYLE_CONTEXT",
+      });
+
+      expect(context).toContain("returned incomplete linked-system status");
+      expect(context).toContain(
+        "stop instead of generating with an assumed style",
+      );
+      expect(context).not.toContain("REFERENCE_STYLE_CONTEXT");
+      expect(context).not.toContain(
+        "Because the reference deck was read successfully",
+      );
+    },
+  );
+
+  it("allows no linked system only when its status and id agree", async () => {
+    const context = await generateWithReferenceContext({
+      designSystemId: null,
+      linkedDesignSystemStatus: "none",
+      agentContext: "REFERENCE_STYLE_CONTEXT",
+    });
+
+    expect(context).toContain("REFERENCE_STYLE_CONTEXT");
+    expect(context).toContain(
+      "Because the reference deck was read successfully, use its measured visual language",
     );
   });
 
