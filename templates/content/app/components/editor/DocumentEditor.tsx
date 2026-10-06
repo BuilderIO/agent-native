@@ -248,7 +248,7 @@ import {
   suggestionOperationKey,
   suggestionSessionVisuals,
   planSuggestionDraftPersistence,
-  retryOnSuggestionConflict,
+  saveUnlessSuggestionChanged,
   type DraftSuggestion,
   type SuggestionDraftSession,
   type SuggestionPersistenceEntry,
@@ -5090,7 +5090,7 @@ function PageEditorSessionBody({
         const plan = planSuggestionDraftPersistence(operations, entries);
         const persisted = new Map(plan.unchanged);
         const settled: ResourceSuggestion[] = [];
-        const conflictRetry = {
+        const conflictCheck = {
           isConflict: isSuggestionConflictActionError,
           latest: async (id: string) => {
             const refreshed = await suggestionsQuery.refetch();
@@ -5103,27 +5103,27 @@ function PageEditorSessionBody({
             );
           },
         };
-        // Set once a reviewer accepted a suggestion this save meant to change:
-        // the Page now holds it, so no further write from this draft's base is
-        // safe, and the author resolves the draft from the conflict banner.
-        let acceptedElsewhere = false;
+        // Set once a suggestion this save meant to change was accepted or
+        // amended elsewhere: writing this draft over it would discard that
+        // change, so the author resolves the draft from the conflict banner.
+        let changedElsewhere = false;
         for (const { key, suggestion } of plan.withdraw) {
-          const withdrawn = await retryOnSuggestionConflict(
+          const withdrawn = await saveUnlessSuggestionChanged(
             suggestion,
-            async (target) =>
+            async () =>
               (
                 await decideSuggestion.mutateAsync({
-                  id: target.id,
+                  id: suggestion.id,
                   decision: "withdrawn",
-                  idempotencyKey: `withdraw:${target.id}:${target.revision}`,
-                  observedBase: target.baseRevision,
-                  observedRevision: target.revision,
+                  idempotencyKey: `withdraw:${suggestion.id}:${suggestion.revision}`,
+                  observedBase: suggestion.baseRevision,
+                  observedRevision: suggestion.revision,
                 })
               ).suggestion,
-            conflictRetry,
+            conflictCheck,
           );
-          if (withdrawn.status === "accepted") {
-            acceptedElsewhere = true;
+          if (withdrawn.status === "changed") {
+            changedElsewhere = true;
             break;
           }
           if (withdrawn.status === "saved") settled.push(withdrawn.result);
@@ -5140,10 +5140,11 @@ function PageEditorSessionBody({
           });
         }
         const create = [...plan.create];
-        for (const amendment of acceptedElsewhere ? [] : plan.amend) {
-          const amended = await retryOnSuggestionConflict(
-            amendment.suggestion,
-            async (target) => {
+        for (const amendment of changedElsewhere ? [] : plan.amend) {
+          const target = amendment.suggestion;
+          const amended = await saveUnlessSuggestionChanged(
+            target,
+            async () => {
               const amendmentKey = JSON.stringify([
                 target.id,
                 target.revision,
@@ -5164,10 +5165,10 @@ function PageEditorSessionBody({
               });
               return { idempotencyKey, suggestion };
             },
-            conflictRetry,
+            conflictCheck,
           );
-          if (amended.status === "accepted") {
-            acceptedElsewhere = true;
+          if (amended.status === "changed") {
+            changedElsewhere = true;
             break;
           }
           entries.delete(amendment.previousKey);
@@ -5183,10 +5184,9 @@ function PageEditorSessionBody({
           });
           persisted.set(amendment.key, amended.result.suggestion);
         }
-        if (acceptedElsewhere) {
+        if (changedElsewhere) {
           adoptConfirmedSuggestions();
           setSuggestionAmendmentConflict(true);
-          void suggestionsQuery.refetch();
           void queryClient.invalidateQueries(documentQueryFilter(documentId));
           return null;
         }

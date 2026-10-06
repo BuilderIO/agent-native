@@ -10,7 +10,7 @@ import {
   planSuggestionDraftPersistence,
   previewSuggestionDraft,
   recordSuggestionReplacementIntent,
-  retryOnSuggestionConflict,
+  saveUnlessSuggestionChanged,
   suggestionDraftOperations,
   suggestionOperationKey,
   suggestionSessionVisuals,
@@ -191,13 +191,13 @@ describe("suggestion draft session", () => {
     const staleRemote = savedSuggestion({ revision: 1, summary: "Original" });
     expect(freshestSavedSuggestions([local], [staleRemote])).toEqual([local]);
 
-    const decidedRemote = savedSuggestion({
-      revision: 2,
-      status: "accepted",
-    });
-    expect(freshestSavedSuggestions([local], [decidedRemote])).toEqual([
-      decidedRemote,
-    ]);
+    // A decision keeps the revision, so the refreshed row must still win.
+    for (const status of ["accepted", "rejected", "withdrawn"] as const) {
+      const decidedRemote = savedSuggestion({ revision: 2, status });
+      expect(freshestSavedSuggestions([local], [decidedRemote])).toEqual([
+        decidedRemote,
+      ]);
+    }
   });
 
   it("keeps a reopened addition as the same Add while typing continues", () => {
@@ -1050,68 +1050,43 @@ describe("suggestion draft session", () => {
     const saved = (revision: number, status = "pending") =>
       ({ id: "saved", revision, status }) as ResourceSuggestion;
 
-    it("retries against the newer revision another tab saved", async () => {
-      const attempts: number[] = [];
-      const result = await retryOnSuggestionConflict(
-        saved(1),
-        async (target) => {
-          attempts.push(target.revision);
-          if (target.revision === 1) throw conflict;
-          return `saved at ${target.revision}`;
-        },
-        { isConflict, latest: async () => saved(2) },
-      );
-      expect(result).toEqual({ status: "saved", result: "saved at 2" });
-      expect(attempts).toEqual([1, 2]);
+    it("saves when nothing moved the suggestion", async () => {
+      await expect(
+        saveUnlessSuggestionChanged(saved(1), async () => "saved at 1", {
+          isConflict,
+          latest: async () => saved(1),
+        }),
+      ).resolves.toEqual({ status: "saved", result: "saved at 1" });
     });
 
     it.each([
-      ["accepted", "accepted"],
-      ["rejected", "closed"],
-      ["withdrawn", "closed"],
-    ])("stops once a decision %s it", async (status, outcome) => {
-      const attempts: number[] = [];
-      const result = await retryOnSuggestionConflict(
-        saved(1),
-        async (target) => {
-          attempts.push(target.revision);
-          throw conflict;
-        },
-        { isConflict, latest: async () => saved(2, status) },
-      );
-      expect(result).toEqual({ status: outcome });
-      expect(attempts).toEqual([1]);
-    });
-
-    it("stops when the suggestion no longer exists", async () => {
-      await expect(
-        retryOnSuggestionConflict(
+      ["another tab amended", saved(2), "changed"],
+      ["a reviewer accepted", saved(1, "accepted"), "changed"],
+      ["a reviewer rejected", saved(1, "rejected"), "closed"],
+      ["its author withdrew", saved(1, "withdrawn"), "closed"],
+      ["someone deleted", undefined, "closed"],
+    ] as const)(
+      "does not save over a suggestion %s it",
+      async (_, latest, outcome) => {
+        let attempts = 0;
+        const result = await saveUnlessSuggestionChanged(
           saved(1),
           async () => {
+            attempts += 1;
             throw conflict;
           },
-          { isConflict, latest: async () => undefined },
-        ),
-      ).resolves.toEqual({ status: "closed" });
-    });
-
-    it("fails instead of retrying again when the newer revision conflicts too", async () => {
-      await expect(
-        retryOnSuggestionConflict(
-          saved(1),
-          async () => {
-            throw conflict;
-          },
-          { isConflict, latest: async () => saved(2) },
-        ),
-      ).rejects.toBe(conflict);
-    });
+          { isConflict, latest: async () => latest },
+        );
+        expect(result).toEqual({ status: outcome });
+        expect(attempts).toBe(1);
+      },
+    );
 
     it("fails without refreshing on any other error", async () => {
       const outage = new Error("offline");
       let refreshed = false;
       await expect(
-        retryOnSuggestionConflict(
+        saveUnlessSuggestionChanged(
           saved(1),
           async () => {
             throw outage;
@@ -1131,7 +1106,7 @@ describe("suggestion draft session", () => {
     it("fails when the refresh fails", async () => {
       const unreadable = new Error("refresh failed");
       await expect(
-        retryOnSuggestionConflict(
+        saveUnlessSuggestionChanged(
           saved(1),
           async () => {
             throw conflict;
