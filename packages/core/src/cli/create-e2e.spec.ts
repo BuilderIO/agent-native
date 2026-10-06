@@ -24,6 +24,7 @@ import {
   _rewriteNetlifyToml,
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
+  _getOtelDependencyVersion,
   _getToolkitDependencyVersion,
   _getAgentKitDependencyVersion,
   _ensureLocalPackageBuildOutputs,
@@ -888,6 +889,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         dispatchDependencyVersion: _getDispatchDependencyVersion(),
         toolkitDependencyVersion: _getToolkitDependencyVersion(),
         agentKitDependencyVersion: _getAgentKitDependencyVersion(),
+        otelDependencyVersion: _getOtelDependencyVersion(),
       });
       _fixPackageJsonName(appDir, t);
       _renameGitignore(appDir);
@@ -1189,6 +1191,25 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(dispatchPkg.dependencies["@agent-native/dispatch"]).toMatch(
         /^file:\/\//,
       );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("keeps the OTel startup plugin and resolves @agent-native/otel to latest", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    try {
+      const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+      const appDir = path.join(wsDir, "apps", "chat");
+      expect(readPkg(appDir).dependencies["@agent-native/otel"]).toBe("latest");
+      expect(
+        fs.readFileSync(path.join(appDir, "server/plugins/otel.ts"), "utf-8"),
+      ).toContain("startAgentNativeOtel()");
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
