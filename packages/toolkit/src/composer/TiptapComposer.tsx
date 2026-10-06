@@ -370,6 +370,13 @@ function isSameComposerAttachment(
   );
 }
 
+function isSameComposerAttachmentSnapshot(
+  current: { id: string; file?: unknown },
+  snapshot: { id: string; file?: unknown },
+) {
+  return current.id === snapshot.id && current.file === snapshot.file;
+}
+
 function composerReferenceFromMentionItem(
   item: MentionItem,
 ): AgentComposerReference {
@@ -3060,6 +3067,9 @@ export function TiptapComposer({
   );
   const pendingAttachmentFilesRef = useRef(new Map<File, number>());
   const staleAttachmentFilesRef = useRef(new Set<File>());
+  const staleAttachmentSnapshotsRef = useRef(
+    new Set<(typeof composerAttachments)[number]>(),
+  );
   const cleanStaleAttachments = useCallback(async () => {
     await attachmentCleanupRef.current;
     for (const file of staleAttachmentFilesRef.current) {
@@ -3076,24 +3086,50 @@ export function TiptapComposer({
       await cleanup;
       staleAttachmentFilesRef.current.delete(file);
     }
+    for (const staleAttachment of staleAttachmentSnapshotsRef.current) {
+      const cleanup = attachmentCleanupRef.current.then(async () => {
+        const index = composerRuntime
+          .getState()
+          .attachments.findIndex((attachment) =>
+            isSameComposerAttachmentSnapshot(attachment, staleAttachment),
+          );
+        if (index === -1) return;
+        await composerRuntime.getAttachmentByIndex(index).remove();
+      });
+      attachmentCleanupRef.current = cleanup.catch((error) => {
+        console.error("Could not remove stale composer attachment", error);
+      });
+      await cleanup;
+      staleAttachmentSnapshotsRef.current.delete(staleAttachment);
+    }
   }, [composerRuntime]);
   const createAttachmentSubmissionBarrier = useCallback(() => {
-    const pendingAdds = [...pendingAttachmentAddsRef.current.values()].flatMap(
-      (additions) => [...additions],
-    );
-    const barrier = attachmentAddQueueRef.current.then(async () => {
-      await Promise.all(pendingAdds);
-      await cleanStaleAttachments();
-      if (staleAttachmentFilesRef.current.size > 0) {
-        throw new Error("Previous draft attachments could not be removed.");
+    const drain = async () => {
+      while (true) {
+        const pendingAdds = [
+          ...pendingAttachmentAddsRef.current.values(),
+        ].flatMap((additions) => [...additions]);
+        const addQueue = attachmentAddQueueRef.current;
+        await addQueue;
+        await Promise.all(pendingAdds);
+        await cleanStaleAttachments();
+        if (
+          staleAttachmentFilesRef.current.size > 0 ||
+          staleAttachmentSnapshotsRef.current.size > 0
+        ) {
+          throw new Error("Previous draft attachments could not be removed.");
+        }
+        const hasNewPendingAdds = [...pendingAttachmentAddsRef.current.values()]
+          .flatMap((additions) => [...additions])
+          .some((addition) => !pendingAdds.includes(addition));
+        if (addQueue !== attachmentAddQueueRef.current || hasNewPendingAdds) {
+          continue;
+        }
+        return composerRuntime.getState().attachments;
       }
-    });
-    attachmentAddQueueRef.current = barrier.then(
-      () => undefined,
-      () => undefined,
-    );
-    return barrier;
-  }, [cleanStaleAttachments]);
+    };
+    return drain();
+  }, [cleanStaleAttachments, composerRuntime]);
   const addAttachmentForCurrentScope = useCallback(
     (file: File) => {
       const scopeGeneration = draftScopeGenerationRef.current;
@@ -3236,8 +3272,11 @@ export function TiptapComposer({
     if (draftKeyRef.current !== draftKey) {
       draftKeyRef.current = draftKey;
       draftScopeGenerationRef.current += 1;
+      for (const attachment of composerRuntime.getState().attachments) {
+        staleAttachmentSnapshotsRef.current.add(attachment);
+      }
     }
-  }, [draftKey]);
+  }, [composerRuntime, draftKey]);
   const draftEditorRef = useRef<ComposerDraftEditor | null>(null);
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelScheduledDraftPersist = useCallback(() => {
@@ -4416,8 +4455,9 @@ export function TiptapComposer({
       submitInFlightRef.current = true;
       onSubmissionPendingChange?.(true);
       const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
+      let attachmentSnapshot: typeof composerAttachments;
       try {
-        await attachmentSubmissionBarrier;
+        attachmentSnapshot = await attachmentSubmissionBarrier;
       } catch (error) {
         if (
           mountedRef.current &&
@@ -4488,7 +4528,7 @@ export function TiptapComposer({
         draftScopeGenerationRef.current === submittingDraftGeneration;
       let { text: draftText, references } = syncComposerState();
       let text = textOverride ?? draftText;
-      let attachments = composerRuntime.getState().attachments;
+      let attachments = attachmentSnapshot;
       let submittedSlotReferences = slotReferencesRef.current;
       let submittedEditorDocument = ed.state.doc;
       let submittedDraftHtml = ed.getHTML();
@@ -4769,8 +4809,10 @@ export function TiptapComposer({
       if (onBeforeSubmit && !clearedBeforePreflight) {
         submitInFlightRef.current = true;
         onSubmissionPendingChange?.(true);
+        let preflightAttachmentSnapshot: typeof composerAttachments;
         try {
-          await createAttachmentSubmissionBarrier();
+          preflightAttachmentSnapshot =
+            await createAttachmentSubmissionBarrier();
         } catch (error) {
           restoreSubmittedDraft(true);
           if (mountedRef.current && isCurrentDraftScope()) {
@@ -4797,7 +4839,7 @@ export function TiptapComposer({
         }
         references = current.references;
         submittedSlotReferences = slotReferencesRef.current;
-        attachments = composerRuntime.getState().attachments;
+        attachments = preflightAttachmentSnapshot;
         trimmed = text.trim();
         if (
           !text.trim() &&
@@ -4953,15 +4995,18 @@ export function TiptapComposer({
           const submissionBarrier = new Promise<void>((resolve) => {
             releaseBarrier = resolve;
           });
-          attachmentSubmissionBarrierRef.current = submissionBarrier;
           const pendingAddQueue = attachmentAddQueueRef.current;
+          const pendingScopeAdds = [
+            ...(pendingAttachmentAddsRef.current.get(
+              submittedScopeGeneration,
+            ) ?? []),
+          ];
+          const failedDuplicateAttachments: (typeof composerAttachments)[number][] =
+            [];
+          attachmentSubmissionBarrierRef.current = submissionBarrier;
           try {
             await pendingAddQueue;
-            await Promise.all([
-              ...(pendingAttachmentAddsRef.current.get(
-                submittedScopeGeneration,
-              ) ?? []),
-            ]);
+            await Promise.all(pendingScopeAdds);
             if (
               !mountedRef.current ||
               !isCurrentDraftScope() ||
@@ -5039,11 +5084,31 @@ export function TiptapComposer({
               } catch (error) {
                 cleanupFailed = true;
                 cleanupError ??= error;
+                failedDuplicateAttachments.push(attachment);
               }
             }
             if (cleanupFailed) throw cleanupError;
           } catch (error) {
             if (mountedRef.current && isCurrentDraftScope()) {
+              const remainingFailedDuplicates =
+                failedDuplicateAttachments.filter((failedDuplicate) =>
+                  composerRuntime
+                    .getState()
+                    .attachments.some((current) =>
+                      isSameComposerAttachment(current, failedDuplicate),
+                    ),
+                );
+              if (remainingFailedDuplicates.length > 0) {
+                setFailedAttachmentCleanupSnapshots((failed) => [
+                  ...failed,
+                  ...remainingFailedDuplicates.filter(
+                    (candidate) =>
+                      !failed.some((current) =>
+                        isSameComposerAttachment(current, candidate),
+                      ),
+                  ),
+                ]);
+              }
               onAttachmentErrorRef.current?.(
                 error instanceof Error ? error.message : String(error),
               );
