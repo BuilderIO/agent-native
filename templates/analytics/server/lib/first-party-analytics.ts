@@ -40,6 +40,15 @@ import {
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
 import {
+  MAX_APP_LENGTH,
+  MAX_EVENT_NAME_LENGTH,
+  MAX_PATH_LENGTH,
+  MAX_USER_KEY_LENGTH,
+  boundedIdentity,
+  boundedText,
+} from "./indexed-text.js";
+import { parseIngestBody, requestError } from "./request-errors.js";
+import {
   recordEventCatalog,
   recordSessionEventIndex,
   type SessionEventIndexInputRow,
@@ -488,14 +497,9 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-const LONE_SURROGATE =
-  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
-
-// Rollup and index ids encode these values with encodeURIComponent, which
-// throws on a lone surrogate and would reject the batch on every retry.
 function asString(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) {
-    return value.trim().replace(LONE_SURROGATE, "\uFFFD");
+    return value.trim();
   }
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
@@ -564,27 +568,33 @@ export function resolveAnalyticsEventDimensions({
   context: Record<string, unknown>;
   hostname: string | null;
 }): { app: string | null; template: string | null } {
-  const app =
+  const app = boundedDimension(
     asString(properties.app_name) ||
-    asString(properties.app) ||
-    asString((properties as any).agent_native_app) ||
-    asString((properties as any).agentNativeApp) ||
-    asString((context as any).app) ||
-    asString((context as any).agent_native_app) ||
-    asString((context as any).agentNativeApp) ||
-    (hostname ? hostname.split(".")[0] : null);
+      asString(properties.app) ||
+      asString((properties as any).agent_native_app) ||
+      asString((properties as any).agentNativeApp) ||
+      asString((context as any).app) ||
+      asString((context as any).agent_native_app) ||
+      asString((context as any).agentNativeApp) ||
+      (hostname ? hostname.split(".")[0] : null),
+  );
   const template =
-    asString(properties.template_name) ||
-    asString(properties.template) ||
-    asString((properties as any).templateId) ||
-    asString((properties as any).agent_native_template) ||
-    asString((properties as any).agentNativeTemplate) ||
-    asString((context as any).template) ||
-    asString((context as any).templateId) ||
-    asString((context as any).agent_native_template) ||
-    asString((context as any).agentNativeTemplate) ||
-    app;
+    boundedDimension(
+      asString(properties.template_name) ||
+        asString(properties.template) ||
+        asString((properties as any).templateId) ||
+        asString((properties as any).agent_native_template) ||
+        asString((properties as any).agentNativeTemplate) ||
+        asString((context as any).template) ||
+        asString((context as any).templateId) ||
+        asString((context as any).agent_native_template) ||
+        asString((context as any).agentNativeTemplate),
+    ) || app;
   return { app, template };
+}
+
+function boundedDimension(value: string | null): string | null {
+  return value && boundedText(value, MAX_APP_LENGTH);
 }
 
 export function isMarketingWebsiteSessionEvent({
@@ -616,35 +626,43 @@ export function isMarketingWebsiteSessionEvent({
   );
 }
 
-export function parseAnalyticsTrackPayload(raw: unknown): {
+export function parseAnalyticsTrackPayload(
+  raw: unknown,
+  headerKey?: string | null,
+): {
   publicKey: string;
   events: IncomingAnalyticsEvent[];
 } {
-  const body =
-    typeof raw === "string" && raw.trim() ? JSON.parse(raw) : asRecord(raw);
+  const body = asRecord(parseIngestBody(raw));
   const publicKey =
+    asString(headerKey) ||
     asString((body as any).publicKey) ||
     asString((body as any).writeKey) ||
     asString((body as any).apiKey);
   if (!publicKey) {
-    throw new Error("Missing publicKey");
+    throw requestError("Missing publicKey", 400);
   }
 
   const rawEvents = Array.isArray((body as any).events)
     ? (body as any).events
     : [body];
   if (rawEvents.length === 0) {
-    throw new Error("No events provided");
+    throw requestError("No events provided", 400);
   }
   if (rawEvents.length > MAX_EVENTS_PER_REQUEST) {
-    throw new Error(`At most ${MAX_EVENTS_PER_REQUEST} events are accepted`);
+    throw requestError(
+      `At most ${MAX_EVENTS_PER_REQUEST} events are accepted`,
+      400,
+    );
   }
 
   const events = rawEvents.map((rawEvent: unknown) => {
     const obj = asRecord(rawEvent);
     const eventName =
       asString((obj as any).event) || asString((obj as any).name);
-    if (!eventName) throw new Error("Each event requires an event name");
+    if (!eventName) {
+      throw requestError("Each event requires an event name", 400);
+    }
     return {
       event: eventName,
       properties: asRecord((obj as any).properties),
@@ -713,7 +731,7 @@ export async function recordAnalyticsEvents(
     )
     .limit(1);
   if (!key) {
-    throw new Error("Invalid analytics public key");
+    throw requestError("Invalid analytics public key", 401);
   }
 
   const receivedAt = nowIso();
@@ -752,7 +770,9 @@ export async function recordAnalyticsEvents(
       event.anonymousId ??
       asString((properties as any).anonymousId) ??
       asString((properties as any).distinctId);
-    const userKey = userId || anonymousId;
+    const rawUserKey = userId || anonymousId;
+    const userKey =
+      rawUserKey && boundedIdentity(rawUserKey, MAX_USER_KEY_LENGTH);
     const timestamp = normalizeAnalyticsTimestamp(event.timestamp, receivedAt);
     const sessionId =
       event.sessionId ??
@@ -775,7 +795,7 @@ export async function recordAnalyticsEvents(
           app,
           template,
           url: parts.url,
-          userId,
+          userId: userId && boundedIdentity(userId, MAX_USER_KEY_LENGTH),
           anonymousId,
           userKey,
           sessionId,
@@ -789,10 +809,11 @@ export async function recordAnalyticsEvents(
       return [];
     }
 
+    const path = parts.path ?? asString(properties.path);
     return {
       id: id("evt"),
       publicKeyId: key.id,
-      eventName: event.event,
+      eventName: boundedText(event.event, MAX_EVENT_NAME_LENGTH),
       userId,
       anonymousId,
       userKey,
@@ -801,7 +822,7 @@ export async function recordAnalyticsEvents(
       eventDate: eventDateFromTimestamp(timestamp),
       receivedAt,
       url: parts.url,
-      path: parts.path ?? asString(properties.path),
+      path: path && boundedText(path, MAX_PATH_LENGTH),
       hostname,
       referrer:
         asString(properties.referrer) || asString((context as any).referrer),

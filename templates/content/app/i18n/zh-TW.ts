@@ -253,8 +253,6 @@ const overrides = {
   },
   landing: {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
-    requestedPageUnavailable:
-      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
     workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
     workspaceWelcomeUnavailableDescription:
@@ -312,6 +310,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未選取頁面",
+    signedInAs: "目前登入帳號：{{email}}",
+    goToMyPages: "前往我的頁面",
+    switchAccount: "切換帳號",
     noPageDescription: "從側邊欄選取頁面，或建立新頁面開始。",
     documentUnavailable: "檔案不可用",
     documentUnavailableDescription:

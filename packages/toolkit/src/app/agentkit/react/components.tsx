@@ -3832,25 +3832,30 @@ export function AgentKitComposer({
               region: labels.queue,
               steer: labels.queueSteer,
               steerHint: labels.queueSteerHint,
+              sendNow: labels.queueSendNow,
+              sendNowHint: labels.queueSendNowHint,
               remove: labels.queueRemove,
               moreActions: labels.queueMore,
             }}
             getItemActions={
               supportsQueueReordering
-                ? (item) => [
-                    {
-                      id: "move-to-top",
-                      label: labels.queueMoveToTop,
-                      icon: <IconArrowUp aria-hidden="true" size={14} />,
-                      disabled:
-                        item.id === thread.queuedMessages[0]?.id ||
-                        moveQueuedToTop.pending,
-                      onSelect: (selected) =>
-                        void command
-                          .execute(() => moveQueuedToTop.execute(selected.id))
-                          .catch(() => undefined),
-                    },
-                  ]
+                ? (item) => {
+                    if (item.id === thread.queuedMessages[0]?.id) return [];
+
+                    return [
+                      {
+                        id: "move-to-top",
+                        label: labels.queueSendNext,
+                        hint: labels.queueSendNextHint,
+                        icon: <IconArrowUp aria-hidden="true" size={14} />,
+                        disabled: moveQueuedToTop.pending,
+                        onSelect: (selected) =>
+                          void command
+                            .execute(() => moveQueuedToTop.execute(selected.id))
+                            .catch(() => undefined),
+                      },
+                    ];
+                  }
                 : undefined
             }
           />
@@ -3888,6 +3893,11 @@ export function AgentKitComposer({
         attachmentAdapter={attachmentAdapter}
         inlineTextAttachments={inlineTextAttachments}
         rootClassName="agentkit-composer"
+        className={
+          queueCapability.visible && thread.queuedMessages.length > 0
+            ? "agent-composer-area--attached-above"
+            : undefined
+        }
         draftScope={`agentkit:${threadId}${editingMessage ? `:edit:${editingMessage.id}` : ""}`}
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}

@@ -609,6 +609,8 @@ export const AgentKitAssistantChat = forwardRef<
     );
   }
   const t = useT();
+  const translatorRef = useRef(t);
+  translatorRef.current = t;
   const { formatDate } = useFormatters();
   const threadId = props.threadId ?? props.tabId;
   if (!threadId) {
@@ -738,9 +740,10 @@ export const AgentKitAssistantChat = forwardRef<
       composerLabel: t("agentChat.composer.messageAgent"),
       composerPlaceholder: t("agentChat.composer.messageAgent"),
       queue: t("agentChat.queue.label"),
-      queueSteer: t("agentChat.queue.steer"),
-      queueSteerHint: t("agentChat.queue.steerHint"),
-      queueMoveToTop: t("agentChat.queue.moveToTop"),
+      queueSendNow: t("agentChat.queue.sendNow"),
+      queueSendNowHint: t("agentChat.queue.sendNowHint"),
+      queueSendNext: t("agentChat.queue.sendNext"),
+      queueSendNextHint: t("agentChat.queue.sendNextHint"),
       queueRemove: t("agentChat.queue.remove"),
       queueMore: t("agentChat.queue.moreActions"),
       suggestions: t("agentChat.composer.suggestedPrompts"),
@@ -836,7 +839,13 @@ export const AgentKitAssistantChat = forwardRef<
         signal: context?.signal,
       });
       if (!response.ok) {
-        throw new Error(`Upload failed with ${response.status}.`);
+        throw new Error(
+          translatorRef.current(
+            response.status === 415
+              ? "agentChat.composer.unsupportedFileType"
+              : "agentChat.composer.uploadFailed",
+          ),
+        );
       }
       const result: unknown = await response.json();
       const uploaded = asRecord(result);
