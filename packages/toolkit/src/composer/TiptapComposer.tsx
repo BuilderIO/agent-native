@@ -2886,7 +2886,8 @@ export function TiptapComposer({
     });
     return [
       ...searchComposerContextActions(contextMenuItems, mentionQuery)
-        .filter(({ action }) => !action.disabled)
+        // Custom pages only render inside the + menu.
+        .filter(({ action }) => !action.disabled && !action.render)
         .map(
           ({ action, categories }): MentionItem => ({
             id: `${COMPOSER_CONTEXT_ENTRY_SOURCE}:${action.id}`,

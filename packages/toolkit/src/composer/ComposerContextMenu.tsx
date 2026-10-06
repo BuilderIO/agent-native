@@ -95,7 +95,7 @@ export interface ComposerContextMenuProps {
   onRestoreFocus?: () => void;
   contextButtonTooltipDisabled?: boolean;
   disabled?: boolean;
-  /** Runs or opens this action as if it were chosen here; each new object is a new request. */
+  /** Runs this action or opens its picker as a dialog; each new object is a new request. */
   openEntry?: { id: string } | null;
 }
 interface ComposerContextPage {
@@ -106,6 +106,19 @@ interface ComposerContextPage {
 interface ComposerContextDialogSession {
   id: string;
   scopeKey?: string;
+}
+
+// Without a dialog presentation a picker selects one item through onSelect,
+// which the dialog's single-select mode does too.
+function asDialogPicker(
+  picker: ComposerContextPickerConfig,
+): ComposerContextPickerConfig {
+  return typeof picker.presentation === "object"
+    ? picker
+    : ({
+        ...picker,
+        presentation: { type: "dialog", mode: "single" },
+      } as ComposerContextPickerConfig);
 }
 
 function findAction(
@@ -321,10 +334,6 @@ export function ComposerContextMenu({
   const placement = useComposerPanelPlacement(triggerRef, open);
   const pendingDialog = useRef<ComposerContextDialogSession | null>(null);
   const pendingAttachmentRequest = useRef(false);
-  const pendingEntry = useRef<{
-    action: ComposerContextMenuAction;
-    origin: string[];
-  } | null>(null);
   const [dialog, setDialog] = useState<ComposerContextDialogSession | null>(
     null,
   );
@@ -386,7 +395,6 @@ export function ComposerContextMenu({
       if (controlledOpen === undefined) setInternalOpen(next);
       onOpenChange?.(next);
       if (!next) {
-        pendingEntry.current = null;
         dismissPage();
         updatePath([]);
       }
@@ -445,17 +453,8 @@ export function ComposerContextMenu({
   };
   const openRequestedEntry = (id: string) => {
     if (disabled) return;
-    const located = [
-      ...searchComposerContextActions(menuActionItems, "").map((match) => ({
-        ...match,
-        origin: match.path,
-      })),
-      ...searchComposerContextActions(items, "").map((match) => ({
-        ...match,
-        origin: ["add-context", ...match.path],
-      })),
-    ].find((match) => match.action.id === id);
-    if (!located || located.action.disabled) {
+    const action = findAction(allItems, id);
+    if (!action || action.disabled || action.render) {
       reportError(
         new Error(
           t("agentChat.composer.contextActionFailed", {
@@ -465,21 +464,16 @@ export function ComposerContextMenu({
       );
       return;
     }
-    const { action, origin } = located;
     setError(null);
-    if (action.picker && typeof action.picker.presentation === "object") {
-      const session = { id: action.id, scopeKey: action.picker.scopeKey };
-      dialogRef.current = session;
-      setDialog(session);
-    } else if (action.picker || action.render) {
-      if (open) activate(action, origin);
-      else {
-        pendingEntry.current = { action, origin };
-        changeOpen(true);
-      }
-    } else {
+    if (!action.picker) {
       selectAction(action);
+      return;
     }
+    // A request starts outside the menu, so its picker opens as a dialog: a
+    // submenu opened programmatically loses focus to its parents and closes.
+    const session = { id: action.id, scopeKey: action.picker.scopeKey };
+    dialogRef.current = session;
+    setDialog(session);
   };
   const openRequestedEntryRef = useRef(openRequestedEntry);
   openRequestedEntryRef.current = openRequestedEntry;
@@ -704,14 +698,6 @@ export function ComposerContextMenu({
           }}
           className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100"
           data-agent-native-composer-popover="true"
-          onFocus={() => {
-            // Show a requested page only once focus is inside the menu: a
-            // submenu opened before that reads the focus move as leaving it.
-            const pending = pendingEntry.current;
-            if (!pending) return;
-            pendingEntry.current = null;
-            activate(pending.action, pending.origin);
-          }}
           onCloseAutoFocus={(event) => {
             if (pendingDialog.current) {
               event.preventDefault();
@@ -803,7 +789,7 @@ export function ComposerContextMenu({
         <ComposerContextPickerDialog
           key={JSON.stringify([dialog.id, dialogAction.picker.scopeKey])}
           title={dialogAction.label}
-          config={dialogAction.picker}
+          config={asDialogPicker(dialogAction.picker)}
           onClose={() => {
             if (dialogRef.current !== dialog) return;
             dialogRef.current = null;

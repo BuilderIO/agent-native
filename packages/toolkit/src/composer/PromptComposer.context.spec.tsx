@@ -280,7 +280,8 @@ describe("controlled composer context", () => {
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(onSubmit).not.toHaveBeenCalled();
   });
-  it("opens a picked host source with its own page in the + menu", async () => {
+  it("opens a picked host picker as a dialog and attaches its choice", async () => {
+    const onSelect = vi.fn();
     await mount({
       initialText: "",
       contextMenuItems: [
@@ -289,10 +290,19 @@ describe("controlled composer context", () => {
           label: "Documents",
           children: [
             {
-              id: "brief",
-              label: "Project brief",
+              id: "document",
+              label: "Reference a document",
+              picker: {
+                searchPlaceholder: "Search documents",
+                items: [{ id: "brief", title: "Project brief" }],
+                onSelect,
+              },
+            },
+            {
+              id: "notes",
+              label: "Document notes",
               onSelect() {},
-              render: () => <div data-testid="brief-page">Brief page</div>,
+              render: () => <div>Notes page</div>,
             },
           ],
         },
@@ -302,15 +312,29 @@ describe("controlled composer context", () => {
     const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
     await act(async () => editor.focus());
 
-    await typeInto(editor, "@brief");
-    expect(document.querySelector('[role="menu"]')).toBeNull();
+    await typeInto(editor, "@doc");
+    const rows = Array.from(
+      document.querySelectorAll("[data-mention-index]"),
+      (row) => row.textContent,
+    );
+    // Custom pages render only inside the + menu.
+    expect(rows).toEqual(["Reference a document"]);
     await pressEnter(editor);
 
-    expect(document.querySelector('[role="menu"]')).not.toBeNull();
-    expect(
-      document.querySelector('[data-testid="brief-page"]')?.textContent,
-    ).toBe("Brief page");
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Reference a document");
     expect(editor.textContent).toBe("");
+    const option = dialog.querySelector<HTMLButtonElement>(
+      '[role="radio"][value="brief"]',
+    )!;
+    await act(async () => {
+      option.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "brief" }),
+      expect.anything(),
+    );
   });
   it("dismisses @ suggestions with one Escape and keeps typing as text", async () => {
     const { onSubmit } = await mount({
