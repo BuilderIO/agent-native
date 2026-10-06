@@ -447,3 +447,15 @@ describe("the body tag inside head scripts and comments", () => {
     expect(next).toContain('<!-- <body style="color: green"> -->');
   });
 });
+
+describe("text that runs to the end of the document", () => {
+  const unclosedScript = `<!DOCTYPE html><html><head><script>let x = '<body style="color: red">';</head><body style="background-color: blue"></body></html>`;
+  const plaintext = `<!DOCTYPE html><html><head></head><plaintext><body style="color: red">`;
+
+  it("finds no body inside an unclosed script or plaintext", () => {
+    for (const content of [unclosedScript, plaintext]) {
+      expect(getBodyInlineStyles(content).color ?? "").toBe("");
+      expect(setBodyInlineStyles(content, { color: "green" })).toBeNull();
+    }
+  });
+});

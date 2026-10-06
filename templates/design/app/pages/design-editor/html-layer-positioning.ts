@@ -341,9 +341,10 @@ export function setCodeLayerAttributeInHtml(
 }
 
 // Reads whole tags with their quoted attributes and skips every element whose
-// content HTML parses as text, so only the document's own `<body` matches.
+// content HTML parses as text (to its end tag, or to EOF when it has none), so
+// only the document's own `<body` matches.
 const BODY_OPEN_TAG_SCAN =
-  /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title|xmp|iframe|noembed|noframes|noscript)\b[\s\S]*?<\/\1\s*>|<\/?[A-Za-z][^\s/>]*(?:"[^"]*"|'[^']*'|[^'">])*>/gi;
+  /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title|xmp|iframe|noembed|noframes|noscript)\b[\s\S]*?(?:<\/\1\s*>|$)|<plaintext\b[\s\S]*|<\/?[A-Za-z][^\s/>]*(?:"[^"]*"|'[^']*'|[^'">])*>/gi;
 
 function findBodyOpenTag(
   content: string,
