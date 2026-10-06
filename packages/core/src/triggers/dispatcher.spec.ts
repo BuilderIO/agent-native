@@ -2645,9 +2645,9 @@ Handle the event.`,
   });
 
   it("records a typed missing_credentials failure when a condition cannot be evaluated without a key", async () => {
-    const { getOwnerActiveApiKey } =
-      await import("../agent/production-agent.js");
-    vi.mocked(getOwnerActiveApiKey).mockResolvedValueOnce(undefined);
+    const { isResolvedEngineUsableForRequest } =
+      await import("../agent/engine/index.js");
+    vi.mocked(isResolvedEngineUsableForRequest).mockResolvedValueOnce(false);
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-condition-no-key",

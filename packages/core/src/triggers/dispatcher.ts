@@ -1,5 +1,3 @@
-import { LLM_MISSING_CREDENTIALS_ERROR_CODE } from "../agent/engine/credential-errors.js";
-import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 import {
   automationMatchesEventOwner,
   resolveAutomationExecutionIdentity,
@@ -23,6 +21,7 @@ import {
 } from "../jobs/automation-outcome.js";
 import {
   BackgroundAutomationRunError,
+  checkBackgroundAutomationCredentials,
   isBackgroundAutomationRunActive,
   runBackgroundAutomation,
   type BackgroundAutomationContext,
@@ -46,6 +45,7 @@ import {
   type Resource,
 } from "../resources/store.js";
 import { startIntervalJob } from "../server/interval-job.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import {
   AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
@@ -1003,34 +1003,40 @@ async function dispatchQueuedAutomationEvent(
     identity = resolved.identity;
   }
 
-  // The key only feeds the natural-language condition check; the run itself
-  // verifies the LLM credential before it starts a thread, with the same
-  // identity-aware check as interactive chat.
-  const apiKey =
-    (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
-  if (!apiKey && meta.condition?.trim()) {
-    await recordTriggerExecutionOutcome(
-      resource,
-      { lastCheck: new Date().toISOString() },
-      {
-        failure: {
-          code: LLM_MISSING_CREDENTIALS_ERROR_CODE,
-          message:
-            "No API key is available to evaluate this automation's condition.",
-          precondition: true,
-        },
-      },
+  // The condition check must see the same credential (owner key or Builder
+  // Gateway) the run itself would use, with the same identity-aware check as
+  // interactive chat — a raw provider API key is not how most owners are
+  // actually authorized to call a model.
+  if (meta.condition?.trim()) {
+    const credentialCheck = await checkBackgroundAutomationCredentials(
+      { ownerEmail: identity.userEmail, orgId: identity.orgId },
+      deps,
     );
-    return "completed";
+    if (!credentialCheck.ok) {
+      await recordTriggerExecutionOutcome(
+        resource,
+        { lastCheck: new Date().toISOString() },
+        { failure: credentialCheck.failure },
+      );
+      return "completed";
+    }
   }
 
   let matches: boolean;
   try {
-    matches = await evaluateCondition(
-      meta.condition,
-      queued.payload,
-      apiKey ?? "",
-      { deadlineAt: hardDeadlineAt },
+    matches = await runWithRequestContext(
+      { userEmail: identity.userEmail, orgId: identity.orgId },
+      () =>
+        evaluateCondition(
+          meta.condition,
+          queued.payload,
+          {
+            userEmail: identity.userEmail,
+            orgId: identity.orgId,
+            appId: deps.appId,
+          },
+          { deadlineAt: hardDeadlineAt },
+        ),
     );
   } catch (error) {
     const reason =
@@ -1103,13 +1109,17 @@ export async function dispatchAutomationWebhookTask(
   );
   if (!resolved.ok) throw new Error(resolved.reason);
   const identity = resolved.identity;
-  const apiKey =
-    (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
-  if (!apiKey && meta.condition?.trim()) {
-    throw new BackgroundAutomationRunError(
-      "No API key is available to evaluate this automation's condition.",
-      LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  if (meta.condition?.trim()) {
+    const credentialCheck = await checkBackgroundAutomationCredentials(
+      { ownerEmail: identity.userEmail, orgId: identity.orgId },
+      deps,
     );
+    if (!credentialCheck.ok) {
+      throw new BackgroundAutomationRunError(
+        credentialCheck.failure.message,
+        credentialCheck.failure.code,
+      );
+    }
   }
 
   if (isBackgroundAutomationRunActive(meta)) {
@@ -1117,10 +1127,14 @@ export async function dispatchAutomationWebhookTask(
   }
   let matches: boolean;
   try {
-    matches = await evaluateCondition(
-      meta.condition,
-      task.payload,
-      apiKey ?? "",
+    matches = await runWithRequestContext(
+      { userEmail: identity.userEmail, orgId: identity.orgId },
+      () =>
+        evaluateCondition(meta.condition, task.payload, {
+          userEmail: identity.userEmail,
+          orgId: identity.orgId,
+          appId: deps.appId,
+        }),
     );
   } catch (err) {
     const reason =
