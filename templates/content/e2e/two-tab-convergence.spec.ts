@@ -49,8 +49,8 @@ interface Scenario {
   markers: Markers;
   reader: Page;
   notes: Record<string, unknown>;
-  /** Set when the scenario's tabs may show recovery UI, error toasts or History saves. */
-  noisy: boolean;
+  /** Noise the scenario causes on purpose, from `noiseFailures`. */
+  expectedNoise: string[];
 }
 
 async function runScenario(
@@ -70,7 +70,7 @@ async function runScenario(
     markers: new Markers(),
     reader,
     notes: {},
-    noisy: false,
+    expectedNoise: [],
   };
   await body(scenario);
   const working = [...tabs.tabs.values()];
@@ -123,11 +123,15 @@ async function runScenario(
       "no save was timed under the latency",
     ).toBe(true);
   expect(integrityFailures(record), "lost or duplicated text").toEqual([]);
-  if (!scenario.noisy)
-    expect(
-      noiseFailures(record),
-      "recovery notices, error toasts or saves sent to History",
-    ).toEqual([]);
+  const noise = noiseFailures(record.tabs);
+  for (const expected of scenario.expectedNoise) {
+    const at = noise.indexOf(expected);
+    if (at >= 0) noise.splice(at, 1);
+  }
+  expect(
+    noise,
+    "recovery notices, error toasts or saves sent to History",
+  ).toEqual([]);
 }
 
 async function openPair(s: Scenario, latencyMs = SAVE_LATENCY_MS) {
@@ -326,9 +330,6 @@ test.describe("two tabs editing one page at beta cadence", () => {
     context,
   }, testInfo) => {
     await runScenario("refresh-mid-save", testInfo, context, async (s) => {
-      // A's save is cut off on purpose, so A reports it before the refresh.
-      // The scenario checks what follows the refresh itself.
-      s.noisy = true;
       const a = await s.tabs.open("A", s.id);
       const b = await s.tabs.open("B", s.id);
       const aSaves = await SaveGate.install(a);
@@ -374,6 +375,8 @@ test.describe("two tabs editing one page at beta cadence", () => {
         "A's recovery draft should hold exactly the page B saved",
       ).toEqual({ title: page.title, content: page.content });
       const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
+      // A's save was cut off on purpose, so A has already reported it.
+      s.expectedNoise = noiseFailures([s.tabs.record(a)]);
       recoveries.hold();
       await a.reload({ waitUntil: "domcontentloaded" });
       let reopenedWith: "recovery" | "discarded" | null = null;
@@ -415,7 +418,6 @@ test.describe("two tabs editing one page at beta cadence", () => {
         await chooser.isVisible(),
         "the reopened tab asked which of two identical versions to keep",
       ).toBe(false);
-      expect(afterRefresh, "recovery notices after the refresh").toEqual([]);
       await expectEditorReady(a);
       await typeAtParagraphEnd(a, "Bravo paragraph", ` ${s.markers.next("A")}`);
     });

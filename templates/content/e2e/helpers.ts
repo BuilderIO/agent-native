@@ -988,8 +988,8 @@ export function integrityFailures(record: ScenarioRecord): string[] {
 const HISTORY_OUTCOMES = ["preserved-to-history", "merged-displaced"] as const;
 
 /** Recovery copy, error toasts and saves sent to History, none of which a clean save shows. */
-export function noiseFailures(record: ScenarioRecord): string[] {
-  return record.tabs.flatMap((tab) => [
+export function noiseFailures(tabs: readonly TabRecord[]): string[] {
+  return tabs.flatMap((tab) => [
     ...tab.recovery.map((notice) => `${tab.label} showed "${notice}"`),
     ...tab.errorToasts.map((toast) => `${tab.label} toasted "${toast}"`),
     ...HISTORY_OUTCOMES.filter((outcome) => tab.saveOutcomes[outcome]).map(

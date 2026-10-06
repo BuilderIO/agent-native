@@ -204,7 +204,9 @@ export function useDocumentReconcileRecovery({
             await retainLatest();
             return false;
           }
-          if (!persisted) {
+          // A refusal can come from the page a newer merge handed over, which
+          // the editor already holds, so that page gets the next attempt.
+          if (!persisted && !run.newerBase) {
             await retainLatest();
             publish({
               reason: "conflict",
@@ -213,7 +215,8 @@ export function useDocumentReconcileRecovery({
             });
             return false;
           }
-          if (callbacks.current.getSaveIdentity() === identity) return true;
+          if (persisted && callbacks.current.getSaveIdentity() === identity)
+            return true;
           draft = latestDraft();
           saveBase = run.newerBase ?? undefined;
           if (run.newerBase) attempts = 0;
