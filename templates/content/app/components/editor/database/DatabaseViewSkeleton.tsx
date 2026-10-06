@@ -2,8 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
-export const DATABASE_VIEW_CLASS_NAME =
-  "mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]";
+export const DATABASE_VIEW_CLASS_NAME = "mt-4 min-w-0 w-full max-w-full";
 
 export const DATABASE_VIEW_TABS_ROW_CLASS_NAME =
   "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1";

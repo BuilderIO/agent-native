@@ -4,6 +4,7 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { recordAgentRun } from "../observability/metrics.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -15,6 +16,7 @@ import {
   describeErrorWithCauses,
   isProviderConnectionError,
 } from "./engine/error-detail.js";
+import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
 import {
@@ -582,6 +584,20 @@ function emitRunTerminalTrackingEvent(args: {
   userId?: string;
   attemptCount?: number;
 }): void {
+  try {
+    recordAgentRun({
+      status: args.status,
+      terminalReason: args.terminalReason,
+      requestModel: args.model,
+      providerName: args.engineName,
+      supportedModels: args.engineName
+        ? getAgentEngineEntry(args.engineName)?.supportedModels
+        : undefined,
+    });
+    // coercion-ok: metrics must never affect the agent run or its status.
+  } catch {
+    // Metrics must never affect the agent run or its persisted status.
+  }
   const properties: Record<string, unknown> = {
     source: "agent_run_manager",
     run_id: args.runId,

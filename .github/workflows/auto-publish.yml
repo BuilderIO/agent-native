@@ -32,6 +32,7 @@ on:
       - "packages/core/**"
       - "packages/creative-context/**"
       - "packages/dispatch/**"
+      - "packages/otel/**"
       - "packages/pinpoint/**"
       - "packages/recap-cli/**"
       - "packages/scheduling/**"
@@ -154,6 +155,7 @@ jobs:
             packages/core/**
             packages/creative-context/**
             packages/dispatch/**
+            packages/otel/**
             packages/pinpoint/**
             packages/recap-cli/**
             packages/scheduling/**
@@ -468,6 +470,7 @@ jobs:
                 . == "@agent-native/core-corpus" or
                 . == "@agent-native/creative-context" or
                 . == "@agent-native/dispatch" or
+                . == "@agent-native/otel" or
                 . == "@agent-native/pinpoint" or
                 . == "@agent-native/recap-cli" or
                 . == "@agent-native/scheduling" or
@@ -491,6 +494,7 @@ jobs:
           --filter '@agent-native/core-corpus...'
           --filter '@agent-native/creative-context...'
           --filter '@agent-native/dispatch...'
+          --filter '@agent-native/otel...'
           --filter '@agent-native/pinpoint...'
           --filter '@agent-native/recap-cli...'
           --filter '@agent-native/scheduling...'

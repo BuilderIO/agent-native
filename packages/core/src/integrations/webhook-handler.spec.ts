@@ -21,6 +21,7 @@ vi.mock("./pending-tasks-store.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  getOrgContext: vi.fn(async () => ({ orgId: null })),
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 

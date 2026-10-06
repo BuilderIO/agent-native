@@ -216,7 +216,7 @@ export default {
       tokenLabel: "Figma-Zugriffstoken",
       tokenPlaceholder: "Figma-Zugriffstoken einfügen",
       connecting: "Verbindung wird hergestellt…",
-      connect: "Builder.io verwenden",
+      connect: "Figma verbinden",
       getToken: "Token abrufen",
       importFrame: "Frame importieren",
       chooseFrame: "Frame wählen",
