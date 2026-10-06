@@ -6,18 +6,26 @@ import {
   assertReplayFontsReady,
   assertRemoteImagesCapturable,
   crossOriginImageUrls,
+  inlineReplayAssets,
   ReplayScreenshotAssetError,
 } from "./session-replay-screenshot";
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
+  document.body.replaceChildren();
 });
 
 function stubImageProbes(
   request: (url: string) => "load" | "error" | Promise<"load" | "error">,
 ) {
   const probes: HTMLImageElement[] = [];
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    drawImage: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+    "data:image/png;base64,c2NyZWVuc2hvdA==",
+  );
   vi.spyOn(HTMLImageElement.prototype, "src", "set").mockImplementation(
     function (this: HTMLImageElement, value: string) {
       probes.push(this);
@@ -38,7 +46,7 @@ function stubImageProbes(
 }
 
 describe("session replay screenshot asset checks", () => {
-  it("finds remote images in pseudo-element content, backgrounds, and masks", () => {
+  it("finds remote images in pseudo-element content, backgrounds, and list styles", () => {
     const element = document.createElement("div");
     document.body.appendChild(element);
     vi.spyOn(window, "getComputedStyle").mockImplementation(
@@ -48,10 +56,7 @@ describe("session replay screenshot asset checks", () => {
             pseudo === "::before"
               ? 'url("https://assets.example.test/before.png")'
               : "none",
-          maskImage:
-            pseudo === "::after"
-              ? 'url("https://assets.example.test/after-mask.png")'
-              : "none",
+          maskImage: "none",
           listStyleImage:
             pseudo == null
               ? 'url("https://assets.example.test/list-style.png")'
@@ -66,13 +71,12 @@ describe("session replay screenshot asset checks", () => {
           visibility: "visible",
           opacity: "1",
           borderImageSource: "none",
-        }) as CSSStyleDeclaration,
+        }) as unknown as CSSStyleDeclaration,
     );
 
     expect(crossOriginImageUrls(document)).toEqual(
       expect.arrayContaining([
         "https://assets.example.test/before.png",
-        "https://assets.example.test/after-mask.png",
         "https://assets.example.test/after-content.png",
         "https://assets.example.test/list-style.png",
       ]),
@@ -96,7 +100,7 @@ describe("session replay screenshot asset checks", () => {
             element === root && pseudo === "::before"
               ? 'url("https://assets.example.test/root-content.png")'
               : "none",
-        }) as CSSStyleDeclaration,
+        }) as unknown as CSSStyleDeclaration,
     );
 
     expect(crossOriginImageUrls(document)).toEqual(
@@ -107,7 +111,7 @@ describe("session replay screenshot asset checks", () => {
     );
   });
 
-  it("finds quoted image-set candidates and image-submit sources", () => {
+  it("finds CSS image URLs and image-submit sources", () => {
     const input = document.createElement("input");
     input.type = "image";
     input.src = "https://assets.example.test/submit.png";
@@ -117,7 +121,7 @@ describe("session replay screenshot asset checks", () => {
         ({
           backgroundImage:
             pseudo == null
-              ? 'image-set("https://assets.example.test/one.png" 1x, "https://assets.example.test/two.png" 2x)'
+              ? 'url("https://assets.example.test/one.png"), url("https://assets.example.test/two.png")'
               : "none",
           maskImage: "none",
           listStyleImage: "none",
@@ -204,6 +208,142 @@ describe("session replay screenshot asset checks", () => {
     visible.remove();
   });
 
+  it("keeps visible descendants when an ancestor hides visibility", () => {
+    const hidden = document.createElement("div");
+    hidden.style.visibility = "hidden";
+    const visible = document.createElement("img");
+    visible.style.visibility = "visible";
+    visible.src = "https://assets.example.test/visible-descendant.png";
+    Object.defineProperty(visible, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 80,
+        height: 40,
+        left: 10,
+        right: 80,
+        top: 40,
+        width: 70,
+      }),
+    });
+    hidden.appendChild(visible);
+    document.body.appendChild(hidden);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element) =>
+        ({
+          display: "block",
+          visibility:
+            element === hidden
+              ? "hidden"
+              : (element as HTMLElement).style.visibility || "visible",
+          contentVisibility: "visible",
+          opacity: "1",
+        }) as CSSStyleDeclaration,
+    );
+
+    expect(crossOriginImageUrls(document)).toContain(
+      "https://assets.example.test/visible-descendant.png",
+    );
+
+    hidden.remove();
+  });
+
+  it("rejects CSS image-set and mask visuals that html2canvas cannot preserve", () => {
+    const element = document.createElement("div");
+    document.body.appendChild(element);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (_element, pseudo) =>
+        ({
+          backgroundImage:
+            pseudo == null
+              ? 'image-set("https://assets.example.test/one.png" 1x)'
+              : "none",
+          listStyleImage: "none",
+          maskImage: "none",
+          borderImageSource: "none",
+          visibility: "visible",
+          display: "block",
+          content: "none",
+          getPropertyValue: () => "none",
+        }) as unknown as CSSStyleDeclaration,
+    );
+
+    expect(() => crossOriginImageUrls(document)).toThrow(
+      ReplayScreenshotAssetError,
+    );
+    vi.restoreAllMocks();
+    vi.spyOn(window, "getComputedStyle").mockReturnValue({
+      backgroundImage: "none",
+      listStyleImage: "none",
+      maskImage: 'url("https://assets.example.test/mask.png")',
+      borderImageSource: "none",
+      visibility: "visible",
+      display: "block",
+      content: "none",
+      getPropertyValue: () => "none",
+    } as unknown as CSSStyleDeclaration);
+    expect(() => crossOriginImageUrls(document)).toThrow(
+      ReplayScreenshotAssetError,
+    );
+
+    element.remove();
+  });
+
+  it("rejects visible tainted canvases", () => {
+    const canvas = document.createElement("canvas");
+    Object.defineProperty(canvas, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 80,
+        height: 40,
+        left: 10,
+        right: 80,
+        top: 40,
+        width: 70,
+      }),
+    });
+    document.body.appendChild(canvas);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: () => {
+        throw new DOMException("Canvas is tainted", "SecurityError");
+      },
+      getImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+
+    expect(() => crossOriginImageUrls(document)).toThrow(
+      ReplayScreenshotAssetError,
+    );
+
+    canvas.remove();
+  });
+
+  it("rejects visible native audio controls", () => {
+    const audio = document.createElement("audio");
+    audio.setAttribute("controls", "");
+    Object.defineProperty(audio, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        bottom: 80,
+        height: 32,
+        left: 10,
+        right: 210,
+        top: 48,
+        width: 200,
+      }),
+    });
+    document.body.appendChild(audio);
+    vi.spyOn(window, "getComputedStyle").mockReturnValue({
+      display: "inline",
+      visibility: "visible",
+      contentVisibility: "visible",
+      opacity: "1",
+    } as unknown as CSSStyleDeclaration);
+    expect(() => crossOriginImageUrls(document)).toThrow(
+      ReplayScreenshotAssetError,
+    );
+
+    audio.remove();
+  });
+
   it("ignores external images outside the replay viewport", () => {
     const image = document.createElement("img");
     image.src = "https://assets.example.test/offscreen.png";
@@ -272,7 +412,7 @@ describe("session replay screenshot asset checks", () => {
       visibility: "visible",
       contentVisibility: "visible",
       opacity: "1",
-    } as CSSStyleDeclaration);
+    } as unknown as CSSStyleDeclaration);
 
     expect(() => crossOriginImageUrls(document)).toThrow(
       ReplayScreenshotAssetError,
@@ -447,7 +587,7 @@ describe("session replay screenshot asset checks", () => {
 
     await expect(
       assertRemoteImagesCapturable(document),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeInstanceOf(Map);
     expect(fetchSpy).not.toHaveBeenCalled();
 
     svg.remove();
@@ -460,13 +600,12 @@ describe("session replay screenshot asset checks", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const probes = stubImageProbes(() => "load");
 
-    await expect(
-      assertRemoteImagesCapturable(document),
-    ).resolves.toBeUndefined();
+    const assets = await assertRemoteImagesCapturable(document);
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(probes).toHaveLength(1);
     expect(probes[0].crossOrigin).toBe("anonymous");
+    expect(assets.get(document)?.get(image.src)).toMatch(/^data:image\/png/);
 
     image.remove();
   });
@@ -485,17 +624,53 @@ describe("session replay screenshot asset checks", () => {
     image.remove();
   });
 
-  it("allows same-origin image redirects", async () => {
+  it("inlines same-origin image redirects after a CORS image load", async () => {
     const image = document.createElement("img");
     image.src = "/redirected-image.png";
     document.body.appendChild(image);
     stubImageProbes(() => "load");
 
-    await expect(
-      assertRemoteImagesCapturable(document),
-    ).resolves.toBeUndefined();
+    const assets = await assertRemoteImagesCapturable(document);
+    expect(assets.get(document)?.get(image.src)).toMatch(/^data:image\/png/);
 
     image.remove();
+  });
+
+  it("replaces images and CSS URLs in the cloned replay document", () => {
+    const original = document.implementation.createHTMLDocument("original");
+    const cloned = document.implementation.createHTMLDocument("cloned");
+    const originalImage = original.createElement("img");
+    originalImage.src = "https://assets.example.test/photo.png";
+    original.body.appendChild(originalImage);
+    const originalCard = original.createElement("div");
+    originalCard.style.backgroundImage =
+      'url("https://assets.example.test/card.png")';
+    original.body.appendChild(originalCard);
+    const clonedImage = cloned.createElement("img");
+    clonedImage.src = originalImage.src;
+    cloned.body.appendChild(clonedImage);
+    const clonedCard = cloned.createElement("div");
+    clonedCard.style.backgroundImage = originalCard.style.backgroundImage;
+    cloned.body.appendChild(clonedCard);
+    const imageData = "data:image/png;base64,aW1hZ2U=";
+    const cardData = "data:image/png;base64,Y2FyZA==";
+
+    inlineReplayAssets(
+      original,
+      cloned,
+      new Map([
+        [
+          original,
+          new Map([
+            [originalImage.src, imageData],
+            ["https://assets.example.test/card.png", cardData],
+          ]),
+        ],
+      ]),
+    );
+
+    expect(clonedImage.getAttribute("src")).toBe(imageData);
+    expect(clonedCard.style.backgroundImage).toContain(cardData);
   });
 
   it("limits parallel image checks", async () => {
@@ -517,7 +692,7 @@ describe("session replay screenshot asset checks", () => {
 
     await expect(
       assertRemoteImagesCapturable(document),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeInstanceOf(Map);
 
     expect(probes).toHaveLength(9);
     expect(maximumActive).toBeLessThanOrEqual(4);
