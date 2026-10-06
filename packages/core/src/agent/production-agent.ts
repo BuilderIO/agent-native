@@ -143,7 +143,10 @@ import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
-import type { ContinueTrigger } from "./auto-continue.js";
+import {
+  CONTINUE_UNAVAILABLE_CODE,
+  type ContinueTrigger,
+} from "./auto-continue.js";
 import {
   buildSystemManifestSections,
   readContextXraySystemSections,
@@ -8772,6 +8775,14 @@ export function createProductionAgentHandler(
             const runId = continuedRunId(requestedContinueOfRunId);
             return runId ? { runId, trigger: "manual" } : undefined;
           })();
+    const continueRefusal = (code: string) => ({
+      error:
+        continueOf?.trigger === "manual"
+          ? "This turn can no longer be continued."
+          : "This turn will not continue automatically.",
+      code,
+      retryable: false,
+    });
     if (requestEngine !== undefined && typeof requestEngine !== "string") {
       setResponseStatus(event, 400);
       return { error: "engine must be a string" };
@@ -9933,14 +9944,7 @@ export function createProductionAgentHandler(
       if (slot.continueRefused) {
         await setupResumeClaim?.release();
         setResponseStatus(event, 409);
-        return {
-          error:
-            continueOf?.trigger === "manual"
-              ? "This turn can no longer be continued."
-              : "This turn will not continue automatically.",
-          code: slot.continueRefused,
-          retryable: false,
-        };
+        return continueRefusal(slot.continueRefused);
       }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
@@ -10025,17 +10029,27 @@ export function createProductionAgentHandler(
     if ((isChainedBackgroundContinuation || continueOf) && effectiveThreadId) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
-        const { resumeThreadHistoryForRequest } =
+        const { latestPromptTurnId, resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
+        const threadData = (await getThread(effectiveThreadId))?.threadData;
         const { messages: resumed, foundTurnPrompt } =
-          resumeThreadHistoryForRequest(
-            (await getThread(effectiveThreadId))?.threadData,
-          );
+          resumeThreadHistoryForRequest(threadData);
         // A continuation always follows a stopped run, so a thread without
         // that turn's prompt means its history was lost, not that there was
         // none. A successor stays best-effort and resumes from what is there.
         if (continueOf && !foundTurnPrompt) {
           throw new Error(`thread ${effectiveThreadId} has no turn prompt`);
+        }
+        // Resuming takes the thread's newest prompt, so a newer one, even one
+        // whose run never started, would run under this turn's journal.
+        const promptTurnId =
+          continueOf && threadData ? latestPromptTurnId(threadData) : undefined;
+        if (promptTurnId && promptTurnId !== effectiveTurnId) {
+          if (await updateRunStatusIfRunning(runId, "errored")) {
+            await setRunTerminalReason(runId, CONTINUE_UNAVAILABLE_CODE);
+          }
+          setResponseStatus(event, 409);
+          return continueRefusal(CONTINUE_UNAVAILABLE_CODE);
         }
         if (resumed.length > 0) {
           const actionPreparationTool =

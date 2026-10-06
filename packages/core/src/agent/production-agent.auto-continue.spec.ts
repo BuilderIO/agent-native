@@ -277,6 +277,58 @@ describe("an automatic continuation request", () => {
     expect(stream).toContain("There were 412 signups.");
   });
 
+  it("refuses to continue when a newer prompt is waiting in the thread", async () => {
+    claimRunSlot.mockReset();
+    claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+    turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+    const stopped = JSON.parse(
+      (await vi.mocked(getThread)("thread-auto"))!.threadData!,
+    );
+    vi.mocked(getThread).mockResolvedValueOnce({
+      id: "thread-auto",
+      threadData: JSON.stringify({
+        messages: [
+          ...stopped.messages,
+          {
+            message: {
+              id: "user-2",
+              role: "user",
+              content: [{ type: "text", text: "Refund Ana instead." }],
+              // Saved, but its run was refused before it started.
+              metadata: {
+                custom: {
+                  submittedRunId: "run-refused",
+                  submittedTurnId: "turn-later",
+                },
+              },
+            },
+          },
+        ],
+      }),
+    } as Awaited<ReturnType<typeof getThread>>);
+    const seen: EngineMessage[][] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: repeatingDelegationEngine(seen),
+      actions: {},
+    });
+    const event = autoContinueRequest({ continueOfRunId: "run-stopped" });
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+    turnLedger.mockReset();
+
+    expect(event.res.status).toBe(409);
+    expect(result).toEqual({
+      error: "This turn can no longer be continued.",
+      code: "continue_unavailable",
+      retryable: false,
+    });
+    expect(seen).toEqual([]);
+  });
+
   it("tells a new turn what the stopped turn before it already did", async () => {
     claimRunSlot.mockReset();
     claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });

@@ -1846,6 +1846,7 @@ function priorDiagStageLabel(raw: unknown): string | null {
 
 async function reapSingleStaleRun(
   runId: string,
+  source: string,
   maxStaleMs?: number,
 ): Promise<boolean> {
   const completedAt = Date.now();
@@ -1944,6 +1945,11 @@ async function reapSingleStaleRun(
     priorStageInfo = read.priorStageInfo;
   }
 
+  // Saved before the successor starts: a successor that folds its own reply
+  // first would have this older run's steps land after its, and take its
+  // error and status.
+  if (reaped) await finalizeStaleRun(runId, source);
+
   if (reaped && outcome && outcome.outcome !== "not_background") {
     const outcomeDetail =
       outcome.outcome === "recovered"
@@ -1977,11 +1983,8 @@ export async function reapIfStale(
 ): Promise<boolean> {
   await ensureRunTables();
   if (await reconcileTerminalRunFromEvents(runId)) return false;
-  const reaped = await reapSingleStaleRun(runId, maxStaleMs);
+  const reaped = await reapSingleStaleRun(runId, "reap-if-stale", maxStaleMs);
   if (!reaped && (await reconcileTerminalRunFromEvents(runId))) return false;
-  if (reaped) {
-    await finalizeStaleRun(runId, "reap-if-stale");
-  }
   return reaped;
 }
 
@@ -2385,7 +2388,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT r.thread_id, COALESCE(r.turn_id, r.id) AS turn_id,
-                 r.started_at,
+                 r.status, r.started_at,
                  EXISTS (
                    SELECT 1 FROM agent_runs later
                    WHERE later.thread_id = r.thread_id
@@ -2407,12 +2410,15 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
     | {
         thread_id: string;
         turn_id: string;
+        status: string;
         started_at: number | string;
         continued_in_turn: boolean | string;
         later_turn_started: boolean | string;
       }
     | undefined;
-  if (!row) return null;
+  // A sweep can name a run whose worker answered again before it was reaped;
+  // that worker still saves its own reply.
+  if (!row || row.status === "running") return null;
   const events: RunEvent[] = [];
   for (const { seq, eventData } of await getRunEventsSince(runId, 0)) {
     events.push({ seq, event: JSON.parse(eventData) as AgentChatEvent });
@@ -2771,7 +2777,7 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string") continue;
     try {
-      if (await reapSingleStaleRun(id)) reapedCount += 1;
+      if (await reapSingleStaleRun(id, "reap-all-stale")) reapedCount += 1;
     } catch (error) {
       failedCount += 1;
       console.error(`[run-store] stale reap failed for run ${id}:`, error);
@@ -2780,7 +2786,11 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id === "string") {
-      await finalizeStaleRun(id, "reap-all-stale");
+      await safeAppendTerminalRunEvent(
+        id,
+        STALE_RUN_ERROR_EVENT,
+        "reap-all-stale",
+      );
     }
   }
   return { reaped: reapedCount, failed: failedCount, truncated };

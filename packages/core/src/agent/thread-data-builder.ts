@@ -1094,6 +1094,20 @@ export function resumeThreadHistoryForRequest(
   };
 }
 
+/**
+ * The turn the thread's newest prompt was sent in, when the server stamped
+ * it. A prompt whose run was refused before it started has no run row, so
+ * this is how a continuation learns a newer prompt is waiting.
+ */
+export function latestPromptTurnId(
+  threadData: string | Record<string, unknown>,
+): string | undefined {
+  const data =
+    typeof threadData === "string" ? JSON.parse(threadData) : threadData;
+  const turnId = latestStoredUser(data)?.metadata?.custom?.submittedTurnId;
+  return typeof turnId === "string" ? turnId : undefined;
+}
+
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
 const MAX_INTEGRATION_ARTIFACT_FIELD_CHARS = 500;
 

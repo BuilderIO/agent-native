@@ -31,16 +31,40 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const threads = new Map<string, string>();
+// What the watched thread held when the reaper started the run that replaces
+// a reaped one. Reading the watched thread waits briefly for that start, so a
+// replacement started before the reaped run is saved is seen every time.
+let watchedThread = "";
+let replacementStarted: (() => void) | undefined;
+const threadAtDispatch: Array<string | undefined> = [];
 vi.mock("../chat-threads/store.js", () => ({
   withThreadDataLock: (_id: string, fn: () => Promise<unknown>) => fn(),
-  getThread: async (id: string) =>
-    threads.has(id)
+  getThread: async (id: string) => {
+    if (id === watchedThread) {
+      await new Promise<void>((resolve) => {
+        replacementStarted = resolve;
+        setTimeout(resolve, 200);
+      });
+    }
+    return threads.has(id)
       ? { id, threadData: threads.get(id), title: "", preview: "" }
-      : null,
+      : null;
+  },
   updateThreadData: async (id: string, threadData: string) => {
     threads.set(id, threadData);
   },
 }));
+
+vi.mock("../server/self-dispatch.js", () => ({
+  fireInternalDispatch: vi.fn(async () => {
+    threadAtDispatch.push(threads.get(watchedThread));
+    replacementStarted?.();
+  }),
+}));
+
+// Loaded up front, as in a warm server, so starting a replacement is not
+// slowed by a first import.
+await import("./durable-background.js");
 
 const { insertRun, insertRunEvent, reapIfStale, updateRunStatusIfRunning } =
   await import("./run-store.js");
@@ -63,8 +87,9 @@ async function crashAfterSending(
   thread: string,
   turn: string,
   run: string,
+  options: Parameters<typeof insertRun>[3] = { dispatchMode: "foreground" },
 ): Promise<void> {
-  await insertRun(run, thread, turn, { dispatchMode: "foreground" });
+  await insertRun(run, thread, turn, options);
   await insertRunEvent(
     run,
     1,
@@ -123,6 +148,26 @@ describe("a run the server reaps after its worker died", () => {
       turnId: turn,
       runError: { errorCode: "stale_run", recoverable: true, runId: run },
     });
+  });
+
+  it("is saved before the run that replaces it starts", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    watchedThread = thread;
+    threads.set(thread, JSON.stringify({ messages: [userTurn("Bill Ana")] }));
+    await crashAfterSending(thread, turn, run, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({
+        message: "Bill Ana",
+        threadId: thread,
+      }),
+    });
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    await vi.waitFor(() => expect(threadAtDispatch).toHaveLength(1));
+    expect(threadAtDispatch[0]).toContain('"toolName":"send-email"');
   });
 
   it("leaves the thread alone once a later prompt was saved", async () => {
