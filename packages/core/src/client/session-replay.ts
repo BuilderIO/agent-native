@@ -1699,6 +1699,14 @@ function isTerminalReplayFlushReason(reason: string): boolean {
   return reason === "pagehide" || reason === "beforeunload";
 }
 
+/**
+ * A navigation fires `visibilitychange` before or after `pagehide`, depending
+ * on the browser, and a mobile page may get only `visibilitychange`.
+ */
+function isPageLeaveReplayFlushReason(reason: string): boolean {
+  return isTerminalReplayFlushReason(reason) || reason === "visibility-hidden";
+}
+
 function flushReasonPriority(reason: string): number {
   if (
     reason === "pagehide" ||
@@ -2055,14 +2063,14 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     // its response handler: a keepalive one because the browser finishes
     // sending it, and a larger one when the server already has its body.
     // Persist the next index first, or the next page resends this chunk number
-    // with different content and the server rejects it (HTTP 409). The
-    // page-leave flush never starts an upload too large for keepalive: the
-    // browser usually cancels it, so a reserved number would leave a gap, and
-    // an unreserved one that still arrives would be reused. Its events stay
-    // queued in case the page survives.
+    // with different content and the server rejects it (HTTP 409). A flush as
+    // the page hides or leaves never starts an upload too large for keepalive:
+    // a navigation usually cancels it, so a reserved number would leave a gap,
+    // and an unreserved one that still arrives would be reused. Its events stay
+    // queued for the next flush of a page that survives.
     const outcome = await sendReplayUpload(state.options, payload.body, {
       beforeUpload: (keepalive) => {
-        if (!keepalive && isTerminalReplayFlushReason(reason)) return "defer";
+        if (!keepalive && isPageLeaveReplayFlushReason(reason)) return "defer";
         advanceReplaySequence(state, payload);
         reservedSequence = true;
         return "send";
