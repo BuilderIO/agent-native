@@ -1,4 +1,5 @@
 import { DataGrid, type DataGridProps } from "@agent-native/toolkit/data-grid";
+import { DATABASE_TABLE_GUTTER_WIDTH } from "@shared/database-table-columns";
 import {
   IconCheck,
   IconDots,
@@ -8,10 +9,15 @@ import {
 } from "@tabler/icons-react";
 import {
   forwardRef,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
+  type FocusEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 
@@ -24,10 +30,157 @@ import {
   DatabaseTableLayout,
 } from "./DatabaseTableGrid";
 
+const NO_HOVER_QUERY = "(any-hover: none)";
+
+function subscribeToNoHover(onChange: () => void) {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const media = window.matchMedia(NO_HOVER_QUERY);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+}
+
+function deviceCannotHover() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(NO_HOVER_QUERY).matches
+  );
+}
+
+/**
+ * Width of the leading selection gutter. Its row checkboxes stay quiet until
+ * hovered, which no pointer can do on a touch-only device, so there the column
+ * gives its width back to content until a row is selected or keyboard focus
+ * enters it. Spread `containerProps` on an element wrapping every row.
+ */
+export function useContentTableSelectionGutter(selecting: boolean) {
+  const cannotHover = useSyncExternalStore(
+    subscribeToNoHover,
+    deviceCannotHover,
+    () => false,
+  );
+  const [focused, setFocused] = useState(false);
+  return {
+    gutterWidth:
+      !cannotHover || selecting || focused ? DATABASE_TABLE_GUTTER_WIDTH : 0,
+    containerProps: {
+      onFocus: (event: FocusEvent<HTMLElement>) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest("[data-table-selection-gutter]")
+        )
+          setFocused(true);
+      },
+      onBlur: (event: FocusEvent<HTMLElement>) => {
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        )
+          setFocused(false);
+      },
+    },
+  };
+}
+
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_SLOP_PX = 10;
+// A long press on text the user is editing selects text and opens the native
+// copy/paste menu; it must not select the row instead.
+const LONG_PRESS_IGNORED_TARGET =
+  "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+
+/**
+ * Touch long-press, the platform gesture for entering selection mode where a
+ * row's checkbox cannot be hovered into view. The click that ends the press is
+ * swallowed so the cell under the finger does not open too.
+ */
+export function useContentTableLongPress(onLongPress: () => void) {
+  const press = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const releaseClick = useRef<(() => void) | null>(null);
+  const cancel = () => {
+    if (press.current) window.clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  const disarm = () => releaseClick.current?.();
+  const fire = () => {
+    cancel();
+    disarm();
+    // Selecting shows the selection bar above the table, so the click that
+    // ends this press lands on whatever moved under the finger, not the row.
+    const swallow = (event: MouseEvent) => {
+      // Keyboard and assistive-technology clicks report `detail` 0 and never
+      // end a press.
+      if (event.detail === 0) return;
+      release();
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const release = () => {
+      window.removeEventListener("click", swallow, true);
+      window.removeEventListener("pointerdown", release, true);
+      releaseClick.current = null;
+    };
+    window.addEventListener("click", swallow, true);
+    // A press that ends without a click must not take the next tap's.
+    window.addEventListener("pointerdown", release, true);
+    releaseClick.current = release;
+    onLongPress();
+  };
+  useEffect(
+    () => () => {
+      cancel();
+      disarm();
+    },
+    [],
+  );
+  return {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      cancel();
+      if (event.pointerType !== "touch" || !event.isPrimary) return;
+      const target = event.target;
+      // React also delivers events from portals (property editors, menus)
+      // rendered outside the row's DOM.
+      if (
+        !(target instanceof Element) ||
+        !event.currentTarget.contains(target) ||
+        target.closest(LONG_PRESS_IGNORED_TARGET)
+      )
+        return;
+      press.current = {
+        timer: window.setTimeout(fire, LONG_PRESS_MS),
+        x: event.clientX,
+        y: event.clientY,
+      };
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const start = press.current;
+      if (
+        start &&
+        Math.hypot(event.clientX - start.x, event.clientY - start.y) >
+          LONG_PRESS_SLOP_PX
+      )
+        cancel();
+    },
+    onPointerUp: cancel,
+    // A cancelled press (the page started scrolling) never produces the
+    // click this would swallow.
+    onPointerCancel: () => {
+      cancel();
+      disarm();
+    },
+    // Android reports the same gesture as a context menu before the timer.
+    onContextMenu: (event: ReactMouseEvent<HTMLElement>) => {
+      if (press.current) fire();
+      if (releaseClick.current) event.preventDefault();
+    },
+  };
+}
+
 export function ContentTableSurface<Row>({
   columnOrder,
   frozenThroughColumnId,
   viewportWidth,
+  gutterWidth,
   onViewportWidthChange,
   contentClassName,
   scrollContainerProps,
@@ -37,6 +190,7 @@ export function ContentTableSurface<Row>({
   columnOrder: readonly string[];
   frozenThroughColumnId?: string | null;
   viewportWidth?: number;
+  gutterWidth?: number;
   onViewportWidthChange?: (width: number) => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -66,6 +220,7 @@ export function ContentTableSurface<Row>({
       value={{
         frozenThroughColumnId,
         viewportWidth: viewportWidth ?? measuredWidth,
+        gutterWidth,
       }}
     >
       <DatabaseTableColumnOrder.Provider value={columnOrder}>
@@ -284,7 +439,7 @@ export function ContentTableSelectionControl({
         "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30",
         (checked || indeterminate) && "text-foreground",
         quiet &&
-          "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-hover/name:opacity-100 group-focus-within/name:opacity-100",
+          "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-hover/name:opacity-100 group-focus-within/name:opacity-100 [[data-table-selecting]_&]:opacity-100",
       )}
       onClick={(event) => {
         event.stopPropagation();

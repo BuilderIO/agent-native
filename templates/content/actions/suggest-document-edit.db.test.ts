@@ -626,10 +626,7 @@ describe("suggest-document-edit", () => {
             item.operations[0]!.before.changedText,
             item.operations[0]!.after.changedText,
           ]),
-        ).toEqual([
-          ["Shared", "Edited"],
-          ["across orgs body", "body"],
-        ]);
+        ).toEqual([["Shared across orgs body", "Edited body"]]);
         // A suggestion proposes; it must not have rewritten the document.
         const unchanged = (await getDocument.run({ id }, ctx)) as {
           content: string;

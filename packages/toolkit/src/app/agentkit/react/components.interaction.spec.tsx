@@ -90,11 +90,9 @@ describe("AgentActivityItem replay privacy", () => {
             .querySelector(".agentkit-activity-label")
             ?.closest("[data-an-mask]"),
         ).toBeNull();
-        expect(
-          container
-            .querySelector(".agentkit-activity-detail")
-            ?.hasAttribute("data-an-mask"),
-        ).toBe(status === "failed");
+        const detail = container.querySelector(".agentkit-activity-detail");
+        expect(detail?.hasAttribute("data-an-mask")).toBe(status === "failed");
+        expect(detail?.hasAttribute("title")).toBe(status !== "failed");
         await act(async () => disclosure.click());
         const summary = container.querySelector(".agentkit-activity-summary");
         expect(summary?.textContent).toContain("Example Document diagnostics.");
