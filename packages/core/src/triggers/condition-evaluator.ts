@@ -60,9 +60,9 @@ function cacheKey(
   let serializedPayload: string | undefined;
   try {
     serializedPayload = JSON.stringify(payload);
-  } catch (error) {
-    if (error instanceof Error) return null;
-    throw error;
+  } catch {
+    // coercion-ok: null marks this payload uncacheable; evaluation continues.
+    return null;
   }
   const payloadHash = createHash("sha256")
     .update(serializedPayload ?? "")

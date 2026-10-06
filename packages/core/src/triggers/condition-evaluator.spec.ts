@@ -211,6 +211,29 @@ describe("evaluateCondition", () => {
     expect(calls).toBe(2);
   });
 
+  it("evaluates payloads when serialization throws a non-Error", async () => {
+    let calls = 0;
+    async function* alternatingStream() {
+      calls += 1;
+      yield { type: "text-delta", text: calls === 1 ? "yes" : "no" };
+    }
+    resolveEngineMock.mockResolvedValue(fakeEngine(alternatingStream));
+    const payload = {
+      toJSON() {
+        throw "unavailable";
+      },
+    };
+
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(true);
+    await expect(
+      evaluateCondition("is this urgent?", payload, IDENTITY),
+    ).resolves.toBe(false);
+
+    expect(calls).toBe(2);
+  });
+
   it("uses a background-resolved engine when provided", async () => {
     const models: string[] = [];
     async function* yesStream(opts: { model?: string }) {
