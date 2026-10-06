@@ -204,9 +204,11 @@ export function useSqlQuery(
 ) {
   const successfulRefreshToken = useRef(0);
   const refreshToken = options?.refreshToken ?? 0;
+  const enabled = options?.enabled ?? true;
   const latestRefreshToken = useRef(refreshToken);
   latestRefreshToken.current = refreshToken;
   const previousRefreshToken = useRef(refreshToken);
+  const previousEnabled = useRef(enabled);
   const queryClient = useQueryClient();
   const query = useQuery<SqlQueryResult>({
     queryKey,
@@ -223,7 +225,7 @@ export function useSqlQuery(
       );
       return result;
     },
-    enabled: options?.enabled ?? true,
+    enabled,
     refetchInterval: options?.refetchInterval,
     refetchOnMount: options?.refetchOnMount ?? false,
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
@@ -234,12 +236,15 @@ export function useSqlQuery(
   const refetch = query.refetch;
 
   useEffect(() => {
+    const wasEnabled = previousEnabled.current;
+    previousEnabled.current = enabled;
     if (refreshToken <= previousRefreshToken.current) return;
     previousRefreshToken.current = refreshToken;
+    if (!wasEnabled || !enabled) return;
     void queryClient
       .cancelQueries({ queryKey, exact: true })
       .then(() => refetch());
-  }, [queryClient, queryKey, refetch, refreshToken]);
+  }, [enabled, queryClient, queryKey, refetch, refreshToken]);
 
   return query;
 }

@@ -29,6 +29,108 @@ function jsonResponse(data: unknown): Response {
   } as Response;
 }
 
+function useCacheDatabase(): void {
+  const cache = new Map<
+    string,
+    {
+      result: string;
+      generation: number;
+      refreshInProgress: boolean;
+      refreshStartedAt: string | null;
+      expiresAt: string;
+    }
+  >();
+  execute.mockImplementation(async ({ sql, args }) => {
+    const key = String(args[0]);
+    const entry = cache.get(key);
+    if (sql.startsWith("SELECT generation")) {
+      return {
+        rows: entry
+          ? [
+              {
+                generation: entry.generation,
+                refresh_in_progress: entry.refreshInProgress,
+                refresh_started_at: entry.refreshStartedAt,
+              },
+            ]
+          : [],
+      };
+    }
+    if (sql.startsWith("SELECT result")) {
+      const generation = Number(args[1]);
+      return {
+        rows:
+          entry &&
+          entry.generation === generation &&
+          !entry.refreshInProgress &&
+          entry.expiresAt > String(args[2])
+            ? [{ result: entry.result }]
+            : [],
+      };
+    }
+    if (sql.includes("VALUES ($1, $2, '{}', 0, $3, $3, 1, TRUE, $3)")) {
+      const generation = (entry?.generation ?? 0) + 1;
+      cache.set(key, {
+        result: entry?.result ?? "{}",
+        generation,
+        refreshInProgress: true,
+        refreshStartedAt: String(args[2]),
+        expiresAt: String(args[2]),
+      });
+      return { rows: [{ generation }] };
+    }
+    if (sql.startsWith("INSERT INTO bigquery_cache")) {
+      const generation = Number(args[6]);
+      if (!entry) {
+        cache.set(key, {
+          result: String(args[2]),
+          generation,
+          refreshInProgress: false,
+          refreshStartedAt: null,
+          expiresAt: String(args[5]),
+        });
+        return { rows: [{ key }] };
+      }
+      if (entry.generation === generation && !entry.refreshInProgress) {
+        cache.set(key, {
+          ...entry,
+          result: String(args[2]),
+          expiresAt: String(args[5]),
+        });
+        return { rows: [{ key }] };
+      }
+      return { rows: [] };
+    }
+    if (sql.startsWith("UPDATE bigquery_cache SET sql")) {
+      const generation = Number(args[6]);
+      if (entry?.generation === generation && entry.refreshInProgress) {
+        cache.set(key, {
+          result: String(args[2]),
+          generation,
+          refreshInProgress: false,
+          refreshStartedAt: null,
+          expiresAt: String(args[5]),
+        });
+        return { rows: [{ key }] };
+      }
+      return { rows: [] };
+    }
+    if (sql.startsWith("UPDATE bigquery_cache SET refresh_in_progress")) {
+      const generation = Number(args[1]);
+      if (entry?.generation === generation && entry.refreshInProgress) {
+        cache.set(key, {
+          ...entry,
+          refreshInProgress: false,
+          refreshStartedAt: null,
+        });
+        return { rows: [{ key }] };
+      }
+      return { rows: [] };
+    }
+    return { rows: [] };
+  });
+}
+
 describe("runQuery cancellation", () => {
   beforeEach(() => {
     execute.mockReset();
@@ -234,6 +336,7 @@ describe("runQuery cancellation", () => {
   });
 
   it("bypasses result caches on forced refresh and replaces the cached result", async () => {
+    useCacheDatabase();
     const response = (signups: string) =>
       jsonResponse({
         jobComplete: true,
@@ -266,6 +369,49 @@ describe("runQuery cancellation", () => {
     expect(
       JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
     ).toHaveProperty("useQueryCache", false);
+  });
+
+  it("prevents an older query from overwriting a forced refresh", async () => {
+    useCacheDatabase();
+    const response = (signups: string) =>
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [{ name: "signups", type: "INT64" }] },
+        rows: [{ f: [{ v: signups }] }],
+        totalBytesProcessed: "12",
+      });
+    let resolveOlder!: (response: Response) => void;
+    let signalOlderStarted!: () => void;
+    const olderStarted = new Promise<void>((resolve) => {
+      signalOlderStarted = resolve;
+    });
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementationOnce(() => {
+        signalOlderStarted();
+        return new Promise<Response>((resolve) => {
+          resolveOlder = resolve;
+        });
+      })
+      .mockResolvedValueOnce(response("4200"));
+    vi.stubGlobal("fetch", fetchMock);
+    const sql = "SELECT 1 AS concurrent_dashboard_refresh_test";
+
+    const olderQuery = runQuery(sql);
+    await olderStarted;
+    await expect(runQuery(sql, { forceRefresh: true })).resolves.toMatchObject({
+      rows: [{ signups: 4200 }],
+    });
+    resolveOlder(response("3918"));
+    await expect(olderQuery).resolves.toMatchObject({
+      rows: [{ signups: 3918 }],
+    });
+
+    await expect(runQuery(sql)).resolves.toMatchObject({
+      rows: [{ signups: 4200 }],
+      cached: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("rejects mutating SQL before resolving credentials or contacting BigQuery", async () => {

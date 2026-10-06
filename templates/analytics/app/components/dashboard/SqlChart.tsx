@@ -1308,6 +1308,14 @@ export function SqlChart({
       ? (result?.error ??
         (queryError ? formatSqlChartError(queryError) : undefined))
       : undefined;
+  const refreshError =
+    shouldQuery && rawRows.length > 0 && queryError
+      ? formatSqlChartError(queryError)
+      : undefined;
+  const requestRefresh = () => {
+    if (onRefreshRequested) onRefreshRequested();
+    else setLocalRefreshToken((token) => token + 1);
+  };
 
   const { rows: queryRows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
@@ -1410,11 +1418,7 @@ export function SqlChart({
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() =>
-              onRefreshRequested
-                ? onRefreshRequested()
-                : setLocalRefreshToken((token) => token + 1)
-            }
+            onClick={requestRefresh}
           >
             <IconRefresh className="mr-2 h-3.5 w-3.5" />
             {t("sqlDashboard.refresh")}
@@ -1437,8 +1441,35 @@ export function SqlChart({
   }
 
   const missingConfigKeys = configuredKeysMissingFromRows(rows, panel);
-  const withConfigWarning = (node: ReactNode) =>
-    missingConfigKeys.length > 0 ? (
+  const withConfigWarning = (node: ReactNode) => {
+    if (refreshError) {
+      return (
+        <div className="flex h-full min-h-0 flex-col gap-2">
+          <div
+            className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
+            role="alert"
+          >
+            <p className="min-w-0 break-words text-xs text-destructive">
+              {refreshError}
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={requestRefresh}
+            >
+              <IconRefresh className="mr-2 h-3.5 w-3.5" />
+              {t("sqlDashboard.refresh")}
+            </Button>
+          </div>
+          {missingConfigKeys.length > 0 && (
+            <ConfigWarning keys={missingConfigKeys} />
+          )}
+          <div className="min-h-0 flex-1">{node}</div>
+        </div>
+      );
+    }
+    return missingConfigKeys.length > 0 ? (
       <div className="space-y-2">
         <ConfigWarning keys={missingConfigKeys} />
         {node}
@@ -1446,6 +1477,7 @@ export function SqlChart({
     ) : (
       node
     );
+  };
 
   if (chartType === "metric") {
     return withConfigWarning(<MetricRenderer rows={rows} panel={panel} />);

@@ -182,6 +182,9 @@ export const bigqueryCache = table("bigquery_cache", {
   bytesProcessed: integer("bytes_processed").notNull().default(0),
   createdAt: text("created_at").notNull(),
   expiresAt: text("expires_at").notNull(),
+  generation: integer("generation").notNull().default(0),
+  refreshInProgress: boolean("refresh_in_progress").notNull().default(false),
+  refreshStartedAt: text("refresh_started_at"),
 });
 
 export const firstPartyAnalyticsCache = table("first_party_analytics_cache", {

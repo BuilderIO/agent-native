@@ -388,6 +388,37 @@ describe("SqlChart refresh feedback", () => {
     expect(mocks.queryRefreshToken).toBe(1);
   });
 
+  it("keeps the last good rows visible when a refresh fails", async () => {
+    const panel = {
+      id: "signups",
+      title: "Signups",
+      sql: "SELECT 42 AS value",
+      source: "bigquery" as const,
+      chartType: "metric" as const,
+      width: 1,
+    };
+    const onRefreshRequested = vi.fn();
+    mocks.query.data = { rows: [{ value: 42 }] };
+    mocks.query.error = new Error("forced refresh failed");
+
+    await act(async () => {
+      root.render(
+        <SqlChart panel={panel} onRefreshRequested={onRefreshRequested} />,
+      );
+    });
+
+    expect(container.textContent).toContain("42");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "forced refresh failed",
+    );
+    const refreshButton = container.querySelector("button");
+    expect(refreshButton).not.toBeNull();
+    await act(async () => {
+      refreshButton?.click();
+    });
+    expect(onRefreshRequested).toHaveBeenCalledTimes(1);
+  });
+
   it("does not expose a retry for a disabled query with a cached error", async () => {
     const panel = {
       id: "signups",

@@ -22,13 +22,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSqlQuery } from "./sql-query";
 
 function QueryProbe({
+  enabled,
   refreshToken,
   sql,
 }: {
+  enabled?: boolean;
   refreshToken: number;
   sql: string;
 }) {
-  const query = useSqlQuery(["sql", sql], sql, "bigquery", { refreshToken });
+  const query = useSqlQuery(["sql", sql], sql, "bigquery", {
+    enabled,
+    refreshToken,
+  });
   return <div>{query.data ? "loaded" : "loading"}</div>;
 }
 
@@ -107,6 +112,34 @@ describe("useSqlQuery refresh", () => {
     expect(mocks.callAction.mock.calls[2]?.[1]).toEqual({
       query: "SELECT 2",
       source: "bigquery",
+    });
+  });
+
+  it("does not restart a lazy query when refresh enables it", async () => {
+    mocks.callAction.mockResolvedValue({ rows: [{ value: 42 }], schema: [] });
+
+    const render = (enabled: boolean, refreshToken: number) =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <QueryProbe
+            enabled={enabled}
+            refreshToken={refreshToken}
+            sql="SELECT 1"
+          />
+        </QueryClientProvider>,
+      );
+
+    await act(async () => render(false, 0));
+    expect(mocks.callAction).not.toHaveBeenCalled();
+
+    await act(async () => render(true, 1));
+    await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(container.textContent).toBe("loaded"));
+
+    expect(mocks.callAction.mock.calls[0]?.[1]).toEqual({
+      query: "SELECT 1",
+      source: "bigquery",
+      forceRefresh: true,
     });
   });
 });
