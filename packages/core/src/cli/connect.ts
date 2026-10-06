@@ -725,6 +725,17 @@ async function validateOAuthMcpServer(
   return false;
 }
 
+/**
+ * A server-reported name becomes a key in client configs, Codex's TOML among
+ * them, so a name carrying quotes, brackets, or newlines could rewrite the
+ * file around its own entry.
+ */
+const PLAIN_SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+function unusableServerNameReason(name: string): string {
+  return `the server name ${JSON.stringify(name)} is not a plain name (letters, digits, "-" and "_")`;
+}
+
 type ConnectIdentityLookup =
   | { status: "found"; serverName: string }
   | { status: "unsupported" }
@@ -754,9 +765,13 @@ async function lookupConnectServerName(
     const body = (await response.json()) as { serverName?: unknown } | null;
     const serverName =
       typeof body?.serverName === "string" ? body.serverName.trim() : "";
-    return serverName
-      ? { status: "found", serverName }
-      : { status: "failed", reason: "the response had no serverName" };
+    if (!serverName) {
+      return { status: "failed", reason: "the response had no serverName" };
+    }
+    if (!PLAIN_SERVER_NAME.test(serverName)) {
+      return { status: "failed", reason: unusableServerNameReason(serverName) };
+    }
+    return { status: "found", serverName };
   } catch (err: any) {
     return { status: "failed", reason: err?.message ?? String(err) };
   } finally {
@@ -767,22 +782,25 @@ async function lookupConnectServerName(
 /**
  * The server owns its name (it adds the environment suffix that keeps beta
  * and local entries apart from production), so ask it before guessing from
- * the hostname.
+ * the hostname. Only a server without the identity route keeps the hostname
+ * name: after any other failure a guess can land on another app's entry
+ * (`beta.mail…` guesses `agent-native-beta`), so the connect stops instead.
  */
 async function serverNameFromServer(
   baseUrl: string,
   deps: ConnectDeps,
-): Promise<string> {
+): Promise<string | null> {
   const lookup = await lookupConnectServerName(baseUrl, deps);
   if (lookup.status === "found") return lookup.serverName;
-  const fallback = defaultServerName(baseUrl);
-  if (lookup.status === "failed") {
-    logErr(
-      `  Could not read the server name from ${baseUrl}${CONNECT_IDENTITY_PATH} ` +
-        `(${lookup.reason}); using ${fallback}.`,
-    );
-  }
-  return fallback;
+  if (lookup.status === "unsupported") return defaultServerName(baseUrl);
+  logErr(
+    `  Could not read the server name from ${baseUrl}${CONNECT_IDENTITY_PATH} ` +
+      `(${lookup.reason}).`,
+  );
+  logErr(
+    "  Run the command again, or pass --name <name> to choose the name yourself.",
+  );
+  return null;
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -919,6 +937,10 @@ export async function runDeviceFlow(
       const token = poll.token ?? "";
       const mcpUrl = mcpUrlForBaseUrl(poll.mcpUrl ?? baseUrl);
       const serverName = poll.serverName ?? `${SERVER_NAME_PREFIX}-${appSlug}`;
+      if (!PLAIN_SERVER_NAME.test(serverName)) {
+        logErr(`  Could not connect: ${unusableServerNameReason(serverName)}.`);
+        return null;
+      }
       const headers =
         poll.mcpServerEntry &&
         typeof poll.mcpServerEntry === "object" &&
@@ -2032,15 +2054,19 @@ async function connectOne(
   let headers: Record<string, string> | undefined;
 
   if (parsed.token) {
+    const name = parsed.name ?? (await serverNameFromServer(baseUrl, deps));
+    if (!name) return { ok: false };
     token = parsed.token;
     mcpUrl = normalizedMcpUrl;
-    serverName = parsed.name ?? (await serverNameFromServer(baseUrl, deps));
+    serverName = name;
     logOut("");
     logOut(`  Using supplied --token for ${baseUrl} (skipping browser flow).`);
   } else if (deviceFlowClients.length === 0) {
+    const name = parsed.name ?? (await serverNameFromServer(baseUrl, deps));
+    if (!name) return { ok: false };
     token = undefined;
     mcpUrl = normalizedMcpUrl;
-    serverName = parsed.name ?? (await serverNameFromServer(baseUrl, deps));
+    serverName = name;
   } else {
     const grant = await runDeviceFlow(
       baseUrl,

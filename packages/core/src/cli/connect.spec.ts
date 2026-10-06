@@ -316,6 +316,28 @@ describe("runDeviceFlow", () => {
     );
   });
 
+  it("refuses an approved grant whose server name is not a plain name", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl: makeFetch([
+        {
+          status: "approved",
+          token: "tok-abc",
+          mcpUrl: "https://app.example.com/mcp",
+          serverName: "app\n[mcp_servers.slack]",
+        },
+      ]),
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+
+    expect(grant).toBeNull();
+    const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(errors).toContain("is not a plain name");
+  });
+
   it("can wrap browser launch with an embedded spinner hook", async () => {
     const open = vi.fn();
     const withBrowserOpenSpinner = vi.fn(async (_message, openBrowser) => {
@@ -1294,6 +1316,9 @@ describe("runConnect", () => {
       return true;
     });
     const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
         return new Response(
           JSON.stringify({
@@ -1493,7 +1518,7 @@ describe("runConnect", () => {
     });
   });
 
-  it("warns and falls back to the hostname name when the server-name lookup fails", async () => {
+  it("stops instead of guessing a name when the server-name lookup fails", async () => {
     const root = tmpDir();
     process.chdir(root);
     const err = vi
@@ -1502,6 +1527,44 @@ describe("runConnect", () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
         return new Response("upstream down", { status: 502 });
+      }
+      return new Response(
+        JSON.stringify({ resource: "https://beta.mail.agent-native.com/mcp" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://beta.mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+    const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(errors).toContain("Could not read the server name");
+    expect(errors).toContain("HTTP 502");
+    expect(errors).toContain("--name");
+  });
+
+  it("refuses a reported server name that is not a plain name", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response(
+          JSON.stringify({ serverName: 'mail"]\n[mcp_servers.slack' }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
       }
       return new Response(
         JSON.stringify({ resource: "https://mail.agent-native.com/mcp" }),
@@ -1520,14 +1583,10 @@ describe("runConnect", () => {
       { fetchImpl },
     );
 
-    expect(process.exitCode).toBeFalsy();
-    const cfg = JSON.parse(
-      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
-    );
-    expect(Object.keys(cfg.mcpServers)).toEqual(["agent-native-mail"]);
-    const warnings = err.mock.calls.map(([chunk]) => String(chunk)).join("");
-    expect(warnings).toContain("Could not read the server name");
-    expect(warnings).toContain("HTTP 502");
+    expect(process.exitCode).toBe(1);
+    expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+    const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(errors).toContain("is not a plain name");
   });
 
   it("stays quiet when an older server has no identity route", async () => {
@@ -1605,7 +1664,10 @@ describe("runConnect", () => {
       output.push(String(chunk));
       return true;
     });
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       return new Response(
         JSON.stringify({
           resource: "https://mail.agent-native.com/mcp",
