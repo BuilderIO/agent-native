@@ -449,6 +449,35 @@ describe("AgentKit lifecycle projections", () => {
     });
   });
 
+  it("preserves streamed output when a running tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "Found ",
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+        },
+      }),
+      event(4, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "it.",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "running",
+      output: "Found it.",
+    });
+  });
+
   it("uses the output provided by a terminal tool update", () => {
     const reduced = [
       event(1, { type: "run.started" }),

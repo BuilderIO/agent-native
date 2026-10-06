@@ -571,6 +571,7 @@ async function defaultUploadDriver(
 const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
 const MAX_TOOL_HISTORY_VALUE_DEPTH = 256;
 const MAX_TOOL_HISTORY_VALUE_WORK = 64 * 1024;
+const MAX_TOOL_HISTORY_SIGNATURE_KEYS = 4_096;
 const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_CALLS = 64;
 const MAX_TOOL_HISTORY_SOURCE_EVENT_WORK = 4_096;
@@ -592,76 +593,190 @@ type StructuredToolHistoryPart =
       isError?: true;
     };
 
-// Project the added parts through Core's structuredHistory shape before sizing.
-function projectStructuredToolHistory(
-  messages: AgentMessage[],
-  calls: Array<{ messageId: string; parts: DataPart[] }>,
-  omissionMessageId?: string,
-): Array<{
-  role: "assistant" | "user";
+interface ProjectedToolHistoryParts {
   content: StructuredToolHistoryPart[];
-}> {
-  const partsByMessageId = new Map<string, DataPart[]>();
-  for (const { messageId, parts } of calls) {
-    const messageParts = partsByMessageId.get(messageId) ?? [];
-    messageParts.push(...parts);
-    partsByMessageId.set(messageId, messageParts);
-  }
-
-  const structured: Array<{
-    role: "assistant" | "user";
-    content: StructuredToolHistoryPart[];
-  }> = [];
-  for (const message of messages) {
-    if (message.role !== "assistant") continue;
-    const content: StructuredToolHistoryPart[] = [];
-    const results: StructuredToolHistoryPart[] = [];
-    for (const part of partsByMessageId.get(message.id) ?? []) {
-      const data = part.data as Record<string, unknown>;
-      if (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE) {
-        if (typeof data.inputText === "string" && data.inputText.trim()) {
-          content.push({ type: "text", text: data.inputText });
-        }
-        content.push({
-          type: "tool-call",
-          id: data.id as string,
-          name: data.name as string,
-          ...(data.input === undefined ? {} : { input: data.input }),
-        });
-      } else if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
-        const result =
-          data.result === undefined
-            ? ((data.resultText as string | undefined) ??
-              "No tool result was recorded.")
-            : `${typeof data.result === "string" ? data.result : (JSON.stringify(data.result) ?? "Tool result could not be serialized for history.")}${data.resultText ? `\n${data.resultText as string}` : ""}`;
-        results.push({
-          type: "tool-result",
-          toolCallId: data.id as string,
-          ...(typeof data.name === "string" ? { toolName: data.name } : {}),
-          content: result,
-          ...(data.isError === true ? { isError: true } : {}),
-        });
-      }
-    }
-    if (message.id === omissionMessageId) {
-      content.push({ type: "text", text: TOOL_HISTORY_OMISSION_TEXT });
-    }
-    if (content.length) structured.push({ role: "assistant", content });
-    if (results.length) structured.push({ role: "user", content: results });
-  }
-  return structured;
+  results: StructuredToolHistoryPart[];
 }
 
-function projectedToolHistoryBytes(
-  messages: AgentMessage[],
-  calls: Array<{ messageId: string; parts: DataPart[] }>,
-  omissionMessageId?: string,
-): number {
-  return new TextEncoder().encode(
-    JSON.stringify(
-      projectStructuredToolHistory(messages, calls, omissionMessageId),
-    ),
-  ).byteLength;
+interface ProjectedToolHistoryPartSizes {
+  content: number[];
+  results: number[];
+}
+
+interface ProjectedToolHistoryGroupSize {
+  partBytes: number;
+  partCount: number;
+}
+
+interface ProjectedToolHistoryMessageSize {
+  assistant?: ProjectedToolHistoryGroupSize;
+  user?: ProjectedToolHistoryGroupSize;
+}
+
+const TOOL_HISTORY_ASSISTANT_GROUP_OVERHEAD =
+  '{"role":"assistant","content":[]}';
+const TOOL_HISTORY_USER_GROUP_OVERHEAD = '{"role":"user","content":[]}';
+const TOOL_HISTORY_OMISSION_PART: StructuredToolHistoryPart = {
+  type: "text",
+  text: TOOL_HISTORY_OMISSION_TEXT,
+};
+const TOOL_HISTORY_OMISSION_PART_BYTES = JSON.stringify(
+  TOOL_HISTORY_OMISSION_PART,
+).length;
+
+function projectStructuredToolHistoryParts(
+  parts: DataPart[],
+): ProjectedToolHistoryParts {
+  const content: StructuredToolHistoryPart[] = [];
+  const results: StructuredToolHistoryPart[] = [];
+  for (const part of parts) {
+    const data = part.data as Record<string, unknown>;
+    if (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE) {
+      if (typeof data.inputText === "string" && data.inputText.trim()) {
+        content.push({ type: "text", text: data.inputText });
+      }
+      content.push({
+        type: "tool-call",
+        id: data.id as string,
+        name: data.name as string,
+        ...(data.input === undefined ? {} : { input: data.input }),
+      });
+    } else if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
+      const result =
+        data.result === undefined
+          ? ((data.resultText as string | undefined) ??
+            "No tool result was recorded.")
+          : `${typeof data.result === "string" ? data.result : (JSON.stringify(data.result) ?? "Tool result could not be serialized for history.")}${data.resultText ? `\n${data.resultText as string}` : ""}`;
+      results.push({
+        type: "tool-result",
+        toolCallId: data.id as string,
+        ...(typeof data.name === "string" ? { toolName: data.name } : {}),
+        content: result,
+        ...(data.isError === true ? { isError: true } : {}),
+      });
+    }
+  }
+  return { content, results };
+}
+
+function projectedToolHistoryPartSizes(
+  parts: ProjectedToolHistoryParts,
+): ProjectedToolHistoryPartSizes | undefined {
+  try {
+    const size = (part: StructuredToolHistoryPart) => {
+      const serialized = JSON.stringify(part);
+      return serialized === undefined
+        ? undefined
+        : utf8ByteLength(serialized, MAX_ADDED_TOOL_HISTORY_BYTES);
+    };
+    const content = parts.content.map(size);
+    const results = parts.results.map(size);
+    if (
+      content.some((bytes) => bytes === undefined) ||
+      results.some((bytes) => bytes === undefined)
+    ) {
+      return undefined;
+    }
+    return {
+      content: content as number[],
+      results: results as number[],
+    };
+  } catch {
+    // coercion-ok: Unserializable history parts cannot be safely budgeted.
+    return undefined;
+  }
+}
+
+function createProjectedToolHistorySizer(
+  assistantMessageCopies: Map<string, number>,
+) {
+  const byMessageId = new Map<string, ProjectedToolHistoryMessageSize>();
+
+  const updateGroup = (
+    group: ProjectedToolHistoryGroupSize | undefined,
+    partSizes: number[],
+    direction: 1 | -1,
+  ) => {
+    if (partSizes.length === 0) return group;
+    const next = group ?? { partBytes: 0, partCount: 0 };
+    for (const partBytes of partSizes) {
+      next.partBytes += direction * partBytes;
+      next.partCount += direction;
+    }
+    return next.partCount === 0 ? undefined : next;
+  };
+
+  return {
+    update(
+      messageId: string,
+      sizes: ProjectedToolHistoryPartSizes,
+      direction: 1 | -1,
+    ) {
+      const messageSize = byMessageId.get(messageId) ?? {};
+      messageSize.assistant = updateGroup(
+        messageSize.assistant,
+        sizes.content,
+        direction,
+      );
+      messageSize.user = updateGroup(
+        messageSize.user,
+        sizes.results,
+        direction,
+      );
+      if (messageSize.assistant || messageSize.user) {
+        byMessageId.set(messageId, messageSize);
+      } else {
+        byMessageId.delete(messageId);
+      }
+    },
+    byteLength(omissionMessageId?: string): number {
+      let groupBytes = 0;
+      let groupCount = 0;
+      let omittedMessageCopies = 0;
+      if (omissionMessageId) {
+        omittedMessageCopies =
+          assistantMessageCopies.get(omissionMessageId) ?? 0;
+      }
+
+      for (const [messageId, messageSize] of byMessageId) {
+        const copies = assistantMessageCopies.get(messageId) ?? 0;
+        if (copies === 0) continue;
+        for (const [group, overhead] of [
+          [messageSize.assistant, TOOL_HISTORY_ASSISTANT_GROUP_OVERHEAD],
+          [messageSize.user, TOOL_HISTORY_USER_GROUP_OVERHEAD],
+        ] as const) {
+          if (!group) continue;
+          let partBytes = group.partBytes;
+          let partCount = group.partCount;
+          if (
+            messageId === omissionMessageId &&
+            group === messageSize.assistant
+          ) {
+            partBytes += TOOL_HISTORY_OMISSION_PART_BYTES;
+            partCount += 1;
+          }
+          const overheadBytes = overhead.length;
+          const size = overheadBytes + partBytes + Math.max(0, partCount - 1);
+          groupBytes += size * copies;
+          groupCount += copies;
+        }
+      }
+
+      if (
+        omittedMessageCopies > 0 &&
+        !byMessageId.get(omissionMessageId!)?.assistant
+      ) {
+        const overheadBytes = TOOL_HISTORY_ASSISTANT_GROUP_OVERHEAD.length;
+        groupBytes +=
+          (overheadBytes + TOOL_HISTORY_OMISSION_PART_BYTES) *
+          omittedMessageCopies;
+        groupCount += omittedMessageCopies;
+      }
+
+      const bytes = 2 + groupBytes + Math.max(0, groupCount - 1);
+      return Math.min(bytes, MAX_ADDED_TOOL_HISTORY_BYTES + 1);
+    },
+  };
 }
 
 type ToolHistoryValueProjection =
@@ -704,6 +819,31 @@ function jsonStringByteLength(
       }
     } else if (code >= 0xdc00 && code <= 0xdfff) {
       bytes += 6;
+    } else if (code <= 0x7f) {
+      bytes += 1;
+    } else if (code <= 0x7ff) {
+      bytes += 2;
+    } else {
+      bytes += 3;
+    }
+    if (bytes > limit) return undefined;
+  }
+  return bytes;
+}
+
+function utf8ByteLength(value: string, limit: number): number | undefined {
+  if (value.length > limit) return undefined;
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
     } else if (code <= 0x7f) {
       bytes += 1;
     } else if (code <= 0x7ff) {
@@ -1167,71 +1307,166 @@ function representedToolHistoryParts(
   return represented;
 }
 
-function safeJsonSignature(
-  value: unknown,
-  ancestors = new Set<object>(),
-): string | undefined {
-  if (value === null) return "null";
-  if (typeof value === "string" || typeof value === "boolean") {
-    return JSON.stringify(value);
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? JSON.stringify(value) : undefined;
-  }
-  if (typeof value !== "object" || ancestors.has(value)) return undefined;
+function safeJsonSignature(value: unknown): string | undefined {
+  const ancestors = new Set<object>();
+  let work = 0;
 
-  try {
-    const prototype = Object.getPrototypeOf(value);
-    const descriptors = Object.getOwnPropertyDescriptors(value);
-    const keys = Reflect.ownKeys(value);
-    ancestors.add(value);
-    if (Array.isArray(value)) {
-      if (prototype !== Array.prototype) return undefined;
-      const items: string[] = [];
-      for (let index = 0; index < value.length; index += 1) {
-        const descriptor = descriptors[String(index)];
-        if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
-          return undefined;
-        }
-        const item = safeJsonSignature(descriptor.value, ancestors);
-        if (item === undefined) return undefined;
-        items.push(item);
-      }
+  const visit = (
+    current: unknown,
+    depth: number,
+    byteLimit: number,
+  ): { signature: string; bytes: number } | undefined => {
+    work += 1;
+    if (work > MAX_TOOL_HISTORY_VALUE_WORK) return undefined;
+    if (current === null) {
+      return byteLimit >= 4 ? { signature: "null", bytes: 4 } : undefined;
+    }
+    if (typeof current === "string") {
+      const bytes = jsonStringByteLength(current, byteLimit);
+      if (bytes === undefined) return undefined;
+      const signature = JSON.stringify(current);
+      return signature === undefined ? undefined : { signature, bytes };
+    }
+    if (typeof current === "boolean") {
+      const signature = current ? "true" : "false";
+      const bytes = current ? 4 : 5;
+      return bytes <= byteLimit ? { signature, bytes } : undefined;
+    }
+    if (typeof current === "number") {
+      if (!Number.isFinite(current)) return undefined;
+      const signature = JSON.stringify(current);
+      const bytes = signature
+        ? jsonStringByteLength(signature, byteLimit)
+        : undefined;
+      return bytes === undefined ? undefined : { signature, bytes };
+    }
+    if (
+      typeof current !== "object" ||
+      depth >= MAX_TOOL_HISTORY_VALUE_DEPTH ||
+      ancestors.has(current)
+    ) {
+      return undefined;
+    }
+
+    try {
+      const isArray = Array.isArray(current);
+      const prototype = Object.getPrototypeOf(current);
       if (
-        keys.length !== value.length + 1 ||
-        !keys.includes("length") ||
-        keys.some((key) => key !== "length" && typeof key !== "string") ||
-        keys.some(
-          (key) =>
-            key !== "length" &&
-            (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)),
-        )
+        isArray
+          ? prototype !== Array.prototype
+          : prototype !== Object.prototype && prototype !== null
       ) {
         return undefined;
       }
-      return `[${items.join(",")}]`;
-    }
-    if (prototype !== Object.prototype && prototype !== null) return undefined;
-    if (keys.some((key) => typeof key !== "string" || key === "toJSON")) {
+      if (hasUnsupportedToJSON(current, prototype)) return undefined;
+      if (byteLimit < 2) return undefined;
+
+      ancestors.add(current);
+      try {
+        if (isArray) {
+          const length = Object.getOwnPropertyDescriptor(current, "length");
+          if (
+            !length ||
+            !("value" in length) ||
+            typeof length.value !== "number" ||
+            length.value < 0 ||
+            !Number.isSafeInteger(length.value) ||
+            length.value * 2 > MAX_TOOL_HISTORY_VALUE_WORK - work ||
+            (length.value > 0 && length.value * 2 + 1 > byteLimit)
+          ) {
+            return undefined;
+          }
+
+          const items: string[] = [];
+          let bytes = 2;
+          let index = 0;
+          for (const key in current) {
+            work += 1;
+            if (
+              work > MAX_TOOL_HISTORY_VALUE_WORK ||
+              index >= length.value ||
+              key !== String(index)
+            ) {
+              return undefined;
+            }
+            const descriptor = Object.getOwnPropertyDescriptor(current, key);
+            if (
+              !descriptor ||
+              !descriptor.enumerable ||
+              !("value" in descriptor)
+            ) {
+              return undefined;
+            }
+            const separatorBytes = index === 0 ? 0 : 1;
+            const item = visit(
+              descriptor.value,
+              depth + 1,
+              byteLimit - bytes - separatorBytes,
+            );
+            if (!item) return undefined;
+            items.push(item.signature);
+            bytes += separatorBytes + item.bytes;
+            index += 1;
+          }
+          if (index !== length.value) return undefined;
+          return { signature: `[${items.join(",")}]`, bytes };
+        }
+
+        const entries: Array<{
+          key: string;
+          keyBytes: number;
+          value: unknown;
+        }> = [];
+        for (const key in current) {
+          work += 1;
+          if (
+            work > MAX_TOOL_HISTORY_VALUE_WORK ||
+            entries.length >= MAX_TOOL_HISTORY_SIGNATURE_KEYS ||
+            key === "toJSON"
+          ) {
+            return undefined;
+          }
+          const keyBytes = jsonStringByteLength(key, byteLimit);
+          if (keyBytes === undefined) return undefined;
+          const descriptor = Object.getOwnPropertyDescriptor(current, key);
+          if (
+            !descriptor ||
+            !descriptor.enumerable ||
+            !("value" in descriptor)
+          ) {
+            return undefined;
+          }
+          entries.push({ key, keyBytes, value: descriptor.value });
+        }
+        entries.sort((first, second) =>
+          first.key < second.key ? -1 : first.key > second.key ? 1 : 0,
+        );
+
+        const serializedEntries: string[] = [];
+        let bytes = 2;
+        for (const [index, entry] of entries.entries()) {
+          const separatorBytes = index === 0 ? 0 : 1;
+          const available =
+            byteLimit - bytes - separatorBytes - entry.keyBytes - 1;
+          if (available < 1) return undefined;
+          const item = visit(entry.value, depth + 1, available);
+          if (!item) return undefined;
+          serializedEntries.push(
+            `${index === 0 ? "" : ","}${JSON.stringify(entry.key)}:${item.signature}`,
+          );
+          bytes += separatorBytes + entry.keyBytes + 1 + item.bytes;
+        }
+        return { signature: `{${serializedEntries.join("")}}`, bytes };
+      } finally {
+        ancestors.delete(current);
+      }
+    } catch {
+      // coercion-ok: Uninspectable history payloads fail closed.
       return undefined;
     }
-    const entries: string[] = [];
-    for (const key of (keys as string[]).sort()) {
-      const descriptor = descriptors[key];
-      if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
-        return undefined;
-      }
-      const item = safeJsonSignature(descriptor.value, ancestors);
-      if (item === undefined) return undefined;
-      entries.push(`${JSON.stringify(key)}:${item}`);
-    }
-    return `{${entries.join(",")}}`;
-  } catch {
-    // coercion-ok: Uninspectable history payloads fail closed.
-    return undefined;
-  } finally {
-    ancestors.delete(value);
-  }
+  };
+
+  return visit(value, 0, MAX_TOOL_HISTORY_VALUE_BYTES)?.signature;
 }
 
 function safeToolHistoryDataSignature(value: unknown): string | undefined {
@@ -1241,7 +1476,12 @@ function safeToolHistoryDataSignature(value: unknown): string | undefined {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return undefined;
     const id = Object.getOwnPropertyDescriptor(value, "id");
-    if (!id || !("value" in id) || typeof id.value !== "string") {
+    if (
+      !id ||
+      !id.enumerable ||
+      !("value" in id) ||
+      typeof id.value !== "string"
+    ) {
       return undefined;
     }
     return safeJsonSignature(value);
@@ -1455,6 +1695,7 @@ function messagesWithToolCallHistory(
     sourceTruncated,
   } = selection;
   const assistantMessageIds = new Set<string>();
+  const assistantMessageCopies = new Map<string, number>();
   const existingToolHistoryPartsByMessageId = new Map<
     string,
     RepresentedToolHistoryParts
@@ -1464,6 +1705,10 @@ function messagesWithToolCallHistory(
     if (message.role !== "assistant") continue;
     firstAssistantMessageId ??= message.id;
     assistantMessageIds.add(message.id);
+    assistantMessageCopies.set(
+      message.id,
+      (assistantMessageCopies.get(message.id) ?? 0) + 1,
+    );
     existingToolHistoryPartsByMessageId.set(
       message.id,
       representedToolHistoryParts(message),
@@ -1489,7 +1734,9 @@ function messagesWithToolCallHistory(
     messageId: string;
     toolCallId: string;
     parts: DataPart[];
+    sizes: ProjectedToolHistoryPartSizes;
   }> = [];
+  const historySizer = createProjectedToolHistorySizer(assistantMessageCopies);
   const recentCalls = eligibleCalls.slice(-MAX_TOOL_HISTORY_CALLS);
   let omittedHistory =
     sourceOmitted || recentCalls.length < eligibleCalls.length;
@@ -1527,27 +1774,35 @@ function messagesWithToolCallHistory(
       messageId: toolCall.messageId!,
       toolCallId: toolCall.id,
       parts,
+      sizes: projectedToolHistoryPartSizes(
+        projectStructuredToolHistoryParts(parts),
+      ),
     };
+    const sizes = candidate.sizes;
+    if (sizes) {
+      historySizer.update(candidate.messageId, sizes, 1);
+    }
     if (
-      projectedToolHistoryBytes(
-        messages,
-        [...selectedCalls, candidate],
-        omissionMessageId,
-      ) > MAX_ADDED_TOOL_HISTORY_BYTES
+      !sizes ||
+      historySizer.byteLength(omissionMessageId) > MAX_ADDED_TOOL_HISTORY_BYTES
     ) {
+      if (sizes) {
+        historySizer.update(candidate.messageId, sizes, -1);
+      }
       omittedHistory = true;
       omissionMessageId ??= candidate.messageId;
       while (
         selectedCalls.length > 0 &&
-        projectedToolHistoryBytes(messages, selectedCalls, omissionMessageId) >
+        historySizer.byteLength(omissionMessageId) >
           MAX_ADDED_TOOL_HISTORY_BYTES
       ) {
-        selectedCalls.pop();
+        const removed = selectedCalls.pop()!;
+        historySizer.update(removed.messageId, removed.sizes, -1);
       }
       continue;
     }
 
-    selectedCalls.push(candidate);
+    selectedCalls.push({ ...candidate, sizes });
   }
 
   if (selectedCalls.length < recentCalls.length) omittedHistory = true;

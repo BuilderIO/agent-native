@@ -1265,6 +1265,155 @@ describe("AgentKitClient", () => {
     },
   );
 
+  it("bounds inspection of reserved tool-history signatures", async () => {
+    let descriptorReads = 0;
+    const payload = Object.fromEntries([
+      ["id", "existing-call"],
+      ...Array.from({ length: 6_000 }, (_, index) => [`field-${index}`, index]),
+    ]);
+    const data = new Proxy(payload, {
+      getOwnPropertyDescriptor(target, property) {
+        descriptorReads += 1;
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+    });
+    const historyPart: AgentMessage["parts"][number] = {
+      type: "data",
+      mediaType: "application/x-agent-native-tool-call",
+      data,
+    };
+    const finalParts: AgentMessage["parts"] = [historyPart];
+    const messages = await assistantPartsAfterToolHistory({
+      createdParts: finalParts,
+      finalParts,
+    });
+
+    expect(descriptorReads).toBeLessThan(5 * 6_001);
+    expect(
+      messages
+        .find((message) => message.id === "assistant-1")
+        ?.parts.some(
+          (part) =>
+            part.type === "data" &&
+            part.mediaType === "application/x-agent-native-tool-call" &&
+            (part.data as Record<string, unknown>).id === "call-search",
+        ),
+    ).toBe(false);
+    expect(messages.at(-1)).toMatchObject({
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: "Tool-call history was omitted because its position could not be reconstructed safely.",
+        },
+      ],
+    });
+  });
+
+  it.each([
+    {
+      name: "serialized bytes",
+      data: { id: "existing-call", payload: "x".repeat(64 * 1024) },
+    },
+    {
+      name: "nested depth",
+      data: (() => {
+        let nested: Record<string, unknown> = {};
+        for (let depth = 0; depth < 300; depth += 1) {
+          nested = { child: nested };
+        }
+        return { id: "existing-call", nested };
+      })(),
+    },
+  ])(
+    "fails closed when reserved history signatures exceed the $name budget",
+    async ({ data }) => {
+      const hasNestedValue = "nested" in data;
+      const historyPart: AgentMessage["parts"][number] = {
+        type: "data",
+        mediaType: "application/x-agent-native-tool-call",
+        data,
+      };
+      const finalParts: AgentMessage["parts"] = hasNestedValue
+        ? []
+        : [historyPart];
+      const messages = await assistantPartsAfterToolHistory({
+        createdParts: finalParts,
+        finalParts,
+        beforeFollowup(client) {
+          if (!hasNestedValue) return;
+          const thread = client.getThread("thread-1");
+          const assistantMessage = thread.messages.find(
+            (message) => message.id === "assistant-1",
+          );
+          expect(assistantMessage).toBeDefined();
+          const parts = [historyPart];
+          const message = {
+            ...assistantMessage!,
+            parts,
+          };
+          const toolCall = {
+            id: "call-search",
+            name: "search",
+            messageId: "assistant-1",
+            status: "completed" as const,
+          };
+          thread.messages = thread.messages.map((entry) =>
+            entry.id === "assistant-1" ? message : entry,
+          );
+          thread.events = [
+            protocolEvent(1, { type: "run.started" }),
+            protocolEvent(2, {
+              type: "message.created",
+              message: {
+                id: "assistant-1",
+                role: "assistant",
+                status: "streaming",
+                parts,
+              },
+            }),
+            protocolEvent(3, {
+              type: "tool.started",
+              toolCall: { ...toolCall, status: "running" },
+            }),
+            protocolEvent(4, { type: "tool.updated", toolCall }),
+            protocolEvent(5, {
+              type: "message.completed",
+              message: {
+                id: "assistant-1",
+                role: "assistant",
+                status: "complete",
+                parts,
+              },
+            }),
+            protocolEvent(6, { type: "run.completed" }),
+          ];
+          thread.tools = { [toolCall.id]: toolCall };
+        },
+      });
+
+      expect(
+        messages
+          .find((message) => message.id === "assistant-1")
+          ?.parts.some(
+            (part) =>
+              part.type === "data" &&
+              part.mediaType === "application/x-agent-native-tool-call" &&
+              (part.data as Record<string, unknown>).id === "call-search",
+          ),
+      ).toBe(false);
+      expect(messages.at(-1)).toMatchObject({
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: "Tool-call history was omitted because its position could not be reconstructed safely.",
+          },
+        ],
+      });
+    },
+  );
+
   it("preserves format across adjacent streamed text parts", async () => {
     const finalParts: AgentMessage["parts"] = [
       { type: "text", text: "**Ready**", format: "markdown" },
@@ -1903,6 +2052,215 @@ describe("AgentKitClient", () => {
       text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
     });
     await client.shutdown();
+  });
+
+  it("sizes added tool history without rescanning the prior transcript", async () => {
+    let roleReads = 0;
+    const priorMessages = Array.from(
+      { length: 96 },
+      (_, index) =>
+        new Proxy<AgentMessage>(
+          {
+            id: `prior-${index}`,
+            role: "user",
+            status: "complete",
+            parts: [{ type: "text", text: "Earlier conversation." }],
+          },
+          {
+            get(target, property, receiver) {
+              if (property === "role") roleReads += 1;
+              return Reflect.get(target, property, receiver);
+            },
+          },
+        ),
+    );
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        const thread = client.getThread("thread-1");
+        const assistantMessage = thread.messages.find(
+          (message) => message.id === "assistant-1",
+        );
+        expect(assistantMessage).toBeDefined();
+
+        let sequence = 0;
+        const events: AgentEvent[] = [];
+        const addEvent = (event: AgentEventBody) =>
+          events.push(protocolEvent(++sequence, event));
+        addEvent({ type: "run.started" });
+        const parts: AgentMessage["parts"] = [
+          { type: "text", text: "I searched the sources." },
+        ];
+        addEvent({
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts,
+          },
+        });
+        const toolCalls = Array.from({ length: 64 }, (_, index) => ({
+          id: `bounded-${index}`,
+          name: "search",
+          input: { query: `query-${index}` },
+          output: { result: `result-${index}` },
+          messageId: "assistant-1",
+          status: "completed" as const,
+        }));
+        for (const toolCall of toolCalls) {
+          addEvent({
+            type: "tool.started",
+            toolCall: { ...toolCall, status: "running" },
+          });
+          addEvent({ type: "tool.updated", toolCall });
+        }
+        addEvent({
+          type: "message.completed",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts,
+          },
+        });
+        addEvent({ type: "run.completed" });
+
+        thread.messages = [...priorMessages, assistantMessage!];
+        thread.events = events;
+        thread.tools = Object.fromEntries(
+          toolCalls.map((toolCall) => [toolCall.id, toolCall]),
+        );
+      },
+      finalParts: [{ type: "text", text: "I searched the sources." }],
+    });
+    const assistantMessage = messages.find(
+      (message) => message.id === "assistant-1",
+    );
+
+    expect(roleReads).toBeLessThan(priorMessages.length * 8);
+    expect(
+      assistantMessage?.parts.filter(
+        (part) =>
+          part.type === "data" &&
+          part.mediaType === "application/x-agent-native-tool-call",
+      ),
+    ).toHaveLength(64);
+  });
+
+  it("keeps projected tool history within its byte budget across messages", async () => {
+    const byteLimit = 256 * 1024;
+    const calls = Array.from({ length: 5 }, (_, index) => ({
+      id: `bounded-${index}`,
+      name: "search",
+    }));
+    const projectedHistory = (lastOutput: string) => {
+      const outputs = [
+        "x".repeat(63_000),
+        "x".repeat(63_000),
+        "x".repeat(63_000),
+        "x".repeat(63_000),
+        lastOutput,
+      ];
+      return calls.flatMap((call, index) => [
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", id: call.id, name: call.name }],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: call.id,
+              toolName: call.name,
+              content: outputs[index],
+            },
+          ],
+        },
+      ]);
+    };
+    let lastOutput = "";
+    while (JSON.stringify(projectedHistory(lastOutput)).length <= byteLimit) {
+      lastOutput += "x";
+    }
+    expect(JSON.stringify(projectedHistory(lastOutput)).length).toBe(
+      byteLimit + 1,
+    );
+
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        const thread = client.getThread("thread-1");
+        const assistantMessages = calls.map((call) => ({
+          id: `assistant-${call.id}`,
+          role: "assistant" as const,
+          status: "complete" as const,
+          parts: [{ type: "text" as const, text: "I searched the sources." }],
+        }));
+        const outputs = [
+          "x".repeat(63_000),
+          "x".repeat(63_000),
+          "x".repeat(63_000),
+          "x".repeat(63_000),
+          lastOutput,
+        ];
+        let sequence = 0;
+        const events: AgentEvent[] = [];
+        const addEvent = (event: AgentEventBody) =>
+          events.push(protocolEvent(++sequence, event));
+        addEvent({ type: "run.started" });
+        const toolCalls = calls.map((call, index) => ({
+          ...call,
+          output: outputs[index],
+          messageId: `assistant-${call.id}`,
+          status: "completed" as const,
+        }));
+        for (const [index, toolCall] of toolCalls.entries()) {
+          const message = assistantMessages[index]!;
+          addEvent({
+            type: "message.created",
+            message: { ...message, status: "streaming" },
+          });
+          addEvent({
+            type: "tool.started",
+            toolCall: { ...toolCall, status: "running" },
+          });
+          addEvent({ type: "tool.updated", toolCall });
+          addEvent({
+            type: "message.completed",
+            message,
+          });
+        }
+        addEvent({ type: "run.completed" });
+
+        thread.messages = [
+          ...thread.messages.filter((message) => message.role === "user"),
+          ...assistantMessages,
+        ];
+        thread.events = events;
+        thread.tools = Object.fromEntries(
+          toolCalls.map((toolCall) => [toolCall.id, toolCall]),
+        );
+      },
+      finalParts: [{ type: "text", text: "I searched the sources." }],
+    });
+    const historyCallParts = messages
+      .flatMap((message) => message.parts)
+      .filter(
+        (part) =>
+          part.type === "data" &&
+          part.mediaType === "application/x-agent-native-tool-call",
+      );
+
+    expect(historyCallParts).toHaveLength(4);
+    expect(
+      messages.some((message) =>
+        message.parts.some(
+          (part) =>
+            part.type === "text" &&
+            part.text.includes("Some tool-call history was omitted"),
+        ),
+      ),
+    ).toBe(true);
   });
 
   it.each(["id", "name"] as const)(

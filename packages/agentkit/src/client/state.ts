@@ -746,8 +746,7 @@ export function reduceAgentEvent(
               currentToolCall?.input !== undefined
                 ? { input: currentToolCall.input }
                 : {}),
-              ...(isTerminalItemStatus(event.toolCall.status) &&
-              event.toolCall.output === undefined &&
+              ...(event.toolCall.output === undefined &&
               currentToolCall?.output !== undefined
                 ? { output: currentToolCall.output }
                 : {}),
