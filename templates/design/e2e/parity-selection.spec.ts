@@ -42,6 +42,21 @@ const BOARD_FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
+const NESTED_BOARD_FIXTURE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Nested board drag</title></head>
+  <body style="margin:0;min-height:900px;background:#e5e5e5">
+    <div data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" data-an-primitive="frame"
+         style="position:absolute;left:80px;top:100px;width:560px;height:420px;overflow:hidden;background:#111827">
+      <div data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" data-an-primitive="frame"
+           style="position:absolute;left:40px;top:40px;width:280px;height:220px;background:#374151">
+        <div data-agent-native-node-id="existing-child" data-agent-native-layer-name="Existing child"
+             style="position:absolute;left:28px;top:32px;width:80px;height:40px;background:#3b82f6"></div>
+      </div>
+    </div>
+  </body>
+</html>`;
+
 let baseURL = "";
 
 async function postAction(
@@ -99,6 +114,52 @@ async function newBoardDesign(
     dataOperations: [{ op: "set", path: ["boardFileId"], value: boardFileId }],
   });
   return id;
+}
+
+async function persistedBoardLayout(page: Page, designId: string) {
+  const response = await page.request.get(
+    `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design: ${response.status()} ${(await response.text()).slice(0, 300)}`,
+    );
+  }
+  const record = await response.json();
+  const boardHtml = (record.files ?? []).find(
+    (file: { filename?: string }) => file.filename === "__board__.html",
+  )?.content;
+  if (typeof boardHtml !== "string") {
+    throw new Error(`design ${designId} has no persisted __board__.html`);
+  }
+
+  return page.evaluate((html) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const node = (id: string) => {
+      const element = doc.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${id}"]`,
+      );
+      if (!element) throw new Error(`persisted board is missing ${id}`);
+      const left = Number.parseFloat(element.style.left);
+      const top = Number.parseFloat(element.style.top);
+      if (!Number.isFinite(left) || !Number.isFinite(top)) {
+        throw new Error(`persisted board has no finite left/top for ${id}`);
+      }
+      return {
+        left,
+        top,
+        parentId: element.parentElement?.getAttribute(
+          "data-agent-native-node-id",
+        ),
+      };
+    };
+
+    return {
+      outer: node("outer"),
+      nested: node("nested"),
+      child: node("existing-child"),
+    };
+  }, boardHtml);
 }
 
 function layersTree(page: Page): Locator {
@@ -174,6 +235,96 @@ test.beforeEach(async ({ page }, testInfo) => {
 // (newBoardDesign) instead of a screen (newDesign) to assert the contract
 // where it still holds.
 test.describe("click selects the container on the board surface, not the deep child", () => {
+  test("G7: dragging a selected nested frame from its grandchild moves and persists the frame", async ({
+    page,
+  }) => {
+    const id = await newBoardDesign(page, NESTED_BOARD_FIXTURE);
+    await openEditorAndExpandLayers(page, id);
+
+    const before = await persistedBoardLayout(page, id);
+    expect(before).toMatchObject({
+      outer: { left: 80, top: 100 },
+      nested: { left: 40, top: 40, parentId: "outer" },
+      child: { left: 28, top: 32, parentId: "nested" },
+    });
+
+    const childBefore = (await node(page, "existing-child").boundingBox())!;
+    const start = {
+      x: childBefore.x + childBefore.width / 2,
+      y: childBefore.y + childBefore.height / 2,
+    };
+    await page.mouse.click(start.x, start.y);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"), {
+        timeout: 10_000,
+        message: "clicking a grandchild on the board selects its container",
+      })
+      .toBe("Nested");
+
+    const outerBefore = (await node(page, "outer").boundingBox())!;
+    const nestedBefore = (await node(page, "nested").boundingBox())!;
+    const selectedChildBefore = (await node(
+      page,
+      "existing-child",
+    ).boundingBox())!;
+    const dragStart = {
+      x: selectedChildBefore.x + selectedChildBefore.width / 2,
+      y: selectedChildBefore.y + selectedChildBefore.height / 2,
+    };
+    const dragEnd = { x: dragStart.x + 64, y: dragStart.y + 48 };
+
+    await page.mouse.move(dragStart.x, dragStart.y);
+    await page.mouse.down();
+    await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 16 });
+    await page.waitForTimeout(350);
+    await page.mouse.up();
+
+    await expect
+      .poll(
+        async () => {
+          const after = await persistedBoardLayout(page, id);
+          return (
+            after.nested.left !== before.nested.left ||
+            after.nested.top !== before.nested.top
+          );
+        },
+        {
+          timeout: 15_000,
+          message:
+            "the physical drag must persist the selected board container's new position",
+        },
+      )
+      .toBe(true);
+
+    const after = await persistedBoardLayout(page, id);
+    expect(after.outer).toEqual(before.outer);
+    expect(after.nested.parentId).toBe("outer");
+    expect(after.nested.left).not.toBe(before.nested.left);
+    expect(after.nested.top).not.toBe(before.nested.top);
+    expect(after.child).toEqual(before.child);
+
+    const outerAfter = (await node(page, "outer").boundingBox())!;
+    const nestedAfter = (await node(page, "nested").boundingBox())!;
+    const childAfter = (await node(page, "existing-child").boundingBox())!;
+    const nestedDelta = {
+      x: nestedAfter.x - nestedBefore.x,
+      y: nestedAfter.y - nestedBefore.y,
+    };
+    const childDelta = {
+      x: childAfter.x - selectedChildBefore.x,
+      y: childAfter.y - selectedChildBefore.y,
+    };
+
+    expect(outerAfter.x).toBeCloseTo(outerBefore.x, 0);
+    expect(outerAfter.y).toBeCloseTo(outerBefore.y, 0);
+    expect(Math.hypot(nestedDelta.x, nestedDelta.y)).toBeGreaterThan(20);
+    expect(Math.abs(childDelta.x - nestedDelta.x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(childDelta.y - nestedDelta.y)).toBeLessThanOrEqual(2);
+    await expect
+      .poll(async () => (await selectedLayerNames(page)).join("|"))
+      .toBe("Nested");
+  });
+
   test("clicking a child inside Card selects Card, not Kid A", async ({
     page,
   }) => {

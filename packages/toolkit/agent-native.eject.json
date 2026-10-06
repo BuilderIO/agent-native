@@ -1121,6 +1121,7 @@
         "@agent-native/core/feature-flags/registry",
         "@agent-native/core/navigation",
         "@agent-native/core/onboarding/types",
+        "@agent-native/core/onboarding/workspace-services",
         "@agent-native/core/shared/docs-url",
         "@agent-native/core/shared/first-run-onboarding",
         "@agent-native/core/shared/workspace-app-id"
@@ -1263,12 +1264,15 @@
         "@agent-native/core",
         "@radix-ui/react-select",
         "@tabler/icons-react",
-        "react"
+        "react",
+        "react-router"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/analytics",
+        "@agent-native/core/client/hooks",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/sharing/useAccessRequestReview",
         "@agent-native/core/client/sharing/useShareButtonController",
         "@agent-native/core/client/sharing/useShareDialogController",
         "@agent-native/core/client/sign-in-return",

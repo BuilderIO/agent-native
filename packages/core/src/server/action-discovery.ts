@@ -491,6 +491,26 @@ export async function mergeCoreSharingActions(
       () => import("../sharing/actions/get-resource-access-status.js"),
     ],
     [
+      "request-resource-access",
+      () => import("../sharing/actions/request-resource-access.js"),
+    ],
+    [
+      "get-resource-access-request",
+      () => import("../sharing/actions/get-resource-access-request.js"),
+    ],
+    [
+      "list-resource-access-requests",
+      () => import("../sharing/actions/list-resource-access-requests.js"),
+    ],
+    [
+      "approve-resource-access-request",
+      () => import("../sharing/actions/approve-resource-access-request.js"),
+    ],
+    [
+      "decline-resource-access-request",
+      () => import("../sharing/actions/decline-resource-access-request.js"),
+    ],
+    [
       "set-resource-visibility",
       () => import("../sharing/actions/set-resource-visibility.js"),
     ],

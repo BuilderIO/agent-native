@@ -101,6 +101,12 @@ export interface ShareableResourceRegistration {
     isAvailable: (resource: any) => boolean;
   };
   /**
+   * Lets signed-in people who can't open a resource of this type ask its
+   * owner and admins for access. Off by default, so an app only starts
+   * emailing owners once its access screen offers the request.
+   */
+  accessRequests?: boolean;
+  /**
    * A context that can open the resource when the viewer's own can't, such
    * as the authority a Content space lends its members. Only a link's status
    * reads it, so such a viewer hears that a page is in the trash instead of

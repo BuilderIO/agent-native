@@ -71,7 +71,7 @@
     "generic-mcp"
   ],
   "chatgpt": {
-    "version": "1.0.1",
+    "version": "1.0.2",
     "interface": {
       "displayName": "Agent-Native Slides",
       "shortDescription": "On-brand presentations",
@@ -125,8 +125,8 @@
           {
             "description": "Add a slide to an identified deck",
             "prompt": "Add a closing slide titled 'Owners & Next Steps' to Quarterly Planning Demo. Use its Priorities slide for context; repeat only owners, dates, or commitments already present and use 'TBD' for missing details. Leave all existing slides unchanged.",
-            "tools_triggered": "list-decks, get-deck, add-slide",
-            "expected_behavior": "Add one closing slide using only saved owners, dates, or commitments, label missing details TBD, and preserve all existing slides."
+            "tools_triggered": "list-decks, get-deck, get-design-system, add-slide",
+            "expected_behavior": "Read the deck and its linked design-system context, then add one closing slide using only saved owners, dates, or commitments, label missing details TBD, and preserve all existing slides."
           },
           {
             "description": "Duplicate an existing deck",
