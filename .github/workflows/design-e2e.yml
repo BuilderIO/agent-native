@@ -129,6 +129,8 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
           AUTH_DISABLED: "1"
+          # Undoing a duplicate checkpoints the screen, which needs blob storage.
+          AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS: "1"
           # guard:allow-secret-literal — local ephemeral CI server only.
           BETTER_AUTH_SECRET: design-runtime-budget-test-secret
           PORT: "9444"

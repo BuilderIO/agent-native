@@ -9,6 +9,7 @@ profile only a production build. From `templates/design`:
 pnpm build
 DATABASE_URL=postgres://postgres@127.0.0.1:5432/design_perf pnpm migrate:production
 DATABASE_URL=postgres://postgres@127.0.0.1:5432/design_perf AUTH_DISABLED=1 \
+  AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=1 \
   BETTER_AUTH_SECRET=<any-local-value> PORT=9444 APP_URL=http://127.0.0.1:9444 pnpm start
 pnpm perf:runtime-budget --base-url http://127.0.0.1:9444
 ```
