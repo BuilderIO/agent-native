@@ -170,6 +170,35 @@ describe("workspacifyApp core pinning", () => {
     );
   });
 
+  it("resolves OTel to its published release, not the workspace protocol", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "chat",
+          dependencies: {
+            "@agent-native/core": "workspace:*",
+            "@agent-native/otel": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "chat",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+      coreDependencyVersion: "0.131.4",
+      otelDependencyVersion: "latest",
+    });
+
+    expect(appDependencyVersion(appDir, "@agent-native/otel")).toBe("latest");
+  });
+
   it("adds node-gyp to workspaces that install node-pty on Linux", () => {
     const { root, appDir } = makeWorkspace(undefined);
     fs.writeFileSync(
