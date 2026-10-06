@@ -582,6 +582,66 @@ describe("runQuery cancellation", () => {
     );
   });
 
+  it("bounds job cancellation so a stalled request releases its cache fence", async () => {
+    const cache = useCacheDatabase();
+    const timeoutController = new AbortController();
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((milliseconds) => {
+        expect(milliseconds).toBe(5_000);
+        return timeoutController.signal;
+      });
+    let signalCancellationStarted!: () => void;
+    const cancellationStarted = new Promise<void>((resolve) => {
+      signalCancellationStarted = resolve;
+    });
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body)) as {
+            jobReference: { jobId: string; projectId: string };
+          };
+          return jsonResponse({ jobReference: request.jobReference });
+        }
+        if (url.endsWith("/cancel")) {
+          signalCancellationStarted();
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              const error = new Error("cancel request timed out");
+              error.name = "AbortError";
+              reject(error);
+            });
+          });
+        }
+        return {
+          ok: false,
+          status: 503,
+          text: async () => "BigQuery poll unavailable",
+        } as Response;
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = runQuery("SELECT 1 AS cache_cancel_timeout_test");
+    await cancellationStarted;
+    expect([...cache.values()][0]?.refreshInProgress).toBe(true);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringContaining("/cancel"),
+      expect.objectContaining({
+        signal: timeoutController.signal,
+        method: "POST",
+      }),
+    );
+
+    timeoutController.abort();
+    await expect(pending).rejects.toThrow(
+      "BigQuery poll error 503: BigQuery poll unavailable",
+    );
+    expect([...cache.values()][0]?.refreshInProgress).toBe(false);
+    expect(timeout).toHaveBeenCalledWith(5_000);
+  });
+
   it("rechecks the fence when a forced refresh wins during an ordinary cache miss", async () => {
     useCacheDatabase();
     const read = pauseNextL2Read();

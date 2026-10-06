@@ -132,6 +132,7 @@ interface L1Entry {
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_L1_ENTRIES = 200;
 const STALE_REFRESH_MS = 5 * 60 * 1000;
+const CACHE_CANCEL_TIMEOUT_MS = 5_000;
 
 const l1Cache = new Map<string, L1Entry>();
 
@@ -512,6 +513,7 @@ async function cancelQueryJob(
       `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}/cancel${locationQuery}`,
       {
         method: "POST",
+        signal: AbortSignal.timeout(CACHE_CANCEL_TIMEOUT_MS),
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
