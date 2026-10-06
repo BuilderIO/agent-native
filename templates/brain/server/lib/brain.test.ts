@@ -4217,7 +4217,7 @@ describe("Brain connector smoke coverage", () => {
 
     expect(result.status).toBe("error");
     expect(source.status).toBe("error");
-    expect(source.lastError).toContain("Nothing was stored or lost");
+    expect(source.lastError).toContain("nothing was skipped");
     const cursor = JSON.parse(String(source.cursorJson));
     expect(cursor.channels?.G123?.latestTs).toBeUndefined();
     const retryAt = Date.parse(cursor.transientRetryAt);

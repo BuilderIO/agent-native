@@ -97,13 +97,14 @@ export interface CaptureSanitizationResult {
 export const CLASSIFIER_TRANSIENT_RETRY_MS = 10 * 60 * 1000;
 
 function classifierFailureMessage(reason: string): string {
-  const nothingLost = "Nothing was stored or lost";
+  const nothingLost =
+    "Items Jev could not screen were not stored and nothing was skipped";
   if (reason === "jev-credential-unavailable") {
-    return `Jev can't screen this source: its owner has no Builder connection and no JEV_API_KEY is set. Connect Builder or add a workspace JEV_API_KEY. ${nothingLost}; the next hourly sync picks it up.`;
+    return `Jev can't screen this source: its owner has no Builder connection and no JEV_API_KEY is set. Connect Builder or add a workspace JEV_API_KEY. ${nothingLost}; the next scheduled sync picks them up.`;
   }
   const status = jevFailureHttpStatus(reason);
   if (status === 401 || status === 403) {
-    return `Jev rejected the source owner's credential (HTTP ${status}). Reconnect Builder or replace JEV_API_KEY. ${nothingLost}; Brain retries hourly.`;
+    return `Jev rejected the source owner's credential (HTTP ${status}). Reconnect Builder or replace JEV_API_KEY. ${nothingLost}; Brain retries at the next scheduled sync.`;
   }
   const cause =
     reason === "jev-timeout"
@@ -115,7 +116,7 @@ function classifierFailureMessage(reason: string): string {
           : "could not be reached";
   return isTransientJevFailure(reason)
     ? `Jev sensitivity check ${cause} after 3 attempts. ${nothingLost}; Brain retries this source in about 10 minutes.`
-    : `Jev sensitivity check ${cause}. ${nothingLost}; Brain retries hourly.`;
+    : `Jev sensitivity check ${cause}. ${nothingLost}; Brain retries at the next scheduled sync.`;
 }
 
 export class BrainClassifierUnavailableError extends Error {

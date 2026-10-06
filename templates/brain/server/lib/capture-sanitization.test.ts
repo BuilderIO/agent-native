@@ -296,8 +296,9 @@ describe("capture sanitization", () => {
       const error = new BrainClassifierUnavailableError(reason);
 
       expect(error.message).toContain(phrase);
-      expect(error.message).toContain("Nothing was stored or lost");
+      expect(error.message).toContain("nothing was skipped");
       expect(error.message).not.toContain(reason);
+      expect(error.message).not.toContain("hourly");
       expect(error.retryAfterMs).toBe(retryAfterMs);
     },
   );
