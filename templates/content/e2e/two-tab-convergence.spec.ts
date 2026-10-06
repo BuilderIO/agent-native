@@ -18,6 +18,7 @@ import {
   getPreviewDraft,
   integrityFailures,
   Markers,
+  noiseFailures,
   observeIntegrity,
   postAction,
   RequestGate,
@@ -48,6 +49,8 @@ interface Scenario {
   markers: Markers;
   reader: Page;
   notes: Record<string, unknown>;
+  /** Noise the scenario causes on purpose, from `noiseFailures`. */
+  expectedNoise: string[];
 }
 
 async function runScenario(
@@ -67,6 +70,7 @@ async function runScenario(
     markers: new Markers(),
     reader,
     notes: {},
+    expectedNoise: [],
   };
   await body(scenario);
   const working = [...tabs.tabs.values()];
@@ -119,6 +123,15 @@ async function runScenario(
       "no save was timed under the latency",
     ).toBe(true);
   expect(integrityFailures(record), "lost or duplicated text").toEqual([]);
+  const noise = noiseFailures(record.tabs);
+  for (const expected of scenario.expectedNoise) {
+    const at = noise.indexOf(expected);
+    if (at >= 0) noise.splice(at, 1);
+  }
+  expect(
+    noise,
+    "recovery notices, error toasts or saves sent to History",
+  ).toEqual([]);
 }
 
 async function openPair(s: Scenario, latencyMs = SAVE_LATENCY_MS) {
@@ -361,6 +374,19 @@ test.describe("two tabs editing one page at beta cadence", () => {
         draft && { title: draft.title, content: draft.content },
         "A's recovery draft should hold exactly the page B saved",
       ).toEqual({ title: page.title, content: page.content });
+      // A's save was cut off on purpose, and that failed request reports once,
+      // before the refresh. The allowance covers only those entries, so the
+      // same notice after the refresh, or anything else A shows, still fails.
+      s.expectedNoise = [
+        'A showed "Something went wrong"',
+        'A toasted "Something went wrongAction update-document failed: Failed to fetch"',
+      ];
+      await expect
+        .poll(() => noiseFailures([s.tabs.record(a)]), {
+          message: "A should report its cut-off save once before the refresh",
+          timeout: 10_000,
+        })
+        .toEqual(s.expectedNoise);
       const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
       recoveries.hold();
       await a.reload({ waitUntil: "domcontentloaded" });
@@ -403,7 +429,6 @@ test.describe("two tabs editing one page at beta cadence", () => {
         await chooser.isVisible(),
         "the reopened tab asked which of two identical versions to keep",
       ).toBe(false);
-      expect(afterRefresh, "recovery notices after the refresh").toEqual([]);
       await expectEditorReady(a);
       await typeAtParagraphEnd(a, "Bravo paragraph", ` ${s.markers.next("A")}`);
     });
