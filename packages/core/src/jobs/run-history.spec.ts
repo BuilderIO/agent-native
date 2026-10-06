@@ -181,6 +181,65 @@ describe("automation run history", () => {
     expect(update.args).toContain("background_automation_cut_off");
   });
 
+  it("persists and announces a skipped reason without an error code or owner alert", async () => {
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [row({ notification_email: "alice@example.com" })],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
+    const reason = "No new bookings need reminders.";
+
+    await finishAutomationRun("run-1", "skipped", reason, "http_502");
+
+    const update = executeMock.mock.calls[1]?.[0];
+    expect(update.args).toEqual([
+      "skipped",
+      expect.any(Number),
+      reason,
+      null,
+      null,
+      null,
+      "run-1",
+    ]);
+    expect(emitMock).toHaveBeenCalledWith(
+      "automation.run.finished",
+      expect.objectContaining({
+        status: "skipped",
+        error: reason,
+        errorCode: null,
+      }),
+      expect.anything(),
+    );
+    expect(executeMock).toHaveBeenCalledTimes(2);
+    expect(sendAutomationFailureNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a skipped run terminal beyond the liveness ceiling", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        row({
+          status: "skipped",
+          started_at: Date.now() - 60 * MINUTE,
+          finished_at: Date.now() - 59 * MINUTE,
+          error: "No new bookings need reminders.",
+        }),
+      ],
+    });
+
+    expect(
+      await listAutomationRuns({
+        owners: ["alice@example.com"],
+        automation: "digest",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        status: "skipped",
+        error: "No new bookings need reminders.",
+        errorCode: null,
+      }),
+    ]);
+  });
+
   it("reports an interrupted run with a code, not only a sentence", async () => {
     executeMock.mockResolvedValue({
       rows: [row({ started_at: Date.now() - 60 * MINUTE })],

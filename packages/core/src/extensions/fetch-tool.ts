@@ -399,6 +399,9 @@ export function createFetchToolEntry(
           const contentType =
             response.headers.get("content-type")?.split(";")[0].trim() ??
             "text/plain";
+          const httpErrorCode = response.ok
+            ? undefined
+            : `http_${response.status}`;
 
           const saveToFilePath =
             typeof (args as Record<string, unknown>).saveToFile === "string"
@@ -454,7 +457,7 @@ export function createFetchToolEntry(
             body = result.text;
           } catch {
             fail("(could not read response body)", {
-              errorCode: "web_request_body_unreadable",
+              errorCode: httpErrorCode ?? "web_request_body_unreadable",
             });
           }
           body = redactString(body, secretValues);
@@ -479,7 +482,7 @@ export function createFetchToolEntry(
           } catch (err: any) {
             fail(
               `web-request post-processing error: ${err?.message ?? String(err)}`,
-              { errorCode: "web_request_processing_failed" },
+              { errorCode: httpErrorCode ?? "web_request_processing_failed" },
             );
           }
 
@@ -544,9 +547,7 @@ export function createFetchToolEntry(
               fail(
                 `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`,
                 {
-                  errorCode: response.ok
-                    ? "web_request_save_failed"
-                    : `http_${response.status}`,
+                  errorCode: httpErrorCode ?? "web_request_save_failed",
                 },
               );
             }

@@ -1,5 +1,7 @@
 ---
 "@agent-native/core": patch
+"@agent-native/dispatch": patch
+"@agent-native/toolkit": patch
 ---
 
-Record automation runs that finish without a confirmed action or configured message delivery as errors, including the cause in run history and owner failure alerts.
+Distinguish confirmed automation work, explicitly declared no-op skips, and undelivered failures in run history and automation status. Preserve failure causes and recovery codes without pausing legitimate no-op runs.

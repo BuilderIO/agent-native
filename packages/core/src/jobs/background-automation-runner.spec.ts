@@ -130,6 +130,116 @@ describe("runBackgroundAutomation — confirmed work", () => {
     model: "test-model",
   };
 
+  it.each(["nothing-needed", "failed-send", "confirmed-work"])(
+    "settles a declared no-op: %s",
+    async (scenario) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          expect(opts.systemPrompt).toContain("automation-no-op");
+          if (scenario === "failed-send") {
+            opts.send({
+              type: "tool_done",
+              tool: "send-digest",
+              result: "HTTP 503: notification rejected",
+              isError: true,
+              errorCode: "http_503",
+            });
+          } else if (scenario === "confirmed-work") {
+            opts.send({
+              type: "tool_done",
+              tool: "send-digest",
+              result: "Sent",
+              completedSideEffect: true,
+            });
+          }
+          const declaration = await opts.actions["automation-no-op"].run({
+            reason: "No urgent mail found.",
+          });
+          expect(declaration).toEqual({
+            status: "skipped",
+            reason: "No urgent mail found.",
+          });
+          opts.send({ type: "text", text: "No notification was sent." });
+          return usage;
+        },
+      );
+      const adapters = await import("../integrations/adapters/index.js");
+      const sendMessageToTarget = vi.fn();
+      const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
+        formatAgentResponse: (text: string) => ({ text }),
+        sendMessageToTarget,
+      } as any);
+      const name = `declared-no-op-${scenario}`;
+      try {
+        const run = runBackgroundAutomation(
+          runOptions(
+            precondition(
+              name,
+              scenario === "nothing-needed"
+                ? {
+                    deliveryPlatform: "slack",
+                    deliveryDestination: "example-channel",
+                  }
+                : {},
+            ),
+          ),
+          { ...standardDeps, getInitialToolNames: () => ["list-events"] },
+        );
+        if (scenario === "failed-send") {
+          await expect(run).rejects.toMatchObject({ errorCode: "http_503" });
+        } else {
+          await expect(run).resolves.toMatchObject({
+            status: scenario === "nothing-needed" ? "skipped" : "success",
+            ...(scenario === "nothing-needed"
+              ? { reason: "No urgent mail found." }
+              : {}),
+          });
+        }
+        expect(sendMessageToTarget).not.toHaveBeenCalled();
+        expect(
+          await pglite
+            .prepare(
+              "SELECT status, error FROM automation_runs WHERE automation = ?",
+            )
+            .get(name),
+        ).toMatchObject({
+          status:
+            scenario === "nothing-needed"
+              ? "skipped"
+              : scenario === "failed-send"
+                ? "error"
+                : "success",
+          ...(scenario === "nothing-needed"
+            ? { error: "No urgent mail found." }
+            : {}),
+        });
+      } finally {
+        adapter.mockRestore();
+      }
+    },
+  );
+
+  it("rejects a no-op declaration without a reason", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        await expect(
+          opts.actions["automation-no-op"].run({ reason: "  " }),
+        ).rejects.toThrow();
+        return usage;
+      },
+    );
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("invalid-no-op")),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({ errorCode: "automation_no_confirmed_work" });
+  });
+
   it.each([
     { trackProgress: false, status: 429 },
     { trackProgress: false, status: 503 },

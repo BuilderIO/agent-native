@@ -90,7 +90,7 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 | `mcpTools`    | `string[]?`                    | Exact MCP tool allowlist for this automation           |
 | `lastRun`     | `string?`                      | ISO timestamp of last execution                        |
 | `lastStatus`  | `string?`                      | `success`, `error`, `running`, `skipped`, or `paused`  |
-| `lastError`   | `string?`                      | The real cause of the last failed run                  |
+| `lastError`   | `string?`                      | The last failure cause or declared skip reason          |
 | `lastErrorCode` | `string?`                    | Typed code of the last failure (see Failure handling)  |
 | `consecutiveFailures` | `number?`              | Run of identical `lastErrorCode` failures              |
 | `pausedReason` | `string?`                     | Set with `enabled: false` when the framework paused it |
@@ -111,6 +111,13 @@ All automation operations are accessed through a single `manage-automations` too
 | `run-now`     | Run one automation immediately with its real actions and side effects |
 
 Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitution.
+
+During an automation run, `automation-no-op` declares that no action or report
+was needed. Pass a short `reason` (1–500 characters), such as "No urgent mail
+found." The runner records `skipped` in the list and Past runs without counting
+a failure or sending a report. This declaration cannot cover a failed tool,
+rejected send, or missing credentials. Closing prose alone does not declare a
+no-op: a run needs confirmed work, delivered output, or this structured signal.
 
 `manage-automations` accepts personal or organization scope and supports
 `model`, `reasoning_effort`, and `mcpTools` on define/update. An MCP allowlist

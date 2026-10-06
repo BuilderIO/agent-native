@@ -14,6 +14,31 @@ vi.mock("../workspace-files/store.js", () => ({
 }));
 
 describe("createFetchToolEntry", () => {
+  it.each([200, 429, 503])(
+    "preserves an HTTP failure when its body is unreadable (%s)",
+    async (status) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error("Response stream failed"));
+            },
+          }),
+          { status },
+        ),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/digest",
+          method: "POST",
+        }),
+      ).rejects.toMatchObject({
+        errorCode:
+          status === 200 ? "web_request_body_unreadable" : `http_${status}`,
+      });
+    },
+  );
+
   it.each([400, 403, 429, 503])(
     "rejects an unsuccessful HTTP mutation (%s)",
     async (status) => {

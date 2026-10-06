@@ -65,6 +65,10 @@ import {
   type RequestContext,
 } from "../server/request-context.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
+import automationNoOpAction, {
+  AUTOMATION_NO_OP_TOOL,
+  automationNoOpSchema,
+} from "./actions/automation-no-op.js";
 import {
   applyAutomationFailure,
   automationOwnerKind,
@@ -147,10 +151,13 @@ export interface BackgroundAutomationRunOptions {
   eventId?: string;
 }
 
-export interface BackgroundAutomationRunResult {
+interface BackgroundAutomationRunOutput {
   responseText: string;
   runId: string;
 }
+
+export type BackgroundAutomationRunResult = BackgroundAutomationRunOutput &
+  ({ status: "success" } | { status: "skipped"; reason: string });
 
 /**
  * `owner_missing` is permanent (the user or membership is gone);
@@ -598,7 +605,11 @@ export async function runBackgroundAutomation(
     );
     throw err;
   }
-  await recordRunOutcome(historyId, "success");
+  await recordRunOutcome(
+    historyId,
+    result.status,
+    result.status === "skipped" ? result.reason : undefined,
+  );
   return result;
 }
 
@@ -713,7 +724,7 @@ async function persistBackgroundAutomationTurn(input: {
 
 async function recordRunOutcome(
   historyId: string | null,
-  status: "success" | "error",
+  status: "success" | "error" | "skipped",
   error?: string,
   errorCode?: string,
   notify = true,
@@ -741,7 +752,8 @@ async function confirmAutomationWork(
   run: ActiveRun,
   responseText: string,
   actions: Record<string, ActionEntry>,
-): Promise<void> {
+  noOpReason: string | undefined,
+): Promise<{ status: "success" } | { status: "skipped"; reason: string }> {
   const events = run.events ?? [];
   const hasConfirmedAction = events.some(
     ({ event }) =>
@@ -750,8 +762,19 @@ async function confirmAutomationWork(
       event.completedSideEffect === true &&
       actions[event.tool]?.confirmsAutomationWork !== false,
   );
+  const lastFailedTool = [...events]
+    .reverse()
+    .find(({ event }) => event.type === "tool_done" && event.isError);
+  if (noOpReason && !hasConfirmedAction && !lastFailedTool) {
+    return { status: "skipped", reason: noOpReason };
+  }
   const { deliveryPlatform, deliveryDestination } = automation.meta;
-  if (deliveryPlatform && deliveryDestination && responseText.trim()) {
+  if (
+    (!noOpReason || hasConfirmedAction) &&
+    deliveryPlatform &&
+    deliveryDestination &&
+    responseText.trim()
+  ) {
     const { getDefaultAdapter } =
       await import("../integrations/adapters/index.js");
     const adapter = getDefaultAdapter(deliveryPlatform);
@@ -769,14 +792,11 @@ async function confirmAutomationWork(
         tenantId: automation.meta.deliveryTenantId,
       },
     );
-    return;
+    return { status: "success" };
   }
-  if (hasConfirmedAction) return;
+  if (hasConfirmedAction) return { status: "success" };
 
   const messages = await automationOutcomeMessagesForUser(ownerEmail);
-  const lastFailedTool = [...events]
-    .reverse()
-    .find(({ event }) => event.type === "tool_done" && event.isError);
   const detail =
     lastFailedTool?.event.type === "tool_done"
       ? lastFailedTool.event.result
@@ -874,7 +894,41 @@ async function executeBackgroundAutomation(
     },
     async () => {
       assertHardDeadline(options.hardDeadlineAt);
-      const baseActions = await deps.getActions(automation);
+      let noOpReason: string | undefined;
+      const messages = await automationOutcomeMessagesForUser(ownerEmail);
+      const baseActions: Record<string, ActionEntry> = {
+        ...(await deps.getActions(automation)),
+        [AUTOMATION_NO_OP_TOOL]: {
+          ...automationNoOpAction,
+          agentTool: true,
+          confirmsAutomationWork: false,
+          tool: {
+            ...automationNoOpAction.tool,
+            description: messages.noOpInstruction,
+            parameters: {
+              ...automationNoOpAction.tool.parameters,
+              type: "object",
+              properties: {
+                ...automationNoOpAction.tool.parameters?.properties,
+                reason: {
+                  ...(automationNoOpAction.tool.parameters?.properties
+                    ?.reason as Record<string, unknown>),
+                  type: "string",
+                  description: messages.noOpReason,
+                },
+              },
+            },
+          },
+          run: async (args, ctx) => {
+            const result = await automationNoOpAction.run(
+              automationNoOpSchema.parse(args),
+              ctx,
+            );
+            noOpReason = result.reason;
+            return result;
+          },
+        },
+      };
       assertHardDeadline(options.hardDeadlineAt);
       assertRequestedMcpToolsAvailable(automation, baseActions);
 
@@ -885,6 +939,12 @@ async function executeBackgroundAutomation(
             ...(automation.meta.mcpTools ?? []),
           ])
         : undefined;
+      if (
+        initialToolNames &&
+        !initialToolNames.includes(AUTOMATION_NO_OP_TOOL)
+      ) {
+        initialToolNames.push(AUTOMATION_NO_OP_TOOL);
+      }
       const actions = initialToolNames
         ? attachToolSearch({ ...baseActions })
         : baseActions;
@@ -906,7 +966,7 @@ async function executeBackgroundAutomation(
         engine.defaultModel;
       const model = normalizeModelForEngine(engine, modelCandidate);
       assertHardDeadline(options.hardDeadlineAt);
-      const systemPrompt = await deps.getSystemPrompt(ownerEmail);
+      const systemPrompt = `${await deps.getSystemPrompt(ownerEmail)}\n\n${messages.noOpInstruction}`;
       assertHardDeadline(options.hardDeadlineAt);
       const thread = await createThread(ownerEmail, {
         title: threadTitle,
@@ -931,6 +991,9 @@ async function executeBackgroundAutomation(
         current: Awaited<ReturnType<typeof runAgentLoop>> | null;
       } = { current: null };
       let responseText = "";
+      let outcome:
+        | Awaited<ReturnType<typeof confirmAutomationWork>>
+        | undefined;
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
       let hardTimedOut = false;
 
@@ -1041,12 +1104,13 @@ async function executeBackgroundAutomation(
               );
               if (!persistFailure && run.status === "completed") {
                 try {
-                  await confirmAutomationWork(
+                  outcome = await confirmAutomationWork(
                     automation,
                     ownerEmail,
                     run,
                     responseText,
                     actions,
+                    noOpReason,
                   );
                 } catch (error) {
                   const failure = classifyAutomationFailure(error);
@@ -1162,7 +1226,13 @@ async function executeBackgroundAutomation(
         }
       }
 
-      return { responseText, runId };
+      if (!outcome) {
+        throw new BackgroundAutomationRunError(
+          messages.noWork,
+          "automation_no_confirmed_work",
+        );
+      }
+      return { ...outcome, responseText, runId };
     },
   );
 }

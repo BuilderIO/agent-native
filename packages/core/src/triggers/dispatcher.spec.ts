@@ -10,6 +10,7 @@ import {
   buildTriggerContent,
   dispatchAutomationWebhookTask,
   initTriggerDispatcher,
+  parseTriggerFrontmatter,
   refreshEventSubscriptions,
 } from "./dispatcher.js";
 import {
@@ -528,6 +529,68 @@ Respond to the event.`,
       ).toBe(status);
     });
   }
+
+  it("records a resolved skip and reason without clearing the existing failure streak", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/inbox-alert.md",
+        content: `---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: test.event.fired\nmode: agentic\ncreatedBy: alice+triggers@agent-native.test\nlastErrorCode: http_502\nconsecutiveFailures: 2\n---\n\nRespond to the event.`,
+      },
+    ]);
+    const runner = await import("../jobs/background-automation-runner.js");
+    const reason = "This event requires no notification.";
+    const runSpy = vi
+      .spyOn(runner, "runBackgroundAutomation")
+      .mockResolvedValue({
+        status: "skipped",
+        reason,
+        responseText: "",
+        runId: "skipped-event-run",
+      });
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const handler = subscribeMock.mock.calls.find(
+        ([eventName]) => eventName === "test.event.fired",
+      )?.[1];
+      expect(handler).toBeTypeOf("function");
+
+      await handler(
+        {},
+        {
+          owner: "alice+triggers@agent-native.test",
+          eventId: "skipped-event",
+          emittedAt: new Date().toISOString(),
+        },
+      );
+      const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+        ([id]) => id === "automation-trigger-queue",
+      )?.[1] as
+        | ((context: { deadlineAt: number }) => Promise<void>)
+        | undefined;
+      expect(sweep).toBeTypeOf("function");
+      await sweep?.({ deadlineAt: Date.now() + 90_000 });
+      await waitForEvent("skipped-event");
+
+      const content: string = resourcePutMock.mock.calls.at(-1)![2];
+      expect(parseTriggerFrontmatter(content).meta).toMatchObject({
+        enabled: true,
+        lastStatus: "skipped",
+        lastError: reason,
+        lastErrorCode: "http_502",
+        consecutiveFailures: 2,
+      });
+      expect(triggerQueueMocks.retry).not.toHaveBeenCalled();
+      expect(triggerQueueMocks.fail).not.toHaveBeenCalled();
+    } finally {
+      runSpy.mockRestore();
+    }
+  });
 
   it("stops the durable drain after a claim returns no claimable head", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
@@ -1954,11 +2017,13 @@ Respond to the event.`,
       .sort();
 
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "template-trigger-action",
       "tool-search",
     ]);
     expect(firstRequestToolNames).not.toContain("list-integration-memory");
     expect(availableToolNames).toEqual([
+      "automation-no-op",
       "list-integration-memory",
       "template-trigger-action",
       "tool-search",
@@ -2034,6 +2099,7 @@ Respond to the event.`,
       .sort();
 
     expect(firstRequestToolNames).toEqual([
+      "automation-no-op",
       "manage-jobs",
       "manage-progress",
       "template-trigger-action",

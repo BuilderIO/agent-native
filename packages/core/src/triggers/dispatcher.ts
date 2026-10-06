@@ -994,7 +994,7 @@ async function dispatchQueuedAutomationEvent(
         );
         return "completed";
       }
-      await recordTriggerSkip(resource, "skipped", resolved.reason);
+      await recordTriggerSkip(resource, "error", resolved.reason);
       return "completed";
     }
     if (!automationMatchesEventOwner(resolved.identity, queued.eventOwner)) {
@@ -1251,7 +1251,7 @@ async function dispatchAgentic(
       : undefined;
 
   try {
-    await runBackgroundAutomation(
+    const result = await runBackgroundAutomation(
       {
         automation,
         ownerEmail: jobUserEmail,
@@ -1282,10 +1282,10 @@ async function dispatchAgentic(
     );
 
     await recordTriggerExecutionOutcome(latest, {
-      lastStatus: "success",
-      lastError: undefined,
+      lastStatus: result.status,
+      lastError: result.status === "skipped" ? result.reason : undefined,
     });
-    console.log(`[triggers] "${triggerName}" completed successfully`);
+    console.log(`[triggers] "${triggerName}" ${result.status}`);
     return true;
   } catch (err) {
     const failure = classifyAutomationFailure(err);
