@@ -1,6 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { OnboardingCapability } from "@agent-native/core/onboarding/types";
-import { WORKSPACE_SERVICES } from "@agent-native/core/onboarding/workspace-services";
 import {
   Collapsible,
   CollapsibleContent,
@@ -24,67 +23,30 @@ type CapabilityTranslator = (
   options?: Record<string, unknown>,
 ) => string;
 
-const BUILDER_SERVICE_WHY_KEYS: Record<string, string> = {
-  llm: "agentChat.onboarding.capability.llm.why",
-  "file-storage": "agentChat.onboarding.capability.fileStorage.why",
-  "design-system-intelligence": "agentChat.settingsInfra.whyDesignSystem",
-  "system-one": "agentChat.onboarding.capability.systemOne.why",
-};
-
-function isBuilderIncludedCapability(capability: OnboardingCapability) {
-  return (
-    capability.builderIncluded &&
-    (!!capability.service ||
-      capability.required ||
-      !!capability.suggested ||
-      !!capability.builderOnly)
-  );
-}
-
 export function getBuilderIncludedCapabilities(
   capabilities: OnboardingCapability[],
 ) {
-  return capabilities.filter(isBuilderIncludedCapability);
-}
-
-export function getBuilderIncludedBenefitCapabilities(
-  capabilities: OnboardingCapability[],
-) {
-  const designSystemService = WORKSPACE_SERVICES.find(
-    (service) => service.id === "design-system-intelligence",
+  return capabilities.filter(
+    (capability) =>
+      capability.builderIncluded &&
+      (!!capability.service ||
+        capability.required ||
+        !!capability.suggested ||
+        !!capability.builderOnly),
   );
-  const completeCapabilities =
-    designSystemService &&
-    !capabilities.some((capability) =>
-      designSystemService.capabilityIds.includes(capability.id),
-    )
-      ? [
-          ...capabilities,
-          {
-            ...designSystemService.capability,
-            service: designSystemService.id,
-            builderOnly: true,
-          },
-        ]
-      : capabilities;
-
-  return completeCapabilities.filter(isBuilderIncludedCapability);
 }
 
 function capabilityCopy(
   t: CapabilityTranslator,
   capability: OnboardingCapability,
-  includeFallbackWhy = false,
 ) {
-  const whyKey =
-    capability.whyKey ??
-    (includeFallbackWhy ? BUILDER_SERVICE_WHY_KEYS[capability.id] : undefined);
-
   return {
     label: capability.labelKey
       ? t(capability.labelKey, { defaultValue: capability.label })
       : capability.label,
-    why: whyKey ? t(whyKey, { defaultValue: capability.why }) : null,
+    why: capability.whyKey
+      ? t(capability.whyKey, { defaultValue: capability.why })
+      : null,
   };
 }
 
@@ -122,17 +84,15 @@ export function CapabilityInfoButton({
 
 function CapabilityRows({
   capabilities,
-  includeFallbackWhy = false,
 }: {
   capabilities: OnboardingCapability[];
-  includeFallbackWhy?: boolean;
 }) {
   const t = useT();
 
   return (
     <TooltipProvider>
       {capabilities.map((capability) => {
-        const copy = capabilityCopy(t, capability, includeFallbackWhy);
+        const copy = capabilityCopy(t, capability);
         return (
           <div
             key={capability.id}
@@ -251,7 +211,7 @@ export function BuilderIncludedBenefitsDisclosure({
       {error}
     </p>
   ) : (
-    <CapabilityRows capabilities={additionalServices} includeFallbackWhy />
+    <CapabilityRows capabilities={additionalServices} />
   );
   const moreServicesLabel = t("agentChat.onboarding.builderMoreServices", {
     defaultValue: "+ {{count}} more services",

@@ -31,24 +31,38 @@ vi.mock("@agent-native/core/client/org/hooks", () => ({
 }));
 vi.mock("../settings/deferred-builder-connect-popover.js", () => ({
   DeferredBuilderConnectPopover: ({
+    flow,
     children,
     onConnect,
     openOnMount,
   }: {
+    flow: BuilderConnectFlow;
     children: React.ReactElement<{ onClick?: () => void }>;
     onConnect: (provisionAccount: boolean) => void;
     openOnMount?: boolean;
-  }) => (
-    <>
-      {React.cloneElement(children, { onClick: () => onConnect(false) })}
-      {openOnMount ? (
-        <div data-testid="open-builder-connect">
-          <button type="button">Create and activate</button>
-          <button type="button">I have a Builder.io account</button>
-        </div>
-      ) : null}
-    </>
-  ),
+  }) => {
+    const [open, setOpen] = React.useState(Boolean(openOnMount));
+
+    return (
+      <>
+        {React.cloneElement(children, { onClick: () => setOpen(true) })}
+        {open ? (
+          <div data-testid="open-builder-connect">
+            <button
+              type="button"
+              disabled={!flow.agentNativeProvisioningEnabled}
+              onClick={() => onConnect(true)}
+            >
+              Create and activate
+            </button>
+            <button type="button" onClick={() => onConnect(false)}>
+              I have a Builder.io account
+            </button>
+          </div>
+        ) : null}
+      </>
+    );
+  },
   DeferredBuilderConnectChoicePanel: ({
     canProvisionAccount,
     onCreateAndActivate,
@@ -249,7 +263,12 @@ describe("BuilderIntegrationPage", () => {
     );
 
     await act(async () =>
-      button("Use Builder.io", row("builder-personal")!)?.click(),
+      button("Use Builder.io", row("builder-personal")!).click(),
+    );
+    expect(flowMock.current.start).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Create and activate");
+    await act(async () =>
+      button("I have a Builder.io account", document.body).click(),
     );
     expect(flowMock.current.start).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "personal", provisionAccount: false }),
@@ -300,7 +319,10 @@ describe("BuilderIntegrationPage", () => {
   });
 
   it("gives an admin the organization connect and no personal row", async () => {
-    flowMock.current = flow({ canConnect: { org: true, personal: false } });
+    flowMock.current = flow({
+      canConnect: { org: true, personal: false },
+      agentNativeProvisioningEnabled: true,
+    });
     await render(admin);
 
     expect(row("builder-organization")?.textContent).toContain(
@@ -308,10 +330,12 @@ describe("BuilderIntegrationPage", () => {
     );
     expect(row("builder-personal")).toBeNull();
     await act(async () =>
-      button("Use Builder.io", row("builder-organization")!)?.click(),
+      button("Use Builder.io", row("builder-organization")!).click(),
     );
+    expect(flowMock.current.start).not.toHaveBeenCalled();
+    await act(async () => button("Create and activate", document.body).click());
     expect(flowMock.current.start).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: "org" }),
+      expect.objectContaining({ scope: "org", provisionAccount: true }),
     );
   });
 

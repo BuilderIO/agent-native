@@ -12,7 +12,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   BuilderIncludedBenefitsDisclosure,
   getBuilderIncludedBenefitCapabilities,
-} from "../onboarding/BuilderIncludedServices.js";
+} from "./BuilderIncludedBenefitsDisclosure.js";
 import type { BuilderConnectFlow } from "./useBuilderStatus.js";
 
 type BuilderConnectTrigger = React.ReactElement<{

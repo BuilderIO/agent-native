@@ -49,8 +49,8 @@ vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   }),
 }));
 
-import { getBuilderIncludedBenefitCapabilities } from "../onboarding/BuilderIncludedServices.js";
 import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
+import { getBuilderIncludedBenefitCapabilities } from "./BuilderIncludedBenefitsDisclosure.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 
 let container: HTMLDivElement;
