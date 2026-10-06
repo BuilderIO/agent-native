@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   expireClientStatusResult,
+  fetchAgentEngineStatus,
   fetchAuthSessionStatus,
   fetchBuilderStatus,
   fetchEnvironmentStatus,
@@ -49,6 +50,65 @@ describe("client status requests", () => {
       state: "available",
       value: { configured: true },
     });
+  });
+
+  it("starts a fresh status read and routes superseded callers to its result", async () => {
+    let resolvePassive!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolvePassive = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ chatEligible: false }));
+    vi.stubGlobal("fetch", fetch);
+
+    const passive = fetchAgentEngineStatus<{ chatEligible: boolean }>();
+    const fresh = fetchAgentEngineStatus<{ chatEligible: boolean }>({
+      fresh: true,
+    });
+    await expect(fresh).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    resolvePassive(jsonResponse({ chatEligible: true }));
+
+    await expect(passive).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    await expect(fetchAgentEngineStatus()).resolves.toEqual({
+      state: "available",
+      value: { chatEligible: false },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces concurrent fresh status reads", async () => {
+    let resolveFresh!: (response: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFresh = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const first = fetchAgentEngineStatus<{ chatEligible: boolean }>({
+      fresh: true,
+    });
+    const second = fetchAgentEngineStatus<{ chatEligible: boolean }>({
+      fresh: true,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+
+    resolveFresh(jsonResponse({ chatEligible: true }));
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { state: "available", value: { chatEligible: true } },
+      { state: "available", value: { chatEligible: true } },
+    ]);
   });
 
   it("keeps a failed file-storage status probe unavailable", async () => {

@@ -670,7 +670,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
   });
 
-  it("still adopts the snapshot, with a warning, when the catch-up sync fails", async () => {
+  it("still adopts the snapshot, with a warning, when every catch-up sync fails", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const baseline = "original body\n\nSecond paragraph.";
@@ -690,10 +690,60 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         ),
       );
       await act(async () => vi.advanceTimersByTimeAsync(30000));
-      expect(requestSync).toHaveBeenCalledTimes(1);
+      expect(requestSync).toHaveBeenCalledTimes(3);
       expect(harness.markdown()).toBe(`Accepted ${baseline}`);
       expect(warn).toHaveBeenCalled();
     } finally {
+      warn.mockRestore();
+      harness.dispose();
+    }
+  });
+
+  it("keeps one copy when the update a failed catch-up missed was only late", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    const serverDoc = new Y.Doc();
+    Y.applyUpdate(serverDoc, Y.encodeStateAsUpdate(harness.ydoc));
+    const serverEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: serverDoc,
+      }),
+    });
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const stateVector = Y.encodeStateVector(harness.ydoc);
+      serverEditor.commands.insertContentAt(1, "Accepted ");
+      const update = Y.encodeStateAsUpdate(serverDoc, stateVector);
+      // The first catch-up fails; the next one reads the server's state.
+      const requestSync = vi
+        .fn<() => Promise<{ status: "synced" | "failed" }>>()
+        .mockResolvedValueOnce({ status: "failed" })
+        .mockImplementation(async () => {
+          Y.applyUpdate(harness.ydoc, update, "remote");
+          return { status: "synced" };
+        });
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Accepted ${baseline}`,
+            revision: null,
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: requestSync,
+          }),
+        ),
+      );
+      // The collab poll delivers the same update after the peer settle wait.
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      act(() => Y.applyUpdate(harness.ydoc, update, "remote"));
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(harness.markdown()).toBe(`Accepted ${baseline}`);
+    } finally {
+      serverEditor.destroy();
+      serverDoc.destroy();
       warn.mockRestore();
       harness.dispose();
     }

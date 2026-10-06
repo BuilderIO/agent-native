@@ -142,7 +142,7 @@
   --b-t-label-1: 14px;
   --b-t-label-2: 11px;
 
-  --b-hero-shader-opacity: 0.15;
+  --b-hero-shader-opacity: 0.3;
   --b-hero-shader-fg: var(--b-text-secondary);
   --b-hero-shader-brightness: 3;
 
@@ -192,7 +192,7 @@
 
   --b-hero-shader-fg: #00677f;
   --b-hero-shader-brightness: 1.15;
-  --b-hero-shader-opacity: 0.22;
+  --b-hero-shader-opacity: 0.3;
   --b-hero-ocean-opacity: 0.3;
 
   --b-border-default: #cac9c6;

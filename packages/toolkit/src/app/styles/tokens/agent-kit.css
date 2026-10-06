@@ -43,6 +43,7 @@
   --agent-kit-composer-block-padding-end: 1rem;
   --agent-kit-composer-min-height: 4.75rem;
   --agent-kit-composer-radius: 1.25rem;
+  --agent-kit-composer-surface: var(--agent-kit-raised-surface);
   --agent-kit-composer-border-mix: 82%;
   --agent-kit-composer-focus-border-mix: 100%;
   --agent-kit-composer-border-color: color-mix(
@@ -101,7 +102,8 @@
 }
 
 :is(.dark, :root[data-theme="dark"]:not(.light)) {
-  --agent-kit-composer-border-mix: 40%;
+  --agent-kit-composer-surface: var(--agent-kit-subtle-surface);
+  --agent-kit-composer-border-mix: 0%;
   --agent-kit-composer-focus-border-mix: 65%;
   --agent-kit-composer-border-color: color-mix(
     in srgb,
