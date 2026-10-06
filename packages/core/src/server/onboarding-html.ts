@@ -2400,15 +2400,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
-      --b-hero-ocean-opacity: 0.3;
-      --auth-marketing-left-bg: Canvas;
-      --auth-marketing-right-bg: Canvas;
-      --auth-marketing-foreground: CanvasText;
-      --auth-marketing-muted: GrayText;
-      --auth-marketing-subtle: GrayText;
-      --auth-marketing-border: color-mix(in srgb, CanvasText 18%, transparent);
-      --auth-marketing-badge-bg: color-mix(in srgb, CanvasText 7%, Canvas);
-      color-scheme: light;
+      --auth-marketing-border: color-mix(in srgb, var(--auth-marketing-foreground) 18%, transparent);
     }
     .auth-marketing-home .auth-marketing-visual,
     .auth-marketing-home .marketing-panel,
@@ -2431,9 +2423,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .auth-marketing-home .card .btn-primary,
     .auth-marketing-home .card button[type="submit"] {
       border: 1px solid var(--auth-marketing-border);
-    }
-    .auth-marketing-home .app-name img.brand-mark {
-      filter: grayscale(1) brightness(0);
     }
   }
   @media not all and (min-width: 901px) {
