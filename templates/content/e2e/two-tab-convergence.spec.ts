@@ -374,13 +374,20 @@ test.describe("two tabs editing one page at beta cadence", () => {
         draft && { title: draft.title, content: draft.content },
         "A's recovery draft should hold exactly the page B saved",
       ).toEqual({ title: page.title, content: page.content });
-      const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
-      // A's save was cut off on purpose, and that failed request reports once.
-      // Anything else A shows, before the refresh or after it, still fails.
+      // A's save was cut off on purpose, and that failed request reports once,
+      // before the refresh. The allowance covers only those entries, so the
+      // same notice after the refresh, or anything else A shows, still fails.
       s.expectedNoise = [
         'A showed "Something went wrong"',
         'A toasted "Something went wrongAction update-document failed: Failed to fetch"',
       ];
+      await expect
+        .poll(() => noiseFailures([s.tabs.record(a)]), {
+          message: "A should report its cut-off save once before the refresh",
+          timeout: 10_000,
+        })
+        .toEqual(s.expectedNoise);
+      const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
       recoveries.hold();
       await a.reload({ waitUntil: "domcontentloaded" });
       let reopenedWith: "recovery" | "discarded" | null = null;
