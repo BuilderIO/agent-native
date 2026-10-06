@@ -1499,7 +1499,6 @@ describe("buildUserContentWithAttachments", () => {
               taskId: { type: "string" },
               action: { type: "string" },
               input: { type: "object" },
-              approvedActions: { type: "array" },
             },
             required: ["agent"],
           },

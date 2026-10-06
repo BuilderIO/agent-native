@@ -65,6 +65,7 @@ export const LLM_CAPABILITY: OnboardingCapability = {
   keySummary: "Connect your own AI model",
   labelKey: "agentChat.settingsInfra.aiModel",
   keySummaryKey: "agentChat.onboarding.capability.llm.keySummary",
+  whyKey: "agentChat.onboarding.capability.llm.why",
   why: "The agent uses a language model to understand requests and produce answers.",
 };
 
@@ -77,6 +78,7 @@ export const FILE_UPLOAD_STORAGE_CAPABILITY: OnboardingCapability = {
   keySummary: "File uploads and storage",
   labelKey: "agentChat.settingsShell.search.fileUploads",
   keySummaryKey: "agentChat.onboarding.capability.fileStorage.keySummary",
+  whyKey: "agentChat.onboarding.capability.fileStorage.why",
   why: "Uploaded images and files need durable object storage so the agent can reuse them throughout a thread.",
 };
 
@@ -125,6 +127,7 @@ export const DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY: OnboardingCapability = {
   builderIncluded: true,
   keySummary: "Builder Design System Intelligence",
   labelKey: "agentChat.settingsInfra.designSystem",
+  whyKey: "agentChat.settingsInfra.whyDesignSystem",
   why: "Uses your brand and design-system guidance to keep generated work on brand.",
 };
 

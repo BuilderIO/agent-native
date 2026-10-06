@@ -6454,6 +6454,60 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.getDeck(deckId)?.title).toBe("Draft");
   });
 
+  it("keeps prompt-generated slides when Cmd+Z reaches deck creation", async () => {
+    window.history.pushState({}, "", "/");
+    const { resolveCreate, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deck: Deck | undefined;
+    act(() => {
+      deck = result.current.createDeck("Generated", {
+        noDefaultSlides: true,
+        undoableCreation: false,
+      });
+    });
+    expect(deck).toBeDefined();
+
+    await act(async () => {
+      resolveCreate(new Response("", { status: 200 }));
+      await result.current.ensureDeckPersisted(deck!.id);
+    });
+
+    const generatedDeck: Deck = {
+      ...deck!,
+      updatedAt: "2026-10-05T19:00:00.000Z",
+      slides: [
+        {
+          id: "generated-slide",
+          content: "<h1>Generated slide</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    setAccessibleDeck(generatedDeck);
+    window.history.pushState({}, "", `/deck/${deck!.id}`);
+    await act(async () => {
+      await result.current.refreshOpenDeck(deck!.id);
+    });
+
+    const undoEvent = new KeyboardEvent("keydown", {
+      key: "z",
+      metaKey: true,
+      cancelable: true,
+    });
+    act(() => {
+      window.dispatchEvent(undoEvent);
+    });
+
+    expect(undoEvent.defaultPrevented).toBe(true);
+    expect(result.current.getDeck(deck!.id)).toMatchObject({
+      id: deck!.id,
+      slides: [{ id: "generated-slide" }],
+    });
+  });
+
   it("waits for an in-flight create before deleting an undone optimistic deck", async () => {
     window.history.pushState({}, "", "/");
     const { fetchMock, resolveCreate } = setupFetch();

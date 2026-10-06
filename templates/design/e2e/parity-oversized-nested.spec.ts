@@ -16,7 +16,7 @@ test.beforeEach(async ({}, info) => setBaseURL(info));
 const FIXTURE = `<!doctype html><html><body style="margin:0;min-height:900px;background:#111827">
   <div data-agent-native-node-id="source" data-agent-native-layer-name="Source" style="position:absolute;left:80px;top:520px;width:220px;height:96px;background:#f97316">Source</div>
   <section data-agent-native-node-id="outer" data-agent-native-layer-name="Outer" style="position:absolute;left:500px;top:120px;width:340px;height:260px;padding:16px;display:flex;flex-direction:column;gap:12px;background:#334155">
-    <section data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" data-an-primitive="frame" style="flex:0 0 80px;width:120px;height:80px;display:flex;flex-direction:column;gap:8px;padding:8px;background:#64748b">
+    <section data-agent-native-node-id="nested" data-agent-native-layer-name="Nested" data-an-primitive="frame" style="flex:0 0 160px;width:180px;height:160px;display:flex;flex-direction:column;gap:8px;padding:8px;background:#64748b">
       <div data-agent-native-node-id="anchor" data-agent-native-layer-name="Anchor" style="flex:0 0 32px;width:80px;height:32px;background:#94a3b8">Anchor</div>
     </section>
   </section>
@@ -68,6 +68,8 @@ async function guide(page: Page) {
             const r = el.getBoundingClientRect();
             return {
               display: s.display,
+              left: r.left,
+              top: r.top,
               width: r.width,
               height: r.height,
               borderTop: s.borderTopColor,
@@ -93,6 +95,7 @@ async function drag(
   beforeRelease?: (
     held: Awaited<ReturnType<typeof guide>>,
   ) => void | Promise<void>,
+  targetPosition?: { xRatio?: number; yRatio?: number },
 ) {
   const source = (await node(page, id).boundingBox())!;
   const targetBox = (await target.boundingBox())!;
@@ -109,8 +112,8 @@ async function drag(
       { steps: 6 },
     );
     await page.mouse.move(
-      targetBox.x + targetBox.width / 2,
-      targetBox.y + targetBox.height / 2,
+      targetBox.x + targetBox.width * (targetPosition?.xRatio ?? 0.5),
+      targetBox.y + targetBox.height * (targetPosition?.yRatio ?? 0.5),
       { steps: 24 },
     );
     const held = await guide(page);
@@ -127,7 +130,9 @@ async function cleanup(page: Page, id: string) {
   await postAction(page, "delete-design", { id }).catch(() => {});
 }
 
-test("default oversized drop rejects nested insertion", async ({ page }) => {
+test("width-only oversized drop previews the outer fallback insertion slot", async ({
+  page,
+}) => {
   const id = await newDesign(page, FIXTURE);
   try {
     await openEditor(page, id);
@@ -137,8 +142,78 @@ test("default oversized drop rejects nested insertion", async ({ page }) => {
       .first()
       .click({ force: true });
     const target = node(page, "nested");
+    const sizeGate = await body(page).evaluate((frameBody) => {
+      const source = frameBody.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="source"]',
+      )!;
+      const nested = frameBody.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="nested"]',
+      )!;
+      const sourceRect = source.getBoundingClientRect();
+      const nestedRect = nested.getBoundingClientRect();
+      const nestedStyle = getComputedStyle(nested);
+      return {
+        sourceWidth: sourceRect.width,
+        sourceHeight: sourceRect.height,
+        nestedLeft: nestedRect.left,
+        nestedTop: nestedRect.top,
+        nestedWidth: nestedRect.width,
+        nestedContentWidth:
+          nestedRect.width -
+          Number.parseFloat(nestedStyle.paddingLeft) -
+          Number.parseFloat(nestedStyle.paddingRight),
+        nestedContentHeight:
+          nestedRect.height -
+          Number.parseFloat(nestedStyle.paddingTop) -
+          Number.parseFloat(nestedStyle.paddingBottom),
+      };
+    });
+    expect(sizeGate.sourceWidth).toBeGreaterThan(sizeGate.nestedContentWidth);
+    expect(sizeGate.sourceHeight).toBeLessThanOrEqual(
+      sizeGate.nestedContentHeight,
+    );
+    const sourceParentBefore = await body(page)
+      .locator('[data-agent-native-node-id="source"]')
+      .evaluate(
+        (el) =>
+          el.parentElement?.getAttribute("data-agent-native-node-id") ??
+          el.parentElement?.tagName,
+      );
     const before = await indexHtml(page, id);
-    await drag(page, "source", target, undefined, false);
+    await drag(
+      page,
+      "source",
+      target,
+      undefined,
+      true,
+      async (held) => {
+        expect(held).toBeTruthy();
+        expect(held?.height).toBeLessThan(16);
+        expect(held?.width).toBeGreaterThan(sizeGate.nestedWidth - 2);
+        expect(Math.abs(held!.left - sizeGate.nestedLeft)).toBeLessThan(2);
+        expect(
+          Math.abs(held!.top + held!.height / 2 - sizeGate.nestedTop),
+        ).toBeLessThan(3);
+        expect(await indexHtml(page, id)).toBe(before);
+        await expect
+          .poll(() =>
+            body(page)
+              .locator('[data-agent-native-node-id="source"]')
+              .evaluate(
+                (el) =>
+                  el.parentElement?.getAttribute("data-agent-native-node-id") ??
+                  el.parentElement?.tagName,
+              ),
+          )
+          .toBe(sourceParentBefore);
+        await expect(
+          body(page).locator(
+            '[data-agent-native-node-id="nested"] [data-agent-native-node-id="source"]',
+          ),
+        ).toHaveCount(0);
+      },
+      { xRatio: 0.5, yRatio: 0.25 },
+    );
     await expect
       .poll(() => indexHtml(page, id), { timeout: 5_000 })
       .not.toBe(before);
@@ -159,6 +234,17 @@ test("default oversized drop rejects nested insertion", async ({ page }) => {
           ),
       )
       .toBe("outer");
+    await expect
+      .poll(() =>
+        body(page)
+          .locator('[data-agent-native-node-id="outer"]')
+          .evaluate((outer) =>
+            Array.from(outer.children).map((child) =>
+              child.getAttribute("data-agent-native-node-id"),
+            ),
+          ),
+      )
+      .toEqual(["source", "nested"]);
   } finally {
     await cleanup(page, id);
   }

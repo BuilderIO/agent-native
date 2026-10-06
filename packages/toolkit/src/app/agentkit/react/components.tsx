@@ -116,6 +116,7 @@ import {
 } from "@agent-native/agentkit/protocol";
 
 import {
+  defaultAgentKitLabels,
   useAgentCapability,
   useAgentConnection,
   useAgentKit,
@@ -123,6 +124,7 @@ import {
   useAgentKitMutation,
   useAgentThread,
   type AgentConnectionErrorRenderProps,
+  type AgentKitLabels,
   type AgentKitQueueRenderProps,
   type AgentKitRegistry,
   type AgentKitRenderProps,
@@ -447,10 +449,13 @@ function interactionIcon(kind: string): ReactNode {
 export function AgentObjectReferenceView({
   value: object,
 }: AgentKitRenderProps<AgentObjectReference>) {
-  const { onOpenObject } = useAgentKit();
+  const { onOpenObject, labels } = useAgentKit();
+  const thread = useAgentThread();
   const content = (
     <>
-      <span className="agentkit-object-label">{object.label}</span>
+      <span className="agentkit-object-label">
+        {resolveObjectLabel(object, thread, labels.assistant)}
+      </span>
       {typeof object.metadata?.added === "number" ? (
         <span className="agentkit-diff-added">+{object.metadata.added}</span>
       ) : null}
@@ -477,24 +482,324 @@ export function AgentObjectReferenceView({
 export function AgentParticipantView({
   value: agent,
 }: AgentKitRenderProps<AgentParticipant>) {
+  const { labels } = useAgentKit();
+  const thread = useAgentThread();
   return (
     <AgentIdentityChip
       id={agent.id}
-      name={agent.name}
+      name={resolveAgentName(
+        thread,
+        agent.id,
+        [agent.origin],
+        labels.assistant,
+        agent.name,
+      )}
+      fallbackName={labels.assistant}
       kind={agent.kind}
       status={agent.status}
     />
   );
 }
 
+const UUID_PATTERN =
+  /(^|[^0-9a-f])([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=$|[^0-9a-f])/gi;
+const ACTIVITY_TOOL_VALUE_LIMIT = 2_000;
+const ACTIVITY_TOOL_NODE_LIMIT = 160;
+const ACTIVITY_TOOL_DEPTH_LIMIT = 8;
+
+function isUuid(value: string): boolean {
+  if (value.length > 64) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
+}
+
+function hideUuids(value: string): string {
+  return value.replace(UUID_PATTERN, "$1");
+}
+
+function readableText(value: string | undefined): string {
+  if (!value) return "";
+  return hideUuids(value)
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/[,.;:!?]\s*$/g, "")
+    .trim();
+}
+
+function humanizeAgentKind(kind: string): string {
+  const readableKind = readableText(
+    kind.replace(/^agent-native\//i, "").replace(/^mcp__/i, ""),
+  );
+  if (!readableKind) return "";
+  return readableKind
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function humanizeAgentLabel(value: string): string {
+  const label = readableText(value);
+  if (!label) return "";
+  if (label.toLowerCase() === "agent-native") return "Agent-Native";
+  return /\s/.test(label) ? label : humanizeAgentKind(label);
+}
+
+function resolveAgentName(
+  thread: AgentThreadState,
+  agentId: string | undefined,
+  references: readonly (AgentObjectReference | undefined)[],
+  fallback: string,
+  preferredName?: string,
+): string {
+  const participant = agentId ? thread.agents[agentId] : undefined;
+  const names = [
+    preferredName,
+    participant?.name,
+    participant?.origin?.label,
+    ...references
+      .filter(
+        (reference) => reference?.kind === "agent" && reference.id === agentId,
+      )
+      .map((reference) => reference?.label),
+    participant?.description,
+  ];
+  for (const name of names) {
+    const label = name ? humanizeAgentLabel(name) : "";
+    if (label) return label;
+  }
+  return fallback;
+}
+
+function resolveObjectLabel(
+  object: AgentObjectReference,
+  thread: AgentThreadState,
+  fallback: string,
+): string {
+  if (object.kind === "agent") {
+    return resolveAgentName(thread, object.id, [object], fallback);
+  }
+  if (object.kind === "task") {
+    const title = humanizeAgentLabel(thread.tasks[object.id]?.title ?? "");
+    if (title) return title;
+  }
+  return (
+    humanizeAgentLabel(object.label) ||
+    humanizeAgentKind(object.kind) ||
+    fallback
+  );
+}
+
+function sourceObjectUnlessRepresented(
+  source: AgentObjectReference | undefined,
+  displayedAgentIds: readonly (string | undefined)[],
+): AgentObjectReference | undefined {
+  if (source?.kind === "agent" && displayedAgentIds.includes(source.id)) {
+    return undefined;
+  }
+  return source;
+}
+
+type ActivityToolValueBudget = {
+  nodes: number;
+  remainingCharacters: number;
+  ancestors: WeakSet<object>;
+  truncated: boolean;
+};
+
+type ActivityValueLabels = Pick<
+  AgentKitLabels,
+  | "activityValueIdentifierHidden"
+  | "activityValueOmitted"
+  | "activityValueCircular"
+>;
+
+function resolveActivityValueLabels(
+  labels: Partial<AgentKitLabels> = {},
+): Required<ActivityValueLabels> {
+  return {
+    activityValueIdentifierHidden:
+      labels.activityValueIdentifierHidden ??
+      defaultAgentKitLabels.activityValueIdentifierHidden!,
+    activityValueOmitted:
+      labels.activityValueOmitted ??
+      defaultAgentKitLabels.activityValueOmitted!,
+    activityValueCircular:
+      labels.activityValueCircular ??
+      defaultAgentKitLabels.activityValueCircular!,
+  };
+}
+
+function activityToolValue(
+  value: unknown,
+  budget: ActivityToolValueBudget,
+  labels: Required<ActivityValueLabels>,
+  depth = 0,
+): unknown {
+  if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) {
+    budget.truncated = true;
+    return undefined;
+  }
+  budget.nodes++;
+  if (depth > ACTIVITY_TOOL_DEPTH_LIMIT) {
+    budget.truncated = true;
+    return labels.activityValueOmitted;
+  }
+  if (typeof value === "string") {
+    if (isUuid(value)) return labels.activityValueIdentifierHidden;
+    const sourceLimit = budget.remainingCharacters + 36;
+    let text = hideUuids(value.slice(0, sourceLimit));
+    if (value.length > sourceLimit) {
+      text = text.slice(0, Math.max(0, text.length - 36));
+      budget.truncated = true;
+    }
+    const safeText = text.slice(0, budget.remainingCharacters);
+    budget.remainingCharacters -= safeText.length;
+    if (text.length > safeText.length) budget.truncated = true;
+    if (text.length > 0 && safeText.length === 0) {
+      return labels.activityValueOmitted;
+    }
+    return safeText;
+  }
+  if (value && typeof value === "object") {
+    if (budget.ancestors.has(value)) {
+      budget.truncated = true;
+      return labels.activityValueCircular;
+    }
+    budget.ancestors.add(value);
+    if (Array.isArray(value)) {
+      const items: unknown[] = [];
+      let visited = 0;
+      for (let index = 0; index < value.length; index++) {
+        if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) break;
+        budget.nodes++;
+        visited++;
+        const descriptor = Object.getOwnPropertyDescriptor(
+          value,
+          String(index),
+        );
+        if (!descriptor || !("value" in descriptor)) continue;
+        const safeValue = activityToolValue(
+          descriptor.value,
+          budget,
+          labels,
+          depth + 1,
+        );
+        if (safeValue !== undefined) items.push(safeValue);
+      }
+      if (visited < value.length) {
+        budget.truncated = true;
+        items.push(labels.activityValueOmitted);
+      }
+      budget.ancestors.delete(value);
+      return items.length ? items : undefined;
+    }
+
+    const result: Record<string, unknown> = Object.create(null);
+    let included = 0;
+    for (const key in value) {
+      if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) {
+        budget.truncated = true;
+        break;
+      }
+      budget.nodes++;
+      if (!Object.hasOwn(value, key) || isUuid(key)) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor)) continue;
+      const keyLimit = budget.remainingCharacters + 36;
+      let safeKey = hideUuids(key.slice(0, keyLimit));
+      if (key.length > keyLimit) {
+        safeKey = safeKey.slice(0, Math.max(0, safeKey.length - 36));
+        budget.truncated = true;
+      }
+      const boundedKey = safeKey.slice(0, budget.remainingCharacters);
+      if (safeKey.length > boundedKey.length) budget.truncated = true;
+      safeKey = boundedKey;
+      if (!safeKey.trim()) continue;
+      budget.remainingCharacters -= safeKey.length;
+      const safeValue = activityToolValue(
+        descriptor.value,
+        budget,
+        labels,
+        depth + 1,
+      );
+      if (safeValue === undefined) continue;
+      result[safeKey] = safeValue;
+      included++;
+    }
+    budget.ancestors.delete(value);
+    return included ? result : undefined;
+  }
+  return value;
+}
+
+function createActivityToolValueBudget(): ActivityToolValueBudget {
+  return {
+    nodes: 0,
+    remainingCharacters: ACTIVITY_TOOL_VALUE_LIMIT - 64,
+    ancestors: new WeakSet(),
+    truncated: false,
+  };
+}
+
+function formatActivityText(
+  value: string,
+  labels: Partial<AgentKitLabels> = {},
+): string {
+  const budget = createActivityToolValueBudget();
+  const safeValue = activityToolValue(
+    value,
+    budget,
+    resolveActivityValueLabels(labels),
+  );
+  if (typeof safeValue !== "string") return "";
+  return budget.truncated ? `${safeValue}…` : safeValue;
+}
+
+function formatActivityToolValue(
+  value: unknown,
+  labels: Partial<AgentKitLabels> = {},
+): string | undefined {
+  const budget = createActivityToolValueBudget();
+  const valueLabels = resolveActivityValueLabels(labels);
+  const safeValue = activityToolValue(value, budget, valueLabels);
+  if (safeValue === undefined) {
+    return budget.truncated ? valueLabels.activityValueOmitted : undefined;
+  }
+  const formatted = formatToolDiagnostic(safeValue);
+  if (!formatted?.trim()) {
+    return budget.truncated ? valueLabels.activityValueOmitted : undefined;
+  }
+  if (!budget.truncated && formatted.length <= ACTIVITY_TOOL_VALUE_LIMIT) {
+    return formatted;
+  }
+  const omissionMarker = `\n${valueLabels.activityValueOmitted}`;
+  const contentLimit = Math.max(
+    0,
+    ACTIVITY_TOOL_VALUE_LIMIT - omissionMarker.length - 1,
+  );
+  return `${formatted.slice(0, contentLimit).trimEnd()}…${omissionMarker}`;
+}
+
+function activityLabel(activity: AgentActivity, workingLabel: string): string {
+  const label = readableText(activity.label);
+  if (label.toLowerCase() === "processing") return workingLabel;
+  return (
+    humanizeAgentLabel(label) ||
+    humanizeAgentKind(activity.kind) ||
+    workingLabel
+  );
+}
+
 function AgentIdentityChip({
   id,
   name,
+  fallbackName = "Agent",
   kind,
   status,
 }: {
   id: string;
   name: string;
+  fallbackName?: string;
   kind?: string;
   status?: AgentParticipant["status"];
 }) {
@@ -505,7 +810,9 @@ function AgentIdentityChip({
       data-agent-kind={kind}
       data-status={status}
     >
-      <span className="agentkit-agent-name">{name}</span>
+      <span className="agentkit-agent-name">
+        {readableText(name) || fallbackName}
+      </span>
     </span>
   );
 }
@@ -533,7 +840,7 @@ function defaultInteractionLabel(
     case "closed":
       return labels.agentClosed;
     default:
-      return interaction.kind;
+      return humanizeAgentKind(interaction.kind) || labels.working;
   }
 }
 
@@ -558,7 +865,29 @@ export function AgentInteractionItem({
       AgentParticipantView)
     : undefined;
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
-  const object = interaction.object ?? interaction.source;
+  const agentName = resolveAgentName(
+    thread,
+    interaction.agentId,
+    [interaction.source],
+    labels.assistant,
+  );
+  const targetName = resolveAgentName(
+    thread,
+    interaction.targetAgentId,
+    [interaction.object],
+    labels.assistant,
+  );
+  const object =
+    interaction.object ??
+    sourceObjectUnlessRepresented(interaction.source, [
+      interaction.agentId,
+      interaction.targetAgentId,
+    ]);
+  const label = readableText(interaction.label);
+  const visibleLabel =
+    humanizeAgentLabel(label) ||
+    defaultInteractionLabel({ ...interaction, label: undefined }, labels);
+  const detail = readableText(interaction.detail);
   return (
     <div
       className="agentkit-agent-interaction"
@@ -571,25 +900,25 @@ export function AgentInteractionItem({
       ) : (
         <AgentIdentityChip
           id={interaction.agentId}
-          name={interaction.agentId}
+          name={agentName}
+          fallbackName={labels.assistant}
         />
       )}
-      <span className="agentkit-agent-interaction-label">
-        {defaultInteractionLabel(interaction, labels)}
-      </span>
+      <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
       {target && TargetRenderer ? (
         <TargetRenderer value={target} threadId={threadId} />
       ) : interaction.targetAgentId ? (
         <AgentIdentityChip
           id={interaction.targetAgentId}
-          name={interaction.targetAgentId}
+          name={targetName}
+          fallbackName={labels.assistant}
         />
       ) : null}
       {object ? (
         <ObjectRenderer value={object} threadId={threadId} />
-      ) : interaction.detail ? (
-        <span className="agentkit-agent-interaction-detail">
-          {interaction.detail}
+      ) : detail ? (
+        <span className="agentkit-agent-interaction-detail" title={detail}>
+          {detail}
         </span>
       ) : null}
     </div>
@@ -603,14 +932,36 @@ export function AgentActivityItem({
   const { slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
   const [open, setOpen] = useState(false);
-  const expandable = Boolean(activity.summary?.length);
   const agent = activity.agentId ? thread.agents[activity.agentId] : undefined;
+  const agentName = resolveAgentName(
+    thread,
+    activity.agentId,
+    [activity.source, activity.object],
+    labels.assistant,
+  );
+  const tool = thread.tools[activity.id];
+  const toolInput = tool
+    ? formatActivityToolValue(tool.input, labels)
+    : undefined;
+  const toolResult = tool
+    ? formatActivityToolValue(tool.output, labels)
+    : undefined;
+  const toolInputLabel = labels.toolInput ?? defaultAgentKitLabels.toolInput!;
+  const toolResultLabel =
+    labels.toolResult ?? defaultAgentKitLabels.toolResult!;
+  const expandable = Boolean(
+    activity.summary?.length || toolInput || toolResult,
+  );
   const AgentRenderer = agent
     ? (registry.agents?.[agent.kind ?? ""] ??
       slots.agent ??
       AgentParticipantView)
     : undefined;
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
+  const object =
+    activity.object ??
+    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
+  const detail = tool ? "" : readableText(activity.detail);
   return (
     <div
       className="agentkit-activity-item"
@@ -622,16 +973,20 @@ export function AgentActivityItem({
         {agent && AgentRenderer ? (
           <AgentRenderer value={agent} threadId={threadId} />
         ) : activity.agentId ? (
-          <AgentIdentityChip id={activity.agentId} name={activity.agentId} />
+          <AgentIdentityChip
+            id={activity.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
         ) : null}
-        <span className="agentkit-activity-label">{activity.label}</span>
-        {activity.object ? (
-          <ObjectRenderer value={activity.object} threadId={threadId} />
-        ) : null}
-        {!activity.object && activity.source ? (
-          <ObjectRenderer value={activity.source} threadId={threadId} />
-        ) : !activity.object && activity.detail ? (
-          <span className="agentkit-activity-detail">{activity.detail}</span>
+        <span className="agentkit-activity-label">
+          {activityLabel(activity, labels.working)}
+        </span>
+        {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+        {detail ? (
+          <span className="agentkit-activity-detail" title={detail}>
+            {detail}
+          </span>
         ) : null}
         {expandable ? (
           <button
@@ -651,13 +1006,54 @@ export function AgentActivityItem({
       </div>
       {open ? (
         <div className="agentkit-activity-summary">
-          {activity.summary?.map((part, index) => (
-            <AgentMessagePartView
-              key={`${activity.id}-summary-${index}`}
-              value={part}
-              threadId={threadId}
-            />
-          ))}
+          {activity.summary?.map((part, index) => {
+            const safePart =
+              part.type === "text"
+                ? {
+                    ...part,
+                    text: part.text.trim()
+                      ? formatActivityText(part.text, labels)
+                      : "",
+                  }
+                : part;
+            return safePart.type === "text" && !safePart.text ? null : (
+              <AgentMessagePartView
+                key={`${activity.id}-summary-${index}`}
+                value={safePart}
+                threadId={threadId}
+              />
+            );
+          })}
+          {toolInput ? (
+            <div className="agentkit-activity-summary-section">
+              <div className="agentkit-activity-summary-label">
+                {toolInputLabel}
+              </div>
+              <pre
+                role="region"
+                aria-label={toolInputLabel}
+                tabIndex={0}
+                className="agentkit-activity-summary-value"
+              >
+                {toolInput}
+              </pre>
+            </div>
+          ) : null}
+          {toolResult ? (
+            <div className="agentkit-activity-summary-section">
+              <div className="agentkit-activity-summary-label">
+                {toolResultLabel}
+              </div>
+              <pre
+                role="region"
+                aria-label={toolResultLabel}
+                tabIndex={0}
+                className="agentkit-activity-summary-value"
+              >
+                {toolResult}
+              </pre>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -710,18 +1106,27 @@ function RepeatedActivityCluster({
   activities: AgentActivity[];
   threadId: string;
 }) {
-  const { slots, registry } = useAgentKit();
+  const { slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
   const [open, setOpen] = useState(false);
   const activity = activities[0];
   if (!activity) return null;
   const agent = activity.agentId ? thread.agents[activity.agentId] : undefined;
+  const agentName = resolveAgentName(
+    thread,
+    activity.agentId,
+    [activity.source, activity.object],
+    labels.assistant,
+  );
   const AgentRenderer = agent
     ? (registry.agents?.[agent.kind ?? ""] ??
       slots.agent ??
       AgentParticipantView)
     : undefined;
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
+  const object =
+    activity.object ??
+    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
   return (
     <details
       className="agentkit-activity-cluster"
@@ -739,15 +1144,16 @@ function RepeatedActivityCluster({
         {agent && AgentRenderer ? (
           <AgentRenderer value={agent} threadId={threadId} />
         ) : activity.agentId ? (
-          <AgentIdentityChip id={activity.agentId} name={activity.agentId} />
+          <AgentIdentityChip
+            id={activity.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
         ) : null}
-        <span className="agentkit-activity-label">{activity.label}</span>
-        {activity.object ? (
-          <ObjectRenderer value={activity.object} threadId={threadId} />
-        ) : null}
-        {!activity.object && activity.source ? (
-          <ObjectRenderer value={activity.source} threadId={threadId} />
-        ) : null}
+        <span className="agentkit-activity-label">
+          {activityLabel(activity, labels.working)}
+        </span>
+        {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
         <span className="agentkit-activity-cluster-count">
           ×{activities.length}
         </span>
@@ -776,12 +1182,17 @@ function formatToolDiagnostic(value: unknown): string | undefined {
   }
 }
 
-function toolToActivity(tool: AgentToolCall): AgentActivity {
+function toolToActivity(
+  tool: AgentToolCall,
+  labels: Partial<AgentKitLabels> = {},
+): AgentActivity {
   const failed = tool.status === "failed";
   const errorMessage = failed
-    ? ((tool.error?.message?.trim() ? tool.error.message : undefined) ??
-      formatToolDiagnostic(tool.output) ??
-      formatToolDiagnostic(tool.error?.details))
+    ? ((tool.error?.message?.trim()
+        ? formatActivityToolValue(tool.error.message, labels)
+        : undefined) ??
+      formatActivityToolValue(tool.output, labels) ??
+      formatActivityToolValue(tool.error?.details, labels))
     : undefined;
   return {
     id: tool.id,
@@ -1152,7 +1563,11 @@ export function AgentActivityGroup({
       toolMap.set(event.toolCall.id, tool);
       remember(event.toolCall.id, event.sequence);
       latestEventOrder.set(event.toolCall.id, eventOrder);
-      rememberUsefulActivity(toolToActivity(tool), event.sequence, eventOrder);
+      rememberUsefulActivity(
+        toolToActivity(tool, labels),
+        event.sequence,
+        eventOrder,
+      );
     }
     if (event.type === "tool.delta") {
       if (excludeAgentActivities && delegatedToolIds.has(event.toolCallId)) {
@@ -1162,7 +1577,7 @@ export function AgentActivityGroup({
       if (tool) {
         toolMap.set(tool.id, tool);
         rememberUsefulActivity(
-          toolToActivity(tool),
+          toolToActivity(tool, labels),
           event.sequence,
           eventOrder,
         );
@@ -1183,7 +1598,7 @@ export function AgentActivityGroup({
     const activity = activityMap.get(id);
     if (activity) return [activity];
     const tool = toolMap.get(id);
-    return tool ? [toolToActivity(tool)] : [];
+    return tool ? [toolToActivity(tool, labels)] : [];
   });
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);
@@ -1276,7 +1691,9 @@ export function AgentActivityGroup({
         status: "running",
       })
     : undefined;
-  const currentActivityLabel = currentActivity?.label;
+  const currentActivityLabel = currentActivity
+    ? activityLabel(currentActivity, labels.working)
+    : undefined;
   const displayGroups: AgentActivity[][] = [];
   const clusterIdentity = (activity: AgentActivity) => {
     const tool = toolMap.get(activity.id);
@@ -1640,12 +2057,18 @@ export function AgentTaskItem({
   value: task,
   threadId,
 }: AgentKitRenderProps<AgentTask>) {
-  const { slots, registry } = useAgentKit();
+  const { slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const agent = task.assignedAgentId
     ? thread.agents[task.assignedAgentId]
     : undefined;
+  const agentName = resolveAgentName(
+    thread,
+    task.assignedAgentId,
+    [task.source, task.object],
+    labels.assistant,
+  );
   const AgentRenderer = agent
     ? (registry.agents?.[agent.kind ?? ""] ??
       slots.agent ??
@@ -1654,25 +2077,34 @@ export function AgentTaskItem({
   const progress = task.progress
     ? `${task.progress.completed}/${task.progress.total}`
     : undefined;
+  const title =
+    humanizeAgentLabel(task.title) ||
+    (task.assignedAgentId ? agentName : labels.tasks);
+  const detail = readableText(task.detail);
+  const object =
+    task.object ??
+    sourceObjectUnlessRepresented(task.source, [task.assignedAgentId]);
+  const showAgent =
+    task.assignedAgentId &&
+    title.toLocaleLowerCase() !== agentName.toLocaleLowerCase();
   return (
     <div className="agentkit-task-row" data-status={task.status}>
       <IconChecklist aria-hidden="true" className="agentkit-icon" />
-      {agent && AgentRenderer ? (
+      {showAgent && agent && AgentRenderer ? (
         <AgentRenderer value={agent} threadId={threadId} />
-      ) : task.assignedAgentId ? (
+      ) : showAgent && task.assignedAgentId ? (
         <AgentIdentityChip
           id={task.assignedAgentId}
-          name={task.assignedAgentId}
+          name={agentName}
+          fallbackName={labels.assistant}
         />
       ) : null}
-      <span className="agentkit-task-title">{task.title}</span>
-      {task.object ? (
-        <ObjectRenderer value={task.object} threadId={threadId} />
-      ) : null}
-      {!task.object && task.source ? (
-        <ObjectRenderer value={task.source} threadId={threadId} />
-      ) : !task.object && task.detail ? (
-        <span className="agentkit-task-detail">{task.detail}</span>
+      <span className="agentkit-task-title">{title}</span>
+      {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      {detail ? (
+        <span className="agentkit-task-detail" title={detail}>
+          {detail}
+        </span>
       ) : null}
       {progress ? (
         <span className="agentkit-task-progress">{progress}</span>
@@ -3832,25 +4264,30 @@ export function AgentKitComposer({
               region: labels.queue,
               steer: labels.queueSteer,
               steerHint: labels.queueSteerHint,
+              sendNow: labels.queueSendNow,
+              sendNowHint: labels.queueSendNowHint,
               remove: labels.queueRemove,
               moreActions: labels.queueMore,
             }}
             getItemActions={
               supportsQueueReordering
-                ? (item) => [
-                    {
-                      id: "move-to-top",
-                      label: labels.queueMoveToTop,
-                      icon: <IconArrowUp aria-hidden="true" size={14} />,
-                      disabled:
-                        item.id === thread.queuedMessages[0]?.id ||
-                        moveQueuedToTop.pending,
-                      onSelect: (selected) =>
-                        void command
-                          .execute(() => moveQueuedToTop.execute(selected.id))
-                          .catch(() => undefined),
-                    },
-                  ]
+                ? (item) => {
+                    if (item.id === thread.queuedMessages[0]?.id) return [];
+
+                    return [
+                      {
+                        id: "move-to-top",
+                        label: labels.queueSendNext,
+                        hint: labels.queueSendNextHint,
+                        icon: <IconArrowUp aria-hidden="true" size={14} />,
+                        disabled: moveQueuedToTop.pending,
+                        onSelect: (selected) =>
+                          void command
+                            .execute(() => moveQueuedToTop.execute(selected.id))
+                            .catch(() => undefined),
+                      },
+                    ];
+                  }
                 : undefined
             }
           />
@@ -3888,6 +4325,11 @@ export function AgentKitComposer({
         attachmentAdapter={attachmentAdapter}
         inlineTextAttachments={inlineTextAttachments}
         rootClassName="agentkit-composer"
+        className={
+          queueCapability.visible && thread.queuedMessages.length > 0
+            ? "agent-composer-area--attached-above"
+            : undefined
+        }
         draftScope={`agentkit:${threadId}${editingMessage ? `:edit:${editingMessage.id}` : ""}`}
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}

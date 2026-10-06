@@ -46,8 +46,8 @@ import {
   type ErrorReadScope,
   listRecordingErrorIssues,
 } from "./error-capture.js";
+import { boundedText } from "./indexed-text.js";
 import {
-  boundedText,
   recordingTenantSql,
   type SessionEventIndexInputRow,
   type SessionEventScope,

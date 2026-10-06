@@ -31,6 +31,7 @@ beforeEach(() => {
   delete process.env.AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS;
   verifyA2ATokenWithClaimsMock.mockResolvedValue({
     email: "admin@example.com",
+    orgId: "org-local",
     orgDomain: "builder.io",
     scope: ["flags:write"],
     jti: "mutation-1",
@@ -84,6 +85,7 @@ describe("feature flag mutation replay protection", () => {
       }),
     );
     expect(consumeOneTimeJtiMock).toHaveBeenCalledWith("mutation-1");
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
   });
 
   it("rejects a replayed delegated mutation jti", async () => {
@@ -98,6 +100,7 @@ describe("feature flag mutation replay protection", () => {
   it("does not consume read-only delegation tokens", async () => {
     verifyA2ATokenWithClaimsMock.mockResolvedValue({
       email: "admin@example.com",
+      orgId: "org-local",
       orgDomain: "builder.io",
       scope: ["flags:read"],
       jti: "read-1",
@@ -138,10 +141,28 @@ describe("feature flag mutation replay protection", () => {
 
   it("rejects a no-org delegation from an email outside the allowlist", async () => {
     resolveOrgByDomainMock.mockResolvedValue(null);
+    verifyA2ATokenWithClaimsMock.mockResolvedValue({
+      email: "member@example.com",
+      orgId: null,
+      orgDomain: "builder.io",
+      scope: ["flags:read"],
+      jti: "read-no-org",
+    });
     await expect(
       createFeatureFlagA2AActionRouteAuth("list-feature-flags").resolveCaller(
         event,
       ),
     ).rejects.toThrow("Invalid feature flag delegation");
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an org-secret subject the shared claims verifier did not authorize", async () => {
+    verifyA2ATokenWithClaimsMock.mockResolvedValue(null);
+    const auth = createFeatureFlagA2AActionRouteAuth("set-feature-flag");
+
+    await expect(auth.resolveCaller(event)).rejects.toThrow(
+      "Invalid feature flag delegation",
+    );
+    expect(consumeOneTimeJtiMock).not.toHaveBeenCalled();
   });
 });

@@ -15,4 +15,15 @@ describe("docs client entry", () => {
     );
     expect(source).toMatch(/^installRouteChunkRecovery\(\);$/m);
   });
+
+  it("installs app-link attribution before hydrating", () => {
+    const source = fs.readFileSync(
+      path.join(import.meta.dirname, "entry.client.tsx"),
+      "utf8",
+    );
+
+    const install = source.search(/^installAppLinkAttribution\(\);$/m);
+    expect(install).toBeGreaterThan(-1);
+    expect(install).toBeLessThan(source.indexOf("hydrateRoot("));
+  });
 });

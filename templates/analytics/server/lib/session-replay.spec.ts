@@ -338,6 +338,38 @@ describe("session replay ingest parsing", () => {
     recordReplayFrictionMock.mockReset();
   });
 
+  it("rejects ids too long to index instead of failing the insert", () => {
+    const events = [{ type: 4, timestamp: 1, data: { href: "/" } }];
+    const tooLong = "s".repeat(257);
+    for (const ids of [
+      { sessionId: tooLong },
+      { sessionId: "session_1", replayId: tooLong },
+    ]) {
+      expect(() =>
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          sequence: 0,
+          events,
+          ...ids,
+        }),
+      ).toThrow(
+        expect.objectContaining({
+          statusCode: 400,
+          message:
+            "Replay session and recording ids must be at most 256 characters",
+        }),
+      );
+    }
+    expect(
+      parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        sessionId: "s".repeat(256),
+        sequence: 0,
+        events,
+      }).sessionId,
+    ).toHaveLength(256);
+  });
+
   it("normalizes recorder payloads into session recording chunks", () => {
     const parsed = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",
@@ -368,6 +400,39 @@ describe("session replay ingest parsing", () => {
       eventCount: 1,
       storageKind: "inline",
     });
+  });
+
+  it("drops NUL and lone surrogates before deriving fields and chunks", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording\u0000_1",
+      sessionId: "session\u0000_1",
+      userId: "dev@example.com\uD83D",
+      sequence: 0,
+      events: [
+        {
+          type: 4,
+          timestamp: 1,
+          data: {
+            href: "https://example.com/a\u0000b",
+            "no\u0000te": "x\uDE00",
+          },
+        },
+      ],
+    });
+
+    expect(parsed).toMatchObject({
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com�",
+    });
+    expect(JSON.parse(parsed.chunks[0].inlineData ?? "")).toEqual([
+      {
+        type: 4,
+        timestamp: 1,
+        data: { href: "https://example.com/ab", note: "x�" },
+      },
+    ]);
   });
 
   it("derives error and network-error counts from tagged diagnostics events", () => {

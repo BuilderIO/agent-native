@@ -8,10 +8,7 @@ import type {
   BrainSourceProvider,
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
-import {
-  listAccessibleAudienceIds,
-  refreshSlackPrivateChannelAudience,
-} from "./audiences.js";
+import { listAccessibleAudienceIds } from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   createCapture,
@@ -22,6 +19,7 @@ import {
   serializeCapture,
   stableJson,
 } from "./brain.js";
+import { BrainClassifierUnavailableError } from "./capture-sanitization.js";
 import { resolveMeetingMemberEmails } from "./meeting-audience.js";
 import {
   ensureSlackPublicChannelMembership,
@@ -37,10 +35,13 @@ import {
   fetchZoomAccessToken,
   listZoomRecordings,
   hasProcessingTranscript,
-  listZoomUserIds,
+  listZoomAccountRecordings,
   nextZoomCursorFrom,
   normalizeZoomRecording,
   zoomExternalId,
+  zoomMeetingFilterFromConfig,
+  zoomMeetingFilterKey,
+  zoomMeetingMatchesFilter,
 } from "./zoom.js";
 
 export interface ConnectorSyncResult {
@@ -186,6 +187,7 @@ interface SlackSyncCursor {
   channels?: Record<string, SlackChannelCursor>;
   publicChannelOffset?: number;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
@@ -193,12 +195,15 @@ interface GranolaSyncCursor {
   cursor?: string | null;
   updatedAfter?: string;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
 interface ZoomSyncCursor {
   from?: string;
+  filterKey?: string | null;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
@@ -245,28 +250,6 @@ interface SlackListResponse {
   response_metadata?: { next_cursor?: string };
 }
 
-interface SlackMembersResponse {
-  members?: string[];
-  response_metadata?: { next_cursor?: string };
-}
-
-interface SlackUserInfoResponse {
-  user?: {
-    deleted?: boolean;
-    is_app_user?: boolean;
-    is_bot?: boolean;
-    is_workflow_bot?: boolean;
-    profile?: { email?: string };
-  };
-}
-
-type SlackUserEmailCacheEntry =
-  | { kind: "human"; email: string }
-  | { kind: "non-human" }
-  | { kind: "unresolved" };
-type SlackUserEmailCache = Map<string, SlackUserEmailCacheEntry>;
-
-const SLACK_USER_LOOKUP_CONCURRENCY = 4;
 const SLACK_THREAD_CAPTURE_CONCURRENCY = 4;
 const GRANOLA_NOTE_CAPTURE_CONCURRENCY = 4;
 const CONNECTOR_SYNC_LEASE_MS = 10 * 60 * 1_000;
@@ -318,6 +301,7 @@ interface GitHubRepoCursor {
 interface GitHubSyncCursor {
   repositories?: Record<string, GitHubRepoCursor>;
   retry?: RetryCursor;
+  transientRetryAt?: string;
   lastRunAt?: string;
 }
 
@@ -713,6 +697,31 @@ async function requireConnectorCredential(
   return value;
 }
 
+export function connectorErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const record = error as { message?: unknown; error?: unknown };
+    if (typeof record.message === "string" && record.message.trim()) {
+      return record.message;
+    }
+    if (record.error instanceof Error && record.error.message) {
+      return record.error.message;
+    }
+  }
+  const kind =
+    error && typeof error === "object" && error.constructor?.name
+      ? error.constructor.name
+      : typeof error;
+  return `Sync stopped by an unexpected ${kind} with no details, often a dropped database or network connection. Nothing was lost; Brain retries at the next sync.`;
+}
+
+function transientRetryAt(error: unknown): string | undefined {
+  return error instanceof BrainClassifierUnavailableError && error.retryAfterMs
+    ? new Date(Date.now() + error.retryAfterMs).toISOString()
+    : undefined;
+}
+
 function retryCursor(
   error: ConnectorRateLimitError,
   provider: BrainSourceProvider,
@@ -1073,94 +1082,6 @@ async function slackPermalink(
   return data.permalink ?? null;
 }
 
-async function slackPrivateChannelMemberEmails(
-  token: string,
-  channelId: string,
-  userEmailCache: SlackUserEmailCache,
-): Promise<string[] | null> {
-  const memberIds = new Set<string>();
-  const seenCursors = new Set<string>();
-  let cursor: string | undefined;
-  while (true) {
-    const response = await slackApi<SlackMembersResponse>(
-      token,
-      "conversations.members",
-      { channel: channelId, limit: 1_000, cursor },
-    );
-    if (
-      !Array.isArray(response.members) ||
-      response.members.some(
-        (memberId) => typeof memberId !== "string" || !memberId,
-      )
-    ) {
-      return null;
-    }
-    for (const memberId of response.members) {
-      memberIds.add(memberId);
-    }
-    const nextCursor = response.response_metadata?.next_cursor?.trim();
-    if (!nextCursor) break;
-    if (seenCursors.has(nextCursor)) return null;
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-  const userIds = Array.from(memberIds);
-  if (
-    userIds.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
-  ) {
-    return null;
-  }
-
-  const uncachedUserIds = userIds.filter(
-    (userId) => !userEmailCache.has(userId),
-  );
-  for (
-    let offset = 0;
-    offset < uncachedUserIds.length;
-    offset += SLACK_USER_LOOKUP_CONCURRENCY
-  ) {
-    const batch = uncachedUserIds.slice(
-      offset,
-      offset + SLACK_USER_LOOKUP_CONCURRENCY,
-    );
-    await Promise.all(
-      batch.map(async (userId) => {
-        const user = await slackApi<SlackUserInfoResponse>(
-          token,
-          "users.info",
-          { user: userId },
-        );
-        const slackUser = user.user;
-        if (
-          slackUser?.deleted === true ||
-          slackUser?.is_app_user === true ||
-          slackUser?.is_bot === true ||
-          slackUser?.is_workflow_bot === true
-        ) {
-          userEmailCache.set(userId, { kind: "non-human" });
-          return;
-        }
-        const email = slackUser?.profile?.email?.trim().toLowerCase();
-        userEmailCache.set(
-          userId,
-          email ? { kind: "human", email } : { kind: "unresolved" },
-        );
-      }),
-    );
-    if (
-      batch.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
-    ) {
-      return null;
-    }
-  }
-
-  const emails = userIds.flatMap((userId) => {
-    const entry = userEmailCache.get(userId);
-    return entry?.kind === "human" ? [entry.email] : [];
-  });
-  return Array.from(new Set(emails)).sort();
-}
-
 function configuredSlackChannelIds(config: Record<string, unknown>) {
   return new Set(
     slackChannelRefsFromConfig(config).filter((value) =>
@@ -1175,7 +1096,6 @@ async function createSlackThreadCapture(input: {
   messages: SlackMessage[];
   permalink: string | null;
   syncRunId?: string;
-  memberEmails?: string[] | null;
 }) {
   const normalized = normalizeSlackThreadCapture({
     channel: input.channel,
@@ -1193,11 +1113,7 @@ async function createSlackThreadCapture(input: {
       content: normalized.content,
       capturedAt: normalized.capturedAt,
       metadata: normalized.metadata,
-      audience: {
-        kind: input.channel.is_private ? "slack-private-channel" : "org",
-        memberEmails: input.memberEmails ?? undefined,
-        upstreamRefHash: input.channel.id,
-      },
+      audience: { kind: "org", upstreamRefHash: input.channel.id },
     });
     return { capture, blocked: false };
   } catch (error) {
@@ -1416,7 +1332,7 @@ export async function runSlackPilot(
           : undefined,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const channelValidation = {
       requested: requestedRefs.length,
       checked: 0,
@@ -2289,7 +2205,7 @@ async function syncFromConfiguredItems(
     };
   } catch (err) {
     await heartbeat.stop();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     await renewRunLease(run);
     await getDb()
       .update(schema.brainSources)
@@ -2468,7 +2384,6 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     }
     const channels = [...channelsById.values()];
     stats.eligibleChannels = channels.length;
-    const userEmailCache: SlackUserEmailCache = new Map();
 
     const channelsToScan = includePublicChannels
       ? (() => {
@@ -2510,29 +2425,6 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         stats.publicChannelsAlreadyJoined =
           Number(stats.publicChannelsAlreadyJoined) + 1;
       }
-      const privateMemberEmails = channel.is_private
-        ? await slackPrivateChannelMemberEmails(
-            token,
-            channel.id,
-            userEmailCache,
-          )
-        : null;
-      if (channel.is_private) {
-        if (privateMemberEmails === null) {
-          stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
-          continue;
-        }
-        await refreshSlackPrivateChannelAudience({
-          source,
-          channelId: channel.id,
-          memberEmails: privateMemberEmails,
-        });
-        if (!privateMemberEmails.length) {
-          stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
-          continue;
-        }
-      }
-
       stats.scannedChannels = Number(stats.scannedChannels) + 1;
       const channelCursor = nextCursor.channels?.[channel.id] ?? {};
       const pendingLatest =
@@ -2579,7 +2471,6 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
                 messages: thread.messages?.length ? thread.messages : [message],
                 permalink,
                 syncRunId: runId,
-                memberEmails: privateMemberEmails,
               });
             }),
           );
@@ -2741,12 +2632,13 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         : "Slack sync completed with no new channel messages",
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const failedCursor: SlackSyncCursor = {
       ...cursor,
       ...nextCursor,
       retry: isRateLimit ? retryCursor(err, "slack") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;
@@ -2838,26 +2730,6 @@ export async function refreshSlackThreadCapture(
         `Slack thread refresh rejected for channel ${channelId}: it matches a Brain public-channel exclusion`,
       );
     }
-    const memberEmails = channel.is_private
-      ? await slackPrivateChannelMemberEmails(token, channel.id, new Map())
-      : null;
-    if (channel.is_private) {
-      if (memberEmails === null) {
-        throw new Error(
-          `Slack private channel ${channel.id} has no resolvable member emails; refusing to refresh without an ACL`,
-        );
-      }
-      if (!memberEmails.length) {
-        await refreshSlackPrivateChannelAudience({
-          source,
-          channelId: channel.id,
-          memberEmails,
-        });
-        throw new Error(
-          `Slack private channel ${channel.id} has no human members; refusing to refresh a capture`,
-        );
-      }
-    }
     const [thread, permalink] = await Promise.all([
       slackApi<SlackRepliesResponse>(token, "conversations.replies", {
         channel: channel.id,
@@ -2872,7 +2744,6 @@ export async function refreshSlackThreadCapture(
       messages: thread.messages ?? [],
       permalink,
       syncRunId: runId,
-      memberEmails,
     });
     const stats = {
       channelId: channel.id,
@@ -2904,7 +2775,7 @@ export async function refreshSlackThreadCapture(
         : null,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = connectorErrorMessage(error);
     await finishRun(run, "error", { capturesCreated: 0 }, message);
     throw error;
   }
@@ -3112,11 +2983,12 @@ async function syncGranola(source: SourceRow): Promise<ConnectorSyncResult> {
         : "Granola sync completed with no new notes",
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const nextCursor: GranolaSyncCursor = {
       ...cursor,
       retry: isRateLimit ? retryCursor(err, "granola") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;
@@ -3177,24 +3049,32 @@ async function zoomCall<T>(endpoint: string, call: () => Promise<T>) {
   }
 }
 
+const ZOOM_DEDUPE_CHUNK_SIZE = 500;
+
 async function importedZoomExternalIds(
   sourceId: string,
   externalIds: string[],
 ): Promise<Set<string>> {
   const imported = new Set<string>();
-  if (!externalIds.length) return imported;
-  const rows = await getDb()
-    .select({ externalId: schema.brainRawCaptures.externalId })
-    .from(schema.brainRawCaptures)
-    .where(
-      and(
-        eq(schema.brainRawCaptures.sourceId, sourceId),
-        inArray(schema.brainRawCaptures.externalId, externalIds),
-        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
-      ),
-    );
-  for (const row of rows) {
-    if (row.externalId) imported.add(row.externalId);
+  for (
+    let offset = 0;
+    offset < externalIds.length;
+    offset += ZOOM_DEDUPE_CHUNK_SIZE
+  ) {
+    const chunk = externalIds.slice(offset, offset + ZOOM_DEDUPE_CHUNK_SIZE);
+    const rows = await getDb()
+      .select({ externalId: schema.brainRawCaptures.externalId })
+      .from(schema.brainRawCaptures)
+      .where(
+        and(
+          eq(schema.brainRawCaptures.sourceId, sourceId),
+          inArray(schema.brainRawCaptures.externalId, chunk),
+          eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        ),
+      );
+    for (const row of rows) {
+      if (row.externalId) imported.add(row.externalId);
+    }
   }
   return imported;
 }
@@ -3232,8 +3112,12 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const dayMs = 24 * 60 * 60 * 1000;
   const to = utcDate(runStartedAt);
   const earliest = utcDate(runStartedAt - ZOOM_MAX_LOOKBACK_DAYS * dayMs);
+  const meetingFilter = zoomMeetingFilterFromConfig(objectValue(config.zoom));
+  const filterKey = zoomMeetingFilterKey(meetingFilter);
+  // A changed filter can include meetings the cursor has already moved past.
+  const filterChanged = (cursor.filterKey ?? null) !== filterKey;
   const requestedFrom =
-    cursor.from && ZOOM_DATE.test(cursor.from)
+    !filterChanged && cursor.from && ZOOM_DATE.test(cursor.from)
       ? cursor.from
       : utcDate(runStartedAt - lookbackDays * dayMs);
   const from = requestedFrom < earliest ? earliest : requestedFrom;
@@ -3242,8 +3126,10 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const stats: Record<string, unknown> = {
     from,
     to,
-    usersScanned: 0,
+    recordingListsScanned: 0,
     meetingsSeen: 0,
+    meetingsSkippedByFilter: 0,
+    filterChanged,
     transcriptsDownloaded: 0,
     emptyTranscripts: 0,
     alreadyImported: 0,
@@ -3277,22 +3163,34 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       fetchZoomAccessToken({ accountId, clientId, clientSecret }),
     );
     const configuredUserIds = zoomUserIdsFromConfig(config);
-    const userIds =
-      configuredUserIds ??
-      (await zoomCall("/users", () => listZoomUserIds(token)));
+    const renewLease = () => renewRunLease(run);
+    const recordingLists = configuredUserIds
+      ? configuredUserIds.map((userId) => ({
+          endpoint: "/users/{userId}/recordings",
+          list: () => listZoomRecordings(token, userId, from, to, renewLease),
+        }))
+      : [
+          {
+            endpoint: "/accounts/me/recordings",
+            list: () => listZoomAccountRecordings(token, from, to, renewLease),
+          },
+        ];
 
-    for (const userId of userIds) {
-      const meetings = await zoomCall("/users/{userId}/recordings", () =>
-        listZoomRecordings(token, userId, from, to),
-      );
+    for (const recordingList of recordingLists) {
+      const listed = await zoomCall(recordingList.endpoint, recordingList.list);
       await renewRunLease(run);
-      stats.usersScanned = Number(stats.usersScanned) + 1;
+      stats.recordingListsScanned = Number(stats.recordingListsScanned) + 1;
+      stats.meetingsSeen = Number(stats.meetingsSeen) + listed.length;
+      const meetings = listed.filter((meeting) =>
+        zoomMeetingMatchesFilter(meeting, meetingFilter),
+      );
+      stats.meetingsSkippedByFilter =
+        Number(stats.meetingsSkippedByFilter) + listed.length - meetings.length;
       const imported = await importedZoomExternalIds(
         source.id,
         meetings.map(zoomExternalId),
       );
       for (const meeting of meetings) {
-        stats.meetingsSeen = Number(stats.meetingsSeen) + 1;
         if (hasProcessingTranscript(meeting)) {
           pendingMeetingStarts.push(meeting.start_time);
           stats.pendingTranscripts = Number(stats.pendingTranscripts) + 1;
@@ -3345,6 +3243,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         pendingMeetingStarts,
         earliest,
       }),
+      filterKey,
       retry: undefined,
       lastRunAt: nowIso(),
     };
@@ -3380,11 +3279,12 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         : "Zoom sync completed with no new transcripts",
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const nextCursor: ZoomSyncCursor = {
       ...cursor,
       retry: isRateLimit ? retryCursor(err, "zoom") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;
@@ -3746,12 +3646,13 @@ async function syncGitHub(source: SourceRow): Promise<ConnectorSyncResult> {
     };
   } catch (err) {
     await heartbeat.stop();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = connectorErrorMessage(err);
     const isRateLimit = err instanceof ConnectorRateLimitError;
     const failedCursor: GitHubSyncCursor = {
       ...cursor,
       ...nextCursor,
       retry: isRateLimit ? retryCursor(err, "github") : cursor.retry,
+      transientRetryAt: transientRetryAt(err),
       lastRunAt: nowIso(),
     };
     stats.capturesCreated = captures.length;

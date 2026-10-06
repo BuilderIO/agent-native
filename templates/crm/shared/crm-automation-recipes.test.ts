@@ -22,7 +22,10 @@ describe("Clips CRM automation recipe", () => {
       },
     });
     expect(recipe.agentContext).toContain("prepare-crm-call-evidence");
-    expect(recipe.agentContext).toContain("approvedActions");
+    expect(recipe.agentContext).not.toContain("approvedActions");
+    expect(recipe.agentContext).toContain(
+      "Clips must obtain its own local approval",
+    );
     expect(recipe.agentContext).toContain("manage-automations");
     expect(recipe.agentContext).toContain("Northstar renewal");
   });

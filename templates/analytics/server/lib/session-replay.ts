@@ -55,6 +55,8 @@ import {
   resolveAnalyticsEventDimensions,
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
+import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
+import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
@@ -1021,8 +1023,7 @@ function deriveReplaySignals({
 export function parseSessionReplayIngestPayload(
   raw: unknown,
 ): ParsedSessionReplayIngest {
-  const body =
-    typeof raw === "string" && raw.trim() ? JSON.parse(raw) : replayRecord(raw);
+  const body = replayRecord(parseIngestBody(raw));
   const publicKey =
     replayString(body.publicKey) ||
     replayString(body.writeKey) ||
@@ -1050,6 +1051,15 @@ export function parseSessionReplayIngestPayload(
     replayString(body.recording_id) ||
     replayString(body.replayId) ||
     sessionId;
+  if (
+    sessionId.length > MAX_SESSION_ID_LENGTH ||
+    clientRecordingId.length > MAX_SESSION_ID_LENGTH
+  ) {
+    throw replayError(
+      `Replay session and recording ids must be at most ${MAX_SESSION_ID_LENGTH} characters`,
+      400,
+    );
+  }
   const metadata = replayRecord(body.metadata);
   assertReplayMetadataCap(metadata);
 
@@ -2165,7 +2175,7 @@ export async function resolveSessionReplayLink(
 
 export async function getSessionReplayTokenizedSummary(
   recordingId: string,
-  viewerEmail: string,
+  _viewerEmail?: string,
 ): Promise<SessionRecordingSummary> {
   const db = getDb() as any;
   // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
@@ -2224,7 +2234,7 @@ export async function getSessionReplayManifest(
 
 export async function getSessionReplayTokenizedManifest(
   recordingId: string,
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   chunks: Array<{
@@ -2303,7 +2313,7 @@ export async function readSessionReplayChunkBytes(
 export async function readSessionReplayTokenizedChunkBytes(
   recordingId: string,
   seq: number,
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   seq: number;
@@ -2551,7 +2561,7 @@ export async function readSessionReplayChunkBatch(
 export async function readSessionReplayTokenizedChunkBatch(
   recordingId: string,
   seqs: number[],
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<SessionReplayChunkBatchResult> {
   const recording = await getSessionReplayTokenizedSummary(
     recordingId,
@@ -2584,7 +2594,7 @@ export async function getSessionReplayEvents(
 
 export async function getSessionReplayTokenizedEvents(
   recordingId: string,
-  viewerEmail: string,
+  viewerEmail?: string,
   options: SessionReplayEventReadOptions = {},
 ): Promise<{
   recording: AgentSessionRecordingSummary;
