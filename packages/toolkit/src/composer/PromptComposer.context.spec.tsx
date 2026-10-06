@@ -152,18 +152,23 @@ describe("controlled composer context", () => {
   };
 
   it("keeps a typed @ address as text and submits it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response('{"items":[]}\n', { status: 200 })),
+    );
     const { onSubmit } = await mount({
       initialText: "",
       contextMenuItems: [
         { id: "source", label: "Choose source", onSelect() {} },
       ],
-      includeDefaultMentionSearch: false,
       mentionItems: [slidesAgent],
     });
     const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
     await act(async () => editor.focus());
 
-    await typeInto(editor, "Ping a @builder.io email");
+    await typeInto(editor, "Ping a @builder.io");
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 250)));
+    await typeInto(editor, " email");
 
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(
@@ -192,6 +197,26 @@ describe("controlled composer context", () => {
 
     expect(onSubmit).toHaveBeenCalledOnce();
     expect(onSubmit.mock.calls[0]![0]).toBe("Reply @x");
+  });
+  it("keeps @ suggestions open for host mention items that arrive later", async () => {
+    await mount({
+      initialText: "",
+      includeDefaultMentionSearch: false,
+      mentionItems: [],
+    });
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    await act(async () => editor.focus());
+
+    await typeInto(editor, "Ask @Sli");
+    await mount({
+      initialText: "",
+      includeDefaultMentionSearch: false,
+      mentionItems: [slidesAgent],
+    });
+
+    expect(
+      document.querySelector('[data-mention-index="0"]')?.textContent,
+    ).toContain("Slides");
   });
   it.each([
     ["finds nothing", '{"items":[]}\n', 200, null],

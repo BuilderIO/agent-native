@@ -2879,7 +2879,13 @@ export function TiptapComposer({
     [hostMentionItems, mentionItems, mentionQuery, slotReferences],
   );
   const inlineMentionItems = useMemo(() => {
-    if (popover?.type !== "@" || !hasContextMenu || !contextMenuItems?.length)
+    if (
+      popover?.type !== "@" ||
+      !hasContextMenu ||
+      disabled ||
+      contextControlsDisabled ||
+      !contextMenuItems?.length
+    )
       return filteredMentionItems;
     const addContextLabel = t("agentChat.composer.addContext", {
       defaultValue: "Add context",
@@ -2904,6 +2910,8 @@ export function TiptapComposer({
   }, [
     popover?.type,
     hasContextMenu,
+    disabled,
+    contextControlsDisabled,
     contextMenuItems,
     mentionQuery,
     filteredMentionItems,
@@ -2960,14 +2968,19 @@ export function TiptapComposer({
   const mentionItemsRef = useRef(filteredMentionItems);
   mentionItemsRef.current = filteredMentionItems;
   // Results for an earlier query are stale until the search for this one
-  // settles, so neither auto-close nor Enter may treat them as final.
+  // settles, so neither auto-close nor Enter may treat them as final. Host
+  // mention items carry no readiness signal (they may still be loading), so
+  // only a settled default search can end a query as "nothing matches".
   const mentionSearchSettled =
-    !includeDefaultMentionSearch ||
-    (!mentionsLoading && settledMentionQuery === mentionQuery);
+    includeDefaultMentionSearch &&
+    !mentionsLoading &&
+    settledMentionQuery === mentionQuery;
   // A failed search is unknown, not empty: it keeps the popover open, but
   // Enter still sends because there is nothing to pick.
   const mentionSearchFinished =
-    mentionSearchSettled || (!mentionsLoading && mentionsError !== null);
+    !includeDefaultMentionSearch ||
+    mentionSearchSettled ||
+    (!mentionsLoading && mentionsError !== null);
   const mentionSearchFinishedRef = useRef(mentionSearchFinished);
   mentionSearchFinishedRef.current = mentionSearchFinished;
   const filteredCommandsRef = useRef(filteredCommands);
@@ -3035,6 +3048,12 @@ export function TiptapComposer({
       closePopover();
     }
   }, [mentionQuery, mentionSearchSettled, inlineMentionItems, closePopover]);
+
+  // The + menu runs a request from its own effect, which fires before this one;
+  // clear it so a remounted menu cannot run the same action again.
+  useEffect(() => {
+    if (contextEntryRequest) setContextEntryRequest(null);
+  }, [contextEntryRequest]);
 
   // Persist draft to localStorage so refreshes don't lose the prompt.
   const hasDraftScope = Boolean(draftScope?.trim());
