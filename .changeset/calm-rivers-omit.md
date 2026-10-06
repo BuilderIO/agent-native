@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Preserve optional action parameters for models routed through OpenRouter by explicitly disabling strict function-tool schemas on outgoing requests.
+Preserve optional action parameters across OpenAI-compatible providers by explicitly disabling strict function-tool schemas, including a transport adapter for OpenRouter's SDK.

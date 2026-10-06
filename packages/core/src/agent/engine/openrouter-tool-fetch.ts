@@ -12,9 +12,8 @@ export function createOpenRouterToolFetch(
     };
     if (!body.tools?.length) return requestFetch(input, init);
 
-    // OpenRouter's SDK drops function-tool `strict`, including in v3.1.0.
-    // Gateways forwarding to Responses can then require every optional field.
-    // Keep action omission semantics without adding nulls to their schemas.
+    // Temporary adapter until OpenRouter's SDK forwards the standard tool.strict
+    // flag (still dropped in v3.1.0). Keep the wire regression when removing this.
     return requestFetch(input, {
       ...init,
       body: JSON.stringify({
