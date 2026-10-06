@@ -139,28 +139,24 @@ function interruptedScheduledJob(runCount = 1) {
       .spyOn(runHistory, "listAutomationRuns")
       .mockResolvedValue([history] as any),
     vi.spyOn(runStore, "reapIfStale").mockResolvedValue(true),
-    vi
-      .spyOn(runStore, "getRunById")
-      .mockResolvedValue({
-        id: "killed-worker",
-        status: "errored",
-        errorCode: "stale_run",
-      } as any),
+    vi.spyOn(runStore, "getRunById").mockResolvedValue({
+      id: "killed-worker",
+      status: "errored",
+      errorCode: "stale_run",
+    } as any),
     vi
       .spyOn(runStore, "getRunTurnRef")
       .mockResolvedValue({ threadId: "thread-1", turnId: "killed-worker" }),
     vi.spyOn(runStore, "countRunsForTurn").mockResolvedValue(runCount),
-    vi
-      .spyOn(runStore, "getCurrentTurnEventsForThread")
-      .mockResolvedValue([
-        {
-          type: "tool_done",
-          id: "email-1",
-          tool: "send-test-email",
-          result: "Delivered",
-          completedSideEffect: true,
-        },
-      ]),
+    vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockResolvedValue([
+      {
+        type: "tool_done",
+        id: "email-1",
+        tool: "send-test-email",
+        result: "Delivered",
+        completedSideEffect: true,
+      },
+    ]),
     vi
       .spyOn(runStore, "getCurrentTurnRunEventsForThread")
       .mockResolvedValue([]),
