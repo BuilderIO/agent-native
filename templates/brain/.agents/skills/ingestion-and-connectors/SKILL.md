@@ -50,7 +50,7 @@ OAuth app. Credentials are the vault secrets `ZOOM_ACCOUNT_ID`,
 `cloud_recording:read:list_account_recordings:admin` and
 `cloud_recording:read:recording:admin`. Config is
 `{"zoom":{"userIds":[...],"lookbackDays":7}}`. Without `userIds`, one
-account-wide recording list (`/accounts/me/recordings`) covers every user.
+account-wide recording list (`/accounts/{ZOOM_ACCOUNT_ID}/recordings`) covers every user.
 `userIds` (up to 50, user ID or email) narrows the import to those users and
 additionally needs `cloud_recording:read:list_user_recordings:admin`.
 `lookbackDays` is 1-30, default 7.

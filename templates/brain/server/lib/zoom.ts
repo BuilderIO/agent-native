@@ -145,12 +145,17 @@ export async function fetchZoomAccessToken(
   return body.access_token;
 }
 
+type ZoomPageCallback = () => Promise<void>;
+
 export function listZoomAccountRecordings(
   token: string,
+  accountId: string,
   from: string,
   to: string,
+  onPage?: ZoomPageCallback,
 ) {
-  return listZoomRecordingPages(token, "/accounts/me/recordings", from, to);
+  const path = "/accounts/" + encodeURIComponent(accountId) + "/recordings";
+  return listZoomRecordingPages(token, path, from, to, onPage);
 }
 
 export function listZoomRecordings(
@@ -158,9 +163,10 @@ export function listZoomRecordings(
   userId: string,
   from: string,
   to: string,
+  onPage?: ZoomPageCallback,
 ) {
   const path = "/users/" + encodeURIComponent(userId) + "/recordings";
-  return listZoomRecordingPages(token, path, from, to);
+  return listZoomRecordingPages(token, path, from, to, onPage);
 }
 
 async function listZoomRecordingPages(
@@ -168,6 +174,7 @@ async function listZoomRecordingPages(
   path: string,
   from: string,
   to: string,
+  onPage?: ZoomPageCallback,
 ): Promise<ZoomMeeting[]> {
   const meetings: ZoomMeeting[] = [];
   let nextPageToken: string | undefined;
@@ -184,6 +191,7 @@ async function listZoomRecordingPages(
       "recording list",
     );
     meetings.push(...(page.meetings ?? []));
+    await onPage?.();
     nextPageToken = page.next_page_token || undefined;
   } while (nextPageToken);
   return meetings;

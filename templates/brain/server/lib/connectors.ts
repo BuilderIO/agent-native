@@ -3153,15 +3153,17 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       fetchZoomAccessToken({ accountId, clientId, clientSecret }),
     );
     const configuredUserIds = zoomUserIdsFromConfig(config);
+    const renewLease = () => renewRunLease(run);
     const recordingLists = configuredUserIds
       ? configuredUserIds.map((userId) => ({
           endpoint: "/users/{userId}/recordings",
-          list: () => listZoomRecordings(token, userId, from, to),
+          list: () => listZoomRecordings(token, userId, from, to, renewLease),
         }))
       : [
           {
-            endpoint: "/accounts/me/recordings",
-            list: () => listZoomAccountRecordings(token, from, to),
+            endpoint: "/accounts/{accountId}/recordings",
+            list: () =>
+              listZoomAccountRecordings(token, accountId, from, to, renewLease),
           },
         ];
 
