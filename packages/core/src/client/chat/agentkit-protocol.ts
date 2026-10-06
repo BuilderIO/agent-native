@@ -1754,6 +1754,7 @@ export function createAgentKitProtocolAdapter(
               ? "stopped"
               : runOutcomeForCode(failure?.code),
         ...(failure?.code ? { code: failure.code } : {}),
+        ...(failure?.message ? { message: failure.message } : {}),
         ...(failure?.retryable !== undefined
           ? { retryable: failure.retryable }
           : {}),

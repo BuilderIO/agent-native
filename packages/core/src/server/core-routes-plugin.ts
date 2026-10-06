@@ -209,6 +209,7 @@ import {
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
+import { createBuilderDesktopMessagesHandler } from "./builder-desktop-messages-route.js";
 import {
   BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
@@ -4721,6 +4722,14 @@ export function createCoreRoutesPlugin(
         createBuilderProvisionHandler((event) =>
           resolveBuilderOwnerContext(event),
         ),
+      );
+
+      // Desktop Code Agents speak Anthropic Messages locally, but Builder
+      // Gateway credentials live on the server. This same-origin route keeps
+      // their signed-in session as the only client-side credential.
+      getH3App(nitroApp).use(
+        `${P}/builder/desktop/messages`,
+        createBuilderDesktopMessagesHandler(),
       );
 
       getH3App(nitroApp).use(

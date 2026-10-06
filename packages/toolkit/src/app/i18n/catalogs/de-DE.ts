@@ -922,6 +922,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "Keine Fehlerdetails verfügbar.",
   "tool.input": "Eingabe",
   "tool.inputWithLabel": "Eingabe – {{label}}",
+  "tool.identifierHidden": "[Kennung ausgeblendet]",
+  "tool.contentOmitted": "[Inhalt ausgelassen]",
+  "tool.circularReference": "[Zirkuläre Referenz]",
   "tool.interrupted":
     "Die Ausgabe wurde vorzeitig unterbrochen. Der Vorgang kann abgeschlossen worden sein oder nicht. Prüfe dies vor einem erneuten Versuch.",
   "tool.longRunning":
@@ -1362,6 +1365,58 @@ const messages: ToolkitAgentChatTranslation = {
   "contextXray.tokensShare": "Token · {{share}}%",
   "contextXray.unpin": "Nicht mehr anheften",
   "contextXray.unpinSegment": "Segment lösen",
+  "accessGate.deniedTitle": "Du hast keinen Zugriff",
+  "accessGate.deniedDescription": "Bitte den Eigentümer, es mit dir zu teilen.",
+  "accessGate.missingTitle": "Das gibt es nicht",
+  "accessGate.missingDescription":
+    "Der Link ist vielleicht falsch, oder es wurde gelöscht.",
+  "accessGate.trashedTitle": "Das liegt im Papierkorb",
+  "accessGate.trashedDescription":
+    "Stelle es wieder her, um es erneut zu öffnen.",
+  "accessGate.signedOutTitle": "Melde dich an, um fortzufahren",
+  "accessGate.signedOutDescription":
+    "Melde dich mit einem Konto an, das Zugriff hat.",
+  "accessGate.signIn": "Anmelden",
+  "accessGate.signedInAs": "Du bist als {{email}} angemeldet",
+  "accessGate.switchAccount": "Konto wechseln",
+  "accessGate.requestDescription":
+    "Fordere Zugriff an, und der Eigentümer wird benachrichtigt.",
+  "accessGate.requestSent":
+    "Anfrage gesendet. Der Eigentümer wurde benachrichtigt.",
+  "accessGate.requestAccess": "Zugriff anfordern",
+  "accessGate.requestNoteLabel": "Notiz (optional)",
+  "accessGate.requestNotePlaceholder": "Notiz für den Eigentümer hinzufügen",
+  "accessGate.sendRequest": "Anfrage senden",
+  "accessGate.cancel": "Abbrechen",
+  "accessGate.requestRateLimited":
+    "Gerade zu viele Anfragen. Versuche es später erneut.",
+  "accessGate.requestFailed":
+    "Deine Anfrage konnte nicht gesendet werden. Versuche es erneut.",
+  "accessGate.signedOutRequestDescription":
+    "Melde dich an, um Zugriff anzufordern.",
+  "accessRequest.title": "{{name}} bittet um Zugriff",
+  "accessRequest.approvedTitle": "Zugriff gewährt",
+  "accessRequest.declinedTitle": "Anfrage abgelehnt",
+  "accessRequest.allow": "Zulassen",
+  "accessRequest.decline": "Ablehnen",
+  "accessRequest.unavailableTitle": "Du kannst diese Anfrage nicht prüfen",
+  "accessRequest.unavailableDescription":
+    "Sie wurde möglicherweise zurückgezogen, oder dieses Konto kann den Zugriff nicht verwalten.",
+  "accessRequest.loadFailed": "Diese Anfrage konnte nicht geladen werden.",
+  "accessRequest.retry": "Erneut versuchen",
+  "accessRequest.decisionFailed":
+    "Deine Entscheidung konnte nicht gespeichert werden. Versuche es erneut.",
+  "accessRequest.stale":
+    "Jemand hat diese Anfrage bereits bearbeitet, oder sie wurde geändert.",
+  "share.accessRequests": "Zugriffsanfragen",
+  "share.accessRequestsLoadFailed":
+    "Zugriffsanfragen konnten nicht geladen werden.",
+  "share.accessRequestsNewest":
+    "Die {{count}} neuesten Anfragen werden angezeigt.",
+  "accessRequest.emailFailed":
+    "{{name}} hat Zugriff, aber wir konnten keine E-Mail senden.",
+  "share.allowRequestFrom": "{{name}} zulassen",
+  "share.declineRequestFrom": "{{name}} ablehnen",
   "share.add": "Hinzufügen",
   "share.addPeopleEmail": "Personen per E-Mail hinzufügen",
   "share.addPeopleOrganization": "Personen aus deiner Organisation hinzufügen",

@@ -52,11 +52,12 @@ type MarkdownOperationPayload = {
   changedText?: string;
 };
 
-type MarkdownOperationAnchor = {
-  from: number;
-  to: number;
+type MarkdownRange = { from: number; to: number };
+
+type MarkdownOperationAnchor = MarkdownRange & {
   prefix: string;
   suffix: string;
+  siblingRanges?: MarkdownRange[];
 };
 
 function markdownPayload(
@@ -148,6 +149,63 @@ export function applyMarkdownSuggestionOperation(
   if (!range) return null;
   const { from, to } = range;
   return `${currentMarkdown.slice(0, from)}${after.changedText}${currentMarkdown.slice(to)}`;
+}
+
+// Suggestions saved separately from the same Page text don't list each other
+// as siblings, so accepting one can remove the context another is anchored
+// to. Each accepted one is a range of that shared text whose bytes may now
+// differ; every other byte must still match for the placement to succeed.
+// Match on the operation's full before-text, not the base revision token:
+// the same text recurs under many body revisions, and Comment AI suggestions
+// carry the Page's updatedAt instead of a body token.
+async function acceptedRangesOnSameText(
+  tx: DbExec,
+  suggestion: { id: string; resourceId: string },
+  beforeMarkdown: string,
+): Promise<MarkdownRange[]> {
+  const rows = (
+    await tx.execute({
+      sql: `SELECT o.anchor_json FROM agent_review_suggestions s
+            INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
+            WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
+              AND s.status = 'accepted' AND s.id <> ?
+              AND (o.before_json::jsonb ->> 'markdown') = ?`,
+      args: [
+        suggestion.resourceId,
+        CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
+        suggestion.id,
+        beforeMarkdown,
+      ],
+    })
+  ).rows;
+  return rows.flatMap((row) => {
+    const anchor = JSON.parse(
+      String(row.anchor_json),
+    ) as Partial<MarkdownRange>;
+    return Number.isInteger(anchor.from) &&
+      Number.isInteger(anchor.to) &&
+      anchor.from! >= 0 &&
+      anchor.from! <= anchor.to! &&
+      anchor.to! <= beforeMarkdown.length
+      ? [{ from: anchor.from!, to: anchor.to! }]
+      : [];
+  });
+}
+
+function withSiblingRanges(
+  operation: SuggestionOperation,
+  ranges: MarkdownRange[],
+): SuggestionOperation {
+  const anchor = operationAnchor(operation);
+  const merged: MarkdownRange[] = [];
+  for (const range of [...(anchor.siblingRanges ?? []), ...ranges].sort(
+    (left, right) => left.from - right.from || left.to - right.to,
+  )) {
+    const last = merged[merged.length - 1];
+    if (last && range.from < last.to) last.to = Math.max(last.to, range.to);
+    else merged.push({ ...range });
+  }
+  return { ...operation, anchor: { ...anchor, siblingRanges: merged } };
 }
 
 function documentFromContext(ctx: Record<string, unknown> | undefined) {
@@ -615,7 +673,6 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
-    if (context.decision === "rejected") return run();
     const sync = await prepareTransactionalChange({
       source: "action",
       type: "change",
@@ -689,13 +746,25 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       throw new Error("Externally linked Pages cannot accept suggestions yet");
     }
     const currentContent = String(current.content);
-    const nextContent = applyMarkdownSuggestionOperation(
+    let nextContent = applyMarkdownSuggestionOperation(
       currentContent,
       operation,
     );
     if (nextContent === null) {
+      const accepted = await acceptedRangesOnSameText(
+        tx,
+        context.suggestion,
+        markdownPayload(operation.before, "before").markdown,
+      );
+      if (accepted.length)
+        nextContent = applyMarkdownSuggestionOperation(
+          currentContent,
+          withSiblingRanges(operation, accepted),
+        );
+    }
+    if (nextContent === null) {
       const error = new Error(
-        "The Page changed after this suggestion was created",
+        "The text around this suggestion changed, so it can't be placed on the current Page. It's still pending: reject it, or suggest the edit again.",
       );
       error.name = "SuggestionStaleError";
       throw error;

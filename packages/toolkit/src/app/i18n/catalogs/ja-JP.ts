@@ -1221,6 +1221,57 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.keyProvider": "API キープロバイダー",
   "setup.keySaveFailed": "キーを保存できませんでした。",
   "setup.storedSecurely": "このアプリ専用として安全に保存されます。",
+  "accessGate.deniedTitle": "アクセス権がありません",
+  "accessGate.deniedDescription": "所有者に共有を依頼してください。",
+  "accessGate.missingTitle": "この項目は存在しません",
+  "accessGate.missingDescription":
+    "リンクが間違っているか、削除された可能性があります。",
+  "accessGate.trashedTitle": "この項目はゴミ箱にあります",
+  "accessGate.trashedDescription": "復元すると再び開けます。",
+  "accessGate.signedOutTitle": "続行するにはログインしてください",
+  "accessGate.signedOutDescription":
+    "アクセス権のあるアカウントでログインしてください。",
+  "accessGate.signIn": "ログイン",
+  "accessGate.signedInAs": "ログイン中のアカウント: {{email}}",
+  "accessGate.switchAccount": "アカウントを切り替える",
+  "accessGate.requestDescription":
+    "アクセスをリクエストすると、所有者に通知されます。",
+  "accessGate.requestSent":
+    "リクエストを送信しました。所有者に通知されました。",
+  "accessGate.requestAccess": "アクセスをリクエスト",
+  "accessGate.requestNoteLabel": "メモ（任意）",
+  "accessGate.requestNotePlaceholder": "所有者へのメモを追加",
+  "accessGate.sendRequest": "リクエストを送信",
+  "accessGate.cancel": "キャンセル",
+  "accessGate.requestRateLimited":
+    "現在リクエストが多すぎます。しばらくしてからもう一度お試しください。",
+  "accessGate.requestFailed":
+    "リクエストを送信できませんでした。もう一度お試しください。",
+  "accessGate.signedOutRequestDescription":
+    "アクセスをリクエストするにはログインしてください。",
+  "accessRequest.title": "{{name}}がアクセスをリクエストしています",
+  "accessRequest.approvedTitle": "アクセスを許可しました",
+  "accessRequest.declinedTitle": "リクエストを拒否しました",
+  "accessRequest.allow": "許可",
+  "accessRequest.decline": "拒否",
+  "accessRequest.unavailableTitle": "このリクエストを確認できません",
+  "accessRequest.unavailableDescription":
+    "取り下げられたか、このアカウントにアクセス管理の権限がない可能性があります。",
+  "accessRequest.loadFailed": "このリクエストを読み込めませんでした。",
+  "accessRequest.retry": "再試行",
+  "accessRequest.decisionFailed":
+    "決定を保存できませんでした。もう一度お試しください。",
+  "accessRequest.stale":
+    "このリクエストは他のユーザーが処理済みか、内容が変更されています。",
+  "share.accessRequests": "アクセスリクエスト",
+  "share.accessRequestsLoadFailed":
+    "アクセスリクエストを読み込めませんでした。",
+  "share.accessRequestsNewest":
+    "新しい順に{{count}}件のリクエストを表示しています。",
+  "accessRequest.emailFailed":
+    "{{name}}にアクセス権を付与しましたが、メールを送信できませんでした。",
+  "share.allowRequestFrom": "{{name}}のリクエストを許可",
+  "share.declineRequestFrom": "{{name}}のリクエストを拒否",
   "share.add": "追加",
   "share.addPeopleEmail": "メールアドレスでユーザーを追加",
   "share.addPeopleOrganization": "組織からユーザーを追加",
@@ -1308,6 +1359,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
+  "tool.identifierHidden": "[識別子を非表示]",
+  "tool.contentOmitted": "[内容を省略]",
+  "tool.circularReference": "[循環参照]",
   "tool.interrupted":
     "完了報告の前に中断されました。処理は完了している場合も、していない場合もあります。再試行する前に確認してください。",
   "tool.longRunning":

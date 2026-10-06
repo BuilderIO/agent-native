@@ -37,6 +37,7 @@ export type SuggestionDraftSession = {
     id: string;
     threadId: string;
     revision: number;
+    baseRevision: string;
   };
 };
 
@@ -70,17 +71,36 @@ export type DraftSuggestion = {
 export type SuggestionPersistenceEntry = {
   idempotencyKey: string;
   operation: SuggestionOperation;
-  suggestion?: ResourceSuggestion;
+  suggestion: ResourceSuggestion;
 };
 
+export type SuggestionDraftPersistencePlan<
+  Operation extends SuggestionOperation = SuggestionOperation,
+> = {
+  unchanged: Map<string, ResourceSuggestion>;
+  amend: Array<{
+    key: string;
+    previousKey: string;
+    operation: Operation;
+    suggestion: ResourceSuggestion;
+  }>;
+  create: Array<{ key: string; operation: Operation }>;
+  withdraw: Array<{ key: string; suggestion: ResourceSuggestion }>;
+};
+
+// Ordinals, sibling ranges, and anchor context are cut at neighboring edits, so
+// they change when another hunk does; the key must not.
 export function suggestionOperationKey(operation: SuggestionOperation) {
   const { ordinal: _ordinal, ...stableOperation } = operation;
-  if (stableOperation.kind === "replace_text") {
-    const { siblingRanges: _siblingRanges, ...stableAnchor } =
-      stableOperation.anchor as Record<string, unknown>;
-    return JSON.stringify({ ...stableOperation, anchor: stableAnchor });
-  }
-  return JSON.stringify(stableOperation);
+  if (!stableOperation.anchor || typeof stableOperation.anchor !== "object")
+    return JSON.stringify(stableOperation);
+  const {
+    siblingRanges: _siblingRanges,
+    prefix: _prefix,
+    suffix: _suffix,
+    ...stableAnchor
+  } = stableOperation.anchor as Record<string, unknown>;
+  return JSON.stringify({ ...stableOperation, anchor: stableAnchor });
 }
 
 export function freshestSavedSuggestions(
@@ -95,6 +115,62 @@ export function freshestSavedSuggestions(
     }
   }
   return [...byId.values()];
+}
+
+export type SuggestionSaveOutcome<Result> =
+  | { status: "saved"; result: Result }
+  // Accepted, or amended elsewhere: the draft's base no longer describes the
+  // suggestion, so saving the draft over it would discard that change.
+  | { status: "changed" }
+  // Rejected, withdrawn, stale, superseded, or gone: the Page never took it.
+  | { status: "closed" };
+
+// A conflict means the suggestion moved on without this save: a reviewer
+// decided it, or someone amended it elsewhere, which is the only way its
+// revision advances.
+export async function saveUnlessSuggestionChanged<Result>(
+  suggestion: Pick<ResourceSuggestion, "id">,
+  attempt: () => Promise<Result>,
+  options: {
+    isConflict: (error: unknown) => boolean;
+    latest: (id: string) => Promise<ResourceSuggestion | undefined>;
+  },
+): Promise<SuggestionSaveOutcome<Result>> {
+  try {
+    return { status: "saved", result: await attempt() };
+  } catch (error) {
+    if (!options.isConflict(error)) throw error;
+  }
+  const latest = await options.latest(suggestion.id);
+  if (!latest) return { status: "closed" };
+  switch (latest.status) {
+    case "pending":
+    case "accepted":
+      return { status: "changed" };
+    case "rejected":
+    case "stale":
+    case "superseded":
+    case "withdrawn":
+      return { status: "closed" };
+  }
+}
+
+// The server fingerprints an amendment with the revision it observed, so a
+// key repeats only for a retry of the same request. Undoing back to text an
+// earlier save already sent amends a newer revision and needs a new key.
+export function suggestionAmendmentIdempotencyKey(
+  keys: Map<string, string>,
+  suggestion: Pick<ResourceSuggestion, "id" | "revision">,
+  operationsKey: string,
+) {
+  const requestKey = JSON.stringify([
+    suggestion.id,
+    suggestion.revision,
+    operationsKey,
+  ]);
+  const key = keys.get(requestKey) ?? globalThis.crypto.randomUUID();
+  keys.set(requestKey, key);
+  return key;
 }
 
 export function createSuggestionDraftSession(input: {
@@ -183,6 +259,7 @@ export function editableSuggestionDraft(input: {
         id: suggestion.id,
         threadId: suggestion.threadId,
         revision: suggestion.revision,
+        baseRevision: suggestion.baseRevision,
       },
     }),
     content: after.markdown,
@@ -313,61 +390,115 @@ export function previewSuggestionDraft(
   }
 }
 
+function operationBaseRange(operation: SuggestionOperation) {
+  return operation.anchor as { from: number; to: number };
+}
+
+// Typing on after a save changes an operation's key, so a saved suggestion is
+// matched to whichever current operation overlaps its base range; matching by
+// key alone would save every continued keystroke run as a duplicate.
+function matchSessionOperations<Operation extends SuggestionOperation>(
+  operations: Operation[],
+  entries: ReadonlyMap<string, SuggestionPersistenceEntry>,
+) {
+  const claimed = new Set<string>();
+  const matches = operations.map((operation) => {
+    const key = suggestionOperationKey(operation);
+    const exact = entries.has(key);
+    if (exact) claimed.add(key);
+    return { operation, key, persistedKey: exact ? key : null };
+  });
+  for (const match of matches) {
+    if (match.persistedKey) continue;
+    const range = operationBaseRange(match.operation);
+    let best: { key: string; from: number } | null = null;
+    for (const [key, entry] of entries) {
+      if (claimed.has(key)) continue;
+      const saved = operationBaseRange(entry.operation);
+      if (saved.from > range.to || range.from > saved.to) continue;
+      if (!best || saved.from < best.from) best = { key, from: saved.from };
+    }
+    if (best) {
+      claimed.add(best.key);
+      match.persistedKey = best.key;
+    }
+  }
+  const orphaned = [...entries.keys()].filter((key) => !claimed.has(key));
+  return { matches, orphaned };
+}
+
+export function planSuggestionDraftPersistence<
+  Operation extends SuggestionOperation,
+>(
+  operations: Operation[],
+  entries: ReadonlyMap<string, SuggestionPersistenceEntry>,
+): SuggestionDraftPersistencePlan<Operation> {
+  const { matches, orphaned } = matchSessionOperations(operations, entries);
+  const plan: SuggestionDraftPersistencePlan<Operation> = {
+    unchanged: new Map(),
+    amend: [],
+    create: [],
+    withdraw: orphaned.map((key) => ({
+      key,
+      suggestion: entries.get(key)!.suggestion,
+    })),
+  };
+  for (const { operation, key, persistedKey } of matches) {
+    if (!persistedKey) plan.create.push({ key, operation });
+    else if (persistedKey === key)
+      plan.unchanged.set(key, entries.get(key)!.suggestion);
+    else
+      plan.amend.push({
+        key,
+        previousKey: persistedKey,
+        operation,
+        suggestion: entries.get(persistedKey)!.suggestion,
+      });
+  }
+  return plan;
+}
+
+function savedSuggestionsForDrafts(
+  suggestions: DraftSuggestion[],
+  entries: ReadonlyMap<string, SuggestionPersistenceEntry>,
+) {
+  const { matches, orphaned } = matchSessionOperations(
+    suggestions.map((suggestion) => suggestion.operations[0]!),
+    entries,
+  );
+  return {
+    saved: matches.map((match) =>
+      match.persistedKey ? entries.get(match.persistedKey)!.suggestion : null,
+    ),
+    withdrawnIds: new Set(
+      orphaned.map((key) => entries.get(key)!.suggestion.id),
+    ),
+  };
+}
+
 export function unpersistedDraftSuggestions(
   suggestions: DraftSuggestion[],
-  entries: Map<string, SuggestionPersistenceEntry>,
+  entries: ReadonlyMap<string, SuggestionPersistenceEntry>,
 ) {
-  return suggestions.filter(
-    (suggestion) =>
-      !entries.get(suggestionOperationKey(suggestion.operations[0]!))
-        ?.suggestion,
-  );
+  const { saved } = savedSuggestionsForDrafts(suggestions, entries);
+  return suggestions.filter((_suggestion, index) => !saved[index]);
 }
 
 export function suggestionSessionVisuals(
   suggestions: DraftSuggestion[],
-  entries: Map<string, SuggestionPersistenceEntry>,
+  entries: ReadonlyMap<string, SuggestionPersistenceEntry>,
 ) {
-  return suggestions.map((draft) => {
-    const entry = entries.get(suggestionOperationKey(draft.operations[0]!));
-    return {
-      ...draft,
-      id: entry?.suggestion?.id ?? draft.id,
-      threadId: entry?.suggestion?.threadId ?? draft.threadId,
-    };
-  });
+  const { saved } = savedSuggestionsForDrafts(suggestions, entries);
+  return suggestions.map((draft, index) => ({
+    ...draft,
+    id: saved[index]?.id ?? draft.id,
+    threadId: saved[index]?.threadId ?? draft.threadId,
+  }));
 }
 
-export async function persistSuggestionDraftOperations(
-  operations: SuggestionOperation[],
-  entries: Map<string, SuggestionPersistenceEntry>,
-  create: (
-    operation: SuggestionOperation,
-    idempotencyKey: string,
-  ) => Promise<ResourceSuggestion>,
+export function withdrawnSessionSuggestionIds(
+  suggestions: DraftSuggestion[],
+  entries: ReadonlyMap<string, SuggestionPersistenceEntry>,
 ) {
-  const persisted = new Map<string, ResourceSuggestion>();
-  for (const operation of operations) {
-    const operationKey = suggestionOperationKey(operation);
-    const existing = entries.get(operationKey);
-    if (existing?.suggestion) {
-      persisted.set(operationKey, existing.suggestion);
-      continue;
-    }
-    const idempotencyKey =
-      existing?.idempotencyKey ?? globalThis.crypto.randomUUID();
-    const persistedOperation = existing?.operation ?? operation;
-    entries.set(operationKey, {
-      idempotencyKey,
-      operation: persistedOperation,
-    });
-    const suggestion = await create(persistedOperation, idempotencyKey);
-    entries.set(operationKey, {
-      idempotencyKey,
-      operation: persistedOperation,
-      suggestion,
-    });
-    persisted.set(operationKey, suggestion);
-  }
-  return persisted;
+  return savedSuggestionsForDrafts(suggestions, entries).withdrawnIds;
 }

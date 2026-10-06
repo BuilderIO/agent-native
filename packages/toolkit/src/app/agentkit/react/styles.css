@@ -99,7 +99,10 @@
   border-color: var(--agentkit-composer-border) !important;
   border-radius: var(--agentkit-radius);
   color: var(--agentkit-text);
-  background: var(--agentkit-surface);
+  background: var(
+    --agentkit-composer-background,
+    var(--agent-kit-composer-surface, var(--agentkit-surface))
+  );
   box-shadow: var(--agentkit-elevation);
 }
 
@@ -373,17 +376,56 @@
 }
 
 .agentkit-suggestions [data-agent-suggestion-scroller="true"] {
-  display: flex;
   inline-size: 100%;
-  gap: 0.375rem;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
+  scroll-padding-inline: 1.5rem;
   scrollbar-width: none;
 }
 
 .agentkit-suggestions
   [data-agent-suggestion-scroller="true"]::-webkit-scrollbar {
   display: none;
+}
+
+.agentkit-suggestions [data-agent-suggestion-track="true"] {
+  display: flex;
+  flex-wrap: wrap;
+  inline-size: var(--agent-suggestion-track-width);
+  min-inline-size: 100%;
+  gap: 0.375rem;
+}
+
+[data-agent-suggestion-scroller="true"]:is(
+  [data-overflow-start],
+  [data-overflow-end]
+) {
+  -webkit-mask-image: linear-gradient(
+    var(--agent-suggestion-fade-direction, to right),
+    transparent 0,
+    black var(--agent-suggestion-fade-start, 0px),
+    black calc(100% - var(--agent-suggestion-fade-end, 0px)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    var(--agent-suggestion-fade-direction, to right),
+    transparent 0,
+    black var(--agent-suggestion-fade-start, 0px),
+    black calc(100% - var(--agent-suggestion-fade-end, 0px)),
+    transparent 100%
+  );
+}
+
+[data-agent-suggestion-scroller="true"]:dir(rtl) {
+  --agent-suggestion-fade-direction: to left;
+}
+
+[data-agent-suggestion-scroller="true"][data-overflow-start] {
+  --agent-suggestion-fade-start: 1.5rem;
+}
+
+[data-agent-suggestion-scroller="true"][data-overflow-end] {
+  --agent-suggestion-fade-end: 1.5rem;
 }
 
 .agentkit-suggestions button {
@@ -1476,6 +1518,39 @@ button.agentkit-object {
   margin-inline-start: 1.5rem;
   padding: 0.25rem 0 0.5rem;
   color: var(--agentkit-text);
+}
+
+.agentkit-activity-summary-section {
+  display: grid;
+  gap: 0.25rem;
+  margin-block-start: 0.5rem;
+}
+
+.agentkit-activity-summary-label {
+  color: var(--agentkit-text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.agentkit-activity-summary-value {
+  max-block-size: 12rem;
+  overflow: auto;
+  border: 1px solid var(--agentkit-border);
+  border-radius: var(--radius-md, var(--radius));
+  padding: 0.5rem 0.625rem;
+  background: var(--agentkit-subtle);
+  color: var(--agentkit-text);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agentkit-activity-summary-value:focus-visible {
+  outline: 2px solid var(--agentkit-focus);
+  outline-offset: 2px;
 }
 
 .agentkit-approval,

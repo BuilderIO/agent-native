@@ -526,6 +526,16 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("onTogglePinned={toggleChatFirstAppPinned}");
   });
 
+  it("keeps inactive app icons colorful like the Dispatch rail", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("grayscaleInactiveIcons={false}");
+    expect(hubSource).not.toContain("monochrome={isInactive}");
+  });
+
   it("keeps selected apps in the main surface and makes browser opening explicit", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",

@@ -229,14 +229,18 @@ export function Layout({ children }: LayoutProps) {
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>
           <div className="flex h-[100dvh] w-full overflow-hidden bg-background text-foreground">
-            <main
-              className={cn(
-                "min-w-0 flex-1",
-                isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
-              )}
-            >
-              {children}
-            </main>
+            {/* Matches the standalone editor's depth: a resolving session
+                switches modes, and a different tree remounts the editor. */}
+            <div className="contents">
+              <main
+                className={cn(
+                  "min-w-0 flex-1",
+                  isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
+                )}
+              >
+                {children}
+              </main>
+            </div>
           </div>
         </MobileSidebarContext.Provider>
       </HeaderActionsProvider>

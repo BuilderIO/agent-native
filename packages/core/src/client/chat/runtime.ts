@@ -1339,6 +1339,17 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
   return error;
 }
 
+/**
+ * A turn that failed to start keeps its id: the server records a turn it
+ * refused under that id, and the client reports the failure with it.
+ */
+function withTurnId(error: unknown, turnId: string): unknown {
+  if (error !== null && typeof error === "object" && !("turnId" in error)) {
+    Object.assign(error, { turnId });
+  }
+  return error;
+}
+
 export function createHttpAgentChatRuntime<
   TEvent extends AgentChatRuntimeEventBase = AgentChatRuntimeKnownEvent,
 >(
@@ -1394,20 +1405,26 @@ export function createHttpAgentChatRuntime<
       });
       if (!headers.has("Content-Type"))
         headers.set("Content-Type", "application/json");
-      const response = await fetchImpl(normalizeEndpoint(endpoint), {
-        method: options.method ?? "POST",
-        headers,
-        credentials: options.credentials,
-        body: JSON.stringify(
-          options.mapRequest
-            ? options.mapRequest({ session: summary, turn, turnId })
-            : defaultHttpRuntimeRequest({ session: summary, turn, turnId }),
-        ),
-        signal: controller.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetchImpl(normalizeEndpoint(endpoint), {
+          method: options.method ?? "POST",
+          headers,
+          credentials: options.credentials,
+          body: JSON.stringify(
+            options.mapRequest
+              ? options.mapRequest({ session: summary, turn, turnId })
+              : defaultHttpRuntimeRequest({ session: summary, turn, turnId }),
+          ),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        cleanup();
+        throw withTurnId(error, turnId);
+      }
       if (!response.ok) {
         cleanup();
-        throw await readHttpRuntimeError(response);
+        throw withTurnId(await readHttpRuntimeError(response), turnId);
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
