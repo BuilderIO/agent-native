@@ -15,8 +15,7 @@ const SYSTEM_ONE_CAPABILITY: OnboardingCapability = {
   suggested: true,
   builderIncluded: true,
   keySummary: "Jev decision model key",
-  whyKey: "agentChat.onboarding.capability.systemOne.why",
-  why: "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
+  why: "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request. Use Builder-managed access when available, or add a direct JEV_API_KEY.",
 };
 
 const PROFILES: Record<string, OnboardingAppProfile> = {

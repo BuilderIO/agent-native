@@ -130,7 +130,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "每月 60 點 Agent Credits",
   "onboarding.builderIncludedFree": "免費包含",
   "onboarding.builderMoreServices": "+ {{count}} 項其他服務",
-  "onboarding.builderIncludedServices": "包含的服務",
   "onboarding.builderActivateTitle": "啟用免費額度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 帳戶",
   "onboarding.builderAccountExistsDescription": "登入以使用您的帳戶。",

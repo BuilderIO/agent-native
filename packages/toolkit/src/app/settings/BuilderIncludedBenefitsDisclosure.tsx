@@ -7,10 +7,17 @@ import {
   CollapsibleTrigger,
 } from "@agent-native/toolkit/ui/collapsible";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
-import { IconCheck, IconChevronDown } from "@tabler/icons-react";
-
-import { CapabilityInfoButton } from "../onboarding/BuilderIncludedServices.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
+  IconCheck,
+  IconChevronDown,
+  IconInfoCircle,
+} from "@tabler/icons-react";
 
 const BUILDER_SERVICE_WHY_KEYS: Record<string, string> = {
   llm: "agentChat.onboarding.capability.llm.why",
@@ -51,6 +58,32 @@ export function getBuilderIncludedBenefitCapabilities(
       : capabilities;
 
   return completeCapabilities.filter(isBuilderIncludedCapability);
+}
+
+function CapabilityInfoButton({ label, why }: { label: string; why: string }) {
+  const t = useT();
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("agentChat.onboarding.capability.about", {
+            defaultValue: "About {{label}}",
+            label,
+          })}
+          className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <IconInfoCircle size={13} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs">
+        {why}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function BuilderBenefitRows({

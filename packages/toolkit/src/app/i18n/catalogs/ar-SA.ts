@@ -134,7 +134,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "60 رصيد Agent شهريًا",
   "onboarding.builderIncludedFree": "مُضمّن مجانًا",
   "onboarding.builderMoreServices": "+ {{count}} خدمات أخرى",
-  "onboarding.builderIncludedServices": "الخدمات المضمنة",
   "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
   "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
   "onboarding.builderAccountExistsDescription": "سجّل الدخول لاستخدام حسابك.",

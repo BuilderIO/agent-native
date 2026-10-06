@@ -139,7 +139,6 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "60 Agent Credits al mes",
   "onboarding.builderIncludedFree": "Incluido gratis",
   "onboarding.builderMoreServices": "+ {{count}} servicios más",
-  "onboarding.builderIncludedServices": "Servicios incluidos",
   "onboarding.builderActivateTitle": "Activar créditos gratuitos",
   "onboarding.builderAccountExistsTitle": "Ya tienes una cuenta de Builder.io",
   "onboarding.builderAccountExistsDescription":

@@ -133,7 +133,6 @@ const messages = {
   "onboarding.builderMonthlyCredits": "60 monthly Agent Credits",
   "onboarding.builderIncludedFree": "Included free",
   "onboarding.builderMoreServices": "+ {{count}} more services",
-  "onboarding.builderIncludedServices": "Included services",
   "onboarding.builderActivateTitle": "Activate free credits",
   "onboarding.builderAccountExistsTitle":
     "You already have a Builder.io account",
