@@ -316,6 +316,16 @@ async function haveSameFileContents(first: Blob, second: Blob) {
   return true;
 }
 
+async function haveSameAttachmentInput(
+  first: { file: Blob; name: string; contentType: string },
+  second: { file: Blob; name: string; contentType: string },
+) {
+  if (first.name !== second.name || first.contentType !== second.contentType) {
+    return false;
+  }
+  return haveSameFileContents(first.file, second.file);
+}
+
 function isBlob(value: unknown): value is Blob {
   return typeof Blob !== "undefined" && value instanceof Blob;
 }
@@ -3016,6 +3026,24 @@ export function TiptapComposer({
     new Map<number, Set<Promise<void>>>(),
   );
   const pendingAttachmentFilesRef = useRef(new Map<File, number>());
+  const staleAttachmentFilesRef = useRef(new Set<File>());
+  const cleanStaleAttachments = useCallback(async () => {
+    await attachmentCleanupRef.current;
+    for (const file of staleAttachmentFilesRef.current) {
+      const cleanup = attachmentCleanupRef.current.then(async () => {
+        const index = composerRuntime
+          .getState()
+          .attachments.findIndex((attachment) => attachment.file === file);
+        if (index === -1) return;
+        await composerRuntime.getAttachmentByIndex(index).remove();
+      });
+      attachmentCleanupRef.current = cleanup.catch((error) => {
+        console.error("Could not remove stale composer attachment", error);
+      });
+      await cleanup;
+      staleAttachmentFilesRef.current.delete(file);
+    }
+  }, [composerRuntime]);
   const addAttachmentForCurrentScope = useCallback(
     async (file: File) => {
       const scopeGeneration = draftScopeGenerationRef.current;
@@ -3024,21 +3052,40 @@ export function TiptapComposer({
           .filter(([generation]) => generation !== scopeGeneration)
           .flatMap(([, additions]) => [...additions]);
         await Promise.all(priorScopeAdds);
-        await attachmentCleanupRef.current;
+        await cleanStaleAttachments();
         if (draftScopeGenerationRef.current !== scopeGeneration) return false;
 
         const existingFiles = composerRuntime
           .getState()
           .attachments.flatMap((attachment) =>
-            isBlob(attachment.file) ? [attachment.file] : [],
+            isBlob(attachment.file)
+              ? [
+                  {
+                    file: attachment.file,
+                    name: attachment.name,
+                    contentType: attachment.contentType ?? "",
+                  },
+                ]
+              : [],
           );
         const pendingFiles = [...pendingAttachmentFilesRef.current].flatMap(
           ([pendingFile, pendingGeneration]) =>
-            pendingGeneration === scopeGeneration ? [pendingFile] : [],
+            pendingGeneration === scopeGeneration
+              ? [
+                  {
+                    file: pendingFile,
+                    name: pendingFile.name,
+                    contentType: pendingFile.type,
+                  },
+                ]
+              : [],
         );
         const filesToCompare = [...existingFiles, ...pendingFiles];
+        const candidate = { file, name: file.name, contentType: file.type };
         for (const existingFile of filesToCompare) {
-          if (await haveSameFileContents(file, existingFile)) return false;
+          if (await haveSameAttachmentInput(candidate, existingFile)) {
+            return false;
+          }
         }
 
         pendingAttachmentFilesRef.current.set(file, scopeGeneration);
@@ -3059,20 +3106,17 @@ export function TiptapComposer({
       const addition = composerRuntime.addAttachment(file);
       const removeIfStale = async () => {
         if (draftScopeGenerationRef.current === scopeGeneration) return;
-        const cleanup = attachmentCleanupRef.current.then(async () => {
-          const index = composerRuntime
-            .getState()
-            .attachments.findIndex((attachment) => attachment.file === file);
-          if (index === -1) return;
-          await composerRuntime.getAttachmentByIndex(index).remove();
-        });
-        attachmentCleanupRef.current = cleanup;
-        await cleanup;
+        staleAttachmentFilesRef.current.add(file);
+        await cleanStaleAttachments();
       };
       const settledAddition = addition.then(removeIfStale, removeIfStale);
+      const scopeBarrier = settledAddition.then(
+        () => undefined,
+        () => undefined,
+      );
       const scopeAdds =
         pendingAttachmentAddsRef.current.get(scopeGeneration) ?? new Set();
-      scopeAdds.add(settledAddition);
+      scopeAdds.add(scopeBarrier);
       pendingAttachmentAddsRef.current.set(scopeGeneration, scopeAdds);
       try {
         return await addition;
@@ -3080,7 +3124,7 @@ export function TiptapComposer({
         try {
           await settledAddition;
         } finally {
-          scopeAdds.delete(settledAddition);
+          scopeAdds.delete(scopeBarrier);
           if (scopeAdds.size === 0) {
             pendingAttachmentAddsRef.current.delete(scopeGeneration);
           }
@@ -3090,7 +3134,7 @@ export function TiptapComposer({
         }
       }
     },
-    [composerRuntime],
+    [cleanStaleAttachments, composerRuntime],
   );
   useLayoutEffect(() => {
     if (draftKeyRef.current !== draftKey) {

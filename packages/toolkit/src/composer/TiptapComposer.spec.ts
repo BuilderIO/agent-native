@@ -980,7 +980,12 @@ describe("createTiptapComposerExtensions", () => {
     });
     let nextAttachmentId = 0;
     const addedFiles: string[] = [];
-    const removedAttachments = vi.fn();
+    let removeAttempts = 0;
+    const removedAttachments = vi.fn(async () => {
+      if (++removeAttempts === 1) {
+        throw new Error("temporary cleanup failure");
+      }
+    });
     const attachmentAdapter: AttachmentAdapter = {
       accept: "*",
       add: async ({ file }) => {
@@ -998,9 +1003,7 @@ describe("createTiptapComposerExtensions", () => {
           status: { type: "requires-action", reason: "composer-send" },
         };
       },
-      remove: async () => {
-        removedAttachments();
-      },
+      remove: async () => removedAttachments(),
       send: async (attachment) => ({
         ...attachment,
         status: { type: "complete" },
@@ -1061,11 +1064,11 @@ describe("createTiptapComposerExtensions", () => {
 
     await act(async () => {
       releaseOldAdd();
-      await oldAdd;
+      await expect(oldAdd).rejects.toThrow("temporary cleanup failure");
       await newAdd;
     });
 
-    expect(removedAttachments).toHaveBeenCalledTimes(1);
+    expect(removedAttachments).toHaveBeenCalledTimes(2);
     expect(addedFiles).toEqual(["old.txt", "new.txt"]);
     expect(
       harnessRuntime?.thread.composer
@@ -1074,7 +1077,7 @@ describe("createTiptapComposerExtensions", () => {
     ).toEqual(["new.txt"]);
   });
 
-  it("deduplicates concurrent identical files while allowing same-name files with different contents", async () => {
+  it("deduplicates only files with matching names, types, and contents", async () => {
     let nextAttachmentId = 0;
     const attachmentAdapter: AttachmentAdapter = {
       accept: "*",
@@ -1125,15 +1128,29 @@ describe("createTiptapComposerExtensions", () => {
     await act(async () => {
       await Promise.all([
         focusRef.current!.addAttachment(
-          new File(["same bytes"], "first.png", { type: "image/png" }),
+          new File(["same bytes"], "same.png", { type: "image/png" }),
         ),
         focusRef.current!.addAttachment(
-          new File(["same bytes"], "second.png", { type: "image/png" }),
+          new File(["same bytes"], "same.png", { type: "image/png" }),
         ),
       ]);
     });
     expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
       1,
+    );
+
+    await act(async () => {
+      await Promise.all([
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "same.png", { type: "image/jpeg" }),
+        ),
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "renamed.png", { type: "image/png" }),
+        ),
+      ]);
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      3,
     );
 
     await act(async () => {
@@ -1148,8 +1165,11 @@ describe("createTiptapComposerExtensions", () => {
     });
     const attachments =
       harnessRuntime?.thread.composer.getState().attachments ?? [];
-    expect(attachments).toHaveLength(3);
-    expect(attachments.slice(1).map((attachment) => attachment.name)).toEqual([
+    expect(attachments).toHaveLength(5);
+    expect(attachments.map((attachment) => attachment.name)).toEqual([
+      "same.png",
+      "same.png",
+      "renamed.png",
       "report.txt",
       "report.txt",
     ]);
