@@ -545,6 +545,30 @@ describe("home landing route optimistic title", () => {
     );
   });
 
+  it("refreshes the Files root and recents when an early landing for another account created Welcome", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    callAction.mockResolvedValue({
+      documentId: "welcome-elsewhere",
+      resolution: "fallback",
+      welcomeCreated: true,
+      account: { email: "alice@example.com", orgId: "org-2" },
+    });
+    startEarlyContentLanding(locationKey.current);
+    resolveLanding.mutateAsync.mockResolvedValue({
+      documentId: "welcome-elsewhere",
+      resolution: "welcome-reused",
+    });
+
+    renderHome(root);
+    await act(async () => Promise.resolve());
+
+    expect(resolveLanding.mutateAsync).toHaveBeenCalledWith({});
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["action", "get-content-recent"],
+    });
+    invalidate.mockRestore();
+  });
+
   it("refreshes the Files root and recents after asking again for a failed early landing", async () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     callAction.mockRejectedValue(new Error("response lost"));

@@ -200,10 +200,11 @@ export default function HomeRoute() {
         ) === scope
           ? early.result
           : null;
-      // A failed early request may still have created Welcome, and every
-      // answer after it would only call Welcome reused, so the refresh stays
-      // owed until an answer arrives, across a failed retry.
-      if (early && !early.ok) collectionsRefreshOwedRef.current = true;
+      // An early request that is not adopted, failed or answered for another
+      // account, may still have created Welcome, and every answer after it
+      // would only call Welcome reused, so the refresh stays owed until an
+      // answer arrives, across a failed retry.
+      if (early && !adopted) collectionsRefreshOwedRef.current = true;
       if (adopted) refreshAfterLanding(queryClient, adopted);
       const result =
         adopted ??
