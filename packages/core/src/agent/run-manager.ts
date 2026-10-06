@@ -16,6 +16,7 @@ import {
   describeErrorWithCauses,
   isProviderConnectionError,
 } from "./engine/error-detail.js";
+import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
 import {
@@ -588,6 +589,10 @@ function emitRunTerminalTrackingEvent(args: {
       status: args.status,
       terminalReason: args.terminalReason,
       requestModel: args.model,
+      providerName: args.engineName,
+      supportedModels: args.engineName
+        ? getAgentEngineEntry(args.engineName)?.supportedModels
+        : undefined,
     });
     // coercion-ok: metrics must never affect the agent run or its status.
   } catch {

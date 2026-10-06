@@ -166,6 +166,8 @@ describe("GenAI and agent metrics", () => {
 
     recordGenAiChat({
       requestModel: "claude-test",
+      providerName: "anthropic",
+      supportedModels: ["claude-test"],
       durationMs: 1_500,
       inputTokens: 120,
       outputTokens: 30,
@@ -174,6 +176,7 @@ describe("GenAI and agent metrics", () => {
     const attributes = {
       "gen_ai.operation.name": "chat",
       "gen_ai.request.model": "claude-test",
+      "gen_ai.provider.name": "anthropic",
     };
     expect(meterProvider.recorded).toEqual([
       {
@@ -198,7 +201,12 @@ describe("GenAI and agent metrics", () => {
     const meterProvider = createTestMeterProvider();
     register({ meterProvider });
 
-    recordGenAiChat({ requestModel: "m", durationMs: 10, failed: true });
+    recordGenAiChat({
+      requestModel: "m",
+      supportedModels: ["m"],
+      durationMs: 10,
+      failed: true,
+    });
 
     expect(meterProvider.recorded).toEqual([
       {
@@ -213,6 +221,29 @@ describe("GenAI and agent metrics", () => {
     ]);
   });
 
+  it("collapses models outside the engine's supported list to _OTHER", () => {
+    const meterProvider = createTestMeterProvider();
+    register({ meterProvider });
+
+    recordGenAiChat({
+      requestModel: "caller-supplied-model",
+      supportedModels: ["claude-test"],
+      durationMs: 10,
+    });
+    recordAgentRun({
+      status: "completed",
+      terminalReason: "done",
+      requestModel: "caller-supplied-model",
+      supportedModels: [],
+    });
+
+    expect(
+      meterProvider.recorded.map(
+        (entry) => entry.attributes?.["gen_ai.request.model"],
+      ),
+    ).toEqual(["_OTHER", "_OTHER"]);
+  });
+
   it("drops the open-ended suffix from terminal reasons", () => {
     const meterProvider = createTestMeterProvider();
     register({ meterProvider });
@@ -221,6 +252,7 @@ describe("GenAI and agent metrics", () => {
       status: "errored",
       terminalReason: "error:provider_rate_limited",
       requestModel: "claude-test",
+      supportedModels: ["claude-test"],
     });
     recordAgentRun({ status: "completed", terminalReason: "done" });
 

@@ -338,13 +338,28 @@ Portanto, o custo quando você não conecta o OTel é algumas leituras de propri
 
 O loop do agente emite três tipos de span:
 
-| Período               | Quando                         | Atributos                                                                         |
-| --------------------- | ------------------------------ | --------------------------------------------------------------------------------- |
-| `invoke_agent`        | uma vez por execução do agente | `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
-| `execute_tool {tool}` | uma vez por invocação de ação  | `gen_ai.tool.name`, mais status de sucesso/erro                                   |
-| `chat {model}`        | por chamada de modelo          | tempo + OK/status de erro                                                         |
+| Período               | Quando                         | Atributos                                                                                                 |
+| --------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | uma vez por execução do agente | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | uma vez por invocação de ação  | `gen_ai.tool.name`, mais status de sucesso/erro                                                           |
+| `chat {model}`        | por chamada de modelo          | `gen_ai.provider.name`, tempo + OK/status de erro                                                         |
 
 Os trechos são concluídos com o status OK/ERROR e registram a mensagem de erro em caso de falha. Os valores de atributos zero/sentinel são removidos para que os trechos não fiquem cheios de ruído. Essa camada OTel é puramente aditiva às tabelas internas `agent_trace_spans`/`agent_trace_summaries` que alimentam o painel acima — ambas são produzidas a partir dos mesmos eventos de execução.
+
+### Métricas {#otel-metrics}
+
+O core também registra métricas assim que o host registra um provedor de medidores com `registerObservabilityProvider()` de `@agent-native/core/server`. As métricas são registradas para cada requisição e execução, sem amostragem:
+
+| Instrumento                             | Atributos                                                                                    |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+Nas métricas, `gen_ai.tool.name` é o nome de uma ação do framework ou `other`, e `gen_ai.request.model` é o ID do modelo apenas quando o engine o lista como suportado; caso contrário, `_OTHER`. Assim, ferramentas definidas pelo app e IDs de modelo fornecidos por quem chama não podem criar séries ilimitadas; os spans mantêm os valores exatos.
 
 ## Relatório de erros (Sentry) {#sentry}
 

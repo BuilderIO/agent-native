@@ -1907,6 +1907,46 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(ttft as number).toBeGreaterThanOrEqual(0);
   });
 
+  it("omits unreported token totals from the aggregate chat span", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+      }),
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-otel-unreported",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const chatSpan = spans.find((span) => span.name.startsWith("chat "));
+    expect(chatSpan?.attributes["gen_ai.provider.name"]).toBe("anthropic");
+    expect(chatSpan?.attributes).not.toHaveProperty(
+      "gen_ai.usage.input_tokens",
+    );
+    expect(chatSpan?.attributes).not.toHaveProperty(
+      "gen_ai.usage.output_tokens",
+    );
+  });
+
   it("emits run/tool/llm spans with expected names and attributes", async () => {
     const { spans, runtime } = createRecordingTracer();
     __setAgentTraceRuntimeForTests(runtime as any);
@@ -1934,6 +1974,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
           cacheReadTokens: 5,
           cacheWriteTokens: 0,
           model: "claude-test",
+          usageReported: true,
         };
       },
       loopOpts,
@@ -2090,7 +2131,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
           throw new Error("provider down");
         },
         loopOpts: {
-          engine: { name: "anthropic" },
+          engine: { name: "anthropic", supportedModels: ["claude-test"] },
           model: "claude-test",
           systemPrompt: "",
           tools: [],
@@ -2111,6 +2152,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     const chat = {
       "gen_ai.operation.name": "chat",
       "gen_ai.request.model": "claude-test",
+      "gen_ai.provider.name": "anthropic",
     };
     expect(
       recorded

@@ -436,6 +436,15 @@ export async function instrumentAgentLoop(opts: {
     | undefined;
 }): Promise<AgentLoopUsage> {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
+  const engineName =
+    typeof loopOpts.engine?.name === "string"
+      ? loopOpts.engine.name
+      : undefined;
+  const engineSupportedModels: readonly string[] | undefined = Array.isArray(
+    loopOpts.engine?.supportedModels,
+  )
+    ? loopOpts.engine.supportedModels
+    : undefined;
   const orgId = getRequestOrgId() ?? null;
   const spanName = opts.spanName?.trim() || "agent_run";
   const runStart = Date.now();
@@ -457,6 +466,7 @@ export async function instrumentAgentLoop(opts: {
 
   const otelRunSpanPromise = startAgentSpan("invoke_agent", {
     "gen_ai.operation.name": "invoke_agent",
+    "gen_ai.provider.name": engineName,
     "gen_ai.conversation.id": threadId ?? undefined,
     "gen_ai.request.model": loopOpts.model,
     "agent.run_id": runId,
@@ -577,6 +587,7 @@ export async function instrumentAgentLoop(opts: {
       `chat ${loopOpts.model}`,
       {
         "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": engineName,
         "gen_ai.request.model": loopOpts.model,
         "llm.call_index": index,
       },
@@ -1132,10 +1143,6 @@ export async function instrumentAgentLoop(opts: {
         // case, not measured values — the tracking events below must omit them
         // rather than report a fabricated 0.
         const usageReported = usage?.usageReported === true;
-        const engineName =
-          typeof loopOpts.engine?.name === "string"
-            ? loopOpts.engine.name
-            : undefined;
         const derivedLlmDurationMs =
           measuredModelDurationMs ??
           Math.max(
@@ -1476,6 +1483,8 @@ export async function instrumentAgentLoop(opts: {
         for (const [tripIndex, trip] of modelRoundTrips.entries()) {
           recordGenAiChat({
             requestModel: loopOpts.model,
+            providerName: engineName,
+            supportedModels: engineSupportedModels,
             durationMs: trip.end - trip.start,
             failed:
               tripIndex === interruptedModelRoundTrip ||
@@ -1490,6 +1499,8 @@ export async function instrumentAgentLoop(opts: {
         if (modelRoundTrips.length === 0 && usage?.usageReported) {
           recordGenAiChat({
             requestModel: loopOpts.model,
+            providerName: engineName,
+            supportedModels: engineSupportedModels,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
           });
@@ -1529,6 +1540,7 @@ export async function instrumentAgentLoop(opts: {
               `chat ${loopOpts.model}`,
               {
                 "gen_ai.operation.name": "chat",
+                "gen_ai.provider.name": engineName,
                 "gen_ai.request.model": loopOpts.model,
               },
               otelRunSpan,
@@ -1539,11 +1551,16 @@ export async function instrumentAgentLoop(opts: {
             errorMessage,
             attributes: {
               "gen_ai.response.model": usage.model,
-              "gen_ai.usage.input_tokens": usage.inputTokens,
-              "gen_ai.usage.output_tokens": usage.outputTokens,
-              "gen_ai.usage.cache_read.input_tokens": usage.cacheReadTokens,
-              "gen_ai.usage.cache_creation.input_tokens":
-                usage.cacheWriteTokens,
+              ...(usage.usageReported
+                ? {
+                    "gen_ai.usage.input_tokens": usage.inputTokens,
+                    "gen_ai.usage.output_tokens": usage.outputTokens,
+                    "gen_ai.usage.cache_read.input_tokens":
+                      usage.cacheReadTokens,
+                    "gen_ai.usage.cache_creation.input_tokens":
+                      usage.cacheWriteTokens,
+                  }
+                : {}),
               "llm.cost_cents_x100": costCentsX100,
             },
           });

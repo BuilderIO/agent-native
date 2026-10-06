@@ -166,8 +166,25 @@ export function recordHttpServerRequest(
   );
 }
 
+/**
+ * Engines that accept custom model ids pass any caller-supplied string
+ * through, so a model outside the engine's supported list collapses to
+ * `_OTHER` instead of minting a series per string. Spans keep the exact id.
+ */
+function boundedModel(
+  model: string,
+  supportedModels: readonly string[] | undefined,
+): string {
+  return model === "auto" || supportedModels?.includes(model)
+    ? model
+    : "_OTHER";
+}
+
 export interface GenAiChatMetric {
   requestModel: string;
+  /** The engine name; a closed, registered set. */
+  providerName?: string;
+  supportedModels?: readonly string[];
   durationMs?: number;
   failed?: boolean;
   inputTokens?: number;
@@ -180,7 +197,11 @@ export function recordGenAiChat(call: GenAiChatMetric): void {
   if (!recorded) return;
   const attributes: MetricAttributes = {
     "gen_ai.operation.name": "chat",
-    "gen_ai.request.model": call.requestModel,
+    "gen_ai.request.model": boundedModel(
+      call.requestModel,
+      call.supportedModels,
+    ),
+    ...(call.providerName ? { "gen_ai.provider.name": call.providerName } : {}),
   };
   if (call.durationMs !== undefined) {
     recorded.genAiOperationDuration.record(
@@ -211,13 +232,23 @@ export interface AgentRunMetric {
   status: string;
   terminalReason: string;
   requestModel?: string;
+  providerName?: string;
+  supportedModels?: readonly string[];
 }
 
 export function recordAgentRun(run: AgentRunMetric): void {
   instruments()?.agentRuns.add(1, {
     status: run.status,
     terminal_reason: boundedTerminalReason(run.terminalReason),
-    ...(run.requestModel ? { "gen_ai.request.model": run.requestModel } : {}),
+    ...(run.requestModel
+      ? {
+          "gen_ai.request.model": boundedModel(
+            run.requestModel,
+            run.supportedModels,
+          ),
+        }
+      : {}),
+    ...(run.providerName ? { "gen_ai.provider.name": run.providerName } : {}),
   });
 }
 
