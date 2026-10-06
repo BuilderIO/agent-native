@@ -497,6 +497,7 @@ async function loadReferenceDeckGenerationContext(
 }
 
 const HOME_LIBRARY_TAB_STORAGE_KEY = "slides-home-library-tab";
+const HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY = "slides-home-has-recents";
 
 function readHomeLibraryTabPreference():
   | { status: "available"; value: SlidesHomeLibraryTab | null }
@@ -518,6 +519,38 @@ function writeHomeLibraryTabPreference(
 ): { status: "available" } | { status: "unavailable" } {
   try {
     window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, value);
+    return { status: "available" };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+function readHomeLibraryHasRecents():
+  | { status: "available"; value: boolean | null }
+  | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
+  try {
+    const value = window.localStorage.getItem(
+      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
+    );
+    return {
+      status: "available",
+      value: value === "true" ? true : value === "false" ? false : null,
+    };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+function writeHomeLibraryHasRecents(
+  value: boolean,
+): { status: "available" } | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
+  try {
+    window.localStorage.setItem(
+      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
+      String(value),
+    );
     return { status: "available" };
   } catch {
     return { status: "unavailable" };
@@ -728,6 +761,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   >(null);
   const [deckSearch, setDeckSearch] = useState("");
   const [storedHomeLibraryTab] = useState(readHomeLibraryTabPreference);
+  const [storedHomeLibraryHasRecents] = useState(readHomeLibraryHasRecents);
   const homeLibraryTabPreferenceRef = useRef(
     storedHomeLibraryTab.status === "available"
       ? storedHomeLibraryTab.value
@@ -738,7 +772,14 @@ export default function Index({ active = true }: { active?: boolean }) {
   );
   const [homeSection, setHomeSection] = useState<SlidesHomeLibraryTab>(
     homeLibraryTabPreferenceRef.current ??
-      (viewState === "decks" ? "recent" : "templates"),
+      (viewState === "decks"
+        ? "recent"
+        : viewState === "empty"
+          ? "templates"
+          : storedHomeLibraryHasRecents.status === "available" &&
+              storedHomeLibraryHasRecents.value === true
+            ? "recent"
+            : "templates"),
   );
   const persistHomeLibraryTab = useCallback((value: SlidesHomeLibraryTab) => {
     if (!homeLibraryTabStorageAvailableRef.current) return;
@@ -2412,15 +2453,14 @@ export default function Index({ active = true }: { active?: boolean }) {
   useEffect(() => {
     if (viewState === "loading") return;
     if (viewState === "empty") {
+      writeHomeLibraryHasRecents(false);
       setHomeSection("templates");
       homeLibraryTabPreferenceRef.current = "templates";
       persistHomeLibraryTab("templates");
       return;
     }
-    if (viewState === "error") {
-      setHomeSection("templates");
-      return;
-    }
+    if (viewState === "error") return;
+    writeHomeLibraryHasRecents(true);
     const preferredTab = homeLibraryTabPreferenceRef.current ?? "recent";
     homeLibraryTabPreferenceRef.current = preferredTab;
     setHomeSection(preferredTab);

@@ -1483,12 +1483,23 @@ describe("Slides prompt-led home", () => {
     expect(window.localStorage.getItem("slides-home-library-tab")).toBe(
       "recent",
     );
+    expect(window.localStorage.getItem("slides-home-has-recents")).toBe("true");
 
     home.unmount();
     renderHome({ decks: [ownDeck] });
     expect(
       screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
     ).toBe("true");
+  });
+
+  it("restores cached recents immediately while the deck list loads", () => {
+    window.localStorage.setItem("slides-home-has-recents", "true");
+    renderHome({ loading: true });
+
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
   });
 
   it("restores a saved Templates choice before the deck list finishes loading", async () => {
@@ -1517,6 +1528,7 @@ describe("Slides prompt-led home", () => {
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
     ).toBe("true");
+    expect(window.localStorage.getItem("slides-home-has-recents")).toBe("true");
   });
 
   it("keeps the Recent skeleton available when its tab opens during loading", () => {
@@ -1554,6 +1566,9 @@ describe("Slides prompt-led home", () => {
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
     ).toBe("true");
+    expect(window.localStorage.getItem("slides-home-has-recents")).toBe(
+      "false",
+    );
   });
 
   it("keeps the composer as the focal point and shows both tabs without accessible work", async () => {
