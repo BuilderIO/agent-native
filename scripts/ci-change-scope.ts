@@ -74,10 +74,17 @@ const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
   "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
   "templates/design/e2e/drag-and-drop.shared.ts",
+  "templates/design/e2e/drag-out-of-screen-to-board.spec.ts",
   "templates/design/e2e/global-setup.ts",
   "templates/design/e2e/global-teardown.ts",
   "templates/design/e2e/helpers.ts",
+  "templates/design/e2e/parity-drag-reparent.spec.ts",
+  "templates/design/e2e/parity-report-interactions.spec.ts",
+  "templates/design/e2e/parity-oversized-nested.spec.ts",
+  "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
+  "templates/design/e2e/z-order-parity.spec.ts",
   "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/e2e/responsive-overview-regressions.spec.ts",
   "templates/design/playwright.config.ts",
 ]);
 
@@ -210,6 +217,12 @@ export function isDocsPath(path: string): boolean {
     /^(?:CHANGELOG|CONTRIBUTING|README)\.md$/u.test(fileName) ||
     /^packages\/[^/]+\/changelog(?:\/|$)/u.test(normalized)
   );
+}
+
+// READMEs count as docs, but guard:readme-link-tags reads nothing else, so a
+// README-only change set still has to reach the guards job.
+function isReadmePath(path: string): boolean {
+  return basename(normalizeChangedPath(path)) === "README.md";
 }
 
 export function isInstructionPath(path: string): boolean {
@@ -500,9 +513,11 @@ export function shardQueryBudgetApps(
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
   return [
     "packages/core/",
+    "packages/otel/",
     "packages/toolkit/",
     "packages/recap-cli/",
     "packages/creative-context/",
+    "packages/otel/",
   ].some((prefix) => hasPath(paths, prefix));
 }
 
@@ -541,6 +556,7 @@ function buildChecks(
   const workspaceChanged = changedPaths.some(isWorkspacePath);
   const instructionsChanged = changedPaths.some(isInstructionPath);
   const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
+  const readmeChanged = changedPaths.some(isReadmePath);
   const coreChanged = hasPath(changedPaths, "packages/core/");
   const toolkitChanged = hasPath(changedPaths, "packages/toolkit/");
   const agentkitChanged = hasPath(changedPaths, "packages/agentkit/");
@@ -601,7 +617,11 @@ function buildChecks(
       planChanged ||
       clipsChanged ||
       assetsChanged,
-    guards: workspaceChanged || instructionsChanged || guardScriptsChanged,
+    guards:
+      workspaceChanged ||
+      instructionsChanged ||
+      guardScriptsChanged ||
+      readmeChanged,
     qa_static: templateChanged,
     agentkit_acceptance:
       coreChanged ||
@@ -636,6 +656,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
         CHECK_NAMES.map((name) => [
           name,
           name === "lint" ||
+            (name === "guards" && changedPaths.some(isReadmePath)) ||
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
       ) as CheckSelection)

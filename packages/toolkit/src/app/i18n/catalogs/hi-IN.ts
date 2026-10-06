@@ -130,12 +130,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "Builder.io के मुफ़्त क्रेडिट में शामिल",
   "onboarding.builderIncludedFreeWithAccount": "Builder.io खाते के साथ मुफ़्त शामिल",
   "onboarding.builderMonthlyCredits": "हर महीने 60 Agent Credits",
+  "onboarding.builderIncludedFree": "मुफ़्त में शामिल",
+  "onboarding.builderMoreServices": "+ {{count}} और सेवाएँ",
+  "onboarding.builderIncludedServices": "शामिल सेवाएँ",
   "onboarding.builderActivateTitle": "मुफ़्त क्रेडिट सक्रिय करें",
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
   "onboarding.builderAccountExistsDescription":
     "अपने खाते का उपयोग करने के लिए लॉग इन करें।",
   "onboarding.builderActivationDescription":
-    "हम एक क्लिक में आपके लिए Builder.io खाता अपने-आप बनाएँगे।",
+    "मुफ़्त क्रेडिट पाने के लिए एक क्लिक में Builder.io खाता बनाएँ या कनेक्ट करें।",
   "onboarding.builderOrgActivationDescription":
     "हम एक क्लिक में आपका Builder.io खाता बनाएँगे, ताकि आपका संगठन इसका उपयोग कर सके।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
@@ -157,6 +160,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.openBackgroundAgentSettings": "Background Agent सेटिंग्स खोलें",
   "onboarding.capability.llm.keySummary": "अपना स्वयं का AI मॉडल कनेक्ट करें",
   "onboarding.capability.fileStorage.keySummary": "फ़ाइल अपलोड और स्टोरेज",
+  "onboarding.capability.llm.why":
+    "एजेंट अनुरोध समझने और जवाब देने के लिए भाषा मॉडल का उपयोग करता है।",
+  "onboarding.capability.fileStorage.why":
+    "अपलोड की गई छवियों और फ़ाइलों को सहेजता है, ताकि एजेंट उन्हें बातचीत में फिर से इस्तेमाल कर सके।",
   "onboarding.fileStorage.title": "फ़ाइलें अपलोड करने के लिए स्टोरेज कनेक्ट करें",
   "onboarding.fileStorage.statusUnavailable": "स्टोरेज की जांच नहीं हो सकी",
   "onboarding.fileStorage.description":
@@ -173,6 +180,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "एंबेडिंग",
   "onboarding.capability.embeddings.why":
     "एंबेडिंग अर्थपूर्ण खोज को बेहतर बनाती हैं। इनके बिना भी कीवर्ड खोज काम करती है।",
+  "onboarding.capability.systemOne.why":
+    "Jev एक वैकल्पिक निर्णय मॉडल है, जो एजेंट के पहले मॉडल अनुरोध से पहले प्रासंगिक टूल और स्किल चुनने में मदद करता है।",
   "onboarding.capability.assetsImageGeneration.label": "इमेज जनरेशन",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder क्रेडिट या इमेज प्रदाता की कुंजी",
@@ -480,6 +489,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+  "composer.unsupportedFileType": "यह फ़ाइल प्रकार समर्थित नहीं है।",
   "composer.useAttachedContext": "अटैच किए गए संदर्भ का उपयोग करें।",
   "mentions.commands": "कमांड",
   "mentions.learnMore": "और जानें",
@@ -1082,11 +1092,10 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.followUpWithCount": "कतार में {{count}} — अगला संदेश भेजें...",
   "queue.remove": "कतार से हटाएँ",
   "queue.sendNow": "अभी भेजें",
-  "queue.sendNowHint": "अभी भेजें (मौजूदा जवाब रुक जाएगा)",
-  "queue.steer": "दिशा दें",
-  "queue.steerHint": "यह संदेश अगला भेजें",
+  "queue.sendNowHint": "वर्तमान उत्तर रोकता है, फिर यह संदेश भेजता है",
+  "queue.sendNext": "अगला भेजें",
+  "queue.sendNextHint": "वर्तमान उत्तर समाप्त होने के बाद भेजें",
   "queue.moreActions": "अन्य कार्रवाइयाँ",
-  "queue.moveToTop": "सबसे ऊपर ले जाएँ",
   "recovery.connectingBuilder": "Builder.io सेट अप हो रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
@@ -1166,6 +1175,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "चैट शुरू करने के लिए AI कनेक्ट करें...",
   "setup.connectToChat": "चैट करने के लिए AI कनेक्ट करें",
   "setup.connectToStart": "चैट शुरू करने के लिए AI कनेक्ट करें",
+  "setup.modelListUnavailable": "मॉडल लोड नहीं हो सके।",
   "setup.providerStatusUnavailable": "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
   "agentNativeClips.meetingAsk.placeholder": "कुछ भी पूछें",
   "agentNativeClips.meetingAsk.ariaLabel": "इस मीटिंग के बारे में कुछ भी पूछें",
@@ -1929,6 +1939,8 @@ const messages: ToolkitAgentChatTranslation = {
     "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
   "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
   "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
+  "settingsShell.appGroup.labsReadError":
+    "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
   "settingsShell.appGroup.mcpAbout":

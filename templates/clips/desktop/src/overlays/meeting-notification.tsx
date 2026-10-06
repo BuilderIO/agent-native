@@ -177,7 +177,7 @@ export function MeetingNotification() {
 
     const startFetch = () => {
       const requestVersion = preferenceVersion;
-      void fetch(`${serverUrl}/_agent-native/actions/get-labs`, {
+      void fetch(`${serverUrl}/_agent-native/actions/get-lab-states`, {
         credentials: "include",
         ...(authToken
           ? { headers: { Authorization: `Bearer ${authToken}` } }
@@ -197,7 +197,7 @@ export function MeetingNotification() {
         .catch(() => {});
     };
 
-    const updateListener = listen<{ values?: Record<string, boolean> }>(
+    const updateListener = listen<{ values?: Record<string, unknown> }>(
       "clips:labs-updated",
       (event) => {
         if (cancelled || !applyValues(event.payload?.values)) return;

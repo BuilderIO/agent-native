@@ -8,6 +8,7 @@ import {
 import type { H3Event } from "h3";
 import {
   getHeader,
+  getQuery,
   getRequestIP,
   setResponseHeader,
   setResponseStatus,
@@ -203,8 +204,12 @@ export function isSignedBuilderConnectState(
 export function isBuilderConnectCallbackUrlAllowed(
   candidate: string,
   event: H3Event,
+  callbackOriginOverride?: string,
 ): boolean {
-  const callbackOrigin = getBuilderConnectCallbackOrigin(event);
+  const callbackOrigin = getBuilderConnectCallbackOrigin(
+    event,
+    callbackOriginOverride,
+  );
   if (
     !callbackOrigin ||
     !isAllowedOAuthRedirectUri(candidate, event, callbackOrigin)
@@ -233,14 +238,25 @@ export function isBuilderConnectCallbackUrlAllowed(
 export function resolveBuilderConnectCallbackUrl(
   event: H3Event,
   state?: string,
+  callbackOriginOverride?: string,
 ): string | null {
   const stateSuffix = state ? `?state=${encodeURIComponent(state)}` : "";
-  const callbackOrigin = getBuilderConnectCallbackOrigin(event);
+  const callbackOrigin = getBuilderConnectCallbackOrigin(
+    event,
+    callbackOriginOverride,
+  );
   if (!callbackOrigin) return null;
   const withBase = `${callbackOrigin}${getAppBasePath()}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
-  if (isBuilderConnectCallbackUrlAllowed(withBase, event)) return withBase;
+  if (
+    isBuilderConnectCallbackUrlAllowed(withBase, event, callbackOriginOverride)
+  ) {
+    return withBase;
+  }
   const root = `${callbackOrigin}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
-  if (root !== withBase && isBuilderConnectCallbackUrlAllowed(root, event)) {
+  if (
+    root !== withBase &&
+    isBuilderConnectCallbackUrlAllowed(root, event, callbackOriginOverride)
+  ) {
     return root;
   }
   return null;
@@ -600,6 +616,9 @@ export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
 export const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
 export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
 export const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
+export const BUILDER_PREVIEW_ORIGIN_HEADER = "x-agent-native-preview-origin";
+const BUILDER_PREVIEW_ORIGIN_PARAM = "_an_preview_origin";
+const BUILDER_PREVIEW_ORIGIN_SIGNATURE_PARAM = "_an_preview_origin_signature";
 export const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
 export const BUILDER_PROVISIONING_TOKEN_PARAM = "_an_provision";
 export const BUILDER_CONNECT_ATTEMPT_PARAM = "_an_connect_attempt";
@@ -1349,7 +1368,17 @@ function isConfiguredBuilderRequestHost(event: H3Event, host: string): boolean {
   return isConfiguredAppOrigin(`${proto}://${host}`);
 }
 
-function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
+function getBuilderConnectCallbackOrigin(
+  event: H3Event,
+  originOverride?: string,
+): string | null {
+  if (originOverride) {
+    return isAllowedBuilderConnectOrigin(originOverride)
+      ? originOverride
+      : null;
+  }
+  const signedPreviewOrigin = getSignedBuilderPreviewOriginFromEvent(event);
+  if (signedPreviewOrigin) return signedPreviewOrigin;
   const requestHost = firstHeaderValue(readEventHeader(event, "host"));
   const headerHost = getBuilderRequestHost(event);
   if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
@@ -1370,6 +1399,148 @@ function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
   return configuredOrigin;
 }
 
+function isAllowedBuilderConnectOrigin(origin: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    // coercion-ok: a malformed callback origin is explicitly rejected.
+    return false;
+  }
+  if (
+    url.origin !== origin ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    return false;
+  }
+  if (isTrustedBuilderRequestHost(url.host)) {
+    return (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" && process.env.NODE_ENV !== "production")
+    );
+  }
+  return isConfiguredAppOrigin(origin);
+}
+
+function normalizeBuilderPreviewOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (
+      url.origin !== value ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !(url.protocol === "http:" && process.env.NODE_ENV !== "production"))
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    // coercion-ok: a malformed preview origin is not an allowed origin.
+    return null;
+  }
+}
+
+function getSameOriginBuilderPreviewOrigin(event: H3Event): string | null {
+  const rawOrigin = firstHeaderValue(
+    readEventHeader(event, BUILDER_PREVIEW_ORIGIN_HEADER),
+  );
+  if (!rawOrigin || readEventHeader(event, "sec-fetch-site") === "cross-site") {
+    return null;
+  }
+  const origin = normalizeBuilderPreviewOrigin(rawOrigin);
+  if (!origin || !isTrustedBuilderRequestHost(new URL(origin).host)) {
+    return null;
+  }
+
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  if (
+    !requestHost ||
+    (!isLoopbackBuilderRequestHost(requestHost) &&
+      requestHost.toLowerCase() !== new URL(origin).host.toLowerCase())
+  ) {
+    return null;
+  }
+
+  const fetchSite = readEventHeader(event, "sec-fetch-site");
+  const requestOrigin = firstHeaderValue(readEventHeader(event, "origin"));
+  if (fetchSite === "same-origin" || requestOrigin === origin) return origin;
+  const referer = firstHeaderValue(readEventHeader(event, "referer"));
+  if (!referer) return null;
+  try {
+    return new URL(referer).origin === origin ? origin : null;
+  } catch {
+    // coercion-ok: an unreadable Referer cannot authorize a preview origin.
+    return null;
+  }
+}
+
+function signBuilderPreviewOrigin(origin: string): string {
+  return createHmac("sha256", builderConnectStateSigningKeys()[0]!)
+    .update(`builder-connect-preview-origin\0${origin}`)
+    .digest("base64url");
+}
+
+function getSignedBuilderPreviewOriginFromEvent(event: H3Event): string | null {
+  const query = getQuery(event) as Record<string, unknown>;
+  const rawOrigin = query[BUILDER_PREVIEW_ORIGIN_PARAM];
+  const signature = query[BUILDER_PREVIEW_ORIGIN_SIGNATURE_PARAM];
+  if (typeof rawOrigin !== "string" || typeof signature !== "string") {
+    return null;
+  }
+  const origin = normalizeBuilderPreviewOrigin(rawOrigin);
+  if (!origin || !isTrustedBuilderRequestHost(new URL(origin).host)) {
+    return null;
+  }
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  if (
+    !requestHost ||
+    (!isLoopbackBuilderRequestHost(requestHost) &&
+      requestHost.toLowerCase() !== new URL(origin).host.toLowerCase())
+  ) {
+    return null;
+  }
+  return builderConnectStateSigningKeys().some((key) =>
+    safeEqualText(
+      createHmac("sha256", key)
+        .update(`builder-connect-preview-origin\0${origin}`)
+        .digest("base64url"),
+      signature,
+    ),
+  )
+    ? origin
+    : null;
+}
+
+function addSignedBuilderPreviewOrigin(url: string, origin: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set(BUILDER_PREVIEW_ORIGIN_PARAM, origin);
+  parsed.searchParams.set(
+    BUILDER_PREVIEW_ORIGIN_SIGNATURE_PARAM,
+    signBuilderPreviewOrigin(origin),
+  );
+  return parsed.toString();
+}
+
+export function getBuilderConnectCallbackOriginFromUrl(
+  callbackUrl: string,
+): string | null {
+  try {
+    const origin = new URL(callbackUrl).origin;
+    return isAllowedBuilderConnectOrigin(origin) ? origin : null;
+  } catch {
+    // coercion-ok: a malformed stored callback URL must fail verification.
+    return null;
+  }
+}
+
 function isRejectedDirectBuilderCloudHost(
   requestHost: string | undefined,
   resolvedHost: string | undefined,
@@ -1383,6 +1554,8 @@ function getConfiguredBuilderFallbackOrigin(event: H3Event): string | null {
 }
 
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
+  const signedPreviewOrigin = getSignedBuilderPreviewOriginFromEvent(event);
+  if (signedPreviewOrigin) return signedPreviewOrigin;
   const requestHost = firstHeaderValue(readEventHeader(event, "host"));
   const headerHost = getBuilderRequestHost(event);
   if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
@@ -1465,7 +1638,17 @@ function parseOptionalEnvBoolean(
 export function getBuilderBrowserStatusForEvent(
   event: H3Event,
 ): BuilderBrowserStatus {
-  return getBuilderBrowserStatus(getBuilderBrowserOriginForEvent(event));
+  const previewOrigin = getSameOriginBuilderPreviewOrigin(event);
+  const status = getBuilderBrowserStatus(
+    previewOrigin ?? getBuilderBrowserOriginForEvent(event),
+  );
+  if (previewOrigin && status.connectUrl) {
+    status.connectUrl = addSignedBuilderPreviewOrigin(
+      status.connectUrl,
+      previewOrigin,
+    );
+  }
+  return status;
 }
 
 export const BUILDER_ENV_KEYS = [

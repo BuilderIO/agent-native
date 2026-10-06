@@ -1,5 +1,7 @@
 import type { DashboardFilter, FilterType } from "./types";
 
+export const FILTER_PARAM_PREFIX = "f_";
+
 const ALL_TIME_START = "1970-01-01";
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([

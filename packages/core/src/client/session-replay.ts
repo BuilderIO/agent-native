@@ -7,6 +7,7 @@ import {
   type SessionReplayIframeStartMessage,
   type SessionReplayIframeStopMessage,
 } from "../session-replay-iframe-protocol.js";
+import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import {
   loadOptionalPeer,
   OptionalPeerDependencyError,
@@ -885,14 +886,16 @@ function normalizeOptions(
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return null;
-  const endpoint =
+  const endpoint = resolveLaneEndpoint(
     options.endpoint ||
-    readFirstEnvString([
-      "VITE_AGENT_NATIVE_ANALYTICS_REPLAY_ENDPOINT",
-      "VITE_AGENT_NATIVE_SESSION_REPLAY_ENDPOINT",
-      "VITE_SESSION_REPLAY_INGEST_URL",
-    ]) ||
-    defaultReplayEndpoint();
+      readFirstEnvString([
+        "VITE_AGENT_NATIVE_ANALYTICS_REPLAY_ENDPOINT",
+        "VITE_AGENT_NATIVE_SESSION_REPLAY_ENDPOINT",
+        "VITE_SESSION_REPLAY_INGEST_URL",
+      ]) ||
+      defaultReplayEndpoint(),
+    typeof window !== "undefined" ? window.location.hostname : undefined,
+  );
   const maxDurationMs =
     options.maxDurationMs ??
     readFirstEnvNumber([

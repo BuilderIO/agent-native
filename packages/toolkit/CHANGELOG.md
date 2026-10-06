@@ -1,5 +1,44 @@
 # @agent-native/toolkit
 
+## 0.201.1
+
+### Patch Changes
+
+- 88908c5: Fix Builder OAuth origins and status checks for hosted previews, preserve signup errors when Sentry is unavailable, and bind organization A2A identities to verified membership.
+- cc3c820: Explain Builder.io's included services in first-run onboarding and keep the list collapsed until expanded.
+- a78f2a0: Clarify queued-message controls with Send now and Send next labels and contextual tooltips.
+- bdb9e68: Keep explicit light mode on the shared composer border tokens.
+- bb72f96: Give shared chat composers a subtle border in dark mode.
+- Release all public npm packages with a patch version bump.
+- 5d05eb6: Keep queued messages attached to the composer without a vertical scrollbar.
+- cbfea3c: Restore storage connection guidance and spacing in the file upload popover.
+- b88b078: Declare the Tailwind typography plugin imported by the toolkit stylesheet and
+  show a localized unsupported-file message in the shared composer. Keep Core's
+  sync guard aligned with the Design and Slides tab variants already in main.
+- Updated dependencies
+  - @agent-native/agentkit@0.201.1
+
+## 0.201.0
+
+### Patch Changes
+
+- 2e9fa5f: Continue an AgentKit chat turn automatically, in the same turn, when the server stopped it at its run time limit: at most three times per message, counted durably on the server, never after an error, stop, or credential or rate limit. Finished steps and cross-app delegations are reused instead of sent again, the chat shows a Resuming status with Stop still available, and past the cap the turn ends with Continue.
+- 1bbb9fa: Send first-party analytics events, sign-in and sign-up events, replay uploads, and server events from hosted beta apps to beta Analytics instead of production Analytics.
+- 43694e6: Use Builder.io wording and one-click account activation across setup, recovery, voice, files, design, and Code Agents.
+- 7c73c56: Generate chat titles on the engine and model the first prompt was sent with, and report a failed title call instead of returning an empty title.
+- af93f72: A non-lead collaborative editor no longer adopts a newer snapshot over a live document that already holds typing the snapshot predates. The lead-failover adoption deleted a collaborator's concurrently typed text for every peer, because a peer's save lags the shared Yjs state.
+- af93f72: `useCollaborativeDoc` returns `flushUpdates()`, which resolves once every local edit has reached the server (or `false` when delivery failed), so a caller that also saves the same edit to SQL can send it through the document first and peers never apply the text twice. `SharedRichEditor` accepts `requestInitialSeed` and `onInitialSeedError`, so an editor that is not Content's can have the server seed an empty live document once instead of every client seeding its own copy; while that seed is pending the editor is read-only, and it does not emit an `update` for the editability change.
+- af93f72: `useCollabReconcile` takes `quietSeedEditability`, which `SharedRichEditor` sets for a server-seeded document. Without it the editability flips around the initial seed emit `update` again, as they did before server seeding was shared, which Content relies on to report an edit typed before the seed settled; with it they stay silent, so Plan's save-on-update does not save an unchanged document.
+- af93f72: `SharedRichEditor` takes `onRemoteSnapshotChange` and reports a collaborator's text arriving through the live document, so an editor that saves from the document can save what their typing left unsaved. `useCollabReconcile` also adopts a new `value` that arrives after its `contentUpdatedAt` did; the render in between used to mark that revision applied and the new value was never adopted.
+- af93f72: `SharedRichEditor` accepts `requestCollabSync`. For a snapshot without a revision, an editor on a live document now catches up with the server's Yjs state before adopting the snapshot, because on a polling-only host a collaborator's saved text reaches a tab before the Yjs updates that carry it, and applying the snapshot first inserted that text twice.
+- af93f72: Actions can declare `changeResource(input, result)` so their `action` change event also reaches every collaborator who can read that resource, not only the actor. A collaborative editor that never adopts a newer snapshot because its lead peer was not notified now adopts it itself after a grace period, and a server-merged save is no longer mistaken for the editor's own echo.
+- Release all public npm packages with a patch version bump.
+- 2e9fa5f: Owners and admins now run on their organization's credentials (Builder.io connection, model provider keys, and other keys) ahead of their own, which stay as the fallback; members keep their own first. Key saves default to the organization for owners and admins and ask who can use the key. When the role can't be read, every key form, Email included, says so with a retry instead of saving.
+- c46307b: Keep one queued message action menu open at a time and clear stale selections when rows or actions disappear.
+- 81a5946: Upgrade Tiptap to 3.31.4 so shared editors no longer freeze and crash the tab on Macs whose Chromium reports touch support when a code block or another React node view is inserted while the editor is focused.
+- Updated dependencies
+  - @agent-native/agentkit@0.201.0
+
 ## 0.200.0
 
 ### Minor Changes
@@ -1016,28 +1055,5 @@
 ### Patch Changes
 
 - 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
-
-## 0.10.1
-
-### Patch Changes
-
-- c15d20f: Harden browser and CLI error handling and hide editor commands for disabled features.
-- c15d20f: Expand design-system conformance coverage for uncontrolled tooltip and menu
-  opening, and align the example adapters with those default-open semantics.
-- c15d20f: Show a soft rotating blue glow for live realtime voice sessions and brighten it while the agent is working.
-
-## 0.10.0
-
-### Minor Changes
-
-- f0da2e0: Add the styling-runtime-agnostic custom design system contract, safe component adapters, semantic theme tokens, and build-time theme CSS generation. New scaffolded apps now include the explicit design-system module, ToolkitProvider seam, and toolkit dependency so custom adapters can be registered from the first render.
-
-### Patch Changes
-
-- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add public conformance coverage and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
-- f0da2e0: Preserve normalized core control icon sizing and semantic button styling while keeping settings defaults and sharing overlays consistent.
-- f0da2e0: Serialize realtime voice responses and recover from overlapping response requests without ending the voice session.
-- f0da2e0: Make the Dispatch chat composer recover from unavailable AI status checks and keep its Add menu clickable.
-- f0da2e0: Route the Builder connection card and chat history rail through semantic design-system components while preserving their default presentation and shared controller paths.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

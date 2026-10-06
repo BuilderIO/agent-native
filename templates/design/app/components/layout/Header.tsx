@@ -94,7 +94,7 @@ export function Header({ onOpenNavigation }: { onOpenNavigation: () => void }) {
   );
 
   return (
-    <div className={cn(isHome ? "design-home-toolbar shrink-0" : "contents")}>
+    <div className={cn(isHome ? "shrink-0" : "contents")}>
       <header
         className={cn(
           "shrink-0 items-center gap-3 bg-background px-4 lg:px-6",
@@ -116,9 +116,7 @@ export function Header({ onOpenNavigation }: { onOpenNavigation: () => void }) {
           ) : null}
           {title ?? <ResolvedTitle />}
         </div>
-        {isHome ? (
-          <div className="design-home-header-search w-full">{actions}</div>
-        ) : null}
+        {isHome && actions ? <div className="shrink-0">{actions}</div> : null}
         <div className="flex items-center justify-end gap-2 shrink-0">
           {isHome ? <HomeImportButton /> : null}
           {!isHome && actions}

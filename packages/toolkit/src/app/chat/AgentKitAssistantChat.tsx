@@ -501,7 +501,9 @@ interface AgentKitSurfaceContextValue {
   canChat: boolean;
   setupMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
+  modelListUnavailable: boolean;
   retryProviderStatus: () => void;
+  retryModelList?: () => void;
   fileStorageConfigured: boolean;
   fileStorageMissing: boolean;
   retryFileStorageStatus: () => void;
@@ -607,6 +609,8 @@ export const AgentKitAssistantChat = forwardRef<
     );
   }
   const t = useT();
+  const translatorRef = useRef(t);
+  translatorRef.current = t;
   const { formatDate } = useFormatters();
   const threadId = props.threadId ?? props.tabId;
   if (!threadId) {
@@ -736,9 +740,10 @@ export const AgentKitAssistantChat = forwardRef<
       composerLabel: t("agentChat.composer.messageAgent"),
       composerPlaceholder: t("agentChat.composer.messageAgent"),
       queue: t("agentChat.queue.label"),
-      queueSteer: t("agentChat.queue.steer"),
-      queueSteerHint: t("agentChat.queue.steerHint"),
-      queueMoveToTop: t("agentChat.queue.moveToTop"),
+      queueSendNow: t("agentChat.queue.sendNow"),
+      queueSendNowHint: t("agentChat.queue.sendNowHint"),
+      queueSendNext: t("agentChat.queue.sendNext"),
+      queueSendNextHint: t("agentChat.queue.sendNextHint"),
       queueRemove: t("agentChat.queue.remove"),
       queueMore: t("agentChat.queue.moreActions"),
       suggestions: t("agentChat.composer.suggestedPrompts"),
@@ -834,7 +839,13 @@ export const AgentKitAssistantChat = forwardRef<
         signal: context?.signal,
       });
       if (!response.ok) {
-        throw new Error(`Upload failed with ${response.status}.`);
+        throw new Error(
+          translatorRef.current(
+            response.status === 415
+              ? "agentChat.composer.unsupportedFileType"
+              : "agentChat.composer.uploadFailed",
+          ),
+        );
       }
       const result: unknown = await response.json();
       const uploaded = asRecord(result);
@@ -1147,11 +1158,23 @@ const AgentKitAssistantChatBody = forwardRef<
     tabId: props.tabId,
     threadId,
   });
+  const modelCatalogPending =
+    props.showModelSelector !== false && props.modelListLoading === true;
+  const modelListUnavailable =
+    props.showModelSelector !== false && props.modelListError === true;
   const canChat = !providerChecksEnabled || readiness.canChat;
-  const setupMissing = providerChecksEnabled && readiness.missing;
-  const providerStatus: AgentEngineConfiguredState = providerChecksEnabled
-    ? readiness.state
-    : "configured";
+  const setupMissing =
+    providerChecksEnabled &&
+    readiness.missing &&
+    !modelCatalogPending &&
+    !modelListUnavailable;
+  const providerStatus: AgentEngineConfiguredState = modelListUnavailable
+    ? "unavailable"
+    : modelCatalogPending
+      ? "unknown"
+      : providerChecksEnabled
+        ? readiness.state
+        : "configured";
   const providerSubmissionPending =
     !canChat &&
     !setupMissing &&
@@ -1159,6 +1182,9 @@ const AgentKitAssistantChatBody = forwardRef<
   const retryProviderStatus = useCallback(() => {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
+  const retryModelList = modelListUnavailable
+    ? props.onRetryModelList
+    : retryProviderStatus;
   const fileUploadStatus = useFileUploadStatus(
     props.isActiveComposer !== false,
   );
@@ -2806,7 +2832,9 @@ const AgentKitAssistantChatBody = forwardRef<
     canChat,
     setupMissing,
     providerStatus,
+    modelListUnavailable,
     retryProviderStatus,
+    retryModelList,
     fileStorageConfigured,
     fileStorageMissing,
     retryFileStorageStatus,
@@ -3318,7 +3346,12 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
             isSubmitting={guided.isSubmitting}
             isSubmissionBlocked={!surface.canChat}
             providerStatus={surface.providerStatus}
-            onRetryProviderStatus={surface.retryProviderStatus}
+            modelListUnavailable={surface.modelListUnavailable}
+            onRetryProviderStatus={
+              surface.modelListUnavailable
+                ? surface.retryModelList
+                : surface.retryProviderStatus
+            }
             {...(guided.title ? { title: guided.title } : {})}
             {...(guided.description ? { description: guided.description } : {})}
             {...(guided.skipLabel ? { skipLabel: guided.skipLabel } : {})}
@@ -3439,7 +3472,9 @@ function AgentKitComposerSurface({
   canChat,
   setupMissing,
   providerStatus,
+  modelListUnavailable,
   retryProviderStatus,
+  retryModelList,
   fileStorageConfigured,
   fileStorageMissing,
   retryFileStorageStatus,
@@ -3477,7 +3512,9 @@ function AgentKitComposerSurface({
   canChat: boolean;
   setupMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
+  modelListUnavailable: boolean;
   retryProviderStatus: () => void;
+  retryModelList?: () => void;
   fileStorageConfigured: boolean;
   fileStorageMissing: boolean;
   retryFileStorageStatus: () => void;
@@ -3760,10 +3797,12 @@ function AgentKitComposerSurface({
           }
         />
       ) : null}
-      {!canChat && !setupMissing && providerStatus !== "configured" ? (
+      {modelListUnavailable ||
+      (!canChat && !setupMissing && providerStatus !== "configured") ? (
         <GuidedQuestionProviderGate
           providerStatus={providerStatus}
-          onRetry={retryProviderStatus}
+          modelListUnavailable={modelListUnavailable}
+          onRetry={modelListUnavailable ? retryModelList : retryProviderStatus}
         />
       ) : null}
       {integration ? (

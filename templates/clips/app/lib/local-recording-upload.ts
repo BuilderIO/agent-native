@@ -480,19 +480,26 @@ export async function uploadLocalRecording(
 
 /**
  * Discard a local copy this tab owns. Any in-flight upload of it settles
- * first, so its bookkeeping cannot race the delete, and the server row that
- * upload recorded is trashed unless it is already ready.
+ * first, so its bookkeeping cannot race the delete, and every server row the
+ * copy produced is trashed unless it is already ready.
  */
 export async function discardLocalRecording(
   localId: string,
   options: { afterUpload?: Promise<unknown> | null } = {},
 ): Promise<void> {
   await options.afterUpload;
-  // coercion-ok: an unreadable copy is still deleted; its row times out on its own.
-  const meta = await getRecordingBackupMeta(localId).catch(() => null);
-  if (meta?.serverRecordingId) {
-    await trashStaleServerRecordings([meta.serverRecordingId]);
+  const ids = new Set<string>();
+  try {
+    const meta = await getRecordingBackupMeta(localId);
+    if (meta?.serverRecordingId) ids.add(meta.serverRecordingId);
+    // The row created while recording; each retry uploads to a new id.
+    if (meta && !meta.localOnly) ids.add(meta.recordingId);
+    for (const id of meta?.staleServerRecordingIds ?? []) ids.add(id);
+  } catch {
+    // An unreadable copy is keyed by the id of the row its take created.
+    ids.add(localId);
   }
+  await trashStaleServerRecordings([...ids]);
   await deleteRecordingBackup(localId);
 }
 

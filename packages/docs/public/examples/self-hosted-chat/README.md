@@ -24,4 +24,4 @@ and PostgreSQL 18's `/var/lib/postgresql` volume layout with a versioned
 earlier. Back up and migrate existing data before changing the image or mount
 path. Do not expose this example to the public internet without replacing the
 secrets, configuring HTTPS and OAuth callbacks, and following the full
-[Deployment guide](https://www.agent-native.com/docs/deployment).
+[Deployment guide](https://www.agent-native.com/docs/deployment?utm_source=github&utm_medium=referral&utm_content=self-hosted-chat-readme).

@@ -27,9 +27,21 @@ describe("db scripts parameterized SQL", () => {
     vi.restoreAllMocks();
   });
 
+  // The agent-SQL guards query the catalog before each statement, and
+  // db-query switches to read-only; answer those like a stock database so
+  // `unsafe` records only the statements the tests are about.
+  function answerAgentSqlChecks(unsafe: ReturnType<typeof vi.fn>) {
+    return async (sql: string, args?: unknown[]) => {
+      if (sql.includes("standard_conforming_strings")) return [{ value: "on" }];
+      if (sql.includes("pg_catalog.pg_")) return [];
+      if (sql === "SET TRANSACTION READ ONLY") return [];
+      return args === undefined ? unsafe(sql) : unsafe(sql, args);
+    };
+  }
+
   function mockPostgresClient(unsafe: ReturnType<typeof vi.fn>) {
     const end = vi.fn(async () => {});
-    const tx = { unsafe };
+    const tx = { unsafe: answerAgentSqlChecks(unsafe) };
     const begin = vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) =>
       fn(tx),
     );
@@ -71,7 +83,7 @@ describe("db scripts parameterized SQL", () => {
     vi.stubEnv("DATABASE_URL_UNPOOLED", "pglite:./data/pglite-unpooled");
     const unsafe = vi.fn(async () => []);
     const begin = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
-      fn({ unsafe }),
+      fn({ unsafe: answerAgentSqlChecks(unsafe) }),
     );
     const end = vi.fn(async () => {});
     const capturedUrls: string[] = [];

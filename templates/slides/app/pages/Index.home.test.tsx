@@ -11,7 +11,6 @@ import {
 } from "@testing-library/react";
 import {
   type ComponentProps,
-  type ReactElement,
   type ReactNode,
   useImperativeHandle,
 } from "react";
@@ -1380,10 +1379,49 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByTestId("builder-setup-card")).toBeNull();
   });
 
-  it("preserves an explicit Templates choice made while decks are loading", async () => {
+  it("shows both tabs while loading, then defaults to Recent when decks are available", async () => {
     const home = renderHome({ loading: true });
-    const templates = screen.getByRole("tab", { name: "Templates" });
-    fireEvent.click(templates);
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+
+    useDecks.mockReturnValue({
+      decks: [ownDeck],
+      loading: false,
+      loadError: false,
+      deckListRefreshing: false,
+      reloadDecks,
+      createDeck,
+      catchUpStaleDeckList: vi.fn(),
+    });
+    await act(async () => home.rerenderHome());
+
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(window.localStorage.getItem("slides-home-library-tab")).toBe(
+      "recent",
+    );
+
+    home.unmount();
+    renderHome({ decks: [ownDeck] });
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("restores a saved Templates choice before the deck list finishes loading", async () => {
+    window.localStorage.setItem("slides-home-library-tab", "templates");
+    const home = renderHome({ loading: true });
+    expect(
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
 
     useDecks.mockReturnValue({
       decks: [ownDeck],
@@ -1401,19 +1439,17 @@ describe("Slides prompt-led home", () => {
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
     ).toBe("true");
-    expect(localStorage.getItem("slides:home-library-tab")).toBe("templates");
-
-    home.unmount();
-    renderHome({ decks: [ownDeck] });
-    expect(
-      screen
-        .getByRole("tab", { name: "Templates" })
-        .getAttribute("aria-selected"),
-    ).toBe("true");
   });
 
-  it("does not server-render the home library before restoring its saved tab", () => {
-    localStorage.setItem("slides:home-library-tab", "recent");
+  it("keeps the Recent skeleton available when its tab opens during loading", () => {
+    window.localStorage.setItem("slides-home-library-tab", "recent");
+    renderHome({ loading: true });
+
+    const recentPanel = screen.getByRole("tabpanel", { name: "Recent" });
+    expect(recentPanel.querySelector('[aria-busy="true"]')).toBeTruthy();
+  });
+
+  it("does not server-render the home library", () => {
     const markup = renderToString(
       <MemoryRouter initialEntries={["/home"]}>
         <TooltipProvider>
@@ -1425,21 +1461,24 @@ describe("Slides prompt-led home", () => {
     expect(markup).not.toContain("agent-prompt-home-library");
   });
 
-  it("remembers the automatic Recent selection across home opens", () => {
+  it("shows both tabs and defaults to Templates without accessible decks", () => {
     const home = renderHome({ decks: [ownDeck] });
     expect(
       screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
     ).toBe("true");
-    expect(localStorage.getItem("slides:home-library-tab")).toBe("recent");
 
     home.unmount();
-    renderHome({ decks: [], loading: true });
+    renderHome({ decks: [] });
+    expect(screen.getByRole("tab", { name: "Recent" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
     expect(
-      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+      screen
+        .getByRole("tab", { name: "Templates" })
+        .getAttribute("aria-selected"),
     ).toBe("true");
   });
 
-  it("keeps the composer as the focal point and shows both library tabs without accessible work", async () => {
+  it("keeps the composer as the focal point and shows both tabs without accessible work", async () => {
     renderHome({ decks: [] });
     expect(
       screen.getByRole("heading", {
@@ -1470,16 +1509,6 @@ describe("Slides prompt-led home", () => {
     document.dispatchEvent(slash);
     expect(slash.defaultPrevented).toBe(false);
     mountedHeader.unmount();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Recent" }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    expect(
-      screen.queryByRole("button", { name: "home.showAllDecks" }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "home.showMineDecks" }),
-    ).toBeNull();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Templates" }), {
       button: 0,
       ctrlKey: false,
@@ -1498,19 +1527,15 @@ describe("Slides prompt-led home", () => {
       screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
+    expect(screen.getByText("Shared presentation")).toBeTruthy();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
   });
 
   it("keeps the recent panel available while searching a shared-only home", async () => {
     renderHome({ decks: [sharedDeck] });
-    const header = render(
-      (headerActions.current as ReactElement<{ search: ReactNode }>).props
-        .search,
-    );
-    fireEvent.change(
-      header.getAllByRole("searchbox", { name: "Search decks" })[0]!,
-      { target: { value: "shared" } },
-    );
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search decks" }), {
+      target: { value: "shared" },
+    });
     expect(
       await screen.findByRole("tabpanel", { name: "Recent" }),
     ).toBeTruthy();
@@ -1520,7 +1545,6 @@ describe("Slides prompt-led home", () => {
       ctrlKey: false,
     });
     expect(screen.getByRole("tabpanel", { name: "Templates" })).toBeTruthy();
-    header.unmount();
   });
 
   it("defaults to recents when the unfiltered owned collection has content", async () => {
@@ -1668,7 +1692,7 @@ describe("Slides prompt-led home", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "gates model controls and suggestions while keeping the prompt path available for $state (missing=$missing)",
+    "shows fallback suggestions while gating model controls for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       agentEngine.state = state;
       agentEngine.missing = missing;
@@ -1681,15 +1705,15 @@ describe("Slides prompt-led home", () => {
         onBeforeSubmit: expect.any(Function),
       });
       expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
-      expect(Boolean(screen.queryByLabelText("home.suggestedPrompts"))).toBe(
-        ready,
-      );
+      expect(screen.queryByLabelText("home.suggestedPrompts")).toBeTruthy();
       expect(
         Boolean(screen.queryByRole("button", { name: "Build a pitch" })),
       ).toBe(ready);
       expect(
-        screen.queryByRole("button", { name: "Create a product pitch deck" }),
-      ).toBeNull();
+        screen.getByRole<HTMLButtonElement>("button", {
+          name: ready ? "Build a pitch" : "Create a product pitch deck",
+        }).disabled,
+      ).toBe(!ready);
       expect(suggestionQuery.enabled).toBe(ready);
     },
   );
