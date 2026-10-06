@@ -72,9 +72,11 @@ async function loadDesignSystemGenerationContext(
 interface ReferenceDeckContextResult {
   agentContext?: string;
   designSystemId?: string | null;
+  linkedDesignSystemStatus?: "available" | "unavailable" | "none";
 }
 
 interface LoadedReferenceDeckContext {
+  status: "none" | "loaded" | "unavailable";
   agentContext: string;
   designSystemId: string | null;
 }
@@ -82,7 +84,9 @@ interface LoadedReferenceDeckContext {
 async function loadReferenceDeckGenerationContext(
   referenceDeckId?: string | null,
 ): Promise<LoadedReferenceDeckContext> {
-  if (!referenceDeckId) return { agentContext: "", designSystemId: null };
+  if (!referenceDeckId) {
+    return { status: "none", agentContext: "", designSystemId: null };
+  }
   try {
     const result = (await callAction(
       "get-deck-reference-context",
@@ -90,15 +94,23 @@ async function loadReferenceDeckGenerationContext(
       { method: "GET" },
     )) as ReferenceDeckContextResult | undefined;
     if (result?.agentContext?.trim()) {
+      const linkedDesignSystemStatus = result.designSystemId
+        ? (result.linkedDesignSystemStatus ?? "unavailable")
+        : "none";
       return {
+        status: "loaded",
         agentContext: `\n${result.agentContext.trim()}`,
-        designSystemId: result.designSystemId ?? null,
+        designSystemId:
+          linkedDesignSystemStatus === "available"
+            ? (result.designSystemId ?? null)
+            : null,
       };
     }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "unknown loading error";
     return {
+      status: "unavailable",
       agentContext: [
         "",
         "## Reference Deck",
@@ -109,6 +121,7 @@ async function loadReferenceDeckGenerationContext(
     };
   }
   return {
+    status: "unavailable",
     agentContext: [
       "",
       "## Reference Deck",
@@ -476,6 +489,7 @@ export async function startDeckGeneration({
       loadDesignSystemGenerationContext(designSystemId),
     ]);
   const referenceDeckContext = loadedReferenceDeckContext.agentContext;
+  const referenceDeckStatus = loadedReferenceDeckContext.status;
   const referenceDeckDesignSystemId = loadedReferenceDeckContext.designSystemId;
   const designSystemContext = designSystemId
     ? [
@@ -492,9 +506,13 @@ export async function startDeckGeneration({
         "Design system selection:",
         "- No design system was selected in the picker.",
         ...(referenceDeckId
-          ? [
-              "- Use the reference deck's linked system and measured styling according to the visual-style precedence below. Do not call `get-workspace-defaults` or apply a workspace default.",
-            ]
+          ? referenceDeckStatus === "unavailable"
+            ? [
+                "- The selected reference deck could not be read. Retry `get-deck-reference-context`; if it still fails, stop and report that the reference is unavailable. Do not assume it has no linked system or use measured styling as a fallback.",
+              ]
+            : [
+                "- Use the reference deck's readable linked system if available; otherwise use its measured styling according to the visual-style precedence below. Do not call `get-workspace-defaults` or apply a workspace default.",
+              ]
           : hasHydratedReferenceDesign
             ? [
                 "- Use the attached reference's measured styling according to the visual-style precedence below. Do not call `get-workspace-defaults` or apply a workspace default.",
@@ -512,9 +530,11 @@ export async function startDeckGeneration({
     : referenceDeckId
       ? [
           "## Visual style precedence",
-          referenceDeckDesignSystemId
-            ? "No separate system was selected for this new deck. The reference deck's linked design system controls tokens and slide defaults; use measured styling only where it does not conflict with that system. Reference samples guide composition and markup."
-            : "No target or linked design system was selected. Use the reference deck's measured visual language for tokens and slide defaults; its samples guide composition and markup.",
+          referenceDeckStatus === "unavailable"
+            ? "The selected reference deck could not be read, so its linked-system status and measured visual language are unknown. Retry get-deck-reference-context; if it still fails, stop instead of generating with an assumed style."
+            : referenceDeckDesignSystemId
+              ? "No separate system was selected for this new deck. The reference deck's readable linked design system controls tokens and slide defaults; use measured styling only where it does not conflict with that system. Reference samples guide composition and markup."
+              : "No target or readable linked design system was selected. Because the reference deck was read successfully, use its measured visual language for tokens and slide defaults; its samples guide composition and markup.",
           "Do not call `get-workspace-defaults` or apply a workspace default.",
         ].join("\n")
       : hasHydratedReferenceDesign

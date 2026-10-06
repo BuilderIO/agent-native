@@ -360,6 +360,7 @@ describe("startDeckGeneration", () => {
       name === "get-deck-reference-context"
         ? {
             designSystemId: "ds-reference",
+            linkedDesignSystemStatus: "available",
             agentContext:
               "REFERENCE_STYLE_CONTEXT\n### Linked design system (reference default)\nUse --brand-accent: #123456.",
           }
@@ -397,7 +398,7 @@ describe("startDeckGeneration", () => {
     expect(context).toContain("### Linked design system (reference default)");
     expect(context).toContain("Use --brand-accent: #123456.");
     expect(context).toContain(
-      "The reference deck's linked design system controls tokens and slide defaults",
+      "The reference deck's readable linked design system controls tokens and slide defaults",
     );
     expect(context).not.toContain(
       "Follow its measured visual language as the styling source of truth",
@@ -411,6 +412,7 @@ describe("startDeckGeneration", () => {
       if (name === "get-deck-reference-context") {
         return {
           designSystemId: "ds-reference",
+          linkedDesignSystemStatus: "available",
           agentContext:
             "REFERENCE_STYLE_CONTEXT\n### Linked design system (reference default)\nReference system A tokens.",
         };
@@ -467,6 +469,110 @@ describe("startDeckGeneration", () => {
       "The reference deck's linked design system controls tokens and slide defaults",
     );
   });
+
+  it("uses measured reference styling when its linked system is inaccessible", async () => {
+    mockCallAction.mockImplementation(async (name: string) =>
+      name === "get-deck-reference-context"
+        ? {
+            designSystemId: "ds-private",
+            linkedDesignSystemStatus: "unavailable",
+            agentContext:
+              "REFERENCE_STYLE_CONTEXT\n### Linked design system (unavailable)\nThe linked system could not be read.",
+          }
+        : undefined,
+    );
+    const deck = {
+      id: "deck-unavailable-reference-system",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const agentSubmit = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Create an about us deck",
+        files: [],
+        referenceSelection: { referenceDeckId: "reference-deck-private" },
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+        navigate: vi.fn(),
+        agentSubmit,
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+      }),
+    ).resolves.toBe("started");
+
+    const context = agentSubmit.mock.calls[0]?.[1] as string;
+    expect(context).toContain("The linked system could not be read.");
+    expect(context).toContain(
+      "Because the reference deck was read successfully, use its measured visual language",
+    );
+    expect(context).not.toContain(
+      "The reference deck's readable linked design system controls tokens and slide defaults",
+    );
+  });
+
+  it.each(["throws", "returns empty"] as const)(
+    "does not treat a failed reference read as proof that no system is linked (%s)",
+    async (readResult) => {
+      mockCallAction.mockImplementation(async (name: string) => {
+        if (name === "get-deck-reference-context") {
+          if (readResult === "throws")
+            throw new Error("Reference access denied");
+          return undefined;
+        }
+        return undefined;
+      });
+      const deck = {
+        id: "deck-unreadable-reference",
+        title: "Untitled Deck",
+        createdAt: "2026-08-11T00:00:00.000Z",
+        updatedAt: "2026-08-11T00:00:00.000Z",
+        slides: [],
+      };
+      const agentSubmit = vi.fn();
+
+      await expect(
+        startDeckGeneration({
+          session: { user: "owner@example.com" },
+          prompt: "Create an about us deck",
+          files: [],
+          referenceSelection: { referenceDeckId: "reference-deck-unreadable" },
+          designSystems: [],
+          createDeck: vi.fn(() => deck),
+          ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+          deleteDeck: vi.fn(),
+          navigate: vi.fn(),
+          agentSubmit,
+          onPromptClosed: vi.fn(),
+          onUnauthenticated: vi.fn(),
+          onPersistenceFailure: vi.fn(),
+        }),
+      ).resolves.toBe("started");
+
+      const context = agentSubmit.mock.calls[0]?.[1] as string;
+      expect(context).toContain(
+        readResult === "throws"
+          ? "could not be loaded before generation"
+          : "returned no usable context",
+      );
+      expect(context).toContain(
+        "Do not assume it has no linked system or use measured styling as a fallback",
+      );
+      expect(context).toContain(
+        "its linked-system status and measured visual language are unknown",
+      );
+      expect(context).not.toContain(
+        "Because the reference deck was read successfully, use its measured visual language",
+      );
+    },
+  );
 
   it("keeps a reference-import file out of source-preserving mode", async () => {
     mockCallAction.mockClear();

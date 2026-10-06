@@ -110,7 +110,7 @@ describe("agent design-system context", () => {
     );
   });
 
-  it("keeps a reference-purpose retry scoped when a read temporarily fails", async () => {
+  it("uses accessible reference styling when a linked system read temporarily fails", async () => {
     const run = vi.fn(async () => {
       throw new Error("not readable");
     });
@@ -131,8 +131,32 @@ describe("agent design-system context", () => {
       purpose: "reference",
     });
     expect(formatAgentDesignSystemContext(context).join("\n")).toContain(
-      'purpose: "reference"',
+      "Use the accessible reference samples' measured visual language as fallback",
     );
+  });
+
+  it("uses measured reference styling when the linked system is not accessible", async () => {
+    const run = vi.fn(async () => {
+      throw Object.assign(new Error("not found"), { statusCode: 404 });
+    });
+
+    const context = await loadAgentDesignSystemContext(
+      "ds-1",
+      { run },
+      { purpose: "reference" },
+    );
+
+    expect(context).toMatchObject({
+      status: "unavailable",
+      purpose: "reference",
+      id: "ds-1",
+      message: expect.stringContaining("Do not retry it"),
+    });
+    const formatted = formatAgentDesignSystemContext(context).join("\n");
+    expect(formatted).toContain(
+      "use its measured visual language as a fallback",
+    );
+    expect(formatted).toContain("if its samples are insufficient");
   });
 
   it("treats a malformed result as unavailable", async () => {

@@ -35,12 +35,15 @@ const UNAVAILABLE_MESSAGE =
 const NOT_ACCESSIBLE_MESSAGE =
   "The linked design system no longer exists or is not shared with you. Do not retry get-design-system; ask the user which system to use or unlink it. Do not invent a replacement style.";
 
+const REFERENCE_NOT_ACCESSIBLE_MESSAGE =
+  "The linked design system no longer exists or is not shared with you. Do not retry it. The reference deck is still readable, so use its measured visual language as a fallback; if its samples are insufficient, ask the user which system to use or unlink it. Do not invent replacement tokens.";
+
 function unavailableMessage(
   id: string,
   purpose: AgentDesignSystemPurpose,
 ): string {
   if (purpose === "reference") {
-    return `The linked design system could not be read. Retry get-design-system { id: ${JSON.stringify(id)}, purpose: "reference" } before authoring; do not invent a replacement style.`;
+    return `The linked design system ${JSON.stringify(id)} could not be read. Use the accessible reference samples' measured visual language as fallback; if those samples are insufficient, ask the user which system to use. Do not invent replacement tokens.`;
   }
   return UNAVAILABLE_MESSAGE;
 }
@@ -104,7 +107,9 @@ export async function loadAgentDesignSystemContext(
       purpose,
       id,
       message: notFound
-        ? NOT_ACCESSIBLE_MESSAGE
+        ? purpose === "reference"
+          ? REFERENCE_NOT_ACCESSIBLE_MESSAGE
+          : NOT_ACCESSIBLE_MESSAGE
         : unavailableMessage(id, purpose),
     };
   }
