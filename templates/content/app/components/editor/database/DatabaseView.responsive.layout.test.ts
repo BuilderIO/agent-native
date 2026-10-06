@@ -13,7 +13,7 @@ describe("collection layout at phone and tablet widths", () => {
   it("sizes from its container rather than the window", () => {
     expect(databaseView).not.toContain("--content-sidebar-width");
     expect(databaseView).toContain(
-      '<div className="mt-4 min-w-0 w-full max-w-full">',
+      "<div className={DATABASE_VIEW_CLASS_NAME}>",
     );
   });
 

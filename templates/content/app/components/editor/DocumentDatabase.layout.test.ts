@@ -24,9 +24,7 @@ describe("document database layout", () => {
   it("wraps database toolbar controls instead of clipping them", () => {
     const source = readDatabaseSource();
 
-    expect(source).toContain(
-      '"mt-4 min-w-0 w-full max-w-full"',
-    );
+    expect(source).toContain('"mt-4 min-w-0 w-full max-w-full"');
     expect(source).toContain("<div className={DATABASE_VIEW_CLASS_NAME}>");
     expect(source).toContain(
       "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1",
