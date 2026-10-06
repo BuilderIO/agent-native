@@ -220,6 +220,7 @@ function serializeMarqueeHostSelection(
 }
 const SELECTABLE_RECTS_REPLY_TIMEOUT_MS = 2_000;
 const HIT_TEST_PREVIEW_TIMEOUT_MS = 250;
+const HIT_TEST_PREVIEW_LATE_RESULT_GRACE_MS = 250;
 const HIT_TEST_COMMIT_TIMEOUT_MS = 1200;
 const SCREEN_HOVER_PROMOTE_DELAY_MS = 300;
 const FRAME_LABEL_HEIGHT = 28;
@@ -2814,6 +2815,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         sourceScreenId?: string;
         sourceElementSize?: { width: number; height: number };
         sourceGridSpan?: { columns: number; rows: number };
+        onPreviewTimeout?: () => void;
+        onPreviewLateResult?: (result: CrossScreenHitTestResult) => void;
         modifiers?: {
           metaKey?: boolean;
           ctrlKey?: boolean;
@@ -2891,20 +2894,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       };
 
       return new Promise((resolve) => {
+        let previewTimedOut = false;
+        let lateResultTimer: number | undefined;
         const timer = window.setTimeout(() => {
-          window.removeEventListener("message", hitListener);
           const previous = crossScreenLastHitResultRef.current.get(
             candidate.id,
           );
-          resolve(
+          const timeoutResult =
             options.preview && options.previewRequestSeq !== undefined
               ? getCrossScreenPreviewTimeoutResult({
                   requestSeq: options.previewRequestSeq,
                   generation: options.previewGeneration ?? -1,
                   cached: previous,
                 })
-              : {},
-          );
+              : {};
+          resolve(timeoutResult);
+          if (options.preview && options.onPreviewLateResult) {
+            previewTimedOut = true;
+            options.onPreviewTimeout?.();
+            lateResultTimer = window.setTimeout(() => {
+              window.removeEventListener("message", hitListener);
+              options.onPreviewLateResult?.(timeoutResult);
+            }, HIT_TEST_PREVIEW_LATE_RESULT_GRACE_MS);
+            return;
+          }
+          window.removeEventListener("message", hitListener);
         }, options.timeoutMs ?? HIT_TEST_PREVIEW_TIMEOUT_MS);
 
         const hitListener = (ev: MessageEvent) => {
@@ -2916,8 +2930,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ) {
             return;
           }
-          window.clearTimeout(timer);
-          window.removeEventListener("message", hitListener);
           const result: CrossScreenHitTestResult = {
             targetAnchorProvenance: readSourceNodeProvenance(
               ev.data.targetAnchorProvenance,
@@ -2978,6 +2990,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               });
             }
           }
+          if (previewTimedOut) {
+            if (lateResultTimer !== undefined) {
+              window.clearTimeout(lateResultTimer);
+            }
+            window.removeEventListener("message", hitListener);
+            options.onPreviewLateResult?.(result);
+            return;
+          }
+          window.clearTimeout(timer);
+          window.removeEventListener("message", hitListener);
           resolve(result);
         };
         window.addEventListener("message", hitListener);
@@ -3031,6 +3053,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const sessionId =
         crossScreenDragMsgRef.current?.sourceDeleteRequestId ?? "";
       const modifiers = crossScreenDragMsgRef.current?.modifiers;
+      let previewTimedOut = false;
+      let resolveLatePathHit!: (result: CrossScreenHitTestResult) => void;
+      const latePathHit = new Promise<CrossScreenHitTestResult>((resolve) => {
+        resolveLatePathHit = resolve;
+      });
       const previewHit = runHitTest(candidate, boardPoint, {
         preview: true,
         previewGeneration,
@@ -3038,8 +3065,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         sourceScreenId: crossScreenDragMsgRef.current?.sourceScreenId,
         sourceElementSize: crossScreenDragMsgRef.current?.sourceElementSize,
         sourceGridSpan: crossScreenDragMsgRef.current?.sourceGridSpan,
+        onPreviewTimeout: () => {
+          previewTimedOut = true;
+        },
+        onPreviewLateResult: resolveLatePathHit,
         modifiers,
       });
+      const pathHit = previewHit.then((hit) =>
+        previewTimedOut ? latePathHit : hit,
+      );
       // Board-root drops use the release hit directly; there is no Screen path to reconstruct.
       if (sessionId && candidate.id !== boardFileId) {
         crossScreenPathFrameHitTrackerRef.current.add({
@@ -3047,7 +3081,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sessionId,
           screenId: candidate.id,
           ignoreAutoLayout: modifiers?.ignoreAutoLayout === true,
-          hit: previewHit,
+          hit: pathHit,
         });
       }
       void previewHit.then((hit) => {
