@@ -64,18 +64,10 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-/**
- * Patterns that flag a forbidden return.
- * Match:  return "Error: ..."  /  return `Error: ...`
- *         return "Failed to ..." / return `Failed to ...`
- * Case-insensitive on the keyword prefix.
- */
 const FORBIDDEN = /return\s+[`"](?:error|failed\s+to)\s*:/i;
 
-/** Opt-out pragma — on the same line or the line immediately above. */
 const PRAGMA = /\/\/\s*guard:allow-error-string/i;
 
-/** Collect all .ts files under a directory, skipping SKIP_DIRS. */
 async function collectTs(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = [];
@@ -92,19 +84,17 @@ async function collectTs(dir) {
 }
 
 async function main() {
-  // Collect all template action files, but skip templates/plan.
   const templatesDir = path.join(REPO_ROOT, "templates");
   const templateEntries = await readdir(templatesDir, { withFileTypes: true });
 
   const actionDirs = [];
   for (const entry of templateEntries) {
     if (!entry.isDirectory()) continue;
-    if (entry.name === "plan") continue; // fenced — separate team ownership
+    if (entry.name === "plan") continue;
     const actionsDir = path.join(templatesDir, entry.name, "actions");
     actionDirs.push(actionsDir);
   }
 
-  // Also check the scaffold action template if it exists.
   const scaffoldActionsDir = path.join(
     REPO_ROOT,
     "packages",
@@ -123,7 +113,6 @@ async function main() {
     try {
       files = await collectTs(dir);
     } catch {
-      // Directory may not exist (e.g. scaffold); silently skip.
       continue;
     }
 
@@ -135,7 +124,6 @@ async function main() {
         const line = lines[i];
         if (!FORBIDDEN.test(line)) continue;
 
-        // Allow if this line or the previous line carries the opt-out pragma.
         const prevLine = i > 0 ? lines[i - 1] : "";
         if (PRAGMA.test(line) || PRAGMA.test(prevLine)) continue;
 

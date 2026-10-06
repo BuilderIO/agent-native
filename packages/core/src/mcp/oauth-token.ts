@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import * as jose from "jose";
 
 import { getAuthSecret } from "../server/better-auth-instance.js";
+import { getMissingAuthSecretKey } from "../server/deploy-settings.js";
 import {
   MCP_OAUTH_ACCESS_TOKEN_TTL,
   MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
@@ -18,10 +19,10 @@ export const MCP_OAUTH_SCOPES = [
 ] as const;
 
 export const MCP_OAUTH_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ");
+const MCP_OAUTH_CREDENTIAL_VERSION = 2;
 
 export interface McpOAuthAccessTokenClaims {
   sub: string;
-  /** Omitted means no recorded scope; null means explicit Personal scope. */
   org_id?: string | null;
   org_domain?: string;
   scope: string;
@@ -29,28 +30,25 @@ export interface McpOAuthAccessTokenClaims {
   resource: string;
   jti?: string;
   typ: "agent-native-mcp-oauth";
+  credential_version: typeof MCP_OAUTH_CREDENTIAL_VERSION;
 }
 
-/** Primary signing secret: A2A_SECRET when set, else the better-auth secret. */
 function signingSecret(): Uint8Array {
   return new TextEncoder().encode(
     process.env.A2A_SECRET?.trim() || getAuthSecret(),
   );
 }
 
-/**
- * All candidate verify secrets in priority order.
- * Mint always uses the primary; verify tries all to survive secret rotation
- * (e.g. A2A_SECRET being added or removed from a deploy without a redeploy).
- */
 function verifySecrets(): Uint8Array[] {
   const enc = new TextEncoder();
   const a2a = process.env.A2A_SECRET?.trim();
-  const auth = getAuthSecret();
-  if (a2a && a2a !== auth) {
-    return [enc.encode(a2a), enc.encode(auth)];
-  }
-  return [enc.encode(a2a || auth)];
+  // A deploy without an auth signing secret never issued a token signed with
+  // one, so a presented bearer token simply fails to verify (401). Reading the
+  // secret here would turn every MCP probe on such a deploy into a 500.
+  const auth = getMissingAuthSecretKey() === null ? getAuthSecret() : "";
+  return [...new Set([a2a, auth].filter((key): key is string => !!key))].map(
+    (key) => enc.encode(key),
+  );
 }
 
 export function normalizeOAuthScope(input: unknown): string | null {
@@ -82,7 +80,6 @@ export function hasMcpOAuthScope(
   return scopes.includes(scope);
 }
 
-/** Return null for a malformed present claim so auth callers fail closed. */
 export function parseMcpOAuthOrgIdClaim(
   payload: Record<string, unknown>,
 ): { orgId: string | null | undefined } | null {
@@ -105,16 +102,11 @@ export async function signMcpOAuthAccessToken(params: {
   issuer: string;
   jti?: string;
   expiresIn?: string | number;
-  /**
-   * When `"full"`, embed a `catalog_scope: "full"` custom claim so this token
-   * bypasses the compact/connector-catalog tier filter (active by default
-   * whenever a `connectorCatalog` is declared). Used when the connect flow is
-   * initiated with `--full-catalog`.
-   */
   catalogScope?: "full";
 }): Promise<string> {
   return new jose.SignJWT({
     typ: "agent-native-mcp-oauth",
+    credential_version: MCP_OAUTH_CREDENTIAL_VERSION,
     sub: params.ownerEmail,
     ...(params.orgId !== undefined ? { org_id: params.orgId } : {}),
     ...(params.orgDomain ? { org_domain: params.orgDomain } : {}),
@@ -132,19 +124,10 @@ export async function signMcpOAuthAccessToken(params: {
     .sign(signingSecret());
 }
 
-/**
- * Normalise a trailing slash so that audience comparisons are not sensitive to
- * whether the resource URL was written with or without a trailing slash.
- */
 function normaliseResource(r: string): string {
   return r.replace(/\/+$/, "");
 }
 
-/**
- * Deduplicate an audience list after normalising trailing slashes.
- * Accepts a single string or an array; always returns a non-empty array or
- * `null` when the input was empty / undefined.
- */
 function buildAudienceList(
   resource: string | string[] | undefined,
 ): string[] | null {
@@ -172,17 +155,13 @@ export async function verifyMcpOAuthAccessToken(
   scopes: string[];
   clientId: string;
   jti?: string;
-  /** Present when the token was minted with `--full-catalog`; bypasses the
-   *  compact/connector-catalog tier filter (active by default whenever a
-   *  `connectorCatalog` is declared) for this caller. */
   catalogScope?: "full";
+  /** `iat`, in seconds. */
+  issuedAt?: number;
 } | null> {
   const audiences = buildAudienceList(resource);
   if (!audiences) return null;
 
-  // Try each candidate secret in priority order.  We only fall through to the
-  // next secret on a signature failure (JWSSignatureVerificationFailed /
-  // JWSInvalid).  Expired or wrong-audience errors are definitive — no retry.
   const secrets = verifySecrets();
   let payload: jose.JWTPayload | null = null;
 
@@ -194,15 +173,12 @@ export async function verifyMcpOAuthAccessToken(
         break outer;
       } catch (err: any) {
         const code: string = err?.code ?? "";
-        // Signature failures → try next secret; all other errors → bail.
         if (
           code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" ||
           code === "ERR_JWS_INVALID"
         ) {
           continue;
         }
-        // Expired, wrong audience, or malformed → this audience+secret pair is
-        // structurally incompatible; try the next audience.
         break;
       }
     }
@@ -212,7 +188,8 @@ export async function verifyMcpOAuthAccessToken(
 
   try {
     if (payload.typ !== "agent-native-mcp-oauth") return null;
-    // The embedded `resource` claim must match one of the accepted audiences.
+    if (payload.credential_version !== MCP_OAUTH_CREDENTIAL_VERSION)
+      return null;
     if (typeof payload.resource !== "string") return null;
     const embeddedResource = normaliseResource(payload.resource);
     if (!audiences.includes(embeddedResource)) return null;
@@ -236,6 +213,7 @@ export async function verifyMcpOAuthAccessToken(
       clientId: payload.client_id,
       jti: typeof payload.jti === "string" ? payload.jti : undefined,
       ...(payload.catalog_scope === "full" ? { catalogScope: "full" } : {}),
+      ...(typeof payload.iat === "number" ? { issuedAt: payload.iat } : {}),
     };
   } catch {
     return null;

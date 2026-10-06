@@ -1,4 +1,5 @@
 import { getDbExec } from "../db/client.js";
+import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   assertDelegatedPolicyId,
@@ -40,7 +41,6 @@ import {
 
 export type AutomationScope = "personal" | "organization";
 
-/** Conservative default for new scheduled automations when no cadence is given. */
 export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
 
 export interface AutomationActor {
@@ -59,7 +59,6 @@ export interface AutomationDefinition {
   };
   body: string;
   canUpdate: boolean;
-  /** Returned only to an actor who can update the webhook automation. */
   webhookPath?: string;
 }
 
@@ -239,12 +238,6 @@ async function mutationAccess(
   };
 }
 
-/**
- * Compatibility adapters may expose both explicit automations and legacy
- * scheduled jobs. Keep their mutation authorization on the same boundary as
- * the canonical service without forcing legacy resources through the explicit
- * automation classifier.
- */
 export async function canUpdateAutomationResource(
   actorInput: AutomationActor,
   resource: Resource,
@@ -263,12 +256,6 @@ export async function canUpdateAutomationResource(
   return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
-/**
- * Factory is a shared team workspace: any current org member may queue Run now
- * for that app's Factory-domain org jobs. Mail/CRM and other automations stay
- * on creator-or-admin `canUpdate`. Recovered Factory-folder jobs that lost
- * `domain` / `appId` stay on the same team-member exception.
- */
 export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
   resource: Resource,
@@ -438,8 +425,6 @@ export async function defineAutomation(
   if (input.timezone && !isValidTimezone(input.timezone)) {
     throw httpError(`Unknown timezone "${input.timezone}".`, 400);
   }
-  // Resolve now and persist it: a schedule whose zone is implicit means
-  // something different the moment it is read on a differently-zoned host.
   const timezone =
     input.triggerType === "schedule"
       ? input.timezone || (await resolveUserSchedulingTimezone(actor.userEmail))
@@ -575,6 +560,21 @@ export async function updateAutomation(
     fields.enabled = input.enabled;
     if (
       input.enabled &&
+      (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
+    ) {
+      // Enabling is how an owner lifts a framework pause: start from a clean
+      // failure streak instead of pausing again on the first failure.
+      Object.assign(fields, RESUME_AUTOMATION_PATCH);
+      meta.lastStatus = undefined;
+      meta.lastError = undefined;
+      meta.lastErrorCode = undefined;
+      meta.consecutiveFailures = undefined;
+      meta.lastFailedEventId = undefined;
+      meta.pausedReason = undefined;
+      meta.pausedAt = undefined;
+    }
+    if (
+      input.enabled &&
       meta.triggerType === "schedule" &&
       isValidCron(meta.schedule)
     ) {
@@ -689,8 +689,6 @@ export async function deleteAutomation(
     await deleteAutomationWebhookToken(definition.resource, definition.meta);
   }
   await resourceDelete(definition.resource.id);
-  // Names are reusable, so leaving history behind would attach these runs to
-  // whatever automation is created under the same name next.
   await deleteAutomationRuns(definition.resource.owner, name);
 }
 
@@ -700,18 +698,44 @@ export interface AutomationExecutionIdentity {
   eventOwner: string;
 }
 
+/**
+ * `code` says whether the failure is permanent: `owner_missing` (the creator
+ * or their membership is gone) and `config_invalid` (the stored identity can
+ * never resolve) will not heal on their own, so callers disable the
+ * automation instead of re-checking forever.
+ */
 export type AutomationExecutionIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
-  | { ok: false; reason: string };
+  | {
+      ok: false;
+      reason: string;
+      code?: "owner_missing" | "owner_unverifiable" | "config_invalid";
+    };
 
 /**
- * Resolve the identity used by an explicit automation run.
- *
- * Organization automations are visible through their organization owner, but
- * always execute as their immutable creator. Event dispatchers must also
- * require EventMeta.owner to equal `eventOwner`; organization visibility does
- * not make an event organization-wide.
+ * What the built-in `"user"` table says about an account. Deployments whose
+ * sessions come from a custom `getSession` have the table but none of their
+ * users in it, so a miss there is `untracked`, never proof of deletion.
  */
+export async function lookupOwnerAccount(
+  email: string,
+): Promise<"exists" | "missing" | "untracked"> {
+  const db = getDbExec();
+  const found = await db.execute({
+    sql: `SELECT 1 FROM "user" WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+    args: [email],
+  });
+  if (found.rows.length) return "exists";
+  // ponytail: an empty table is the signal; a custom-session deployment that
+  // also holds a few built-in accounts still reads a miss as deleted. Upgrade:
+  // have server/auth.ts report whether a custom getSession is mounted.
+  const anyAccount = await db.execute({
+    sql: `SELECT 1 FROM "user" LIMIT 1`,
+    args: [],
+  });
+  return anyAccount.rows.length ? "missing" : "untracked";
+}
+
 export async function resolveAutomationExecutionIdentity(
   resourceOwner: string,
   meta: JobFrontmatter,
@@ -723,6 +747,7 @@ export async function resolveAutomationExecutionIdentity(
       return {
         ok: false,
         reason: "Personal automation creator does not match its owner.",
+        code: "config_invalid",
       };
     }
     return { ok: true, identity: { userEmail, eventOwner: userEmail } };
@@ -733,35 +758,44 @@ export async function resolveAutomationExecutionIdentity(
     return {
       ok: false,
       reason: "Organization automation has no creator identity.",
+      code: "config_invalid",
     };
   }
   if (meta.runAs !== "creator") {
     return {
       ok: false,
       reason: "Organization automations must run as their creator.",
+      code: "config_invalid",
     };
   }
   if (meta.orgId && meta.orgId !== orgId) {
     return {
       ok: false,
       reason: "Organization automation metadata does not match its owner.",
+      code: "config_invalid",
     };
   }
 
-  const user = await getDbExec().execute({
-    sql: `SELECT 1 FROM "user" WHERE LOWER(email) = ? LIMIT 1`,
-    args: [userEmail],
-  });
-  if (!user.rows.length) {
+  const account = await lookupOwnerAccount(userEmail);
+  if (account === "missing") {
     return {
       ok: false,
       reason: `Automation creator "${userEmail}" no longer exists.`,
+      code: "owner_missing",
+    };
+  }
+  if (account === "untracked") {
+    return {
+      ok: false,
+      reason: `Automation creator "${userEmail}" cannot be verified: this deployment keeps no built-in user accounts.`,
+      code: "owner_unverifiable",
     };
   }
   if (!(await readOrganizationMembership(orgId, userEmail))) {
     return {
       ok: false,
       reason: `Automation creator "${userEmail}" is no longer a member of organization "${orgId}".`,
+      code: "owner_missing",
     };
   }
   return {

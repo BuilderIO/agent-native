@@ -75,8 +75,6 @@ describe("shared LEARNINGS.md boot seeding", () => {
   });
 
   it("never overwrites an existing LEARNINGS.md resource on later boots", async () => {
-    // Same database, fresh module state (as after a server restart), and a
-    // changed project-root file — the existing resource row must win.
     fs.writeFileSync(
       path.join(tempDir, "learnings.md"),
       "# Learnings\n\n- Changed after first boot\n",
@@ -111,8 +109,6 @@ describe("shared LEARNINGS.md boot seeding", () => {
   });
 
   it("falls back to the checked-in learnings.defaults.md when learnings.md is absent", async () => {
-    // Production deploys built from git only carry learnings.defaults.md —
-    // the scaffolded learnings.md copy is gitignored.
     fs.rmSync(path.join(tempDir, "learnings.md"), { force: true });
     fs.writeFileSync(
       path.join(tempDir, "learnings.defaults.md"),

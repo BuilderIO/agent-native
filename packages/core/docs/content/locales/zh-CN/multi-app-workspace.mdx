@@ -232,6 +232,29 @@ pnpm dev
 
 活动组织自动流动：`session.orgId` → `AGENT_ORG_ID` → SQL 行范围，因此用 `org_id` 标记的数据对于其他组织甚至代理来说都是不可见的。完整模型请参见 [Security & Data Scoping](/docs/security)。
 
+## 内置应用 {#builtin-apps}
+
+默认情况下，每个工作区都可以将托管的第一方应用（Mail、Calendar、Content、Design、Clips 等）作为内置代理使用。在根目录 `package.json` 中通过 `agent-native.builtinAgents` 选择工作区提供哪些应用：
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"]
+    }
+  }
+}
+```
+
+- `mode`：`"all"`（默认，所有公开的第一方应用）、`"none"`（不提供内置应用）或 `"selected"`（仅 `include` 中的应用）。
+- `include`：当 `mode` 为 `"selected"` 时此工作区提供的内置应用。其他应用对该工作区不可见。
+
+未知 ID 会记录警告并被忽略。独立应用可以在自己的 `package.json` 中使用同一个键。`agent-native dev` 和工作区部署会将该值作为 `AGENT_NATIVE_BUILTIN_AGENTS_JSON` 传递给每个应用。
+
+该配置控制应用列表、代理发现和代理间调用。已挂载的工作区应用和已连接的远程代理不受影响，MCP 应用访问仍是独立的路由权限。
+
 ## 共享MCP服务器 {#shared-mcp}
 
 跨工作区应用共享 MCP 服务器的推荐选项（按优先顺序排列）：
@@ -260,7 +283,7 @@ my-company-platform/
 
 一些入门流程是开箱即用的工作区感知型：
 
-- **Builder OAuth**: clicking "Connect Builder" authorizes the signed-in user with the least-privilege `builder:ai:invoke` scope and stores the token in encrypted per-user custody. Legacy Builder keys remain available only to existing uncovered integrations.
+- **Builder OAuth**: clicking "使用 Builder.io" authorizes the signed-in user with the least-privilege `builder:ai:invoke` scope and stores the token in encrypted per-user custody. Legacy Builder keys remain available only to existing uncovered integrations.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## 共享凭据 {#shared-credentials}
@@ -406,7 +429,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### 共享数据库、共享凭证
 
-无论您选择什么，都将每个应用程序指向相同的 `DATABASE_URL` 以获得开箱即用的跨应用程序状态：一组用户帐户、一组组织、一组共享设置。如果每个应用程序都有自己的数据库，那么工作区模式仍然有效 - 您只是失去了共享状态的故事。
+如需共享用户帐户、组织、设置及其他跨应用数据，请让每个应用使用相同的 `DATABASE_URL`。本地开发时，请在工作区根目录的 `.env` 中设置该值，让所有应用使用同一个 PostgreSQL 数据库。如果未设置，每个应用都会使用各自的进程本地 PGlite 数据库，因此用户和组织不会共享。
 
 共享同一数据库的进程会累加连接需求。例如，五个长期运行的 Node.js 应用进程各自为同一个 `DATABASE_URL` 使用一个共享运行时连接池时，按每个池默认 20 个连接计算，最多可占用 100 个连接（`5 × 1 个池 × 20`）。对于无服务器工作区，请根据运行时对应的连接池默认值估算每个应用的预热函数实例数。`AGENT_NATIVE_DB_POOL_MAX` 和完整的预算说明请参阅[服务器数据库](/docs/server-database)。
 

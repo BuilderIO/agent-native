@@ -37,9 +37,6 @@ function trustedWheel(tick: WheelTick) {
     clientX: 400,
     clientY: 300,
   });
-  // happy-dom drops WheelEvent's MouseEventInit fields and the surface ignores
-  // untrusted events, so without these a zoom tick silently arrives as an
-  // unmodified pan at an undefined cursor and the assertions prove nothing.
   Object.defineProperty(event, "ctrlKey", { value: tick.ctrlKey ?? false });
   Object.defineProperty(event, "metaKey", { value: tick.metaKey ?? false });
   Object.defineProperty(event, "clientX", { value: 400 });
@@ -50,7 +47,6 @@ function trustedWheel(tick: WheelTick) {
 
 const WHEEL_STEP_PER_NOTCH = 1.1;
 
-/** The zoom a discrete notch of `deltaY` px must produce. */
 function notchFactor(deltaY: number) {
   return Math.pow(WHEEL_STEP_PER_NOTCH, Math.abs(deltaY) / 100);
 }
@@ -129,9 +125,6 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
   }
 
   it("moves one accelerated mouse notch by a Figma-sized step, not the per-frame ceiling", async () => {
-    // Windows reports a notch as 66.7 at fractional display scaling, and macOS
-    // reports an accelerated wheel as a large fractional delta — reading either
-    // as a pinch puts one notch on the ~8x-hotter curve.
     const surface = await renderSurface();
     const view = await applyTicks(surface, [{ deltaY: -66.7, ctrlKey: true }]);
     expect(view.scale).toBeCloseTo(notchFactor(66.7), 6);
@@ -145,8 +138,6 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
   });
 
   it("keeps a gesture on one curve after its deltas ramp past the pinch band", async () => {
-    // A single gesture that starts pinch-sized and accelerates must not run
-    // the tail of the stream through the pinch curve.
     const surface = await renderSurface();
     const view = await applyTicks(surface, [
       { deltaY: -6.4, ctrlKey: true },
@@ -171,8 +162,6 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
   });
 
   it("applies both the zoom and the pan when one frame catches each", async () => {
-    // Cmd pressed or released mid-scroll interleaves zoom and pan ticks. A
-    // single pending slot kept whichever arrived last and dropped the other.
     const zoomOnly = await applyTicks(await renderSurface(), [
       { deltaY: -100, ctrlKey: true },
     ]);
@@ -319,8 +308,6 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
   });
 
   it("does not cancel a non-cancelable wheel", async () => {
-    // Chrome sends these during a fling; cancelling one logs an Intervention
-    // per event and scrolls anyway.
     const surface = await renderSurface();
     const event = trustedWheel({
       deltaY: -100,
@@ -335,7 +322,6 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
       );
     });
     expect(preventDefault).not.toHaveBeenCalled();
-    // The guard skips the cancel, not the zoom.
     expect(readView(container).scale).toBeCloseTo(notchFactor(100), 6);
   });
 });

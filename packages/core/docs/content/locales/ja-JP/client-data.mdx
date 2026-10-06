@@ -333,6 +333,13 @@ await callAction(
           description: "ポーリング エンドポイントの URL。",
         },
         {
+          name: "realtime",
+          type: "{ reason: string }",
+          optional: true,
+          description:
+            "このページのバックグラウンド同期を有効にします。短い理由を記述すると、判断とコストがコード上で確認できます。指定しない場合は接続を開きません。",
+        },
+        {
           name: "sseUrl",
           type: "string | false",
           optional: true,
@@ -345,7 +352,8 @@ await callAction(
           type: "number",
           optional: true,
           default: "2000",
-          description: "ポーリング間隔 (ミリ秒)。",
+          description:
+            "エージェント実行中のポーリング間隔 (ms)。アイドル時は 1、2、5 分の順に延長されます。",
         },
         {
           name: "fallbackInterval",
@@ -353,15 +361,15 @@ await callAction(
           optional: true,
           default: "60000",
           description:
-            "SSE が接続されている間のバックアップとしてのポーリング間隔で、イベントが取り逃された場合に備えます。切断されたタブは、代わりにより速い `interval` (または固定のアイドル間隔) でポーリングします。",
+            "SSE 接続中の最小ポーリング間隔 (ms)。変更のないポーリングが成功するたびに 1、2、5 分へ延長されます。",
         },
         {
           name: "pauseWhenHidden",
           type: "boolean",
           optional: true,
-          default: "false",
+          default: "true",
           description:
-            "ブラウザのタブが非表示のときにポーリングを一時停止します。非表示のタブは SSE 接続を維持し、アクティブなときは 10 秒ごと、アイドル状態になると 60 秒ごとを上限にポーリングします。",
+            "ブラウザーのタブが非表示のときはバックグラウンド同期を一時停止します。",
         },
         {
           name: "ignoreSource",
@@ -375,7 +383,7 @@ await callAction(
           type: "(data) => void",
           optional: true,
           description:
-            "SSE またはポーリングが変更イベントを受信したときのオプションのコールバック。",
+            "リモート同期イベントと、ローカルなチャット実行中のツール完了に対する省略可能なコールバック。",
         },
         {
           name: "actionInvalidatePredicate",
@@ -404,7 +412,7 @@ await callAction(
   returns={{ type: "void" }}
 />
 
-このフックは、エージェントの書き込み、webhook、別のブラウザ タブからの変更など、自分のアクションの外で発生するデータベースの変更に UI を同期させ続けることを意図しています。サーバー送信イベント経由で変更をリッスンし、サーバー送信イベントが利用できない場合はポーリングにフォールバックします。本番のサーバーレスデプロイでは、アプリ自身の `/_agent-native/events` ストリームは設計上利用できません — サーバーは関数インスタンスを開いたままにする代わりに即座に 204 を返します — そのためそこではポーリングが同じペースですべての同期を担いますが、アプリが[ホスト型リアルタイム同期ゲートウェイ](/docs/real-time-collaboration#hosted-gateway)を有効にしている場合はその限りではありません。
+`useDbSync()` はローカルなチャット実行中のツール完了と実行終了時の更新を常に処理します。そのため、単一ユーザーのエージェント変更にバックグラウンド要求は不要です。他のタブ、ユーザー、Webhook、ジョブによる変更の同期は、短い理由を付けて有効にするまでオフです。タブごとに接続を共有し、非表示時は停止し、アイドル間隔を 1、2、5 分へ延長します。
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";
@@ -415,6 +423,7 @@ function App() {
 
   useDbSync({
     queryClient,
+    realtime: { reason: "teammates can edit this shared record" },
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -423,7 +432,7 @@ function App() {
 }
 ```
 
-通常の CRUD には `useActionQuery()` と `useActionMutation()` を優先してください。変更アクションは `source: "action"` を発行するため、それらのフックはすぐに再フェッチします。エージェント、webhook、または別のタブからの変更は、代わりに `useDbSync()` を通じて SSE またはポーリング フォールバック経由で届きます。生の `useQuery()` 呼び出しをカスタム キーで同期させる必要がある場合は、[同期の内部](/docs/client-sync-internals) を参照してください。`application_state` に直接書き込む必要がある場合は、[高度](/docs/client-advanced) を参照してください。
+現在のユーザー操作なしにデータが変わり、更新前にユーザーがその変更を見る必要がある場合だけリアルタイムを有効にします。共同編集する Slides と Mail の受信トレイが適した例です。公開ページ、Docs、設定、フォーム、変更の少ない一覧、単一ユーザーのエージェント変更では無効にし、フォーカスまたはナビゲーション時に再取得します。開いている opt-in タブごとに、アイドル間隔ごとのポーリングが 1 回追加されます。
 
 ## 次は何ですか
 

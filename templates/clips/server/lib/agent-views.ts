@@ -1,13 +1,3 @@
-/**
- * Agent views — counting when an *outside agent* reads a clip through the
- * public agent APIs (`/api/agent-context.json`, `/api/agent-transcript.json`,
- * `/api/agent-frame.jpg`), as opposed to a human opening the player.
- *
- * Those routes are agent-only surfaces: a human watching a clip never hits
- * them, so a request on one is the signal. Counts live in their own table so
- * every existing human-view query stays agent-free by construction.
- */
-
 import { createHash } from "node:crypto";
 
 import { count, desc, eq, sql } from "drizzle-orm";
@@ -16,11 +6,6 @@ import { getRequestHeader, getRequestIP, type H3Event } from "h3";
 import { getDb, schema } from "../db/index.js";
 import { nanoid } from "./recordings.js";
 
-/**
- * One agent's burst of context + transcript + frame polls is one view.
- * Fixed windows mean a burst straddling a boundary counts twice; switch to
- * last-seen-gap dedup if that ever shows up in the numbers.
- */
 export const AGENT_VIEW_SESSION_MS = 30 * 60 * 1000;
 
 const AGENT_LABELS: [RegExp, string][] = [
@@ -36,11 +21,6 @@ const AGENT_LABELS: [RegExp, string][] = [
   [/bytespider|amazonbot|ccbot|diffbot|youbot/i, "Crawler"],
 ];
 
-/**
- * Null, not a placeholder string: an agent we could not name is a different
- * fact from one that names itself "Agent", and only the null case should be
- * rendered as unknown or fed back into {@link AGENT_LABELS}.
- */
 export function agentLabelFromUserAgent(userAgent: string): string | null {
   for (const [pattern, label] of AGENT_LABELS) {
     if (pattern.test(userAgent)) return label;
@@ -55,7 +35,6 @@ export function agentViewSessionId(
   return String(Math.floor(now / bucketMs));
 }
 
-/** Hashed so an agent is distinguishable across polls without storing its IP. */
 export function agentKeyFor(userAgent: string, ip: string): string {
   return createHash("sha256")
     .update(`${userAgent}|${ip}`)
@@ -63,9 +42,6 @@ export function agentKeyFor(userAgent: string, ip: string): string {
     .slice(0, 32);
 }
 
-/**
- * Best-effort: never let view accounting fail an agent's read of a clip.
- */
 export async function recordAgentView(
   event: H3Event,
   recordingId: string,
@@ -79,8 +55,6 @@ export async function recordAgentView(
     );
     const ip = getRequestIP(event) || "unknown";
     const now = new Date(nowMs).toISOString();
-    // A label the link was minted with beats user-agent sniffing: it was set by
-    // whoever created the agent link and is carried in the signed token.
     const agentLabel =
       options.agentLabel?.trim() || agentLabelFromUserAgent(userAgent);
 
@@ -128,19 +102,12 @@ export async function countRecordingAgentViews(
 }
 
 export interface AgentViewerSummary {
-  /** Null when nothing named the agent — render it as unknown, don't invent one. */
   agentLabel: string | null;
-  /** Raw user-agent, so an unnamed agent is still identifiable by a human. */
   userAgent: string | null;
   views: number;
   lastSeenAt: string;
 }
 
-/**
- * Agents that read this clip, most recent first. Named agents group by label;
- * unnamed ones group by user-agent so two different unknown readers stay two
- * rows instead of collapsing into one meaningless "unknown" bucket.
- */
 export async function listRecordingAgentViewers(
   recordingId: string,
   limit = 8,

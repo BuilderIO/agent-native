@@ -1,18 +1,7 @@
-/**
- * Core script: docs-search
- *
- * Search and read agent-native framework documentation.
- * Docs are bundled in @agent-native/core so they're always the right version.
- *
- * Usage:
- *   pnpm action docs-search --query "actions"
- *   pnpm action docs-search --slug authentication
- *   pnpm action docs-search --list
- */
-
 import fs from "node:fs";
 import path from "node:path";
 
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { parseArgs } from "../utils.js";
 
 interface DocMeta {
@@ -26,9 +15,6 @@ export interface DocFull extends DocMeta {
 }
 
 function getDocsRoot(): string {
-  // Resolve from the package root:
-  //   src/scripts/docs/search.ts -> docs/
-  //   dist/scripts/docs/search.js -> docs/
   return path.resolve(
     path.dirname(new URL(import.meta.url).pathname),
     "../../../docs",
@@ -39,11 +25,6 @@ function getDocsDir(): string {
   return path.join(getDocsRoot(), "content");
 }
 
-/**
- * Bundled serverless deploys carry the runtime agent bundle but not the
- * framework doc pages, so a miss there means "not deployed", not "no such
- * doc". Say which, or the agent concludes a documented API does not exist.
- */
 function logMissingFrameworkDocsNote(): void {
   if (fs.existsSync(getDocsDir())) return;
   console.log(
@@ -156,60 +137,61 @@ function slugifyDocId(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-async function loadAgentBundleDocs(): Promise<DocFull[]> {
-  try {
-    const { loadAgentsBundle, getRuntimeSkills, skillSubfileDocsSlug } =
-      await import("../../server/agents-bundle.js");
-    const bundle = await loadAgentsBundle();
-    const docs: DocFull[] = [];
-    if (bundle.workspaceAgentsMd?.trim()) {
-      docs.push({
-        slug: "agents-workspace",
-        title: "Workspace AGENTS.md",
-        description: "Full bundled workspace-level agent instructions.",
-        body: bundle.workspaceAgentsMd,
-      });
-    }
-    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
-    if (runtimeAgentsMd?.trim()) {
-      docs.push({
-        slug: "agents-template",
-        title: "Template AGENTS.md",
-        description: "Full bundled template/app agent instructions.",
-        body: runtimeAgentsMd,
-      });
-    }
-    // Only runtime-visible skills are searchable/readable here — `scope: dev`
-    // skills are meant for the human's coding agent (Claude Code), not the
-    // in-app runtime agent, so they must not appear in docs-search results.
-    for (const skill of getRuntimeSkills(bundle)) {
-      const slug = `skill-${slugifyDocId(skill.meta.name)}`;
-      docs.push({
-        slug,
-        title: `Skill: ${skill.meta.name}`,
-        description: skill.meta.description,
-        body: skill.content,
-      });
-      // Progressive-disclosure sub-files (e.g. `references/*.md`) get their
-      // own searchable/readable doc so the "also contains" pointers the
-      // skill prompt block advertises actually resolve to something.
-      for (const [relPath, content] of Object.entries(skill.files)) {
-        docs.push({
-          slug: skillSubfileDocsSlug(skill.meta.name, relPath),
-          title: `Skill: ${skill.meta.name} — ${relPath}`,
-          description: `Reference file from the "${skill.meta.name}" skill (${relPath}).`,
-          body: content,
-        });
-      }
-    }
-    return docs;
-  } catch {
-    return [];
+async function loadAgentBundleDocs(
+  userEmail?: string | null,
+): Promise<DocFull[]> {
+  const agentsBundleModule = await import("../../server/agents-bundle.js");
+  const bundle = await agentsBundleModule.loadAgentsBundle();
+
+  const docs: DocFull[] = [];
+  if (bundle.workspaceAgentsMd?.trim()) {
+    docs.push({
+      slug: "agents-workspace",
+      title: "Workspace AGENTS.md",
+      description: "Full bundled workspace-level agent instructions.",
+      body: bundle.workspaceAgentsMd,
+    });
   }
+  const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+  if (runtimeAgentsMd?.trim()) {
+    docs.push({
+      slug: "agents-template",
+      title: "Template AGENTS.md",
+      description: "Full bundled template/app agent instructions.",
+      body: runtimeAgentsMd,
+    });
+  }
+  // Only runtime-visible skills are searchable/readable here — `scope: dev`
+  // skills are meant for the human's coding agent (Claude Code), not the
+  // in-app runtime agent, so they must not appear in docs-search results.
+  const runtimeSkills = await agentsBundleModule.getRuntimeSkillsForUser(
+    bundle,
+    userEmail,
+  );
+  for (const skill of runtimeSkills) {
+    const slug = `skill-${slugifyDocId(skill.meta.name)}`;
+    docs.push({
+      slug,
+      title: `Skill: ${skill.meta.name}`,
+      description: skill.meta.description,
+      body: skill.content,
+    });
+    for (const [relPath, content] of Object.entries(skill.files)) {
+      docs.push({
+        slug: agentsBundleModule.skillSubfileDocsSlug(skill.meta.name, relPath),
+        title: `Skill: ${skill.meta.name} — ${relPath}`,
+        description: `Reference file from the "${skill.meta.name}" skill (${relPath}).`,
+        body: content,
+      });
+    }
+  }
+  return docs;
 }
 
-export async function loadAllDocs(): Promise<DocFull[]> {
-  return [...loadFilesystemDocs(), ...(await loadAgentBundleDocs())];
+export async function loadAllDocs(
+  userEmail = getRequestUserEmail(),
+): Promise<DocFull[]> {
+  return [...loadFilesystemDocs(), ...(await loadAgentBundleDocs(userEmail))];
 }
 
 async function searchDocs(query: string): Promise<DocMeta[]> {
@@ -225,7 +207,6 @@ async function searchDocs(query: string): Promise<DocMeta[]> {
         if (doc.title.toLowerCase().includes(term)) score += 10;
         if (doc.description.toLowerCase().includes(term)) score += 5;
         if (doc.slug.includes(term)) score += 8;
-        // Count body occurrences
         const bodyMatches = searchText.split(term).length - 1;
         score += Math.min(bodyMatches, 5);
       }

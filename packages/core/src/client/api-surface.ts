@@ -8,7 +8,6 @@
 
 let disabledReason: string | null = null;
 
-/** Pass `null` to re-enable, so a surface can be entered and left. */
 export function setAgentNativeApiDisabled(reason: string | null): void {
   disabledReason = reason?.trim() ? reason.trim() : null;
 }
@@ -17,10 +16,6 @@ export function agentNativeApiDisabledReason(): string | null {
   return disabledReason;
 }
 
-/**
- * Thrown rather than resolved: a caller that cannot tell "no backend" from
- * "empty result" reports success for work that never happened.
- */
 export class AgentNativeApiDisabledError extends Error {
   readonly reason: string;
 

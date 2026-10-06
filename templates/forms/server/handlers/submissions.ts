@@ -56,8 +56,8 @@ import {
 } from "../lib/submission-validation.js";
 import { assertValidFields } from "../lib/validate-fields.js";
 
-const MAX_PAYLOAD_BYTES = 100 * 1024; // 100KB
-const MIN_FILL_TIME_MS = 500; // reject submits faster than this
+const MAX_PAYLOAD_BYTES = 100 * 1024;
+const MIN_FILL_TIME_MS = 500;
 const MAX_META_TEXT_LENGTH = 500;
 const MAX_CHAT_SESSION_IDS = 5;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
@@ -146,8 +146,6 @@ function cleanMetaText(value: unknown): string | null {
   return trimmed.slice(0, MAX_META_TEXT_LENGTH);
 }
 
-// Allowlist the client-surface hint so only known values are stored. Anything
-// else (including spoofed direct POSTs) is dropped to NULL.
 const KNOWN_CLIENT_SURFACES = new Set(["web", "electron", "tauri"]);
 function cleanClientSurface(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -505,9 +503,6 @@ async function markResponseDelivery(
     if (updated) return;
     throw new Error("Response delivery claim was lost");
   } catch (error) {
-    // The database client can report a transport error after applying the
-    // update. Re-read before retrying an external effect so that accepted
-    // delivery is reconciled instead of duplicated.
     const [current] = await db
       .select({
         status: schema.responseDeliveries.status,
@@ -704,9 +699,6 @@ async function refreshResponseDeliverySummary(
       .where(eq(schema.responses.id, responseId));
     if (!response) return;
 
-    // Serialize all summary writers on the response row before reading the
-    // delivery rows, so a retry cannot commit an older aggregate after a
-    // newer destination status has been recorded.
     await tx
       .update(schema.responses)
       .set({ deliveryStatus: response.deliveryStatus })
@@ -879,7 +871,6 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     return { error: "Invalid submission payload" };
   }
 
-  // Check overall payload size
   const bodyStr = JSON.stringify(body);
   if (Buffer.byteLength(bodyStr, "utf8") > MAX_PAYLOAD_BYTES) {
     setResponseStatus(event, 413);
@@ -914,10 +905,6 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   }
   const idempotencyKey = rawIdempotencyKey?.trim() || null;
 
-  // A retry must be able to reconcile a persisted response even after its
-  // form is unpublished or soft-deleted. The immutable snapshot is the only
-  // input needed for delivery, so do this lookup before loading the active
-  // form or applying one-time submission checks.
   if (idempotencyKey) {
     const [existing] = await db
       .select({
@@ -1074,15 +1061,10 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     return { success: true, id: responseId };
   };
 
-  // Honeypot: silently accept-and-drop if filled. Bots that fire-and-forget
-  // get a 200 and never know they were caught.
   if (typeof body._hp === "string" && body._hp.length > 0) {
     return { success: true, id: "" };
   }
 
-  // Min time-to-submit: client-controlled timestamp from when the form was
-  // shown. Trivially spoofable, but blocks naive scripted submitters.
-  // Negative elapsed means _t is in the future — treat as a bypass attempt.
   if (typeof body._t === "number" && body._t > 0) {
     const elapsed = Date.now() - body._t;
     if (elapsed < MIN_FILL_TIME_MS) {
@@ -1105,12 +1087,6 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Parse form fields and build whitelist of valid field IDs. Published forms
-  // must pass the same structural checks as forms at write time because the
-  // public route is also reachable for legacy rows and direct HTTP clients.
-  // Pattern safety is the one exception: a legacy row carrying an unsafe
-  // pattern gets the field-level reason from validateSubmissionField below,
-  // which names the field, rather than a blanket 500 that names nothing.
   let fields: FormField[];
   try {
     fields = JSON.parse(form.fields);
@@ -1125,19 +1101,15 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
       ? (body.data as Record<string, unknown>)
       : {};
 
-  // Whitelist: only accept keys matching form field IDs
   const whitelistedData: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(submittedData)) {
     const field = fieldMap.get(key);
-    if (!field) continue; // Strip unknown fields
+    if (!field) continue;
     whitelistedData[key] = value;
   }
 
   const data = sanitizeVisibleValues(fields, whitelistedData);
 
-  // Validate required fields and field-specific constraints. Recompute
-  // conditional visibility on the server so direct POSTs cannot submit hidden
-  // field values or bypass client-side validation.
   for (const field of fields) {
     if (field.conditional && !isConditionalFieldVisible(field, data)) continue;
 
@@ -1167,11 +1139,6 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const anonymous = settings.anonymous === true;
   const ip = anonymous ? null : (getRequestIP(event) ?? null);
 
-  // Optional metadata sent by trusted clients (e.g. the framework's
-  // FeedbackButton, which forwards the logged-in user's email so we can see
-  // who sent feedback in Slack). Never required. Prefer the Forms-host session
-  // when present; cross-app feedback submissions fall back to the client hint,
-  // which is useful context but not verified identity.
   const metadata = submissionMetadata(
     body as Record<string, unknown>,
     anonymous,

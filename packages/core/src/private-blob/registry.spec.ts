@@ -8,10 +8,13 @@ import type { FileUploadInput } from "../file-upload/index.js";
 import type { PrivateBlobProvider } from "./types.js";
 
 const deleteUploadedFileMock = vi.hoisted(() => vi.fn());
+const getActiveFileUploadProviderForRequestMock = vi.hoisted(() => vi.fn());
 const uploadFileMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../file-upload/index.js", () => ({
   deleteUploadedFile: deleteUploadedFileMock,
+  getActiveFileUploadProviderForRequest:
+    getActiveFileUploadProviderForRequestMock,
   uploadFile: uploadFileMock,
 }));
 
@@ -29,6 +32,8 @@ describe("private blob registry", () => {
       SECRETS_ENCRYPTION_KEY: "private-blob-test",
     };
     deleteUploadedFileMock.mockReset();
+    getActiveFileUploadProviderForRequestMock.mockReset();
+    getActiveFileUploadProviderForRequestMock.mockResolvedValue(null);
     uploadFileMock.mockReset();
     resetAppConfigForTests();
   });
@@ -36,6 +41,7 @@ describe("private blob registry", () => {
   afterEach(async () => {
     const registry = await import("./registry.js");
     resetAppConfigForTests();
+    registry.setPrivateBlobPublicUploadFallbackEnabled(true);
     for (const provider of registry.listPrivateBlobProviders()) {
       registry.unregisterPrivateBlobProvider(provider.id);
     }
@@ -244,6 +250,96 @@ describe("private blob registry", () => {
     ).resolves.toBe(handle);
   });
 
+  it("selects providers configured by request-scoped credentials", async () => {
+    const registry = await freshRegistry();
+    resetAppConfigForTests();
+    const handle = {
+      id: "request:1",
+      provider: "request",
+      opaque: true as const,
+      encrypted: false,
+    };
+    const provider: PrivateBlobProvider = {
+      id: "request",
+      name: "Request-scoped",
+      isConfigured: () => false,
+      isConfiguredForRequest: vi.fn(async () => true),
+      put: vi.fn(async () => handle),
+      read: vi.fn(),
+      delete: vi.fn(),
+    };
+    registry.registerPrivateBlobProvider(provider);
+
+    expect(registry.getActivePrivateBlobProvider()).toBeNull();
+    await expect(
+      registry.getActivePrivateBlobProviderForRequest(),
+    ).resolves.toBe(provider);
+    await expect(
+      registry.putPrivateBlob({ data: new Uint8Array([1]) }),
+    ).resolves.toBe(handle);
+    expect(provider.isConfiguredForRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("honors request-scoped configuration for a selected provider", async () => {
+    const registry = await freshRegistry();
+    resetAppConfigForTests();
+    const handle = {
+      id: "chosen:1",
+      provider: "chosen",
+      opaque: true as const,
+      encrypted: false,
+    };
+    const provider: PrivateBlobProvider = {
+      id: "chosen",
+      name: "Chosen",
+      isConfigured: () => false,
+      isConfiguredForRequest: async () => true,
+      put: vi.fn(async () => handle),
+      read: vi.fn(),
+      delete: vi.fn(),
+    };
+    registry.registerPrivateBlobProvider(provider);
+    defineAppConfig({ privateBlob: { provider: "chosen" } });
+
+    await expect(
+      registry.putPrivateBlob({ data: new Uint8Array([1]) }),
+    ).resolves.toBe(handle);
+  });
+
+  it("reports private blob readiness through its configured write path", async () => {
+    const registry = await freshRegistry();
+    defineAppConfig({ privateBlob: { publicUploadFallback: true } });
+    getActiveFileUploadProviderForRequestMock.mockResolvedValue({ id: "s3" });
+
+    await expect(registry.isPrivateBlobConfiguredForRequest()).resolves.toBe(
+      true,
+    );
+
+    getActiveFileUploadProviderForRequestMock.mockResolvedValue(null);
+    await expect(registry.isPrivateBlobConfiguredForRequest()).resolves.toBe(
+      false,
+    );
+
+    defineAppConfig({ privateBlob: { publicUploadFallback: false } });
+    getActiveFileUploadProviderForRequestMock.mockResolvedValue({ id: "s3" });
+    await expect(registry.isPrivateBlobConfiguredForRequest()).resolves.toBe(
+      false,
+    );
+
+    const provider: PrivateBlobProvider = {
+      id: "private",
+      name: "Private",
+      isConfigured: () => true,
+      put: vi.fn(),
+      read: vi.fn(),
+      delete: vi.fn(),
+    };
+    registry.registerPrivateBlobProvider(provider);
+    await expect(registry.isPrivateBlobConfiguredForRequest()).resolves.toBe(
+      true,
+    );
+  });
+
   it("fails loudly when the selected provider is unavailable", async () => {
     const registry = await freshRegistry();
     resetAppConfigForTests();
@@ -274,5 +370,106 @@ describe("private blob registry", () => {
     expect(() => registry.getActivePrivateBlobProvider()).toThrow(
       /no provider with that id is registered/,
     );
+  });
+
+  describe("typed failures", () => {
+    async function putThenBreakStore(
+      registry: Awaited<ReturnType<typeof freshRegistry>>,
+    ) {
+      let uploaded: FileUploadInput | null = null;
+      uploadFileMock.mockImplementation(async (input: FileUploadInput) => {
+        uploaded = input;
+        return {
+          url: "https://cdn.example.test/private/blob.bin",
+          provider: "builder",
+          id: "asset-1",
+        };
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(uploaded?.data ?? new Uint8Array())),
+      );
+      const handle = await registry.putPrivateBlob({
+        data: new TextEncoder().encode("hello"),
+      });
+      return { handle: handle!, bytes: uploaded!.data };
+    }
+
+    it.each([
+      [404, "not_found"],
+      [410, "gone"],
+      [403, "unavailable"],
+      [500, "unavailable"],
+    ])("classifies a %i from the object store as %s", async (status, kind) => {
+      const registry = await freshRegistry();
+      const { handle } = await putThenBreakStore(registry);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(null, { status })),
+      );
+      vi.useFakeTimers();
+
+      const read = registry.readPrivateBlob(handle).catch((error) => error);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expect(read).resolves.toMatchObject({
+        privateBlobError: true,
+        kind,
+        status,
+      });
+      vi.useRealTimers();
+    });
+
+    it("classifies a dropped connection as unavailable, not as a missing object", async () => {
+      const registry = await freshRegistry();
+      const { handle } = await putThenBreakStore(registry);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new TypeError("fetch failed");
+        }),
+      );
+      vi.useFakeTimers();
+
+      const read = registry.readPrivateBlob(handle).catch((error) => error);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expect(read).resolves.toMatchObject({ kind: "unavailable" });
+      vi.useRealTimers();
+    });
+
+    it("classifies bytes that fail authentication as corrupt", async () => {
+      const registry = await freshRegistry();
+      const { handle } = await putThenBreakStore(registry);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(new Uint8Array([9, 9, 9, 9]))),
+      );
+
+      await expect(registry.readPrivateBlob(handle)).rejects.toMatchObject({
+        kind: "corrupt",
+      });
+    });
+
+    it("classifies a handle no registered provider can serve as not configured", async () => {
+      const registry = await freshRegistry();
+
+      await expect(
+        registry.readPrivateBlob({
+          id: "s3:1",
+          provider: "s3",
+          opaque: true,
+          encrypted: false,
+        }),
+      ).rejects.toMatchObject({ kind: "not_configured" });
+      await expect(
+        registry.deletePrivateBlob({
+          id: "s3:1",
+          provider: "s3",
+          opaque: true,
+          encrypted: false,
+        }),
+      ).rejects.toMatchObject({ kind: "not_configured" });
+    });
   });
 });

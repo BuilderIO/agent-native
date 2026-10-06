@@ -14,13 +14,6 @@ import {
   withColorOpacity,
 } from "./color-utils";
 
-/**
- * Installs a fake `document`/canvas good enough to exercise the DOM-based
- * resolver branch of `parseCssColorExtended` without a full jsdom
- * environment. Mimics a real canvas 2D context: `fillStyle` normalizes
- * recognized colors to a fixed rgb string and rejects unrecognized ones by
- * leaving the property unchanged (matching real browser behavior).
- */
 function installFakeCanvasDocument(
   colorTable: Record<string, [number, number, number, number]>,
 ) {
@@ -30,9 +23,6 @@ function installFakeCanvasDocument(
       return currentFillStyle;
     },
     set fillStyle(v: string) {
-      // Real browsers accept any well-formed color literal (hex, rgb(), etc.)
-      // as-is — including our sentinel — and only silently ignore genuinely
-      // unrecognized function names/values, leaving fillStyle untouched.
       if (v in colorTable) {
         currentFillStyle = `rgb(${colorTable[v].slice(0, 3).join(", ")})`;
       } else if (/^#[0-9a-f]{6}$/i.test(v)) {
@@ -43,7 +33,6 @@ function installFakeCanvasDocument(
     clearRect: vi.fn(),
     fillRect: vi.fn(),
     getImageData: vi.fn(() => {
-      // Find the color whose normalized rgb string matches currentFillStyle.
       const match = Object.entries(colorTable).find(
         ([, [r, g, b]]) => `rgb(${r}, ${g}, ${b})` === currentFillStyle,
       );
@@ -182,7 +171,6 @@ describe("color utils", () => {
   });
 
   it("handles lightness extremes without dividing by zero", () => {
-    // Any hue/saturation at l=0 is black; at l=100 it is white.
     expect(hslToRgba({ h: 210, s: 50, l: 0, a: 1 })).toEqual({
       r: 0,
       g: 0,
@@ -195,7 +183,6 @@ describe("color utils", () => {
       b: 255,
       a: 1,
     });
-    // Near-extreme lightness stays finite and in range.
     const nearWhite = rgbaToHsl({ r: 255, g: 255, b: 254, a: 1 });
     expect(nearWhite.s).toBeGreaterThanOrEqual(0);
     expect(nearWhite.s).toBeLessThanOrEqual(100);
@@ -277,7 +264,6 @@ describe("color utils", () => {
       b: 30,
       a: 0.25,
     });
-    // Still delegates standard forms to the base parser.
     expect(parseCssColorExtended("#0af")).toEqual({
       r: 0,
       g: 170,
@@ -290,15 +276,10 @@ describe("color utils", () => {
       b: 30,
       a: 1,
     });
-    // Formats needing the DOM canvas resolver return null when no DOM exists.
     expect(parseCssColorExtended("not-a-color")).toBeNull();
   });
 
   describe("parseCssColorExtended DOM-based resolver (IP19)", () => {
-    // `parseCssColorExtended` memoizes a single canvas/context at module
-    // scope (by design, to avoid re-creating one per call), so all
-    // resolver-branch cases below share one `installFakeCanvasDocument` call
-    // and color table rather than re-installing per test.
     beforeAll(() => {
       installFakeCanvasDocument({
         "oklch(0.7 0.15 200)": [10, 20, 30, 255],
@@ -311,10 +292,6 @@ describe("color utils", () => {
     });
 
     it("resolves consecutive identical exotic colors instead of misdetecting them as invalid", () => {
-      // The bug: comparing fillStyle-before vs fillStyle-after (instead of a
-      // fixed sentinel) misfires on the *second* identical call, since the
-      // "before" value already equals the normalized "after" value from the
-      // first call — making a valid color look rejected (-> null -> black).
       const first = parseCssColorExtended("oklch(0.7 0.15 200)");
       const second = parseCssColorExtended("oklch(0.7 0.15 200)");
       expect(first).toEqual({ r: 10, g: 20, b: 30, a: 1 });
@@ -331,17 +308,13 @@ describe("color utils", () => {
     });
 
     it("still rejects a genuinely invalid color string via the resolver", () => {
-      // Prime the fake canvas with a valid color first...
       expect(parseCssColorExtended("oklch(0.7 0.15 200)")).not.toBeNull();
-      // ...then an unrecognized value must still resolve to null, not be
-      // accidentally treated as valid because it differs from the last one.
       expect(parseCssColorExtended("not-a-real-color-fn(1 2 3)")).toBeNull();
     });
   });
 });
 
 describe("defaultGradientEndColor", () => {
-  // Measured in Figma: a new Linear fill's second stop for each base colour.
   it.each([
     ["#d9d9d9", "#737373"],
     ["#000000", "#666666"],

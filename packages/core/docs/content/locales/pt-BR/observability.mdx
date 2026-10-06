@@ -19,7 +19,7 @@ Essas três páginas são fáceis de confundir. Escolha pela pergunta que você 
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                   | "O agente faz a coisa certa nesta entrada fixa?"    | Ativo, determinístico, um CI/deploy gate             | Qualidade      |
 | **[Observational Memory](/docs/observational-memory)**          | "Esse longo tópico está barato e dentro da janela?" | Compactação de fundo em threads longos               | Custo/contexto |
 
-A observabilidade e o CI Eval Gate pontuam _qualidade_, mas de extremos opostos - pontuação post-hoc passiva de tráfego real versus verificações ativas de aprovação/reprovação em entradas fixas. A memória observacional não está relacionada à qualidade; trata-se do custo do token e da pressão da janela de contexto.
+A observabilidade e o CI Eval Gate pontuam _qualidade_, mas de extremos opostos - pontuação post-hoc passiva de tráfego real versus verificações ativas de aprovação/reprovação em entradas fixas. A memória observacional não está relacionada à qualidade; trata-se do custo do token e da pressão da janela de contexto. Promova um trace de produção concluído a um caso `*.eval.ts` (painel **Promote to eval**, action `promote-trace-eval`, ou `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). Veja [A partir de um trace de produção](/docs/evals#from-trace).
 
 ## O que é capturado automaticamente {#captured}
 
@@ -96,7 +96,7 @@ Adicione o painel a qualquer modelo com uma única rota:
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -123,7 +123,7 @@ O painel possui 6 guias:
 
 A guia Conversas mostra as execuções registradas. Selecione uma para inspecionar seus períodos e expanda qualquer período para ver entradas, saídas, erros e metadados de ferramentas capturados. **Abrir conversa completa** leva à conversa de chat correspondente.
 
-Os argumentos e resultados das ferramentas não são capturados por padrão. Ative `captureToolArgs` e `captureToolResults` na configuração `observability` para armazená-los. Campos sensíveis e mensagens de erro das ferramentas são ocultados antes do armazenamento.
+Os argumentos, os resultados e os corpos de erro completos das ferramentas não são capturados por padrão. Ative `captureToolArgs` para armazenar os argumentos e `captureToolResults` para armazenar os resultados e os corpos de erro completos na configuração `observability`. Os campos sensíveis são ocultados antes do armazenamento. Uma ferramenta com falha sempre mantém a primeira linha do erro, com tamanho limitado e com credenciais, e-mails e IDs opacos longos ocultados, para que as falhas continuem diagnosticáveis mesmo com `captureToolResults` desativado.
 
 ### Revisão humana {#review}
 
@@ -290,7 +290,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+O conteúdo é **ocultado por padrão**: são armazenados contagens de tokens, custos e tempos e, para uma ferramenta com falha, a primeira linha do erro, com tamanho limitado e com credenciais, e-mails e IDs opacos longos ocultados. Prompts, entradas de ferramentas, resultados de ferramentas e corpos de erro completos permanecem desativados, a menos que `capturePrompts`, `captureToolArgs` e `captureToolResults` estejam ativados. Ative-os somente quando precisar do conteúdo de prompts ou argumentos para depuração.
 
 </Callout>
 
@@ -304,6 +304,7 @@ Todos montados automaticamente em `/_agent-native/observability/`:
 | GET    | `/traces`                  | Listar resumos de rastreamento                 |
 | GET    | `/traces/:runId`           | Detalhes do rastreamento (resumo + intervalos) |
 | GET    | `/traces/:runId/evals`     | Avaliações para uma corrida                    |
+| POST   | `/traces/:runId/promote`   | Promover uma execução concluída a eval de CI   |
 | POST   | `/feedback`                | Enviar comentários                             |
 | GET    | `/feedback`                | Listar comentários                             |
 | GET    | `/feedback/stats`          | Agregação de feedback                          |
@@ -337,13 +338,28 @@ Portanto, o custo quando você não conecta o OTel é algumas leituras de propri
 
 O loop do agente emite três tipos de span:
 
-| Período     | Quando                         | Atributos                                                         |
-| ----------- | ------------------------------ | ----------------------------------------------------------------- |
-| `agent.run` | uma vez por execução do agente | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | uma vez por invocação de ação  | `tool.name`, mais status de sucesso/erro                          |
-| `llm.call`  | por chamada de modelo          | tempo + OK/status de erro                                         |
+| Período               | Quando                         | Atributos                                                                                                 |
+| --------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | uma vez por execução do agente | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | uma vez por invocação de ação  | `gen_ai.tool.name`, mais status de sucesso/erro                                                           |
+| `chat {model}`        | por chamada de modelo          | `gen_ai.provider.name`, tempo + OK/status de erro                                                         |
 
 Os trechos são concluídos com o status OK/ERROR e registram a mensagem de erro em caso de falha. Os valores de atributos zero/sentinel são removidos para que os trechos não fiquem cheios de ruído. Essa camada OTel é puramente aditiva às tabelas internas `agent_trace_spans`/`agent_trace_summaries` que alimentam o painel acima — ambas são produzidas a partir dos mesmos eventos de execução.
+
+### Métricas {#otel-metrics}
+
+O core também registra métricas assim que o host registra um provedor de medidores com `registerObservabilityProvider()` de `@agent-native/core/server`. As métricas são registradas para cada requisição e execução, sem amostragem:
+
+| Instrumento                             | Atributos                                                                                    |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+Nas métricas, `gen_ai.tool.name` é o nome de uma ação do framework ou `other`, e `gen_ai.request.model` é o ID do modelo apenas quando o engine o lista como suportado; caso contrário, `_OTHER`. Assim, ferramentas definidas pelo app e IDs de modelo fornecidos por quem chama não podem criar séries ilimitadas; os spans mantêm os valores exatos.
 
 ## Relatório de erros (Sentry) {#sentry}
 

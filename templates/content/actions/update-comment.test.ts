@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory documentComments rows, filtered by mocked and()/eq() conditions —
-// same pattern as sync-notion-comments.test.ts, chosen so thread-wide
-// resolve/reopen updates (which touch multiple rows) are exercised for real.
 type Row = {
   id: string;
   documentId: string;
@@ -172,14 +169,18 @@ describe("update-comment (action) — reopen permission", () => {
 
     const result = await run({ id: "c-1", resolved: false });
 
-    expect(result).toEqual({ ok: true, resolved: false });
+    expect(result).toEqual({
+      ok: true,
+      resolved: false,
+      documentId: "doc-1",
+    });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",
       "editor",
     );
     expect(state.rows[0].resolved).toBe(0);
-    expect(state.rows[1].resolved).toBe(0); // whole thread reopened
+    expect(state.rows[1].resolved).toBe(0);
   });
 
   it("rejects reopening for a caller with only viewer access", async () => {
@@ -200,15 +201,15 @@ describe("update-comment (action) — reopen permission", () => {
   it("requires editor access to resolve a thread", async () => {
     const result = await run({ id: "c-1", resolved: true });
 
-    expect(result).toEqual({ ok: true, resolved: true });
+    expect(result).toEqual({ ok: true, resolved: true, documentId: "doc-1" });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",
       "editor",
     );
     expect(state.locked).toEqual(["c-1"]);
-    expect(state.rows[1].resolved).toBe(1); // whole thread resolved
-    expect(state.rows[2].resolved).toBe(0); // sibling thread unchanged
+    expect(state.rows[1].resolved).toBe(1);
+    expect(state.rows[2].resolved).toBe(0);
   });
 
   it("updates content and resolves the full thread in one transaction", async () => {
@@ -218,7 +219,7 @@ describe("update-comment (action) — reopen permission", () => {
       resolved: true,
     });
 
-    expect(result).toEqual({ ok: true, resolved: true });
+    expect(result).toEqual({ ok: true, resolved: true, documentId: "doc-1" });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",
@@ -241,7 +242,7 @@ describe("update-comment (action) — reopen permission", () => {
       resolved: true,
     });
 
-    expect(result).toEqual({ ok: true, resolved: true });
+    expect(result).toEqual({ ok: true, resolved: true, documentId: "doc-1" });
     expect(state.rows[0].resolved).toBe(1);
     expect(state.rows[1].resolved).toBe(1);
     expect(state.rows[2].resolved).toBe(0);
@@ -259,7 +260,7 @@ describe("update-comment (action) — reopen permission", () => {
   it("allows the author to edit their own comment content with commenter access", async () => {
     const result = await run({ id: "c-1", content: "Updated" });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, documentId: "doc-1" });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",

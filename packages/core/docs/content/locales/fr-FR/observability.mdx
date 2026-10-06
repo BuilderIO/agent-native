@@ -19,7 +19,7 @@ Ces trois pages sont faciles à confondre. Choisissez en fonction de la question
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                  | "L'agent fait-il ce qu'il faut sur cette entrée fixe ?"                    | Actif, déterministe, une porte CI/déploiement         | Qualité         |
 | **[Observational Memory](/docs/observational-memory)**         | "Est-ce que ce long fil reste bon marché et à l'intérieur de la fenêtre ?" | Compactage en arrière-plan sur les threads longs      | Coût / contexte |
 
-L'observabilité et CI Eval Gate obtiennent tous deux une _qualité_ mais à partir d'extrémités opposées : notation passive post-hoc du trafic réel par rapport aux contrôles actifs de réussite/d'échec sur les entrées fixes. La mémoire observationnelle n'est pas liée à la qualité ; il s'agit du coût des jetons et de la pression de la fenêtre contextuelle.
+L'observabilité et CI Eval Gate obtiennent tous deux une _qualité_ mais à partir d'extrémités opposées : notation passive post-hoc du trafic réel par rapport aux contrôles actifs de réussite/d'échec sur les entrées fixes. La mémoire observationnelle n'est pas liée à la qualité ; il s'agit du coût des jetons et de la pression de la fenêtre contextuelle. Promouvez une trace de production terminée en cas `*.eval.ts` (tableau de bord **Promote to eval**, action `promote-trace-eval`, ou `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). Voir [Depuis une trace de production](/docs/evals#from-trace).
 
 ## Ce qui est capturé automatiquement {#captured}
 
@@ -96,7 +96,7 @@ Ajoutez le tableau de bord à n'importe quel modèle avec un seul itinéraire :
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -123,7 +123,7 @@ Le tableau de bord comporte 6 onglets :
 
 L’onglet Conversations affiche les exécutions enregistrées. Sélectionnez-en une pour examiner ses étendues, puis développez une étendue pour voir les entrées, sorties, erreurs et métadonnées des outils qui ont été capturées. **Ouvrir la conversation complète** ouvre le fil de discussion associé.
 
-La capture des arguments et résultats des outils est désactivée par défaut. Activez `captureToolArgs` et `captureToolResults` dans la configuration `observability` pour les stocker. Les champs sensibles et les messages d’erreur des outils sont expurgés avant l’enregistrement.
+La capture des arguments, des résultats et des corps d’erreur complets des outils est désactivée par défaut. Activez `captureToolArgs` pour stocker les arguments et `captureToolResults` pour stocker les résultats et les corps d’erreur complets dans la configuration `observability`. Les champs sensibles sont expurgés avant l’enregistrement. Un outil en échec conserve toujours la première ligne de son erreur, limitée en longueur, avec les identifiants de connexion, les adresses e-mail et les longs identifiants opaques expurgés, afin que les échecs restent diagnosticables même lorsque `captureToolResults` est désactivé.
 
 ### Revue humaine {#review}
 
@@ -290,7 +290,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+Le contenu est **expurgé par défaut** : les nombres de jetons, les coûts et les durées sont stockés, ainsi que, pour un outil en échec, la première ligne de son erreur (limitée en longueur) avec les identifiants de connexion, les adresses e-mail et les longs identifiants opaques expurgés. Les prompts, les entrées des outils, les résultats des outils et les corps d’erreur complets restent désactivés tant que `capturePrompts`, `captureToolArgs` et `captureToolResults` ne sont pas activés. Ne les activez que si vous avez besoin du contenu des prompts ou des arguments pour le débogage.
 
 </Callout>
 
@@ -298,23 +298,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 Tous montés automatiquement sur `/_agent-native/observability/` :
 
-| Méthode | Chemin                     | Objectif                                |
-| ------- | -------------------------- | --------------------------------------- |
-| GET     | `/`                        | Statistiques générales                  |
-| GET     | `/traces`                  | Liste des résumés de trace              |
-| GET     | `/traces/:runId`           | Détails de la trace (résumé + étendues) |
-| GET     | `/traces/:runId/evals`     | Évaluations pour une exécution          |
-| POST    | `/feedback`                | Envoyer des commentaires                |
-| GET     | `/feedback`                | Répertorier les commentaires            |
-| GET     | `/feedback/stats`          | Agrégation de commentaires              |
-| GET     | `/satisfaction`            | Notes de satisfaction                   |
-| GET     | `/evals/stats`             | Statistiques d'évaluation               |
-| POST    | `/experiments`             | Créer un test                           |
-| GET     | `/experiments`             | Liste des tests                         |
-| GET     | `/experiments/:id`         | Obtenir les détails du test             |
-| PUT     | `/experiments/:id`         | Mettre à jour le test                   |
-| POST    | `/experiments/:id/results` | Calculer les résultats                  |
-| GET     | `/experiments/:id/results` | Obtenir des résultats                   |
+| Méthode | Chemin                     | Objectif                                     |
+| ------- | -------------------------- | -------------------------------------------- |
+| GET     | `/`                        | Statistiques générales                       |
+| GET     | `/traces`                  | Liste des résumés de trace                   |
+| GET     | `/traces/:runId`           | Détails de la trace (résumé + étendues)      |
+| GET     | `/traces/:runId/evals`     | Évaluations pour une exécution               |
+| POST    | `/traces/:runId/promote`   | Promouvoir une exécution terminée en eval CI |
+| POST    | `/feedback`                | Envoyer des commentaires                     |
+| GET     | `/feedback`                | Répertorier les commentaires                 |
+| GET     | `/feedback/stats`          | Agrégation de commentaires                   |
+| GET     | `/satisfaction`            | Notes de satisfaction                        |
+| GET     | `/evals/stats`             | Statistiques d'évaluation                    |
+| POST    | `/experiments`             | Créer un test                                |
+| GET     | `/experiments`             | Liste des tests                              |
+| GET     | `/experiments/:id`         | Obtenir les détails du test                  |
+| PUT     | `/experiments/:id`         | Mettre à jour le test                        |
+| POST    | `/experiments/:id/results` | Calculer les résultats                       |
+| GET     | `/experiments/:id/results` | Obtenir des résultats                        |
 
 Tous les points de terminaison prennent en charge les paramètres de requête `?since=N` (horodatage ms) et `?limit=N`.
 
@@ -337,13 +338,28 @@ Ainsi, le coût lorsque vous n'avez pas câblé OTel est de quelques lectures de
 
 La boucle d'agent émet trois types de span :
 
-| Portée      | Quand                          | Attributs                                                         |
-| ----------- | ------------------------------ | ----------------------------------------------------------------- |
-| `agent.run` | une fois par exécution d'agent | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | une fois par appel d'action    | `tool.name`, plus statut de réussite/erreur                       |
-| `llm.call`  | par appel de modèle            | timing + état OK/erreur                                           |
+| Portée                | Quand                          | Attributs                                                                                                 |
+| --------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | une fois par exécution d'agent | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | une fois par appel d'action    | `gen_ai.tool.name`, plus statut de réussite/erreur                                                        |
+| `chat {model}`        | par appel de modèle            | `gen_ai.provider.name`, timing + état OK/erreur                                                           |
 
 Les travées sont terminées avec l'état OK/ERROR et enregistrent le message d'erreur en cas d'échec. Les valeurs des attributs zéro/sentinelle sont élaguées afin que les étendues ne soient pas encombrées de bruit. Cette couche OTel est purement additive aux tables internes `agent_trace_spans` / `agent_trace_summaries` qui alimentent le tableau de bord ci-dessus : les deux sont produites à partir des mêmes événements d'exécution.
+
+### Métriques {#otel-metrics}
+
+Core enregistre aussi des métriques dès que l'hôte enregistre un fournisseur de mesures avec `registerObservabilityProvider()` depuis `@agent-native/core/server`. Les métriques sont enregistrées pour chaque requête et chaque exécution, sans échantillonnage :
+
+| Instrument                              | Attributs                                                                                    |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+Dans les métriques, `gen_ai.tool.name` est le nom d'une action du framework ou `other`, et `gen_ai.request.model` n'est l'identifiant du modèle que lorsque le moteur le déclare comme pris en charge, sinon `_OTHER`. Les outils définis par l'application et les identifiants de modèle fournis par l'appelant ne peuvent donc pas créer un nombre illimité de séries ; les spans conservent les valeurs exactes.
 
 ## Rapport d'erreurs (Sentry) {#sentry}
 

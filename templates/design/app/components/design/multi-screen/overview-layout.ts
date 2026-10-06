@@ -7,12 +7,6 @@ import type { Point } from "./types";
 export const OVERVIEW_FRAME_WIDTH = 320;
 export const SURFACE_PADDING = 240;
 
-// Chromium does not reliably paint the far interior of the old
-// 131,072×131,072 board iframe. Keep the logical board that large for
-// persistence and hit testing, but render only a stable, chunk-snapped window
-// around the current design. Four-kilopixel chunks plus two chunks of minimum
-// extent leave ample room for nearby drawing/movement without re-keying the
-// iframe on every small edit.
 export const BOARD_SURFACE_RENDER_CHUNK = 4096;
 export const BOARD_SURFACE_RENDER_PADDING = 2048;
 export const BOARD_SURFACE_RENDER_MIN_SIZE = 8192;
@@ -27,9 +21,6 @@ export interface LineupRecenterDuplicateArm {
   addedCount: number;
 }
 
-/** An explicit bounds-fit command owns the next camera commit. The automatic
- * screen-count lineup recenter must stand down until that nonce is handled or
- * it can briefly paint the all-screens camera before the requested target fit. */
 export function shouldDeferLineupRecenterToCameraCommand(args: {
   cameraCommandNonce?: number;
   lastHandledCameraCommandNonce: number | null;
@@ -88,21 +79,12 @@ export function getBoardSurfaceLayerStyle(args: {
   };
 }
 
-/**
- * The interactive board iframe intentionally stays below Chromium's reliable
- * paint limit. At very low zoom the visible world can be wider than that
- * window, so a script-disabled static replica supplies visual coverage behind
- * it. Keep the fallback off at ordinary zoom where the live window already
- * covers the viewport.
- */
 export function shouldRenderBoardSurfaceStaticPreview(args: {
   zoom: number;
   hasSurfaceContent: boolean;
   viewportGeometry?: FrameGeometry | null;
   renderGeometry: FrameGeometry;
 }) {
-  // The replica is opaque. Backing a layer that is not rendering just slabs the
-  // board in its own colour, which reads as a themed background gone wrong.
   if (!args.hasSurfaceContent) return false;
   if (!args.viewportGeometry) return false;
   return (
@@ -126,7 +108,6 @@ export function getBoardSurfaceStaticPreviewViewport(
   };
 }
 
-/** Clip the inert 4k board replica to the camera window before the world scale. */
 export function getBoardSurfaceStaticPreviewClip(args: {
   logicalGeometry: FrameGeometry;
   viewportGeometry?: FrameGeometry | null;
@@ -210,10 +191,6 @@ function fitRenderAxis(args: {
   }
 
   if (max - min > maxSize) {
-    // A single browser iframe cannot safely cover arbitrarily distant board
-    // islands. Prefer the active design focus while keeping the render window
-    // chunk-aligned; persistence and geometry hit testing still use the full
-    // logical board and remain lossless.
     min = Math.floor((args.focus - maxSize / 2) / chunk) * chunk;
     max = min + maxSize;
   }
@@ -231,12 +208,6 @@ function fitRenderAxis(args: {
   return { origin: min, size: max - min };
 }
 
-/**
- * Builds the finite iframe window used to paint the otherwise-infinite board.
- * The returned geometry is deliberately separate from the logical board
- * geometry so persisted coordinates and broad hit-testing retain their full
- * range while Chromium only has to paint a browser-safe surface.
- */
 export function getBoardSurfaceRenderGeometry(args: {
   logicalGeometry: FrameGeometry;
   contentBounds?: FrameGeometry | null;
@@ -321,8 +292,6 @@ export function boardSurfaceLocalPointToBoardPoint(
   };
 }
 
-/** Converts the board bridge's iframe-local selection box into world-space
- * bounds using the current finite board render window. */
 export function getBoardSelectionWorldBounds(args: {
   rect: { left: number; top: number; width: number; height: number };
   rotationDeg?: number;
@@ -346,8 +315,6 @@ export function getBoardSelectionWorldBounds(args: {
   });
 }
 
-/** Returns cached Board geometry only while the current layer selection still
- * owns the screen and selector that produced it. */
 export function getCurrentBoardSelectionWorldBounds(args: {
   selection: {
     screenId: string;

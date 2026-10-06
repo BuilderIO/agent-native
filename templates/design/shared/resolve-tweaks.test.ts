@@ -41,7 +41,6 @@ const tweaks: TweakDefinition[] = [
     defaultValue: "normal",
     cssVar: "--density",
   },
-  // No cssVar -> must be skipped.
   { id: "noop", label: "Noop", type: "segment", defaultValue: "x" },
 ];
 

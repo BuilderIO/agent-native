@@ -30,12 +30,6 @@ const messages = {
     pageExtension: "拡張機能",
     pageExtensions: "拡張機能",
   },
-  settings: {
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
-  },
   agent: {
     emptyState: "エージェントにこのアプリの確認や変更を依頼してください。",
     suggestionCalendar:
@@ -160,6 +154,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "キューを提案",
+    noQueueMatch: "一致するキューがありません",
+    urgentProbability: "緊急度の確率 {{percent}}%",
+    applyRoute: "キューを適用",
+    routingError: "キューを提案できませんでした。",
     panelTitle: "フィールド",
     panelSubtitle: "タスクの詳細",
     closeLabel: "フィールドパネルを閉じる",

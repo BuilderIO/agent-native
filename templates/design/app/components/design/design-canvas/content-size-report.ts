@@ -1,18 +1,6 @@
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 
-/**
- * Content-size reporter injected into every canvas iframe (primary + each
- * breakpoint) so a frame can grow to fit its own content instead of inheriting
- * the primary frame's aspect ratio. The iframes are sandbox="allow-scripts"
- * (opaque origin), so the parent can't read contentDocument — this measures
- * the viewport extent and natural body content, then posts both heights keyed
- * by event.source. It first pins full-height utilities to a fixed per-frame
- * --agent-native-device-vh so a min-h-screen hero can't chase the growing frame
- * (runaway), then remaps raw viewport-height units in authored CSS to the same
- * fixed device viewport.
- */
-
-const CONTENT_SIZE_REPORT_BRIDGE = `
+export const CONTENT_SIZE_REPORT_BRIDGE = `
 <style data-agent-native-content-size-guard>
   .min-h-screen { min-height: var(--agent-native-device-vh, 100vh) !important; }
   .h-screen { height: var(--agent-native-device-vh, 100vh) !important; }
@@ -77,16 +65,24 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     }
   }
 
+  // A sheet's rules are remapped in place, so a sheet only needs another pass
+  // when its rule count changes; a rewritten <style> yields a new sheet object.
+  var remappedRuleCounts = new WeakMap();
   function applyViewportHeightGuard() {
     for (var i = 0; i < document.styleSheets.length; i++) {
+      var sheet = document.styleSheets[i];
       try {
-        remapRuleList(document.styleSheets[i].cssRules);
+        var rules = sheet.cssRules;
+        if (remappedRuleCounts.get(sheet) === rules.length) continue;
+        remapRuleList(rules);
+        remappedRuleCounts.set(sheet, rules.length);
       } catch (err) {
         /* Cross-origin stylesheet - the parent-side feedback guard remains. */
       }
     }
     var inlineStyles = document.querySelectorAll("[style]");
     for (var j = 0; j < inlineStyles.length; j++) {
+      if (!/vh/i.test(inlineStyles[j].getAttribute("style") || "")) continue;
       remapStyleDeclaration(inlineStyles[j].style);
     }
   }
@@ -245,10 +241,25 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     }
     return true;
   }
+  // The editor rescales its chrome through custom properties on <html> on
+  // every zoom step; those never change content size.
+  function withoutEditorVars(style) {
+    return (style || "").replace(/--agent-native-[a-z-]+:[^;]*;?/g, "").trim();
+  }
+  function isEditorVarWrite(record) {
+    return (
+      record.type === "attributes" &&
+      record.attributeName === "style" &&
+      record.target === document.documentElement &&
+      withoutEditorVars(record.oldValue) ===
+        withoutEditorVars(document.documentElement.getAttribute("style"))
+    );
+  }
   function touchesAuthoredContent(records) {
     for (var i = 0; i < records.length; i++) {
       var record = records[i];
       if (isChromeNode(record.target)) continue;
+      if (isEditorVarWrite(record)) continue;
       if (
         record.type === "childList" &&
         allChromeNodes(record.addedNodes) &&
@@ -269,6 +280,7 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
       childList: true,
       subtree: true,
       attributes: true,
+      attributeOldValue: true,
       characterData: true,
     });
   }
@@ -293,12 +305,6 @@ export type ContentSizeSample = {
   width: number;
 };
 
-/**
- * A document using raw viewport-height CSS can report a larger scrollHeight
- * every time its iframe grows. Keep the first useful height when subsequent
- * growth tracks the viewport growth; later content changes at a stable
- * viewport are still accepted.
- */
 export function resolveStableContentSizeSample(
   previous: ContentSizeSample | undefined,
   next: Omit<ContentSizeSample, "acceptedHeight">,
@@ -317,14 +323,10 @@ export function resolveStableContentSizeSample(
   };
 }
 
-/** Appends the reporter + full-height guard, mirroring appendHitTestResponder's
- * marker handling so it runs regardless of document structure. */
 export function appendContentSizeReporter(html: string): string {
   return injectDocumentMarkup(html, CONTENT_SIZE_REPORT_BRIDGE);
 }
 
-/** Uses the same overlay-excluding natural-height measurement as the iframe
- * reporter, so exports agree with the Hug height shown by the live canvas. */
 export function measureNaturalDocumentHeight(doc: Document): number | null {
   const view = doc.defaultView as
     | (Window & { __agentNativeMeasureNaturalHeight?: () => number })

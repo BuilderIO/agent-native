@@ -11,10 +11,11 @@ import {
 } from "@agent-native/code-agents-ui";
 import {
   PromptComposer,
+  isLocalRuntimeEngine,
   readAgentPromptAttachment,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   Select,
   SelectContent,
@@ -405,7 +406,9 @@ export default function QuickPromptOverlay({
         availableModels={availableModels}
         modelListLoading={modelListLoading}
         modelSelectorOpen={modelPickerOpen}
-        modelStatusChecksEnabled={false}
+        modelStatusChecksEnabled={
+          !isLocalRuntimeEngine(normalizedModelSelection.engine)
+        }
         selectedAgent={getCodeAgentIdForEngine(normalizedModelSelection.engine)}
         selectedEngine={normalizedModelSelection.engine}
         selectedEffort={normalizedModelSelection.effort}

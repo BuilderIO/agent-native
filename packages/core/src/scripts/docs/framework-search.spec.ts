@@ -1,8 +1,21 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it, beforeAll } from "vitest";
 
 import { materializeSourceCorpus } from "../../../scripts/materialize-source-corpus.mjs";
 import { captureCliOutput } from "../../server/cli-capture.js";
 import frameworkSearch from "./framework-search.js";
+
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const packageRoot = path.resolve(currentDir, "../../..");
+const localCorpusPackageRoot = path.resolve(packageRoot, "../core-corpus");
+const corpusRoot = fs.existsSync(
+  path.join(localCorpusPackageRoot, "package.json"),
+)
+  ? path.join(localCorpusPackageRoot, "corpus")
+  : path.join(packageRoot, "corpus");
 
 async function runFrameworkSearch(args: string[]): Promise<string> {
   return captureCliOutput(() => frameworkSearch(args));
@@ -10,7 +23,9 @@ async function runFrameworkSearch(args: string[]): Promise<string> {
 
 describe("framework-search", { timeout: 60000 }, () => {
   beforeAll(() => {
-    materializeSourceCorpus();
+    if (!fs.existsSync(path.join(corpusRoot, "README.md"))) {
+      materializeSourceCorpus(corpusRoot);
+    }
   }, 60000);
 
   it("searches docs and source together", async () => {
@@ -61,9 +76,9 @@ describe("framework-search", { timeout: 60000 }, () => {
       "--scope",
       "source",
       "--path",
-      "core/src/client/*",
+      "toolkit/src/app/chat/*",
     ]);
-    expect(regexOutput).toContain("core/src/client/AgentPanel.tsx");
+    expect(regexOutput).toContain("toolkit/src/app/chat/AgentPanel.tsx");
 
     await expect(
       runFrameworkSearch(["--pattern", "[", "--mode", "regex"]),

@@ -3,6 +3,46 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-05
+
+### Improved
+
+- Messages from private Slack channels the Brain app is invited to are now searchable by everyone in the org once they pass sensitivity screening. Syncs no longer look up channel members, so a member without a visible email no longer stops a channel from syncing. Personal sources stay visible only to their owner and the people they are shared with.
+
+## 2026-10-02
+
+### Improved
+
+- With Jev as the privacy classifier, routine messages that mention words like "investigating", "interview", or "reorg" are no longer dropped automatically. Jev now decides whether they are sensitive. Credentials are still always blocked.
+
+## 2026-10-01
+
+### Improved
+
+- Brain answers from synced Slack and Zoom messages with their channel and date, including questions asked from Dispatch, Slack, or MCP.
+
+## 2026-09-30
+
+### Added
+
+- Brain syncs Zoom cloud-recording transcripts hourly alongside Slack.
+
+### Improved
+
+- Brain chat semantic-searches synced Slack and Zoom content and sees each item's source and date.
+- Knowledge writes publish directly with no manual approval step.
+- Slack messages and meeting transcripts are stored in full unless Jev flags them as sensitive.
+
+### Fixed
+
+- Slack, Granola, GitHub, and Zoom sources sync hourly again instead of silently stalling when a workspace has many sources that do not auto-sync.
+
+## 2026-09-25
+
+### Improved
+
+- Brain settings now live in tabs on Brain › General (Identity, Behavior, Publishing, Safety, and Privacy), and each change saves as you make it.
+
 ## 2026-09-22
 
 ### Added

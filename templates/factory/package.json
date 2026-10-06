@@ -17,7 +17,9 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/dispatch": "workspace:*",
+    "@agent-native/otel": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@electric-sql/pglite": "^0.5.8",
     "@fontsource-variable/inter": "^5.2.8",
     "@react-router/dev": "^8.1.0",
     "@react-router/fs-routes": "^8.1.0",

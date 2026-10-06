@@ -17,7 +17,6 @@ import {
   type TranscriptLine,
 } from "./transcription-engine";
 
-/** A final-transcript event carrying one segment of `text`. */
 function said(
   source: "mic" | "system",
   text: string,
@@ -62,8 +61,6 @@ describe("transcript echo suppression", () => {
   it("retracts a mic echo once the system copy of it arrives", () => {
     const lines: TranscriptLine[] = [];
 
-    // The mic finalizes first, so without retraction the remote speaker's
-    // words would stay attributed to the user.
     appendFinalTranscript(
       said("mic", "Send the pull request button", 1_100),
       lines,
@@ -86,7 +83,6 @@ describe("transcript echo suppression", () => {
       said("system", "So I think we should ship the redesign on Friday", 4_000),
       lines,
     );
-    // Whisper transcribes speaker bleed badly: words drop out and change.
     expect(
       appendFinalTranscript(
         said("mic", "So I think we should ship a redesign Friday", 4_300),
@@ -197,9 +193,6 @@ describe("transcript echo suppression", () => {
     ).toBe(true);
   });
 
-  // Echo repeats a whole utterance. A brief interjection whose words all
-  // happen to appear, in order, somewhere in a long remote passage is the user
-  // talking, and silently deleting that is far worse than keeping echo.
   it.each([
     ["Sorry, go ahead", "Right, go ahead and start whenever you are ready"],
     ["Yeah, I think so", "I don't think so, we should just ship it"],
@@ -217,9 +210,6 @@ describe("transcript echo suppression", () => {
     expect(lines).toHaveLength(2);
   });
 
-  // Captured off a real speaker-mode call. Whisper hears the bleed well enough
-  // to keep the sentence structure but mangles the nouns and the digits, which
-  // is why both exact and set-based matching let it through.
   it("matches a real mangled echo of a long utterance", () => {
     const lines: TranscriptLine[] = [];
 
@@ -290,11 +280,6 @@ describe("transcript echo suppression", () => {
 });
 
 describe("transcriptSegments", () => {
-  // The macos-native fallback engine reports no word-level timestamps, so
-  // its lines carry `segments: []`. Flattening those away entirely (instead
-  // of falling back to a single segment) would drop `source` from the
-  // persisted array — which the transcript UI then defaults to "system",
-  // rendering the user's own mic speech as "Them".
   it("keeps a source-tagged fallback segment for a line with no verbatim timings", () => {
     const lines: TranscriptLine[] = [
       { source: "mic", startMs: 1_000, text: "Hello there", segments: [] },
@@ -306,10 +291,6 @@ describe("transcriptSegments", () => {
     expect(segments[0].text).toBe("Hello there");
   });
 
-  // The mic-only engines report startMs: null on *every* line, so a
-  // synthesized segment must continue from the previous line's end. Anchoring
-  // each at its own null-coalesced 0 stacks the whole transcript on one
-  // instant, which silently breaks ordering and timestamp seeking.
   it("gives untimed lines monotonic, non-overlapping timings", () => {
     const lines: TranscriptLine[] = [
       {
@@ -334,8 +315,6 @@ describe("transcriptSegments", () => {
     });
   });
 
-  // A line carrying a stale stamp that precedes the running cursor must not
-  // reorder the transcript behind the segment already emitted before it.
   it("does not let a stale line timestamp move a segment backwards", () => {
     const lines: TranscriptLine[] = [
       {
@@ -488,8 +467,6 @@ describe("meeting microphone capture", () => {
 
     expect(engine).toBe("macos-native");
     expect(invokeMock).toHaveBeenNthCalledWith(2, "native_speech_start", {
-      // The fallback forwards the browser's own locale; asserting a literal
-      // here passes only on a machine that happens to run in en-US.
       locale: navigator.language || "en-US",
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",

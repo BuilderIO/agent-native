@@ -1,9 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { DispatchLandingMock } from "../components/template-landing/DispatchLandingMock";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -111,11 +109,6 @@ const FAQ_ITEMS = [
   { id: "approvals-scope", question: "question5", answer: "answer5" },
 ] as const;
 
-// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
-// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
-// below draws its grid lines flush to that same max-w-site edge, so this
-// wrapper must match exactly (no px-* here) or the hero's border-x box ends
-// up narrower than the rest of the page.
 const HERO_WRAPPER_CLASS =
   "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
@@ -149,8 +142,7 @@ export default function DispatchTemplate() {
               rel="noopener noreferrer"
               className="primary-button"
               style={{ gap: "4px" }}
-              onClick={(event) => {
-                applyFirstTouchAttributionToLink(event.currentTarget);
+              onClick={() => {
                 trackEvent("try live demo", {
                   template: template.slug,
                   location: "landing_page_hero",
@@ -302,14 +294,8 @@ export default function DispatchTemplate() {
             href={firstPartyAppUrl("https://dispatch.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            // The shared cta variant renders at 14px in sentence case, but
-            // the hero's .primary-button (uppercase 12px mono, via the
-            // .template-detail-page CSS rule) only applies inside the hero
-            // wrapper. Match it explicitly here so both CTAs on the page
-            // read as the same button style.
             style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
-            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
+            onClick={() => {
               trackEvent("try live demo", {
                 template: template.slug,
                 location: "landing_page_final_cta",

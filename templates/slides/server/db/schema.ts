@@ -14,6 +14,9 @@ export const decks = table("decks", {
   title: text("title").notNull(),
   data: text("data").notNull(), // Full deck JSON
   designSystemId: text("design_system_id"),
+  lastWriteClientId: text("last_write_client_id"),
+  lastWriteClientSequence: integer("last_write_client_sequence"),
+  lastWriteRevision: text("last_write_revision"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
@@ -48,9 +51,6 @@ export const designSystems = table("design_systems", {
 
 export const designSystemShares = createSharesTable("design_system_shares");
 
-// Persisted public share-link snapshots (token → deck snapshot).
-// Replaces the old in-memory Map so links survive server restarts and
-// work across multiple serverless instances.
 export const deckShareLinks = table("deck_share_links", {
   token: text("token").primaryKey(),
   title: text("title").notNull(),
@@ -82,8 +82,6 @@ export const slideComments = table(
     content: text("content").notNull(),
     quotedText: text("quoted_text"),
     anchor: text("anchor"),
-    // JSON map of emoji -> authenticated author emails. Kept on the comment row
-    // so toggling a reaction can use a compare-and-swap update.
     emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
     authorEmail: text("author_email").notNull(),
     authorName: text("author_name"),
@@ -114,8 +112,6 @@ export const deckEvents = table("deck_events", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-// One durable bucket per deck keeps anonymous access-request throttling
-// consistent across serverless instances and cold starts.
 export const deckAccessRequestLimits = table("deck_access_request_limits", {
   deckId: text("deck_id").primaryKey(),
   windowStartedAt: text("window_started_at").notNull(),

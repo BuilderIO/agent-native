@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   a2aConstructor: vi.fn(),
   a2aSend: vi.fn(),
   a2aGetTask: vi.fn(),
+  signA2AOrganizationToken: vi.fn(),
   signA2AToken: vi.fn(),
   canonicalA2AAudience: vi.fn((url: string) => url.replace(/\/+$/, "")),
   getOrgA2ASecret: vi.fn(),
@@ -86,7 +87,9 @@ vi.mock("@agent-native/core/a2a", async (importOriginal) => {
         return mocks.a2aGetTask(...args);
       }
     },
+    signA2AOrganizationToken: mocks.signA2AOrganizationToken,
     signA2AToken: mocks.signA2AToken,
+    getGlobalA2ASecret: () => process.env.A2A_SECRET?.trim(),
     canonicalA2AAudience: mocks.canonicalA2AAudience,
   };
 });
@@ -161,6 +164,7 @@ beforeEach(() => {
   mocks.a2aConstructor.mockReset();
   mocks.a2aSend.mockReset();
   mocks.a2aGetTask.mockReset();
+  mocks.signA2AOrganizationToken.mockReset();
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
   mocks.getBuiltinAgents.mockReturnValue([]);
@@ -190,6 +194,7 @@ beforeEach(() => {
     },
   });
   mocks.signA2AToken.mockResolvedValue("signed-token");
+  mocks.signA2AOrganizationToken.mockResolvedValue("signed-token");
   mocks.getOrgA2ASecret.mockResolvedValue(null);
   mocks.getOrgDomain.mockResolvedValue(null);
   mocks.isFeatureFlagEnabled.mockResolvedValue(true);
@@ -408,6 +413,12 @@ describe("askGrantedDispatchMcpApp", () => {
       "signed-token",
       { requestTimeoutMs: 10_000 },
     );
+    expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
+      "builder.io",
+      "org-specific-secret",
+      undefined,
+      { audience: "http://localhost:8086" },
+    );
     expect(mocks.a2aSend).toHaveBeenCalledWith(
       {
         role: "user",
@@ -433,6 +444,27 @@ describe("askGrantedDispatchMcpApp", () => {
       taskId: "task-1",
       status: "completed",
     });
+  });
+
+  it("does not sign an unscoped A2A user token when the active org domain is unavailable", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-a2a-secret");
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-without-domain",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => askGrantedDispatchMcpApp("analytics", "Build a dashboard."),
+    );
+
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      "http://localhost:8086",
+      undefined,
+      { requestTimeoutMs: 10_000 },
+    );
   });
 
   it("reuses the MCP request identity for transport retries", async () => {
@@ -1336,7 +1368,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
   });
 
   it("keeps workspace sign-in behind the rollout flag", async () => {
-    mocks.isFeatureFlagEnabled.mockResolvedValueOnce(false);
+    mocks.isFeatureFlagEnabled.mockResolvedValue(false);
 
     await expect(
       runWithRequestContext(
@@ -1352,6 +1384,31 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       ),
     ).rejects.toThrow(/not enabled/);
     expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("allows Desktop workspace sign-in when Dispatch pane SSO is off", async () => {
+    mocks.isFeatureFlagEnabled.mockImplementation(
+      async (flag) => flag.key === "desktop.workspace-sso",
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "analytics",
+            path: "/overview",
+          }),
+      ),
+    ).resolves.toMatchObject({ app: "analytics" });
+
+    expect(
+      mocks.isFeatureFlagEnabled.mock.calls.map(([flag]) => flag.key),
+    ).toEqual(["dispatch.workspace-sso", "desktop.workspace-sso"]);
+    expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
   it("allows an exact canonical app without requiring an MCP app grant", async () => {
@@ -1505,10 +1562,6 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         chrome: "full",
       },
     );
-    // Regression: the target MCP connection must use the home origin, not
-    // the discovered agent URL, which can be a deep share link
-    // (https://clips.agent-native.com/share/deep-link) that turns "/mcp"
-    // into a query-string suffix and hits Clips' HTML page instead of MCP.
     expect(mocks.managerConstructor).toHaveBeenCalledWith({
       servers: {
         target: expect.objectContaining({
@@ -1892,25 +1945,48 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         }),
     );
 
-    expect(mocks.signA2AToken).toHaveBeenCalledWith(
-      "owner@example.test",
+    expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
       "builder.io",
       "org-specific-secret",
+      undefined,
       {
         expiresIn: "5m",
-        audience: "http://localhost:8086",
-        preferGlobalSecret: false,
+        audience: "http://localhost:8086/mcp",
       },
     );
   });
 
-  it("falls back to the shared A2A secret when the target rejects org signing", async () => {
+  it("does not fall back to a shared unscoped token when the active org domain is unavailable", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-without-domain",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(
+      "Cannot authenticate cross-app MCP access without the active organization domain.",
+    );
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("uses the verified user token first and falls back to the org principal", async () => {
     vi.stubEnv("A2A_SECRET", "shared-secret");
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
-    mocks.signA2AToken
-      .mockResolvedValueOnce("org-signed-token")
-      .mockResolvedValueOnce("global-signed-token");
+    mocks.signA2AOrganizationToken.mockResolvedValueOnce("org-signed-token");
+    mocks.signA2AToken.mockResolvedValueOnce("global-signed-token");
     mocks.managerCallTool
       .mockRejectedValueOnce(
         new Error(
@@ -1944,7 +2020,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer org-signed-token" },
+            headers: { Authorization: "Bearer global-signed-token" },
           }),
         },
       }),
@@ -1954,19 +2030,27 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer global-signed-token" },
+            headers: { Authorization: "Bearer org-signed-token" },
           }),
         },
       }),
     );
-    expect(mocks.signA2AToken).toHaveBeenNthCalledWith(
-      2,
+    expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
+      "builder.io",
+      "org-specific-secret",
+      undefined,
+      {
+        expiresIn: "5m",
+        audience: "http://localhost:8086/mcp",
+      },
+    );
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
       "owner@example.test",
       "builder.io",
       undefined,
       {
         expiresIn: "5m",
-        audience: "http://localhost:8086",
+        audience: "http://localhost:8086/mcp",
         preferGlobalSecret: true,
       },
     );
@@ -1995,36 +2079,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
-        audience: "http://localhost:8086",
-        preferGlobalSecret: true,
-      },
-    );
-  });
-
-  it("falls back to the shared A2A secret when org signing inputs are incomplete", async () => {
-    mocks.getOrgDomain.mockResolvedValue(null);
-    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
-
-    await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        orgId: "org-1",
-        requestOrigin: "http://localhost:8092",
-      },
-      () =>
-        createGrantedDispatchMcpEmbedSession({
-          app: "analytics",
-          path: "/dashboards",
-        }),
-    );
-
-    expect(mocks.signA2AToken).toHaveBeenCalledWith(
-      "owner@example.test",
-      undefined,
-      undefined,
-      {
-        expiresIn: "5m",
-        audience: "http://localhost:8086",
+        audience: "http://localhost:8086/mcp",
         preferGlobalSecret: true,
       },
     );

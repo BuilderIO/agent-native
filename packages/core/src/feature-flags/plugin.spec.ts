@@ -12,7 +12,10 @@ vi.mock("./registry.js", () => ({
   },
   registerFeatureFlags,
 }));
-vi.mock("../settings/store.js", () => ({ getSetting }));
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  getSetting,
+}));
 vi.mock("./store.js", () => ({ mutateFeatureFlagRules }));
 
 const { createFeatureFlagsPlugin } = await import("./plugin.js");

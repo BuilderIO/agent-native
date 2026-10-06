@@ -25,11 +25,6 @@ export const classifierDecisionSchema = z
   })
   .strict();
 
-/**
- * Redacts contact details, credentials, and links that survive the line-level
- * screen. Anything leaving the process -- persisted content or a payload sent
- * to an external classifier -- must pass through here.
- */
 export function sanitizeSensitiveText(value: string): string {
   return (
     value
@@ -62,23 +57,14 @@ export function sanitizeSensitiveText(value: string): string {
  * classifier's `secret-credential` question covers formats nobody enumerated.
  */
 const UNLABELLED_CREDENTIAL_SOURCES = [
-  // GitHub, OpenAI, Stripe, and similar `<prefix>_<body>` / `<prefix>-<body>`.
   String.raw`\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)[_-][A-Za-z0-9_=-]{12,}\b`,
-  // Slack bot/user/app/refresh tokens.
   String.raw`\bxox[abposr]-[A-Za-z0-9-]{10,}`,
-  // AWS access key ids.
   String.raw`\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b`,
-  // Google API keys and OAuth client secrets.
   String.raw`\bAIza[A-Za-z0-9_-]{35}\b`,
   String.raw`\bGOCSPX-[A-Za-z0-9_-]{20,}\b`,
-  // SendGrid.
   String.raw`\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b`,
-  // JWTs.
   String.raw`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`,
-  // PEM blocks. The label pattern wants `private key:`, which a PEM header
-  // never has.
   String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----`,
-  // Authorization headers pasted from logs or curl commands.
   String.raw`\b(?:Authorization\s*:\s*)?(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}`,
 ] as const;
 
@@ -155,6 +141,13 @@ const PERSONAL_PATTERN =
   /\b(home address|social security|ssn|birthday|spouse|husband|wife|children?)\b/i;
 const PROMPT_INJECTION_PATTERN =
   /\b(ignore (?:previous|all|privacy)|override (?:the |all )?(?:policy|rules)|reveal (?:the )?(?:secret|private)|persist every)\b/i;
+const CREDENTIAL_ONLY_PATTERNS = HARD_CATEGORY_PATTERNS.filter(
+  ([category]) => category === "secret-credential",
+);
+
+// "credentials" leaves HR and personal keywords to Jev, which judges context; "all" is for paths with no context-aware classifier.
+export type DeterministicScreenScope = "all" | "credentials";
+
 export interface DeterministicSensitivityScreen {
   categories: BrainSensitivityCategory[];
   sensitiveLines: string[];
@@ -163,21 +156,24 @@ export interface DeterministicSensitivityScreen {
 
 export function screenSensitivityDeterministically(
   content: string,
+  scope: DeterministicScreenScope = "all",
 ): DeterministicSensitivityScreen {
   const categories = new Set<BrainSensitivityCategory>();
   const sensitiveLines: string[] = [];
   const safeLines: string[] = [];
+  const patterns =
+    scope === "credentials" ? CREDENTIAL_ONLY_PATTERNS : HARD_CATEGORY_PATTERNS;
 
   for (const rawLine of content.split(/\r?\n/g)) {
     const line = rawLine.trim();
     if (!line) continue;
     let sensitive = false;
-    for (const [category, pattern] of HARD_CATEGORY_PATTERNS) {
+    for (const [category, pattern] of patterns) {
       if (!pattern.test(line)) continue;
       categories.add(category);
       sensitive = true;
     }
-    if (PERSONAL_PATTERN.test(line)) {
+    if (scope === "all" && PERSONAL_PATTERN.test(line)) {
       categories.add("personal");
       sensitive = true;
     }
@@ -191,8 +187,9 @@ export function screenSensitivityDeterministically(
 export function fallbackSensitivityDecision(
   content: string,
   capturedAt: string,
+  scope: DeterministicScreenScope = "all",
 ): BrainSensitivityDecision {
-  const screen = screenSensitivityDeterministically(content);
+  const screen = screenSensitivityDeterministically(content, scope);
   const safeContent = screen.safeLines
     .join("\n")
     .slice(0, MAX_CLASSIFIER_OUTPUT_CHARS);
@@ -220,8 +217,9 @@ export function fallbackSensitivityDecision(
 export function deterministicQuarantineDecision(
   content: string,
   capturedAt: string,
+  scope: DeterministicScreenScope = "all",
 ): BrainSensitivityDecision | null {
-  const screen = screenSensitivityDeterministically(content);
+  const screen = screenSensitivityDeterministically(content, scope);
   if (!screen.categories.length) return null;
   const safeContent = screen.safeLines
     .join("\n")

@@ -33,13 +33,6 @@ export type DesignLeftPanel =
   | "import"
   | "code";
 
-/**
- * Keep the still-evolving Design editor side panels out of the default
- * surface until their Figma parity work is ready. Flip this switch to expose
- * Assets, Tools, Tokens, Code, and Motion together while iterating on them.
- * The E2E harness sets the Vite flag so those existing advanced-surface tests
- * keep exercising the gated panels.
- */
 const designSecondaryLeftPanelsSetting =
   typeof import.meta !== "undefined"
     ? (import.meta as { env?: Record<string, string> }).env
@@ -72,7 +65,6 @@ export function isDesignLeftPanelEnabled(
   return true;
 }
 
-/** Zoom percentage applied when entering single-screen (focused) editor mode. */
 export const FOCUSED_SCREEN_ZOOM = 100;
 
 export interface DesignFile {

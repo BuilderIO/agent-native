@@ -11,22 +11,26 @@ const deckEditorSource = readFileSync(
 
 describe("DeckEditor new-deck generation run cleanup", () => {
   it("forces a fresh guided-question check before dropping run correlation", () => {
-    const effectStart = deckEditorSource.indexOf(
-      'const submitMessageId = searchParams.get("generationSubmitId");',
+    expect(deckEditorSource).toContain(
+      "routeGenerationSubmitId ?? restoredGenerationSubmitId",
+    );
+    const clearCall = "clearNewDeckGenerationRun(id, generationSubmitId);";
+    const clearIndex = deckEditorSource.indexOf(clearCall);
+    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    const effectStart = deckEditorSource.lastIndexOf(
+      "  useEffect(() => {",
+      clearIndex,
     );
     expect(effectStart).toBeGreaterThanOrEqual(0);
     const effectBody = deckEditorSource.slice(
       effectStart,
-      deckEditorSource.indexOf("}, [", effectStart),
+      deckEditorSource.indexOf("  }, [", clearIndex),
     );
 
-    // The stopped run's chatRunning event can beat the guided-question
-    // app-state read; clearing on the stale reactive `waitingOnNewDeckQuestions`
-    // value alone would leave a later answer with no tab to route to.
+    expect(effectBody).toContain("!generationSubmitId");
     expect(effectBody).toContain("refetchPendingQuestion()");
-    const clearIndex = effectBody.indexOf("clearNewDeckGenerationRun(id");
     const thenIndex = effectBody.indexOf(".then((stillWaiting)");
     expect(thenIndex).toBeGreaterThanOrEqual(0);
-    expect(clearIndex).toBeGreaterThan(thenIndex);
+    expect(effectBody.indexOf(clearCall)).toBeGreaterThan(thenIndex);
   });
 });

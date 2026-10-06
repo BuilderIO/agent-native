@@ -41,9 +41,6 @@ export async function queryMetrics(sql: string): Promise<QueryMetricsResult> {
   };
 }
 
-/**
- * React Query hook for metrics queries.
- */
 export function useMetricsQuery(
   queryKey: string[],
   sql: string,

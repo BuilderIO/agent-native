@@ -1,7 +1,3 @@
-// Monochrome wordmark: solid `currentColor` by default (white in dark mode),
-// flipped to black in light mode via the `.light .redesign-logo` override in
-// tokens.css. The duplicated second path (drawn over the gradient-filled
-// first path) is preserved verbatim from the source export.
 export function Logo({
   width = 160,
   height = 19,

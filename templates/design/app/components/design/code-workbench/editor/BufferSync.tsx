@@ -4,24 +4,6 @@ import { useEffect, useRef } from "react";
 import { useWorkbench } from "../store";
 import { providerKindFromKey, workbenchUri } from "../workspace/types";
 
-/**
- * Keeps open workbench tabs in sync with out-of-band edits.
- *
- * - Inline (designfs) tabs sync via `read-source-file`, using the shared
- *   query cache's normal refetch behavior (agent/canvas edits invalidate
- *   the query).
- * - Localhost tabs have no shared query cache to invalidate from (the file
- *   lives on the user's disk, edited by their own editor or the agent
- *   through the bridge) so they are synced by polling `provider.readFile`
- *   on an interval instead.
- *
- * Both paths funnel through `api.applyExternalRead`, which is a no-op when
- * the versionHash is unchanged and flags a conflict instead of clobbering
- * unsaved local edits.
- *
- * Renders nothing — this is purely a data-sync component mounted once per
- * workbench.
- */
 export function BufferSyncGroup({ designId }: { designId: string }) {
   const { state } = useWorkbench();
   const inlineTabs = state.tabs.filter(
@@ -73,14 +55,6 @@ function BufferSyncOne({ designId, path }: { designId: string; path: string }) {
 
 const LOCALHOST_POLL_INTERVAL_MS = 5000;
 
-/**
- * Polls a single open localhost tab's file for external changes (edits made
- * directly on disk, or by the agent through the bridge outside this
- * workbench session). Skips polling while the tab/document is hidden, clears
- * its interval on unmount, and swallows read errors silently — the bridge
- * may be temporarily unreachable (dev server restarting, bridge stopped),
- * which should not surface as a workbench error.
- */
 function LocalhostBufferSyncOne({
   providerKey,
   path,
@@ -92,8 +66,6 @@ function LocalhostBufferSyncOne({
   const uri = workbenchUri(providerKey, path);
   const buffer = state.buffers[uri];
   const savedVersionHash = buffer?.savedVersionHash;
-  // Keep the latest values in refs so the interval callback always sees
-  // current state without needing to be re-created every render.
   const savedVersionHashRef = useRef(savedVersionHash);
   savedVersionHashRef.current = savedVersionHash;
 

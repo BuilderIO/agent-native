@@ -30,8 +30,6 @@ describe("ExportSettingsPanel remove-row affordance", () => {
     container.remove();
   });
 
-  /** Mounted under a TooltipProvider because that is how EditPanel mounts it —
-   *  the inspector components rely on the panel-level provider. */
   async function render(props?: { exporting?: boolean }) {
     await act(async () => {
       root.render(
@@ -48,8 +46,6 @@ describe("ExportSettingsPanel remove-row affordance", () => {
   }
 
   it("renders no remove control while a single export row is the only row", () => {
-    // A permanently disabled × is unexplainable: `disabled` suppresses pointer
-    // events, so it cannot carry a tooltip either.
     return render().then(() => {
       expect(container.querySelector(REMOVE)).toBeNull();
     });
@@ -72,8 +68,6 @@ describe("ExportSettingsPanel remove-row affordance", () => {
     const remove = container.querySelector<HTMLButtonElement>(REMOVE);
     expect(remove).not.toBeNull();
     expect(remove!.disabled).toBe(true);
-    // The wrapper, not the disabled button, receives the hover that opens the
-    // tooltip — a bare disabled trigger would silently have none.
     const wrapper = remove!.parentElement;
     expect(wrapper?.tagName).toBe("SPAN");
     expect(wrapper?.className).not.toContain("pointer-events-none");

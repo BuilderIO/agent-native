@@ -93,8 +93,6 @@ export async function reconcileCreatedFile({
   content: string;
   fileType: DesignFile["fileType"];
   files: readonly DesignFile[];
-  /** IDs present before the create attempt. Only rows added afterward can be
-   * adopted when the create action did not return its id. */
   knownFileIds?: ReadonlySet<string>;
 }): Promise<DesignFile | undefined> {
   const queryKey = designQueryKey(designId);
@@ -114,9 +112,6 @@ export async function reconcileCreatedFile({
   return refreshed ? fromCurrent(refreshed) : undefined;
 }
 
-/** Verify a cleanup survivor from the refreshed design rows, never from the
- * stale caller snapshot. `undefined` means the query could not prove either
- * state, so callers must not adopt the id as a live row. */
 export async function isPersistedFilePresent({
   queryClient,
   designId,

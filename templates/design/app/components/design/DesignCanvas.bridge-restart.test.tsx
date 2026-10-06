@@ -14,10 +14,17 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DesignCanvas } from "./DesignCanvas";
+import {
+  DesignCanvas,
+  type RuntimeLayerSnapshotReadiness,
+} from "./DesignCanvas";
+
+const { translate } = vi.hoisted(() => ({
+  translate: (key: string) => key,
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => translate,
 }));
 
 const BRIDGE_URL = "http://127.0.0.1:7331";
@@ -55,11 +62,17 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
-  async function renderLiveEditCanvas() {
+  async function renderLiveEditCanvas(
+    onRuntimeLayerSnapshotReadinessChange?: (
+      readiness: RuntimeLayerSnapshotReadiness,
+    ) => void,
+    onRuntimeLayerSnapshot?: (snapshot: unknown) => void,
+  ) {
     await act(async () => {
       root.render(
         <DesignCanvas
@@ -78,6 +91,10 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
           readOnly={false}
           onElementSelect={() => {}}
           onElementHover={() => {}}
+          onRuntimeLayerSnapshotReadinessChange={
+            onRuntimeLayerSnapshotReadinessChange
+          }
+          onRuntimeLayerSnapshot={onRuntimeLayerSnapshot}
           tweakValues={{}}
         />,
       );
@@ -99,7 +116,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     ).length;
   }
 
-  function postReadyHandshake(source?: Window) {
+  function postReadyHandshake(source?: Window, documentId?: string) {
     const iframeWindow =
       source ?? container.querySelector("iframe")?.contentWindow;
     if (!iframeWindow) {
@@ -107,7 +124,10 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     }
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: { type: "agent-native:editor-chrome-ready" },
+        data: {
+          type: "agent-native:editor-chrome-ready",
+          ...(documentId ? { documentId } : {}),
+        },
         origin: BRIDGE_URL,
         source: iframeWindow,
       }),
@@ -136,30 +156,241 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     const registrationCallsBeforeTimeout = registrationCallCount();
     expect(registrationCallsBeforeTimeout).toBe(1);
 
-    // No agent-native:editor-chrome-ready message ever arrives (simulating
-    // the bridge injecting nothing because it 409'd on the real navigation) —
-    // advance past the ready-handshake watchdog window.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4200);
       await flushMicrotasks();
     });
 
     const registrationCallsAfterTimeout = registrationCallCount();
-    // A second registration POST fired automatically — the silent
-    // re-register/reload path — without ever surfacing an error.
     expect(registrationCallsAfterTimeout).toBeGreaterThanOrEqual(2);
     expect(container.textContent ?? "").not.toContain(
       "Live editor connection failed",
     );
   });
 
+  it("re-arms the ready watchdog after repeated live document reloads and stops showing an endless preparing state", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").toContain("Preparing live editor");
+
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").toContain("Preparing live editor");
+
+    for (const stepMs of [4200, 8200, 16200, 16200, 16200]) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(stepMs);
+        await flushMicrotasks();
+      });
+    }
+
+    expect(healthCallCount()).toBeGreaterThanOrEqual(5);
+    expect(container.textContent ?? "").toContain(
+      "Live editor connection failed",
+    );
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+  });
+
+  it("restarts the ready watchdog when a reload arrives before the first ready handshake", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2700);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("ignores a health probe that rejects after the replacement document is ready", async () => {
+    let rejectHealthProbe: ((reason?: unknown) => void) | undefined;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return new Promise((_resolve, reject) => {
+          rejectHealthProbe = reject;
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(1);
+    expect(rejectHealthProbe).toBeDefined();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+      rejectHealthProbe?.(new Error("stale health probe"));
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent ?? "").not.toContain(
+      "Live editor connection failed",
+    );
+    expect(registrationCallCount()).toBe(1);
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+  });
+
+  it("ignores a health probe that rejects after the initial document becomes ready", async () => {
+    let rejectHealthProbe: ((reason?: unknown) => void) | undefined;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return new Promise((_resolve, reject) => {
+          rejectHealthProbe = reject;
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const iframe = container.querySelector("iframe")!;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(1);
+    expect(rejectHealthProbe).toBeDefined();
+
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+      rejectHealthProbe?.(new Error("stale health probe"));
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent ?? "").not.toContain(
+      "Live editor connection failed",
+    );
+    expect(registrationCallCount()).toBe(1);
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+  });
+
   it("does NOT tear down the iframe or show an error when /health reports the SAME bridgeInstanceId at the first 4s timeout — it re-arms the watchdog instead (regression coverage)", async () => {
-    // /health always confirms the bridge process is the one we registered
-    // with — a slow-but-healthy dev server (e.g. a 6-10s cold compile), not a
-    // real failure. Before the fix under test, this used to be indistinguishable
-    // from a genuine unknown-bridge-key bug and immediately tore the iframe
-    // down (setRegisteredLiveEditBridgeKey(null)), flashing "Live editor
-    // connection failed" under a load that was still legitimately in flight.
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url =
         typeof input === "string"
@@ -184,24 +415,15 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
       await flushMicrotasks();
     });
 
-    // Exactly one /health probe fired so far, and NEITHER error card is
-    // shown. Crucially, no second registration POST fired either — a
-    // same-instance-id "escalate" outcome must never touch
-    // registeredLiveEditBridgeKey/reload the frame the way a genuine restart
-    // ("reregister") does.
     expect(healthCallCount()).toBe(1);
     expect(registrationCallCount()).toBe(1);
     expect(container.textContent ?? "").not.toContain(
       "Live editor connection failed",
     );
-    // The real iframe has not posted ready, so edit interactions remain
-    // shielded even though the same-instance probe correctly avoids an error.
     expect(container.textContent ?? "").toContain("Preparing live editor");
     const iframeSrc = container.querySelector("iframe")?.getAttribute("src");
     expect(iframeSrc).toContain("/live-edit");
 
-    // Advance past the re-armed (longer, ~8s) wait: the watchdog must probe
-    // /health again on its own rather than giving up after one attempt.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(8200);
       await flushMicrotasks();
@@ -232,12 +454,6 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
 
     await renderLiveEditCanvas();
 
-    // Escalation schedule: 4s, +8s, +16s, +16s, +16s (capped) — cumulative
-    // wait crosses the ~48s ceiling on the 5th probe, around the 60s mark.
-    // Advance in the same per-step chunks the real schedule uses (rather
-    // than one huge jump) so each nested setTimeout scheduled from inside the
-    // previous probe's async continuation is reliably due before the next
-    // advance runs.
     for (const stepMs of [4200, 8200, 16200, 16200, 16200]) {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(stepMs);
@@ -245,22 +461,14 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
       });
     }
 
-    // The non-destructive card renders (same title copy as the destructive
-    // card, since both describe the same user-facing situation), but the
-    // live-edit iframe was never torn down: its src still points at the real
-    // /live-edit document, not the blank "Preparing..." placeholder.
     expect(container.textContent ?? "").toContain(
       "Live editor connection failed",
     );
     expect(container.textContent ?? "").not.toContain("Preparing live editor");
     const iframeSrc = container.querySelector("iframe")?.getAttribute("src");
     expect(iframeSrc).toContain("/live-edit");
-    // No reregistration ever happened — this was a stalled-but-healthy same
-    // process the whole time, never a genuine restart.
     expect(registrationCallCount()).toBe(1);
 
-    // A late ready handshake still wins: the still-loading document finally
-    // finished, and the error card must clear rather than staying stuck.
     await act(async () => {
       postReadyHandshake();
       await flushMicrotasks();
@@ -294,15 +502,59 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
       await flushMicrotasks();
     });
 
-    // /health being unreachable means the dev server process is genuinely
-    // down, not just slow — this destructive path (tear down + surface the
-    // error) is unchanged and still correct here.
     expect(container.textContent ?? "").toContain(
       "Live editor connection failed",
     );
     expect(container.textContent ?? "").toContain(
       "Is the local dev server still running?",
     );
+  });
+
+  it("stops preparing and shows recovery UI when the bridge health probe hangs", async () => {
+    let healthSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url;
+        if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+          return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+        }
+        if (url.startsWith(`${BRIDGE_URL}/health`)) {
+          healthSignal = init?.signal as AbortSignal;
+          return new Promise((_resolve, reject) => {
+            healthSignal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+    );
+
+    await renderLiveEditCanvas();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").toContain("Preparing live editor");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+      await flushMicrotasks();
+    });
+
+    expect(healthSignal?.aborted).toBe(true);
+    expect(container.textContent ?? "").toContain(
+      "Live editor connection failed",
+    );
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+    expect(container.querySelector("iframe")).toBeNull();
   });
 
   it("recovers from a destructive watchdog error when the exact retired live document posts ready late", async () => {
@@ -322,7 +574,8 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
       throw new Error(`unexpected fetch: ${url}`);
     });
 
-    await renderLiveEditCanvas();
+    const onRuntimeLayerSnapshotReadinessChange = vi.fn();
+    await renderLiveEditCanvas(onRuntimeLayerSnapshotReadinessChange);
     const liveIframe = container.querySelector("iframe");
     const retiredLiveWindow = liveIframe?.contentWindow;
     expect(retiredLiveWindow).toBeTruthy();
@@ -348,12 +601,8 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
       "Live editor connection failed",
     );
 
-    // The live document that the watchdog retired had already queued ready.
-    // Its exact WindowProxy + bridge-key generation restores the registration
-    // and clears the error; the newly mounted document remains shielded until
-    // it sends its own ready handshake.
     await act(async () => {
-      postReadyHandshake(retiredLiveWindow!);
+      postReadyHandshake(retiredLiveWindow!, "retired-runtime-document");
       await flushMicrotasks();
     });
     expect(container.textContent ?? "").not.toContain(
@@ -363,13 +612,37 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.querySelector("iframe")?.getAttribute("src")).toContain(
       "/live-edit",
     );
+    expect(
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
+        ([readiness]) => readiness.status === "ready",
+      ),
+    ).toHaveLength(0);
+
+    const recoveredIframe =
+      container.querySelector<HTMLIFrameElement>("iframe");
+    expect(recoveredIframe?.contentWindow).toBeTruthy();
+    const recoveredWindow = recoveredIframe!.contentWindow!;
+    const iframePostMessage = vi.spyOn(recoveredWindow, "postMessage");
+    await act(async () => {
+      postReadyHandshake(recoveredWindow, "recovered-runtime-document");
+      await flushMicrotasks();
+    });
+    const readinessRequests = iframePostMessage.mock.calls
+      .map(
+        ([message]) =>
+          message as { type?: string; readinessRequestId?: number },
+      )
+      .filter((message) => message.type === "request-runtime-layer-snapshot");
+    expect(readinessRequests).toHaveLength(1);
+    const readinessRequest = readinessRequests[readinessRequests.length - 1];
+    expect(readinessRequest?.readinessRequestId).toEqual(expect.any(Number));
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "loading",
+      documentId: "recovered-runtime-document",
+    });
   });
 
   it("does not loop forever when the bridge never confirms (attempt cap)", async () => {
-    // /health always reports a fresh, distinct instance id — a pathological
-    // bridge that appears to restart on every single probe. The retry budget
-    // (MAX_LIVE_EDIT_RESTART_ATTEMPTS) must still cut this off with a visible
-    // error rather than polling forever.
     let healthCallCounter = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url =
@@ -393,8 +666,6 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
 
     await renderLiveEditCanvas();
 
-    // Fire the watchdog repeatedly — each cycle re-registers, remounts, and
-    // (since ready never arrives) times out again.
     for (let cycle = 0; cycle < 6; cycle += 1) {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4200);

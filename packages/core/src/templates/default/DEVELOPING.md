@@ -4,7 +4,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 
 ## Framework Basics
 
-**Public SSR, private CSR:** This app uses React Router v8 framework mode with `ssr: true`. The `/` route is a public, server-rendered marketing page and must stay free of session, cookie, and private-data reads. Authenticated app routes start at `/home` and render client-side behind the `ClientOnly` session gate in `root.tsx`; browser APIs are safe there.
+**Shared auth entry, private app:** This app uses React Router v8 framework mode with `ssr: true`. The `/` route document-redirects to `/sign-in`. Authenticated app routes start at `/home` and render client-side behind the `ClientOnly` session gate in `root.tsx`; browser APIs are safe there.
 
 **Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO/OG content. The standard pattern is: SSR renders the shell, client hydrates, and React reads/writes normal app data through actions with `useActionQuery` / `useActionMutation`.
 
@@ -48,10 +48,8 @@ export default function MyPageRoute() {
 }
 ```
 
-The root route is the public marketing surface. Use `MarketingHome` from
-`@agent-native/toolkit/marketing` for a reusable SSR page with value props,
-background visuals, action links, and a custom `children` escape hatch. Put
-authenticated app UI and data loads under `/home` or another private route.
+The root route must use the shared sign-in landing loader; put authenticated
+app UI and data loads under `/home` or another private route.
 
 ## Adding App Data
 

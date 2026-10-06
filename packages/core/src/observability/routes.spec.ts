@@ -10,6 +10,8 @@ const mockReadBody = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockGetFeedback = vi.hoisted(() => vi.fn());
 const mockGetFeedbackStats = vi.hoisted(() => vi.fn());
+const mockPromoteTraceEvalFromStore = vi.hoisted(() => vi.fn());
+const mockListExperimentsPage = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -57,6 +59,11 @@ vi.mock("../tracking/registry.js", () => ({
   track: (...args: unknown[]) => mockTrack(...args),
 }));
 
+vi.mock("./actions/promote-trace-eval.js", () => ({
+  promoteTraceEvalFromStore: (...args: unknown[]) =>
+    mockPromoteTraceEvalFromStore(...args),
+}));
+
 vi.mock("./store.js", () => ({
   getObservabilityOverview: (...args: unknown[]) =>
     mockGetObservabilityOverview(...args),
@@ -69,7 +76,8 @@ vi.mock("./store.js", () => ({
   getFeedbackStats: (...args: unknown[]) => mockGetFeedbackStats(...args),
   getSatisfactionScores: vi.fn(),
   getEvalStats: vi.fn(),
-  listExperiments: vi.fn(),
+  listExperimentsPageResult: (...args: unknown[]) =>
+    mockListExperimentsPage(...args),
   insertExperiment: vi.fn(),
   getExperiment: vi.fn(),
   updateExperiment: vi.fn(),
@@ -107,6 +115,11 @@ describe("observability routes", () => {
       model: "gpt-5.6-terra",
     });
     mockInsertFeedback.mockResolvedValue(true);
+    mockListExperimentsPage.mockResolvedValue({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    });
   });
 
   it("handles HEAD like GET for read endpoints", async () => {
@@ -222,8 +235,35 @@ describe("observability routes", () => {
     const handler = createObservabilityHandler() as any;
     const event = createEvent("/experiments");
 
-    await expect(handler(event)).resolves.toBeUndefined();
+    await expect(handler(event)).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    });
     expect(event._status).toBe(200);
+  });
+
+  it("passes an experiment page cursor and bounded limit to the store", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS", "alice@example.com");
+    const handler = createObservabilityHandler() as any;
+    const page = {
+      items: [{ id: "exp-1" }],
+      nextCursor: { createdAt: 123, id: "exp-1" },
+      hasMore: true,
+    };
+    mockListExperimentsPage.mockResolvedValue(page);
+
+    await expect(
+      handler(
+        createEvent("/experiments?limit=25&beforeCreatedAt=123&beforeId=exp-7"),
+      ),
+    ).resolves.toEqual(page);
+
+    expect(mockListExperimentsPage).toHaveBeenCalledWith({
+      limit: 25,
+      before: { createdAt: 123, id: "exp-7" },
+    });
   });
 
   it.each([
@@ -335,7 +375,6 @@ describe("observability routes", () => {
     await handler(createEvent("/feedback", "POST"));
 
     expect(mockInsertFeedback).toHaveBeenCalledOnce();
-    // The submission is visible...
     expect(mockTrack).toHaveBeenCalledOnce();
     const [name, properties] = mockTrack.mock.calls[0];
     expect(name).toBe("$ai_feedback");
@@ -344,7 +383,6 @@ describe("observability routes", () => {
       run_id: "run-1",
       $ai_trace_id: "run-1",
     });
-    // ...but carries no sentiment: the thumbs-down it follows already counted.
     expect(properties).not.toHaveProperty("sentiment");
   });
 
@@ -391,8 +429,6 @@ describe("observability routes", () => {
     const [, properties] = mockTrack.mock.calls[0];
     expect(properties).toMatchObject({ feedback_type: "text" });
     expect(properties).not.toHaveProperty("sentiment");
-    // The first-party event stays content-free; the text itself is persisted
-    // and, when a survey is configured, sent as the survey response.
     expect(JSON.stringify(properties)).not.toContain("wrong doc");
   });
 
@@ -430,5 +466,68 @@ describe("observability routes", () => {
       source: "chat",
       orgId: "org-a",
     });
+  });
+
+  it("promotes a completed trace through POST /traces/:runId/promote", async () => {
+    mockReadBody.mockResolvedValue({ mustContain: "30 days" });
+    mockPromoteTraceEvalFromStore.mockResolvedValue({
+      sourceRunId: "run-1",
+      dataset: { id: "ds-1", name: "from-trace:run-1" },
+      eval: { name: "from-trace:run-1", scorers: [] },
+    });
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/traces/run-1/promote", "POST");
+
+    await expect(handler(event)).resolves.toMatchObject({
+      sourceRunId: "run-1",
+      dataset: { id: "ds-1" },
+    });
+    expect(mockPromoteTraceEvalFromStore).toHaveBeenCalledWith(
+      { runId: "run-1", mustContain: "30 days", datasetName: undefined },
+      { userId: "alice@example.com" },
+    );
+  });
+
+  it("maps a typed promote failure onto the HTTP status", async () => {
+    const { ActionContractError } = await import("../action.js");
+    mockReadBody.mockResolvedValue({});
+    mockPromoteTraceEvalFromStore.mockRejectedValue(
+      new ActionContractError("Run is not completed", {
+        errorCode: "run_not_completed",
+        statusCode: 409,
+      }),
+    );
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/traces/run-1/promote", "POST");
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "run_not_completed",
+      message: "Run is not completed",
+    });
+    expect(event._status).toBe(409);
+  });
+
+  it("rejects an unreadable promote body instead of promoting", async () => {
+    mockReadBody.mockRejectedValue(new Error("Unexpected token"));
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/traces/run-1/promote", "POST");
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Invalid JSON body",
+    });
+    expect(event._status).toBe(400);
+    expect(mockPromoteTraceEvalFromStore).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-object promote body instead of promoting", async () => {
+    mockReadBody.mockResolvedValue(["not", "options"]);
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/traces/run-1/promote", "POST");
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Invalid JSON body",
+    });
+    expect(event._status).toBe(400);
+    expect(mockPromoteTraceEvalFromStore).not.toHaveBeenCalled();
   });
 });

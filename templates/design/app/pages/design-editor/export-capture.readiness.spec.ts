@@ -4,17 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { waitForExportReady } from "./export-capture";
 
-/**
- * Regression coverage for the PNG/SVG/PDF export readiness race: a capture
- * taken before webfonts resolve and before a CDN-injected stylesheet lands
- * produces the field-reported "low quality / broken layout" export. See the
- * `waitForExportReady` docblock in `export-capture.ts` for the full story.
- *
- * Uses the ambient `document` (has a real `defaultView` under the happy-dom
- * test environment) rather than `document.implementation.createHTMLDocument`,
- * which produces a detached document with no `defaultView` — exactly the
- * "no-op" case one of these tests exercises on purpose.
- */
 describe("waitForExportReady", () => {
   const originalFontsDescriptor = Object.getOwnPropertyDescriptor(
     document,
@@ -50,8 +39,6 @@ describe("waitForExportReady", () => {
       settled = true;
     });
 
-    // Must not resolve while fonts are still "loading", however long the
-    // stylesheet-stabilization poll takes on its own.
     await new Promise((r) => setTimeout(r, 20));
     expect(settled).toBe(false);
 
@@ -69,8 +56,6 @@ describe("waitForExportReady", () => {
     const start = Date.now();
     await waitForExportReady(document, { timeoutMs: 150 });
     const elapsed = Date.now() - start;
-    // Bounded: should not wait anywhere close to "forever". Generous upper
-    // bound to avoid CI flakiness while still catching a real hang.
     expect(elapsed).toBeLessThan(2000);
   });
 
@@ -98,8 +83,6 @@ describe("waitForExportReady", () => {
       configurable: true,
       value: { ready: Promise.reject(new Error("font load failed")) },
     });
-    // Swallow the unhandled-rejection warning from the raw promise itself;
-    // the function under test must still resolve cleanly.
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(
       waitForExportReady(document, { timeoutMs: 200 }),

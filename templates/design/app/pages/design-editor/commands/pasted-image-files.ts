@@ -26,7 +26,6 @@ import {
 } from "@/pages/design-editor/overview-camera";
 import type { DesignFile } from "@/pages/design-editor/types";
 
-/** A pointer position (Paste here) the pasted layer centres on. */
 export interface PastedImageFilesClientAnchor {
   clientX: number;
   clientY: number;
@@ -34,14 +33,9 @@ export interface PastedImageFilesClientAnchor {
 
 export interface PastedImageFilesTarget {
   fileId: string;
-  /** Where the pasted layer's centre lands, in the target file's space. */
   point: { x: number; y: number };
 }
 
-/**
- * CSS pixels per image pixel from a PNG's pHYs chunk: a 144-dpi export of a
- * 132px frame is 264px wide and pastes at 132, as in Figma.
- */
 export function pngDensityScale(bytes: Uint8Array): number {
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (signature.some((byte, index) => bytes[index] !== byte)) return 1;
@@ -97,7 +91,6 @@ function pastedImageHtml(
   size: { width: number; height: number },
   nodeId: string,
 ): string {
-  // object-fit:cover is Figma's default Fill mode for a placed image.
   const name = file.name || "Pasted image";
   return `<img src="${escapeHtmlAttributeValue(src)}" alt="${escapeHtmlAttributeValue(name)}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="${escapeHtmlAttributeValue(name)}" style="position:absolute;width:${size.width}px;height:${size.height}px;object-fit:cover;" />`;
 }
@@ -106,10 +99,6 @@ export type PastedFileLayer =
   | { ok: true; html: string }
   | { ok: false; reason: "undecodable" | "upload-failed" };
 
-/**
- * The layer a clipboard file becomes, with rasters already uploaded, for
- * commands that need finished markup up front (Paste to replace).
- */
 export async function pastedFileLayerHtml(
   file: File,
   uploadImageFileForHtml: (file: File) => Promise<string>,
@@ -280,7 +269,6 @@ export interface PastedImageFilesArgs {
   boardFileId: string | undefined;
   canEditDesign: boolean;
   canvasContainerRef: RefObject<HTMLDivElement | null>;
-  /** The canvas-space rect visible between the editor chrome. */
   getVisibleCanvasRect: () => VisibleCanvasRect | null;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   getFreshActiveContent: () => string;
@@ -387,7 +375,6 @@ export function runPastedImageFiles(
     const topLeftFor = (size: { width: number; height: number }) => {
       const centre =
         typeof localPoint === "function" ? localPoint() : localPoint;
-      // An explicit target (drop, Paste here) lands exactly where it points.
       const cascadeOffset = target ? 0 : pasteCascadeRef.current * 16;
       if (!target) pasteCascadeRef.current += 1;
       return {
@@ -430,8 +417,6 @@ export function runPastedImageFiles(
           toast.error(t("common.genericError"));
           continue;
         }
-        // Durable content, never the live preview: the preview can predate a
-        // reparent or move, and writing it back silently reverts that edit.
         const baseContent =
           targetFileId === activeFile?.id
             ? getFreshActiveContent()
@@ -497,8 +482,6 @@ export function runPastedImageFiles(
               : (getScreenContent(targetFileId) ?? "");
           const durableMediaUrl =
             imageUrl && !/^(?:blob|data):/i.test(imageUrl) ? imageUrl : null;
-          // The preview node reaches durable content only if an edit during
-          // the upload persisted it; otherwise insert it now under the same id.
           const activePreviewContent =
             targetFileId === activeFile?.id
               ? (getFreshActivePreviewContent?.() ?? null)
@@ -608,8 +591,6 @@ export function runPastedImageFiles(
     return true;
   }
 
-  // Overview mode: resolve a canvas-space anchor point, then hit-test it
-  // against real screen frames.
   if (!boardFileId) return false;
   const frames = getAllScreenFrameEntries({
     overviewScreens,
@@ -655,10 +636,6 @@ export function runPastedImageFiles(
   return true;
 }
 
-/**
- * The overview camera lives inside MultiScreenCanvas; an unrotated screen's
- * rendered iframe against its canvas geometry gives the same mapping.
- */
 export function canvasPointFromClient(
   { clientX, clientY }: PastedImageFilesClientAnchor,
   frames: ReturnType<typeof getAllScreenFrameEntries>,
@@ -690,9 +667,6 @@ export function canvasPointFromClient(
     }
   }
 
-  // Keep the iframe fallback scoped to the frame under the pointer. The
-  // first iframe is not a canvas transform when Paste here targets another
-  // screen or empty board space.
   for (const frame of frames) {
     if (frame.geometry.rotation) continue;
     const iframe = document.querySelector<HTMLIFrameElement>(

@@ -15,12 +15,7 @@ export interface AuthMarketingContent {
   features?: string[];
   authHeadline?: string;
   authDescription?: string;
-  screenshotPath?: string;
-  screenshotWidth?: number;
-  screenshotHeight?: number;
   learnMoreUrl?: string;
-  /** @deprecated Local execution is no longer offered from auth pages. */
-  runLocalCommand?: string;
   signupLocalModeNote?: {
     text: string;
     command: string;
@@ -38,9 +33,6 @@ export interface ResolveBuiltInAuthMarketingOptions {
 export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   analytics: {
     appName: "Agent-Native Analytics",
-    screenshotPath: "/auth-marketing/analytics.webp",
-    screenshotWidth: 927,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you.",
     features: [
@@ -61,9 +53,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   calendar: {
     appName: "Agent-Native Calendar",
-    screenshotPath: "/auth-marketing/calendar.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
     features: [
@@ -74,9 +63,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   clips: {
     appName: "Agent-Native Clips",
-    screenshotPath: "/auth-marketing/clips.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
@@ -88,9 +74,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   content: {
     appName: "Agent-Native Content",
-    screenshotPath: "/auth-marketing/content.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Open-source Obsidian for MDX: your AI agent edits local docs, creates custom blocks, and organizes everything alongside you.",
     features: [
@@ -101,9 +84,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   plan: {
     appName: "Agent-Native Plan",
-    screenshotPath: "/auth-marketing/plan.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Visual plans, PR recaps, diagrams, wireframes, and shareable reviews for coding-agent work.",
     features: [
@@ -118,9 +98,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   design: {
     appName: "Agent-Native Design",
-    screenshotPath: "/auth-marketing/design.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",
     features: [
@@ -131,9 +108,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   dispatch: {
     appName: "Agent-Native Dispatch",
-    screenshotPath: "/auth-marketing/dispatch.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
     features: [
@@ -144,9 +118,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   forms: {
     appName: "Agent-Native Forms",
-    screenshotPath: "/auth-marketing/forms.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent builds, publishes, and analyzes forms alongside you.",
     features: [
@@ -157,9 +128,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   assets: {
     appName: "Agent-Native Assets",
-    screenshotPath: "/auth-marketing/assets.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent creates, refines, and organizes on-brand assets alongside you.",
     features: [
@@ -170,9 +138,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   mail: {
     appName: "Agent-Native Mail",
-    screenshotPath: "/auth-marketing/mail.webp",
-    screenshotWidth: 927,
-    screenshotHeight: 818,
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",
@@ -182,9 +147,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   slides: {
     appName: "Agent-Native Slides",
-    screenshotPath: "/auth-marketing/slides.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Your AI agent builds, edits, and refines presentations alongside you.",
     features: [
@@ -195,9 +157,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   },
   chat: {
     appName: "Agent-Native Chat",
-    screenshotPath: "/auth-marketing/chat.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     tagline:
       "Start from a chat-first app and add actions, screens, and workflows as your agent grows.",
     features: [
@@ -348,6 +307,12 @@ export function resolveBuiltInAuthMarketingSlug(
   opts: ResolveBuiltInAuthMarketingOptions = {},
 ): string | undefined {
   return candidateSlugs(opts).find((slug) => !!BUILT_IN_AUTH_MARKETING[slug]);
+}
+
+export function resolveBuiltInAuthMarketingSlugFromName(
+  name: string | undefined,
+): string | undefined {
+  return normalizeSlug(name);
 }
 
 export function resolveBuiltInAuthMarketingByName(

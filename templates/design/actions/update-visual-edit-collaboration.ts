@@ -1,8 +1,10 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { eq, sql } from "drizzle-orm";
+import { accessFilter, currentAccess } from "@agent-native/core/sharing";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { assertVisualEditAccountEditor } from "../server/lib/visual-edit-collaboration.js";
 import {
   deleteVisualEditSnapshotBlobs,
@@ -31,7 +33,17 @@ export default defineAction({
         const [design] = await tx
           .select({ id: schema.designs.id })
           .from(schema.designs)
-          .where(eq(schema.designs.id, designId))
+          .where(
+            and(
+              eq(schema.designs.id, designId),
+              accessFilter(
+                schema.designs,
+                schema.designShares,
+                { ...currentAccess(), authCapability: undefined },
+                "editor",
+              ),
+            ),
+          )
           .for("update")
           .limit(1);
         if (!design) {
@@ -47,7 +59,17 @@ export default defineAction({
             liveCollaborationEnabled: enabled,
             updatedAt: new Date().toISOString(),
           })
-          .where(eq(schema.designs.id, designId));
+          .where(
+            and(
+              eq(schema.designs.id, designId),
+              accessFilter(
+                schema.designs,
+                schema.designShares,
+                { ...currentAccess(), authCapability: undefined },
+                "editor",
+              ),
+            ),
+          );
 
         if (enabled) return [];
         const table = schema.designVisualEditSnapshots;
@@ -78,4 +100,5 @@ export default defineAction({
 
     return { designId, enabled };
   },
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

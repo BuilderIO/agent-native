@@ -5,7 +5,11 @@ import {
   getRegisteredAppRoles,
   resolveAppRole,
 } from "../org/app-roles.js";
-import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
+import {
+  isWorkspaceAppAccessAllowed,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+} from "../org/workspace-app-access.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
 import { registerActionAccessChecker } from "./action-access-runtime.js";
@@ -20,11 +24,8 @@ export interface ActionResourceAccess {
 }
 
 interface ActionAccessConfigBase {
-  /** Which shared boundary must be present before the action can run. */
   scope?: Exclude<ActionAccessScope, "resource">;
-  /** App-declared permission required for this action. */
   permission?: string;
-  /** Optional resource share/ownership check. */
   resource?: ActionResourceAccess;
 }
 
@@ -79,11 +80,6 @@ async function isOrgMember(target: ActionAccessTarget): Promise<boolean> {
   return rows.length > 0;
 }
 
-/**
- * Shared authorization decision used by declarative actions and explain-access.
- * List/search paths still use accessFilter; this facade only composes the
- * action-level app, organization, permission, and resource checks.
- */
 export async function checkAction(
   config: ActionAccessConfig | undefined,
   args: unknown,
@@ -126,6 +122,11 @@ export async function checkAction(
       email: identity.userEmail,
       orgId: identity.orgId,
     });
+    if (appAllowed === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+      throw Object.assign(new Error(WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE), {
+        statusCode: 503,
+      });
+    }
     if (!appAllowed) {
       return {
         allowed: false,

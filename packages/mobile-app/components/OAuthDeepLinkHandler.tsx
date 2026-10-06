@@ -15,9 +15,6 @@ import {
 async function handleOAuthUrl(url: string | null): Promise<void> {
   console.log("[oauth] handleOAuthUrl saw url:", url);
   if (!url || !url.includes("oauth-complete")) return;
-  // completeOAuthCallback consumes OAUTH_STATE_KEY itself; here we read the rest
-  // of the context persisted before the browser opened (they survive an app
-  // kill) so the completion is identical to the iOS inline path.
   const [returnPath, tokenKey, ownerKeyName, baseUrl] = await Promise.all([
     AsyncStorage.getItem(OAUTH_RETURN_PATH_KEY),
     AsyncStorage.getItem(OAUTH_TOKEN_STORE_KEY),
@@ -29,10 +26,6 @@ async function handleOAuthUrl(url: string | null): Promise<void> {
     ownerKeyName,
     baseUrl,
   });
-  // Only consume the persisted context once a matching callback is accepted. A
-  // stale or forged agentnative://oauth-complete fails state validation and
-  // returns null; clearing here would erase the route/Clips context the real
-  // redirect still needs.
   if (!token) return;
   await AsyncStorage.multiRemove([
     OAUTH_RETURN_PATH_KEY,
@@ -41,8 +34,6 @@ async function handleOAuthUrl(url: string | null): Promise<void> {
     OAUTH_BASE_URL_KEY,
   ]);
   console.log("[oauth] deep link handler. token saved:", !!token, returnPath);
-  // Close the Custom Tab left open by openBrowserAsync (Android) so the app is
-  // visible again. No-op if nothing is open.
   try {
     await WebBrowser.dismissBrowser();
   } catch {
@@ -51,20 +42,9 @@ async function handleOAuthUrl(url: string | null): Promise<void> {
   if (returnPath) navigateToPath(returnPath, "replace");
 }
 
-/**
- * Owns the agentnative://oauth-complete return, at the app root, so it works
- * even when the OS killed the app while it was in the Google sign-in browser
- * and cold-starts it from the deep link. getInitialURL covers that cold start;
- * the url listener covers a warm return. The persisted return-path and token
- * key survive the app kill in AsyncStorage.
- */
 export default function OAuthDeepLinkHandler() {
   useEffect(() => {
     console.log("[oauth] handler mounted");
-    // iOS ASWebAuthenticationSession owns its callback and returns it to the
-    // caller promise. A global Linking listener can consume that same custom
-    // URL first, so only use the listener for Android's Custom Tab path. Keep
-    // the initial-URL check on iOS for a cold launch from an external link.
     void Linking.getInitialURL().then((url) => {
       console.log("[oauth] getInitialURL:", url);
       return handleOAuthUrl(url);

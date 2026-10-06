@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// Mocked building blocks. getRun is the synchronous in-memory lookup;
-// getRunById is the SQL fallback; getThread resolves owner from thread_id.
 const getRun = vi.fn();
 const getRunById = vi.fn();
 const getThread = vi.fn();

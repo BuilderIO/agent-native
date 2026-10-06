@@ -28,15 +28,9 @@ function swappedPaint(
   if (color) {
     return { paint: rgbaToCss({ ...color, a: color.a * alpha }), opacity: "" };
   }
-  // A gradient value has nowhere to carry alpha, so it keeps its opacity.
   return { paint, opacity: String(alpha) };
 }
 
-/**
- * Figma's Shift+X. Matches Figma even when one side is empty: an element with
- * a fill and no stroke ends up with a stroke and no fill (not a no-op). Both
- * sides commit together so the swap is a single undo step.
- */
 export function runSwapFillStroke({
   canEditDesign,
   selectedElement,
@@ -45,10 +39,6 @@ export function runSwapFillStroke({
   if (!canEditDesign || !selectedElement) return;
   if (isVectorShapeElement(selectedElement)) {
     const styles = selectedElement.computedStyles;
-    // SVG gradient styles render as url(#id), but the editor's authored
-    // custom properties hold the portable gradient values. Capture both
-    // before committing either side so Shift+X can rebuild each definition
-    // without leaving the other paint pointing at a removed id.
     const fill =
       selectedElement.inlineStyles?.["--an-vector-fill-gradient"] ||
       styles["--an-vector-fill-gradient"] ||
@@ -65,17 +55,12 @@ export function runSwapFillStroke({
     const strokeHasPaint =
       hasPaint(stroke) && strokeWidth > 0 && strokeOpacity > 0;
     if (!fillHasPaint && !strokeHasPaint) return;
-    // Opacity rides in the colours where it can: an inline fill-opacity
-    // would override the fill-opacity="0" that keeps an open path's chord
-    // unpainted. An empty value removes the old declaration.
     const nextFill = strokeHasPaint
       ? swappedPaint(stroke, styles.strokeOpacity)
       : { paint: "none", opacity: "" };
     const nextStroke = fillHasPaint
       ? swappedPaint(fill, styles.fillOpacity)
       : { paint: "none", opacity: "" };
-    // Removing only the inline value would leave an imported SVG's
-    // presentation opacity multiplying the swapped colour.
     const opacityFor = (
       next: { paint: string; opacity: string },
       current: string | undefined,

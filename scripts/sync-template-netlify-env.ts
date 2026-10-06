@@ -30,6 +30,7 @@ type ApiResult = {
 
 type TemplateEnvPlan = {
   entries: Array<readonly [string, string]>;
+  staleGeneratedEntries: Array<readonly [string, string]>;
   forbiddenKeys: string[];
   foundSources: string[];
   normalizedKeys: string[];
@@ -85,8 +86,6 @@ const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
   ["GTM_CONTAINER_ID", "GTM-N3WSTXZ"],
-  // Hosted harnesses are tools-only; app config still controls which
-  // deployments expose the runtime picker.
   ["AGENT_NATIVE_HOSTED_HARNESS", "true"],
   [
     "VITE_AGENT_NATIVE_FEEDBACK_URL",
@@ -114,10 +113,6 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
   "GTM_CONTAINER_ID",
-  // Google OAuth credentials are deliberately NOT synced. A template's local
-  // .env holds a developer's dev-tier client, while hosted sites run the shared
-  // production client; syncing overwrote live secrets with dev ones and took
-  // beta sign-in down fleet-wide. Manage these in Netlify only.
   "GOOGLE_PICKER_API_KEY",
   "GOOGLE_PICKER_APP_ID",
   "LAUNCHDARKLY_SDK_KEY",
@@ -125,6 +120,18 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "NITRO_PRESET",
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_HEADERS",
+  "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+  "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+  "OTEL_METRICS_EXPORTER",
+  "OTEL_RESOURCE_ATTRIBUTES",
+  "OTEL_SERVICE_NAME",
+  "OTEL_TRACES_EXPORTER",
+  "OTEL_TRACES_SAMPLER",
+  "OTEL_TRACES_SAMPLER_ARG",
   "SENDGRID_API_KEY",
   "SENTRY_AUTH_TOKEN",
   "SENTRY_DSN",
@@ -192,8 +199,17 @@ const PUBLIC_KEY_EXACT = new Set([
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
   "NITRO_PRESET",
-  // The org/project slugs identify a Sentry project, not a credential -
-  // SENTRY_AUTH_TOKEN is the actual secret and stays out of this set.
+  // The OTEL_EXPORTER_OTLP_*HEADERS keys carry the site's relay token, so they
+  // stay Netlify secrets.
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+  "OTEL_METRICS_EXPORTER",
+  "OTEL_RESOURCE_ATTRIBUTES",
+  "OTEL_SERVICE_NAME",
+  "OTEL_TRACES_EXPORTER",
+  "OTEL_TRACES_SAMPLER",
+  "OTEL_TRACES_SAMPLER_ARG",
   "SENTRY_ORG",
   "SENTRY_PROJECT",
   "SUPABASE_URL",
@@ -202,6 +218,13 @@ const PUBLIC_KEY_EXACT = new Set([
 ]);
 const PUBLIC_KEY_PREFIXES = HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES;
 const PRODUCTION_URL_KEYS = new Set(["APP_URL", "BETTER_AUTH_URL"]);
+const PRODUCTION_TRACE_SAMPLER_RATIO = "0.01";
+// Only these samplers read OTEL_TRACES_SAMPLER_ARG as a ratio.
+const RATIO_TRACE_SAMPLERS = new Set([
+  "traceidratio",
+  "parentbased_traceidratio",
+]);
+const TELEMETRY_SERVICE_NAMESPACE = "agent-native";
 const TEMPLATE_PROD_URL_BY_NAME = new Map([
   ...TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
     (entry): entry is [string, string] => Boolean(entry[1]),
@@ -483,6 +506,7 @@ function buildTemplateEnvPlan(
   const normalizedKeys: string[] = [];
   const skippedKeys: string[] = [];
   const entries: Array<readonly [string, string]> = [];
+  const staleGeneratedEntries: Array<readonly [string, string]> = [];
 
   for (const [key, value] of values) {
     if (value === "") continue;
@@ -502,8 +526,35 @@ function buildTemplateEnvPlan(
     entries.push([key, normalized.value] as const);
   }
 
+  if (
+    values.get("OTEL_EXPORTER_OTLP_ENDPOINT") ||
+    values.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") ||
+    values.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+  ) {
+    const identity = hostedTelemetryIdentityEnv(
+      site.sourceTemplate,
+      context,
+      values.get("OTEL_RESOURCE_ATTRIBUTES"),
+    );
+    const configuredSampler = {
+      sampler: values.get("OTEL_TRACES_SAMPLER"),
+      samplerArg: values.get("OTEL_TRACES_SAMPLER_ARG"),
+    };
+    const sampler = hostedTraceSamplerEnv(context, configuredSampler);
+    staleGeneratedEntries.push(
+      ...staleTraceSamplerDefaults(context, configuredSampler),
+    );
+    for (const [key, value] of [...identity, ...sampler]) {
+      const index = entries.findIndex(([entryKey]) => entryKey === key);
+      if (index >= 0) entries.splice(index, 1);
+      entries.push([key, value] as const);
+      normalizedKeys.push(key);
+    }
+  }
+
   return {
     entries,
+    staleGeneratedEntries,
     forbiddenKeys,
     foundSources,
     normalizedKeys,
@@ -534,9 +585,102 @@ export function normalizeProductionUrlEntry(
     return { value, normalized: false };
   }
 
-  // This syncs first-party Netlify sites. A local workspace URL must never
-  // become a hosted auth origin because Google validates the exact URI.
   return { value: targetUrl, normalized: true };
+}
+
+/**
+ * OTel identity for a first-party site: one `service.name` per app across
+ * environments, so production versus beta is a label filter, and a shared
+ * `service.namespace` the collector routes Agent-Native metrics on. Netlify
+ * sets nothing like Cloud Run's K_SERVICE, so the sync derives it. Configured
+ * resource attributes are kept, with the managed keys winning. Other deploy
+ * contexts get no identity rather than a guessed environment.
+ */
+export function hostedTelemetryIdentityEnv(
+  template: string,
+  context: string,
+  configuredResourceAttributes?: string,
+): Array<readonly [string, string]> {
+  const environment =
+    context === "production"
+      ? "production"
+      : isBetaContext(context)
+        ? "beta"
+        : undefined;
+  if (!environment) return [];
+  const managed = new Map([
+    ["deployment.environment.name", environment],
+    ["service.namespace", TELEMETRY_SERVICE_NAMESPACE],
+  ]);
+  const attributes = [
+    ...parseResourceAttributes(configuredResourceAttributes).filter(
+      ([key]) => !managed.has(key),
+    ),
+    ...managed,
+  ];
+  return [
+    ["OTEL_SERVICE_NAME", template],
+    [
+      "OTEL_RESOURCE_ATTRIBUTES",
+      attributes.map(([key, value]) => `${key}=${value}`).join(","),
+    ],
+  ];
+}
+
+/**
+ * Production sites sample 1% of new traces; the SDK default records every
+ * trace, which only a low-traffic beta site can afford. A configured
+ * `OTEL_TRACES_SAMPLER` replaces this default.
+ */
+export function hostedTraceSamplerEnv(
+  context: string,
+  configured: { sampler?: string; samplerArg?: string } = {},
+): Array<readonly [string, string]> {
+  // An explicit sampler owns its argument: a ratio default would change what
+  // e.g. a bare `traceidratio` (SDK default 1.0) samples.
+  if (context !== "production" || configured.sampler) return [];
+  return [
+    ["OTEL_TRACES_SAMPLER", "parentbased_traceidratio"],
+    ...(configured.samplerArg
+      ? []
+      : ([
+          ["OTEL_TRACES_SAMPLER_ARG", PRODUCTION_TRACE_SAMPLER_RATIO],
+        ] as const)),
+  ];
+}
+
+/**
+ * Defaults an earlier sync may have written that the configured sampler now
+ * owns. Syncs only upsert, so a stale 1% ratio would silently keep overriding
+ * an explicit sampler's own default; `--write` refuses to run while one remains.
+ */
+export function staleTraceSamplerDefaults(
+  context: string,
+  configured: { sampler?: string; samplerArg?: string } = {},
+): Array<readonly [string, string]> {
+  if (context !== "production" || configured.samplerArg) return [];
+  if (!RATIO_TRACE_SAMPLERS.has(configured.sampler ?? "")) return [];
+  return [["OTEL_TRACES_SAMPLER_ARG", PRODUCTION_TRACE_SAMPLER_RATIO]];
+}
+
+// Values stay percent-encoded as configured; only keys are compared.
+function parseResourceAttributes(
+  raw: string | undefined,
+): Array<[string, string]> {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(",")
+    .filter((entry) => entry.trim())
+    .map((entry) => {
+      const separator = entry.indexOf("=");
+      const key = separator > 0 ? entry.slice(0, separator).trim() : "";
+      if (!key) {
+        throw new Error(
+          `OTEL_RESOURCE_ATTRIBUTES entry "${entry.trim()}" is not key=value.`,
+        );
+      }
+      return [key, entry.slice(separator + 1).trim()];
+    });
 }
 
 function isBetaContext(context: string): boolean {
@@ -544,9 +688,6 @@ function isBetaContext(context: string): boolean {
 }
 
 export function resolveNetlifyApiContext(context: string): string {
-  // The dedicated beta projects promote their beta branch as the project's
-  // production branch. Their beta runtime therefore reads production-scoped
-  // values, not generic branch-deploy values.
   return isBetaContext(context) ? "production" : context;
 }
 
@@ -596,6 +737,42 @@ async function requestNetlifyEnv(
 
   await response.arrayBuffer();
   return { ok: response.ok, status: response.status };
+}
+
+async function readContextValue({
+  accountId,
+  context,
+  key,
+  siteId,
+  token,
+}: {
+  accountId: string;
+  context: string;
+  key: string;
+  siteId: string;
+  token: string;
+}): Promise<string | null> {
+  const read = await fetch(netlifyEnvUrl(accountId, siteId, key), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "User-Agent": "agent-native-template-env-sync",
+    },
+  });
+  if (read.status === 404) {
+    await read.arrayBuffer();
+    return null;
+  }
+  if (!read.ok) {
+    await read.arrayBuffer();
+    throw new Error(`${key}: read failed with HTTP ${read.status}`);
+  }
+  const body = (await read.json()) as {
+    values?: Array<{ context?: string; value?: string }>;
+  };
+  const apiContext = resolveNetlifyApiContext(context);
+  return (
+    body.values?.find((entry) => entry.context === apiContext)?.value ?? null
+  );
 }
 
 async function deleteNetlifyEnv(
@@ -746,6 +923,37 @@ async function main() {
     );
   }
 
+  if (options.write) {
+    // Checked before any write, and never deleted: a value equal to the
+    // generated default can't be told apart from one an operator set.
+    const stale: string[] = [];
+    for (const plan of plans) {
+      const site = SITE_BY_NAME.get(plan.siteName);
+      if (!site) throw new Error(`Missing site mapping for ${plan.template}.`);
+      for (const [key, generatedValue] of plan.staleGeneratedEntries) {
+        const current = await readContextValue({
+          accountId: options.accountId!,
+          context: options.context,
+          key,
+          siteId: siteIdForContext(site, options.context),
+          token: token!,
+        });
+        if (current === generatedValue) {
+          stale.push(`  - ${plan.template}: ${key}=${generatedValue}`);
+        }
+      }
+    }
+    if (stale.length > 0) {
+      throw new Error(
+        [
+          "Refusing to sync: these sites still carry the generated sampler ratio, which would override the sampler their template now configures.",
+          "Set the ratio in the template env source to keep it, or remove it from the Netlify context, then re-run:",
+          ...stale,
+        ].join("\n"),
+      );
+    }
+  }
+
   console.log(
     options.write
       ? `Writing Netlify env vars for context=${options.context} scopes=${options.scopes.join(",")}`
@@ -775,9 +983,16 @@ async function main() {
     }
     if (plan.normalizedKeys.length > 0) {
       console.log(
-        `  normalized production URL key(s): ${plan.normalizedKeys
+        `  normalized per-site key(s): ${plan.normalizedKeys
           .sort()
           .join(", ")}`,
+      );
+    }
+
+    const staleKeys = plan.staleGeneratedEntries.map(([key]) => key);
+    if (staleKeys.length > 0) {
+      console.log(
+        `  ${options.write ? "checked" : "would check"} for generated default(s) the source now owns: ${staleKeys.join(", ")}`,
       );
     }
 

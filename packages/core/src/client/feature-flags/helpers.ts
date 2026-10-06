@@ -43,12 +43,6 @@ export function normalizeFeatureFlagPercentage(value: unknown): number {
     : 0;
 }
 
-/**
- * Keep the shared editor safe while a remote app is upgrading or returning an
- * optimistic/transient rule envelope. The fleet contract still validates the
- * authoritative response; this only prevents absent collection fields from
- * crashing the operator UI between refreshes.
- */
 export function normalizeFeatureFlagRules(
   rules: Partial<FeatureFlagRules> | null | undefined,
 ): FeatureFlagRules {

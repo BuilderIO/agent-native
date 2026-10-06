@@ -1,12 +1,3 @@
-/**
- * Email notifications for review threads.
- *
- * Implemented here rather than in one app so every surface built on review
- * comments (Design's review threads today) gets the same behavior. Recipient
- * resolution, preference filtering, and delivery reporting come from the
- * shared activity-notification helpers.
- */
-
 import {
   notifyActivity,
   runActivityNotification,
@@ -31,11 +22,6 @@ import {
 } from "./store.js";
 import type { ReviewComment } from "./types.js";
 
-/**
- * Shared across every review surface. Apps that want a user-facing toggle
- * write `{ emailNotifications: boolean }` under this key; an absent value
- * means opted in.
- */
 export const REVIEW_NOTIFICATION_PREFS_KEY = "activity-notification-prefs";
 
 const LOG_LABEL = "[review] comment notification";
@@ -80,11 +66,6 @@ async function threadParticipants(comment: ReviewComment): Promise<string[]> {
 
 export type ReviewNotificationResult = ActivityNotificationResult;
 
-/**
- * Email the resource owner, mentioned people, and — on a reply — everyone else
- * already in the thread. Never throws: the comment is already persisted, and a
- * rejection here would make the client retry and duplicate it.
- */
 export async function notifyReviewComment(
   comment: ReviewComment,
 ): Promise<ReviewNotificationResult> {
@@ -136,16 +117,11 @@ async function deliverReviewCommentEmails(
     candidates.push(...(await threadParticipants(comment)));
   }
 
-  // Mentions are caller-supplied and thread rows are historical; neither is an
-  // access grant. Re-check every address against the resource's current ACL
-  // before it can receive the comment body.
   const allowed = await filterRecipientsByResourceAccess({
     resourceType: comment.resourceType,
     resourceId: comment.resourceId,
     emails: candidates.filter((email): email is string => Boolean(email)),
     orgId: comment.orgId,
-    // The review registry owns access for its types; unregistered ones resolve
-    // to null there, so nobody is notified rather than everybody.
     resolveRole: (ctx) =>
       resolveReviewableResourceAccess(
         comment.resourceType,

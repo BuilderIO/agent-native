@@ -2,22 +2,23 @@
 
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
+import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LABELS_QUERY_KEY } from "@/hooks/use-emails";
 import { INBOX_THREADS_QUERY_KEY } from "@/hooks/use-inbox-threads";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 
-// getEmbedAuthToken keeps its real token in a module-level variable, so an
-// earlier test's URL-derived token would otherwise leak into a later test
-// via that shared memory (order-dependent false-green). Mock it directly so
-// each test controls the credential instead of the URL/sessionStorage state.
 vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
   getEmbedAuthToken: vi.fn(() => null),
 }));
 
-import { computeSessionBypass } from "./root";
+import {
+  computeSessionBypass,
+  createMailSyncEventHandler,
+  isPrivateInboxPath,
+} from "./root";
 
 describe("computeSessionBypass", () => {
   beforeEach(() => {
@@ -27,10 +28,6 @@ describe("computeSessionBypass", () => {
   });
 
   it("does not bypass for the bare embedded=1 flag with no token", () => {
-    // This is how the Electron desktop shell opens every app tab
-    // (packages/desktop-app CodeAgentsHub urlParams: { embedded: "1", chatFirst: "1" }).
-    // Without a real credential, bypassing here sends a signed-out tab into an
-    // infinite 401 poll instead of sign-in.
     window.history.replaceState(null, "", "/inbox?embedded=1&chatFirst=1");
     expect(computeSessionBypass()).toBe(false);
   });
@@ -43,6 +40,93 @@ describe("computeSessionBypass", () => {
       `/inbox?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
     );
     expect(computeSessionBypass()).toBe(true);
+  });
+});
+
+describe("isPrivateInboxPath", () => {
+  it.each([
+    "/inbox",
+    "/inbox/thread-1",
+    "/all",
+    "/all/thread-1",
+    "/unread/thread-1",
+  ])("opts in for %s", (pathname) => {
+    expect(isPrivateInboxPath(pathname)).toBe(true);
+  });
+
+  it.each(["/email", "/settings", "/home", "/unknown/thread-1"])(
+    "keeps %s out of background sync",
+    (pathname) => {
+      expect(isPrivateInboxPath(pathname)).toBe(false);
+    },
+  );
+});
+
+describe("createMailSyncEventHandler", () => {
+  it("refreshes Mail's raw queries after a Mail mailbox mutation", async () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockResolvedValue(undefined);
+    const handleEvent = createMailSyncEventHandler(queryClient);
+
+    handleEvent({
+      source: "action",
+      type: "action-change",
+      key: "archive-email",
+    });
+    await Promise.resolve();
+
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(
+      expect.arrayContaining([["emails"], ["email"], LABELS_QUERY_KEY]),
+    );
+    queryClient.clear();
+  });
+
+  it.each([
+    "create-scheduled-send",
+    "cancel-scheduled-email",
+    "confirm-uncertain-scheduled-email",
+    "retry-uncertain-scheduled-email",
+    "send-scheduled-email-now",
+  ])("refreshes email and scheduled-job queries after %s", async (key) => {
+    const queryClient = new QueryClient();
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockResolvedValue(undefined);
+    const handleEvent = createMailSyncEventHandler(queryClient);
+
+    handleEvent({ source: "action", type: "action-change", key });
+    await Promise.resolve();
+
+    const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        ["emails"],
+        ["email"],
+        LABELS_QUERY_KEY,
+        ["scheduled-jobs"],
+      ]),
+    );
+    queryClient.clear();
+  });
+
+  it("ignores unrelated action completions", async () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockResolvedValue(undefined);
+    const handleEvent = createMailSyncEventHandler(queryClient);
+
+    handleEvent({
+      source: "action",
+      type: "action-change",
+      key: "create-calendar-event",
+    });
+    await Promise.resolve();
+
+    expect(invalidate).not.toHaveBeenCalled();
+    queryClient.clear();
   });
 });
 

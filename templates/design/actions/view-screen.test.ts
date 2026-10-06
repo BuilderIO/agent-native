@@ -122,8 +122,6 @@ describe("view-screen", () => {
   });
 
   it("reports the design's own linked design system, not just a template's", async () => {
-    // Choosing a system on an empty design writes it to the design row and
-    // nowhere else, so the agent's first read has to carry it.
     mocks.resolveAccess.mockResolvedValue({
       role: "editor",
       resource: {

@@ -17,8 +17,6 @@ import type { DiscoveredAgent } from "./agent-discovery.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const AUTH_PROBE_TIMEOUT_MS = 6_000;
-/** Matches CARD_CONCURRENCY in agent-capabilities.ts — bounds simultaneous
- * outbound probes the same way card loading already does. */
 const PROBE_CONCURRENCY = 8;
 
 export interface PeerProbeResult {
@@ -28,7 +26,6 @@ export interface PeerProbeResult {
   name?: string;
   description?: string;
   securitySchemes?: string[];
-  /** Absent (not false) whenever the auth check never ran or never resolved. */
   authorized?: boolean;
   authError?: string;
   publicSkills?: number;
@@ -63,14 +60,6 @@ const defaultPeerProbeDeps: PeerProbeDeps = {
     new A2AClient(baseUrl, apiKey, options),
 };
 
-/**
- * Probe one peer: does its agent card load (reachability), and separately,
- * will OUR calls to it authenticate. These two questions must never collapse
- * into one boolean — an unreachable peer can't tell us anything about auth,
- * so `authorized` stays absent rather than `false` in that case, and a
- * transport failure on the auth-only call (timeout, DNS, 5xx) must never be
- * reported as an auth rejection either.
- */
 export async function probePeerAgent(
   agent: DiscoveredAgent,
   deps: PeerProbeDeps = defaultPeerProbeDeps,
@@ -83,10 +72,6 @@ export async function probePeerAgent(
     authenticate: options?.verifyAuth !== false,
   });
   if (capabilities.skills === null || !capabilities.card) {
-    // Unreachable (includes malformed/SSRF-blocked URLs, which the caller
-    // reclassifies into a 400 by checking for the "SSRF blocked:" prefix).
-    // `authorized` is intentionally omitted — reachability and auth are
-    // independent questions, and we have no evidence either way here.
     return {
       url: agent.url,
       reachable: capabilities.cardStatus === "auth-rejected",
@@ -140,9 +125,6 @@ export async function probePeerAgent(
   });
 
   try {
-    // An id that cannot exist. A "task not found" JSON-RPC error proves the
-    // peer authenticated us and ran our request; a 401 proves it rejected us;
-    // anything else is a transport failure this call can't resolve either way.
     await client.getTask(`probe-${crypto.randomUUID()}`, {
       requestTimeoutMs: AUTH_PROBE_TIMEOUT_MS,
     });
@@ -159,10 +141,6 @@ export async function probePeerAgent(
     } else if (/A2A error \(-?\d+\): task not found/i.test(message)) {
       result.authorized = true;
     } else {
-      // Timeout, DNS failure, non-401 HTTP status, etc. The card fetch above
-      // already proved reachability, so this must not be reported as
-      // `reachable: false`, and an unresolved auth outcome must not be
-      // reported as `authorized: false` either — leave it absent.
       result.authError = message;
     }
   }

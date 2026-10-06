@@ -33,19 +33,11 @@ import { Wireframe, type DesignElementSelection } from "./wireframe/Wireframe";
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-/* -------------------------------------------------------------------------- */
-/* Pan / zoom feel — recovered from the on-main hardcoded renderer            */
-/* (server/ui-plan-html.ts UI_PLAN_JS) + claude.ai/designs design-canvas.jsx. */
-/* -------------------------------------------------------------------------- */
-
 const DEFAULT_VIEW = { zoom: 0.72, pan: { x: 96, y: 64 } };
 const MIN_ZOOM = 0.18;
 const MAX_ZOOM = 2.4;
-/** Trackpad pinch sensitivity. */
 const PINCH_ZOOM_SENSITIVITY = 0.01;
-/** Base CSS grid cell, scaled by zoom. */
 const GRID_CELL = 28;
-/** Extra world-space pan range on each side of the board. */
 const CANVAS_OVERSCROLL_PADDING = 5000;
 
 type CanvasView = typeof DEFAULT_VIEW;
@@ -101,18 +93,6 @@ type DraftCallout = {
   current: WorldPoint;
 };
 
-/**
- * Spatial board. Geometry lives at THIS level on purpose — artboard placement,
- * annotation placement, and connector routing legitimately need positions. The
- * wireframe INTERNALS rendered inside each artboard are geometry-free (the
- * renderer lays them out with flex).
- *
- * Visual quality is owned entirely here: an infinite low-contrast grid that
- * moves on pan, cursor-anchored zoom at the right speed, wheel-pan, fixed 65vh,
- * artboard labels above each frame (zoom-invariant), designer annotations
- * spaced off the frames (no bordered/shadowed cards), routed connectors, and
- * small zoom controls bottom-left.
- */
 export function CanvasArea({
   canvas,
   blockLookup,
@@ -168,16 +148,11 @@ export function CanvasArea({
     null,
   );
   const [savingMarkup, setSavingMarkup] = useState(false);
-  // Real rendered heights, reported by each artboard. Frames are content-sized
-  // (maxHeight + auto height), so the declared preset height usually overshoots;
-  // connectors must route off the measured box or arrows float below the frame.
   const [frameHeights, setFrameHeights] = useState<Map<string, number>>(
     () => new Map(),
   );
   const latestViewportChangeRef = useRef<CanvasViewport>(initialView);
   const viewportChangeFrameRef = useRef<number | null>(null);
-  // Kept current each render so the central pan clamp (in updateView) can read
-  // the live board size without widening updateView's dependencies.
   const boardRef = useRef({ width: 0, height: 0 });
   const queueViewportChange = useCallback(
     (nextView: CanvasViewport) => {
@@ -224,9 +199,6 @@ export function CanvasArea({
     });
   }, []);
 
-  // Skip label-only artboards (no inline wireframe, no legacy region data, and
-  // no blockId resolving to a wireframe block). They render as empty dashed
-  // boxes and waste layout space, so they never reach the board at all.
   const frames = useMemo(
     () =>
       layoutArtboards(
@@ -238,8 +210,6 @@ export function CanvasArea({
     () => new Map(frames.map((frame) => [frame.id, frame])),
     [frames],
   );
-  // frameById with each frame's declared height overridden by its measured
-  // height, so connectors/anchors track the real (content) box.
   const measuredFrameById = useMemo(() => {
     const map = new Map<string, PlanArtboard>();
     for (const frame of frames) {
@@ -257,8 +227,6 @@ export function CanvasArea({
   const legacyNotes = canvas.notes ?? [];
   const connectors = canvas.flow ?? [];
 
-  // Group annotations by the frame they target so they render attached to that
-  // frame (tracking its real content height); the rest float by x/y.
   const annsByFrame = useMemo(() => {
     const byFrame = new Map<string, PlanAnnotation[]>();
     const loose: PlanAnnotation[] = [];
@@ -278,10 +246,6 @@ export function CanvasArea({
     return { byFrame, loose };
   }, [annotations, frameById]);
 
-  // Resolve every annotation's board position once with flex auto-layout, so
-  // anchored notes flow down a per-side gutter column beside the measured frame
-  // and never overlap by construction. Both the text layer and its arrow read
-  // from this map, so the arrow always connects the rendered box to the frame.
   const resolvedAnnotations = useMemo(
     () =>
       layoutAnnotations(
@@ -292,9 +256,6 @@ export function CanvasArea({
     [annsByFrame, measuredFrameById],
   );
 
-  // Section container rects: union of each section's measured member frames,
-  // padded, computed once so the container and any snap/clamp arrow share the
-  // same box. Sections with no resolvable members are dropped.
   const sectionRects = useMemo(
     () =>
       sections
@@ -311,9 +272,6 @@ export function CanvasArea({
     [sections, measuredFrameById],
   );
 
-  // Boxes a point-arrow / callout endpoint can snap-clamp to: every measured
-  // artboard plus every section container. Ordered frames-first so a tip inside
-  // a section still prefers the nearer artboard edge.
   const snapTargets = useMemo<AnnotationRect[]>(
     () => [
       ...Array.from(measuredFrameById.values()).map(frameRect),
@@ -367,10 +325,6 @@ export function CanvasArea({
     if (lastAutoFitKeyRef.current === frameLayoutKey) return;
     const element = viewportRef.current;
     if (!element || frames.length === 0) return;
-    // Center the whole content on first view, regardless of canvas mode. The
-    // bounding box of every frame is fit to the viewport (capped at the default
-    // zoom) and centered horizontally, so plans open with their items centered
-    // instead of pinned to the left by DEFAULT_VIEW.pan.x.
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
@@ -442,7 +396,6 @@ export function CanvasArea({
         const point =
           anchor ??
           (rect ? { x: rect.width / 2, y: rect.height / 2 } : { x: 0, y: 0 });
-        // Keep the world point under the anchor fixed (cursor-anchored zoom).
         const worldX = (point.x - current.pan.x) / current.zoom;
         const worldY = (point.y - current.pan.y) / current.zoom;
         return {
@@ -548,11 +501,6 @@ export function CanvasArea({
     [buildMarkupContext, onCanvasMarkupCreate, pendingMarkup],
   );
 
-  // Wheel: cursor-over-canvas never scrolls the page. Match Figma's input
-  // contract: unmodified wheel/trackpad gestures always pan, while an explicit
-  // ctrl/cmd modifier (including the ctrlKey emitted by trackpad pinch) zooms
-  // at the cursor. Never infer zoom intent from the delta shape — trackpad pan
-  // momentum can look exactly like a notched mouse wheel near a canvas edge.
   useEffect(() => {
     const element = viewportRef.current;
     if (!element) return;
@@ -576,11 +524,9 @@ export function CanvasArea({
       const deltaY = event.deltaY * lineScale;
 
       if (event.ctrlKey || event.metaKey) {
-        // Trackpad pinch / explicit zoom modifier — smooth exponential.
         zoomByFactor(Math.exp(-deltaY * PINCH_ZOOM_SENSITIVITY), anchor);
         return;
       }
-      // Mouse wheel / trackpad two-finger scroll -> pan.
       updateView((current) => ({
         ...current,
         pan: {
@@ -598,7 +544,6 @@ export function CanvasArea({
     if (event.button !== 0 && event.button !== 1) return;
     const target = event.target as HTMLElement;
     const activePointers = activePointersRef.current;
-    // Don't start a pan when grabbing interactive chrome (zoom controls etc.).
     if (
       event.button === 0 &&
       target.closest("[data-plan-interactive]") &&
@@ -991,12 +936,6 @@ export function CanvasArea({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Artboards                                                                  */
-/* -------------------------------------------------------------------------- */
-
-// Fixed-size static frames (never scroll regions) so wireframe compositions
-// stay complete and dense. Surface presets mirror claude.ai/designs.
 const DESK_W = 840;
 const DESK_H = 520;
 const PHONE_W = 300;
@@ -1024,10 +963,6 @@ function surfaceOf(frame: PlanArtboard): PlanWireframeSurface {
   return frame.surface ?? frame.wireframe?.surface ?? "desktop";
 }
 
-/**
- * Keep the surface width stable while allowing long screens to reserve a
- * taller, non-scrolling artboard in canvas mode.
- */
 export function canvasFrameSize(frame: PlanArtboard) {
   const preset = SURFACE_SIZE[surfaceOf(frame)];
   return {
@@ -1055,12 +990,6 @@ function isEditableShortcutTarget(target: EventTarget | null) {
   );
 }
 
-/**
- * True when a frame actually has wireframe content to render: inline kit-tree
- * data, inline legacy region data, or a `blockId` that resolves to a wireframe /
- * legacy-wireframe block. Label-only artboards (no interior content) are skipped
- * so the board never reserves space for an empty dashed box.
- */
 function frameHasContent(
   frame: PlanArtboard,
   blockLookup: Map<string, PlanBlock>,
@@ -1089,11 +1018,6 @@ function canvasFrameLayoutKey(
     .join("|")}`;
 }
 
-/**
- * Resolve placement for artboards. Geometry kept here on purpose. Frames with
- * explicit x/y are honored; the rest flow left→right by surface, wrapping wide
- * surfaces onto a second row and lining narrow surfaces up in a side column.
- */
 function layoutArtboards(frames: PlanArtboard[]): PlanArtboard[] {
   let wideX = 96;
   let wideY = 96;
@@ -1104,8 +1028,6 @@ function layoutArtboards(frames: PlanArtboard[]): PlanArtboard[] {
 
   return frames.map((frame) => {
     const surface = surfaceOf(frame);
-    // Surface owns the width/aspect. A larger explicit height is the
-    // non-scrolling escape hatch for long HTML screens on the canvas.
     const { width, height } = canvasFrameSize(frame);
 
     if (frame.x !== undefined || frame.y !== undefined) {
@@ -1121,7 +1043,6 @@ function layoutArtboards(frames: PlanArtboard[]): PlanArtboard[] {
     const isNarrow =
       surface === "mobile" || surface === "popover" || surface === "panel";
     if (isNarrow) {
-      // Narrow surfaces stack in a column to the right of the wide flow.
       if (narrowX === 0) narrowX = 96;
       const x = narrowX;
       const y = 96;
@@ -1140,7 +1061,6 @@ function layoutArtboards(frames: PlanArtboard[]): PlanArtboard[] {
     wideX += width + 96;
     wideInRow += 1;
     wideRowMaxH = Math.max(wideRowMaxH, height);
-    // Push the narrow column past the widest wide row.
     narrowX = Math.max(narrowX, x + width + 96);
     return { ...frame, width, height, x, y };
   });
@@ -1162,8 +1082,6 @@ function CanvasArtboard({
   const surface = surfaceOf(frame);
   const { width, height } = canvasFrameSize(frame);
   const label = frame.label ?? block?.title;
-  // Report the frame's real rendered height so board connectors can anchor to
-  // the content box (frames are capped at `height` but usually shorter).
   const frameRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = frameRef.current;
@@ -1175,11 +1093,6 @@ function CanvasArtboard({
     return () => observer.disconnect();
   }, [frame.id, onMeasure]);
 
-  // Prefer the inline kit-tree wireframe; fall back to the legacy region shape
-  // (kept for old / imported plans). Pull from the referenced block if the
-  // frame itself doesn't carry inline data. Annotations are NOT rendered inside
-  // the artboard — they live as board-level layers positioned by
-  // layoutAnnotations() so each note's box and its arrow share one coordinate.
   const kitData =
     frame.wireframe ?? (block?.type === "wireframe" ? block.data : undefined);
   const legacyData =
@@ -1193,8 +1106,6 @@ function CanvasArtboard({
       style={{ left: frame.x ?? 96, top: frame.y ?? 96, width }}
     >
       {label && (
-        // Canvas text scales WITH the board (no inverse-zoom counter-scale), so
-        // a label's footprint always matches its frame at every zoom level.
         <div className="plan-artboard-label pointer-events-none absolute bottom-full left-0 pb-2 text-sm font-semibold text-plan-text">
           {label}
         </div>
@@ -1205,10 +1116,6 @@ function CanvasArtboard({
         style={{ maxHeight: height, overflow: "hidden" }}
       >
         {kitData ? (
-          // The kit-tree wireframe renderer ({ surface, screen }) is owned by
-          // the wireframe module; CanvasArea only supplies fixed-size framing.
-          // The surface preset lives inside the kit-tree data so the renderer
-          // reads it from `data.surface`.
           <Wireframe
             data={kitData as unknown as Parameters<typeof Wireframe>[0]["data"]}
             canvasSize={height}
@@ -1228,21 +1135,10 @@ function CanvasArtboard({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Sections                                                                   */
-/* -------------------------------------------------------------------------- */
-
-/** Padding the section container holds around its member artboards. */
 const SECTION_PAD_X = 56;
 const SECTION_PAD_TOP = 128;
 const SECTION_PAD_BOTTOM = 64;
 
-/**
- * Bounding box of a section: the union of its member frames, expanded by padding
- * so the container reads as a real region wrapping the group (label row + the
- * frame labels that hang above each frame both fit inside the top padding).
- * Returns null when the section has no resolvable members.
- */
 function sectionRect(
   section: PlanBoardSection,
   frameById: Map<string, PlanArtboard>,
@@ -1267,12 +1163,6 @@ function sectionRect(
   };
 }
 
-/**
- * A section is now a real layout CONTAINER: a subtle rounded region that bounds
- * its member artboards (so a group reads as one unit), with the title/subtitle
- * sitting inside the top padding. It scales with the board and stays
- * non-interactive so panning still works through it.
- */
 function CanvasSection({
   rect,
   section,
@@ -1304,16 +1194,9 @@ function CanvasSection({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Annotations — plain text layers on the board; NO bordered/shadowed cards   */
-/* -------------------------------------------------------------------------- */
-
 const ANNOTATION_GAP = 32;
-/** Box width used for layout math; the body renders at 260 with breathing room. */
 const ANNOTATION_BOX_W = 280;
-/** Vertical gap between two notes stacked on the same side of a frame. */
 const ANNOTATION_STACK_GAP = 20;
-/** Min height assumed for a note (heading + one line). */
 const ANNOTATION_MIN_H = 64;
 
 type AnnotationRect = {
@@ -1323,23 +1206,18 @@ type AnnotationRect = {
   height: number;
 };
 
-/** Resolved board position for a single annotation, plus its arrow endpoint. */
 export type ResolvedAnnotation = AnnotationRect & {
-  /** Arrow endpoint on the target frame (measured), if this note has a target. */
   anchor?: { x: number; y: number };
 };
 
-/** Rough height estimate from the note's text so layout can stack/avoid notes. */
 function estimateAnnotationHeight(note: PlanAnnotation): number {
   const bullets = parseBullets(note.text);
   const headingH = note.title ? 26 : 0;
   if (bullets) return headingH + bullets.length * 24 + 16;
-  // ~38 chars per line at 260px; one prose paragraph.
   const lines = Math.max(1, Math.ceil(note.text.length / 38));
   return Math.max(ANNOTATION_MIN_H, headingH + lines * 24 + 16);
 }
 
-/** Measured bounds of a frame (declared x/y; measured height threaded in). */
 function frameRect(frame: PlanArtboard): AnnotationRect {
   return {
     left: frame.x ?? 96,
@@ -1349,12 +1227,6 @@ function frameRect(frame: PlanArtboard): AnnotationRect {
   };
 }
 
-/**
- * Arrow endpoint on a MEASURED frame: the requested edge/corner, or the measured
- * center when placement is undefined. `frame` already carries the measured
- * height (threaded in via `measuredFrameById`), so the tip lands on the real
- * rendered box, never below it.
- */
 function anchorPoint(
   frame: PlanArtboard,
   placement: PlanAnnotationPlacement | undefined,
@@ -1387,11 +1259,6 @@ function anchorPoint(
   }
 }
 
-/**
- * Unanchored starting box for a note on its requested side of the MEASURED
- * frame, before collision resolution. Side placements sit beside the frame; top/
- * bottom sit above/below it; the default parks to the right gutter.
- */
 function preferredAnnotationRect(
   note: PlanAnnotation,
   frame: PlanArtboard,
@@ -1424,11 +1291,9 @@ function preferredAnnotationRect(
       height,
     };
   }
-  // right / top-right / bottom-right / undefined → right gutter.
   return { left: r.left + r.width + ANNOTATION_GAP, top: r.top, width, height };
 }
 
-/** Which gutter a placement flows into: left of the frame, or the right gutter. */
 function sideOf(
   placement: PlanAnnotationPlacement | undefined,
 ): "left" | "right" {
@@ -1439,18 +1304,6 @@ function sideOf(
     : "right";
 }
 
-/**
- * Resolve every annotation's board position with deterministic FLEX AUTO-LAYOUT
- * instead of an iterative collision solver. Each frame owns two vertical gutter
- * columns (one on its left edge, one on its right); same-side notes flow down
- * that column with a constant gap, exactly like a flex `column` with `gap`. The
- * column is the frame's own height-tracking flow, so notes never overlap their
- * frame or each other by construction — no nudge-until-clear search, no 60-step
- * fallback. Loose (untargeted) notes flow down a single shared right-hand gutter
- * past the widest frame. Every position is a pure function of the measured frame
- * boxes, so the arrow (derived from the resolved box edge → frame anchor) always
- * connects the rendered note to the rendered frame.
- */
 function layoutAnnotations(
   byFrame: Map<string, PlanAnnotation[]>,
   loose: PlanAnnotation[],
@@ -1459,9 +1312,6 @@ function layoutAnnotations(
   const resolved = new Map<string, ResolvedAnnotation>();
   const frameRects = Array.from(measuredFrameById.values()).map(frameRect);
 
-  // Flex-style flow: place each box at the running cursor for its column, then
-  // advance the cursor by the box height + gap. Top/bottom placements seed the
-  // column above/below the frame; side placements align to the frame top.
   const flowDown = (
     cursor: { top: number },
     rect: Omit<AnnotationRect, "top">,
@@ -1471,8 +1321,6 @@ function layoutAnnotations(
     return placed;
   };
 
-  // Frame-anchored notes: one flex column per (frame, side). Each column starts
-  // at the frame's preferred edge and flows down with a constant gap.
   for (const [frameId, notes] of byFrame) {
     const frame = measuredFrameById.get(frameId);
     if (!frame) continue;
@@ -1488,9 +1336,6 @@ function layoutAnnotations(
         height,
       });
       columnTop.set(side, cursor.top);
-      // Shift the note clear of any OTHER frame its gutter would land on (e.g. a
-      // right note on a wide frame that has a popover frame to its right), then
-      // anchor the arrow to the frame edge facing where the note actually landed.
       const placed = shiftSideClear(slot, side, frameRects, ANNOTATION_GAP);
       resolved.set(note.id, {
         ...placed,
@@ -1499,9 +1344,6 @@ function layoutAnnotations(
     }
   }
 
-  // Loose notes: a single shared right-hand gutter column, past the widest
-  // frame, flowing straight down. Targeted-but-offscreen notes anchor to their
-  // frame; the rest are pure free-canvas text.
   const gutterLeft =
     Math.max(96, ...frameRects.map((f) => f.left + f.width)) + ANNOTATION_GAP;
   const gutterCursor = { top: 96 };
@@ -1525,7 +1367,6 @@ function layoutAnnotations(
       });
       continue;
     }
-    // Free note with explicit coordinates keeps them; otherwise flow the gutter.
     const slot =
       note.x !== undefined || note.y !== undefined
         ? {
@@ -1545,7 +1386,6 @@ function layoutAnnotations(
   return resolved;
 }
 
-/** Presentational annotation text (title + bullets/prose). No positioning. */
 function AnnotationBody({ note }: { note: PlanAnnotation }) {
   const bullets = parseBullets(note.text);
   return (
@@ -1568,12 +1408,6 @@ function AnnotationBody({ note }: { note: PlanAnnotation }) {
   );
 }
 
-/**
- * A structured annotation rendered at its resolved (collision-free) board
- * position. The position is computed once by layoutAnnotations() so the note's
- * box and its arrow share one coordinate; if (defensively) no resolved entry
- * exists, fall back to the note's own x/y.
- */
 function CanvasAnnotation({
   note,
   resolved,
@@ -1694,8 +1528,6 @@ function resolveCanvasMarkupLabelRect({
     const clampPenalty =
       Math.abs(candidate.raw.left - candidate.rect.left) +
       Math.abs(candidate.raw.top - candidate.rect.top);
-    // Prefer the label on the side opposite the arrow target so the arrow exits
-    // the label edge instead of running back through the words.
     const directionPenalty =
       (candidate.vector.x * targetUnit.x +
         candidate.vector.y * targetUnit.y +
@@ -1721,10 +1553,6 @@ function CanvasMarkupAnnotation({
 }) {
   const origin = note.points?.[0] ?? { x: note.x ?? 80, y: note.y ?? 80 };
   const rawTarget = note.points?.[1];
-  // Snap the arrow TIP onto the nearest box edge when it lands on/near a frame
-  // or section, so a point-arrow visually grabs the thing it points at instead
-  // of floating just inside or outside it. The origin keeps its hand-placed
-  // spot (it's where the note text sits).
   const target = rawTarget
     ? snapPointToBoxes(rawTarget, snapTargets)
     : undefined;
@@ -1881,7 +1709,6 @@ function CanvasMarkupComposer({
   );
 }
 
-/** Split a leading prose line + "- " bulleted lines into title text + list. */
 function parseBullets(text: string): string[] | null {
   const lines = text
     .split("\n")
@@ -1894,16 +1721,6 @@ function parseBullets(text: string): string[] | null {
   return bulletLines.map((line) => line.replace(/^[-*•]\s+/, ""));
 }
 
-/* -------------------------------------------------------------------------- */
-/* Arrows + connectors — routed at the BOARD level (geometry kept on purpose) */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Shared hand-drawn wobble filter (Excalidraw / wireframe house style). A single
- * turbulence + displacement pass jitters the whole stroke so straight segments
- * read as hand-sketched. `userSpaceOnUse` keeps the region tied to the svg box so
- * thin near-flat lines don't clip their wobble.
- */
 function SketchFilter({
   id,
   width,
@@ -1942,7 +1759,6 @@ function SketchFilter({
   );
 }
 
-/** Cheap deterministic seed so each arrow wobbles a little differently. */
 function hashSeed(value: string) {
   let h = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -1951,12 +1767,6 @@ function hashSeed(value: string) {
   return h;
 }
 
-/**
- * Open, hand-drawn arrowhead — a "V" of two strokes pointing along the end
- * tangent (from the last control point `cx,cy` to the tip `ex,ey`). Drawn inside
- * the same filtered group as the line so it wobbles coherently with it; no hard
- * filled triangle.
- */
 function sketchHeadPath(ex: number, ey: number, cx: number, cy: number) {
   const length = 11;
   const spread = 0.45;
@@ -2034,10 +1844,6 @@ function ArrowSvg({
 function CanvasAnnotationArrow({ resolved }: { resolved: ResolvedAnnotation }) {
   const target = resolved.anchor;
   if (!target) return null;
-  // Both endpoints come from the resolved layout: the END is the measured frame
-  // edge/center (so the tip lands on the real content box, never below it), and
-  // the START is the edge of the resolved note box facing that target — so the
-  // arrow always visually connects the rendered box to the rendered frame.
   const start = boxEdgeToward(resolved, target);
   return (
     <ArrowSvg
@@ -2050,10 +1856,8 @@ function CanvasAnnotationArrow({ resolved }: { resolved: ResolvedAnnotation }) {
   );
 }
 
-/** How close (board px) a point must be to a box for the arrow tip to snap. */
 const SNAP_RADIUS = 40;
 
-/** Clamp a point onto a rectangle's perimeter (the nearest edge point). */
 function clampToRectPerimeter(
   point: { x: number; y: number },
   box: AnnotationRect,
@@ -2066,7 +1870,6 @@ function clampToRectPerimeter(
     point.y > box.top &&
     point.y < box.top + box.height;
   if (!inside) return { x: cx, y: cy };
-  // Inside the box: push out to whichever edge is closest.
   const dLeft = point.x - box.left;
   const dRight = box.left + box.width - point.x;
   const dTop = point.y - box.top;
@@ -2078,7 +1881,6 @@ function clampToRectPerimeter(
   return { x: point.x, y: box.top + box.height };
 }
 
-/** Squared distance from a point to the nearest perimeter point of a box. */
 function distToRectPerimeter(
   point: { x: number; y: number },
   box: AnnotationRect,
@@ -2087,13 +1889,6 @@ function distToRectPerimeter(
   return Math.hypot(point.x - edge.x, point.y - edge.y);
 }
 
-/**
- * Snap-clamp an arrow endpoint onto the nearest snap target (artboard or section
- * box) when it lands inside or within SNAP_RADIUS of one. Returns the point
- * unchanged when nothing is close, so a free-floating arrow stays free. This is
- * what makes point arrows "grab" the frame/section they point at without the
- * model having to land the coordinate exactly on the edge.
- */
 function snapPointToBoxes(
   point: { x: number; y: number },
   boxes: AnnotationRect[],
@@ -2116,7 +1911,6 @@ function snapPointToBoxes(
   return clampToRectPerimeter(point, best);
 }
 
-/** The point on a box's perimeter that faces a target point. */
 function boxEdgeToward(
   box: AnnotationRect,
   target: { x: number; y: number },
@@ -2125,7 +1919,6 @@ function boxEdgeToward(
   const cy = box.top + box.height / 2;
   const dx = target.x - cx;
   const dy = target.y - cy;
-  // Clamp the box-center→target ray to the box rectangle.
   const hx = box.width / 2;
   const hy = box.height / 2;
   const scale = Math.min(
@@ -2136,9 +1929,6 @@ function boxEdgeToward(
   return { x: cx + dx * scale, y: cy + dy * scale };
 }
 
-/** Arrow tip on a frame: the frame-perimeter point facing the note box, pulled
- *  OUT by a small gap so the arrow points AT the frame without touching it, and
- *  always toward whichever side the note actually landed on (never "away"). */
 const ARROW_FRAME_GAP = 13;
 function frameAnchorTowardNote(
   frameR: AnnotationRect,
@@ -2160,7 +1950,6 @@ function frameAnchorTowardNote(
   };
 }
 
-/** Axis-aligned rectangle overlap test. */
 function rectsOverlap(a: AnnotationRect, b: AnnotationRect): boolean {
   return (
     a.left < b.left + b.width &&
@@ -2182,8 +1971,6 @@ function rectOverlapArea(a: AnnotationRect, b: AnnotationRect): number {
   return width * height;
 }
 
-/** Slide a gutter note along its side axis until it clears any frame it would
- *  overlap, so a note never lands on a non-target artboard. Bounded + deterministic. */
 function shiftSideClear(
   rect: AnnotationRect,
   side: "left" | "right",
@@ -2212,8 +1999,6 @@ function CanvasLegacyNoteArrow({
   if (!note.arrowToFrameId) return null;
   const frame = frameById.get(note.arrowToFrameId);
   if (!frame) return null;
-  // anchorPoint reads the MEASURED frame (threaded in via measuredFrameById), so
-  // the tip lands on the real content box.
   const target = anchorPoint(frame, undefined);
   const noteX = note.x ?? 80;
   const noteY = note.y ?? 80;
@@ -2228,7 +2013,6 @@ function CanvasLegacyNoteArrow({
   );
 }
 
-/** Deprecated note shape (canvas.notes); rendered as a plain text layer. */
 function CanvasLegacyNote({ note }: { note: PlanCanvasNote }) {
   return (
     <div
@@ -2255,8 +2039,6 @@ function CanvasConnector({
   const to = frameById.get(edge.to);
   if (!from || !to) return null;
 
-  // Route nearest/facing sides, not blindly right-edge -> left-edge. This keeps
-  // wrapped rows and vertical flows from sweeping through unrelated artboards.
   const PAD = 18;
   const route = connectorRoute(from, to);
   const fromX = route.from.x;
@@ -2464,11 +2246,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-/**
- * Keep the visible viewport close to the board while still allowing generous
- * overscroll. The grid is viewport-painted, so this is about keeping artboards
- * discoverable rather than avoiding a finite grid edge.
- */
 function clampPanToGrid(
   view: CanvasView,
   board: { width: number; height: number },

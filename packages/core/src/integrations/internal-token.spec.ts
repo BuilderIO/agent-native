@@ -40,7 +40,6 @@ describe("integrations/internal-token", () => {
   it("rejects a token with a tampered signature", () => {
     const token = signInternalToken("task-1");
     const [ts, sig] = token.split(".");
-    // Flip a hex digit in the signature.
     const tampered = `${ts}.${sig.slice(0, -1)}${sig.slice(-1) === "0" ? "1" : "0"}`;
     expect(verifyInternalToken("task-1", tampered)).toBe(false);
   });
@@ -52,9 +51,6 @@ describe("integrations/internal-token", () => {
   });
 
   it("rejects a future-stamped token beyond skew tolerance", () => {
-    // Hand-build a token whose timestamp is 5 minutes in the future. The
-    // previous Math.abs() implementation accepted these. The fix rejects
-    // any token more than ~1 minute in the future (L4 in the audit).
     const futureTs = Date.now() + 5 * 60 * 1000;
     const secret = process.env.A2A_SECRET as string;
     const sig = createHmac("sha256", secret)

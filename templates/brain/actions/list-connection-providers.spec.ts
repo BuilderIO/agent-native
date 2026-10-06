@@ -223,4 +223,47 @@ describe("list-connection-providers", () => {
       providerHealth: { status: "missing_credentials" },
     });
   });
+
+  it("lists Zoom as a Brain source provider that needs all three S2S keys", async () => {
+    mocks.sourceRows = [{ provider: "zoom" }];
+    mocks.availableKeys.add("ZOOM_ACCOUNT_ID");
+    mocks.availableKeys.add("ZOOM_CLIENT_ID");
+
+    const result = await action.run({});
+    const zoom = result.providers.find((provider) => provider.id === "zoom");
+
+    expect(zoom).toMatchObject({
+      label: "Zoom",
+      sourceProviderSupported: true,
+      hasConfiguredSources: true,
+      configured: false,
+      setupLink: undefined,
+      credentialKeys: [
+        { key: "ZOOM_ACCOUNT_ID", required: true },
+        { key: "ZOOM_CLIENT_ID", required: true },
+        { key: "ZOOM_CLIENT_SECRET", required: true },
+      ],
+      credentialHealth: {
+        status: "missing",
+        missingCredentialKeys: ["ZOOM_CLIENT_SECRET"],
+      },
+      providerHealth: { status: "missing_credentials" },
+      rawProviderApi: { available: false },
+    });
+  });
+
+  it("reports Zoom ready when every S2S key is available", async () => {
+    mocks.availableKeys.add("ZOOM_ACCOUNT_ID");
+    mocks.availableKeys.add("ZOOM_CLIENT_ID");
+    mocks.availableKeys.add("ZOOM_CLIENT_SECRET");
+
+    const result = await action.run({});
+
+    expect(
+      result.providers.find((provider) => provider.id === "zoom"),
+    ).toMatchObject({
+      configured: true,
+      providerHealth: { status: "ready" },
+    });
+  });
 });

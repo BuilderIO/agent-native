@@ -98,10 +98,6 @@ function requestHop(target: URL): Promise<HopResult> {
               let total = 0;
               response.on("data", (chunk: Buffer) => {
                 total += chunk.length;
-                // Stop at the cap instead of buffering first and measuring
-                // after: a chunked response, or one that lies about
-                // Content-Length, would otherwise pull the whole body into
-                // memory before anyone checks it.
                 if (total > MAX_PROXIED_IMAGE_BYTES) {
                   response.destroy();
                   resolveBody("too-large");
@@ -124,10 +120,6 @@ function requestHop(target: URL): Promise<HopResult> {
   });
 }
 
-/**
- * Fetch a remote image for the proxy route. Every hop is re-parsed against the
- * URL policy and every connection is pinned to a validated public address.
- */
 export async function fetchRemoteImage(
   raw: string,
 ): Promise<RemoteImageResult> {

@@ -25,14 +25,6 @@ import {
   type VisualDiffEntry,
 } from "../../../shared/design-review.js";
 
-// ---------------------------------------------------------------------------
-// Inline a11y fix wiring
-// ---------------------------------------------------------------------------
-
-/**
- * Identifies the inline design source a fix should be applied to.  Required for
- * the "Fix" affordance to be enabled — without it the panel is read-only.
- */
 export interface ReviewFixSource {
   designId?: string;
   fileId?: string;
@@ -45,12 +37,7 @@ export interface ReviewFixResult {
   patchedContent?: string;
 }
 
-/** Per-finding state for the optimistic Fix flow. */
 type FixStatus = "idle" | "pending" | "fixed" | "error";
-
-// ---------------------------------------------------------------------------
-// Shared sub-types
-// ---------------------------------------------------------------------------
 
 export interface ReviewVersionOption {
   id: string;
@@ -59,52 +46,26 @@ export interface ReviewVersionOption {
 }
 
 export interface ReviewPanelProps {
-  /** The a11y findings to show. Pass `[]` if audit has not been run yet. */
   findings: A11yFinding[];
-  /** `true` while the audit is running. */
   auditLoading?: boolean;
-  /** ISO-8601 timestamp of the last audit run. */
   auditedAt?: string | null;
-  /** Error message if the last audit run failed. */
   auditError?: string | null;
-  /** Called when the user clicks "Run audit". */
   onRunAudit?: () => void;
-  /** Visual diff entries between base and compare versions. */
   visualDiff?: VisualDiffEntry[];
-  /** All available design_versions for the base/compare selectors. */
   versionOptions?: ReviewVersionOption[];
-  /** Currently selected base version id. */
   baseVersionId?: string | null;
-  /** Currently selected compare version id. */
   compareVersionId?: string | null;
-  /** Called when the user changes either version selector. */
   onVersionChange?: (
     kind: "base" | "compare",
     versionId: string | null,
   ) => void;
-  /** `true` while the diff is loading. */
   diffLoading?: boolean;
-  /** Error message if the diff failed. */
   diffError?: string | null;
-  /** Called when a finding row is clicked — navigates the canvas to the node. */
   onFindingClick?: (finding: A11yFinding) => void;
-  /**
-   * Inline design source for the "Fix" affordance.  When provided (and a
-   * finding is auto-fixable), a "Fix" button applies `apply-a11y-fix` against
-   * this source.  Omit to keep the panel read-only.
-   */
   fixSource?: ReviewFixSource;
-  /**
-   * Called after a fix is successfully applied — e.g. to refetch the audit so
-   * the resolved finding drops out of the list.  The applied finding is passed.
-   */
   onFixApplied?: (finding: A11yFinding, result?: ReviewFixResult) => void;
   className?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Severity helpers
-// ---------------------------------------------------------------------------
 
 interface SeverityConfig {
   dot: string;
@@ -151,10 +112,6 @@ const DIFF_KIND_CONFIG: Record<
   },
 };
 
-// ---------------------------------------------------------------------------
-// Finding row
-// ---------------------------------------------------------------------------
-
 function FindingRow({
   finding,
   onClick,
@@ -173,13 +130,6 @@ function FindingRow({
   const applyFix = useActionMutation("apply-a11y-fix");
   const [fixStatus, setFixStatus] = useState<FixStatus>("idle");
 
-  // `finding.id` is stable across audit runs (`"category:node-id"`), so a
-  // parent refetch that still includes the same id — e.g. the fix didn't
-  // fully resolve the issue and a fresh audit re-detected it — reuses this
-  // same row instance. Without this, a stale "Fixed" checkmark would keep
-  // showing even though the finding is live again. Only reset when a
-  // genuinely new `finding` object arrives (a fresh audit pass), not on our
-  // own optimistic `setFixStatus` calls, which don't touch the prop.
   const lastFindingRef = useRef(finding);
   useEffect(() => {
     if (lastFindingRef.current !== finding) {
@@ -188,17 +138,12 @@ function FindingRow({
     }
   }, [finding]);
 
-  // A Fix affordance is shown only when (a) the finding maps to a deterministic
-  // inline edit and (b) a design source is available to write to.  Everything
-  // else stays informational.
   const hasSource = !!(fixSource?.designId ?? fixSource?.fileId);
   const canFix = hasSource && isA11yFindingAutoFixable(finding);
 
   const handleFix = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!canFix || fixStatus === "pending" || fixStatus === "fixed") return;
-    // Optimistic: flip to "fixed" immediately; the canvas re-renders from the
-    // written content and the parent can refetch to drop the resolved finding.
     setFixStatus("pending");
     try {
       const res = (await applyFix.mutateAsync({
@@ -222,7 +167,6 @@ function FindingRow({
         setFixStatus("fixed");
         onFixApplied?.(finding, res);
       } else {
-        // The engine could not apply it (e.g. selector no longer resolves).
         setFixStatus("error");
       }
     } catch {
@@ -249,9 +193,6 @@ function FindingRow({
       onClick={handleActivate}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
-          // This is a `role="button"` div, not a native <button>, so the
-          // browser's default Space behavior (page scroll) isn't suppressed
-          // automatically — prevent it before activating.
           e.preventDefault();
           handleActivate();
         }
@@ -345,10 +286,6 @@ function FindingRow({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// A11y findings section
-// ---------------------------------------------------------------------------
 
 function A11ySection({
   findings,
@@ -497,10 +434,6 @@ function A11ySection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Visual diff section
-// ---------------------------------------------------------------------------
-
 function VersionLabel({
   options,
   value,
@@ -512,7 +445,6 @@ function VersionLabel({
   placeholder: string;
   onChange: (id: string | null) => void;
 }) {
-  // Native <select> keeps bundle small; matches design-editor's compact inputs.
   return (
     <select
       value={value ?? ""}
@@ -659,20 +591,6 @@ function VisualDiffSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Top-level ReviewPanel
-// ---------------------------------------------------------------------------
-
-/**
- * ReviewPanel renders the accessibility audit results and visual-diff section
- * for the Design Studio's Review inspector tab / bottom dock.
- *
- * When a `fixSource` is supplied, auto-fixable findings (contrast/color,
- * tap-target, focus-visibility) show an inline "Fix" button wired to the
- * `apply-a11y-fix` action; the canvas re-renders from the written content.
- * Findings that need a new attribute or a semantic rewrite remain
- * informational.  Without a `fixSource` the panel is read-only.
- */
 export function ReviewPanel({
   findings,
   auditLoading,

@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// public-plans.ts imports the db factory at module load; stub it so importing
-// the guest-author helpers (which never touch the DB) has no side effects.
 vi.mock("../db/index.js", () => ({
   getDb: () => {
     throw new Error("getDb should not be called by guest-author helpers");
@@ -9,8 +7,6 @@ vi.mock("../db/index.js", () => ({
   schema: {},
 }));
 
-// Drive the real cookie store through an in-memory map so we exercise the actual
-// validate/mint/clear logic in public-plans.ts rather than re-implementing it.
 const cookieStore = new Map<string, string>();
 const setCookieSpy = vi.fn();
 const deleteCookieSpy = vi.fn();
@@ -97,7 +93,6 @@ describe("guest-author identity", () => {
       expect(setCookieSpy).toHaveBeenCalledTimes(1);
       const [name, value, opts] = setCookieSpy.mock.calls[0];
       expect(name).toBe(GUEST_AUTHOR_COOKIE);
-      // Cookie value is the bare UUID; the email derives from it.
       expect(email).toBe(`guest-${value}@agent-native.guest`);
       expect(opts).toMatchObject({
         httpOnly: true,
@@ -153,7 +148,7 @@ describe("guest-author identity", () => {
 
     it("keeps two different visitors on distinct identities", async () => {
       const visitorA = await resolvePlanGuestAuthorOwner(fakeEvent);
-      cookieStore.clear(); // simulate a second visitor with no cookie
+      cookieStore.clear();
       const visitorB = await resolvePlanGuestAuthorOwner(fakeEvent);
       expect(visitorA).not.toBe(visitorB);
       expect(visitorA).toMatch(GUEST_RE);

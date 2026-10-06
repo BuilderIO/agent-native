@@ -6,10 +6,9 @@ import {
   resolveAnchor,
   resolveAnchorPoint,
   buildDocText,
+  trimSelectionRange,
 } from "./comment-anchors";
 
-// Minimal doc/paragraph/text schema — enough to exercise the text-space anchor
-// math without pulling in the full editor.
 const schema = new Schema({
   nodes: {
     doc: { content: "block+" },
@@ -30,6 +29,16 @@ function mkDoc(paragraphs: string[]): PMNode {
 }
 
 describe("comment-anchors", () => {
+  it("trims a double-clicked word's trailing space from the selection", () => {
+    const doc = mkDoc(["in compressed playback now"]);
+    // "playback " — Windows double-click includes the space after the word.
+    const from = 1 + "in compressed ".length;
+    const to = from + "playback ".length;
+    const trimmed = trimSelectionRange(doc, from, to);
+    expect(doc.textBetween(trimmed.from, trimmed.to)).toBe("playback");
+    expect(trimSelectionRange(doc, from - 1, to)).toEqual(trimmed);
+  });
+
   it("includes hard breaks only in the opt-in suggestion text space", () => {
     const richSchema = new Schema({
       nodes: {
@@ -63,8 +72,6 @@ describe("comment-anchors", () => {
   });
   it("captures and resolves a selection round-trip", () => {
     const doc = mkDoc(["Hello world foo"]);
-    // "world" sits at char index 6 → ProseMirror pos 7 (pos 0 precedes the
-    // paragraph, pos 1 is the first char).
     const from = 7;
     const to = 12;
     expect(doc.textBetween(from, to)).toBe("world");
@@ -90,7 +97,6 @@ describe("comment-anchors", () => {
     );
     expect(secondOccurrence).toBeGreaterThan(-1);
 
-    // Anchor whose context matches the SECOND occurrence.
     const range = resolveAnchor(doc, {
       quotedText: "the lazy dog",
       prefix: "paragraph: ",
@@ -99,7 +105,6 @@ describe("comment-anchors", () => {
     });
     expect(range).not.toBeNull();
     expect(doc.textBetween(range!.from, range!.to)).toBe("the lazy dog");
-    // The resolved range must land in the second paragraph, not the first.
     const firstParaEnd = "The quick brown fox jumps over the lazy dog.".length;
     expect(range!.from).toBeGreaterThan(firstParaEnd);
   });
@@ -189,8 +194,6 @@ describe("comment-anchors", () => {
     const anchor = captureAnchor(original, 8, 25);
     expect(anchor.quotedText).toBe("The target phrase");
 
-    // Text inserted before the quote shifts every position; resolution by
-    // content still finds it (this is what survives the markdown round-trip).
     const edited = mkDoc([
       "A much longer intro was prepended. The target phrase lives here.",
     ]);
@@ -202,12 +205,10 @@ describe("comment-anchors", () => {
   });
 
   it("handles a quote that spans multiple text nodes in order", () => {
-    // Two paragraphs; a quote within the first should not bleed into the second.
     const doc = mkDoc(["first block here", "second block here"]);
     const range = resolveAnchor(doc, { quotedText: "block here" });
     expect(range).not.toBeNull();
     expect(doc.textBetween(range!.from, range!.to)).toBe("block here");
-    // First occurrence is in paragraph one.
     expect(range!.from).toBeLessThan("first block here".length + 2);
   });
 });

@@ -2,11 +2,13 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { iconValueSchema } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncPrivateViewIconReferences } from "../server/lib/private-icon-references.js";
 import { withSavedTableColumnPresentation } from "../shared/database-table-columns.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
@@ -187,7 +189,11 @@ export default defineAction({
     const { databaseId, viewConfig } = args;
     const db = getDb();
     const [database] = await db
-      .select({ documentId: schema.contentDatabases.documentId })
+      .select({
+        documentId: schema.contentDatabases.documentId,
+        ownerEmail: schema.contentDatabases.ownerEmail,
+        orgId: schema.contentDatabases.orgId,
+      })
       .from(schema.contentDatabases)
       .where(
         and(
@@ -225,11 +231,27 @@ export default defineAction({
           withSavedTableColumnPresentation(view, currentViewConfig.views),
         ),
       };
+      const nextViewConfigJson = serializeDatabaseViewConfig(nextViewConfig);
+
+      const userEmail = getRequestUserEmail();
+      if (!userEmail) throw new Error("Authentication is required.");
+      await syncPrivateViewIconReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          databaseId,
+          documentId: database.documentId,
+          views: parseDatabaseViewConfig(nextViewConfigJson).views,
+          previousViews: currentViewConfig.views,
+          ownerEmail: database.ownerEmail,
+          orgId: database.orgId,
+          userEmail,
+        },
+      );
 
       await tx
         .update(schema.contentDatabases)
         .set({
-          viewConfigJson: serializeDatabaseViewConfig(nextViewConfig),
+          viewConfigJson: nextViewConfigJson,
           updatedAt: new Date().toISOString(),
         })
         .where(eq(schema.contentDatabases.id, databaseId));

@@ -1,6 +1,3 @@
-/**
- * Shared helpers for actions in this package.
- */
 import { and, eq } from "drizzle-orm";
 
 import { getSchedulingContext } from "../server/context.js";
@@ -15,13 +12,6 @@ export function currentUserEmailOrNull(): string | null {
   return getSchedulingContext().getCurrentUserEmail() ?? null;
 }
 
-/**
- * Verify the current user is the host of a booking. Throws "Not authorized to
- * <action>" if not. Mirrors the `isHost` half of the `isHost || hasToken`
- * guard used by cancel-booking/reschedule-booking, for booking actions that
- * don't accept a public capability token (attendee/note/status mutations —
- * host identity is the only legitimate caller for these).
- */
 export function assertBookingHost(
   booking: { hostEmail: string },
   action: string,
@@ -56,12 +46,6 @@ export async function assertTeamAdmin(teamId: string): Promise<void> {
   }
 }
 
-/**
- * Verify the current user is a member of the team (any role). Read-only
- * team resource listings should gate on this so that team IDs cannot be
- * enumerated by guessing. Throws "Not authenticated" if there is no
- * current user, and "Forbidden" if the user is not a member.
- */
 export async function assertTeamMember(teamId: string): Promise<void> {
   const { getDb, schema } = getSchedulingContext();
   const email = currentUserEmail();

@@ -49,7 +49,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (ask, adhoc, analyses, extensions, sessions, monitoring, agents, data-dictionary, data-sources, settings)",
+        "View to navigate to (ask, adhoc, analyses, extensions, sessions, event-catalog, performance, monitoring, agents, data-dictionary, data-sources, settings). event-catalog and performance (per-route Web Vitals and request percentiles) require the Sessions triage Lab.",
       ),
     dashboardId: z
       .string()
@@ -170,19 +170,16 @@ export default defineAction({
     }
     if (args.monitorId) {
       nav.monitorId = args.monitorId;
-      // Monitors live under the uptime subview.
       nav.monitoringView = "uptime";
       if (!args.view) nav.view = "monitoring";
     }
     if (args.statusPageId) {
       nav.statusPageId = args.statusPageId;
-      // Status pages are configured under the uptime subview.
       nav.monitoringView = "uptime";
       if (!args.view) nav.view = "monitoring";
     }
     if (args.errorIssueId) {
       nav.errorIssueId = args.errorIssueId;
-      // Error issues live under the errors subview.
       nav.monitoringView = "errors";
       if (!args.view) nav.view = "monitoring";
     }

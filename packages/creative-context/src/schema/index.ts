@@ -326,7 +326,6 @@ export const contextPackPins = table("creative_context_pack_pins", {
   ...scopedColumns(),
 });
 
-/** A governed, shareable collection of published creative artifacts. */
 export const creativeContexts = table("creative_contexts", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -335,7 +334,6 @@ export const creativeContexts = table("creative_contexts", {
   defaultScopeKey: text("default_scope_key"),
   brandProfileId: text("brand_profile_id"),
   stagingSourceId: text("staging_source_id").notNull(),
-  // This source is owned by the context and is intentionally not a library source.
   publishedSourceId: text("published_source_id").notNull(),
   approvalPolicy: text("approval_policy", {
     enum: ["open", "review", "admins-only"],
@@ -362,7 +360,6 @@ export const creativeContextAudit = table("creative_context_audit", {
   ...scopedColumns(),
 });
 
-/** One stable row per context/artifact identity; published pointers are mutable. */
 export const creativeContextMemberships = table(
   "creative_context_memberships",
   {
@@ -385,7 +382,6 @@ export const creativeContextMemberships = table(
   },
 );
 
-/** Submission rows track workflow state; immutable version pins and audit rows preserve evidence. */
 export const creativeContextSubmissions = table(
   "creative_context_submissions",
   {
@@ -423,7 +419,6 @@ export const creativeContextAppBindings = table(
   },
 );
 
-/** Internal history of publish/materialization operations; never public API. */
 export const creativeContextPublishedSnapshots = table(
   "creative_context_published_snapshots",
   {

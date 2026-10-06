@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { resolveAccess, assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:

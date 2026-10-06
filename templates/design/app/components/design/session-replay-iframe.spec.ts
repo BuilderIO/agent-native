@@ -20,7 +20,7 @@ describe("Design session replay iframe wiring", () => {
   it("bootstraps and marks overview and breakpoint srcdoc documents", () => {
     const multiScreenCanvas = source("./MultiScreenCanvas.tsx");
 
-    expect(multiScreenCanvas).toContain("appendHitTestResponder(");
+    expect(multiScreenCanvas).toContain("hitTestResponderMarkup(");
     expect(multiScreenCanvas).toContain("injectSessionReplayIframeBootstrap(");
     expect(multiScreenCanvas).toContain("SESSION_REPLAY_IFRAME_ATTRIBUTE");
   });
@@ -82,8 +82,6 @@ describe("Design session replay iframe wiring", () => {
   });
 
   it("covers the home thumbnail and Present route srcdoc documents", () => {
-    // The thumbnail moved out of Index.tsx so the editor's first-run rail can
-    // render the same previews; the wiring travels with it.
     const thumbnail = source("./DesignThumbnail.tsx");
     const present = source("../../pages/Present.tsx");
 

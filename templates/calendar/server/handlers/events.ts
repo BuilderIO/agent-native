@@ -24,7 +24,6 @@ class ForbiddenError extends Error {
   }
 }
 
-/** Resolve and validate an accountEmail from the request against the user's owned accounts. */
 async function resolveAccountEmail(
   requestAccountEmail: string | undefined,
   ownerEmail: string,

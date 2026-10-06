@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
+import {
+  GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "../agent/engine/credential-errors.js";
+import { CREDENTIAL_ERROR_CODES } from "../agent/engine/credential-state.js";
+import {
+  RUN_FAILED_MESSAGE,
+  RUN_INTERRUPTED_MESSAGE,
+  RUN_SIGNED_OUT_MESSAGE,
+  RUN_UNVERIFIED_MESSAGE,
+} from "./chat/run-outcome.js";
 import {
   BUILDER_SPACE_SETTINGS_URL,
   NEW_CHAT_ACTION_HREF,
+  PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+  SERVER_AUTHORED_CREDENTIAL_CODES,
   formatChatErrorText,
+  isProviderAuthenticationError,
   localizeKnownChatErrorText,
   normalizeChatError,
 } from "./error-format.js";
@@ -90,8 +103,6 @@ describe("formatChatErrorText", () => {
     );
     expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
     expect(text).toMatch(/^Error: /);
-    // The CTA is the only suffix — no Builder-credit CTA on this error
-    // code, since it's not a quota/billing problem.
     expect(text).not.toContain("[Add credits in Builder]");
   });
 
@@ -122,10 +133,6 @@ describe("formatChatErrorText", () => {
     expect(normalized.details).toBe(
       'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
     );
-    // Copy must not promise auto-recovery or suggest switching models — the
-    // server already retried once and the client skips auto-continuation
-    // for this code, and the error is almost always upstream so a different
-    // model lands on the same wall.
     expect(normalized.message).not.toMatch(/recover automatically/i);
     expect(normalized.message).not.toMatch(/another model/i);
     expect(normalized.message).toMatch(/gateway/i);
@@ -185,10 +192,6 @@ describe("formatChatErrorText", () => {
   });
 
   it("normalizes the gateway's email-verification block into something actionable", () => {
-    // Arrives as a bare gateway 403 with no upgradeUrl, so with no case here
-    // it fell through to the raw upstream sentence under a generic "The agent
-    // hit an error" headline with no retry — a dead end, and in production the
-    // largest single cause of chat turns ending without an answer.
     const raw =
       "At least one user in this space must verify their email before using AI.";
     const normalized = normalizeChatError(raw, "email_verification_required");
@@ -199,12 +202,6 @@ describe("formatChatErrorText", () => {
     expect(normalized.details).toBe(raw);
   });
 
-  // The engine keeps the real reason on `errorCode` so the site owner can
-  // diagnose it, and this is the layer that turns a code back into copy. Every
-  // code below has a mapping here or in `formatChatErrorText`, so without the
-  // guard the render boundary undoes the server's rewrite and the visitor reads
-  // the owner instruction again — the guarantee has to hold HERE, not only at
-  // the engine that chose the message.
   describe("a message the server already chose for a visitor", () => {
     const ownerCodes = [
       "builder_auth_error",
@@ -229,8 +226,6 @@ describe("formatChatErrorText", () => {
         expect(normalized).toStrictEqual({
           message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
         });
-        // No owner CTA either: a link to Builder space settings is an action
-        // only the owner of an org the visitor is not in can take.
         expect(
           formatChatErrorText(
             GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
@@ -263,7 +258,7 @@ describe("formatChatErrorText", () => {
       expect(
         normalizeChatError("Invalid token", "builder_auth_error").message,
       ).toBe(
-        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+        "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
       );
       expect(
         formatChatErrorText(
@@ -409,10 +404,6 @@ describe("Builder gateway internal-error envelope", () => {
     ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
   });
 
-  // The gateway emits this same envelope on its `invalid_request` stop lane,
-  // which never reaches `canonicalizeBuilderGatewayErrorCode`. Keying the copy
-  // on the code alone left the raw apology plus a bare hex id as the whole
-  // user-visible error.
   it("is recognized by its envelope on any accompanying code", () => {
     const reported =
       "Sorry, this was caused by an internal error. " +
@@ -505,6 +496,18 @@ describe("localizeKnownChatErrorText", () => {
     );
   });
 
+  it("localizes a request-size failure", () => {
+    expect(
+      localizeKnownChatErrorText(
+        "Error: This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+        (key, options) =>
+          key === "agentChat.errorMessages.requestTooLarge"
+            ? "Diese Anfrage ist zu groß."
+            : interpolate(key, options),
+      ),
+    ).toBe("Fehler: Diese Anfrage ist zu groß.");
+  });
+
   it.each([
     [
       "Open Builder space settings",
@@ -541,5 +544,114 @@ describe("localizeKnownChatErrorText", () => {
   it("leaves raw provider details unchanged", () => {
     const raw = "401 status code (no body)";
     expect(localizeKnownChatErrorText(raw, interpolate)).toBe(raw);
+  });
+});
+
+describe("credential failures map on the typed code", () => {
+  const translateKnown = (key: string) => `localized:${key}`;
+
+  it("gives every credential code user-facing text the chat card can show", () => {
+    const raw = "upstream said something provider-specific";
+    for (const code of Object.keys(CREDENTIAL_ERROR_CODES)) {
+      const { message } = normalizeChatError(raw, code);
+      if (SERVER_AUTHORED_CREDENTIAL_CODES.has(code)) {
+        expect(message, code).toBe(raw);
+        continue;
+      }
+      expect(message, code).not.toBe(raw);
+      expect(
+        localizeKnownChatErrorText(message, translateKnown),
+        `${code} must map to localized copy`,
+      ).toMatch(/^localized:/);
+    }
+  });
+
+  it("reads a missing provider from its code, not the English text", () => {
+    expect(
+      normalizeChatError("ANTHROPIC_API_KEY is not set", "missing_credentials"),
+    ).toEqual({
+      message: LLM_MISSING_CREDENTIALS_MESSAGE,
+      details: "ANTHROPIC_API_KEY is not set",
+    });
+  });
+
+  it("does not call a hosted agent's rejected credential the model provider's", () => {
+    const text = "Hosted agent credentials were rejected (HTTP 401).";
+    expect(normalizeChatError(text, "credential_rejected").message).toBe(text);
+    expect(isProviderAuthenticationError(text, "credential_rejected")).toBe(
+      false,
+    );
+  });
+
+  it("lets a code override English that looks like a provider rejection", () => {
+    expect(
+      isProviderAuthenticationError(
+        "Missing authentication header",
+        "missing_credentials",
+      ),
+    ).toBe(false);
+    expect(isProviderAuthenticationError("anything", "http_401")).toBe(true);
+  });
+
+  it("keeps the English match only for failures that carry no code", () => {
+    expect(isProviderAuthenticationError("Missing authentication header")).toBe(
+      true,
+    );
+    expect(
+      isProviderAuthenticationError("Missing authentication header", "timeout"),
+    ).toBe(true);
+  });
+
+  it("does not tell a signed-out user to update their provider key", () => {
+    // The browser codes every 401 without a body code `unauthorized`; the
+    // chat POST and framework auth both answer a signed-out session that way.
+    const normalized = normalizeChatError("Unauthorized", "unauthorized");
+    expect(normalized.message).not.toBe(PROVIDER_CREDENTIAL_REJECTED_MESSAGE);
+    expect(isProviderAuthenticationError("Unauthorized", "unauthorized")).toBe(
+      false,
+    );
+    // A provider's own rejection still reads as one.
+    expect(
+      normalizeChatError("invalid x-api-key", "authentication_error").message,
+    ).toBe(PROVIDER_CREDENTIAL_REJECTED_MESSAGE);
+    expect(
+      isProviderAuthenticationError(
+        "invalid x-api-key",
+        "authentication_error",
+      ),
+    ).toBe(true);
+  });
+
+  it("reads a bare 401/403 status as a rate limit when its text says so", () => {
+    for (const code of ["http_403", "http_401"]) {
+      const normalized = normalizeChatError("Rate limit exceeded", code);
+      expect(normalized.message, code).toBe(
+        "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+      );
+      expect(
+        isProviderAuthenticationError("Rate limit exceeded", code),
+        code,
+      ).toBe(false);
+    }
+    expect(normalizeChatError("Forbidden", "http_403").message).toBe(
+      PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+    );
+  });
+});
+
+describe("run outcomes the browser reads from the server's record", () => {
+  it("has localized copy for every terminal message", () => {
+    for (const message of [
+      RUN_INTERRUPTED_MESSAGE,
+      RUN_FAILED_MESSAGE,
+      RUN_UNVERIFIED_MESSAGE,
+      RUN_SIGNED_OUT_MESSAGE,
+    ]) {
+      const formatted = formatChatErrorText(message);
+      expect(
+        localizeKnownChatErrorText(formatted, (key) => `localized:${key}`),
+        message,
+      ).toMatch(/^localized:agentChat\.errorMessages\./);
+    }
   });
 });

@@ -45,7 +45,6 @@ type ManagedLifecycleCommand = "start" | "go" | "resume" | "re-review";
 
 export interface MultiFrontierManagerOptions {
   resolveWorkspaceCwd(workspaceId: string): Promise<string | null>;
-  /** Main-owned subscription admission. An unavailable provider never falls back to an API key. */
   isSubscriptionConnected(providerId: "codex" | "claude"): Promise<boolean>;
   readRepositoryEvidence?(cwd: string): Promise<string>;
   createParticipants?(input: {
@@ -84,10 +83,6 @@ interface ManagedCollaboration {
   lifecycleCommand?: ManagedLifecycleCommand;
 }
 
-/**
- * The concrete main-process backend. It is intentionally the only place that
- * creates the coordinator and its orchestrator bridge for a live run.
- */
 export class MultiFrontierManager {
   readonly #options: Required<
     Pick<
@@ -382,8 +377,6 @@ export class MultiFrontierManager {
     } catch (error) {
       return this.#pauseForProviderFailure(session, request.requestId, error);
     }
-    // Recovery reconnects read-only sessions only. A re-entered planning
-    // request is explicit new input; no prior turn is replayed.
     await this.#emitSnapshot(session);
     if (needsPlanningPrompt) {
       return this.#start(session, {

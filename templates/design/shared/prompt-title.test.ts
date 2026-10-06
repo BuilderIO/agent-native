@@ -22,7 +22,6 @@ describe("derivePromptTitle", () => {
     const title = derivePromptTitle(prompt);
     expect(title.endsWith("…")).toBe(true);
     expect(title.length).toBeLessThanOrEqual(41);
-    // The word before the ellipsis should be intact, not cut mid-word.
     const withoutEllipsis = title.slice(0, -1);
     expect(prompt.startsWith(withoutEllipsis)).toBe(true);
   });

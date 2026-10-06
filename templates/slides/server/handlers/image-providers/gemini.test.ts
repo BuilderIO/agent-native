@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const generateContentMock = vi.fn();
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveSecret: vi.fn(async () => "test-gemini-key"),
+  resolveGeminiApiKey: vi.fn(async () => "test-gemini-key"),
 }));
 
 vi.mock("@google/genai", () => ({

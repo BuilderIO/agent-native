@@ -4,7 +4,7 @@ import {
   injectDocumentMarkup,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
   getQuery,
@@ -29,6 +29,7 @@ import {
   queryString,
 } from "../lib/public-agent-context.js";
 import { isRecordingExpiredForViewer } from "../lib/recording-page-access.js";
+import { getRecordingAccessTokenResourceId } from "../lib/share-password.js";
 
 const ssrHandler = createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
@@ -81,11 +82,14 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
   const recordingId = clipIdFromPath(requestUrl.pathname);
   if (!recordingId) return null;
 
+  // guard:allow-unscoped — the cached anonymous shell preloads only public, password-free clip metadata; tokenized records never enter SSR discovery.
   const [recording] = await getDb()
     .select({
       id: schema.recordings.id,
       title: schema.recordings.title,
       status: schema.recordings.status,
+      updatedAt: schema.recordings.updatedAt,
+      sharePasswordVersion: schema.recordings.sharePasswordVersion,
       visibility: schema.recordings.visibility,
       password: schema.recordings.password,
       expiresAt: schema.recordings.expiresAt,
@@ -93,11 +97,15 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
       trashedAt: schema.recordings.trashedAt,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId))
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        eq(schema.recordings.visibility, "public"),
+        isNull(schema.recordings.password),
+      ),
+    )
     .limit(1);
 
-  // SSR is an impersonal cache shell. Owner-specific expiry and discovery are
-  // resolved by the authenticated public-recording payload after hydration.
   if (
     !recording ||
     recording.archivedAt ||
@@ -115,7 +123,11 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
   const tokenGrantsAgentAccess = suppliedToken
     ? verifyScopedAgentAccessToken(suppliedToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: recording.id,
+        resourceId: getRecordingAccessTokenResourceId(
+          recording.id,
+          recording.password,
+          recording.sharePasswordVersion,
+        ),
       }).ok
     : false;
   const anonymousAccess =

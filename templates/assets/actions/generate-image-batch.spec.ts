@@ -34,8 +34,6 @@ vi.mock("../server/lib/library-access.js", () => ({
   assertCanApprove: libraryAccessMock,
   assertCanDraftAuthoredBy: libraryAccessMock,
   assertCanDeleteAsset: libraryAccessMock,
-  // The draft-input guards have their own tests; these specs exercise the
-  // surrounding behavior with an approver's unrestricted scope.
   draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
   resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
   unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
@@ -94,6 +92,7 @@ vi.mock("./variant-slots.js", () => ({
 }));
 
 import { detectArtifactReceipts } from "../../../packages/core/src/artifacts/detect.js";
+import { ASSETS_VARIATION_GRID_RENDERER } from "../shared/action-ui.js";
 import { imageArtifactLinks, serializeAssetSummary } from "./_helpers.js";
 import action from "./generate-image-batch.js";
 
@@ -162,13 +161,46 @@ describe("generate-image-batch", () => {
     expect(agentShape).not.toHaveProperty("callerAppId");
   });
 
+  it("renders only successful image results through the variation card", () => {
+    const args = {
+      slots: [{ slotId: "slot-1", prompt: "A hero image" }],
+    };
+    const result = {
+      images: [
+        {
+          ok: true,
+          slotId: "slot-1",
+          id: "asset-1",
+          libraryId: "lib-1",
+          previewUrl: "/api/assets/asset-1/content",
+        },
+      ],
+    };
+
+    expect(action.chatUI?.renderer).toBe(ASSETS_VARIATION_GRID_RENDERER);
+    expect(action.chatUI?.when?.(args, result)).toBe(true);
+    expect(action.chatUI?.when?.(args, { images: [{ ok: false }] })).toBe(
+      false,
+    );
+    expect(action.chatUI?.projectResult?.(args, result)).toEqual({
+      images: [
+        {
+          id: "asset-1",
+          libraryId: "lib-1",
+          title: null,
+          previewUrl: "/api/assets/asset-1/content",
+          prompt: "A hero image",
+        },
+      ],
+    });
+  });
+
   it("only requires draft access, so a kit viewer can generate candidates", async () => {
     await action.run({
       libraryId: "lib-1",
       slots: [{ slotId: "slot-1", prompt: "Generate a hero" }],
     });
 
-    // One argument means `assertCanDraft`; approving paths pass a second.
     expect(libraryAccessMock).toHaveBeenCalledWith("lib-1");
   });
 

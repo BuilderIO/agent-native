@@ -1,26 +1,3 @@
-/**
- * Regression test for the shader-preset apply bug: `usePersistShaderEdit`
- * previously read the source file via `useActionMutation("read-source-file")`,
- * which always POSTs. `read-source-file` is registered `http: { method: "GET" }`
- * (readOnly action) — the server's action-routes gate rejects any mismatched
- * method with `{ error: "Method not allowed. Use GET." }` (see
- * packages/core/src/server/action-routes.ts), so every apply failed before
- * the transform or the write ever ran.
- *
- * The fix calls `read-source-file` imperatively via `callAction(..., {
- * method: "GET" })` — the same convention the working code-workbench inline
- * provider uses (see code-workbench/workspace/inline-provider.ts and its
- * .test.ts). This test drives the real `usePersistShaderEdit` hook (via a
- * tiny host component + `renderToStaticMarkup`, consistent with
- * EditPanel.componentFileId.spec.tsx's no-jsdom pattern) and asserts:
- *
- *   1. read-source-file is called through `callAction` with `{ method: "GET" }`
- *      — never through `useActionMutation`.
- *   2. apply-source-edit is called afterward with the transformed HTML and
- *      the `expectedVersionHash` from the read.
- *   3. `onApplied` receives the write's fileId/content so the host editor
- *      syncs local/collab state.
- */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -132,9 +109,6 @@ describe("usePersistShaderEdit (shader preset apply regression)", () => {
 
     expect(ok).toBe(true);
 
-    // 1. read-source-file must go through callAction with method: GET —
-    // this is the exact bug: it must NOT be one of the useActionMutation
-    // hooks the component created.
     const read = callActionCalls.find((c) => c.name === "read-source-file");
     expect(read).toBeTruthy();
     expect(read!.params).toEqual({ designId: "design_1", fileId: "file_1" });
@@ -144,8 +118,6 @@ describe("usePersistShaderEdit (shader preset apply regression)", () => {
       false,
     );
 
-    // 2. apply-source-edit must run afterward with the transformed content
-    // and the versionHash observed by the read.
     const write = mutateAsyncCalls.find((c) => c.name === "apply-source-edit");
     expect(write).toBeTruthy();
     expect(write!.params).toMatchObject({
@@ -158,7 +130,6 @@ describe("usePersistShaderEdit (shader preset apply regression)", () => {
       expectedVersionHash: "v1",
     });
 
-    // 3. onApplied syncs the host editor's local/collab state.
     expect(onApplied).toHaveBeenCalledWith(
       "file_1",
       "<html><body><canvas></canvas></body></html>",
@@ -204,23 +175,6 @@ describe("usePersistShaderEdit (shader preset apply regression)", () => {
   });
 });
 
-/**
- * Regression test for the cross-pipeline write-race data-loss bug: a shader
- * apply (this hook's persist()) and a base Fill "Add layer" / "Remove layer"
- * style commit (DesignEditor.tsx's commitVisualStyles) both eventually
- * rewrite the SAME per-file Yjs collab document through two independent
- * round trips — a diff-based server write here, and the host's own
- * synchronous full-document ydoc rewrite there. Verified (via a standalone
- * repro against the real applyShaderToHtml/applyVisualEdit/applyTextToYDoc
- * functions) that racing the two produces a corrupted, doubled document
- * (two concatenated <!DOCTYPE>...</html> copies), not a clean overwrite.
- *
- * `isShaderWriteInFlight`/`waitForShaderWriteToSettle` are the exclusion
- * primitives DesignEditor.tsx's commitVisualStyles checks before doing its
- * own competing write. These tests exercise the registry directly (not a
- * mocked stand-in) so a regression in the ordering/clearing logic itself
- * would fail here, independent of any DesignEditor.tsx wiring.
- */
 describe("shader write-race exclusion registry (isShaderWriteInFlight / waitForShaderWriteToSettle)", () => {
   beforeEach(() => {
     callActionCalls.length = 0;
@@ -294,8 +248,6 @@ describe("shader write-race exclusion registry (isShaderWriteInFlight / waitForS
       errors: [],
     }));
 
-    // Give the read-source-file microtask a tick to run so persist() has
-    // registered its write in the shaderWriteLocks registry.
     await Promise.resolve();
     await Promise.resolve();
     expect(isShaderWriteInFlight("file_race")).toBe(true);
@@ -308,16 +260,8 @@ describe("shader write-race exclusion registry (isShaderWriteInFlight / waitForS
     });
     await settlePromise;
 
-    // onApplied (the host-sync callback) must have already run by the time
-    // waitForShaderWriteToSettle resolves — a caller that awaits this before
-    // computing its own baseContent always sees the shader's synced content,
-    // never a pre-shader snapshot.
     expect(onApplied).toHaveBeenCalled();
     expect(isShaderWriteInFlight("file_race")).toBe(false);
-    // Sanity: onApplied observed the write as still "in flight" from its own
-    // vantage point (called from inside the locked persist body), confirming
-    // the registry entry spans the full read -> write -> onApplied sequence,
-    // not just the network calls.
     expect(onAppliedCalledBeforeSettle).toBe(true);
 
     await expect(persistPromise).resolves.toBe(true);

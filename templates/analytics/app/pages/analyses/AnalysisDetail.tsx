@@ -1,4 +1,3 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   callAction,
@@ -6,8 +5,9 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import {
   IconRefresh,
   IconTrash,

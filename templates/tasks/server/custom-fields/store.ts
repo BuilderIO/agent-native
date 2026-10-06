@@ -132,10 +132,6 @@ export async function listCustomFields(
   return { fields: rows.map(parseField) };
 }
 
-/**
- * Title and config are per-field, so the bulk form takes one entry per field
- * rather than a single patch applied across ids.
- */
 export async function updateCustomFields(
   input: {
     ownerEmail: string;
@@ -257,8 +253,6 @@ async function cleanupValuesAfterConfigChange(
   const trimmed: Array<{ id: string; value: FieldValue }> = [];
 
   for (const row of rows) {
-    // Read the raw shape rather than `parseStoredValue`: that validates against
-    // the new config and throws on exactly the removed options this cleans up.
     const value = parseFieldValueShape(JSON.parse(row.valueJson));
     if (isEmptyFieldValue(value)) {
       staleIds.push(row.id);

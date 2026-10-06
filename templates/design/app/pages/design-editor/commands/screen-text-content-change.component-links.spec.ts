@@ -25,8 +25,6 @@ function args(overrides: Record<string, unknown> = {}) {
       confirm: () => {},
     })),
     getScreenContent: vi.fn(() => html),
-    // Returns a real status: the `as unknown as Parameters<…>` cast below
-    // would have let a void stub through until it failed somewhere else.
     handleTextContentChange: vi.fn(() => "accepted" as const),
     liveScreenSnapshotsById: {},
     overviewScreens: [

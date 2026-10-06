@@ -36,10 +36,11 @@ async function writeDistillationRequest(values: {
       `Distill Brain capture ${values.captureId} for ${values.guidance.identity.companyName ?? "this workspace"}. ` +
       `Apply the Brain settings guidance in context. Use get-capture with ` +
       `includeRawContent=true when you need exact quote validation, extract ` +
-      `only durable company knowledge with exact evidence quotes, ` +
-      `call write-knowledge for supported entries or proposals, then call ` +
-      `mark-capture-distilled when finished. If the capture is personal or ` +
-      `out of scope, call mark-capture-distilled with status ignored.`,
+      `durable company knowledge, including brief dated launch announcements, ` +
+      `with exact evidence quotes. Keep launch plans distinct from confirmed ` +
+      `launches. Call write-knowledge for supported entries, then ` +
+      `mark-capture-distilled when finished. Ignore only when no company-relevant ` +
+      `fact remains after privacy filtering.`,
   });
 }
 

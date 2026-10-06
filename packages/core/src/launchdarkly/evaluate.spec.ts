@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { OptionalPeerDependencyError } from "../shared/optional-peer.js";
+
 const getLaunchDarklyClientMock = vi.fn();
 vi.mock("./client.js", () => ({
   getLaunchDarklyClient: () => getLaunchDarklyClientMock(),
@@ -52,6 +54,17 @@ describe("getLaunchDarklyVariation", () => {
       getLaunchDarklyVariation("new-editor", {}, "fallback"),
     ).resolves.toBe("fallback");
   });
+
+  it("does not hide a missing optional peer behind the default value", async () => {
+    const error = new OptionalPeerDependencyError(
+      "@launchdarkly/node-server-sdk",
+    );
+    getLaunchDarklyClientMock.mockRejectedValue(error);
+
+    await expect(
+      getLaunchDarklyVariation("new-editor", {}, "fallback"),
+    ).rejects.toBe(error);
+  });
 });
 
 describe("isLaunchDarklyFlagEnabled", () => {
@@ -78,6 +91,17 @@ describe("isLaunchDarklyFlagEnabled", () => {
       isLaunchDarklyFlagEnabled("new-editor", {}, true),
     ).resolves.toBe(true);
   });
+
+  it("does not hide a missing optional peer behind the default value", async () => {
+    const error = new OptionalPeerDependencyError(
+      "@launchdarkly/node-server-sdk",
+    );
+    getLaunchDarklyClientMock.mockRejectedValue(error);
+
+    await expect(isLaunchDarklyFlagEnabled("new-editor", {})).rejects.toBe(
+      error,
+    );
+  });
 });
 
 describe("getAllLaunchDarklyFlags", () => {
@@ -101,5 +125,14 @@ describe("getAllLaunchDarklyFlags", () => {
     await expect(getAllLaunchDarklyFlags({})).resolves.toEqual({
       "new-editor": true,
     });
+  });
+
+  it("does not hide a missing optional peer as an empty result", async () => {
+    const error = new OptionalPeerDependencyError(
+      "@launchdarkly/node-server-sdk",
+    );
+    getLaunchDarklyClientMock.mockRejectedValue(error);
+
+    await expect(getAllLaunchDarklyFlags({})).rejects.toBe(error);
   });
 });

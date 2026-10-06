@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-/**
- * Lazy root template gateway for framework development.
- *
- * This is the repo-root counterpart to `agent-native dev` in generated
- * workspaces: expose one local origin, mount templates at /<template>, and
- * start each template server only when something requests it.
- */
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -41,10 +34,7 @@ interface TemplateApp {
   ready?: boolean;
   readinessProbe?: Promise<void>;
   lastActivityAt?: number;
-  // Last non-5xx response, used by the stuck-app restart cap in
-  // `failAppStartupTimeout`.
   lastNon5xxAt?: number;
-  // Start of the current run of 5xx responses; cleared by a non-5xx response.
   persistent5xxSince?: number;
   openSockets?: number;
   evicting?: boolean;
@@ -65,16 +55,7 @@ const DEFAULT_PROXY_BROWSER_ASSET_RESPONSE_TIMEOUT_MS = 15_000;
 const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const EVICT_SWEEP_MS = 30_000;
-// A child that is alive and already accepting TCP connections is very likely
-// mid dep-optimization or rebuilding after a concurrent edit (both can
-// legitimately take minutes under CPU contention) rather than actually stuck.
-// Only escalate to a tree-kill + restart once it has gone this long without
-// producing a single non-5xx response.
 const STUCK_APP_RESTART_MS = 300_000;
-// Nitro's dev env-runner has a known failure mode where it gives up after a
-// few worker crashes and serves 5xx for every request forever. Detect that by
-// tracking how long it has been since the app last returned a non-5xx
-// response and force a restart once it crosses this threshold.
 const PERSISTENT_5XX_RESTART_MS = 75_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const POLLING_WATCH_INTERVAL_MS = "1000";
@@ -271,17 +252,9 @@ const eager = hasFlag("--eager");
 const dryRun = hasFlag("--dry-run");
 const prewarmEnabled = (() => {
   if (eager) return false;
-  // Prewarm is now opt-in (default off) to keep only actively-used templates
-  // resident. `--no-prewarm` / WORKSPACE_NO_PREWARM stay recognized as no-ops.
   if (hasFlag("--prewarm")) return true;
   return readBooleanEnv(process.env.WORKSPACE_PREWARM) === true;
 })();
-// Reading another app for two minutes is normal navigation, not abandonment,
-// and evicting on that timescale charged a full Vite/Nitro cold start (10-20s)
-// for going back. Eviction exists to bound memory across a long session, so the
-// window only needs to be longer than a person's attention span, not shorter.
-// `agent-native dev` never evicts at all; this stays as the framework repo's
-// concession to running every template at once. 0 disables it.
 const DEFAULT_TEMPLATE_IDLE_MS = 1_800_000;
 const templateIdleMs = (() => {
   const raw = process.env.WORKSPACE_TEMPLATE_IDLE_MS;
@@ -416,10 +389,6 @@ function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     };
   }
   if (pollingMode === "disable-explicit") {
-    // The user explicitly turned polling off. Strip the watcher vars from
-    // the child env so an inherited parent-shell CHOKIDAR_USEPOLLING=1 (or
-    // stale TSC_WATCH* override) can't silently re-enable polling against
-    // the user's explicit wish.
     const {
       CHOKIDAR_USEPOLLING: _polling,
       CHOKIDAR_INTERVAL: _interval,
@@ -429,9 +398,6 @@ function devWatcherEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     } = env;
     return rest;
   }
-  // disable-default: no explicit signal either way. Pass the env through
-  // unchanged so legitimate user overrides like
-  // TSC_WATCHFILE=UseFsEventsWithFallbackDynamicPolling survive.
   return env;
 }
 
@@ -473,10 +439,6 @@ function stripAnsi(value: string): string {
   return value.replace(ANSI_REGEX, "");
 }
 
-// Stable per-name prefix coloring so [tray]/[core]/[dispatch] are easy to scan
-// the same way concurrently colors prefixes in eager mode. Codes are SGR foreground
-// values; the palette skips black/white/red to avoid low contrast and "looks
-// like an error" false signals.
 const PREFIX_PALETTE = [33, 34, 35, 36, 32, 95, 94, 96, 92, 93];
 const prefixColors = new Map<string, number>();
 
@@ -495,22 +457,10 @@ function isChildDevServerUrlLine(line: string): boolean {
   );
 }
 
-// Header of Nitro 3 (beta)'s transient cold-start 503. On the first SSR request,
-// Nitro's dev runner waits ~3.1s for the SSR entry import; if Vite is still
-// optimizing deps it throws `NitroViteError: Vite environment "nitro" is
-// unavailable`, which surfaces via the worker's unhandledRejection trap. It is
-// self-healing \u2014 the next request succeeds \u2014 and in practice is provoked only by
-// our own readiness probes during warm-up. A genuine SSR import failure uses a
-// different message (the actual import error) and the runner's entryError path,
-// so matching this exact signature does not hide real bugs.
 function isNitroUnavailableHeader(line: string): boolean {
   return /environment "[^"]*" is unavailable/.test(stripAnsi(line));
 }
 
-// One line of the transient-503 block (header, its stack frames, or the
-// `{ status: 503 }` wrapper). Only ever applied to a chunk already known to
-// contain the header (see pipeOutput), so the loose `}`/`at node:internal`
-// matchers can't strip unrelated output.
 function isNitroWarmupNoiseLine(line: string): boolean {
   const s = stripAnsi(line).trimEnd();
   return (
@@ -534,9 +484,6 @@ function pipeOutput(
     .filter(Boolean)
     .filter((line) => !isChildDevServerUrlLine(line));
   if (lines.length === 0) return "";
-  // Return the full text for outputTail (failure diagnostics) regardless, but
-  // keep the transient cold-start 503 block off the console while the app is
-  // still warming up — only touching chunks that actually contain its header.
   const output = lines.join("\n") + "\n";
   const displayLines =
     suppressNitroNoise && lines.some(isNitroUnavailableHeader)
@@ -813,14 +760,6 @@ export function probeHttpReady(
       },
       (res) => {
         res.resume();
-        // A booting app is not a ready app. Nitro answers early in cold start
-        // with a transient 503 (`Vite environment "nitro" is unavailable`);
-        // accepting it here handed the user's own request that same 503, which
-        // reads as a broken page with a retry button seconds before the app
-        // would have served it. Keep probing until it answers non-5xx — the
-        // caller's deadline (`proxyReadyTimeoutMs`) still bounds the wait, and
-        // the persistent-5xx self-heal is driven by proxied 5xx responses, not
-        // by this probe, so a genuinely wedged app is still restarted.
         finish((res.statusCode ?? 500) < 500);
       },
     );
@@ -846,10 +785,6 @@ async function waitForHttpReady(
 ): Promise<boolean> {
   let retryDelay = PROXY_READY_RETRY_DELAY_MS;
   while (Date.now() < deadline) {
-    // Keep one cold-start request alive for the remaining startup window.
-    // Aborting it after a short per-attempt timeout can make Nitro restart its
-    // environment import, so repeated probes prevent a slow app from ever
-    // becoming ready and can multiply its startup memory use.
     const timeoutMs = readinessProbeTimeoutMs(deadline, Date.now());
     if (await probeHttpReady(app, timeoutMs)) return true;
     await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -862,13 +797,6 @@ export function readinessProbeTimeoutMs(deadline: number, now: number): number {
   return Math.max(1, deadline - now);
 }
 
-/**
- * The single place an app transitions into the "ready" state: readiness-probe
- * success, a proxied response with a non-5xx status, and upgrade (WebSocket)
- * readiness all funnel through here. Resetting `restartAttempts` only on an
- * actual successful serve (rather than on a fixed post-spawn timer) is what
- * lets backoff keep escalating for an app that fails on every attempt.
- */
 export function markAppReady(app: TemplateApp): void {
   app.ready = true;
   app.lastNon5xxAt = Date.now();
@@ -876,13 +804,6 @@ export function markAppReady(app: TemplateApp): void {
   app.restartAttempts = 0;
 }
 
-/**
- * Pure decision for whether a readiness-timeout should escalate all the way to
- * a tree-kill + restart, versus simply waiting longer. Extracted so the matrix
- * (dead port always restarts; a live port only restarts once it has been
- * stuck for `stuckMs` with no non-5xx response) is unit-testable without
- * spawning real processes.
- */
 export function shouldRestartStuckApp(input: {
   portOpen: boolean;
   lastNon5xxAt: number;
@@ -893,10 +814,6 @@ export function shouldRestartStuckApp(input: {
   return input.now - input.lastNon5xxAt > input.stuckMs;
 }
 
-/**
- * Pure decision backing the permanent-503 self-heal: a continuous run of 5xx
- * responses lasting `restartMs` is treated as a stranded dev-server runner.
- */
 export function shouldRestartPersistent5xx(input: {
   first5xxAt: number;
   now: number;
@@ -910,10 +827,6 @@ function ensureReadinessProbe(app: TemplateApp): void {
   app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
     .then((listening) => {
       if (listening) {
-        // The loading page only needs to know when it is safe to let the next
-        // browser navigation reach Vite. The proxied response below owns HTTP
-        // health and persistent-5xx recovery; probing SSR first can deadlock a
-        // Nitro cold start that needs another request to finish initializing.
         app.ready = true;
         return;
       }
@@ -924,11 +837,6 @@ function ensureReadinessProbe(app: TemplateApp): void {
     });
 }
 
-/**
- * Pure eviction decision so the matrix (open socket never evicts; quiet + no
- * socket past the timeout evicts; within the timeout does not) is testable in
- * isolation. `idleTimeoutMs <= 0` disables eviction entirely.
- */
 export function shouldEvict(input: {
   lastActivityAt: number;
   openSockets: number;
@@ -938,10 +846,6 @@ export function shouldEvict(input: {
 }): boolean {
   if (input.idleTimeoutMs <= 0) return false;
   if (input.openSockets > 0) return false;
-  // An app that has never served a response is booting, not idle. Vite can
-  // compile well past the readiness deadline, and once that probe gives up
-  // nothing else marks the app busy — so the sweep would kill it mid-compile
-  // and the next request would start the same slow boot over, forever.
   if (input.ready === false) return false;
   return input.now - input.lastActivityAt > input.idleTimeoutMs;
 }
@@ -952,8 +856,6 @@ function evictApp(app: TemplateApp): void {
       templateIdleMs / 1_000,
     )}s)\n`,
   );
-  // Mark before signalling so the child's exit handler treats this as a clean
-  // teardown and does not schedule a restart. The next request cold-starts it.
   app.evicting = true;
   killChildProcessTree(app.process, "SIGTERM");
 }
@@ -963,7 +865,6 @@ function sweepIdleApps(): void {
   const now = Date.now();
   for (const app of apps) {
     if (!app.process || app.process.killed) continue;
-    // Skip apps mid-restart or with an in-flight readiness probe (cold-starting).
     if (app.restartTimer || app.readinessProbe) continue;
     if (
       shouldEvict({
@@ -979,12 +880,6 @@ function sweepIdleApps(): void {
   }
 }
 
-/**
- * Background-spawn templates other than the default so the first navigation
- * into each one doesn't pay the cold Vite + esbuild prebundle cost. The lazy
- * proxy still handles correctness; this just makes second/third/Nth visits
- * feel instant. Concurrency-limited to keep CPU pressure sane on laptops.
- */
 async function prewarmRemainingApps(): Promise<void> {
   const queue = apps
     .filter((app) => !(app.process && !app.process.killed))
@@ -1104,19 +999,11 @@ function startApp(app: TemplateApp): void {
   app.outputTail = undefined;
   app.evicting = false;
   app.lastActivityAt = Date.now();
-  // Seed the stuck-app clock at spawn time so a fresh cold boot is not
-  // mistaken for a stuck compile before it has had a chance to serve.
   app.lastNon5xxAt = Date.now();
   app.persistent5xxSince = undefined;
   app.openSockets ??= 0;
 
   const basePath = `/${app.id}`;
-  // spawn can throw synchronously (EBADF/EMFILE when the parent is out of
-  // descriptors) and can emit "error" asynchronously (ENOENT). Either one
-  // escaping this function kills the gateway process itself, which takes down
-  // every other template — including apps the user never touched. Keep the
-  // failure scoped to this app so one bad template cannot black out the
-  // workspace.
   let child: ChildProcess;
   try {
     child = spawn(
@@ -1139,15 +1026,8 @@ function startApp(app: TemplateApp): void {
         env: devWatcherEnv({
           ...process.env,
           ...appDatabaseEnv(app),
-          // Vite loads these files for import.meta.env, but Nitro server code
-          // reads process.env. Bridge only app-scoped values into the child;
-          // generic DATABASE_URL/BETTER_AUTH_SECRET remain workspace-owned so
-          // one template cannot silently change shared local auth or storage.
           ...appLocalEnv(app),
           ...appGoogleOAuthEnv(app),
-          // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
-          // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's
-          // stdout is a TTY, so ANSI codes pass straight through to the user.
           FORCE_COLOR: "1",
           APP_NAME: app.id,
           AGENT_NATIVE_WORKSPACE: "1",
@@ -1245,26 +1125,11 @@ export function scheduleAppRestart(
   }, delay);
 }
 
-/**
- * Called when a readiness probe (HTTP polling or the WebSocket upgrade's
- * `waitForPort`) times out without the app ever becoming ready. A naive
- * tree-kill here is wrong when the child is actually alive and its port is
- * accepting TCP connections — that almost always means Vite is still deep in
- * dependency optimization or rebuilding after a concurrent edit, which can
- * legitimately take minutes under CPU contention. Killing there discards the
- * warm esbuild/optimize cache and restarts the optimize pass from scratch,
- * producing an infinite kill/cold-boot loop. So: only tree-kill immediately
- * when the port is actually dead; otherwise wait longer, and only escalate to
- * a kill once the app has gone `stuckAppRestartMs` with no non-5xx response at
- * all (see `shouldRestartStuckApp`).
- */
 async function failAppStartupTimeout(app: TemplateApp): Promise<void> {
   if (app.ready || app.restartTimer) return;
   const timeout = formatProxyReadyTimeout(proxyReadyTimeoutMs);
   const portOpen = await probePort(app.port);
   const stillAlive = Boolean(app.process && !app.process.killed);
-  // Re-check after the async gap: another path may have already marked the
-  // app ready or scheduled a restart while we were probing the port.
   if (app.ready || app.restartTimer) return;
 
   if (
@@ -1306,15 +1171,6 @@ async function failAppStartupTimeout(app: TemplateApp): Promise<void> {
   killChildProcessTree(app.process, "SIGTERM");
 }
 
-/**
- * Permanent-503 self-heal: Nitro's dev env-runner has a known state where it
- * gives up after a few worker crashes and serves 5xx for every request
- * forever (the response body mentions the runner being unavailable). Because
- * the gateway only ever saw "a response happened" before, it never noticed —
- * this is the escalation path that does. Only fires after `persistent5xxRestartMs`
- * worth of continuous 5xx responses, so a normal transient 500 during a rebuild
- * never triggers it.
- */
 async function maybeRecoverPersistent5xx(
   app: TemplateApp,
   statusCode: number,
@@ -1334,8 +1190,6 @@ async function maybeRecoverPersistent5xx(
   const stillAlive = Boolean(app.process && !app.process.killed);
   if (!stillAlive) return;
   if (!(await probePort(app.port))) return;
-  // Re-check after the async gap: another path may have already restarted it
-  // or it may have just recovered on its own.
   if (app.restartTimer || app.persistent5xxSince !== first5xxAt) return;
   process.stderr.write(
     `${colorPrefix(app.id)} stuck serving ${statusCode} continuously for ` +
@@ -1386,12 +1240,6 @@ function proxyHttp(
     let responseTimer: NodeJS.Timeout;
     let bodyTimer: NodeJS.Timeout | undefined;
     let upstreamResponse: http.IncomingMessage | undefined;
-    // Pin the app alive for the lifetime of this response the same way an
-    // open WebSocket does. Long-lived plain-HTTP streams (SSE from
-    // useDbSync/agent chat) used to look idle to the eviction sweep because
-    // only upgrade sockets counted toward `openSockets` — this let the sweep
-    // SIGTERM an app mid-stream. Guarded like `proxyUpgrade`'s
-    // `releaseSocket` so a close+error double-fire can't double-decrement.
     let streamSocketReleased = true;
     const releaseStreamSocket = () => {
       if (streamSocketReleased) return;
@@ -1446,11 +1294,6 @@ function proxyHttp(
         settled = true;
         clearTimeout(responseTimer);
         const statusCode = proxyRes.statusCode ?? 502;
-        // Only a non-5xx response proves the app is actually healthy. Nitro's
-        // dev env-runner can get stuck serving 5xx for every request forever
-        // after a few worker crashes; flipping `ready` true here regardless
-        // (as this used to) hid that permanent-failure state from the
-        // gateway entirely. Proxy the response through unchanged either way.
         if (statusCode < 500) {
           markAppReady(app);
         } else {
@@ -1556,8 +1399,6 @@ function proxyUpgrade(
   head: Buffer,
 ): void {
   app.lastActivityAt = Date.now();
-  // Pin the app alive while this upgrade (e.g. Vite HMR) socket is open, so an
-  // actively edited/verified app is never evicted regardless of HTTP quiet.
   app.openSockets = (app.openSockets ?? 0) + 1;
   let released = false;
   const releaseSocket = () => {
@@ -1627,21 +1468,6 @@ function workspaceAppsPayload(): string {
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-/**
- * Keep browser-visible gateway URLs on the origin advertised to child apps.
- *
- * The gateway listens on a loopback address, so browsers can reach the same
- * process through either `localhost` or `127.0.0.1`. Serving app HTML on one
- * alias while injecting the other into `VITE_WORKSPACE_GATEWAY_URL` turns
- * otherwise same-gateway requests into CORS requests. Redirect only equivalent
- * loopback aliases on the same port; external/proxied hosts are left untouched.
- *
- * A cross-origin caller (the desktop app's dev renderer, another workspace app)
- * is never redirected. A CORS preflight is not allowed to follow a redirect at
- * all — the browser reports "Preflight response is not successful. Status code:
- * 307" — and a redirected credentialed request loses its CORS headers. Those
- * requests are proxied to the app instead, which answers CORS for both aliases.
- */
 export function canonicalLoopbackRedirect(
   requestHost: string | undefined,
   requestTarget: string | undefined,
@@ -1928,13 +1754,6 @@ async function main(): Promise<void> {
     );
   }
 
-  // The monorepo Vite plugin aliases @agent-native/core runtime imports to
-  // packages/core/src, so each active template already receives core HMR
-  // directly. A second full `tsc --watch` used to type-check and regenerate
-  // thousands of JS/declaration/map artifacts during agent edit bursts, which
-  // starved the Vite/Nitro servers serving the browser. Keep dist watching as
-  // an explicit escape hatch for workflows that truly consume dist, and make
-  // that watcher emit-only; the startup prebuild still performs the full check.
   if (shouldWatchCoreDist) {
     startBackgroundProcess("core", "pnpm", [
       "--filter",
@@ -1993,8 +1812,6 @@ async function main(): Promise<void> {
       if (eager) {
         for (const app of apps) startApp(app);
       } else if (!includeElectron) {
-        // Truly lazy: no boot-time start. `/` redirects to /<defaultApp>, and the
-        // browser following it cold-starts exactly one app via the proxy path.
         if (prewarmEnabled) {
           void prewarmRemainingApps().catch((err) => {
             console.error(
@@ -2007,8 +1824,6 @@ async function main(): Promise<void> {
       }
 
       if (includeDesktop) {
-        // Boot the Tauri clips tray after its backend is reachable. The tray's
-        // Google sign-in opens the Clips backend URL directly in the browser.
         const startClipsTray = () => {
           if (shuttingDown) return;
           startBackgroundProcess("tray", "pnpm", [

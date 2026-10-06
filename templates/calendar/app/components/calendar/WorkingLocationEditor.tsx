@@ -172,6 +172,7 @@ export function WorkingLocationEditor({
       {type !== "homeOffice" && (
         <div className="mt-2">
           <Input
+            size="sm"
             value={labels[type]}
             onChange={(inputEvent) => {
               const nextLabels = {
@@ -187,7 +188,7 @@ export function WorkingLocationEditor({
                 : t("eventForm.other")
             }
             placeholder={t("eventForm.addLocation")}
-            className="h-8 text-sm"
+            className="text-sm"
             disabled={disabled}
           />
           {type === "officeLocation" && detail && (

@@ -1,11 +1,8 @@
-// Per-app sign-in copy. Lives in shared/ so client-safe social metadata can
-// version the OG image URL from the same copy the image renders.
 export interface AuthMarketingPresentation {
   headline: string;
   description: string;
 }
 
-/** The compact two-line auth message replaces the longer public-home copy. */
 export const AUTH_MARKETING_PRESENTATION: Record<
   string,
   AuthMarketingPresentation

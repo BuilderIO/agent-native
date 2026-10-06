@@ -70,6 +70,7 @@ describe("AgentSuggestionBar", () => {
     expect(buttons[0]?.className).toContain("rounded-full");
     expect(buttons[0]?.className).toContain("whitespace-nowrap");
     expect(buttons[0]?.className).not.toContain("max-w-");
+    expect(buttons[0]?.className).toContain("text-foreground/80");
     expect(buttons[0]?.querySelector("span")?.className).not.toContain(
       "truncate",
     );

@@ -7,8 +7,6 @@ import {
 
 import { gotoEditor } from "./helpers";
 
-// Board objects are covered by the host's selection box once selected, so the
-// second click of a real double-click never lands in the board iframe itself.
 const BOARD_HTML = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <style>html, body { background: transparent; } body { margin: 0; position: relative; overflow: visible; }</style>
@@ -68,7 +66,6 @@ async function persistedBoard(
   return html;
 }
 
-/** Host-page point for a spot inside a board node, or null before it renders. */
 function findBoardPoint(page: Page, nodeId: string, fx: number, fy: number) {
   return page.evaluate(
     ([id, ax, ay]) => {
@@ -198,7 +195,6 @@ test("an empty board click ends point editing and deselects the vector", async (
     await expect(overlay).toBeVisible();
 
     const empty = await boardPoint(page, "board-text", 0.5, 1.9);
-    // Clicks inside the double-click interval extend the double-click.
     await page.waitForTimeout(600);
     await page.mouse.click(empty.x, empty.y);
 

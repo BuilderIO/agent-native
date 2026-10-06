@@ -15,8 +15,6 @@ describe("warnAgent", () => {
     warn.mockClear();
   });
 
-  // The dropped warning is the failure being fixed: outside an agent run there
-  // is no conversation to reach, so the console must still get it.
   it("falls through to the console with no run context", () => {
     warnAgent({
       severity: "critical",
@@ -93,8 +91,6 @@ describe("warnAgent", () => {
     );
   });
 
-  // A second repoint in a later tool call is a second real operation. Dedupe
-  // must not turn it into silence the way an unreset module-level Set would.
   it("re-reports the same warning raised after an earlier drain", async () => {
     await runWithRequestContext(
       { userEmail: "a@example.com", run: {} },

@@ -213,11 +213,9 @@ describe("DocsSidebar", () => {
   it("renders the Plans group as a chevron-only toggle with nested sub-items", () => {
     const html = renderSidebar("/docs/template-plan");
 
-    // "Plans" is a chevron-only group trigger, not a link.
     expect(html).toContain("sidebar-group-trigger");
     expect(html).not.toContain('href="/docs/visual-plans/"');
 
-    // The main Plans doc is the first child, plus the two satellites.
     expect(html).toContain("docs-sidebar-subitems");
     const mainDocLink = getLinkMarkup(html, "/docs/template-plan/");
     expect(mainDocLink).toContain("sidebar-sublink");
@@ -250,7 +248,6 @@ describe("DocsSidebar", () => {
     expect(html).toContain("Apps");
     expect(html).toContain('aria-expanded="true"');
 
-    // The active child link is highlighted and the group is open.
     const activeLink = getLinkMarkup(html, "/docs/template-plan/");
     expect(activeLink).toContain("is-active");
     expect(activeLink).toContain('data-an-prefetch="viewport"');

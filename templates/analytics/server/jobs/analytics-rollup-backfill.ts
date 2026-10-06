@@ -141,12 +141,6 @@ async function runTransactionalBackfill(
 
   return db.transaction(async (tx) => {
     {
-      // This scans all of analytics_events (41 GB in production) in one
-      // GROUP BY, and the lease budgets 15 minutes for it. A role-level
-      // statement_timeout — the thing that stops a runaway dashboard query
-      // from holding every pooler connection — would otherwise kill this
-      // legitimate job partway through. SET LOCAL is scoped to this
-      // transaction and reverts on commit or rollback.
       await tx.execute(
         `SET LOCAL statement_timeout = '${BACKFILL_LEASE_MINUTES}min'`,
       );
@@ -167,11 +161,6 @@ async function runTransactionalBackfill(
   });
 }
 
-/**
- * Rebuild historical compact rollups outside the server boot path. The state
- * row is completed in the same transaction as both aggregates, so a timeout
- * or failed write leaves the job pending and a later scheduled run retries it.
- */
 export async function runAnalyticsRollupBackfillOnce(): Promise<AnalyticsRollupBackfillResult> {
   if (process.env.ANALYTICS_ROLLUP_BACKFILL_JOBS?.trim() === "0") {
     return { status: "disabled", remaining: 1 };

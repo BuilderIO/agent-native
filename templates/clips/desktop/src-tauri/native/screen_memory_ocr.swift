@@ -23,13 +23,9 @@ private func milliseconds(_ time: CMTime) -> Int64 {
 
 private func boundedText(_ text: String) -> String {
     guard text.utf8.count > maxTextBytes else { return text }
-    // Decoding the byte prefix replaces a partial final scalar safely rather
-    // than splitting Swift's Unicode storage at an arbitrary index.
     return String(decoding: text.utf8.prefix(maxTextBytes), as: UTF8.self)
 }
 
-/// Runs wholly on-device. The result is JSON allocated by `strdup`; Rust must
-/// return it through `clips_screen_memory_ocr_free` exactly once.
 @_cdecl("clips_screen_memory_ocr_json")
 public func clipsScreenMemoryOcrJson(
     _ videoPath: UnsafePointer<CChar>?,

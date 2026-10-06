@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { gmailCooldownFromError } from "@shared/gmail-freshness";
 import type {
   ManagedGmailFilter,
   ManagedGmailFiltersAccount,
@@ -52,6 +53,17 @@ export function useGmailFilters() {
     queryKey: ["gmail-filters"],
     queryFn: () => runManageGmailFilters({ operation: "list" }),
     staleTime: 30_000,
+    // A cooldown names when Gmail is ready again; looking sooner only repeats
+    // the refusal (one user sent 3,253 list calls in 100 minutes).
+    retry: (failureCount, error) =>
+      failureCount < 2 && !gmailCooldownFromError(error, Date.now()),
+    retryOnMount: false,
+    refetchInterval: (query) => {
+      const cooldown = gmailCooldownFromError(query.state.error, Date.now());
+      return cooldown
+        ? Math.min(cooldown.retryAfterMs + 1_000, 300_000)
+        : false;
+    },
   });
 }
 

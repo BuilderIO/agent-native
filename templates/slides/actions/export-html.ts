@@ -11,7 +11,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { sanitizeCssValue } from "../app/lib/sanitize-slide-html.js";
 import {
   safeGeneratedFilename,
@@ -29,12 +29,6 @@ import {
   resolveSlideBackground,
 } from "../shared/slide-background.js";
 
-/**
- * Minimal server-side HTML sanitizer for exported slide content.
- * DOMParser is not available in Node/Nitro, so we use a regex pass to strip
- * scripts, event handlers, and dangerous URL schemes before embedding slide
- * HTML into the standalone export file.
- */
 function sanitizeSlideContent(html: string): string {
   return html
     .replace(
@@ -680,13 +674,6 @@ export default defineAction({
     );
     const filename = safeGeneratedFilename(row.title, ".html");
 
-    // Disk write is only useful when the same process can later serve the
-    // file. On serverless (Netlify / Vercel / Lambda), the function filesystem
-    // vanishes between invocations, so `/api/exports/:filename` requests land
-    // on a different container that doesn't have the file — the user sees
-    // "file doesn't exist on site". Skip the disk write entirely on those
-    // hosts; the route handler streams `html` directly. CLI and local-dev
-    // still get a real file path.
     let filePath: string | undefined;
     if (!isServerless()) {
       const exportDir = tenantExportDir(userEmail);

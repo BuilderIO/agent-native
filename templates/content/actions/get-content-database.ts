@@ -23,9 +23,10 @@ const getContentDatabaseSchema = z.object({
   limit: z.coerce
     .number()
     .int()
-    .min(1)
+    .min(0)
     .max(CONTENT_DATABASE_MAX_READ_LIMIT)
-    .optional(),
+    .optional()
+    .describe("Page size; 0 reads the collection metadata without rows"),
   offset: z.coerce.number().int().min(0).optional(),
   contentSpaceId: z
     .string()
@@ -61,6 +62,11 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (
     { databaseId, documentId, limit, offset, tableQuery, contentSpaceId },
     context,
@@ -105,6 +111,7 @@ export default defineAction({
       offset,
       tableQuery,
       database: resolved.database,
+      accessRole: resolved.accessRole,
       filesMembershipDatabaseId,
       sidebarOrder,
     });

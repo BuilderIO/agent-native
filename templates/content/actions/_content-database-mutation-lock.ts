@@ -10,11 +10,6 @@ export function withContentDatabaseMutationLock<T>(
   return withPositionLock(`contentDatabaseMutation:${databaseId}`, run);
 }
 
-/**
- * Acquire the database row's write lock before changing database membership,
- * schema, or every member at once. Callers must hold the returned lock for the
- * whole transaction and take it before reading the state they will mutate.
- */
 export async function lockContentDatabaseMutation(
   tx: ReturnType<typeof getDb>,
   databaseId: string,

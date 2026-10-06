@@ -46,10 +46,6 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  // The bar's position math (`positionFromPointer`) divides by the bar's
-  // measured width, which happy-dom reports as 0 with no layout engine —
-  // stub a fixed 200px-wide rect starting at x=0 so clientX maps to a
-  // predictable 0-100 position.
   originalRect = HTMLElement.prototype.getBoundingClientRect;
   HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
     return {
@@ -205,8 +201,6 @@ describe("GradientEditor onCommit", () => {
   it("fires onCommit exactly once when removing the selected stop via the trash button", () => {
     const onChange = vi.fn();
     const onCommit = vi.fn();
-    // removeStop no-ops at exactly 2 stops (a gradient needs at least 2), so
-    // this needs a 3rd stop for the remove button to actually be enabled.
     const threeStopValue: GradientValue = {
       ...baseValue,
       stops: [...baseValue.stops, { id: "c", color: "#00ff00", position: 50 }],
@@ -333,10 +327,6 @@ describe("GradientEditor onCommit", () => {
     expect(angleField).not.toBeNull();
 
     act(() => {
-      // React implements onBlur via the native (bubbling) "focusout" event
-      // rather than "blur" (which doesn't bubble) — see React's
-      // SimpleEventPlugin. Dispatch that here so the synthetic handler
-      // actually fires.
       angleField!.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
       angleField!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
     });
@@ -367,10 +357,6 @@ describe("GradientEditor onCommit", () => {
     expect(angleField).not.toBeNull();
 
     act(() => {
-      // Bypass React's tracked-value setter so the synthetic onChange
-      // handler actually observes the new value (a plain `.value =`
-      // assignment followed by a bare "input" event dispatch is a no-op
-      // under React's controlled-input change detection).
       const setValue = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
         "value",

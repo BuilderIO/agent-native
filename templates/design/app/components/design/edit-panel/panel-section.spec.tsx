@@ -23,7 +23,6 @@ describe("PanelSection", () => {
     );
     expect(container.textContent).toContain("Stroke");
     expect(container.querySelector("[aria-expanded]")).toBeNull();
-    // The add affordance is the point of an empty section; it must survive.
     expect(container.textContent).toContain("Add");
   });
 

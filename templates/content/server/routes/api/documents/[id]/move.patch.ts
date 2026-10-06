@@ -127,10 +127,6 @@ export default defineEventHandler(async (event) => {
         updates.position = body.position;
         await applyUpdate();
       } else if (body.parentId !== undefined) {
-        // Auto-assign position at end of new parent's children. Reads
-        // MAX(position) then writes MAX+1 — serialize the read through the
-        // write so a concurrent move/create/add targeting the same parent
-        // can't read the same MAX (see actions/_position-utils.ts).
         const parentId = body.parentId;
         await withPositionLock(
           documentsPositionScope(ownerEmail, parentId),

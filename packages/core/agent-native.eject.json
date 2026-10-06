@@ -2,64 +2,11 @@
   "manifestVersion": 1,
   "package": "@agent-native/core",
   "catalogs": [
-    "remote-mcp-presets",
     "workspace-connections",
     "provider-api-definitions",
-    "messaging-adapters",
-    "setup-readiness-ui"
+    "messaging-adapters"
   ],
   "units": [
-    {
-      "id": "integration/remote-mcp-presets",
-      "label": "Built-in remote MCP presets",
-      "catalog": "remote-mcp-presets",
-      "catalogItems": [
-        "context7",
-        "sentry",
-        "notion",
-        "granola",
-        "semgrep",
-        "linear",
-        "atlassian",
-        "supabase",
-        "neon",
-        "stripe",
-        "cloudflare",
-        "gitlab",
-        "figma",
-        "canva",
-        "vercel",
-        "github",
-        "fullstory",
-        "amplitude",
-        "sigma",
-        "slack",
-        "asana",
-        "hubspot",
-        "apollo",
-        "builder-cms",
-        "common-room",
-        "exa",
-        "gong",
-        "grafana",
-        "intercom",
-        "monday",
-        "pylon",
-        "webflow",
-        "paypal",
-        "box",
-        "netlify",
-        "zapier"
-      ],
-      "entrypoints": ["./client/resources"],
-      "strategy": "source-copy",
-      "sourceEntries": ["src/eject/remote-mcp-presets.ts"],
-      "targetRoot": "app/integrations/agent-native/remote-mcp",
-      "seam": "@agent-native/core/client/resources",
-      "protectedImports": ["@agent-native/core/client/resources/runtime"],
-      "dependencies": ["react"],
-      "verification": ["pnpm typecheck"]
-    },
     {
       "id": "integration/workspace-connections",
       "label": "Workspace connection providers",
@@ -157,26 +104,6 @@
       "sourceEntries": ["src/integrations/eject/messaging-adapters.ts"],
       "targetRoot": "server/agent-native-ejected",
       "protectedImports": ["@agent-native/core/integrations/runtime"],
-      "verification": ["pnpm typecheck"]
-    },
-    {
-      "id": "integration/setup-readiness-ui",
-      "label": "Connection setup and readiness UI",
-      "catalog": "setup-readiness-ui",
-      "catalogItems": [
-        "builder-connect-card",
-        "provider-readiness-badge",
-        "setup-connections-page"
-      ],
-      "entrypoints": ["./client/setup-connections"],
-      "strategy": "source-copy",
-      "sourceEntries": ["src/eject/setup-readiness-ui.tsx"],
-      "targetRoot": "app/components/agent-native/setup-connections",
-      "seam": "@agent-native/core/client/setup-connections",
-      "protectedImports": [
-        "@agent-native/core/client/setup-connections/runtime"
-      ],
-      "dependencies": ["react"],
       "verification": ["pnpm typecheck"]
     }
   ]

@@ -4,17 +4,8 @@ import { pathToFileURL } from "node:url";
 
 export const MAX_DECLARED_STARTER_TOOLS = 40;
 
-// Mirrors COMPACT_PROMPT_RESOURCE_MAX_CHARS in
-// packages/core/src/server/agent-chat/prompt-resources.ts. Templates run the
-// compact prompt, which hard-slices each injected resource at this length with
-// no build-time signal — analytics silently lost 39% of its AGENTS.md,
-// including its entire "answer this in one bounded call" workflow section.
 export const MAX_AGENT_INSTRUCTION_CHARS = 6_000;
 
-// Mirrors the rubric in .agents/skills/writing-agent-instructions/SKILL.md
-// ("Keep files under ~5,500 so ordinary edits don't tip them over"). Warn-only
-// — files already sit right up against the hard cap, so this cannot fail the
-// build without breaking every one of them at once.
 export const WARN_AGENT_INSTRUCTION_CHARS = 5_500;
 
 export type AgentChatContextPolicy = {
@@ -73,8 +64,6 @@ function importedSourceFile(
 }
 
 function parseStaticStringEntries(arrayBody: string): string[] | null {
-  // Starter catalogs must stay statically auditable. Spreads or expressions
-  // can hide an arbitrarily large catalog, so require plain string entries.
   if (/\.\.\./.test(arrayBody)) return null;
   const withoutComments = arrayBody
     .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -261,10 +250,6 @@ export function discoverAgentChatPlugins(repoRoot: string): string[] {
 
 export function discoverAgentInstructionFiles(repoRoot: string): string[] {
   const files: string[] = [];
-  // "apps" carries the same production-injected, compact-prompt-sliced
-  // AGENTS.md as "templates" — both are scanned identically. (workspace-root's
-  // AGENTS.md is deliberately excluded: it only ever becomes a scaffolded
-  // monorepo's dev-facing root file, never a runtime-injected prompt resource.)
   for (const parent of ["templates", "apps"]) {
     const parentDir = path.join(repoRoot, parent);
     if (!existsSync(parentDir)) continue;

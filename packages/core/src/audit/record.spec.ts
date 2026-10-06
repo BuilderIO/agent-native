@@ -266,3 +266,143 @@ describe("recordActionAudit attribution", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe("recordActionAudit capability probes", () => {
+  const ctx = { actionName: "create-visual-recap", caller: "http" } as const;
+
+  it("does not record a rejected probe as a failure", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: { __probe__: true },
+      ctx,
+      status: "error",
+      error: new Error("Invalid action parameters"),
+    });
+    expect(insertAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it("does not record a probe rejected as a bad request in any form", async () => {
+    for (const error of [
+      Object.assign(new Error("[]"), { name: "ZodError" }),
+      Object.assign(new Error("A thread ID is required."), { statusCode: 400 }),
+    ]) {
+      await recordActionAudit({
+        config: undefined,
+        args: { __probe__: true },
+        ctx,
+        status: "error",
+        error,
+      });
+    }
+    expect(insertAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it("records a probe that ran and then threw, since it may have changed something", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: { __probe__: true },
+      ctx,
+      status: "error",
+      error: new Error("Row written, then the notification failed"),
+    });
+    expect(lastEvent().status).toBe("error");
+  });
+
+  it("still records a probe that executed, so the marker cannot hide a change", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: { __probe__: true },
+      ctx,
+      status: "success",
+      result: { ok: true },
+    });
+    expect(lastEvent().status).toBe("success");
+  });
+
+  it("still records a refused probe as a denied attempt", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: { __probe__: true },
+      ctx,
+      status: "error",
+      error: Object.assign(new Error("no"), { statusCode: 403 }),
+    });
+    expect(lastEvent().status).toBe("denied");
+  });
+
+  it("only treats the exact typed marker as a probe", async () => {
+    for (const args of [
+      { __probe__: true, planId: "p1" },
+      { __probe__: "true" },
+      { __probe__: 1 },
+      { planId: "__probe__" },
+      [{ __probe__: true }],
+      null,
+    ]) {
+      insertAuditEvent.mockClear();
+      await recordActionAudit({
+        config: undefined,
+        args,
+        ctx,
+        status: "error",
+        error: new Error("boom"),
+      });
+      expect(insertAuditEvent, JSON.stringify(args)).toHaveBeenCalledTimes(1);
+      expect(lastEvent().status).toBe("error");
+    }
+  });
+});
+
+describe("recordActionAudit refusals and app", () => {
+  afterEach(() => {
+    delete process.env.AGENT_NATIVE_APP_ID;
+  });
+
+  it("records a thrown 403 as a denied attempt with its error code", async () => {
+    const refusal = Object.assign(new Error("Owners and admins only."), {
+      statusCode: 403,
+      code: "not_admin",
+    });
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "set-thing",
+        caller: "frontend",
+        userEmail: "m@x.com",
+      },
+      status: "error",
+      error: refusal,
+    });
+    expect(lastEvent()).toMatchObject({
+      status: "denied",
+      errorCode: "not_admin",
+    });
+  });
+
+  it("keeps other thrown errors as errors", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "set-thing",
+        caller: "frontend",
+        userEmail: "m@x.com",
+      },
+      status: "error",
+      error: Object.assign(new Error("boom"), { statusCode: 500 }),
+    });
+    expect(lastEvent().status).toBe("error");
+  });
+
+  it("stamps the app that recorded the event", async () => {
+    process.env.AGENT_NATIVE_APP_ID = "mail";
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: { actionName: "set-thing", caller: "tool", userEmail: "m@x.com" },
+      status: "success",
+    });
+    expect(lastEvent().app).toBe("mail");
+  });
+});

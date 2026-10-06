@@ -54,7 +54,6 @@ describe("getFeedbackClientContext", () => {
     expect(context.pageUrl).toBe(
       "http://localhost:3000/inbox?token=%3Credacted%3E&utm=ok#section",
     );
-    // happy-dom has no desktop/Tauri markers, so the surface resolves to web.
     expect(context.clientSurface).toBe("web");
   });
 

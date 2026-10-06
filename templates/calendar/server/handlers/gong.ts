@@ -13,20 +13,18 @@ import {
   deleteIntegrationKey,
 } from "../lib/integration-credentials.js";
 
-// GET /api/gong/status — never returns the key, only connection state.
 export const gongStatus = defineEventHandler(async (event: H3Event) => {
   return { connected: !!(await getIntegrationKey(event, "gong")) };
 });
 
-// PUT /api/gong/key — store the key in the encrypted per-user vault.
 export const gongSaveKey = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
-  const { apiKey } = body;
+  const { apiKey, scope } = body;
   if (!apiKey || typeof apiKey !== "string") {
     setResponseStatus(event, 400);
     return { error: "apiKey is required" };
   }
-  const ok = await saveIntegrationKey(event, "gong", apiKey);
+  const ok = await saveIntegrationKey(event, "gong", apiKey, scope);
   if (!ok) {
     setResponseStatus(event, 401);
     return { error: "Sign in to connect Gong" };
@@ -34,7 +32,6 @@ export const gongSaveKey = defineEventHandler(async (event: H3Event) => {
   return { connected: true };
 });
 
-// DELETE /api/gong/key
 export const gongDeleteKey = defineEventHandler(async (event: H3Event) => {
   const ok = await deleteIntegrationKey(event, "gong");
   if (!ok) {
@@ -44,7 +41,6 @@ export const gongDeleteKey = defineEventHandler(async (event: H3Event) => {
   return { connected: false };
 });
 
-// GET /api/gong/calls?email=...
 export const gongCallsLookup = defineEventHandler(async (event: H3Event) => {
   const { email } = getQuery(event);
   if (!email || typeof email !== "string") {

@@ -1,5 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  indexedSearchSql,
+  prepareSearchIndex,
+  SearchTermTooLongError,
+  type IndexedSearchSql,
+} from "@agent-native/core/search";
+import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
@@ -20,7 +26,7 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { documentSearchIndex, getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import {
   parseSearchQuery,
@@ -43,12 +49,6 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
-// `content` here may be a bounded preview (see the `contentPreview`
-// projection below) rather than the full document body. If the query match
-// falls outside the preview window (a deeper match in the full doc, which the
-// SQL LIKE filter already confirmed exists), `indexOf` simply misses and we
-// fall back to a beginning-of-document snippet — the same behavior as the
-// no-match case. The row is still returned either way.
 function makeSnippet(content: string, query: string, radius = 120) {
   const compact = content.replace(/\s+/g, " ").trim();
   const compactQuery = query.replace(/\s+/g, " ").trim();
@@ -73,7 +73,7 @@ function makeSnippet(content: string, query: string, radius = 120) {
 
 export default defineAction({
   description:
-    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
+    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
   deferLoading: false,
   mcpTool: true,
   schema: z
@@ -136,6 +136,11 @@ export default defineAction({
     ),
   http: { method: "GET" },
   readOnly: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
     const db = getDb();
     const userEmail = getRequestUserEmail();
@@ -170,8 +175,6 @@ export default defineAction({
       const parsed = parseSearchQuery(args.query);
       parsedQuery = parsed;
       if (parsed.empty) {
-        // Punctuation-only input (lone `-`, empty quotes) matches nothing by
-        // design; report that as a loud empty page rather than every document.
         matchPredicates.push(sql`false`);
       } else {
         for (const group of parsed.groups) {
@@ -201,11 +204,35 @@ export default defineAction({
         .where(eq(schema.documents.id, args.excludeSubtreeOf));
       excludedIds = excludedRoot
         ? (
-            await loadPageSubtree(db, excludedRoot, { includeTrashed: false })
+            await loadPageSubtree(db, excludedRoot, {
+              includeTrashed: false,
+              requireComplete: false,
+            })
           ).map((document) => document.id)
         : [args.excludeSubtreeOf];
     }
-    const where = documentDiscoveryWhere({
+    // The core index answers when it is complete and current and the query
+    // fits it; otherwise this request scans documents directly, as search
+    // did before the index.
+    let indexedSearch: IndexedSearchSql | null = null;
+    if (parsedQuery && !parsedQuery.empty) {
+      try {
+        indexedSearch = indexedSearchSql({
+          registration: documentSearchIndex,
+          query: parsedQuery,
+          fields: args.searchFields === "title" ? "title" : "all",
+        });
+      } catch (error) {
+        if (!(error instanceof SearchTermTooLongError)) throw error;
+      }
+      if (
+        indexedSearch &&
+        !(await prepareSearchIndex(documentSearchIndex)).ready
+      ) {
+        indexedSearch = null;
+      }
+    }
+    const baseWhere = documentDiscoveryWhere({
       userEmail,
       authorizedOrgIds,
       exactTitle: args.exactTitle,
@@ -219,13 +246,9 @@ export default defineAction({
               isNull(schema.documents.hideFromSearch),
             )
           : undefined,
-        ...matchPredicates,
         excludedIds.length > 0
           ? notInArray(schema.documents.id, excludedIds)
           : undefined,
-        // updatedAt is a text column holding both ISO "T"-separated values and
-        // PostgreSQL "space"-separated defaults, so it must be compared as a
-        // timestamp; a lexical compare drops valid rows at page boundaries.
         args.modifiedAfter
           ? gte(
               sql`${schema.documents.updatedAt}::timestamptz`,
@@ -240,18 +263,9 @@ export default defineAction({
           : undefined,
       ),
     });
-    // Project a bounded preview of `content` instead of the full column:
-    // document bodies can be multi-MB, and this action only returns a short
-    // snippet (use get-document for full content). In free-text mode the
-    // preview window is anchored at an in-body occurrence that keeps the most
-    // eligible positive terms in view. The selected term is projected with the
-    // window so `makeSnippet` preserves the complete match. Position and query
-    // order break ties;
-    // title-only matches and exactTitle mode keep the head projection. The
-    // true length still comes from SQL `length()` rather than reading `.length`
-    // off a truncated string. Mirrors the
-    // `substr`/`length` projection style in list-documents.ts; `position`,
-    // `substr`, and `length` all work in PostgreSQL and PGlite.
+    const where = indexedSearch
+      ? and(baseWhere, indexedSearch.match)
+      : and(baseWhere, ...matchPredicates);
     const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
     const bodyNeedleArray = bodyNeedles.length
       ? sql`array[${sql.join(
@@ -270,9 +284,6 @@ export default defineAction({
     const proximityPosition = proximityPattern
       ? sql<number>`regexp_instr(${normalizedContent}, ${proximityPattern}, 1, 1, 0, 'i')`
       : undefined;
-    // Inspect repeated occurrences so the snippet can prefer a later,
-    // denser passage. Cap each needle to keep pathological repeated-token
-    // documents from turning one result preview into an unbounded scan.
     const fallbackBodyPosition =
       bodyNeedles.length === 1
         ? sql<number>`nullif(position(lower(${bodyNeedles[0]!}) in lower(${normalizedContent})), 0)`
@@ -331,20 +342,21 @@ export default defineAction({
     const matchWindow = selectedBodyPosition
       ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - 120), least(5000, 240 + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
       : sql<string>`substr(${normalizedContent}, 1, 5000)`;
-    const ranking = parsedQuery?.groups.length
-      ? documentSearchRanking(
-          parsedQuery,
-          {
-            title: schema.documents.title,
-            description: schema.documents.description,
-            content: normalizedContent,
-          },
-          {
-            includeNonTitleFields: args.searchFields !== "title",
-          },
-        )
-      : null;
-    const docs = await db
+    const ranking =
+      !indexedSearch && parsedQuery?.groups.length
+        ? documentSearchRanking(
+            parsedQuery,
+            {
+              title: schema.documents.title,
+              description: schema.documents.description,
+              content: normalizedContent,
+            },
+            {
+              includeNonTitleFields: args.searchFields !== "title",
+            },
+          )
+        : null;
+    const docsQuery = db
       .select({
         id: schema.documents.id,
         parentId: schema.documents.parentId,
@@ -370,20 +382,24 @@ export default defineAction({
       })
       .from(schema.documents)
       .where(where)
+      .$dynamic();
+    if (indexedSearch) {
+      docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+    }
+    const docs = await docsQuery
       .orderBy(
-        ...(ranking
-          ? [
-              desc(ranking.matchTier),
-              desc(ranking.titleCoverage),
-              desc(ranking.descriptionCoverage),
-              // Phrase coherence is a minor body-only tie-breaker. Bound its
-              // full-body scan so broad searches keep predictable latency;
-              // protected field tiers still rank the complete result set.
-              desc(
-                sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
-              ),
-            ]
-          : []),
+        ...(indexedSearch
+          ? indexedSearch.orderBy
+          : ranking
+            ? [
+                desc(ranking.matchTier),
+                desc(ranking.titleCoverage),
+                desc(ranking.descriptionCoverage),
+                desc(
+                  sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
+                ),
+              ]
+            : []),
         desc(schema.documents.updatedAt),
         asc(schema.documents.id),
       )
@@ -402,7 +418,7 @@ export default defineAction({
           .from(schema.documents)
           .where(
             and(
-              where,
+              baseWhere,
               inArray(
                 schema.documents.id,
                 docs.map((doc) => doc.id),
@@ -413,16 +429,23 @@ export default defineAction({
     const previewById = new Map(
       previews.map((preview) => [preview.id, preview]),
     );
-    const totalItems = docs.length
-      ? Number(docs[0]!.totalItems)
-      : Number(
-          (
-            await db
-              .select({ count: sql<number>`count(*)` })
-              .from(schema.documents)
-              .where(where)
-          )[0]?.count ?? 0,
-        );
+    const countQuery = db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.documents)
+      .where(where)
+      .$dynamic();
+    if (indexedSearch) {
+      countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+    }
+    let totalItems: number;
+    if (docs.length) {
+      totalItems = Number(docs[0]!.totalItems);
+    } else {
+      const [counted] = await countQuery;
+      // guard:allow-bare-error — invariant: count(*) without GROUP BY always returns one row.
+      if (!counted) throw new Error("Counting search results returned no row.");
+      totalItems = Number(counted.count);
+    }
 
     const parentIds = [
       ...new Set(docs.flatMap((doc) => (doc.parentId ? [doc.parentId] : []))),

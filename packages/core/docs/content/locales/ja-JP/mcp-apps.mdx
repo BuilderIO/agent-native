@@ -18,6 +18,14 @@ MCP アプリは、互換性のあるホスト (Claude、Claude デスクトッ�
 
 Agent-Native アプリ独自のチャット内では、表、グラフ、入力された結果、承認アフォーダンスなどのファーストパーティ ウィジェットには [native chat renderers](/docs/native-chat-ui) を優先します。 Claude、ChatGPT、Copilot、Cursor、およびその他の互換性のあるホストの外部/クロスホスト インライン UI には MCP アプリを使用し、ユニバーサル ディープリンク フォールバックとしてアクション `link` を使用します。
 
+## OpenAI Plugin Extensions {#openai-plugin-extensions}
+
+OpenAI Plugin Extensions は、モデルが呼び出す MCP ツールにアプリの起動ポイントを追加します。インライン MCP Apps が有効な場合、共有 `open_app` ツールはグローバル サイドバーと会話のサイド パネルの両方にエントリポイントを表示します。ChatGPT は `{}` を渡して呼び出し、Core は現在のアプリのホーム画面をインライン MCP App として開きます。共有 MCP サーバーを使うアプリでは個別登録は不要です。[OpenAI Plugin Extensions ガイド](https://developers.openai.com/plugins/build/extensions)と[MCP Extensions 仕様](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md)を参照してください。
+
+埋め込みアプリのルートにあるボタンから `sendToAgentChat(...)` を呼び出すと、会話を続けられます。Core は選択状態を `annotations.audience: ["assistant"]` を付けて `ui/update-model-context` で送り、その後、表示するプロンプトを `ui/message` で送信します。ファイル ビューアー、コンポーザー メンション、その他の専用拡張にはアプリ固有の入力契約が必要です。
+
+古いホストでは、リクエストに選択済みまたは構造化されたコンテキストがなく、すべての内容をテキストで表現でき、転送するテキストの各 `annotations.audience` リストに `assistant` と `user` の両方が含まれる場合に限り、Core はテキストにフォールバックできます。いずれかの条件を満たさない場合、またはホストがコンテキスト更新を拒否した場合、`sendToAgentChat(...)` は `false` を返します。
+
 ## オーサリング: オプションの MCP アプリ UI {#mcp-apps}
 
 MCP アプリ拡張機能をサポートするホストの場合、アクションは `mcpApp` を使用してインライン UI リソースをアドバタイズすることもできます。これは、外部エージェントがテキストだけではなくインタラクティブなサーフェスをユーザーに渡す必要があるフローの進歩的な機能強化です。たとえば、電子メールの下書きのレビュー、カレンダーの招待状の編集、生成されたダッシュボードのバリエーションからの選択などです。

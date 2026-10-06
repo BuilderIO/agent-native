@@ -113,8 +113,6 @@ function shouldKeepAsSingleElement(element: Element): boolean {
   if (children.length === 0) return hasMeaningfulContent(element);
   if (hasOwnText(element)) return true;
 
-  // Rows composed of inline fragments, like bullet-dot + text spans, should
-  // animate as one visual unit instead of exposing punctuation as a target.
   return children.every((child) =>
     INLINE_TAGS.has(child.tagName.toLowerCase()),
   );
@@ -214,11 +212,6 @@ function getPersistedChildren(parent: Element): Element[] {
   return children;
 }
 
-/**
- * Resolve a live editor node against the HTML that will be persisted. The
- * editor's AutoFit layer is transparent in saved markup, so paths through it
- * must be flattened before animation metadata is written.
- */
 export function getPersistedElementPath(
   root: Element,
   target: Element,
@@ -273,9 +266,6 @@ export function resolveSlideAnimationElement(
   target: AnimationTarget,
 ): Element | null {
   if (Array.isArray(target.elementPath)) {
-    // A supplied path is the identity of the target. Falling back to a
-    // legacy index after it goes stale can animate a different element while
-    // leaving the intended element visible.
     return target.elementPath.length > 0
       ? resolveElementPath(root, target.elementPath)
       : null;
@@ -285,11 +275,6 @@ export function resolveSlideAnimationElement(
   return legacyContainer?.children.item(target.elementIndex) ?? null;
 }
 
-/**
- * Resolve an ordered animation list as one validated unit. A null result
- * means the list cannot be rendered faithfully - a missing or duplicate
- * target must not become a phantom click step in the presentation player.
- */
 export function resolveSlideAnimationTargets<T extends AnimationTarget>(
   root: Element,
   targets: readonly T[],

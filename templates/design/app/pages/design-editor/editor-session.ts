@@ -1,14 +1,7 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
 
-/** Stable for the lifetime of this module, including editor component refreshes. */
 export const TAB_ID = generateTabId();
 
-/**
- * Persistence revisions live on a DesignEditor component instance. Give that
- * instance its own operation source too: reusing module-stable TAB_ID after an
- * editor remount would pair reset revision counters with the server's old
- * high-watermark and make fresh saves look stale.
- */
 export function createEditorSaveOperationSource(
   tabId = TAB_ID,
   editorInstanceId = generateTabId(),
@@ -16,22 +9,8 @@ export function createEditorSaveOperationSource(
   return `${tabId}:save:${editorInstanceId}`;
 }
 
-/** Yjs origin tracked by the local undo manager. */
 export const LOCAL_EDIT_ORIGIN = `${TAB_ID}:local`;
 
-/**
- * Agent-authored design replacements are remote Yjs transactions (or, when
- * the Yjs update is missed entirely — backgrounded tab, no live collab
- * session — a plain polled DB content refresh), but from the user's
- * perspective they are one undoable editor operation (for example, "change
- * this attached design"). Human peer edits remain outside the local undo
- * stack. The Yjs `ytext.observe` handler uses this predicate when an active
- * collaboration session identifies the remote transaction as agent-authored.
- * The authoritative DB reconcile fallback cannot reliably distinguish an
- * agent write from a human peer write when that live signal was missed, so it
- * records any genuinely newer external replacement separately. Both paths
- * preserve a before/after checkpoint for Cmd+Z.
- */
 export function shouldCheckpointAgentContent(args: {
   agentActive: boolean;
   isLocalEdit: boolean;

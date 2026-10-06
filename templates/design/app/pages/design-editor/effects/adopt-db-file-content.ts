@@ -112,8 +112,6 @@ export function runAdoptDbFileContent({
     return;
   }
 
-  // Already reflecting this exact content (our own echo or Yjs already
-  // delivered it) — just advance the watermark and stop.
   if (
     activeScopedCollabContent === dbContent ||
     lastLocalContentRef.current === dbContent
@@ -126,13 +124,6 @@ export function runAdoptDbFileContent({
     return;
   }
 
-  // Only adopt genuinely newer content. No baseline yet (fresh file load)
-  // always adopts so a stale persisted Y.Doc can't shadow newer SQL. See
-  // shouldAdoptExternalReconcileContent's doc comment
-  // (design-editor/editor-session.ts) for the same-millisecond tie-break
-  // fix this closes: a strict `>` used to silently drop a real external
-  // write that landed in the same millisecond as the one already applied,
-  // whenever agentActive was false.
   const applied = lastAppliedFileUpdatedAtRef.current;
   const externalNewerByTimestamp = shouldAdoptExternalReconcileContent({
     appliedUpdatedAt: applied,
@@ -199,29 +190,6 @@ export function runAdoptDbFileContent({
   clearStaleAgentCollabRecovery();
   publishDbSource();
 
-  // U21: this whole effect exists BECAUSE the Yjs observe path (which
-  // already checkpoints agent edits into the local undo fallback, see U3
-  // above at the ytext.observe handler) can miss the update — same-tab
-  // background, a paused collab poll, or no collab session ever
-  // established for this viewer. Every branch below used to respond to
-  // that exact case by clearing the undo manager with nothing to fall back
-  // to, so Cmd+Z after an agent-driven full-content replacement that
-  // landed via THIS path had nothing left to restore — the reported
-  // "pressed cmd+z but unable to change it back", reproduced end-to-end:
-  // an `edit-design`/`update-file` write (mode=replace-file) lands purely
-  // through `writeInlineSourceFile`'s SQL write, never through the Yjs
-  // collab broadcast that the U3 checkpoint above depends on to learn
-  // `agentActive` — so gating this path on the SAME `agentActive` flag
-  // (sourced from `useCollaborativeDoc`'s Yjs `requestSource === "agent"`
-  // signal) would almost never fire here, since the very reason a change
-  // lands on THIS path instead of the Yjs-observe path is that no matching
-  // Yjs broadcast arrived to flip that flag. Unlike the Yjs-observe site
-  // (which can distinguish an agent transaction from a human peer's by
-  // origin), this path cannot reliably tell "agent" from "another human
-  // editing the same design without a live collab session" apart — but
-  // recording a local undo checkpoint either way is still correct and
-  // safe: it only affects what THIS viewer's Cmd+Z reverts to, never what
-  // gets written back to any other collaborator.
   const previousActiveContentForCheckpoint = latestActiveContentRef.current;
   if (
     typeof previousActiveContentForCheckpoint === "string" &&
@@ -234,7 +202,6 @@ export function runAdoptDbFileContent({
     });
   }
 
-  // Render the newer content immediately so the preview is never stale.
   setCollabContent(dbContent);
   setCollabContentFileId(activeFile.id);
   lastLocalContentRef.current = dbContent;

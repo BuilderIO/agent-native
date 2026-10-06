@@ -29,9 +29,7 @@ describe("score", () => {
   });
 
   it("scores a consecutive run higher than a scattered match of equal length", () => {
-    // "wor" is consecutive at the start of "workbench.ts".
     const consecutive = score("wor", "workbench.ts");
-    // "wch" is scattered across "workbench.ts" (w-o-r-k-b-e-n-c-h).
     const scattered = score("wch", "workbench.ts");
     expect(consecutive).not.toBeNull();
     expect(scattered).not.toBeNull();
@@ -39,9 +37,7 @@ describe("score", () => {
   });
 
   it("rewards camelCase boundary starts", () => {
-    // "mh" matches the camelCase starts in "MonacoHost.tsx" (M, H).
     const camelBoundary = score("mh", "MonacoHost.tsx");
-    // "mh" matches two arbitrary lowercase letters with no boundary bonus.
     const noBoundary = score("mh", "xxmxxhxx");
     expect(camelBoundary).not.toBeNull();
     expect(noBoundary).not.toBeNull();
@@ -49,9 +45,7 @@ describe("score", () => {
   });
 
   it("rewards word/path boundary starts (separators, path segments)", () => {
-    // "fi" matches the start of "file-icons.tsx" at a path/word boundary.
     const boundary = score("fi", "explorer/file-icons.tsx");
-    // "fi" matches mid-word, no boundary.
     const midWord = score("fi", "xxxxxfixxxx");
     expect(boundary).not.toBeNull();
     expect(midWord).not.toBeNull();
@@ -85,8 +79,6 @@ describe("scoreFilePath", () => {
   });
 
   it("weights a basename match above a match confined to the directory", () => {
-    // "foo" matches the basename directly in the first path, and only the
-    // directory segment in the second (no match in the basename "bar.ts").
     const basenameMatch = scoreFilePath("foo", "src/foo.ts");
     const dirOnlyMatch = scoreFilePath("foo", "foo/bar.ts");
     expect(basenameMatch).not.toBeNull();
@@ -95,11 +87,7 @@ describe("scoreFilePath", () => {
   });
 
   it("ranks a basename match above a directory match even with a longer overall path", () => {
-    // "store" matches the basename directly in the first path (short dir).
     const basenameHit = scoreFilePath("store", "workbench/store.ts");
-    // "store" only matches within a long directory chain, not the basename
-    // "index.ts" — despite being a tight consecutive run, it should still
-    // rank below a genuine basename match.
     const dirOnlyHit = scoreFilePath("store", "a/store-utils/nested/index.ts");
     expect(basenameHit).not.toBeNull();
     expect(dirOnlyHit).not.toBeNull();

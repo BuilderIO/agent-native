@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 
 type Mention = { email: string; name: string };
 
@@ -107,10 +108,11 @@ export function commentIdForIdempotency(
   documentId: string,
   idempotencyKey: string,
 ) {
-  return `comment-${createHash("sha256")
+  const digest = createHash("sha256")
     .update(`${email}\0${documentId}\0${idempotencyKey}`)
     .digest("hex")
-    .slice(0, 32)}`;
+    .slice(0, 32);
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20)}`;
 }
 
 type CommentTransaction = Parameters<
@@ -150,6 +152,8 @@ export async function addCommentWithGuard(
     ctx?.caller === "a2a"
       ? "agent"
       : "human";
+  const runModel = getRequestRunContext()?.model?.trim();
+  const authorModel = actorKind === "agent" && runModel ? runModel : null;
   const requestName =
     actorKind === "agent" ? undefined : getRequestUserName()?.trim();
   let name: string;
@@ -187,6 +191,7 @@ export async function addCommentWithGuard(
     submissionSource,
     submissionRunId,
     actorKind,
+    authorModel,
   };
 
   const inserted = await db.transaction(async (tx) => {
@@ -230,7 +235,6 @@ export async function addCommentWithGuard(
       transaction: getDbExec(),
     });
     if (args.threadId && args.parentId) {
-      // Resolution takes the same root lock before its thread-wide update.
       const [root] = await tx
         .select()
         .from(schema.documentComments)
@@ -314,5 +318,6 @@ export default defineAction({
   deferLoading: false,
   mcpTool: true,
   schema: commentSchema,
+  changeResource: (input) => documentChangeResource(input.documentId),
   run: (args, ctx) => addCommentWithGuard(args, ctx),
 });

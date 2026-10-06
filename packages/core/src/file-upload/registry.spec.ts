@@ -4,6 +4,7 @@ import { builderFileUploadProvider } from "./builder.js";
 import {
   getActiveFileUploadProvider,
   getActiveFileUploadProviderForRequest,
+  listFileUploadProviderStatusesForRequest,
   listFileUploadProviders,
   registerFileUploadProvider,
   unregisterFileUploadProvider,
@@ -36,8 +37,6 @@ describe("file-upload registry", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    // Drop any providers a prior test (or import side effect) left on the
-    // globalThis-pinned map so each case starts clean.
     for (const p of listFileUploadProviders()) {
       unregisterFileUploadProvider(p.id);
     }
@@ -141,6 +140,37 @@ describe("file-upload registry", () => {
     });
   });
 
+  describe("listFileUploadProviderStatusesForRequest", () => {
+    it("detects each provider once, in the order the active lookup walks", async () => {
+      const envBacked = {
+        ...makeProvider("env-backed", true),
+        isConfiguredForRequest: vi.fn(async () => false),
+      };
+      const s3 = {
+        ...makeProvider("s3", false),
+        isConfiguredForRequest: vi.fn(async () => true),
+      };
+      registerFileUploadProvider(makeProvider("unconfigured", false));
+      registerFileUploadProvider(envBacked);
+      registerFileUploadProvider(s3);
+
+      const statuses = await listFileUploadProviderStatusesForRequest();
+
+      expect(
+        statuses.map(({ provider, configured }) => [provider.id, configured]),
+      ).toEqual([
+        ["unconfigured", false],
+        ["env-backed", true],
+        ["s3", true],
+      ]);
+      expect(envBacked.isConfiguredForRequest).not.toHaveBeenCalled();
+      expect(s3.isConfiguredForRequest).toHaveBeenCalledTimes(1);
+      expect(statuses.find((status) => status.configured)?.provider).toBe(
+        await getActiveFileUploadProviderForRequest(),
+      );
+    });
+  });
+
   describe("uploadFile dispatch", () => {
     it("uses a configured user provider directly without resolving builder creds", async () => {
       const upload = vi.fn(async () => ({
@@ -207,23 +237,15 @@ describe("file-upload registry", () => {
       expect(result).toBeNull();
     });
 
-    it("falls back to null when credential resolution throws (DB unavailable)", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    it("propagates credential lookup failures instead of treating them as missing storage", async () => {
       canAuthorizeBuilderApiRequestMock.mockRejectedValue(new Error("db down"));
 
-      const result = await uploadFile({ data: new Uint8Array([1]) });
-
-      expect(result).toBeNull();
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("Builder credential check failed"),
-        expect.stringContaining("db down"),
+      await expect(uploadFile({ data: new Uint8Array([1]) })).rejects.toThrow(
+        "db down",
       );
-      warn.mockRestore();
     });
 
     it("does NOT swallow a real upload failure as a fallback", async () => {
-      // Creds resolve fine, so an upload error must propagate to the caller
-      // rather than being treated as a missing-provider null.
       canAuthorizeBuilderApiRequestMock.mockResolvedValue(true);
       const uploadSpy = vi
         .spyOn(builderFileUploadProvider, "upload")

@@ -51,7 +51,6 @@ export default defineAction({
     const processedFiles = capped.map((file) => {
       const contentType = classifyFile(file.fileType);
 
-      // Truncate textContent before regex scanning to bound CPU/memory usage.
       let text = file.textContent;
       if (text) {
         const encoded = new TextEncoder().encode(text);

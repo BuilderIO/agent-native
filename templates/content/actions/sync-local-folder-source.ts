@@ -9,6 +9,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import type { ContentDatabaseSourceTruthPolicy } from "../shared/api.js";
 import {
   isBuilderMdxSourcePath,
@@ -585,6 +590,11 @@ export default defineAction({
           }
 
           if (!plan.existing) {
+            await verifyPrivateIconAssignment({
+              icon: plan.file.icon === undefined ? null : plan.file.icon,
+              userEmail,
+              orgId: target.database.orgId,
+            });
             await tx.insert(schema.documents).values({
               id: plan.id,
               spaceId: target.database.spaceId,
@@ -606,6 +616,22 @@ export default defineAction({
               visibility: target.database.orgId ? "org" : "private",
               createdAt: now,
               updatedAt: now,
+            });
+            await syncPrivateIconReference(tx as ReturnType<typeof getDb>, {
+              elementType: "document",
+              elementId: plan.id,
+              documentId: plan.id,
+              icon: plan.file.icon === undefined ? null : plan.file.icon,
+              ownerEmail: userEmail,
+              orgId: target.database.orgId,
+            });
+            await syncPrivateCalloutReferences(tx as ReturnType<typeof getDb>, {
+              documentId: plan.id,
+              before: "",
+              after: plan.file.content,
+              userEmail,
+              ownerEmail: userEmail,
+              orgId: target.database.orgId,
             });
           } else if (
             plan.applyIncoming ||
@@ -664,6 +690,38 @@ export default defineAction({
             if (reboundDocuments.length !== 1) {
               throw new Error(
                 `Document "${plan.id}" left this Content space during local-folder sync`,
+              );
+            }
+            if (plan.applyIncoming) {
+              const nextIcon =
+                plan.file.icon === undefined || plan.file.icon === null
+                  ? plan.existing.icon
+                  : plan.file.icon;
+              if (nextIcon !== plan.existing.icon) {
+                await verifyPrivateIconAssignment({
+                  icon: nextIcon,
+                  userEmail,
+                  orgId: target.database.orgId,
+                });
+                await syncPrivateIconReference(tx as ReturnType<typeof getDb>, {
+                  elementType: "document",
+                  elementId: plan.id,
+                  documentId: plan.id,
+                  icon: nextIcon,
+                  ownerEmail: plan.existing.ownerEmail,
+                  orgId: target.database.orgId,
+                });
+              }
+              await syncPrivateCalloutReferences(
+                tx as ReturnType<typeof getDb>,
+                {
+                  documentId: plan.id,
+                  before: plan.existing.content,
+                  after: plan.file.content,
+                  userEmail,
+                  ownerEmail: plan.existing.ownerEmail,
+                  orgId: target.database.orgId,
+                },
               );
             }
           }

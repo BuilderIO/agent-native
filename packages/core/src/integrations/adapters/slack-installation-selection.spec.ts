@@ -48,8 +48,6 @@ describe("slack outbound installation selection", () => {
   });
 
   it("refuses to send when a tenant has several connected Slack apps", async () => {
-    // Two apps connected to one workspace — picking either would post under a
-    // bot identity the caller never named.
     listActiveIntegrationInstallationsForTenantMock.mockResolvedValue([
       installation("T1:fusion-analytics"),
       installation("T1:agent-native"),
@@ -104,7 +102,6 @@ describe("slack outbound installation selection", () => {
       "T1:agent-native",
     );
     expect(fetchMock).toHaveBeenCalled();
-    // Ambiguity resolution is skipped entirely when the app is named.
     expect(
       listActiveIntegrationInstallationsForTenantMock,
     ).not.toHaveBeenCalled();

@@ -62,9 +62,6 @@ describe("nested-container reparent position resolution", () => {
     const doc = parse(html);
     const sourcePosition = resolvePosition(doc, "source");
     const targetPosition = resolvePosition(doc, "target");
-    // Both nodes are direct children of <body> — the ancestor walk should
-    // terminate after a single step and return their own inline left/top
-    // unchanged, exactly like the previous naive implementation.
     expect(sourcePosition).toEqual({ x: 398, y: 144 });
     expect(targetPosition).toEqual({ x: 250, y: 100 });
     expect(
@@ -73,9 +70,6 @@ describe("nested-container reparent position resolution", () => {
   });
 
   it("resolves a node two containers deep to its true screen-root-relative position (same-screen reparent)", () => {
-    // outer (absolute, root-level) > inner (absolute, nested) > source
-    //   (absolute, nested again). target is a root-level frame the user
-    // drags `source` into.
     const html = `<!DOCTYPE html><html><body>
       <div data-agent-native-node-id="outer" style="position:absolute;left:100px;top:80px;width:600px;height:600px;">
         <div data-agent-native-node-id="inner" style="position:absolute;left:50px;top:40px;width:400px;height:400px;">
@@ -85,40 +79,27 @@ describe("nested-container reparent position resolution", () => {
       <div data-agent-native-node-id="target" style="position:absolute;left:300px;top:250px;width:200px;height:200px;"></div>
     </body></html>`;
     const doc = parse(html);
-    // Screen-root-relative source position = 100+50+20, 80+40+10.
     const sourcePosition = resolvePosition(doc, "source");
     expect(sourcePosition).toEqual({ x: 170, y: 130 });
     const targetPosition = resolvePosition(doc, "target");
     expect(targetPosition).toEqual({ x: 300, y: 250 });
-    // Old (buggy) behavior would have read source.style.left/top verbatim —
-    // {x: 20, y: 10}, relative to "inner" — and subtracted target's root
-    // position from THAT, teleporting the dropped node far from the cursor.
-    // The fixed pipeline instead produces the correct parent-relative delta
-    // once "source" is reparented under "target".
     expect(
       computeReparentedChildPosition(sourcePosition, targetPosition),
     ).toEqual({ x: -130, y: -120 });
   });
 
   it("resolves a node nested inside a static-flow (non-absolute) frame with padding, for cross-screen reparent", () => {
-    // Source screen: a frame with padding contains "source" as its second
-    // flex child (so the walk must also account for the preceding sibling's
-    // width + gap, not just ancestor padding).
     const sourceHtml = `<!DOCTYPE html><html><body>
       <div data-agent-native-node-id="frame" style="position:absolute;left:40px;top:60px;width:500px;height:300px;padding-left:16px;padding-top:16px;display:flex;gap:8px;">
         <div data-agent-native-node-id="sibling" style="width:100px;height:40px;"></div>
         <div data-agent-native-node-id="source" style="width:80px;height:40px;"></div>
       </div>
     </body></html>`;
-    // Destination screen: target frame lives at a different root offset.
     const destHtml = `<!DOCTYPE html><html><body>
       <div data-agent-native-node-id="target" style="position:absolute;left:500px;top:500px;width:300px;height:300px;"></div>
     </body></html>`;
     const sourceDoc = parse(sourceHtml);
     const destDoc = parse(destHtml);
-    // Screen-root-relative source: frame origin (40,60) + frame padding
-    // (16,16) + sibling's width+gap (100+8) contributed on the x axis only
-    // (row flex) = 40+16+100+8=164, 60+16=76.
     const sourcePosition = resolvePosition(sourceDoc, "source");
     expect(sourcePosition).toEqual({ x: 164, y: 76 });
     const targetPosition = resolvePosition(destDoc, "target");

@@ -58,12 +58,6 @@ function mergeWithDefaults<T>(defaults: T, value: unknown): T {
     return merged as T;
   }
 
-  // Every leaf in DEFAULT_DESIGN_SYSTEM is a string (including union-typed
-  // ones like slideDefaults.labelStyle), and DesignSystemCard/slide renderers
-  // call string methods (e.g. `.split()` on typography.headingFont) with no
-  // type guard. A persisted value of the wrong runtime type — an empty
-  // object from an interrupted generation, a stray number — must fall back
-  // to the default rather than reach those call sites and crash the caller.
   if (value === undefined || value === null) return defaults;
   return (typeof value === typeof defaults ? value : defaults) as T;
 }
@@ -83,11 +77,10 @@ export interface DeckDesignSystemResult {
   designSystemTitle: string | null;
   imageStyleReferenceUrls: string[];
   isLoading: boolean;
+  /** Raw JSON of the design system row, before defaults are merged in. */
+  rawData: string | null;
 }
 
-// Returning a stock palette for an unlinked deck publishes `--ds-*` values the
-// slide's own `var(--ds-*, ...)` fallbacks can never override, so "no design
-// system" renders as one nobody picked.
 export function resolveDeckDesignSystem(
   designSystemId: string | null | undefined,
   data: { title?: string | null; data?: string } | undefined,
@@ -97,6 +90,7 @@ export function resolveDeckDesignSystem(
       designSystem: undefined,
       designSystemTitle: null,
       imageStyleReferenceUrls: [],
+      rawData: null,
     };
   }
 
@@ -106,12 +100,14 @@ export function resolveDeckDesignSystem(
       designSystem: parsed,
       designSystemTitle: data.title ?? null,
       imageStyleReferenceUrls: getDesignSystemImageStyleReferenceUrls(parsed),
+      rawData: data.data,
     };
   } catch {
     return {
       designSystem: undefined,
       designSystemTitle: data.title ?? null,
       imageStyleReferenceUrls: [],
+      rawData: data.data,
     };
   }
 }

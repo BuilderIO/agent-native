@@ -1,20 +1,3 @@
-/**
- * The live-insert LIFECYCLE: insert -> undo -> redo -> delete -> apply.
- *
- * Each of the three bugs this pins passes a point assertion and only shows up
- * in sequence:
- *   - Apply's source-path preflight demanded a SUBJECT path for every
- *     non-removal edit. An inserted node is new, so it has no subject source
- *     anchor by definition and Apply always died on "anchors still loading".
- *   - Redo re-issued `runtime-structure-move` for an insert whose undo had
- *     already removed the node, so the bridge silently found no subject.
- *   - Deleting a newly inserted node left its pending insertion queued, so a
- *     later Apply could resurrect exactly what the user just deleted.
- *
- * The live DOM half runs the real generated bridge in a real browser (the
- * insert/ack/delete round-trips are DOM identity, not string manipulation);
- * the queue and history half calls the real host functions the editor calls.
- */
 import { chromium, type Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
@@ -526,10 +509,6 @@ describe("live insert lifecycle", () => {
             }),
           ]),
         );
-        // The host receives the applied notification before it has decided
-        // whether the edit will be applied or undone. The bridge must retain
-        // its insert origin until that later ack, otherwise Cmd+Z only clears
-        // the host ledger and leaves the clone in the running DOM.
         await page.evaluate(() => {
           window.postMessage(
             { type: "visual-structure-ack", requestId: "101", applied: false },
@@ -748,8 +727,6 @@ describe("live insert lifecycle", () => {
     async () => {
       const browser = await chromium.launch({ headless: true });
       const pageErrors: string[] = [];
-      // The editor's pending-live-edit history. Only the push/pop arithmetic
-      // lives here; every decision below is the real exported function.
       const undoStack: PendingLiveStructureUndoEntry[] = [];
       const redoStack: PendingLiveStructureUndoEntry[] = [];
       const queue = (): PendingLiveNonStyleEdit[] =>
@@ -789,7 +766,6 @@ describe("live insert lifecycle", () => {
         await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
         await collectBridgeMessages(page);
 
-        // ── 1. INSERT — board primitive dropped onto the live screen ───────
         await page.evaluate(
           ([html, anchorSelector]) => {
             window.postMessage(
@@ -828,8 +804,6 @@ describe("live insert lifecycle", () => {
         );
         expect([undoStack.length, redoStack.length]).toEqual([1, 0]);
 
-        // The inserted node exists in NO source file, so it has no subject
-        // anchor — and Apply must still accept it on the anchor path alone.
         expect(insertEdit.sourceAnchor).toBeUndefined();
         expect(insertEdit.anchorSourceAnchor?.relPath).toBe(
           "app/routes/home.tsx",
@@ -838,7 +812,6 @@ describe("live insert lifecycle", () => {
           "app/routes/home.tsx",
         ]);
 
-        // ── 2. UNDO — the optimistic node comes back out ───────────────────
         const undoneInsert = undoStack.pop()!;
         redoStack.push(undoneInsert);
         await page.evaluate((requestId: string) => {
@@ -854,16 +827,12 @@ describe("live insert lifecycle", () => {
         expect(queue()).toHaveLength(0);
         expect([undoStack.length, redoStack.length]).toEqual([0, 1]);
 
-        // ── 3. REDO — must re-issue the INSERT, not a move ─────────────────
         const redoCommand = pendingStructureRedoCommand(undoneInsert.edit);
         expect(redoCommand).toEqual({
           kind: "insert",
           html: insertEdit.insertedHtml,
         });
         if (redoCommand.kind !== "insert") throw new Error("unreachable");
-        // What the move command redo used to send: the subject is gone, so the
-        // bridge answers nothing and the redo reports success over an empty
-        // document. Proves the command choice, not just its label, matters.
         await page.evaluate(
           ([subjectSelector, anchorSelector]) => {
             window.postMessage(
@@ -906,7 +875,6 @@ describe("live insert lifecycle", () => {
         expect(queue()).toHaveLength(1);
         expect([undoStack.length, redoStack.length]).toEqual([1, 0]);
 
-        // ── 4. DELETE — the pending insertion must not survive it ──────────
         await page.evaluate((selector: string) => {
           window.postMessage(
             {
@@ -935,12 +903,9 @@ describe("live insert lifecycle", () => {
           updatedAt: Date.now() + 1,
         };
         record(removalEdit);
-        // Insert + delete nets to zero in source: nothing to hand off, and
-        // nothing that can put the node back.
         expect(queue()).toHaveLength(0);
         expect([undoStack.length, redoStack.length]).toEqual([2, 0]);
 
-        // ── 5. APPLY — the handoff carries no resurrection ────────────────
         const structureEdits = queue().filter(
           (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
         );
@@ -953,7 +918,6 @@ describe("live insert lifecycle", () => {
           }),
         ).not.toContain("primitive-1");
 
-        // ── 6. UNDO the delete — history survived the supersede ───────────
         const undoneRemoval = undoStack.pop()!;
         redoStack.push(undoneRemoval);
         await page.evaluate(() => {

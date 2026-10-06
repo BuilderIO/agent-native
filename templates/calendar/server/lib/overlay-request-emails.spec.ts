@@ -12,8 +12,6 @@ describe("renderOverlayRequestEmail", () => {
       appLink: APP_LINK,
     });
 
-    // The payload may still appear as inert text; what matters is that no
-    // tag is ever formed and the attribute quotes are neutralized.
     expect(rendered.html).not.toContain("<img src=x");
     expect(rendered.html).toContain("&lt;img");
     expect(rendered.html).not.toContain('onerror="');

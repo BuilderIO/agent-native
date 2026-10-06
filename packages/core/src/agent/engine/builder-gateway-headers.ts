@@ -22,10 +22,6 @@ export function getAgentNativeCorePackageVersion(): string {
   return cachedCoreVersion;
 }
 
-/**
- * Version string for `x-client-version`: npm version plus a short git SHA when
- * available from allowlisted deploy env vars.
- */
 export function getBuilderGatewayClientVersion(): string {
   const v = getAgentNativeCorePackageVersion();
   const sha =
@@ -35,7 +31,6 @@ export function getBuilderGatewayClientVersion(): string {
   return sha.length >= 7 ? `${v}+${sha.slice(0, 7)}` : v;
 }
 
-/** Stable request headers for Builder LLM gateway attribution in logs. */
 export function getBuilderGatewayRequestHeaders(): Record<string, string> {
   return {
     "x-client-name": "@agent-native/core",

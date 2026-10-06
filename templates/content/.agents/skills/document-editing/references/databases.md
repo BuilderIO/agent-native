@@ -42,11 +42,17 @@ summaries for the visible rows, plus row count and total row count, so agents
 can tell whether the user is looking at the full collection or a constrained
 slice and can refer to the same rows and cells the user can currently scan;
 for calendar and timeline views this summary is limited to rows in the
-current visible date window plus rows shown in the "No date" section. When
+current visible date window plus rows shown in the "No date" section. Each
+cell summary carries display `text` (cut at 200 characters with
+`textTruncated: true`) and carries `value` only when it differs from that
+text; read the row with `get-content-database` for full values. The row cap
+shrinks to keep the whole navigation state under 48 KB, and
+`databaseVisibleItemLimit` reports the cap actually applied. When
 footer calculations are active, navigation state also includes
 `databaseCalculationResults` with the visible result text for each calculated
 column. When table rows are selected, navigation state also includes
-`databaseSelectedItemCount` and `databaseSelectedItems`, and
+`databaseSelectedItemCount` and `databaseSelectedItems` (under the same
+row cap), and
 `view-screen.databaseCurrentView` mirrors that selected row summary.
 `view-screen` exposes the same slice as `databaseCurrentView` alongside the
 full collection payload. Its row property summaries should mirror the active
@@ -269,7 +275,7 @@ property definition.
 Use `create-content-database`, `create-inline-content-database`,
 `get-content-database`, `list-trashed-content-databases`,
 `restore-content-database`, `add-database-item`, `update-database-item`,
-`upsert-database-item-by-key`, `duplicate-database-item`,
+`patch-database-items`, `upsert-database-item-by-key`, `duplicate-database-item`,
 `duplicate-database-items`, `remove-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
@@ -304,7 +310,12 @@ its persisted revision, read the rows again and build a fresh plan.
 When targeting more than one collection row, call `duplicate-database-items` or
 `remove-database-items` once with a native JSON array of `itemIds` or
 `documentIds`. Do not loop `duplicate-database-item` or `delete-document` for
-multi-row duplicate or membership-removal requests. Removing a row from a
+multi-row duplicate or membership-removal requests. To give several existing
+rows different values, such as a distinct rank per row, call
+`patch-database-items` once with up to 250 rows, each carrying its own item ID,
+document ID, row revision, and sparse patch from the same fresh read. The batch
+writes every row or none; after a conflict, reread only the rows its error
+lists. Do not loop `update-database-item` for multi-row edits. Removing a row from a
 collection preserves its Page, descendants, other collection memberships, and
 unrelated property values.
 

@@ -1,12 +1,31 @@
-import {
-  AgentChatHome,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
 
 import { LocalCodebasePicker } from "@/components/plan/LocalCodebasePicker";
+import { Skeleton } from "@/components/ui/skeleton";
 import { schedulePlanRoutePrewarm } from "@/lib/route-prewarm";
+
+export function PlanChatSkeleton() {
+  return (
+    <div
+      className="flex h-full min-h-0 bg-background px-4 py-4"
+      aria-busy="true"
+    >
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-center justify-center gap-4">
+        <div className="flex w-full flex-col items-center gap-4">
+          <Skeleton className="h-10 w-64 max-w-full" />
+          <Skeleton className="h-9 w-44 rounded-md" />
+        </div>
+        <div className="mt-auto w-full rounded-2xl border border-border bg-card p-4">
+          <Skeleton className="mb-4 h-4 w-40 max-w-full" />
+          <Skeleton className="h-10 w-full rounded-lg" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function PlanChatPage() {
   const t = useT();
@@ -45,16 +64,11 @@ export function PlanChatPage() {
       composerLayoutVariant="hero"
       composerAreaClassName="plan-chat-composer-area"
       composerPlaceholder={t("chat.placeholder")}
-      composerSlot={
+      homeIntroSlot={
         <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-4 text-center">
-          <div className="space-y-2">
-            <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
-              {t("chat.heading")}
-            </h1>
-            <p className="mx-auto max-w-2xl text-sm leading-6 text-muted-foreground">
-              {t("chat.description")}
-            </p>
-          </div>
+          <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
+            {t("chat.heading")}
+          </h1>
           <LocalCodebasePicker />
         </div>
       }

@@ -1,3 +1,4 @@
+// guard:allow-unscoped — static skill prose mentions “update visual plan”; it contains no database query
 export const VISUAL_PLANS_SKILL_MD = `---
 name: visual-plan
 description: >-

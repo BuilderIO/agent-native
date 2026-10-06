@@ -6,7 +6,6 @@ import { slackAdapter } from "./slack.js";
 import { telegramAdapter } from "./telegram.js";
 import { whatsappAdapter } from "./whatsapp.js";
 
-/** Create the built-in adapter for proactive delivery outside a webhook run. */
 export function getDefaultAdapter(
   platform: string,
 ): PlatformAdapter | undefined {

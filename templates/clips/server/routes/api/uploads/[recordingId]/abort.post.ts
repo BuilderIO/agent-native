@@ -1,10 +1,3 @@
-/**
- * Abort an in-flight recording upload. Clears any stashed chunks and marks
- * the recording row as failed so the UI can reflect the state.
- *
- * Route: POST /api/uploads/:recordingId/abort
- */
-
 import {
   compareAndSetManyAppState,
   readAppState,
@@ -119,15 +112,21 @@ export async function handleAbortRecordingUpload(
     "Recording cancelled during countdown",
     "Upload cancelled",
   ]);
-  const normalizedFailureCode = !reasonText
-    ? "unknown"
-    : requestedFailureCode === "unknown" &&
-        legacyCancellationReasons.has(reasonText)
-      ? "user_cancelled"
-      : requestedFailureCode;
+  const legacyInterruptionReasons = new Set([
+    "Recording interruption has unknown cause",
+    "The recorder page closed before the recording finished saving.",
+  ]);
+  const normalizedFailureCode =
+    requestedFailureCode !== "unknown"
+      ? requestedFailureCode
+      : legacyCancellationReasons.has(reasonText)
+        ? "user_cancelled"
+        : legacyInterruptionReasons.has(reasonText)
+          ? "recording_interrupted"
+          : "upload_aborted";
   const failureCode =
     (normalizedFailureCode === "upload_failed" ||
-      normalizedFailureCode === "unknown") &&
+      normalizedFailureCode === "upload_aborted") &&
     isHtmlFailure
       ? "chunk_html_error"
       : normalizedFailureCode;
@@ -541,10 +540,6 @@ export async function handleAbortRecordingUpload(
       );
     }
 
-    // Reset may have created a new provider session between our preflight
-    // read and the attempt-fenced abort claim. Re-read the claimed generation
-    // so cancellation cleans up that replacement session instead of leaving it
-    // active after the client has gone idle.
     if (!preserveRecoveryState) {
       resumableSession = await getResumableSession(
         recordingId,
@@ -582,9 +577,6 @@ export async function handleAbortRecordingUpload(
             err instanceof Error ? err.message : String(err),
           );
         }
-        // Keep the provider handle when cleanup fails so a later abort/cleanup
-        // retry can still address the multipart upload. Deleting it here would
-        // permanently orphan the provider-side session.
         if (providerCleanupSucceeded) {
           await deleteResumableSession(recordingId, abortedGenerationId).catch(
             () => {},

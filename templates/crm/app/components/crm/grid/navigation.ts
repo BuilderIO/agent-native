@@ -1,18 +1,10 @@
-/**
- * The grid's keyboard model, kept out of React so it can be tested without a
- * DOM. `resolveGridKey` maps one keydown to one intent; the component only
- * decides what to do with the intent.
- */
-
 export interface CellRef {
   row: number;
   col: number;
 }
 
 export interface GridSelection {
-  /** Where the range started — fixed while Shift extends it. */
   anchor: CellRef;
-  /** The active cell; arrows move it. */
   focus: CellRef;
 }
 
@@ -51,10 +43,6 @@ const ARROWS: Record<string, GridDirection> = {
   ArrowRight: "right",
 };
 
-/**
- * One printable character starts an edit. `event.key.length === 1` is the
- * reliable test — checking key codes or ranges misses every non-Latin keyboard.
- */
 function isPrintable(event: GridKeyEvent): boolean {
   return (
     event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey
@@ -75,7 +63,6 @@ export function resolveGridKey(
     if (event.key === "Tab") {
       return { type: "commit", direction: event.shiftKey ? "left" : "right" };
     }
-    // Everything else belongs to the editor input, not the grid.
     return null;
   }
 
@@ -178,10 +165,6 @@ export function isInRange(range: GridRange, ref: CellRef): boolean {
   );
 }
 
-/**
- * Apply a movement intent to a selection. `extend` keeps the anchor so
- * Shift+arrow grows the range; a plain move collapses it to one cell.
- */
 export function applyMove(
   selection: GridSelection,
   next: CellRef,
@@ -192,11 +175,6 @@ export function applyMove(
     : { anchor: next, focus: next };
 }
 
-/**
- * Where a pasted rectangle lands. A single-cell selection anchors the paste at
- * that cell; a range clamps the paste to the range so a stray large clipboard
- * cannot overwrite rows the user never selected.
- */
 export function pasteTargets(input: {
   selection: GridSelection;
   bounds: GridBounds;

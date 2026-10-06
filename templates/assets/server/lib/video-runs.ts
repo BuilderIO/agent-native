@@ -22,7 +22,6 @@ import {
 
 type VideoRunDb = Pick<ReturnType<typeof getDb>, "select" | "update">;
 
-// Builder start can occupy three 45-second attempts; don't recover a fresh marker mid-request.
 const VIDEO_START_RECOVERY_DELAY_MS = 3 * 60 * 1000;
 
 type VideoRunResult =

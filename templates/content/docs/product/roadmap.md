@@ -30,9 +30,9 @@ Pages, Blocks, Collections, Search, history, and recovery form one trustworthy m
 
 **Example workflow:** A teammate creates a project brief, turns its action items into Collection records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context.
 
-**What works today:** Content has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. Page saves and external edits use revision and retry identities, while editor recovery fences delayed stale drafts after confirmed saves.
+**What works today:** Content has SQL-backed Pages, rich Blocks, Collections, Search, document snapshots, and a broad agent Action surface. Page saves and external edits use revision and retry identities, while editor recovery fences delayed stale drafts after confirmed saves. An early local pass of the current save-session repair preserved independent two-tab and browser/MCP edits with canonical read-back.
 
-**What remains:** Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need to become one polished foundation; the new Page recovery contract still needs deployed multi-client validation.
+**What remains:** The September 23 hosted beta two-tab pass still lost later independent edits and opened version-choice recovery. The current repair needs full local R01–R08 and authenticated repaired-beta acceptance. Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity also remain incomplete.
 
 **What this Feature includes:**
 
@@ -161,9 +161,9 @@ Comments, Discussion, messages, notifications, and history stay anchored to the 
 
 **Example workflow:** A teammate comments on an unclear paragraph, discusses the larger issue in the Page's Discussion, links the conversation to Slack, and returns later to see the Comment, replies, and resulting changes together.
 
-**What works today:** Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, document history, and revision-aware Page collaboration. Browser and external edits to independent regions reconcile through one canonical body without routine version-choice interruption.
+**What works today:** Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, document history, and revision-aware Page collaboration. An early local pass of the current save-session repair preserved independent two-tab and browser/MCP edits with canonical read-back and an idempotent replay receipt.
 
-**What remains:** Every Page and Collection needs its universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, clearly attributable message revisions, and deployed proof of the editor's recovery ordering across multiple clients.
+**What remains:** The deployed September 23 two-tab beta pass failed with missing independent edits and a version-choice dialog; the current repair still needs full local R01–R08 and authenticated repaired-beta acceptance. Every Page and Collection also needs universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions.
 
 **What this Feature includes:**
 

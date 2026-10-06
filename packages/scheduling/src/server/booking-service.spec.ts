@@ -3,16 +3,28 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { closeDbExec, createGetDb, getDbExec } from "@agent-native/core/db";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as schema from "../schema/index.js";
 import type { EventType } from "../shared/index.js";
 import { SlotConflictError } from "./availability-engine.js";
-import { createBooking, rescheduleBooking } from "./booking-service.js";
+import {
+  cancelBooking,
+  createBooking,
+  rescheduleBooking,
+} from "./booking-service.js";
 import { getBookingByUid, insertBooking } from "./bookings-repo.js";
 import { setSchedulingContext } from "./context.js";
-import { registerCalendarProvider } from "./providers/registry.js";
-import type { CalendarProvider } from "./providers/types.js";
+import {
+  onBookingCreated,
+  onBookingNoShow,
+  onBookingRescheduled,
+} from "./hooks.js";
+import {
+  registerCalendarProvider,
+  registerVideoProvider,
+} from "./providers/registry.js";
+import type { CalendarProvider, VideoProvider } from "./providers/types.js";
 
 const HOST_EMAIL = "host@example.com";
 const ATTENDEE_EMAIL = "attendee@example.com";
@@ -33,6 +45,9 @@ async function execute(statement: SqlStatement) {
   });
 }
 const GUEST_EMAIL = "guest@example.com";
+const createZoomMeetingMock = vi.fn<VideoProvider["createMeeting"]>();
+const deleteZoomMeetingMock =
+  vi.fn<NonNullable<VideoProvider["deleteMeeting"]>>();
 
 let dbDir: string;
 
@@ -85,6 +100,17 @@ function makeCalendarProvider(
 }
 
 beforeEach(async () => {
+  createZoomMeetingMock.mockReset().mockResolvedValue({
+    meetingUrl: "https://zoom.us/j/123456789",
+    meetingId: "zoom-meeting-1",
+  });
+  deleteZoomMeetingMock.mockReset().mockResolvedValue();
+  registerVideoProvider({
+    kind: "zoom_video",
+    label: "Test Zoom",
+    createMeeting: createZoomMeetingMock,
+    deleteMeeting: deleteZoomMeetingMock,
+  });
   dbDir = mkdtempSync(join(tmpdir(), "scheduling-booking-test-"));
   process.env.DATABASE_URL = `pglite:${dbDir}`;
   await execute(`
@@ -198,6 +224,34 @@ beforeEach(async () => {
     );
   `);
   await execute(`
+    CREATE TABLE workflow_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      notified_at TEXT
+    );
+  `);
+  await execute(`
+    CREATE TABLE workflow_steps (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      "order" INTEGER NOT NULL DEFAULT 0,
+      action TEXT NOT NULL,
+      offset_minutes INTEGER NOT NULL DEFAULT 0,
+      send_to TEXT,
+      email_subject TEXT,
+      email_body TEXT,
+      sms_body TEXT,
+      webhook_url TEXT,
+      template TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+  await execute(`
     CREATE TABLE webhooks (
       id TEXT PRIMARY KEY,
       name TEXT,
@@ -212,6 +266,33 @@ beforeEach(async () => {
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
+    );
+  `);
+  await execute(`
+    CREATE TABLE webhook_deliveries (
+      id TEXT PRIMARY KEY,
+      webhook_id TEXT NOT NULL,
+      triggered_at TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      response_status INTEGER,
+      response_body TEXT,
+      success BOOLEAN NOT NULL DEFAULT false,
+      attempts INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  await execute(`
+    CREATE TABLE scheduled_reminders (
+      id TEXT PRIMARY KEY,
+      booking_id TEXT NOT NULL,
+      workflow_step_id TEXT NOT NULL,
+      method TEXT NOT NULL,
+      scheduled_for TEXT NOT NULL,
+      sent BOOLEAN NOT NULL DEFAULT false,
+      sent_at TEXT,
+      failed BOOLEAN NOT NULL DEFAULT false,
+      failure_reason TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
     );
   `);
   await execute(`
@@ -269,7 +350,6 @@ afterEach(async () => {
   rmSync(dbDir, { recursive: true, force: true });
 });
 
-/** `rescheduleBooking` re-loads the event type by id, so it must exist. */
 async function seedEventType(eventType: EventType): Promise<void> {
   await execute({
     sql: `INSERT INTO event_types (
@@ -319,7 +399,7 @@ async function seedEventType(eventType: EventType): Promise<void> {
       eventType.createdAt,
       eventType.updatedAt,
       eventType.ownerEmail ?? "local@localhost",
-      null,
+      eventType.orgId ?? null,
       "private",
     ],
   });
@@ -369,9 +449,6 @@ describe("insertBooking", () => {
         timezone: "UTC",
         attendees: [
           { email: ATTENDEE_EMAIL, name: "Attendee One" },
-          // A null email violates the NOT NULL constraint after the first
-          // attendee (and the booking row) have already been written —
-          // proving the whole write is one atomic unit.
           { email: null as unknown as string, name: "Bad Attendee" },
         ],
         ownerEmail: HOST_EMAIL,
@@ -387,7 +464,419 @@ describe("insertBooking", () => {
   });
 });
 
+describe("booking webhook dispatch", () => {
+  it("runs private workflows scoped to the booking team", async () => {
+    const now = new Date().toISOString();
+    await execute({
+      sql: `INSERT INTO workflows (
+        id, name, trigger, team_id, disabled, active_on_event_type_ids,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-team-private",
+        "Team booking workflow",
+        "new-booking",
+        "team-b",
+        false,
+        '["event-type-1"]',
+        now,
+        now,
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflow_steps (
+        id, workflow_id, action, offset_minutes, created_at
+      ) VALUES (?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-step-team",
+        "workflow-team-private",
+        "email-host",
+        0,
+        now,
+      ],
+    });
+
+    await createBooking({
+      eventType: makeEventType({
+        schedulingType: "round-robin",
+        teamId: "team-b",
+        orgId: "org-b",
+      }),
+      hostEmail: "team-host@example.com",
+      startTime: "2026-08-03T11:00:00.000Z",
+      endTime: "2026-08-03T11:30:00.000Z",
+      timezone: "UTC",
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    const { rows } = await execute(
+      "SELECT workflow_step_id FROM scheduled_reminders",
+    );
+    expect(rows.map((row) => row.workflow_step_id)).toEqual([
+      "workflow-step-team",
+    ]);
+  });
+
+  it("excludes another member's private webhook but preserves org-visible webhooks", async () => {
+    const now = new Date().toISOString();
+    const eventTypes = JSON.stringify(["event-type-1"]);
+    await execute({
+      sql: `INSERT INTO workflows (
+        id, name, trigger, disabled, active_on_event_type_ids,
+        created_at, updated_at, owner_email, org_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-user-a",
+        "Booking workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-a@example.com",
+        "org-a",
+        "workflow-user-b",
+        "Booking workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflow_steps (
+        id, workflow_id, action, offset_minutes, created_at
+      ) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-step-user-a",
+        "workflow-user-a",
+        "email-host",
+        0,
+        now,
+        "workflow-step-user-b",
+        "workflow-user-b",
+        "email-host",
+        0,
+        now,
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO webhooks (
+        id, subscriber_url, event_triggers, created_at, updated_at,
+        owner_email, org_id, visibility
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?),
+        (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "webhook-user-a-private",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "private",
+        "webhook-user-a-org",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "org",
+        "webhook-user-b",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+        "private",
+      ],
+    });
+
+    const booking = await insertBooking({
+      eventTypeId: "event-type-1",
+      hostEmail: "user-b@example.com",
+      ownerEmail: "user-b@example.com",
+      orgId: "org-b",
+      title: "Private booking",
+      startTime: "2026-08-03T10:00:00.000Z",
+      endTime: "2026-08-03T10:30:00.000Z",
+      timezone: "UTC",
+      attendees: [{ email: ATTENDEE_EMAIL, name: "Attendee One" }],
+    });
+    expect(booking.cancelToken).toBeTruthy();
+    expect(booking.rescheduleToken).toBeTruthy();
+
+    await onBookingCreated(booking);
+
+    const { rows } = await execute(
+      "SELECT webhook_id FROM webhook_deliveries ORDER BY webhook_id",
+    );
+    expect(rows.map((row) => row.webhook_id)).toEqual([
+      "webhook-user-a-org",
+      "webhook-user-b",
+    ]);
+    const { rows: deliveries } = await execute(
+      "SELECT payload FROM webhook_deliveries",
+    );
+    for (const delivery of deliveries) {
+      const payload = JSON.parse(String(delivery.payload));
+      expect(payload.booking).not.toHaveProperty("cancelToken");
+      expect(payload.booking).not.toHaveProperty("rescheduleToken");
+    }
+    const { rows: reminders } = await execute(
+      "SELECT workflow_step_id FROM scheduled_reminders ORDER BY workflow_step_id",
+    );
+    expect(reminders.map((row) => row.workflow_step_id)).toEqual([
+      "workflow-step-user-b",
+    ]);
+  });
+
+  it("keeps team scope when a persisted booking is rescheduled", async () => {
+    const now = new Date().toISOString();
+    const eventType = makeEventType({
+      id: "team-event",
+      orgId: "org-b",
+      teamId: "team-b",
+    });
+    await seedEventType(eventType);
+    await execute({
+      sql: `INSERT INTO webhooks (
+        id, subscriber_url, event_triggers, created_at, updated_at,
+        owner_email, org_id, visibility, team_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "team-webhook",
+        "https://example.test/webhook",
+        '["BOOKING_RESCHEDULED","BOOKING_NO_SHOW"]',
+        now,
+        now,
+        "team-owner@example.com",
+        "org-b",
+        "org",
+        "team-b",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflows (
+        id, name, trigger, disabled, active_on_event_type_ids,
+        created_at, updated_at, owner_email, org_id, team_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "team-no-show-workflow",
+        "Team no-show workflow",
+        "no-show",
+        false,
+        '["team-event"]',
+        now,
+        now,
+        "team-owner@example.com",
+        "org-b",
+        "team-b",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflow_steps (
+        id, workflow_id, action, offset_minutes, created_at
+      ) VALUES (?, ?, ?, ?, ?)`,
+      args: [
+        "team-no-show-step",
+        "team-no-show-workflow",
+        "email-host",
+        0,
+        now,
+      ],
+    });
+    const created = await createBooking({
+      eventType,
+      hostEmail: "user-b@example.com",
+      startTime: "2026-08-03T10:00:00.000Z",
+      endTime: "2026-08-03T10:30:00.000Z",
+      timezone: "UTC",
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+    const persisted = await getBookingByUid(created.uid);
+
+    expect(created.teamId).toBe("team-b");
+    expect(persisted?.teamId).toBeUndefined();
+    await onBookingRescheduled(persisted!, created);
+    await onBookingNoShow(persisted!);
+
+    const { rows } = await execute("SELECT webhook_id FROM webhook_deliveries");
+    expect(rows.map((row) => row.webhook_id)).toEqual([
+      "team-webhook",
+      "team-webhook",
+    ]);
+    const { rows: reminders } = await execute(
+      "SELECT workflow_step_id FROM scheduled_reminders",
+    );
+    expect(reminders.map((row) => row.workflow_step_id)).toEqual([
+      "team-no-show-step",
+    ]);
+  });
+
+  it("keeps a booking in its event type org and excludes another member's private hooks", async () => {
+    const now = new Date().toISOString();
+    const eventTypes = JSON.stringify(["event-type-1"]);
+    await execute({
+      sql: `INSERT INTO workflows (
+        id, name, trigger, disabled, active_on_event_type_ids,
+        created_at, updated_at, owner_email, org_id, visibility
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?),
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-user-a-private",
+        "Private workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "private",
+        "workflow-user-a-org",
+        "Org workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "org",
+        "workflow-user-b",
+        "User B workflow",
+        "new-booking",
+        false,
+        eventTypes,
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+        "private",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO workflow_steps (
+        id, workflow_id, action, offset_minutes, created_at
+      ) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)`,
+      args: [
+        "workflow-step-user-a-private",
+        "workflow-user-a-private",
+        "email-host",
+        0,
+        now,
+        "workflow-step-user-a-org",
+        "workflow-user-a-org",
+        "email-host",
+        0,
+        now,
+        "workflow-step-user-b",
+        "workflow-user-b",
+        "email-host",
+        0,
+        now,
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO webhooks (
+        id, subscriber_url, event_triggers, created_at, updated_at,
+        owner_email, org_id, visibility
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?),
+        (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "webhook-user-a-private",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-a@example.com",
+        "org-b",
+        "private",
+        "webhook-user-a-other-org",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-a@example.com",
+        "org-a",
+        "org",
+        "webhook-user-b",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+        "private",
+      ],
+    });
+    await execute({
+      sql: `INSERT INTO webhooks (
+        id, subscriber_url, event_triggers, created_at, updated_at,
+        owner_email, org_id, visibility, team_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "webhook-user-b-other-team",
+        "https://example.test/webhook",
+        '["BOOKING_CREATED"]',
+        now,
+        now,
+        "user-b@example.com",
+        "org-b",
+        "private",
+        "team-a",
+      ],
+    });
+
+    await createBooking({
+      eventType: makeEventType({ orgId: "org-b", teamId: "team-b" }),
+      orgId: "org-b",
+      hostEmail: "user-b@example.com",
+      startTime: "2026-08-03T10:00:00.000Z",
+      endTime: "2026-08-03T10:30:00.000Z",
+      timezone: "UTC",
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    const { rows: bookingRows } = await execute(
+      "SELECT org_id FROM bookings WHERE host_email = 'user-b@example.com'",
+    );
+    expect(bookingRows.map((row) => row.org_id)).toEqual(["org-b"]);
+    const { rows: deliveries } = await execute(
+      "SELECT webhook_id FROM webhook_deliveries ORDER BY webhook_id",
+    );
+    expect(deliveries.map((row) => row.webhook_id)).toEqual(["webhook-user-b"]);
+    const { rows: reminders } = await execute(
+      "SELECT workflow_step_id FROM scheduled_reminders ORDER BY workflow_step_id",
+    );
+    expect(reminders.map((row) => row.workflow_step_id)).toEqual([
+      "workflow-step-user-a-org",
+      "workflow-step-user-b",
+    ]);
+  });
+});
+
 describe("createBooking", () => {
+  it("rejects a legacy org id absent from the event type", async () => {
+    await expect(
+      createBooking({
+        eventType: makeEventType(),
+        orgId: "org-b",
+        hostEmail: HOST_EMAIL,
+        startTime: "2026-08-03T10:00:00.000Z",
+        endTime: "2026-08-03T10:30:00.000Z",
+        timezone: "UTC",
+        attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+      }),
+    ).rejects.toThrow("Booking orgId must match the event type organization");
+  });
+
   it("creates a booking with attendees and references on a free slot", async () => {
     const now = new Date().toISOString();
     await execute({
@@ -463,8 +952,6 @@ describe("createBooking", () => {
       attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
     });
 
-    // Starts exactly when the first booking ends, so the raw windows don't
-    // overlap — only the buffered event type's 15-minute lead-in collides.
     const bufferedEventType = makeEventType({
       id: "event-type-buffered",
       beforeEventBuffer: 15,
@@ -482,9 +969,6 @@ describe("createBooking", () => {
   });
 
   it("allows an out-of-availability free slot once the conflicting booking is cancelled", async () => {
-    // Sanity check that the conflict guard is scoped to the requested
-    // window, not a blanket rejection — a later, non-overlapping slot for
-    // the same host must still succeed.
     const eventType = makeEventType();
     await createBooking({
       eventType,
@@ -520,9 +1004,6 @@ describe("rescheduleBooking", () => {
       attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
     });
 
-    // Reschedule to an overlapping-but-shifted slot; if the original
-    // booking's own busy interval weren't excluded, this would always
-    // conflict with itself.
     const rescheduled = await rescheduleBooking({
       uid: original.uid,
       newStartTime: "2026-08-08T10:15:00.000Z",
@@ -561,10 +1042,180 @@ describe("rescheduleBooking", () => {
       }),
     ).rejects.toBeInstanceOf(SlotConflictError);
 
-    // The original booking must stay intact after a failed reschedule
-    // attempt — it should never be left marked "rescheduled" with no
-    // successor.
     const stillOriginal = await getBookingByUid(original.uid);
     expect(stillOriginal?.status).toBe("confirmed");
+  });
+
+  it("deletes the old Zoom meeting before releasing the original slot", async () => {
+    const eventType = makeEventType();
+    await seedEventType(eventType);
+    const original = await createBooking({
+      eventType,
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-10T10:00:00.000Z",
+      endTime: "2026-08-10T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    await rescheduleBooking({
+      uid: original.uid,
+      newStartTime: "2026-08-10T11:00:00.000Z",
+      newEndTime: "2026-08-10T11:30:00.000Z",
+    });
+
+    expect(deleteZoomMeetingMock).toHaveBeenCalledWith({
+      credentialId: "zoom-account",
+      meetingId: "zoom-meeting-1",
+    });
+    expect((await getBookingByUid(original.uid))?.status).toBe("rescheduled");
+  });
+
+  it("keeps the original active when the replacement Zoom meeting is missing", async () => {
+    const eventType = makeEventType();
+    await seedEventType(eventType);
+    const original = await createBooking({
+      eventType,
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-10T10:00:00.000Z",
+      endTime: "2026-08-10T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+    createZoomMeetingMock.mockRejectedValueOnce(
+      new Error("Zoom creation failed"),
+    );
+    deleteZoomMeetingMock.mockRejectedValueOnce(
+      new Error("old meeting must not be touched"),
+    );
+
+    await expect(
+      rescheduleBooking({
+        uid: original.uid,
+        newStartTime: "2026-08-10T11:00:00.000Z",
+        newEndTime: "2026-08-10T11:30:00.000Z",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      errorCode: "video_meeting_creation_failed",
+    });
+
+    expect(deleteZoomMeetingMock).not.toHaveBeenCalled();
+    expect((await getBookingByUid(original.uid))?.status).toBe("confirmed");
+    const { rows } = await execute({
+      sql: "SELECT uid, status FROM bookings WHERE from_reschedule = ?",
+      args: [original.uid],
+    });
+    expect(rows).toHaveLength(1);
+    const replacement = await getBookingByUid(String(rows[0]!.uid));
+    expect(replacement).toMatchObject({ status: "confirmed", references: [] });
+    await expect(cancelBooking({ uid: replacement!.uid })).rejects.toThrow(
+      /Zoom meeting needs host review/i,
+    );
+  });
+
+  it("keeps the original slot confirmed when old Zoom cleanup fails", async () => {
+    const eventType = makeEventType();
+    await seedEventType(eventType);
+    const original = await createBooking({
+      eventType,
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-11T10:00:00.000Z",
+      endTime: "2026-08-11T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+    deleteZoomMeetingMock.mockRejectedValueOnce(
+      new Error("Zoom is unavailable"),
+    );
+
+    await expect(
+      rescheduleBooking({
+        uid: original.uid,
+        newStartTime: "2026-08-11T11:00:00.000Z",
+        newEndTime: "2026-08-11T11:30:00.000Z",
+      }),
+    ).rejects.toThrow("Zoom is unavailable");
+    expect((await getBookingByUid(original.uid))?.status).toBe("confirmed");
+    const { rows } = await execute("SELECT status FROM bookings");
+    expect(rows.map((row: any) => row.status).sort()).toEqual([
+      "cancelled",
+      "confirmed",
+    ]);
+    expect(deleteZoomMeetingMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires host resolution before rescheduling an unrecorded Zoom meeting", async () => {
+    const eventType = makeEventType();
+    await seedEventType(eventType);
+    createZoomMeetingMock.mockRejectedValueOnce(
+      new Error("ambiguous Zoom failure"),
+    );
+    const original = await createBooking({
+      eventType,
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-12T10:00:00.000Z",
+      endTime: "2026-08-12T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    await expect(
+      rescheduleBooking({
+        uid: original.uid,
+        newStartTime: "2026-08-12T11:00:00.000Z",
+        newEndTime: "2026-08-12T11:30:00.000Z",
+      }),
+    ).rejects.toThrow(/Zoom meeting needs host review/i);
+    expect((await getBookingByUid(original.uid))?.status).toBe("confirmed");
+  });
+});
+
+describe("cancelBooking", () => {
+  it("keeps the slot confirmed when Zoom deletion fails", async () => {
+    const booking = await createBooking({
+      eventType: makeEventType(),
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-13T10:00:00.000Z",
+      endTime: "2026-08-13T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+    deleteZoomMeetingMock.mockRejectedValueOnce(
+      new Error("Zoom is unavailable"),
+    );
+
+    await expect(cancelBooking({ uid: booking.uid })).rejects.toThrow(
+      "Zoom is unavailable",
+    );
+    expect((await getBookingByUid(booking.uid))?.status).toBe("confirmed");
+  });
+
+  it("requires host resolution before canceling an unrecorded Zoom meeting", async () => {
+    createZoomMeetingMock.mockRejectedValueOnce(
+      new Error("ambiguous Zoom failure"),
+    );
+    const booking = await createBooking({
+      eventType: makeEventType(),
+      hostEmail: HOST_EMAIL,
+      startTime: "2026-08-14T10:00:00.000Z",
+      endTime: "2026-08-14T10:30:00.000Z",
+      timezone: "UTC",
+      location: { kind: "zoom", credentialId: "zoom-account" },
+      attendee: { email: ATTENDEE_EMAIL, name: "Attendee One" },
+    });
+
+    await expect(cancelBooking({ uid: booking.uid })).rejects.toThrow(
+      /Zoom meeting needs host review/i,
+    );
+    expect((await getBookingByUid(booking.uid))?.status).toBe("confirmed");
+
+    await cancelBooking({ uid: booking.uid, zoomMeetingResolved: true });
+    expect((await getBookingByUid(booking.uid))?.status).toBe("cancelled");
   });
 });

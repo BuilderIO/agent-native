@@ -25,10 +25,6 @@ function normalizeWorkspaceAppRoute(path: string): string | null {
   }
 }
 
-/**
- * Report an app-local route to its immediate embedding host. The host checks
- * the iframe source and origin before applying the route to its own URL.
- */
 export function postAgentNativeWorkspaceAppRoute(path: string): boolean {
   if (typeof window === "undefined") return false;
   const parentWindow = window.parent;

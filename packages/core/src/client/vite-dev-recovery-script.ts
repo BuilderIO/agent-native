@@ -2,14 +2,8 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { ROUTE_WARMUP_PRELOAD_ATTRIBUTE } from "../shared/route-chunk-recovery-bootstrap.js";
 
-/**
- * Synchronous dev-only browser recovery for Vite optimized-dependency races.
- *
- * Keep this script dependency-free and non-module-safe: React Router SSR roots
- * inline it before `<Scripts />`, and the Vite plugin injects it at
- * `head-prepend` for HTML that does pass through transformIndexHtml.
- */
 export function getViteDevRecoveryScript(): string {
   const embedModeParam = JSON.stringify(EMBED_MODE_QUERY_PARAM);
   const embedTokenParam = JSON.stringify(EMBED_TOKEN_QUERY_PARAM);
@@ -27,6 +21,8 @@ export function getViteDevRecoveryScript(): string {
   window[INSTALL_KEY] = true;
 
   var RELOAD_KEY = "__an_optimize_reload";
+  var RELOAD_HISTORY_PARAM = "__an_vite_dev_recovery";
+  var routeWarmupAttribute = ${JSON.stringify(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)};
   var MAX_RELOADS = 3;
   var MIN_RELOAD_INTERVAL_MS = 2000;
   var RESET_AFTER_MS = 8000;
@@ -38,24 +34,70 @@ export function getViteDevRecoveryScript(): string {
   // in a short window, stop and show a manual-refresh message instead of
   // looping forever.
   function readReloadHistory() {
+    var cutoff = Date.now() - 30000;
+    var history = [];
     try {
       var raw = sessionStorage.getItem(RELOAD_KEY);
-      if (!raw) return [];
-      var arr = JSON.parse(raw);
-      var cutoff = Date.now() - 30000;
-      return Array.isArray(arr) ? arr.filter(function(t) { return t > cutoff; }) : [];
-    } catch (e) { return []; }
+      var arr = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(arr)) {
+        history = arr.filter(function(t) {
+          return typeof t === "number" && Number.isFinite(t) && t > cutoff;
+        });
+      }
+    } catch (e) {
+      // coercion-ok: blocked or corrupt storage falls back to the URL history marker.
+    }
+    var params = new URLSearchParams(window.location.search || "");
+    var encoded = params.get(RELOAD_HISTORY_PARAM);
+    if (encoded) {
+      encoded.split(".").forEach(function(value) {
+        var timestamp = Number.parseInt(value, 36);
+        if (Number.isSafeInteger(timestamp) && timestamp > cutoff) {
+          history.push(timestamp);
+        }
+      });
+    }
+    return history.filter(function(timestamp, index, values) {
+      return values.indexOf(timestamp) === index;
+    }).sort(function(a, b) { return a - b; });
+  }
+  function writeReloadHistory(history) {
+    var savedInSession = false;
+    try {
+      sessionStorage.setItem(RELOAD_KEY, JSON.stringify(history));
+      savedInSession = true;
+    } catch (e) {
+      // coercion-ok: blocked storage falls back to the URL history marker.
+    }
+    try {
+      var url = new URL(window.location.href);
+      if (history.length) {
+        url.searchParams.set(RELOAD_HISTORY_PARAM, history.map(function(timestamp) {
+          return timestamp.toString(36);
+        }).join("."));
+      } else {
+        url.searchParams.delete(RELOAD_HISTORY_PARAM);
+      }
+      window.history.replaceState(
+        window.history.state,
+        "",
+        url.pathname + url.search + url.hash,
+      );
+      return true;
+    } catch (error) {
+      console.warn("[agent-native] Could not persist Vite recovery history.", error);
+      return savedInSession;
+    }
   }
   function recordReload() {
-    try {
-      var history = readReloadHistory();
-      history.push(Date.now());
-      sessionStorage.setItem(RELOAD_KEY, JSON.stringify(history));
-    } catch (e) {}
+    var history = readReloadHistory();
+    history.push(Date.now());
+    return writeReloadHistory(history);
   }
   // Reset the counter after a stable period (page didn't fail again).
   setTimeout(function() {
     try { sessionStorage.removeItem(RELOAD_KEY); } catch (e) {}
+    writeReloadHistory([]);
   }, RESET_AFTER_MS);
 
   function showOverlay(title, subtitle) {
@@ -97,7 +139,13 @@ export function getViteDevRecoveryScript(): string {
       return;
     }
     console.log("[agent-native] Vite re-bundled deps (" + reason + "), reloading\\u2026");
-    recordReload();
+    if (!recordReload()) {
+      showOverlay(
+        "Dev server out of sync",
+        "Auto-reload could not track attempts. Refresh the page manually.",
+      );
+      return;
+    }
     // First reload is silent. One refresh almost always fixes it and the
     // overlay flash is more disruptive than the reload itself. Only show
     // the overlay starting on the second attempt, when something is clearly
@@ -156,18 +204,31 @@ export function getViteDevRecoveryScript(): string {
 
   function looksLikeViteDep(url) {
     if (!url) return false;
-    // Only treat same-origin URLs as Vite deps. Do not reload the page
-    // because some third-party CDN script 404'd.
+    // Generic resource errors are ambiguous for app route modules; only Vite's
+    // transformed module URLs are safe evidence of an optimizer failure.
     try {
       var u = new URL(url, window.location.href);
       if (u.origin !== window.location.origin) return false;
     } catch (e) { return false; }
     return url.indexOf("/node_modules/.vite/deps/") !== -1
         || url.indexOf("/@fs/") !== -1
-        || url.indexOf("/@id/") !== -1
-        || url.indexOf("?v=") !== -1
-        || url.indexOf("?import") !== -1
-        || /\\.(m?js|ts|tsx|jsx)(\\?|$)/.test(url);
+        || url.indexOf("/@id/") !== -1;
+  }
+
+  function looksLikeLocalViteModule(url, target) {
+    if (!url || !target) return false;
+    var hostname = window.location.hostname;
+    var localDevHost = hostname === "localhost"
+        || hostname.endsWith(".localhost")
+        || /^127(?:\\.\\d{1,3}){3}$/.test(hostname)
+        || hostname === "::1"
+        || hostname === "[::1]";
+    if (!localDevHost) return false;
+    if (url.indexOf(window.location.origin + "/") !== 0) return false;
+    if (target.tagName === "SCRIPT") return String(target.type || "").toLowerCase() === "module";
+    return target.tagName === "LINK"
+        && !(target.hasAttribute && target.hasAttribute(routeWarmupAttribute))
+        && /(?:^|\\s)modulepreload(?:\\s|$)/i.test(target.rel || "");
   }
 
   // 1) <script type="module"> / <link> 504. These fire on the element, not
@@ -184,7 +245,7 @@ export function getViteDevRecoveryScript(): string {
     var tag = t.tagName;
     if (tag !== "SCRIPT" && tag !== "LINK") return;
     var url = t.src || t.href || "";
-    if (looksLikeViteDep(url)) {
+    if (looksLikeViteDep(url) || looksLikeLocalViteModule(url, t)) {
       var name = url.split("/").pop();
       scheduleReload("script 504: " + name);
     }

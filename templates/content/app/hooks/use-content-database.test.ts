@@ -15,6 +15,7 @@ import {
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseCreationRequest,
+  contentDatabaseItemsPageReadState,
   contentDatabaseResponseCanSeedQuery,
   contentDatabaseItemsPageQueryKey,
   contentDatabaseItemsContainingDocumentFilter,
@@ -211,6 +212,22 @@ describe("contentDatabaseConstrainedQueryFilter", () => {
   });
 });
 
+describe("current Content database table page", () => {
+  it("does not treat a previous view's placeholder rows as the requested result", () => {
+    const previousPage = { items: [{ document: { title: "Previous view" } }] };
+
+    expect(
+      contentDatabaseItemsPageReadState(previousPage, true, false),
+    ).toEqual({ page: undefined, failed: false, settled: false });
+    expect(contentDatabaseItemsPageReadState(previousPage, true, true)).toEqual(
+      { page: undefined, failed: true, settled: true },
+    );
+    expect(
+      contentDatabaseItemsPageReadState(previousPage, false, false),
+    ).toEqual({ page: previousPage, failed: false, settled: true });
+  });
+});
+
 describe("Content database navigation query invalidation", () => {
   it("matches navigation rows safely and invalidates only the affected database", () => {
     const queryClient = new QueryClient();
@@ -268,11 +285,6 @@ describe("isContentDatabaseByIdQueryEnabled", () => {
   });
 
   it("pauses fetching for a still-known databaseId instead of requiring the caller to null it out", () => {
-    // A caller that wants to briefly hold off refetching (e.g. a deferred
-    // sidebar read) must be able to do so by passing `enabled: false` while
-    // keeping the same databaseId — nulling databaseId out instead would move
-    // the query to its disabled, uncached key and read as empty rather than
-    // paused. See DocumentSidebar.tsx's useDeferredFilesDatabaseId.
     expect(
       isContentDatabaseByIdQueryEnabled("files-db", { enabled: false }),
     ).toBe(false);

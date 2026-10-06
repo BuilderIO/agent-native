@@ -7,7 +7,6 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 
-/** Grant expiry: 8 hours from mint time. */
 const GRANT_TTL_MS = 8 * 60 * 60 * 1000;
 
 export default defineAction({
@@ -44,8 +43,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // Fetch the connection to get rootPath and the real bridgeToken that the
-    // CLI registered when it started the bridge process.
     const [connection] = await db
       .select()
       .from(schema.designLocalhostConnections)
@@ -87,7 +84,6 @@ export default defineAction({
     const grantedUntil = new Date(now.getTime() + GRANT_TTL_MS).toISOString();
     const nowIso = now.toISOString();
 
-    // Upsert: if a grant already exists for this design+connection+user, replace it.
     const [existing] = await db
       .select({ id: schema.designLocalhostWriteGrants.id })
       .from(schema.designLocalhostWriteGrants)

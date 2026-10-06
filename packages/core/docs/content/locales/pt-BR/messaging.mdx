@@ -654,6 +654,20 @@ export default createIntegrationsPlugin({
 });
 ```
 
+`createIntegrationsPlugin()` aceita um objeto `IntegrationsPluginOptions` opcional. A opção `initialToolNames?: readonly string[]` seleciona os schemas das actions locais enviados na primeira requisição ao modelo. Quando omitida, todas as actions locais permanecem no conjunto inicial. O array fornecido é copiado sem modificar o array do chamador.
+
+Uma lista explicitamente vazia adia as actions locais até que `tool-search` as descubra. As ferramentas obrigatórias do framework continuam disponíveis desde o início. Esta configuração também desativa a delegação entre apps quando a implantação não tem um peer A2A:
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+O mesmo conjunto inicial de ferramentas se aplica ao processamento de webhooks, às tarefas na fila e ao polling do Google Docs. O registro completo de actions continua pesquisável. `callAgent: false` desativa de forma independente o registro da action integrada `call-agent`, mesmo que ela apareça em `initialToolNames`.
+
 Quais plataformas estão ativas dependem de quais variáveis ​​de ambiente estão definidas. O plugin registra rotas de webhook para cada uma delas em `/_agent-native/integrations/`.
 
 ### Webhook URLs {#webhook-urls}

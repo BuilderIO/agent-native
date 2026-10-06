@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
   getRequestUserEmail,
@@ -109,12 +109,6 @@ function contentPatchTargetId(patch: PlanContentPatch) {
   return null;
 }
 
-/**
- * Real block ids an agent content edit touched, for the plan-presence recent-edit
- * highlight (`{ kind: "paths", paths }`). Prefers per-patch targets; for a
- * whole-content or `replace-blocks` rewrite it falls back to the resulting
- * top-level block ids. Deduped, capped so the awareness payload stays small.
- */
 function affectedPlanBlockIds(
   patches: PlanContentPatch[],
   nextContent: PlanContent | null,
@@ -515,8 +509,6 @@ function compactAgentWriteResult(
   };
 }
 
-// Named so `agentInputSchema` below can `.extend()` it with compact
-// `content`/`contentPatches` fields instead of duplicating every other key.
 const updateVisualPlanSchema = z.object({
   planId: z.string().describe("Plan ID"),
   title: z.string().optional().describe("Plan title."),
@@ -595,9 +587,6 @@ const updateVisualPlanSchema = z.object({
     .describe("Short label saved as the version-history snapshot label."),
 });
 
-// ADVERTISED-ONLY: agent edits to an existing plan must stay incremental. The
-// runtime schema above still accepts full replacements for the browser editor
-// and explicit callers that have intentionally chosen that workflow.
 const agentUpdateVisualPlanSchema = updateVisualPlanSchema
   .omit({ content: true, html: true, markdown: true, sections: true })
   .extend({
@@ -614,6 +603,8 @@ export default defineAction({
   description:
     "Update an Agent-Native Plan's structured content blocks, prototype screens, visual fidelity, sections, comments, or status. For an existing plan, use small contentPatches such as append-block, update-rich-text, or a text patch; do not resend the full document for an incremental edit. When a user asks for higher fidelity on an existing plan, update that same plan in place: use set-visual-render-mode with design and provide polished screen HTML/CSS in the same call instead of creating a duplicate plan or only toggling the viewer-local clean style. Use a full replacement only for an explicit broad rebuild. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed - to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
   schema: updateVisualPlanSchema,
+  changeResource: (input) =>
+    input.planId ? { resourceType: "plan", resourceId: input.planId } : null,
   agentInputSchema: agentUpdateVisualPlanSchema,
   publicAgent: {
     expose: true,
@@ -638,9 +629,6 @@ export default defineAction({
   run: async (args, ctx) => {
     const requesterEmail = getRequestUserEmail();
     const requesterName = getRequestUserName();
-    // Only surface AI presence for genuine agent invocations (in-app tool loop /
-    // A2A → "tool"; external MCP agents → "mcp"). The browser editor autosaves
-    // through this same action as "frontend" and must NOT light the agent flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
     const onlyAddsNewComments =
@@ -669,17 +657,6 @@ export default defineAction({
         : requesterEmail;
 
     if (onlyReviewerCommentWork) {
-      // Commenting on a plan (including a public-link plan) requires an
-      // agent-native account. The two synthetic anonymous identities must NOT be
-      // able to comment — only a real account (or the local single-user identity
-      // in local mode) can:
-      //   - Anonymous public-link viewers (`public-*@agent-native.local`, minted
-      //     by resolvePublicPlanViewerOwner) can read a public plan but not
-      //     comment.
-      //   - Legacy hosted guest authors (`guest-*@agent-native.guest`) cannot
-      //     comment; create/update authoring now requires a real account.
-      // This keeps "anyone with the link can view; accounts can create, comment,
-      // and share".
       if (isAnonymousPublicViewer(requesterEmail)) {
         throw new ForbiddenError(
           "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
@@ -700,7 +677,12 @@ export default defineAction({
         args.planId,
         resolvePlanAccessContext(currentAccess()),
       );
-      if (!access) throw new Error(`Plan ${args.planId} not found`);
+      if (!access) {
+        fail(`Plan ${args.planId} not found`, {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
+      }
       if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
         throw new ForbiddenError(`Plan ${args.planId} not found`);
       }
@@ -746,20 +728,23 @@ export default defineAction({
         args.html !== undefined ? "html" : null,
         args.markdown !== undefined ? "markdown" : null,
       ].filter((field): field is string => Boolean(field));
-      throw new Error(
+      fail(
         `Structured plans do not accept explicit legacy ${legacyFields.join(" or ")} writes. Use granular contentPatches; the structured content's markdown projection is generated automatically.`,
+        { errorCode: "plan_legacy_write_rejected", statusCode: 422 },
       );
     }
 
     if (isDestructiveStructuredWrite) {
       if (!args.expectedUpdatedAt) {
-        throw new Error(
+        fail(
           "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
+          { errorCode: "expected_updated_at_required", statusCode: 422 },
         );
       }
       if (bundleAtLoad?.plan.updatedAt !== args.expectedUpdatedAt) {
-        throw new Error(
+        fail(
           "This destructive update was prepared from an outdated plan revision. Reload the plan and retry with the latest expectedUpdatedAt.",
+          { errorCode: "plan_revision_conflict", statusCode: 409 },
         );
       }
       versionAtLoad = args.expectedUpdatedAt;
@@ -767,8 +752,9 @@ export default defineAction({
 
     if (args.content === undefined && args.contentPatches.length > 0) {
       if (!bundleAtLoad?.plan.content) {
-        throw new Error(
+        fail(
           "Targeted content patches require a structured plan. Pass content for a full conversion, or html for legacy artifacts.",
+          { errorCode: "plan_not_structured", statusCode: 422 },
         );
       }
       nextContent = applyPlanContentPatches(
@@ -790,8 +776,9 @@ export default defineAction({
         nextContent,
       );
       if (warnings.length > 0) {
-        throw new Error(
+        fail(
           `Destructive structured replacement would ${warnings.join(" and ")}. Reload and review the latest plan, then pass allowDestructive: true with its expectedUpdatedAt only if those losses are intentional.`,
+          { errorCode: "plan_destructive_replacement", statusCode: 409 },
         );
       }
     }
@@ -799,7 +786,10 @@ export default defineAction({
       ? surfaceParityWarnings(normalizedContentAtLoad, nextContent)
       : [];
     if (surfaceWarnings.length > 0 && !args.allowSurfaceMismatch) {
-      throw new Error(surfaceWarnings.join(" "));
+      fail(surfaceWarnings.join(" "), {
+        errorCode: "plan_surface_mismatch",
+        statusCode: 422,
+      });
     }
     const sourceBundleForMarkdown =
       nextContent && args.markdown === undefined
@@ -912,11 +902,11 @@ export default defineAction({
       pendingCommentInserts.push(comment);
     }
     if (onlyUpdatesCommentStatuses && pendingCommentInserts.length > 0) {
-      // A client-minted id with status "open" is a new insert, not a missing
-      // resolve target. Only throw when the caller tried to close/reopen a
-      // comment that does not exist in the DB.
       if (pendingCommentInserts.some((c) => c.status !== "open")) {
-        throw new Error("Comment status update target was not found.");
+        fail("Comment status update target was not found.", {
+          errorCode: "not_found",
+          statusCode: 404,
+        });
       }
       onlyUpdatesCommentStatuses = false;
     }
@@ -939,17 +929,15 @@ export default defineAction({
         : null;
     const commentsBeforeInserts = bundleForCommentInserts?.comments ?? [];
 
-    // Validate that any sectionId referenced by a new comment actually exists on
-    // this plan. A bogus or cross-plan sectionId would silently store a dangling
-    // FK; reject early with a clear message instead.
     if (bundleForCommentInserts) {
       const validSectionIds = new Set(
         (bundleForCommentInserts.sections ?? []).map((s) => s.id),
       );
       for (const comment of pendingCommentInserts) {
         if (comment.sectionId && !validSectionIds.has(comment.sectionId)) {
-          throw new Error(
+          fail(
             `Section ${comment.sectionId} was not found on plan ${args.planId}.`,
+            { errorCode: "plan_section_not_found", statusCode: 422 },
           );
         }
       }
@@ -1021,11 +1009,6 @@ export default defineAction({
       });
     }
 
-    // Async transactions are safe on both supported runtimes through
-    // createGetDb's shared Postgres transaction surface.
-    // See restore-plan-version.ts for the same pattern. The leading
-    // optimistic-lock UPDATE still guards concurrent writes; a thrown error
-    // (e.g. the zero-rows-affected conflict below) rolls back the whole block.
     await db.transaction(async (tx) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
       // viewer access plus new-open-human-comment / canvas-review-markup validation.
@@ -1056,8 +1039,9 @@ export default defineAction({
           .returning({ id: schema.plans.id });
 
         if (updatedRows.length === 0) {
-          throw new Error(
+          fail(
             "This plan was updated by someone else while your change was being saved. Reload the plan and retry.",
+            { errorCode: "plan_revision_conflict", statusCode: 409 },
           );
         }
       }
@@ -1143,10 +1127,6 @@ export default defineAction({
                   sectionId: comment.sectionId ?? null,
                   kind: comment.kind,
                   status: comment.status,
-                  // Preserve stored anchor/resolutionTarget/mentionsJson when the
-                  // caller omits them (e.g. a mixed resolve+consume request that
-                  // only carries { id, status, message }). Only overwrite when the
-                  // input explicitly provides a value.
                   anchor:
                     comment.anchor !== undefined
                       ? (metadata?.anchor ?? null)
@@ -1209,10 +1189,6 @@ export default defineAction({
       }
     });
 
-    // Make an agent content edit visible on the plan-presence doc: light the AI
-    // avatar in the header PresenceBar and glow the patched block(s) for ~6s.
-    // Best-effort — never fail the save on presence. Gated to authoring changes
-    // and agent callers (a human editor's autosave routes through here too).
     if (isAgentCaller && hasPlanAuthoringChanges) {
       try {
         const blockIds = affectedPlanBlockIds(args.contentPatches, nextContent);
@@ -1257,7 +1233,6 @@ export default defineAction({
     }).catch((error) => {
       console.warn("[update-visual-plan] comment notification failed:", error);
     });
-    // Emit plan.commented for any newly inserted comments
     if (insertedCommentIds.length > 0) {
       const newComments = bundle.comments.filter((c) =>
         insertedCommentIds.includes(c.id),
@@ -1276,7 +1251,6 @@ export default defineAction({
         ownerEmail: bundle.access.ownerEmail,
       });
     }
-    // Emit plan.status.changed when the status was explicitly changed
     if (
       args.status &&
       bundleAtLoad?.plan.status !== undefined &&

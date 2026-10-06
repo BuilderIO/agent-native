@@ -86,8 +86,6 @@ describe("dev-lazy canonical loopback origin", () => {
   });
 
   it("does not redirect a cross-origin request", () => {
-    // A preflight cannot follow a redirect, so the desktop app's dev renderer
-    // would see "Preflight response is not successful. Status code: 307".
     assert.equal(
       canonicalLoopbackRedirect(
         "localhost:8080",
@@ -229,9 +227,6 @@ describe("dev-lazy HTTP readiness", () => {
     }
   }
 
-  // Accepting the boot-time 503 handed the user's own navigation that 503 —
-  // an error page seconds before the app would have served the real one. Not
-  // ready keeps the gateway's own self-refreshing Starting page up instead.
   it("does not treat a startup 503 as ready", async () => {
     assert.equal(await probeAgainst(503), false);
   });
@@ -240,7 +235,6 @@ describe("dev-lazy HTTP readiness", () => {
     assert.equal(await probeAgainst(200), true);
   });
 
-  // A 404 means routing, not booting: the server is up and answering.
   it("treats a non-5xx error as ready", async () => {
     assert.equal(await probeAgainst(404), true);
   });
@@ -259,9 +253,6 @@ describe("dev-lazy idle eviction", () => {
     );
   });
 
-  // Vite can compile past the readiness deadline; once that probe gives up,
-  // nothing else marks the app busy. Evicting there kills it mid-compile and
-  // the next request restarts the same slow boot, forever.
   it("never evicts an app that has not become ready yet", () => {
     assert.equal(
       shouldEvict({
@@ -313,10 +304,6 @@ describe("dev-lazy idle eviction", () => {
   });
 
   it("keeps a long-lived streamed response (SSE) alive the same way a WebSocket upgrade does", () => {
-    // dispatch() pins the app by incrementing openSockets for the lifetime of
-    // a proxied response (SSE from useDbSync/agent chat included), exactly
-    // like proxyUpgrade already did for WebSockets. Even though the request
-    // started long ago, an open stream must never look idle to the sweep.
     assert.equal(
       shouldEvict({
         lastActivityAt: 0,
@@ -355,8 +342,6 @@ describe("dev-lazy stuck-app restart decision", () => {
   });
 
   it("waits instead of restarting while the port is open and within the stuck window", () => {
-    // This is the "still optimizing deps / rebuilding" case: killing here
-    // would discard warm caches and restart the optimize pass from scratch.
     const now = 1_000_000;
     assert.equal(
       shouldRestartStuckApp({
@@ -397,8 +382,6 @@ describe("dev-lazy persistent-5xx restart decision", () => {
   });
 
   it("restarts once the app has served nothing but 5xx for the full restart window", () => {
-    // Mirrors Nitro's dev env-runner getting stuck serving 503 forever after
-    // a few worker crashes.
     const now = 1_000_000;
     assert.equal(
       shouldRestartPersistent5xx({
@@ -432,9 +415,6 @@ describe("dev-lazy backoff reset on ready", () => {
   });
 
   it("marks the app ready, stamps lastNon5xxAt, and clears restartAttempts", () => {
-    // Backoff must only reset on an actual successful serve — not on a fixed
-    // post-spawn timer — or an app that always fails between 5s and 30s
-    // would never escalate its retry delay.
     const app = makeApp({ restartAttempts: 5, persistent5xxSince: 123 });
     const before = Date.now();
     markAppReady(app);

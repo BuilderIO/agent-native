@@ -1,18 +1,3 @@
-/**
- * `agent-native changelog` — author and roll up an app's user-facing changelog.
- *
- * The model mirrors changesets: instead of editing the shared CHANGELOG.md
- * directly (which conflicts when many agents work in parallel), each change
- * drops a small dated entry file under `changelog/`. A later `release`
- * refreshes the recent CHANGELOG.md window while retaining those files as the
- * complete history.
- *
- *   agent-native changelog add "Recordings can be trimmed before sharing" --type added
- *   agent-native changelog release           # refresh recent window
- *   agent-native changelog list              # show pending + released
- *
- * Runs in the current app directory (process.cwd()).
- */
 import fs from "fs";
 import path from "path";
 
@@ -33,14 +18,11 @@ const CHANGELOG_FILE = "CHANGELOG.md";
 const PENDING_DIR = "changelog";
 
 function todayIso(): string {
-  // Local date in YYYY-MM-DD. The CLI is the one place a wall-clock read is
-  // appropriate (unlike workflow scripts), so `new Date()` is fine here.
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** Minimal flag parser: supports `--key value` and `--key=value`. */
 function parseFlags(args: string[]): {
   flags: Record<string, string>;
   rest: string[];
@@ -122,9 +104,6 @@ async function cmdAdd(args: string[]): Promise<number> {
     file = path.join(dir, `${date}-${slug}-${n++}.md`);
   }
 
-  // Blank line after the closing frontmatter delimiter so the generated file
-  // is already Prettier-clean (Markdown requires a blank line before body text)
-  // and never trips the repo fmt check.
   const content = `---\ntype: ${type}\ndate: ${date}\n---\n\n${summary}\n`;
   fs.writeFileSync(file, content, "utf-8");
   console.log(`Added changelog entry: ${path.relative(process.cwd(), file)}`);
@@ -222,5 +201,4 @@ export async function runChangelog(args: string[]): Promise<number> {
   }
 }
 
-// Re-export header for callers that want to seed an empty CHANGELOG.md.
 export { CHANGELOG_HEADER };

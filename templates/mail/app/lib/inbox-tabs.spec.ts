@@ -1,3 +1,4 @@
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import { ALL_TAB_ID, inboxTabHref } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { describe, expect, it } from "vitest";
@@ -5,13 +6,82 @@ import { describe, expect, it } from "vitest";
 import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
+  isInboxScopedLabel,
   labelTabHref,
+  resolveInboxEmailQueryScope,
   resolveDefaultMailHref,
   resolvePinnedLabels,
 } from "./inbox-tabs";
 
 const self = { name: "Steve", email: "steve@builder.io" };
 const other = { name: "Mike", email: "mike@example.com" };
+
+describe("resolveInboxEmailQueryScope", () => {
+  const base = {
+    view: "inbox",
+    activeLabel: null,
+    activeInboxTab: null,
+    activeLabelIsInboxScoped: false,
+    activeSavedFilter: false,
+    combineInbox: false,
+    triageLabels: [] as string[],
+  };
+
+  it("uses client-side slicing for pinned inbox tabs", () => {
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        activeLabel: "important",
+        activeLabelIsInboxScoped: true,
+        triageLabels: ["important"],
+      }),
+    ).toMatchObject({
+      emailView: "inbox",
+      effectiveLabel: undefined,
+      clientSliceTab: true,
+      mailboxWideLabelTab: false,
+    });
+  });
+
+  it("uses all mail for mailbox-wide label routes", () => {
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        activeLabel: "customer-label",
+      }),
+    ).toMatchObject({ emailView: "all", effectiveLabel: "customer-label" });
+  });
+
+  it("uses the inbox source for saved filters and combined inbox routes", () => {
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        view: "all",
+        activeSavedFilter: true,
+      }).emailView,
+    ).toBe("inbox");
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        activeLabel: "important",
+        activeLabelIsInboxScoped: true,
+        combineInbox: true,
+      }),
+    ).toMatchObject({
+      emailView: "inbox",
+      effectiveLabel: undefined,
+      shouldNormalizeCombinedInboxRoute: true,
+    });
+  });
+
+  it("keeps user labels out of inbox-scoped system tabs", () => {
+    expect(
+      isInboxScopedLabel("important", [
+        { id: "important", name: "Important", type: "user" },
+      ]),
+    ).toBe(false);
+  });
+});
 
 function message(overrides: Partial<EmailMessage>): EmailMessage {
   return {
@@ -156,15 +226,10 @@ describe("resolvePinnedLabels", () => {
 
 describe("labelTabHref", () => {
   it("routes a nested user label to the unscoped all-mail view, not the inbox tab", () => {
-    // Repro: Jason Yang's "2-Tasks/Jira" label carries mail that's filed out
-    // of the inbox. Routing through /inbox forces `in:inbox` server-side
-    // (gmail-query.ts) and the label reads as empty even though it has mail.
     expect(labelTabHref("2-tasks/jira")).toBe("/all?label=2-tasks%2Fjira");
   });
 
   it("keeps Gmail's inbox-only categories pinned to the inbox view", () => {
-    // "important" (and the other category labels) only ever exist inside the
-    // inbox, so they keep the client-slice-of-inbox behavior on purpose.
     expect(labelTabHref("important")).toBe("/inbox?label=important");
     expect(labelTabHref("updates")).toBe("/inbox?label=updates");
   });
@@ -204,6 +269,14 @@ describe("resolveDefaultMailHref", () => {
         isGoogleConnected: true,
       }),
     ).toBe("/starred");
+
+    expect(
+      resolveDefaultMailHref({
+        showAllTab: false,
+        pinnedLabels: [AI_FILTER_LABEL],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/all?label=agent-native-filtered");
   });
 
   it("falls back to /inbox when combineInbox is enabled or tabs unpinned", () => {

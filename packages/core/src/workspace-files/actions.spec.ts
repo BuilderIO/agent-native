@@ -78,9 +78,6 @@ describe("show-workspace-file", () => {
     ).rejects.toThrow('Workspace file not found: "exports/missing.csv"');
   });
 
-  // Regression: the card only ever shows name/size/type + a download link —
-  // it never inlines file content — so a binary export must render a card
-  // exactly like a text one instead of throwing.
   it("renders a card for a binary (non-text) workspace file", async () => {
     mocks.getWorkspaceFileMeta.mockResolvedValue({
       id: "resource-example",

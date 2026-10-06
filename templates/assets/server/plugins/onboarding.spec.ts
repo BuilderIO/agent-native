@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
     isObjectStorageConfigured: vi.fn(async () => true),
     registerFileUploadProvider: vi.fn(),
     registerOnboardingStep: vi.fn(),
+    resolveGeminiApiKey: vi.fn(),
     resolveHasBuilderGatewayCredential: vi.fn(),
     resolveSecret: vi.fn(),
   };
@@ -25,6 +26,8 @@ vi.mock("@agent-native/core/onboarding", () => ({
 }));
 vi.mock("@agent-native/core/server", () => ({
   BuilderCredentialLookupError: mocks.BuilderCredentialLookupError,
+  GEMINI_API_KEY: "GOOGLE_GENERATIVE_AI_API_KEY",
+  resolveGeminiApiKey: mocks.resolveGeminiApiKey,
   resolveHasBuilderGatewayCredential: mocks.resolveHasBuilderGatewayCredential,
   resolveSecret: mocks.resolveSecret,
 }));
@@ -68,6 +71,7 @@ describe("image generation onboarding", () => {
         "Builder credentials are temporarily unavailable.",
       ),
     );
+    mocks.resolveGeminiApiKey.mockResolvedValue(null);
     mocks.resolveSecret.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "configured" : null,
     );
@@ -75,11 +79,31 @@ describe("image generation onboarding", () => {
     await expect(imageGenerationIsComplete()).resolves.toBe(true);
   });
 
+  it("counts a Gemini key saved under either name as a manual key", async () => {
+    mocks.resolveHasBuilderGatewayCredential.mockResolvedValue(false);
+    mocks.resolveGeminiApiKey.mockResolvedValue("configured");
+    mocks.resolveSecret.mockResolvedValue(null);
+
+    await expect(imageGenerationIsComplete()).resolves.toBe(true);
+    expect(mocks.resolveGeminiApiKey).toHaveBeenCalled();
+    expect(mocks.resolveSecret).not.toHaveBeenCalledWith("GEMINI_API_KEY");
+  });
+
+  it("surfaces an unreadable credential store from the Gemini lookup", async () => {
+    const storeError = new Error("Credential store unavailable.");
+    mocks.resolveHasBuilderGatewayCredential.mockResolvedValue(false);
+    mocks.resolveGeminiApiKey.mockRejectedValue(storeError);
+    mocks.resolveSecret.mockResolvedValue(null);
+
+    await expect(imageGenerationIsComplete()).rejects.toBe(storeError);
+  });
+
   it("keeps Builder credential lookup failures visible without a manual key", async () => {
     const lookupError = new mocks.BuilderCredentialLookupError(
       "Builder credentials are temporarily unavailable.",
     );
     mocks.resolveHasBuilderGatewayCredential.mockRejectedValue(lookupError);
+    mocks.resolveGeminiApiKey.mockResolvedValue(null);
     mocks.resolveSecret.mockResolvedValue(null);
 
     await expect(imageGenerationIsComplete()).rejects.toBe(lookupError);

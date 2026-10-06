@@ -4,13 +4,14 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconPuzzle,
   IconGripVertical,
   IconLoader2,
   IconX,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { exportConcat } from "@/lib/ffmpeg-export";
 import { copyFreshRecordingShareLink } from "@/lib/recording-link";
 import { formatMs } from "@/lib/timestamp-mapping";
@@ -31,7 +33,6 @@ import { cn } from "@/lib/utils";
 export interface StitchManagerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** When the source recording is known, pre-seed the list with it. */
   seedRecordingId?: string;
 }
 
@@ -58,6 +59,15 @@ export function StitchManager({
   const [progress, setProgress] = useState(0);
   const [title, setTitle] = useState(t("stitchManager.defaultTitle"));
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
+  const storageCheckInFlight = useRef(false);
+  const storageStatus = useVideoStorageStatus(open);
+  const storageConfigured =
+    storageStatus.data?.configured === true && !storageStatus.isError;
+
+  useEffect(() => {
+    if (storageConfigured) setStorageSetupOpen(false);
+  }, [storageConfigured]);
 
   const listQuery = useActionQuery("list-recordings", {
     includeMedia: true,
@@ -69,8 +79,13 @@ export function StitchManager({
       setQueue([]);
       setProgress(0);
       setBusy(false);
+      setStorageSetupOpen(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (storageConfigured) setStorageSetupOpen(false);
+  }, [storageConfigured]);
 
   const available = useMemo(() => {
     const rows: RecordingLite[] = (listQuery.data?.recordings ??
@@ -78,7 +93,6 @@ export function StitchManager({
     return rows.filter((r) => !queue.some((q) => q.id === r.id));
   }, [listQuery.data, queue]);
 
-  // Pre-seed the queue with the current recording when provided.
   useEffect(() => {
     if (!open || !seedRecordingId) return;
     const rows: RecordingLite[] = (listQuery.data?.recordings ??
@@ -108,6 +122,7 @@ export function StitchManager({
   const handleDragEnd = () => setDragIndex(null);
 
   const handleCombine = async () => {
+    if (busy || storageCheckInFlight.current) return;
     if (queue.length < 2) {
       toast.error(t("stitchManager.pickAtLeastTwo"));
       return;
@@ -116,10 +131,29 @@ export function StitchManager({
       toast.error(t("stitchManager.videoUrlMissing"));
       return;
     }
+    storageCheckInFlight.current = true;
+    try {
+      const storageCheck = await storageStatus.refetch();
+      if (
+        storageCheck.isError ||
+        typeof storageCheck.data?.configured !== "boolean"
+      ) {
+        setStorageSetupOpen(true);
+        return;
+      }
+      if (!storageCheck.data.configured) {
+        setStorageSetupOpen(true);
+        return;
+      }
+    } catch {
+      setStorageSetupOpen(true);
+      return;
+    } finally {
+      storageCheckInFlight.current = false;
+    }
     setBusy(true);
     setProgress(0);
     try {
-      // 1) Client-side ffmpeg concat.
       const { blob, width, height } = await exportConcat(
         queue.map((r) => ({
           url: r.videoUrl!,
@@ -130,7 +164,6 @@ export function StitchManager({
         (p) => setProgress(p.progress),
       );
 
-      // 2) Upload the combined video.
       const destinationRecordingId = crypto.randomUUID();
       const upload = await uploadFileClient(
         blob,
@@ -141,7 +174,6 @@ export function StitchManager({
         throw new Error(t("stitchManager.connectStorage"));
       }
 
-      // 3) Create the stitched recording row.
       const totalDuration = queue.reduce((sum, r) => sum + r.durationMs, 0);
       const result = await stitch.mutateAsync({
         recordingId: destinationRecordingId,
@@ -316,6 +348,17 @@ export function StitchManager({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <FileStorageSetupPopover
+        open={storageSetupOpen}
+        onOpenChange={setStorageSetupOpen}
+        onConnected={() => void storageStatus.refetch()}
+        {...(!storageStatus.isSuccess || storageStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void storageStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
     </Dialog>
   );
 }

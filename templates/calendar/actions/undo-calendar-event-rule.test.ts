@@ -129,6 +129,24 @@ describe("undo-calendar-event-rule", () => {
     });
   });
 
+  it("does not undo while a sweep holds the event RSVP claim", async () => {
+    runtime.rsvpClaims = {
+      "google:owner@example.com:primary:event-accepted": {
+        token: "sweep",
+        expiresAt: Date.now() + 60_000,
+      },
+    };
+
+    await expect(
+      action.run({ activityId: acceptedActivity.id }),
+    ).rejects.toThrow("already being undone");
+
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+    expect(settings.eventRuleActivity).toContainEqual(acceptedActivity);
+    expect(runtime.undoRsvpSuppressions).toBeUndefined();
+    expect(settings.__calendarEventRuleUndoClaims).toEqual({});
+  });
+
   it("preserves activity when the RSVP no longer matches the recorded action", async () => {
     mocks.getEvent.mockResolvedValue({ responseStatus: "declined" });
 

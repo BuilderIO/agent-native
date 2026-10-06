@@ -32,7 +32,6 @@ function sectionContainsActive(section: NavSection, pathname: string) {
   );
 }
 
-// A nav item with children and no `to` is a chevron-only group header.
 function isGroupItem(item: NavItem) {
   return !item.to && Boolean(item.children?.length);
 }
@@ -41,8 +40,6 @@ function groupClipId(item: NavItem) {
   return `docs-sidebar-group-${item.id}`;
 }
 
-// The id of the group whose child matches the active route, if any — used
-// to auto-open that group (mirrors getActiveSectionId for sections).
 function getActiveGroupId(sections: NavSection[], pathname: string) {
   for (const section of sections) {
     for (const item of section.items) {
@@ -174,8 +171,6 @@ export default function DocsSidebar() {
                     const active = item.to
                       ? isItemActive(item.to, location.pathname)
                       : false;
-                    // Groups expand/collapse; non-group children (if any ever
-                    // exist) always render open.
                     const groupOpen = isGroup ? openGroupId === item.id : true;
                     const clipId = isGroup ? groupClipId(item) : undefined;
                     const childrenTabbable = isOpen && groupOpen;

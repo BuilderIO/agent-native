@@ -72,11 +72,6 @@ export interface PlayerControlsProps {
   onToggleFullscreen: () => void;
   onToggleTheater?: () => void;
   menuPortalContainer?: HTMLElement | null;
-  /**
-   * Surfaces the reaction tray and a comment-composer trigger inline in this
-   * bar (Loom-style), for contexts — namely fullscreen — where the caller's
-   * own reaction/comment row would otherwise be hidden.
-   */
   showReactionsAndComment?: boolean;
   enableReactions?: boolean;
   onReact?: ReactionHandler;
@@ -182,9 +177,9 @@ export function PlayerControls(props: PlayerControlsProps) {
                 data-player-ui
                 type="button"
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 onClick={onToggleMute}
-                className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground size-8 shrink-0"
+                className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground shrink-0"
                 aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
               >
                 {muted || volume === 0 ? <IconVolumeOff /> : <IconVolume />}
@@ -244,7 +239,7 @@ export function PlayerControls(props: PlayerControlsProps) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground h-8 shrink-0 rounded-md px-2 text-xs font-medium tabular-nums"
+                  className="text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground shrink-0 rounded-md px-2 text-xs font-medium tabular-nums"
                 >
                   {speed}x
                 </Button>
@@ -352,11 +347,11 @@ function IconBtn({
           data-player-ui
           type="button"
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           onClick={onClick}
           aria-label={ariaLabel ?? tooltip}
           className={cn(
-            "size-8 shrink-0",
+            "shrink-0",
             active
               ? "bg-player-control-foreground/20 text-player-control-foreground hover:bg-player-control-foreground/25 hover:text-player-control-foreground"
               : "text-player-control-foreground hover:bg-player-control-foreground/10 hover:text-player-control-foreground",

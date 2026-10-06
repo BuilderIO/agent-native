@@ -3,7 +3,9 @@ import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-c
 import { defineEventHandler } from "h3";
 
 import {
+  assertCredentialCanReachEndpoint,
   resolveCredential,
+  resolveCredentialDetailed,
   withRequestContextFromEvent,
 } from "../../lib/credentials";
 import { executeProviderApiRequest } from "../../lib/provider-api";
@@ -236,12 +238,16 @@ export default defineEventHandler(async (event) => {
         }
 
         case "grafana": {
-          const url = await resolveCredential("GRAFANA_URL", ctx);
-          const token = await resolveCredential("GRAFANA_API_TOKEN", ctx);
+          const url = await resolveCredentialDetailed("GRAFANA_URL", ctx);
+          const token = await resolveCredentialDetailed(
+            "GRAFANA_API_TOKEN",
+            ctx,
+          );
           if (!url || !token)
             return { ok: false, error: "Missing credentials" };
-          const res = await fetch(`${url}/api/org`, {
-            headers: { Authorization: `Bearer ${token}` },
+          assertCredentialCanReachEndpoint(url, token, "GRAFANA_API_TOKEN");
+          const res = await fetch(`${url.value}/api/org`, {
+            headers: { Authorization: `Bearer ${token.value}` },
           });
           if (!res.ok) return { ok: false, error: "Connection failed" };
           return { ok: true };
@@ -309,15 +315,26 @@ export default defineEventHandler(async (event) => {
 
         case "gong": {
           const credentials = await resolveAnalyticsGongCredentials({ ctx });
-          const apiBase =
-            (await resolveCredential("GONG_API_BASE", ctx)) ||
-            "https://api.gong.io/v2";
+          const endpoint = (await resolveCredentialDetailed(
+            "GONG_API_BASE",
+            ctx,
+          )) ?? {
+            value: "https://api.gong.io/v2",
+            scope: "deployment",
+          };
           if (!credentials) return { ok: false, error: "Missing credentials" };
+          for (const credential of credentials.sources) {
+            assertCredentialCanReachEndpoint(
+              endpoint,
+              credential,
+              credential.key,
+            );
+          }
           const auth = `Basic ${Buffer.from(
             `${credentials.accessKey}:${credentials.accessSecret}`,
           ).toString("base64")}`;
           const res = await fetch(
-            `${apiBase.replace(/\/+$/, "")}/users?limit=1`,
+            `${endpoint.value.replace(/\/+$/, "")}/users?limit=1`,
             {
               headers: { Authorization: auth },
             },

@@ -203,7 +203,6 @@ describe("max-width get/set/remove", () => {
 
 describe("breakpointUpperBoundPx (Framer cascade bounds)", () => {
   it("bounds each breakpoint just below the next-wider frame", () => {
-    // Framer defaults: primary 1280, breakpoints 390 / 810.
     expect(breakpointUpperBoundPx([390, 810], 810, 1280)).toBe(1279);
     expect(breakpointUpperBoundPx([390, 810], 390, 1280)).toBe(809);
   });

@@ -18,10 +18,6 @@ import {
   PageSection,
 } from "../components/website-redesign/page-grid";
 
-// Every section heading on this page shares one size. 32px falls between
-// --b-t-heading-3 (37px) and --b-t-heading-4 (28px), so it is spelled out
-// rather than taken from the scale — which also means it does not shrink at the
-// mobile breakpoint the way the scale tokens do.
 const SECTION_HEADING_CLASS =
   "font-[family-name:var(--b-font-sans)] text-[32px] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]";
 
@@ -111,9 +107,6 @@ export default function TemplatesPage() {
                 <BuildOnlinePopover
                   location="templates_index"
                   trigger={
-                    // Caps come from CSS, not the label: an all-caps string
-                    // becomes the accessible name and screen readers spell it
-                    // out letter by letter.
                     <Button
                       variant="white"
                       icon={null}
@@ -166,8 +159,6 @@ export default function TemplatesPage() {
             </div>
 
             {communityApps.length > 0 ? (
-              // Keep community cards on the same touching grid as first-party
-              // apps, while the card content retains its own internal padding.
               <div className="-mx-4 grid min-w-0 border-s border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] p-0 sm:-mx-6 sm:grid-cols-2 lg:grid-cols-3">
                 {communityApps.map((app) => (
                   <CommunityAppCard key={app.slug} app={app} />

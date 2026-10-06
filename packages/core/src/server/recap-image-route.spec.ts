@@ -1,17 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// h3 stub. defineEventHandler returns the handler as-is; the rest read/write
-// fields on the fake event. Mirrors open-route.spec / poll-handler.spec.
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) =>
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
   getMethod: (event: any) => event.method ?? "GET",
-  // Mirror h3 v2 exactly: `readRawBody(event, false)` resolves a *plain*
-  // Uint8Array (`event.req.arrayBuffer().then(r => new Uint8Array(r))`), NOT a
-  // Node Buffer. Coercing here means tests exercise the same non-Buffer body the
-  // route sees in production, so Buffer-only mistakes can't hide behind a Buffer
-  // fixture.
   readRawBody: async (event: any) =>
     event.rawBody == null ? event.rawBody : new Uint8Array(event.rawBody),
   setResponseStatus: (event: any, status: number) => {
@@ -46,8 +39,6 @@ vi.mock("./recap-image-store.js", async () => {
   };
 });
 
-// verifyAuth / getMcpOAuthAudiences are only imported when getSession misses;
-// stub them so the connect-token path is exercisable.
 const verifyAuth = vi.hoisted(() => vi.fn());
 vi.mock("../mcp/build-server.js", () => ({
   verifyAuth: (...a: any[]) => verifyAuth(...a),
@@ -164,10 +155,6 @@ describe("recap-image upload (POST /_agent-native/recap-image)", () => {
   });
 
   it("normalizes a Uint8Array body to bytes that round-trip to base64 intact", async () => {
-    // Regression: h3 v2 hands the route a bare Uint8Array. Buffer#equals (PNG
-    // magic check) throws on it, and Buffer#toString("base64") in the store
-    // silently mis-encodes it. The route must normalize first so the stored
-    // bytes are exactly what was uploaded.
     getSession.mockResolvedValue({ email: "u@example.com" });
     saveRecapImage.mockResolvedValue({ token: TOKEN });
     const handler = createRecapImageHandler();
@@ -181,7 +168,6 @@ describe("recap-image upload (POST /_agent-native/recap-image)", () => {
     expect(event.statusCode).toBe(201);
     expect(res.imageUrl).toContain(`${TOKEN}.png`);
     const [savedBytes] = saveRecapImage.mock.calls[0] as [Buffer];
-    // Bytes survive intact — the same base64 the store would persist.
     expect(Buffer.from(savedBytes).toString("base64")).toBe(
       PNG.toString("base64"),
     );
@@ -230,7 +216,6 @@ describe("recap-image serve (GET /_agent-native/recap-image/<token>.png)", () =>
     const event = fakeEvent({ method: "GET", pathname: `/${TOKEN}.png` });
     const res = (await handler(event)) as Response;
 
-    // No session lookup happens on the read path.
     expect(getSession).not.toHaveBeenCalled();
     expect(res).toBeInstanceOf(Response);
     expect(res.headers.get("Content-Type")).toBe("image/png");

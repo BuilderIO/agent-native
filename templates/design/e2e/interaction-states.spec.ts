@@ -83,9 +83,6 @@ test.describe("element interaction states", () => {
     await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.97, 2);
     await expect.poll(() => inlineOpacity(fileContent(page))).toBe("0.97");
 
-    // Author every non-default state through the actual inspector. Each
-    // selection must force-preview immediately, survive the ensuing source
-    // write, and keep both the canvas selection and selector stable.
     for (const state of [
       "hover",
       "focus",
@@ -98,8 +95,6 @@ test.describe("element interaction states", () => {
       await expect(trigger).toHaveAttribute("data-interaction-state", state);
       await expect(selectedLayerRow(page)).toContainText("Alpha Button");
 
-      // An untouched state inherits Default in the inspector before its first
-      // override. This also catches stale values leaking from the prior state.
       await expect(inspectorOpacityInput(page)).toHaveValue("97%");
       await setInspectorOpacity(page, STATE_OPACITY[state] * 100);
       await expect
@@ -112,8 +107,6 @@ test.describe("element interaction states", () => {
       await expect(trigger).toHaveAttribute("data-interaction-state", state);
       await expect(selectedLayerRow(page)).toContainText("Alpha Button");
 
-      // Re-opening the menu exposes a trailing selection mark even when the
-      // currently selected row has only just received its first override.
       await trigger.click();
       const selectedOption = stateOption(page, state);
       await expect(selectedOption).toHaveAttribute("aria-checked", "true");
@@ -124,13 +117,9 @@ test.describe("element interaction states", () => {
       ).toHaveCount(0);
     }
 
-    // Switching back to a previously authored state must show that state's
-    // value, not the base value or the most recently visited state's value.
     await selectInteractionState(page, "hover");
     await expect(inspectorOpacityInput(page)).toHaveValue("91%");
 
-    // Geometry changes cause a fresh element-select payload. The interaction
-    // selector must remain on Hover instead of flashing/resetting to Default.
     const widthInput = page.locator('input[aria-label="W size in pixels"]');
     await widthInput.fill("220");
     await widthInput.press("Enter");
@@ -143,11 +132,6 @@ test.describe("element interaction states", () => {
       )
       .toBe("220px");
 
-    // Make Pressed the most recent history entry so one undo removes exactly
-    // that state override and one redo restores it. DesignEditor deliberately
-    // coalesces Yjs content edits inside an 800 ms capture window (slider/scrub
-    // gestures become one undo step), so separate these two discrete authored
-    // values across that boundary before asserting their history order.
     await page.waitForTimeout(850);
     await selectInteractionState(page, "active");
     await setInspectorOpacity(page, 61);
@@ -171,8 +155,6 @@ test.describe("element interaction states", () => {
     await expect(button).toHaveAttribute("data-an-state-preview", "active");
     await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.61, 2);
 
-    // Reload while a forced preview is active. Preview attributes are runtime
-    // editor state and must never be baked into or restored from the HTML.
     await gotoEditor(page, designId);
     await expect(alphaButton(page)).not.toHaveAttribute(
       "data-an-state-preview",
@@ -215,11 +197,6 @@ test.describe("element interaction states", () => {
     await selectInteractionState(page, "default");
     await expect(button).not.toHaveAttribute("data-an-state-preview", /.+/);
 
-    // Interact reloads the screen from the saved file, so every authored rule
-    // has to be PERSISTED before switching. Without this the reloaded iframe
-    // can carry no :hover rule at all, and the hover assertion below reports a
-    // plain opacity of 1 — which reads as a broken cascade rather than a
-    // write that had not landed yet.
     await expect
       .poll(
         async () => {
@@ -232,27 +209,15 @@ test.describe("element interaction states", () => {
       )
       .toBe(true);
 
-    // Real browser state semantics belong to Interact mode. Edit mode
-    // intentionally forwards Tab/arrow/delete shortcuts to the Figma-like
-    // editor host, while Interact removes that bridge and lets the app receive
-    // native pointer and keyboard events.
-    // Screen-card chrome carries its own "Interact" button, so an unscoped
-    // role query matches two controls; only the toolbar one is a mode toggle.
     const interact = page
       .locator("[data-design-bottom-toolbar]")
       .getByRole("button", { name: "Interact", exact: true });
     await interact.click();
-    // Interact lives in the focused responsive screen, so choosing it is a
-    // view change: the canvas toolbar unmounts and the interact bar owns the
-    // way back. Assert the new view, not the button that just disappeared.
     await expect(
       page.getByRole("button", { name: "Exit responsive preview" }),
     ).toBeVisible();
     await expect(button).toBeVisible();
 
-    // The editor's shield intentionally owns canvas selection gestures. Hide
-    // only its pointer hit surfaces after authoring so real browser pseudo
-    // classes can be exercised directly on the underlying button.
     await designFrame(page)
       .locator("[data-agent-native-edit-overlay]")
       .evaluateAll((nodes) => {
@@ -273,14 +238,11 @@ test.describe("element interaction states", () => {
     if (!box) throw new Error("Alpha Button has no browser bounds");
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
-    // Mouse hover applies :hover without forcing an editor preview attribute.
     await page.mouse.move(center.x, center.y);
     await expect.poll(() => pseudoMatches(button, ":hover")).toBe(true);
     await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.91, 2);
     await expect(button).not.toHaveAttribute("data-an-state-preview", /.+/);
 
-    // A mouse click produces :focus but not :focus-visible; focus wins over
-    // hover according to the managed rule's canonical cascade order.
     await page.mouse.click(center.x, center.y);
     await expect.poll(() => pseudoMatches(button, ":focus")).toBe(true);
     await expect
@@ -288,8 +250,6 @@ test.describe("element interaction states", () => {
       .toBe(false);
     await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.82, 2);
 
-    // Keyboard traversal produces both :focus and :focus-visible; the latter
-    // is later in the managed cascade and therefore supplies the final value.
     const betaButton = designFrame(page).locator(
       '[data-agent-native-node-id="e2e-beta-button"]',
     );
@@ -307,8 +267,6 @@ test.describe("element interaction states", () => {
     await expect.poll(() => pseudoMatches(button, ":focus-visible")).toBe(true);
     await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.73, 2);
 
-    // Pointer-down is the real :active/Pressed state. Assert while the button
-    // is held, then release and ensure the click completes normally.
     await page.mouse.move(center.x, center.y);
     await page.mouse.down();
     await expect.poll(() => pseudoMatches(button, ":active")).toBe(true);
@@ -317,8 +275,6 @@ test.describe("element interaction states", () => {
     await expect.poll(() => pseudoMatches(button, ":active")).toBe(false);
     await expect.poll(() => clickCount(button)).toBe(2);
 
-    // :disabled requires the native disabled attribute. Chromium must apply
-    // its style while suppressing pointer activation.
     await button.evaluate((element) => {
       (element as HTMLButtonElement).disabled = true;
     });

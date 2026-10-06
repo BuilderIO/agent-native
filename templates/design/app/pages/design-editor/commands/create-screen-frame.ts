@@ -91,8 +91,6 @@ export function runCreateScreenFrame(
             height: nextGeometry.height,
             why: "a drawn size is deliberate; without this the device floor and content-fit pass override it",
           });
-          // The drawn height is a deliberate size, so pin it: otherwise
-          // the device floor and content-fit pass immediately override it.
           writeFrameGeometrySnapshot(
             {
               ...getCanvasFrameGeometry(designDataJsonRef.current),
@@ -111,9 +109,6 @@ export function runCreateScreenFrame(
             geometry: nextGeometry,
           });
         }
-        // Refetch only when there is no created id to insert optimistically:
-        // a whole-design refetch re-downloads every screen's HTML, which is
-        // what made adding a frame feel slow.
         if (!nextId) {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],

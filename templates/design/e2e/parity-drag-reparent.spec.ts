@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { SURFACE_PADDING } from "../app/components/design/multi-screen/overview-layout";
 import { e2eBaseURL } from "./base-url";
 import {
   appPath,
@@ -8,19 +9,6 @@ import {
   expandAllLayers,
   gotoEditor,
 } from "./helpers";
-
-/**
- * Figma-parity check for §2 Move / auto-nesting (Part 3 resolutions): drag an
- * element into a container to nest it, drag it back out to the screen root,
- * cross the screen<->board boundary, Space suppresses reparenting, and one
- * undo restores both parent and position after any reparent.
- *
- * Fixture: screen "index.html" has header/main/footer landmark containers
- * with root gaps between them (so a drop point can hit document.body
- * directly, not any container) plus a movable Widget inside main and a
- * FooterItem already inside footer. Screen "page-two.html" is a second,
- * mostly-empty screen for cross-screen drops.
- */
 
 const SCREEN_ONE = `<!doctype html>
 <html lang="en">
@@ -56,7 +44,52 @@ const SCREEN_TWO = `<!doctype html>
   </body>
 </html>`;
 
-// The source class rules are deliberately absent from the destination.
+const SCREEN_DEEP_CLIPPED = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Deep clipped reparent</title></head>
+  <body style="margin:0;position:relative;min-height:1000px;width:900px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <main data-agent-native-node-id="clip-outer" data-agent-native-layer-name="Outer clip" data-an-primitive="frame"
+          style="position:absolute;left:40px;top:60px;width:360px;height:300px;overflow:hidden;background:#1f2937">
+      <section data-agent-native-node-id="clip-middle" data-agent-native-layer-name="Middle clip" data-an-primitive="frame"
+               style="position:absolute;left:20px;top:20px;width:300px;height:240px;overflow:hidden;background:#374151">
+        <div data-agent-native-node-id="clip-inner" data-agent-native-layer-name="Inner auto layout" data-an-primitive="frame"
+             style="position:absolute;left:20px;top:20px;width:240px;height:180px;display:flex;flex-direction:column;gap:12px;overflow:hidden;background:#4b5563">
+          <div data-agent-native-node-id="deep-item" data-agent-native-layer-name="Deep item"
+               style="flex:0 0 auto;width:120px;height:48px;background:#3b82f6"></div>
+          <div data-agent-native-node-id="deep-sibling" data-agent-native-layer-name="Deep sibling"
+               style="flex:0 0 auto;width:120px;height:48px;background:#7c3aed"></div>
+        </div>
+      </section>
+    </main>
+    <span data-agent-native-node-id="root-drop-point" data-agent-native-layer-name="Root drop point"
+          style="position:absolute;left:600px;top:600px;width:80px;height:60px;pointer-events:none"></span>
+  </body>
+</html>`;
+
+const SCREEN_DEEP_ROOT_FLEX = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Deep root auto layout</title></head>
+  <body style="margin:0;box-sizing:border-box;min-height:1000px;width:900px;padding:40px;display:flex;flex-direction:row;align-items:flex-start;gap:80px;background:#0f1115;color:#fff;font-family:system-ui,sans-serif">
+    <div data-agent-native-node-id="root-before" data-agent-native-layer-name="Root before"
+         style="flex:0 0 auto;width:80px;height:60px;background:#1f2937"></div>
+    <main data-agent-native-node-id="clip-outer" data-agent-native-layer-name="Outer clip" data-an-primitive="frame"
+          style="position:relative;flex:0 0 auto;width:360px;height:300px;overflow:hidden;background:#1f2937">
+      <section data-agent-native-node-id="clip-middle" data-agent-native-layer-name="Middle clip" data-an-primitive="frame"
+               style="position:absolute;left:20px;top:20px;width:300px;height:240px;overflow:hidden;background:#374151">
+        <div data-agent-native-node-id="clip-inner" data-agent-native-layer-name="Inner auto layout" data-an-primitive="frame"
+             style="position:absolute;left:20px;top:20px;width:240px;height:180px;display:flex;flex-direction:column;gap:12px;overflow:hidden;background:#4b5563">
+          <div data-agent-native-node-id="deep-item" data-agent-native-layer-name="Deep item"
+               style="flex:0 0 auto;width:120px;height:48px;background:#3b82f6"></div>
+          <div data-agent-native-node-id="deep-sibling" data-agent-native-layer-name="Deep sibling"
+               style="flex:0 0 auto;width:120px;height:48px;background:#7c3aed"></div>
+        </div>
+      </section>
+    </main>
+    <div data-agent-native-node-id="root-after" data-agent-native-layer-name="Root after"
+         style="flex:0 0 auto;width:80px;height:60px;background:#374151"></div>
+  </body>
+</html>`;
+
 const STYLE_CARRY_SOURCE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Style Carry Source</title>
@@ -96,7 +129,10 @@ async function postAction(
   return res.json();
 }
 
-async function newTwoScreenDesign(page: Page): Promise<string> {
+async function newTwoScreenDesign(
+  page: Page,
+  screenOneHtml = SCREEN_ONE,
+): Promise<string> {
   const created = await postAction(page, "create-design", {
     title: "parity drag reparent",
     projectType: "prototype",
@@ -106,7 +142,7 @@ async function newTwoScreenDesign(page: Page): Promise<string> {
   await postAction(page, "create-file", {
     designId: id,
     filename: "index.html",
-    content: SCREEN_ONE,
+    content: screenOneHtml,
     fileType: "html",
   });
   await postAction(page, "create-file", {
@@ -214,13 +250,6 @@ async function layerParentName(
   });
 }
 
-/**
- * Immediate-parent node id of `nodeId` inside `html`, using a real tag-depth
- * walk (not a non-greedy regex, which stops at the wrong closing tag as soon
- * as a candidate container has a same-named-tag child of its own — e.g. a
- * `<div>` child closing before the container's real close). Only looks at
- * the small set of tags this fixture actually uses.
- */
 function parentOf(html: string, nodeId: string): string | null {
   const tagRe =
     /<(header|main|footer|section|div)\b([^>]*)>|<\/(header|main|footer|section|div)>/gi;
@@ -291,6 +320,103 @@ async function emptyBoardPoint(page: Page) {
   return point;
 }
 
+async function emptyPointOutsideBoardRenderGeometry(page: Page) {
+  const geometry = await page.evaluate((surfacePadding) => {
+    const world = document.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    const surface = (world?.parentElement ?? world) as HTMLElement | null;
+    const boardLayer = document.querySelector<HTMLElement>(
+      "[data-board-surface-layer]",
+    );
+    const boardIframe = boardLayer?.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    if (!surface || !world || !boardLayer || !boardIframe) {
+      return {
+        reason:
+          "canvas world, rendered board layer, or board iframe is missing",
+        zoom: null,
+        surface: surface?.getBoundingClientRect().toJSON() ?? null,
+        boardLayer: boardLayer?.getBoundingClientRect().toJSON() ?? null,
+        boardIframe: boardIframe?.getBoundingClientRect().toJSON() ?? null,
+      };
+    }
+
+    const surfaceRect = surface.getBoundingClientRect();
+    const boardLayerRect = boardLayer.getBoundingClientRect();
+    const boardIframeRect = boardIframe.getBoundingClientRect();
+    const worldTransform = new DOMMatrixReadOnly(
+      getComputedStyle(world).transform,
+    );
+    const zoom = worldTransform.a;
+    if (!Number.isFinite(zoom) || zoom <= 0) {
+      return {
+        reason: "canvas world transform has no usable zoom",
+        zoom,
+        surface: surfaceRect.toJSON(),
+        boardLayer: boardLayerRect.toJSON(),
+        boardIframe: boardIframeRect.toJSON(),
+      };
+    }
+    const screenRects = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-screen-iframe-id]"),
+    ).map((screen) => screen.getBoundingClientRect());
+    const minX = Math.max(0, surfaceRect.left + 32);
+    const maxX = Math.min(window.innerWidth, surfaceRect.right - 32);
+    const minY = Math.max(0, surfaceRect.top + 32);
+    const maxY = Math.min(window.innerHeight, surfaceRect.bottom - 32);
+    const outside = (x: number, y: number, rect: DOMRect, margin = 16) =>
+      x < rect.left - margin ||
+      x > rect.right + margin ||
+      y < rect.top - margin ||
+      y > rect.bottom + margin;
+
+    for (let y = minY; y <= maxY; y += 16) {
+      for (let x = minX; x <= maxX; x += 16) {
+        if (
+          !outside(x, y, boardLayerRect) ||
+          !outside(x, y, boardIframeRect) ||
+          screenRects.some((rect) => !outside(x, y, rect, 24))
+        ) {
+          continue;
+        }
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !surface.contains(hit)) continue;
+        return {
+          point: { x, y },
+          world: {
+            x:
+              (x - surfaceRect.left - worldTransform.e) / zoom - surfacePadding,
+            y: (y - surfaceRect.top - worldTransform.f) / zoom - surfacePadding,
+          },
+          zoom,
+          surface: surfaceRect.toJSON(),
+          boardLayer: boardLayerRect.toJSON(),
+          boardIframe: boardIframeRect.toJSON(),
+        };
+      }
+    }
+
+    return {
+      reason:
+        "no visible empty canvas point lies outside the rendered board geometry",
+      zoom,
+      surface: surfaceRect.toJSON(),
+      boardLayer: boardLayerRect.toJSON(),
+      boardIframe: boardIframeRect.toJSON(),
+      screens: screenRects.map((rect) => rect.toJSON()),
+    };
+  }, SURFACE_PADDING);
+
+  if (!("point" in geometry) || !geometry.point) {
+    throw new Error(
+      `off-render-window precondition failed: ${JSON.stringify(geometry)}`,
+    );
+  }
+  return geometry;
+}
+
 async function boxFor(page: Page, screenId: string, nodeId: string) {
   const box = await designFrame(page, screenId)
     .locator(`[data-agent-native-node-id="${nodeId}"]`)
@@ -342,8 +468,6 @@ test.describe("drag reparent parity", () => {
     );
     await page.waitForTimeout(400);
 
-    // Highlight assertion BEFORE mouseup: the insertion guide should be
-    // visible and roughly cover the footer container.
     const guide = designFrame(page, screenId).locator(
       "[data-agent-native-insertion-guide]",
     );
@@ -527,6 +651,203 @@ test.describe("drag reparent parity", () => {
       .toBeNull();
   });
 
+  test("moving a deeply nested flow child through clipped ancestors preserves root placement and history", async ({
+    page,
+  }) => {
+    const id = await newTwoScreenDesign(page, SCREEN_DEEP_CLIPPED);
+    await gotoEditor(page, id);
+    const screenId = await fileIdFor(page, id, "index.html");
+    const beforeHtml = await fileContent(page, id, "index.html");
+    const beforeStyle = styleOf(beforeHtml, "deep-item");
+    expect(parentOf(beforeHtml, "deep-item")).toBe("clip-inner");
+
+    const source = await boxFor(page, screenId, "deep-item");
+    const dropSurface = await boxFor(page, screenId, "root-drop-point");
+    const grabPoint = {
+      x: source.x + source.width / 2,
+      y: source.y + source.height / 2,
+    };
+    const dropPoint = {
+      x: dropSurface.x + dropSurface.width / 2,
+      y: dropSurface.y + dropSurface.height / 2,
+    };
+    await page.mouse.move(grabPoint.x, grabPoint.y);
+    await page.mouse.down();
+    await page.mouse.move(grabPoint.x + 20, grabPoint.y + 4, { steps: 5 });
+    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
+    await page.waitForTimeout(400);
+    const trace = await dumpTrace(page);
+    const guide = designFrame(page, screenId).locator(
+      "[data-agent-native-insertion-guide]",
+    );
+    const guideBox = await guide.boundingBox().catch(() => null);
+    const heldHtml = await fileContent(page, id, "index.html");
+    expect(
+      heldHtml,
+      `held drag must not persist a structure change before release. Trace: ${trace.slice(-800)}`,
+    ).toBe(beforeHtml);
+    expect(
+      guideBox && guideBox.width > 0 && guideBox.height > 0,
+      `expected a root insertion preview while the child is held outside both clipped ancestors; got ${JSON.stringify(guideBox)}. Trace: ${trace.slice(-800)}`,
+    ).toBe(true);
+
+    await page.mouse.up();
+    let movedHtml = "";
+    await expect
+      .poll(
+        async () => {
+          movedHtml = await fileContent(page, id, "index.html");
+          return (
+            movedHtml.includes('data-agent-native-node-id="deep-item"') &&
+            parentOf(movedHtml, "deep-item") === null
+          );
+        },
+        {
+          timeout: 10_000,
+          message: `deep flow child should move to the screen root after release, got parent ${parentOf(movedHtml, "deep-item")}. Trace: ${trace.slice(-800)}`,
+        },
+      )
+      .toBe(true);
+
+    const moved = designFrame(page, screenId).locator(
+      '[data-agent-native-node-id="deep-item"]',
+    );
+    await expect(moved).toBeVisible();
+    expect(
+      await moved.evaluate(
+        (element) => element.parentElement === document.body,
+      ),
+    ).toBe(true);
+    const movedBox = await moved.boundingBox();
+    expect(movedBox).not.toBeNull();
+    expect(movedBox!.x + movedBox!.width / 2).toBeCloseTo(dropPoint.x, 0);
+    expect(movedBox!.y + movedBox!.height / 2).toBeCloseTo(dropPoint.y, 0);
+
+    await page.keyboard.press("ControlOrMeta+z");
+    let undoHtml = "";
+    await expect
+      .poll(async () => {
+        undoHtml = await fileContent(page, id, "index.html");
+        return parentOf(undoHtml, "deep-item");
+      })
+      .toBe("clip-inner");
+    expect(styleOf(undoHtml, "deep-item")).toBe(beforeStyle);
+
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => {
+        const redoHtml = await fileContent(page, id, "index.html");
+        return (
+          redoHtml.includes('data-agent-native-node-id="deep-item"') &&
+          parentOf(redoHtml, "deep-item") === null
+        );
+      })
+      .toBe(true);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    const reloaded = designFrame(page, screenId).locator(
+      '[data-agent-native-node-id="deep-item"]',
+    );
+    await expect(reloaded).toBeVisible();
+    expect(
+      await reloaded.evaluate(
+        (element) => element.parentElement === document.body,
+      ),
+    ).toBe(true);
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return (
+          html.includes('data-agent-native-node-id="deep-item"') &&
+          parentOf(html, "deep-item") === null
+        );
+      })
+      .toBe(true);
+  });
+
+  test("moving a deeply nested flow child into the root auto-layout uses the pointer slot", async ({
+    page,
+  }) => {
+    const id = await newTwoScreenDesign(page, SCREEN_DEEP_ROOT_FLEX);
+    await gotoEditor(page, id);
+    const screenId = await fileIdFor(page, id, "index.html");
+    const beforeHtml = await fileContent(page, id, "index.html");
+    expect(parentOf(beforeHtml, "deep-item")).toBe("clip-inner");
+
+    const [source, before, outer] = await Promise.all([
+      boxFor(page, screenId, "deep-item"),
+      boxFor(page, screenId, "root-before"),
+      boxFor(page, screenId, "clip-outer"),
+    ]);
+    const grabPoint = {
+      x: source.x + source.width / 2,
+      y: source.y + source.height / 2,
+    };
+    const dropPoint = {
+      x: (before.x + before.width + outer.x) / 2,
+      y: before.y + before.height / 2,
+    };
+
+    await page.mouse.move(grabPoint.x, grabPoint.y);
+    await page.mouse.down();
+    await page.mouse.move(grabPoint.x + 20, grabPoint.y + 4, { steps: 5 });
+    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 20 });
+    await page.waitForTimeout(400);
+    const trace = await dumpTrace(page);
+    const guideBox = await designFrame(page, screenId)
+      .locator("[data-agent-native-insertion-guide]")
+      .boundingBox()
+      .catch(() => null);
+    expect(await fileContent(page, id, "index.html")).toBe(beforeHtml);
+    expect(
+      guideBox && guideBox.width > 0 && guideBox.height > 0,
+      `expected a root auto-layout insertion preview, got ${JSON.stringify(guideBox)}. Trace: ${trace.slice(-800)}`,
+    ).toBe(true);
+    expect(
+      Math.abs(guideBox!.x + guideBox!.width / 2 - (before.x + before.width)),
+      `expected the insertion guide after root-before; guide=${JSON.stringify(guideBox)}, root-before=${JSON.stringify(before)}, outer=${JSON.stringify(outer)}, drop=${JSON.stringify(dropPoint)}. Trace: ${trace.slice(-800)}`,
+    ).toBeLessThan(4);
+
+    await page.mouse.up();
+    const bodyOrder = () =>
+      designFrame(page, screenId)
+        .locator("body")
+        .evaluate((body) =>
+          Array.from(body.children)
+            .map((child) => child.getAttribute("data-agent-native-node-id"))
+            .filter((nodeId): nodeId is string => nodeId !== null),
+        );
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return parentOf(html, "deep-item") === null ? bodyOrder() : [];
+      })
+      .toEqual(["root-before", "deep-item", "clip-outer", "root-after"]);
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(() =>
+        fileContent(page, id, "index.html").then((html) =>
+          parentOf(html, "deep-item"),
+        ),
+      )
+      .toBe("clip-inner");
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return parentOf(html, "deep-item") === null ? bodyOrder() : [];
+      })
+      .toEqual(["root-before", "deep-item", "clip-outer", "root-after"]);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect
+      .poll(bodyOrder)
+      .toEqual(["root-before", "deep-item", "clip-outer", "root-after"]);
+  });
+
   test("dragging an element from inside a screen onto the empty board turns it into a board object", async ({
     page,
   }) => {
@@ -644,6 +965,240 @@ test.describe("drag reparent parity", () => {
       .toBe(true);
   });
 
+  test("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    const id = await newTwoScreenDesign(page);
+    await gotoEditor(page, id);
+
+    const screenId = await fileIdFor(page, id, "index.html");
+    const initialWidget = await boxFor(page, screenId, "widget");
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      initialWidget.x + initialWidget.width / 2,
+      initialWidget.y + initialWidget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
+    const zoomReadout = page.getByRole("button", { name: /^\d+%$/ }).first();
+    await zoomReadout.click();
+    const zoomInput = page.getByRole("textbox", {
+      name: "Zoom percentage",
+    });
+    await zoomInput.fill("3%");
+    await zoomInput.press("Enter");
+    await expect
+      .poll(() => canvasZoom(page), {
+        message:
+          "the canvas must reach the low zoom needed to expose the render-window edge",
+      })
+      .toBeGreaterThan(0.02);
+    await expect.poll(() => canvasZoom(page)).toBeLessThan(0.04);
+
+    const widget = await boxFor(page, screenId, "widget");
+    expect(
+      widget.width,
+      "Widget must remain pointer-targetable at the test zoom",
+    ).toBeGreaterThan(1);
+    const start = {
+      x: widget.x + widget.width / 2,
+      y: widget.y + widget.height / 2,
+    };
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
+    const sourceHtml = await fileContent(page, id, "index.html");
+    const sourceStyle = styleOf(sourceHtml, "widget");
+    const sourceWidth = styleNum(sourceStyle, "width");
+    const sourceHeight = styleNum(sourceStyle, "height");
+    expect(Number.isFinite(sourceWidth) && Number.isFinite(sourceHeight)).toBe(
+      true,
+    );
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 20, start.y, { steps: 5 });
+    const boardIframe = page.locator(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    );
+    await expect(boardIframe).toBeVisible({ timeout: 5_000 });
+    const offRenderPoint = await emptyPointOutsideBoardRenderGeometry(page);
+    const trace = await dumpTrace(page);
+
+    await page.mouse.move(offRenderPoint.point.x, offRenderPoint.point.y, {
+      steps: 30,
+    });
+    const releaseStillOutsideRenderGeometry = await page.evaluate(
+      ({ x, y }) => {
+        const surface = document.querySelector(
+          "[data-multi-screen-canvas-world]",
+        )?.parentElement;
+        const boardLayer = document
+          .querySelector("[data-board-surface-layer]")
+          ?.getBoundingClientRect();
+        const boardIframe = document
+          .querySelector(
+            "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+          )
+          ?.getBoundingClientRect();
+        const surfaceRect = surface?.getBoundingClientRect();
+        const contains = (rect: DOMRect | undefined) =>
+          !!rect &&
+          x >= rect.left &&
+          x <= rect.right &&
+          y >= rect.top &&
+          y <= rect.bottom;
+        return {
+          visibleCanvasPoint:
+            !!surfaceRect &&
+            x >= Math.max(0, surfaceRect.left) &&
+            x <= Math.min(window.innerWidth, surfaceRect.right) &&
+            y >= Math.max(0, surfaceRect.top) &&
+            y <= Math.min(window.innerHeight, surfaceRect.bottom),
+          outsideBoardRenderGeometry:
+            !contains(boardLayer) && !contains(boardIframe),
+          boardLayer: boardLayer?.toJSON() ?? null,
+          boardIframe: boardIframe?.toJSON() ?? null,
+        };
+      },
+      offRenderPoint.point,
+    );
+    expect(
+      releaseStillOutsideRenderGeometry.visibleCanvasPoint,
+      `the release point must stay inside the canvas viewport: ${JSON.stringify(releaseStillOutsideRenderGeometry)}`,
+    ).toBe(true);
+    expect(
+      releaseStillOutsideRenderGeometry.outsideBoardRenderGeometry,
+      `the release point must stay outside the mounted board render window: ${JSON.stringify(releaseStillOutsideRenderGeometry)}`,
+    ).toBe(true);
+    const ghost = page.locator("[data-cross-screen-drag-ghost]");
+    await expect(ghost).toBeVisible({ timeout: 5_000 });
+    const ghostBox = await ghost.boundingBox();
+    expect(
+      ghostBox,
+      `held drag ghost geometry missing at the off-render point. Trace: ${trace.slice(-800)}`,
+    ).not.toBeNull();
+    expect(ghostBox!.x + ghostBox!.width / 2).toBeCloseTo(
+      offRenderPoint.point.x,
+      0,
+    );
+    expect(ghostBox!.y + ghostBox!.height / 2).toBeCloseTo(
+      offRenderPoint.point.y,
+      0,
+    );
+    expect(await fileContent(page, id, "index.html")).toBe(sourceHtml);
+
+    await page.mouse.up();
+
+    let boardHtml = "";
+    let indexHtml = "";
+    await expect
+      .poll(
+        async () => {
+          [indexHtml, boardHtml] = await Promise.all([
+            fileContent(page, id, "index.html"),
+            fileContent(page, id, "__board__.html"),
+          ]);
+          return (
+            !indexHtml.includes('data-agent-native-node-id="widget"') &&
+            boardHtml.includes('data-agent-native-node-id="widget"')
+          );
+        },
+        {
+          timeout: 10_000,
+          message:
+            `releasing outside boardSurfaceRenderGeometry must still reparent Widget into __board__.html. ` +
+            `Point=${JSON.stringify(offRenderPoint)}. Trace: ${trace.slice(-800)}`,
+        },
+      )
+      .toBe(true);
+
+    const boardCommitPoint = await page.evaluate(() => {
+      const entries = (window as any).__designTrace?.entries?.() ?? [];
+      return (
+        entries
+          .filter(
+            (entry: any) =>
+              entry.area === "drop" && entry.event === "board-commit-point",
+          )
+          .at(-1)?.data ?? null
+      );
+    });
+    expect(boardCommitPoint).not.toBeNull();
+    expect(boardCommitPoint.targetOutsideBoardRenderGeometry).toBe(true);
+    expect(boardCommitPoint.boardSurfaceRenderOrigin).toMatchObject({
+      x: expect.any(Number),
+      y: expect.any(Number),
+    });
+    expect(
+      Math.hypot(
+        boardCommitPoint.boardSurfaceRenderOrigin.x,
+        boardCommitPoint.boardSurfaceRenderOrigin.y,
+      ),
+    ).toBeGreaterThan(0);
+    expect(
+      boardCommitPoint.targetCanvasPoint.x -
+        boardCommitPoint.targetLocalPoint.x,
+    ).toBeCloseTo(boardCommitPoint.boardSurfaceRenderOrigin.x, 4);
+    expect(
+      boardCommitPoint.targetCanvasPoint.y -
+        boardCommitPoint.targetLocalPoint.y,
+    ).toBeCloseTo(boardCommitPoint.boardSurfaceRenderOrigin.y, 4);
+
+    const boardStyle = styleOf(boardHtml, "widget");
+    const boardLeft = styleNum(boardStyle, "left");
+    const boardTop = styleNum(boardStyle, "top");
+    const worldTolerance = 1 / offRenderPoint.zoom;
+    expect(
+      Math.abs(boardLeft - (offRenderPoint.world.x - sourceWidth / 2)),
+      `persisted board x must match the held canvas point within one canvas pixel; ` +
+        `expected=${offRenderPoint.world.x - sourceWidth / 2}, actual=${boardLeft}, ` +
+        `point=${JSON.stringify(offRenderPoint)}. Trace: ${trace.slice(-800)}`,
+    ).toBeLessThanOrEqual(worldTolerance);
+    expect(
+      Math.abs(boardTop - (offRenderPoint.world.y - sourceHeight / 2)),
+      `persisted board y must match the held canvas point within one canvas pixel; ` +
+        `expected=${offRenderPoint.world.y - sourceHeight / 2}, actual=${boardTop}, ` +
+        `point=${JSON.stringify(offRenderPoint)}. Trace: ${trace.slice(-800)}`,
+    ).toBeLessThanOrEqual(worldTolerance);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible({
+      timeout: 30_000,
+    });
+    let reloadedBoardHtml = "";
+    await expect
+      .poll(async () => {
+        [indexHtml, reloadedBoardHtml] = await Promise.all([
+          fileContent(page, id, "index.html"),
+          fileContent(page, id, "__board__.html"),
+        ]);
+        return {
+          screenContainsWidget: indexHtml.includes(
+            'data-agent-native-node-id="widget"',
+          ),
+          boardContainsWidget: reloadedBoardHtml.includes(
+            'data-agent-native-node-id="widget"',
+          ),
+        };
+      })
+      .toEqual({ screenContainsWidget: false, boardContainsWidget: true });
+    expect(styleOf(reloadedBoardHtml, "widget")).toBe(boardStyle);
+  });
+
   test("dragging a board rectangle into a screen inserts it into that screen at the drop position", async ({
     page,
   }) => {
@@ -651,7 +1206,6 @@ test.describe("drag reparent parity", () => {
     await gotoEditor(page, id);
     const screenId = await fileIdFor(page, id, "index.html");
 
-    // Draw a rectangle on the empty board first (Rectangle tool).
     const boardPoint = await emptyBoardPoint(page);
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
@@ -764,38 +1318,53 @@ test.describe("drag reparent parity", () => {
 
     const widget = await boxFor(page, screenId, "widget");
     const footer = await boxFor(page, screenId, "footer");
-    const previewBody = designFrame(page, screenId).locator("body");
-    const spaceKey = (type: "keydown" | "keyup") =>
-      previewBody.evaluate((_b, t) => {
-        document.dispatchEvent(
-          new KeyboardEvent(t, {
-            key: " ",
-            code: "Space",
-            bubbles: true,
-            cancelable: true,
-          }),
+    const liveWidgetParent = () =>
+      designFrame(page, screenId)
+        .locator('[data-agent-native-node-id="widget"]')
+        .evaluate((element) =>
+          element.parentElement?.getAttribute("data-agent-native-node-id"),
         );
-      }, type);
+
+    await page.evaluate(() => {
+      document.body.dataset.editorDragStarted = "false";
+      window.addEventListener(
+        "message",
+        (event: MessageEvent) => {
+          if (
+            event.data?.type === "agent-native:editor-drag-state" &&
+            event.data.active === true
+          ) {
+            document.body.dataset.editorDragStarted = "true";
+          }
+        },
+        true,
+      );
+    });
 
     await page.mouse.move(
       widget.x + widget.width / 2,
       widget.y + widget.height / 2,
     );
     await page.mouse.down();
-    await spaceKey("keydown");
     await page.mouse.move(
       widget.x + widget.width / 2 + 20,
       widget.y + widget.height / 2,
       { steps: 5 },
     );
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-editor-drag-started",
+      "true",
+    );
+    await page.keyboard.down("Space");
     await page.mouse.move(
       footer.x + footer.width / 2,
       footer.y + footer.height / 2,
       { steps: 24 },
     );
+    await expect.poll(liveWidgetParent).toBe("main");
     await page.waitForTimeout(400);
     await page.mouse.up();
-    await spaceKey("keyup");
+    await page.keyboard.up("Space");
 
     await expect
       .poll(
@@ -809,6 +1378,17 @@ test.describe("drag reparent parity", () => {
             "Figma: holding Space while dragging must keep the object in its current parent even while hovering a frame",
         },
       )
+      .toBe("main");
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(async () => {
+        const html = await fileContent(page, id, "index.html");
+        return parentOf(html, "widget");
+      })
       .toBe("main");
   });
 
@@ -930,10 +1510,6 @@ test.describe("drag reparent parity", () => {
     await page.waitForTimeout(400);
     await page.mouse.up();
 
-    // Precondition is the same screen-to-board drag exercised (and asserted)
-    // by "dragging an element from inside a screen onto the empty board..."
-    // above; not skipped here — if that drag is broken this fails for the
-    // real reason instead of silently passing an untested undo.
     await expect
       .poll(
         async () => {
@@ -979,16 +1555,10 @@ test.describe("drag reparent parity", () => {
   }) => {
     const id = await newTwoScreenDesign(page);
     await gotoEditor(page, id);
-    // Both screens must be on-screen at once for a real cross-screen drag —
-    // the second screen is placed well below the first by default. Zoom-fit
-    // needs canvas focus, not e.g. a panel that swallows the keystroke.
     await page.keyboard.press("Shift+1");
     const screenOneId = await fileIdFor(page, id, "index.html");
     const screenTwoId = await fileIdFor(page, id, "page-two.html");
 
-    // Shift+1 (zoom-to-fit) is a CSS transition with no completion event —
-    // poll the target's own box until two consecutive reads agree, so the
-    // drag below computes coordinates against the settled layout.
     let lastTargetBox: { x: number; y: number } | null = null;
     await expect
       .poll(
@@ -1215,8 +1785,6 @@ test.describe("drag reparent parity", () => {
     const sourceNode = designFrame(page, screenOneId).locator(
       '[data-agent-native-node-id="style-card"]',
     );
-    // Read the class-authored appearance directly off the live source node
-    // rather than hardcoding the browser's keyword/hex-to-rgb() conversion.
     const [colorBefore, backgroundBefore] = await sourceNode.evaluate((el) => {
       const cs = getComputedStyle(el);
       return [cs.color, cs.backgroundColor];
@@ -1253,8 +1821,6 @@ test.describe("drag reparent parity", () => {
     const trace = await dumpTrace(page);
     await page.mouse.up();
 
-    // Source and destination files save independently, so poll both to confirm
-    // the move has settled in each.
     let screenTwoHtml = "";
     let screenOneHtmlAfter = "";
     await expect
@@ -1281,7 +1847,6 @@ test.describe("drag reparent parity", () => {
       )
       .toBe(true);
 
-    // The destination has no `.card` rule; carried styles must render inline.
     const destNode = designFrame(page, screenTwoId).locator(
       '[data-agent-native-node-id="style-card"]',
     );
@@ -1294,15 +1859,10 @@ test.describe("drag reparent parity", () => {
       )
       .toEqual([colorBefore, backgroundBefore]);
 
-    // Read computed width inside the iframe; overview zoom affects canvas
-    // coordinates, not this layout value.
     expect(
       styleOf(screenTwoHtml, "style-card"),
       "Style Card must persist width:320px as inline style after landing in screen two",
     ).toMatch(/width\s*:\s*320px/);
-    // computed style inside the frame, not an on-screen boundingBox() — the
-    // overview canvas can render screen two below 1:1 zoom, which would
-    // shrink a raw pixel bounding box without the carried width being wrong.
     expect(await destNode.evaluate((el) => getComputedStyle(el).width)).toBe(
       "320px",
     );

@@ -44,9 +44,9 @@ renders as unstyled browser defaults. Bake the values.
 
 These are fallback defaults only. When a design system is linked, its hydrated
 tokens control color, typography, spacing, borders, imagery, and slide defaults;
-a reference deck controls composition and markup idiom only. The generic
-Impeccable-inspired quality bar can flag hierarchy, contrast, density, and
-anti-pattern issues, but it cannot replace the active system.
+a reference deck controls composition and markup idiom only. For "make it
+beautiful" or any polish request, read `slide-design`; its craft rules apply
+inside the active system and cannot replace it.
 
 When no system is linked, establish one deck-level contract before changing a
 slide: choose a subject-appropriate background family, text and surface roles,
@@ -69,6 +69,39 @@ column. If the source is denser, split it across slides. Never use zoom,
 `transform: scale()`, clipping, or scroll overflow to hide a fit issue; body
 text must remain at least 16px. Explicitly reduced slide padding is allowed when
 the content still needs the space.
+
+After all deck edits, call `get-layout-overflows` once. If you repair a
+measured overflow, call it once more; do not check between writes. If status is
+unknown, name the unmeasured slide numbers and IDs. The action reads current
+measurements from the open editor tab and cannot trigger or wait for them, so
+repeating the call this turn will not change the result unless the editor has
+produced a new measurement. Never claim the deck fits while any slide is
+unknown.
+
+## Contrast
+
+Run `audit-contrast` as the last step of any turn that created or changed
+slides, even when the user did not ask: after every other edit, including
+layout-fit repairs, and right before the final response. Also use it whenever
+the user asks about readability or accessibility. If it cannot run because the
+deck is not open in the editor, say contrast was not checked.
+
+Fix failures in one bounded pass: adjust the offending role (`--deck-muted`,
+`--deck-ink`, a surface) rather than recoloring one element with a new hex.
+Every replacement color must match the deck's theme:
+
+- Design system linked: choose a passing color from that system's own palette
+  (from `get-design-system`). If none passes, keep the token and report it
+  instead of inventing a color.
+- No design system: reuse a color already in the deck, or shift the failing
+  color's lightness while keeping its hue.
+
+Never introduce an unrelated hue just to pass contrast. Audit once more, then
+stop and report what remains. Unverified text and skipped slides were not
+checked; say so rather than calling the deck accessible. If slides come back
+skipped as `stale-render`, audit once more before reporting. Remaining
+unverified text sits over an image, gradient, or visual effect: name those
+slides and objects, and do not call them risky or fine without a measurement.
 
 ## Updating a Slide
 

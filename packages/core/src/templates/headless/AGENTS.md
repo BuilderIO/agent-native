@@ -26,8 +26,10 @@ This app is not stateless. The Agent-Native runtime uses PostgreSQL-backed store
 ## Framework Docs Lookup
 
 Version-matched Agent-Native docs ship with `@agent-native/core` in
-`node_modules/@agent-native/core/docs`. A source-only corpus of core and
-first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
+`node_modules/@agent-native/core/docs`. First-party template source is available
+in the optional `node_modules/@agent-native/core-corpus/corpus` package. If
+source-search reports it is unavailable, install the matching version with
+`pnpm add -D @agent-native/core-corpus@<installed-core-version>`.
 
 - Use `pnpm action docs-search --query "<topic>"` to search framework docs,
   bundled `AGENTS.md`, and codebase skills.
@@ -42,7 +44,7 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 - If the action runner is unavailable, read
   `node_modules/@agent-native/core/docs/AGENTS.md` and search
   `node_modules/@agent-native/core/docs/content/` directly with `rg`. Search
-  `node_modules/@agent-native/core/corpus/` for source examples.
+  `node_modules/@agent-native/core-corpus/corpus/` for source examples.
 
 Before building common workspace or agent UI, read `agent-native-toolkit` to
 inventory existing public kits and installed package seams. When adding or

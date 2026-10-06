@@ -432,15 +432,6 @@ describe("design clipboard marker round-trip", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// parseUploadResponse — R83: never let a non-JSON error body (plaintext
-// "Internal Error", an HTML proxy error page, etc.) throw a raw parser
-// SyntaxError into the upload toast. Failure responses always degrade to a
-// clean `{ error }` message; success responses are still expected to be real
-// JSON so a genuinely broken 200 stays loud instead of masquerading as an
-// empty successful import.
-// ---------------------------------------------------------------------------
-
 function fakeResponse(status: number, body: string): JsonParsableResponse {
   return {
     ok: status >= 200 && status < 300,
@@ -467,10 +458,6 @@ describe("parseUploadResponse", () => {
   });
 
   it("degrades a plaintext non-JSON failure body to a clean error message instead of throwing", async () => {
-    // This is the exact R83 repro: an upstream proxy/platform crash page
-    // returns plaintext ("Internal E..." truncated), not the route's own
-    // JSON envelope. response.json() on this body throws
-    // `SyntaxError: Unexpected token 'I', "Internal E"... is not valid JSON`.
     const result = await parseUploadResponse(
       fakeResponse(500, "Internal Error"),
       "Upload failed",
@@ -576,8 +563,6 @@ describe("readFigmaImportFailure", () => {
 
     const { result, isRateLimited } = readFigmaImportFailure(error, "fallback");
 
-    // Still a banner state so the countdown and the no-quota alternatives
-    // render, but attributed to Design so no Figma plan copy or upgrade link.
     expect(isRateLimited).toBe(true);
     expect(result.quotaSource).toBe("design");
     expect(result.rateLimitRetryAfter).toBe(42);

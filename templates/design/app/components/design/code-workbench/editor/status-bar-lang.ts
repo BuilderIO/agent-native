@@ -1,8 +1,3 @@
-/**
- * Language id -> display name mapping, extracted from StatusBar so it can be
- * unit-tested without importing `monaco-editor` (which requires a `window`
- * global and can't load under vitest's default node environment).
- */
 export const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
   html: "HTML" /* i18n-ignore */,
   css: "CSS" /* i18n-ignore */,

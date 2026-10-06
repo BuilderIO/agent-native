@@ -6,6 +6,7 @@ import {
 import { eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import { designFinalResponseGuard } from "../lib/design-response-guard.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import "../register-secrets.js";
@@ -14,12 +15,7 @@ const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
-  // Local visual-edit tools are intentionally explicit: the connector
-  // catalog otherwise hides them from Claude Code/Codex hosts without a
-  // browser WebMCP surface.
   "open-visual-edit",
-  // Keep the durable handoff visible to Claude Code/Codex without requiring
-  // the user's Design tab or a page-local WebMCP host.
   "get-visual-edit-pending",
   "acknowledge-visual-edit-pending",
   "connect-localhost",
@@ -29,9 +25,6 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "add-breakpoint",
   "remove-breakpoint",
   "view-screen",
-  // Pairs with view-screen: an external agent that can read the screen but
-  // cannot move it has to drive the browser to change screens, which is the
-  // UI automation the WebMCP contract exists to avoid.
   "navigate",
   "list-designs",
   "list-design-systems",
@@ -55,6 +48,40 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "rename-screen",
   "export-png",
 ];
+
+function projectChatGptDirectoryResult(
+  toolName: string,
+  result: unknown,
+): unknown {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  const projected = { ...(result as Record<string, unknown>) };
+  if (toolName === "create-design" && projected.nextRequiredAction) {
+    projected.nextRequiredAction =
+      "Use generate-design to create and save the screen HTML before reporting the design as renderable.";
+  }
+  if (toolName === "get-design-snapshot") {
+    const template = projected.createdFromTemplate;
+    if (template && typeof template === "object" && !Array.isArray(template)) {
+      projected.createdFromTemplate = {
+        ...(template as Record<string, unknown>),
+        note: "These files are edited copies of the template. Preserve the canvas dimensions, typography, and locked layers shown in this snapshot.",
+      };
+    }
+    if (projected.nextRequiredAction) {
+      projected.nextRequiredAction =
+        "Use edit-design once on the returned editTarget. Re-read only if the edit fails with a concrete missing-context error.";
+    }
+  }
+  if (toolName === "present-design-variants") {
+    projected.fallbackInstructions =
+      "The generated directions are saved as screens on the Design overview board. Ask the user to choose a screen. Then read that screen once and use edit-design on the same file to refine it. Keep the other screens saved unless the user asks to remove them.";
+    projected.nextRequiredAction =
+      "Wait for the user to choose a screen. Then call get-design-snapshot once for that file and edit-design on the same file in one bounded pass. Keep the other variant screens saved.";
+  }
+  return projected;
+}
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -274,12 +301,13 @@ export default createAgentChatPlugin({
     instructions:
       "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-png for one screen, or export-html / export-zip / export-coding-handoff / export-design-as-figma-svg for other formats. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
       'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. KEY VISUAL HANDOFF: after the user edits a live screen, call get-visual-edit-pending with the visual-edit designId before asking for copy/paste. It returns the latest source prompt and revision even when the Design tab is closed; apply that prompt to the connected app, then call acknowledge-visual-edit-pending with the same designId and revision only after the source change is verified, and call get-visual-edit-pending again to confirm it cleared. Never acknowledge a handoff you did not apply. The page-local get-visual-edit-prompt tool is an equivalent fallback only for browser-capable hosts.',
+    directoryProfile: {
+      ...CHATGPT_DIRECTORY_PROFILE,
+      projectResult: projectChatGptDirectoryResult,
+    },
   },
   externalAgents: { writes: "allowlisted" },
   finalResponseGuard: designFinalResponseGuard,
-  // Enable sandboxed JavaScript execution so Design agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per GitHub endpoint.
   codeExecution: { production: "sandboxed" },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
@@ -313,7 +341,7 @@ When open review feedback exists, call get-review-feedback and work one anchored
 
 When the user picks one direction from a set of presented variants, delete each unchosen variant screen at most once, then call get-design-snapshot exactly once for the kept screen's fileId and call edit-design on that same fileId. Use edit-design replace-file when expanding the placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not call generate-design after a variant pick unless the user explicitly asks to create a separate new screen.
 
-When the user asks to visually inspect or edit a running local app, use open-visual-edit. It registers the localhost bridge, creates or reuses the Design project, places URL-backed iframe screens, stores the active visual-edit context, and navigates to overview mode in one authenticated step. For follow-ups like adding a mobile viewport or another route state, reuse the current designId and connectionId and call open-visual-edit or add-localhost-screens with explicit routes/paths and viewport sizes.
+When the user asks to visually inspect or edit a running local app, use open-visual-edit. It registers the localhost bridge, creates or resumes the saved Design project for that connection, places URL-backed iframe screens, stores the active visual-edit context, and navigates to overview mode in one authenticated step. For follow-ups like adding a mobile viewport or another route state, reuse the current designId and connectionId when available and call open-visual-edit or add-localhost-screens with explicit routes/paths and viewport sizes. The action resumes the saved project for the same connection when designId is absent; set newDesign: true only when the user explicitly wants a separate project.
 
 Provider-specific Design actions are shortcuts, not limits. If a first-class action cannot express the exact GitHub endpoint, repository tree query, code search, issue or pull request query, request body, pagination mode, payload shape, metadata field, or API version needed, call provider-api-catalog and provider-api-docs as needed, then call provider-api-request against the real GitHub API. Use the raw provider API escape hatch instead of weakening the answer or claiming Design cannot do something the underlying GitHub API can do.
 

@@ -14,7 +14,6 @@ export default mergeConfig(
     },
     test: {
       include: ["**/*.{test,spec}.?(c|m)[jt]s?(x)"],
-      // e2e/ holds Playwright (@playwright/test) specs; run via `pnpm e2e`, not vitest.
       exclude: [
         "**/node_modules/**",
         "**/.git/**",

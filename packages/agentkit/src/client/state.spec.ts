@@ -4,11 +4,64 @@ import type { AgentEvent } from "../protocol/index.js";
 import {
   classifyAgentEvent,
   createAgentThreadState,
+  hasActiveAgentRuns,
   reduceAgentEvent,
   selectActiveAgentRoster,
 } from "./state.js";
 
 const occurredAt = "2026-08-29T00:00:00.000Z";
+
+describe("hasActiveAgentRuns", () => {
+  it("keeps an unprojected approval active until a run status resolves it", () => {
+    const thread = createAgentThreadState("thread-1");
+    thread.activeRunIds = ["run-1"];
+    thread.runs["run-1"] = {
+      id: "run-1",
+      status: "awaiting_approval",
+      lastSequence: 1,
+    };
+
+    expect(hasActiveAgentRuns(thread)).toBe(true);
+
+    thread.runs["run-1"].status = "completed";
+    expect(hasActiveAgentRuns(thread)).toBe(false);
+  });
+
+  it("matches approval resolution by ID across continuation event ordering", () => {
+    const thread = createAgentThreadState("thread-1");
+    thread.activeRunIds = ["run-1"];
+    thread.runs["run-1"] = {
+      id: "run-1",
+      status: "awaiting_approval",
+      lastSequence: 1,
+    };
+    const resolved = {
+      ...event(2, {
+        type: "approval.resolved",
+        approvalId: "approval-1",
+        response: { decision: "approve" },
+      }),
+      id: "event-continuation-resolution",
+      runId: "run-continuation",
+    };
+    const requested = event(1, {
+      type: "approval.requested",
+      request: { id: "approval-1", title: "Continue?" },
+    });
+    thread.events = [requested];
+
+    expect(hasActiveAgentRuns(thread)).toBe(true);
+    thread.events = [resolved, requested];
+    expect(hasActiveAgentRuns(thread)).toBe(false);
+  });
+
+  it("treats an active id with a missing run projection as active", () => {
+    const thread = createAgentThreadState("thread-1");
+    thread.activeRunIds = ["run-unprojected"];
+
+    expect(hasActiveAgentRuns(thread)).toBe(true);
+  });
+});
 
 function event(
   sequence: number,
@@ -237,6 +290,39 @@ describe("AgentKit lifecycle projections", () => {
         parts: [{ type: "text", text: "Answer" }],
       }),
     ]);
+  });
+
+  it("defaults empty completion status and preserves deltas", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(3, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Answer",
+      }),
+      event(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.messages[0]).toMatchObject({
+      status: "complete",
+      parts: [{ type: "text", text: "Answer" }],
+    });
   });
 
   it("preserves a failed synthetic completion status while retaining deltas", () => {

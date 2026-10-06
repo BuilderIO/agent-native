@@ -2,6 +2,13 @@ import fs from "fs";
 import path from "path";
 
 import {
+  attachmentFailureToError,
+  describeAttachmentFailure,
+  isAttachmentError,
+  isPrivateBlobConfiguredForRequest,
+} from "@agent-native/core/private-blob";
+import { getRequestOrgId } from "@agent-native/core/server";
+import {
   defineEventHandler,
   readBody,
   setResponseStatus,
@@ -20,8 +27,8 @@ import {
 import { tenantUploadDir } from "../lib/tenant-files.js";
 import {
   isHostedSlidesRuntime,
-  deleteUploadedReferenceBlob,
-  storeUploadedReferenceBlob,
+  deleteUploadedReference,
+  mintUploadedReference,
 } from "../lib/uploaded-reference-storage.js";
 import {
   canSaveAsUploadedAsset,
@@ -58,11 +65,6 @@ function safeFilename(
 ): string | null {
   const ext = extension.toLowerCase();
   if (!isSlidesReferenceFileExtension(ext)) return null;
-  // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
-  // not `Date.now()` — second-resolution timestamps are guessable and let
-  // someone with the per-tenant URL prefix probe the upload window. The
-  // tenant subdir already namespaces by user; nanoid makes the leaf
-  // unguessable too. (audit 10 medium / audit 01 medium).
   return `${nanoid()}${ext}`;
 }
 
@@ -80,6 +82,27 @@ export function maxReferenceFileBytes(
     ? MAX_FIG_REFERENCE_FILE_BYTES
     : MAX_REFERENCE_FILE_BYTES;
 }
+
+export const getUploadStorageStatus = defineEventHandler(async (event) => {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  if (!auth.context.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  return withSlidesRequestContext(
+    event,
+    async () => ({
+      referenceStorageReady:
+        !isHostedSlidesRuntime() || (await isPrivateBlobConfiguredForRequest()),
+    }),
+    auth.context,
+  );
+});
 
 function formatMaxFileSize(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`;
@@ -157,6 +180,7 @@ export async function saveUploadedReferenceFile(args: {
   data: Uint8Array;
   type?: string;
 }): Promise<UploadedReferenceFile> {
+  const orgId = args.orgId === undefined ? getRequestOrgId() : args.orgId;
   const declaredExt = path.extname(args.originalName).toLowerCase();
   if (!isSlidesReferenceFileExtension(declaredExt)) {
     throw new Error(
@@ -200,30 +224,15 @@ export async function saveUploadedReferenceFile(args: {
       : args.type || "application/octet-stream");
   let uploadedPath: string;
   if (isHostedSlidesRuntime()) {
-    let reference: string | null;
-    try {
-      reference = await storeUploadedReferenceBlob({
-        email: args.email,
-        orgId: args.orgId,
-        data: args.data,
-        filename,
-        mimeType: resolvedType,
-      });
-    } catch {
-      throw Object.assign(
-        new Error("Private file storage failed while saving the upload."),
-        { statusCode: 503 },
-      );
-    }
-    if (!reference) {
-      throw Object.assign(
-        new Error(
-          "Private file storage is not configured. Connect Builder.io (free tier available) or another file provider before uploading reference files in a hosted Slides deployment.",
-        ),
-        { statusCode: 503 },
-      );
-    }
-    uploadedPath = reference;
+    const minted = await mintUploadedReference({
+      email: args.email,
+      orgId,
+      data: args.data,
+      filename,
+      mimeType: resolvedType,
+    });
+    if (minted.status !== "ok") throw attachmentFailureToError(minted, "save");
+    uploadedPath = minted.ref;
   } else {
     const uploadDir = tenantUploadDir(args.email);
     await fs.promises.mkdir(uploadDir, { recursive: true });
@@ -231,10 +240,6 @@ export async function saveUploadedReferenceFile(args: {
     await fs.promises.writeFile(destPath, args.data);
     uploadedPath = pathForAgent(destPath);
   }
-  // For images, also push to the public file-upload provider so the agent can
-  // embed a hosted URL (in slide HTML, chat replies, etc.). The `path` above
-  // remains the private import source: a tenant path locally and an encrypted,
-  // owner-scoped blob reference in hosted deployments.
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
@@ -246,15 +251,13 @@ export async function saveUploadedReferenceFile(args: {
       url = (
         await uploadImageAsset({
           email: args.email,
+          orgId,
           originalName: assetOriginalName,
           data: args.data,
           type: resolvedType,
         })
       ).url;
     } catch {
-      // No provider configured or upload failed — the agent still has the
-      // on-disk path. The caller's UI can prompt the user to connect a
-      // provider if it needs a public URL.
       url = undefined;
     }
   }
@@ -268,7 +271,38 @@ export async function saveUploadedReferenceFile(args: {
   };
 }
 
-// Upload one or more files
+/**
+ * The wire shape of a failed upload. Typed attachment errors carry their own
+ * status, code and details; the client branches on those, never on the text.
+ */
+function describeUploadFailure(reason: unknown): {
+  message: string;
+  statusCode: number;
+  errorCode?: string;
+  details?: Record<string, unknown>;
+} {
+  const typed = (reason ?? {}) as {
+    statusCode?: unknown;
+    errorCode?: unknown;
+    details?: unknown;
+  };
+  const message = isAttachmentError(reason)
+    ? describeAttachmentFailure(reason.failure, "save").message
+    : reason instanceof Error
+      ? reason.message
+      : "Invalid upload";
+  return {
+    message,
+    statusCode: typeof typed.statusCode === "number" ? typed.statusCode : 400,
+    ...(typeof typed.errorCode === "string"
+      ? { errorCode: typed.errorCode }
+      : {}),
+    ...(typed.details && typeof typed.details === "object"
+      ? { details: typed.details as Record<string, unknown> }
+      : {}),
+  };
+}
+
 export const uploadFiles = defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
@@ -307,7 +341,10 @@ export const uploadFiles = defineEventHandler(async (event) => {
       if (oversized) {
         const limit = maxReferenceFileBytes(oversized.filename);
         setResponseStatus(event, 413);
-        return { error: `File too large (max ${formatMaxFileSize(limit)})` };
+        return {
+          error: `File "${oversized.filename || "upload"}": File too large (max ${formatMaxFileSize(limit)})`,
+          failedFileName: oversized.filename,
+        };
       }
 
       const results = await Promise.allSettled(
@@ -325,26 +362,26 @@ export const uploadFiles = defineEventHandler(async (event) => {
         (result): result is PromiseFulfilledResult<UploadedReferenceFile> =>
           result.status === "fulfilled",
       );
-      const failedResult = results.find(
+      const failedResultIndex = results.findIndex(
         (result) => result.status === "rejected",
       );
-      if (failedResult) {
+      if (failedResultIndex !== -1) {
         await Promise.allSettled(
           successfulResults.map((result) =>
-            deleteUploadedReferenceBlob(result.value.path, email),
+            deleteUploadedReference(result.value.path, email),
           ),
         );
-        const statusCode =
-          typeof (failedResult.reason as { statusCode?: unknown })
-            ?.statusCode === "number"
-            ? (failedResult.reason as { statusCode: number }).statusCode
-            : 400;
-        setResponseStatus(event, statusCode);
+        const failedResult = results[failedResultIndex];
+        const failedFile = fileParts[failedResultIndex];
+        const failure = describeUploadFailure(
+          failedResult?.status === "rejected" ? failedResult.reason : undefined,
+        );
+        setResponseStatus(event, failure.statusCode);
         return {
-          error:
-            failedResult.reason instanceof Error
-              ? failedResult.reason.message
-              : "Invalid upload",
+          error: `File "${failedFile?.filename || "upload"}": ${failure.message}`,
+          ...(failure.errorCode ? { errorCode: failure.errorCode } : {}),
+          ...(failure.details ? { details: failure.details } : {}),
+          failedFileName: failedFile?.filename,
         };
       }
 
@@ -380,15 +417,15 @@ export const deleteUploadedFile = defineEventHandler(async (event) => {
     async () => {
       try {
         return {
-          deleted: await deleteUploadedReferenceBlob(
-            body.path as string,
-            email,
-          ),
+          deleted: await deleteUploadedReference(body.path as string, email),
         };
       } catch (error) {
-        setResponseStatus(event, 400);
+        const failure = describeUploadFailure(error);
+        setResponseStatus(event, failure.statusCode);
         return {
-          error: error instanceof Error ? error.message : "Invalid upload",
+          error: failure.message,
+          ...(failure.errorCode ? { errorCode: failure.errorCode } : {}),
+          ...(failure.details ? { details: failure.details } : {}),
         };
       }
     },

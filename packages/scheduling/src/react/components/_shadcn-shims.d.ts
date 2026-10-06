@@ -1,38 +1,3 @@
-/**
- * Type shims for the consumer's shadcn/ui components.
- *
- * The scheduling package's React components import shadcn primitives via
- * the standard `@/components/ui/*` alias. That alias is resolved at
- * *build time* by the consumer's bundler (Vite / React Router) using the
- * template's `tsconfig.json` `paths` setting.
- *
- * The package itself doesn't have access to that alias during `tsc`
- * compilation, so we declare broad shapes here to make the compiler happy
- * without coupling the package to a specific shadcn version. Runtime
- * behaviour is driven entirely by the consumer's actual shadcn modules.
- *
- * Expected consumer primitives (add to your `app/components/ui/` folder
- * before importing any `@agent-native/scheduling/react/components` files):
- *
- *   - button    (Button)
- *   - input     (Input)
- *   - label     (Label)
- *   - textarea  (Textarea)
- *   - switch    (Switch)
- *   - badge     (Badge)
- *   - card      (Card, CardContent, CardDescription, CardHeader, CardTitle)
- *   - dialog    (Dialog, DialogContent, DialogHeader, DialogTitle,
- *                DialogDescription, DialogFooter, DialogTrigger)
- *   - select    (Select, SelectContent, SelectItem, SelectTrigger, SelectValue)
- *   - separator (Separator)
- *   - tabs      (Tabs, TabsList, TabsTrigger, TabsContent)
- *   - tooltip   (Tooltip, TooltipContent, TooltipTrigger)
- *   - dropdown-menu (DropdownMenu, DropdownMenuContent, DropdownMenuItem,
- *                    DropdownMenuSeparator, DropdownMenuTrigger)
- *   - alert-dialog (AlertDialog, AlertDialogAction, AlertDialogCancel,
- *                   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
- *                   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger)
- */
 declare module "@/components/ui/button" {
   import type { ComponentType, ButtonHTMLAttributes, ReactNode } from "react";
   export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

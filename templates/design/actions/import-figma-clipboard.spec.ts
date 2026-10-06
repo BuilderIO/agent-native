@@ -382,7 +382,6 @@ describe("import-figma-clipboard", () => {
   });
 
   it("treats the typed figma_auth_required as a missing token, like the raw resolver message", async () => {
-    // What the provider wrapper now raises instead of the raw core message.
     mocks.executeProviderApiRequest.mockRejectedValue(
       Object.assign(new Error("No Figma access token is available"), {
         errorCode: "figma_auth_required",
@@ -545,7 +544,6 @@ describe("import-figma-clipboard", () => {
     expect(result.guidance).toMatch(
       /no exact node ids and no browser-readable HTML/i,
     );
-    // The refusal must name the strategy that failed, not just report nothing.
     expect(result.guidance).toMatch(
       /did not include exact node ids or visible text/i,
     );
@@ -736,8 +734,6 @@ describe("import-figma-clipboard", () => {
       expect(result.strategy).toBe("htmlFallback");
       expect(result.files).toEqual([]);
       expect(result.figmaApiKeyMissing).toBe(true);
-      // The swallowed decode error was the difference between "paste failed
-      // because X" and a paste that appeared to do nothing at all.
       expect(result.guidance).toMatch(/No editable frames found/);
     });
 

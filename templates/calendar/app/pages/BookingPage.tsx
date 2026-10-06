@@ -1,6 +1,10 @@
 import { useSession } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { DefaultSpinner, PoweredByBadge } from "@agent-native/core/client/ui";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  LanguagePicker,
+  PoweredByBadge,
+  WaveBackground,
+} from "@agent-native/toolkit/app/shared";
 import type { Booking } from "@shared/api";
 import { getWeekStartsOn } from "@shared/calendar-week";
 import { IconAlertTriangle, IconCalendar } from "@tabler/icons-react";
@@ -21,7 +25,6 @@ import {
   type BookingFormValue,
 } from "@/components/booking/BookingForm";
 import { DatePicker } from "@/components/booking/DatePicker";
-import { OceanBookingBackground } from "@/components/booking/ocean-booking-background";
 import { RequiredHostsBadge } from "@/components/booking/RequiredHostsBadge";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
 import {
@@ -30,6 +33,7 @@ import {
 } from "@/components/booking/TimeZoneGrid";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   useAvailableDays,
   useAvailableSlots,
@@ -74,18 +78,59 @@ function BookingPageShell({
         className,
       )}
     >
-      <OceanBookingBackground className="fixed inset-0 z-0" />
+      <WaveBackground className="fixed inset-0 z-0" />
       <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
         <LanguagePicker variant="ghost-icon" />
         <ThemeToggle />
       </div>
-      <div className="fixed bottom-[21px] left-4 z-50 max-sm:static max-sm:mx-auto max-sm:mt-8 [&_.an-powered-logo]:!h-3.5 [&_.an-powered-logo]:brightness-0 dark:[&_.an-powered-logo]:invert">
+      <div className="fixed bottom-[21px] left-4 z-50 max-sm:static max-sm:mx-auto max-sm:pt-8 [&_.an-powered-logo]:!h-3.5 [&_.an-powered-logo]:brightness-0 dark:[&_.an-powered-logo]:invert">
         <PoweredByBadge variant="plain" embedded />
       </div>
       <div className="relative z-10 min-h-screen overflow-x-hidden p-4">
         {children}
       </div>
     </div>
+  );
+}
+
+function BookingPageSkeleton() {
+  return (
+    <BookingPageShell className="pb-20">
+      <div className="mx-auto mt-[7.5vh] w-full max-w-lg" aria-busy="true">
+        <div className="mb-8 flex flex-col items-center">
+          <Skeleton className="mb-4 h-12 w-12 rounded-full" />
+          <Skeleton className="h-8 w-36" />
+          <Skeleton className="mt-3 h-5 w-64 max-w-full" />
+          <Skeleton className="mt-4 h-8 w-40 rounded-full" />
+        </div>
+        <div className="rounded-xl border border-border bg-card p-6">
+          <div className="mb-6 flex items-center justify-center gap-2">
+            {[0, 1, 2].map((step) => (
+              <div key={step} className="flex items-center gap-2">
+                <Skeleton className="h-7 w-7 rounded-full" />
+                {step < 2 && <Skeleton className="h-px w-8" />}
+              </div>
+            ))}
+          </div>
+          <Skeleton className="mx-auto mb-6 h-5 w-28" />
+          <div className="mb-4 flex items-center justify-between px-4">
+            <Skeleton className="h-4 w-4" />
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-4 w-4" />
+          </div>
+          <div className="mb-1 grid grid-cols-7 gap-1">
+            {Array.from({ length: 7 }, (_, day) => (
+              <Skeleton key={day} className="mx-auto h-4 w-6" />
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: 35 }, (_, day) => (
+              <Skeleton key={day} className="h-10 w-full rounded-md" />
+            ))}
+          </div>
+        </div>
+      </div>
+    </BookingPageShell>
   );
 }
 
@@ -96,7 +141,7 @@ export default function BookingPage() {
   const navigate = useNavigate();
   const { data: settings, isLoading: settingsLoading } = usePublicSettings();
   const { data: availability, isLoading: availabilityLoading } =
-    usePublicAvailability(slug);
+    usePublicAvailability(slug, username);
   const {
     data: bookingLink,
     isLoading: bookingLinkLoading,
@@ -105,7 +150,6 @@ export default function BookingPage() {
   const isRedirecting =
     !!bookingLink && (!!bookingLink.redirectPath || !!bookingLink.redirect);
 
-  // Handle slug redirects (old URL → new URL)
   useEffect(() => {
     if (bookingLink?.redirectPath) {
       void navigate(bookingLink.redirectPath, { replace: true });
@@ -121,11 +165,7 @@ export default function BookingPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [showTimeZones, setShowTimeZones] = useState(false);
-  // Lifted here (rather than owned by TimeZoneGrid) so it survives toggling
-  // "Hide time zones", which unmounts TimeZoneGrid in favor of TimeSlotPicker.
   const [extraTimezones, setExtraTimezones] = useState<string[]>([]);
-  // Resolved after mount only — the browser's timezone can differ from the
-  // server's, so computing it during render would cause a hydration mismatch.
   const [browserTimezone, setBrowserTimezone] = useState<string | null>(null);
   useEffect(() => {
     try {
@@ -233,7 +273,7 @@ export default function BookingPage() {
     data: slots = [],
     isLoading: slotsLoading,
     error: slotsError,
-  } = useAvailableSlots(dateStr, duration, slug);
+  } = useAvailableSlots(dateStr, duration, slug, undefined, username);
   const monthStart = format(startOfMonth(viewMonth), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(viewMonth), "yyyy-MM-dd");
   const {
@@ -245,6 +285,7 @@ export default function BookingPage() {
     monthEnd,
     duration,
     slug,
+    username,
     step === "date" &&
       !!availability &&
       (!hasDurationChoice || selectedDuration !== null),
@@ -394,7 +435,7 @@ export default function BookingPage() {
     availabilityLoading ||
     isRedirecting
   ) {
-    return <DefaultSpinner />;
+    return <BookingPageSkeleton />;
   }
 
   if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {

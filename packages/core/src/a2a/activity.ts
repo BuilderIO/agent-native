@@ -13,12 +13,6 @@ export const MAX_A2A_ACTIVITY_TOOL_NAME_CHARS = 96;
 export const MAX_A2A_ACTIVITY_TOOL_ID_CHARS = 128;
 export const MAX_A2A_ACTIVITY_TOOL_INPUT_CHARS = 1024;
 export const MAX_A2A_ACTIVITY_TOOL_RESULT_CHARS = 512;
-/**
- * Shared ceiling for every recorded tool input/result across the snapshot. The
- * per-call caps alone allow 64 × 1536 chars, which would push a busy run past
- * `MAX_A2A_ACTIVITY_TOTAL_CHARS` and make `parseA2AAgentActivityPart` reject
- * the whole snapshot — trading missing arguments for a missing trace.
- */
 export const MAX_A2A_ACTIVITY_TOOL_PAYLOAD_CHARS = 16_384;
 export const MAX_A2A_ACTIVITY_TOTAL_CHARS =
   98_304 + MAX_A2A_ACTIVITY_TOOL_PAYLOAD_CHARS;
@@ -36,12 +30,7 @@ export interface A2AAgentActivityToolCall {
   name: string;
   id?: string;
   status: A2AAgentActivityToolStatus;
-  /**
-   * Redacted, size-capped JSON of the call's arguments. Absent when the call
-   * had none, or when the snapshot's shared payload budget was already spent.
-   */
   input?: string;
-  /** Redacted, size-capped head of the tool result (`tool_done` only). */
   result?: string;
 }
 
@@ -55,9 +44,7 @@ export interface A2AAgentActivitySnapshot extends Record<string, unknown> {
   activePhase: A2AAgentActivityPhase;
   reasoning: string[];
   toolCalls: A2AAgentActivityToolCall[];
-  /** Response text segments, indexed by how many tool calls preceded them. */
   response?: string[];
-  /** Tail segment only. Kept so peers predating `response` still render. */
   responseText?: string;
 }
 
@@ -85,13 +72,6 @@ export function createA2AAgentActivityState(
   };
 }
 
-/**
- * Converts internal loop events into a bounded activity snapshot. Reasoning
- * text is carried verbatim (it was already emitted to the local chat); tool
- * arguments and results are carried only in redacted, size-capped form so the
- * delegated run stays diagnosable without the snapshot becoming a secondary
- * store of secrets or payloads.
- */
 export function applyA2AAgentActivityEvent(
   state: A2AAgentActivityState,
   event: AgentChatEvent,
@@ -251,19 +231,10 @@ function remainingPayloadBudget(
   return Math.max(0, MAX_A2A_ACTIVITY_TOOL_PAYLOAD_CHARS - used);
 }
 
-/**
- * Redacted, capped JSON of the arguments, or `undefined` when there is nothing
- * to record or the shared budget cannot fit a whole (still-parseable) capture.
- * A partial JSON string would be worse than none — the reader could not tell a
- * clipped object from a different one.
- */
 function captureToolInput(input: unknown, budget: number): string | undefined {
   const cap = Math.min(MAX_A2A_ACTIVITY_TOOL_INPUT_CHARS, budget);
   if (cap < MAX_A2A_ACTIVITY_TOOL_INPUT_CHARS / 8) return undefined;
   const json = redactArgsToJson(input, { maxJson: cap, maxString: 256 });
-  // JSON.stringify escapes control characters, so the result is already safe
-  // for the snapshot without a `sanitizeText` pass — which would rewrite
-  // `"token":"[redacted]"` into unparseable JSON.
   if (!json || json === "{}" || json.length > cap) return undefined;
   return json;
 }
@@ -327,8 +298,6 @@ function settleToolCall(
       (tool.id && tool.id === existing.id) ||
       (!tool.id && tool.name === existing.name)
     ) {
-      // The matching `tool_start` already paid for its input; reuse it rather
-      // than re-capturing (and re-charging) the same arguments.
       let budget = remainingPayloadBudget(current, index);
       const input =
         existing.input ?? captureToolInput(event.input, budget) ?? undefined;
@@ -467,8 +436,6 @@ function isSafeToolId(value: unknown): value is string {
 
 function activityCharacterCount(data: Record<string, unknown>): number {
   const reasoning = segmentCharacterCount(data.reasoning);
-  // `responseText` duplicates the tail of `response`; counting both would
-  // reject a snapshot that is within budget.
   const response = Array.isArray(data.response)
     ? segmentCharacterCount(data.response)
     : typeof data.responseText === "string"

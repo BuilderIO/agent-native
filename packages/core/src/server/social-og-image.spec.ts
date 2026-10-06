@@ -7,6 +7,7 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/store.js";
+import { OptionalPeerDependencyError } from "../shared/optional-peer.js";
 import {
   OG_ARABIC_FONT_FAMILY,
   OG_FONT_FAMILY,
@@ -30,8 +31,6 @@ describe("social OG image", () => {
   });
 
   it("bundles real font files so text renders without system fonts", () => {
-    // Regression guard: Linux serverless runtimes ship neither Arial nor Inter,
-    // so the OG text was rendering blank. resvg must get explicit font files.
     const fontFiles = resolveOgFontFiles();
     expect(fontFiles?.length).toBeGreaterThan(0);
     for (const file of fontFiles ?? []) {
@@ -58,8 +57,6 @@ describe("social OG image", () => {
     expect(svg).toContain("Agent-Native Analytics");
     expect(svg).toContain("100% free and open source");
     expect(svg).toContain(OG_FONT_FAMILY);
-    // resvg's fontdb maps font-weight 850 to Regular, not Bold — the title must
-    // not use it or the display title renders thin.
     expect(svg).not.toContain('font-weight="850"');
   });
 
@@ -112,7 +109,8 @@ describe("social OG image", () => {
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Design");
     const designSvg = renderAgentNativeOgImageSvg();
     expect(designSvg).toContain("Design - Agent-Native preview");
-    expect(designSvg).toContain("Imagine it. Make it.");
+    expect(designSvg).toContain("100% free and open source");
+    expect(designSvg).not.toContain("Imagine it. Make it.");
     expect(designSvg).toContain('<path d="M26.8789');
 
     vi.stubEnv("APP_NAME", "slides");
@@ -124,7 +122,7 @@ describe("social OG image", () => {
     );
   });
 
-  it("mirrors the sign-in page copy for first-party app cards", () => {
+  it("renders a supplied first-party app presentation", () => {
     const svg = renderAgentNativeOgImageSvg({
       brand: "agent-native",
       presentation: {
@@ -149,7 +147,7 @@ describe("social OG image", () => {
     expect(svg).not.toContain("100% free and open source");
   });
 
-  it("does not mirror sign-in copy resolved only from env on a custom host", async () => {
+  it("keeps the default app image independent of host-resolved sign-in copy", async () => {
     vi.stubEnv("AGENT_NATIVE_TEMPLATE", "mail");
     vi.stubEnv("npm_package_name", "");
     const app = createApp();
@@ -166,10 +164,7 @@ describe("social OG image", () => {
 
     expect(custom.status).toBe(200);
     expect(trusted.status).toBe(200);
-    // Different layouts render different PNG bytes; same-layout renders are
-    // byte-identical, so equal bytes would mean the custom host got the
-    // sign-in card.
-    expect(Buffer.from(await custom.arrayBuffer())).not.toEqual(
+    expect(Buffer.from(await custom.arrayBuffer())).toEqual(
       Buffer.from(await trusted.arrayBuffer()),
     );
     expect(renderAgentNativeOgImageSvg()).not.toContain("Read it. Write it.");
@@ -278,9 +273,6 @@ describe("social OG image", () => {
   });
 
   it("keeps cross-origin CORP behind the security headers middleware", async () => {
-    // The middleware stages `same-site` on every response; link-preview tools
-    // that render og:image in the browser show a broken image unless the OG
-    // route's own header wins.
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());
     app.use("/_agent-native/og-image.png", createAgentNativeOgImageHandler());
@@ -306,8 +298,6 @@ describe("social OG image", () => {
         ),
       ),
     ).toBe(true);
-    // workerd's wording when the package is externalized out of the
-    // Cloudflare worker bundle.
     expect(
       isResvgRuntimeUnavailableError(
         new Error('No such module "@resvg/resvg-js".'),
@@ -316,5 +306,10 @@ describe("social OG image", () => {
     expect(isResvgRuntimeUnavailableError(new Error("invalid SVG"))).toBe(
       false,
     );
+    expect(
+      isResvgRuntimeUnavailableError(
+        new OptionalPeerDependencyError("@resvg/resvg-js"),
+      ),
+    ).toBe(false);
   });
 });

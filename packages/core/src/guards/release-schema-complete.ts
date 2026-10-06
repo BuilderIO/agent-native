@@ -20,37 +20,12 @@ import path from "node:path";
 import { readFileSafe, relPosix, walk } from "./scan-utils.js";
 import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
-/**
- * What counts as "this module creates a table". `ensureTableExists` is the
- * intended helper, but a store that executes its DDL through the raw client
- * creates schema just as much, and needs the release pass just as much. Missing
- * that second form is how `extensions/slots/store.ts` stayed invisible to the
- * first version of this guard.
- *
- * Keyed on EXECUTING the DDL, not on containing it. A `schema.ts` that exports
- * `CREATE TABLE` strings and a migration list that stores them both mention the
- * SQL without ever running it: the first is executed by its own store, which is
- * on the list, and the second is applied by `runMigrations`.
- */
 const ENSURE_TABLE_RE = /\bensureTableExists\s*\(/;
 const EXECUTES_RE = /\.execute\s*\(/;
 const CREATE_TABLE_RE = /\bCREATE\s+TABLE\b/i;
-/**
- * DDL that lives in another module, the way `extensions/slots` keeps its SQL in
- * `slots/schema.ts`. Keyed on the `_CREATE_SQL` / `_TABLE_SQL` / `_INDEX_SQL`
- * naming rather than on any executed constant, so a plain
- * `execute(DB_PRESSURE_SQL)` SELECT is not mistaken for schema.
- */
 const DDL_CONST_RE =
   /\b[A-Z][A-Z0-9_]*_(?:CREATE|TABLE|INDEX)_SQL(?:_[A-Z0-9]+)?\b/;
 
-/**
- * Whether this module CREATES tables, in any of the three shapes the codebase
- * actually uses. Deliberately NOT keyed on the name of the executed expression:
- * stores run their DDL from a local `createSql` or `ddl` variable as often as
- * from a named constant, so requiring a recognisable name would let the
- * commonest shape of all walk past the guard.
- */
 const definesSchema = (code: string) =>
   ENSURE_TABLE_RE.test(code) ||
   (EXECUTES_RE.test(code) &&
@@ -59,24 +34,12 @@ const ALLOW_MARKER_RE = /guard:allow-unreleased-schema\s*[—-]\s*\S/;
 const SOURCE_EXTENSIONS = /\.(?:ts|tsx|mts|cts)$/i;
 const TEST_FILE = /\.(?:spec|test)\.(?:ts|tsx|mts|cts)$/i;
 
-/**
- * The two halves of the release path. `release-schema.ts` runs the stores' own
- * ensure functions; `release-migrations.ts` runs the versioned migration lists
- * and a few schema runners of its own (better-auth). A module reached by either
- * one is created at release, so both count as coverage.
- */
 const RELEASE_LIST = "src/server/release-schema.ts";
 const RELEASE_MIGRATIONS = "src/server/release-migrations.ts";
 const DDL_GUARD = "src/db/ddl-guard.ts";
-/** The migration runner executes migration-list DDL; `runMigrations` owns it. */
 const MIGRATION_RUNNER = "src/db/migrations.ts";
-/** Guards describe this rule in prose; they never own schema. */
 const GUARDS_DIR = "src/guards/";
 
-/**
- * Blank out comments so a file that only NAMES `ensureTableExists` — this guard,
- * a doc block, a changelog note — is not reported as defining schema.
- */
 function stripComments(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, " ")
@@ -84,17 +47,11 @@ function stripComments(source: string): string {
 }
 
 export interface ReleaseSchemaScanOptions extends GuardScanOptions {
-  /** Defaults to `<root>/packages/core`. */
   corePackageDir?: string;
 }
 
-/**
- * Import specifiers in `release-schema.ts`, resolved to repo-relative paths so
- * they can be compared against the files that actually call `ensureTableExists`.
- */
 function coveredModules(coreDir: string, sources: string[]): Set<string> {
   const covered = new Set<string>();
-  // Static `from "..."` and dynamic `import("...")`; the list uses the latter.
   const importRe = /(?:from\s+|import\s*\(\s*)"([^"]+)"/g;
   for (const match of sources.join("\n").matchAll(importRe)) {
     const spec = match[1];
@@ -115,7 +72,6 @@ export function scanReleaseSchemaCoverage(
 
   const listSource = readFileSafe(path.join(coreDir, RELEASE_LIST));
   if (listSource === null) {
-    // Not "nothing to check" — the list this guard exists to audit is gone.
     findings.push({
       file: RELEASE_LIST,
       line: 1,

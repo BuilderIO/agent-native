@@ -45,6 +45,8 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "撤销",
   couldNotRevoke: "无法撤销令牌。",
   authorizeDevice: "授权设备",
+  organization: "组织",
+  invalidOrganization: "请选择你所属的组织。",
   fullCatalogRequested: "此设备正在请求访问完整的操作目录。",
   createToken: "创建连接令牌",
   authorizingDevice: "正在授权设备...",

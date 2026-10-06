@@ -14,8 +14,6 @@ async function sourceRecordCount(sourceId: string): Promise<number> {
   const audienceIds = await listAccessibleAudienceIds([sourceId]);
   if (!audienceIds.length) return 0;
 
-  // Count only — never load the heavy `content` blob of every capture row
-  // just to take `.length`.
   const [row] = await getDb()
     .select({ value: countDistinct(schema.brainRawCaptures.id) })
     .from(schema.brainRawCaptures)

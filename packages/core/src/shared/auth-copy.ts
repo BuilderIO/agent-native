@@ -6,11 +6,6 @@ import {
 
 export const AUTH_SIGNUP_INVITE_ONLY_CODE = "INVITE_ONLY";
 
-/**
- * The native sign-in surfaces use the same copy keys as the hosted onboarding
- * form. Keep this browser-safe subset here so Electron and mobile do not load
- * the server HTML renderer or grow a second auth vocabulary.
- */
 export interface NativeAuthCopy {
   googleButton: string;
   ssoButton: string;
@@ -79,9 +74,6 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     dividerOr: "or",
     welcomeTitle: "Welcome",
     welcomeToApp: "Welcome to {appName}",
-    // No surface using this subtitle renders an account chooser: one email
-    // field both registers and signs in. Naming a separate "create an account"
-    // step sends new users hunting for a control that is not there.
     welcomeSubtitle: "Sign in or create your account",
     email: "Email",
     emailPlaceholder: "you@example.com",

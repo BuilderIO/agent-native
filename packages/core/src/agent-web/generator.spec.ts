@@ -128,8 +128,6 @@ describe("agent web generators", () => {
     );
   });
 
-  // A site whose canonical URLs carry a trailing slash must advertise that
-  // exact form. Stripping it made every sitemap entry point at a redirect.
   it("preserves a trailing slash in advertised page URLs", () => {
     const sitemap = buildSitemapXml(
       [{ path: "/docs/actions-overview/", title: "Actions" }],
@@ -152,16 +150,12 @@ describe("agent web generators", () => {
     );
   });
 
-  // The Markdown twin is an asset path derived from the route, so it must not
-  // inherit the route's trailing slash.
   it("derives the markdown twin without the route trailing slash", () => {
     expect(markdownFilePathForPage("/about/")).toBe("about.md");
     expect(markdownFilePathForPage("/about")).toBe("about.md");
     expect(markdownFilePathForPage("/")).toBe("index.md");
   });
 
-  // Breadcrumb entries are page URLs, so a bare crumb under a slash-terminated
-  // page points structured data at a redirect.
   it("gives breadcrumb items the page's trailing slash", () => {
     const jsonLd = buildPageJsonLd({
       siteName: "Agent-Native",

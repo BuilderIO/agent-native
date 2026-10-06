@@ -46,8 +46,6 @@ export function createCountdownAudioCue(): CountdownAudioCue {
       }
     };
 
-    // Unlock while we're still inside the user's record gesture. If the
-    // recording never reaches countdown, clean it up quietly later.
     ctx.resume().catch((err) => {
       console.warn("[recorder] AudioContext resume failed:", err);
     });

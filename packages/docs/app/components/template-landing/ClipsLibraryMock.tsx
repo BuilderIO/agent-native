@@ -704,30 +704,16 @@ function TrayPopover() {
 }
 
 const CLIPS_MOCK_CSS = [
-  // Shell
-  // Horizontal padding keeps the window off the container edges; overflow stays
-  // visible so the tray popover can hang above the window's top edge.
-  // The negative margin pulls the window up into the header block, and the top
-  // padding reserves room for the popover to hang above the window's top edge
-  // while the box itself stays clipped.
-  // `pointer-events: none` is load-bearing, not polish: the art recreates the
-  // recorder's own controls, so any hover highlight or cursor change on a
-  // `role="img"` reads as a working "Start recording" button and the visitor
-  // clicks a picture. Keep the whole mock inert.
   ".clips-mock { position: relative; width: 100%; margin-top: -160px; padding: 182px 40px 28px; overflow: hidden; pointer-events: none; }",
   ".clips-mock, .clips-mock * { box-sizing: border-box; }",
   ".clips-mock-frame { position: relative; height: 100%; }",
-  // Palette. Dark by default; the light block further down swaps the whole mock
-  // over when the docs shell is in light mode.
   ".clips-mock { --lib-window-bg: #151515; --lib-chrome-bg: #101010; --lib-chrome-border: #232323; --lib-dot: #4d4d4d; --lib-border: #333333; --lib-fg: #e6e6e6; --lib-fg-dim: #b3b3b3; --lib-fg-muted: #999999; --lib-fg-subtle: #808080; --lib-fg-faint: #6b6b6b; --lib-btn-bg: #262626; --lib-btn-border: #383838; --lib-btn-fg: #cccccc; --lib-btn-hover-bg: #303030; --lib-btn-hover-border: #454545; --lib-hover-bg: rgba(255, 255, 255, 0.06); --lib-active-bg: rgba(191, 191, 191, 0.12); --lib-active-fg: #f2f2f2; --lib-input-bg: #191919; --lib-input-border: #2e2e2e; --lib-input-hover-border: #4d4d4d; --lib-card-bg: #1c1c1c; --lib-card-border: #2b2b2b; --lib-card-hover-border: #5a5a5a; --lib-thumb-bg: #202020; --lib-avatar-bg: #3a3a3a; --lib-avatar-fg: #bfbfbf; }",
 
-  // Faux app window
   ".clips-mock .library-window { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: var(--lib-window-bg); color: var(--lib-fg); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
   ".clips-mock .library-window-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: var(--lib-chrome-bg); border-bottom: 1px solid var(--lib-chrome-border); }",
   ".clips-mock .library-window-topbar span { width: 11px; height: 11px; border-radius: 999px; background: var(--lib-dot); }",
   ".clips-mock .library-window-body { flex: 1; min-height: 0; display: flex; }",
 
-  // Sidebar
   ".clips-mock .library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: var(--lib-chrome-bg); border-right: 1px solid var(--lib-chrome-border); }",
   ".clips-mock .library-brand { display: flex; align-items: center; gap: 8px; padding: 4px 4px 12px; }",
   ".clips-mock .library-brand-mark { height: 14px; width: 24px; flex-shrink: 0; color: var(--lib-fg); }",
@@ -746,7 +732,6 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .library-sidebar-spacer { flex: 1; }",
   ".clips-mock .library-sidebar-bottom { display: flex; flex-direction: column; gap: 1px; border-top: 1px solid var(--lib-chrome-border); padding-top: 8px; }",
 
-  // Main column
   ".clips-mock .library-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }",
   ".clips-mock .library-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--lib-border); }",
   ".clips-mock .library-heading { font-size: 15px; font-weight: 600; color: var(--lib-fg); }",
@@ -754,7 +739,6 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .library-search { display: flex; align-items: center; gap: 6px; width: 220px; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--lib-input-border); background: var(--lib-input-bg); color: var(--lib-fg-subtle); font-size: 12px; }",
   ".clips-mock .library-icon-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 6px; color: var(--lib-fg-muted); }",
 
-  // Card grid
   ".clips-mock .library-grid { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: max-content; gap: 16px; padding: 20px; align-content: start; }",
   ".clips-mock .library-card { border-radius: 8px; overflow: hidden; background: var(--lib-card-bg); border: 1px solid var(--lib-card-border); }",
   ".clips-mock .library-card-thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--lib-thumb-bg); }",
@@ -768,8 +752,6 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .library-card-meta { margin: 3px 12px 12px; display: flex; align-items: center; gap: 6px; color: var(--lib-fg-muted); font-size: 11px; }",
   ".clips-mock .library-card-visibility { text-transform: capitalize; }",
 
-  // Tray popover — values mirror templates/clips/desktop/src/styles.css, with
-  // the dark palette pinned so the art does not follow the visitor's theme.
   ".clips-mock .clips-mock-popover { --brand: #f5f5f5; --brand-hover: #e5e5e5; --brand-ring: rgba(245, 245, 245, 0.28); --bg: #212121; --surface: #262626; --surface-hover: #2e2e2e; --surface-strong: #3d3d3d; --fg: #f5f5f5; --fg-muted: #a3a3a3; --fg-subtle: #737373; --border: #3d3d3d; --border-strong: #4d4d4d; --radius: 12px; --radius-sm: 8px; --radius-pill: 999px; --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3); position: absolute; top: -83px; right: 52px; width: 340px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 1.4; color: var(--fg); box-shadow: 0 32px 64px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.3); }",
   ".clips-mock .app { margin: 0; padding: 14px; display: flex; flex-direction: column; gap: 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; }",
   ".clips-mock .app-recorder { gap: 0; padding: 0; overflow: hidden; }",
@@ -808,17 +790,11 @@ const CLIPS_MOCK_CSS = [
   ".clips-mock .bottom-icon { position: relative; display: inline-flex; align-items: center; justify-content: center; color: var(--fg-muted); }",
   ".clips-mock .bottom-label { font-size: 11px; font-weight: 500; }",
 
-  // Light mode. The docs shell puts `light`/`dark` on <html>, so the mock
-  // follows the visitor's theme instead of staying pinned to the dark art.
   "html.light .clips-mock { --lib-window-bg: #f1f0ea; --lib-chrome-bg: #eae8e1; --lib-chrome-border: #dedbd2; --lib-dot: #c8c5bb; --lib-border: #dedbd2; --lib-fg: #22201c; --lib-fg-dim: #56534d; --lib-fg-muted: #6f6b64; --lib-fg-subtle: #827e76; --lib-fg-faint: #969288; --lib-btn-bg: #fdfdfb; --lib-btn-border: #d7d3ca; --lib-btn-fg: #3f3c36; --lib-btn-hover-bg: #f8f7f3; --lib-btn-hover-border: #c0bcb2; --lib-hover-bg: rgba(50, 48, 38, 0.05); --lib-active-bg: rgba(50, 48, 38, 0.09); --lib-active-fg: #1d1b17; --lib-input-bg: #fdfdfb; --lib-input-border: #dcd8cf; --lib-input-hover-border: #c0bcb2; --lib-card-bg: #fdfdfb; --lib-card-border: #e3e0d8; --lib-card-hover-border: #c4c0b6; --lib-thumb-bg: #ebe9e3; --lib-avatar-bg: #e4e1d9; --lib-avatar-fg: #5d5a52; }",
   "html.light .clips-mock .clips-mock-popover { --brand: #22201c; --brand-hover: #131210; --brand-ring: rgba(34, 32, 28, 0.2); --bg: #fefefc; --surface: #f5f4ef; --surface-hover: #efede7; --surface-strong: #e8e6de; --fg: #22201c; --fg-muted: #6a6760; --fg-subtle: #8b887f; --border: #e2dfd7; --border-strong: #d1cdc4; --shadow-sm: 0 1px 2px rgba(50, 48, 38, 0.09); --shadow-md: 0 8px 24px rgba(50, 48, 38, 0.14), 0 2px 6px rgba(50, 48, 38, 0.07); }",
   "html.light .clips-mock .clips-mock-popover.app { border-color: #dedbd2; box-shadow: 0 28px 64px rgba(50, 48, 38, 0.22), 0 6px 18px rgba(50, 48, 38, 0.12); }",
   "html.light .clips-mock .primary { color: #3f3c36; }",
 
-  // Narrow screens. The popover is a fixed 340x408 panel, so it shrinks and
-  // tucks into the right edge rather than letting the CTA clip out. This block
-  // stays last: it has the same specificity as the base rules above and would
-  // otherwise lose to them on source order.
   "@media (max-width: 860px) { .clips-mock { margin-top: -36px; padding: 54px 16px 18px; } .clips-mock .clips-mock-popover { top: -20px; right: 0; transform: scale(0.72); transform-origin: top right; } }",
 ].join("\n");
 

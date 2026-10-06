@@ -23,10 +23,6 @@ export interface SelectionOverlayMeasurementIdentity {
   revision: number;
 }
 
-/**
- * The portal paints in viewport coordinates. Its measurement is only valid
- * for this exact rendered selection and canvas geometry.
- */
 export function createSelectionOverlayMeasurementKey({
   slideId,
   content,
@@ -47,7 +43,6 @@ export function createSelectionOverlayMeasurementKey({
   ]);
 }
 
-/** AutoFit only depends on the rendered slide, not editor-only canvas chrome. */
 export function createSelectionOverlayAutofitKey(
   slideId: string,
   content: string,

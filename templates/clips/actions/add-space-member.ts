@@ -1,10 +1,3 @@
-/**
- * Add a member to a space.
- *
- * Usage:
- *   pnpm action add-space-member --spaceId=<id> --email=alice@example.com --role=contributor
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq } from "drizzle-orm";

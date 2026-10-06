@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// ---------------------------------------------------------------------------
-// Mocks — set up before importing the module under test so vi.mock hoisting
-// can replace the dynamic imports that migrations.ts uses.
-// ---------------------------------------------------------------------------
-
-// We mock client.ts to avoid real DB connections.
 vi.mock("./client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./client.js")>();
   return {
@@ -16,16 +10,18 @@ vi.mock("./client.js", async (importOriginal) => {
   };
 });
 
-import { getDbExec, createDbExec, getMigrationDatabaseUrl } from "./client.js";
+import {
+  assertHostedRuntimeDatabase,
+  assertSchemaMutationAllowed,
+  getDbExec,
+  createDbExec,
+  getMigrationDatabaseUrl,
+} from "./client.js";
 import {
   deferMigration,
   runMigrations,
   withMigrationRuntime,
 } from "./migrations.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeExec(rows: Array<{ v: number | null }> = [{ v: null }]) {
   return {
@@ -38,12 +34,6 @@ function makeExec(rows: Array<{ v: number | null }> = [{ v: null }]) {
   };
 }
 
-/**
- * Exec mock for named-migration tests: also answers `SELECT name FROM
- * <table>_named` from a configurable set of already-applied names, and
- * records every `INSERT ... INTO <table>_named` it sees so tests can assert
- * on what got recorded.
- */
 function makeNamedExec(options: {
   version?: number | null;
   appliedNames?: string[];
@@ -83,16 +73,7 @@ function makeNamedExec(options: {
   return exec;
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("runMigrations – serverless request runtime", () => {
-  // Analytics guarded its OWN migration runner in #2708, but org,
-  // context-xray, and observational-memory kept calling runMigrations
-  // unguarded — so the cold-start probe storm survived the fix meant to end
-  // it and took production down again. The guard belongs here, once, where
-  // every caller passes through.
   const ENV_KEYS = [
     "NETLIFY",
     "NETLIFY_FUNCTION_NAME",
@@ -105,8 +86,6 @@ describe("runMigrations – serverless request runtime", () => {
     vi.unstubAllEnvs();
     delete (globalThis as Record<string, unknown>)
       .__AGENT_NATIVE_MIGRATION_RUNTIME__;
-    // These tests assert on call COUNTS elsewhere in the file; leaving our own
-    // invocations on the shared mocks makes a later "was never called" fail.
     vi.clearAllMocks();
   });
 
@@ -144,16 +123,46 @@ describe("runMigrations – serverless request runtime", () => {
     expect(createDbExec).not.toHaveBeenCalled();
   });
 
-  it("keeps request-time migrations when no release runner is configured", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NETLIFY", "true");
-    const exec = makeExec([{ v: 5 }]);
+  it("skips release migrations when a hosted function omits NODE_ENV", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+  });
+
+  it("keeps request-time migrations for apps without release migrations", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "0");
+    vi.stubEnv("AGENT_NATIVE_BETA_SCHEMA_OWNER", "");
+    const exec = makeNamedExec({ version: 0 });
+    const originalExecute = exec.execute.getMockImplementation()!;
+    exec.execute.mockImplementation(async (statement) => {
+      const sql = typeof statement === "string" ? statement : statement.sql;
+      if (/^\s*(CREATE|ALTER)/i.test(sql)) assertSchemaMutationAllowed(sql);
+      return originalExecute(statement);
+    });
     vi.mocked(getDbExec).mockReturnValue(exec);
+    vi.mocked(createDbExec).mockResolvedValue(exec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
 
     const plugin = runMigrations(migrations, { table: "guard_migrations" });
     await plugin(null);
 
     expect(getDbExec).toHaveBeenCalled();
+    expect(
+      exec.execute.mock.calls.map(([statement]) =>
+        typeof statement === "string" ? statement : statement.sql,
+      ),
+    ).toContain("CREATE TABLE t1 (id INTEGER PRIMARY KEY)");
+    expect(() =>
+      assertSchemaMutationAllowed("CREATE TABLE outside_migration (id TEXT)"),
+    ).toThrow(/release job/);
   });
 
   it("skips request-time migrations for a production-owned beta schema", async () => {
@@ -168,9 +177,10 @@ describe("runMigrations – serverless request runtime", () => {
     expect(createDbExec).not.toHaveBeenCalled();
   });
 
-  it("does not treat a non-production beta schema marker as release ownership", async () => {
+  it("skips serverless request migrations for non-production beta schema markers", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
     vi.stubEnv("AGENT_NATIVE_BETA_SCHEMA_OWNER", "preview");
     const exec = makeExec([{ v: 5 }]);
     vi.mocked(getDbExec).mockReturnValue(exec);
@@ -178,7 +188,31 @@ describe("runMigrations – serverless request runtime", () => {
     const plugin = runMigrations(migrations, { table: "guard_migrations" });
     await plugin(null);
 
-    expect(getDbExec).toHaveBeenCalled();
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(exec.execute).not.toHaveBeenCalled();
+  });
+
+  it("does not query named migrations tables on a cold production function request", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    const exec = makeNamedExec({ version: 0, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    await runMigrations([{ version: 1, name: "org-setup", sql: "SELECT 1" }], {
+      table: "_org_migrations",
+    })(null);
+    await runMigrations(
+      [{ version: 1, name: "context-xray-setup", sql: "SELECT 1" }],
+      { table: "_context_xray_migrations" },
+    )(null);
+
+    const statements = exec.execute.mock.calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    expect(statements).toEqual([]);
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
   });
 
   it("still migrates through withMigrationRuntime, which is how release builds run", async () => {
@@ -279,6 +313,88 @@ describe("runMigrations – serverless request runtime", () => {
 
     expect(getDbExec).toHaveBeenCalled();
   });
+});
+
+describe("runMigrations – deployed server without a hosted database", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_SERVER_RUNTIME__",
+    );
+    vi.clearAllMocks();
+  });
+
+  // A long-lived Node server exits when a boot migration fails. Migrating a
+  // database the server refuses would take down the sign-in page that
+  // explains the missing DATABASE_URL, so the step is skipped instead. Nitro
+  // does not await async plugins, so the plugin that starts serving can run
+  // while this one is still loading its migrations.
+  it.each([
+    ["was already serving", { startsServingWhileLoading: false }],
+    [
+      "starts serving while migrations load",
+      { startsServingWhileLoading: true },
+    ],
+  ])(
+    "skips boot migrations instead of exiting when the server %s without a hosted database",
+    async (_timing, { startsServingWhileLoading }) => {
+      for (const key of [
+        "NODE_ENV",
+        "APP_NAME",
+        "DATABASE_URL",
+        "DATABASE_URL_UNPOOLED",
+        "NETLIFY_DATABASE_URL",
+        "NETLIFY_DATABASE_URL_UNPOOLED",
+        "NETLIFY",
+        "NETLIFY_FUNCTION_NAME",
+        "NETLIFY_LOCAL",
+        "AWS_LAMBDA_FUNCTION_NAME",
+        "LAMBDA_TASK_ROOT",
+        "AWS_EXECUTION_ENV",
+        "VERCEL",
+        "VERCEL_FUNCTION_ID",
+        "VERCEL_REGION",
+      ]) {
+        vi.stubEnv(key, "");
+      }
+      vi.stubEnv("AGENT_NATIVE_BUILD_PRODUCTION_SERVER", "true");
+      const { markServerRuntimeStarted } = await import("./server-runtime.js");
+      if (!startsServingWhileLoading) markServerRuntimeStarted();
+      // The real refusal, where the real client applies it: on first open.
+      vi.mocked(getDbExec).mockImplementation(
+        () =>
+          ({
+            execute: vi.fn(async () => {
+              assertHostedRuntimeDatabase();
+              return { rows: [], rowsAffected: 0 };
+            }),
+          }) as never,
+      );
+      const exit = vi
+        .spyOn(process, "exit")
+        .mockImplementation((() => undefined) as never);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const plugin = runMigrations(
+        async () => {
+          if (startsServingWhileLoading) markServerRuntimeStarted();
+          return [
+            { version: 1, sql: "CREATE TABLE t1 (id INTEGER PRIMARY KEY)" },
+          ];
+        },
+        { table: "refused_migrations" },
+      );
+      await plugin(null);
+
+      expect(createDbExec).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("Set DATABASE_URL"),
+      );
+    },
+  );
 });
 
 describe("runMigrations – empty migration list", () => {
@@ -410,7 +526,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
   });
 
   it("opens zero direct-endpoint connections when all migrations applied", async () => {
-    // Postgres path — pooled singleton says max version = 10 (all migrations done)
     const pooledExec = makeExec([{ v: 10 }]);
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
 
@@ -423,15 +538,11 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     const plugin = runMigrations(migrations, { table: "pg_test_migrations" });
     await plugin(null);
 
-    // The fast-path SELECT went through the pooled exec
     expect(pooledExec.execute).toHaveBeenCalled();
-    // Direct exec must NOT be created
     expect(createDbExec).not.toHaveBeenCalled();
   });
 
   it("treats a missing migrations table (pooled SELECT throws) as all-pending", async () => {
-    // When the pooled exec throws (table doesn't exist yet), we should still
-    // proceed to apply all migrations via the direct endpoint.
     const pooledExec = {
       execute: vi
         .fn()
@@ -443,7 +554,7 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
     vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
 
-    const directExec = makeExec([{ v: null }]); // no rows yet
+    const directExec = makeExec([{ v: null }]);
     vi.mocked(createDbExec).mockResolvedValue(directExec);
 
     const migrations = [
@@ -453,9 +564,7 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     const plugin = runMigrations(migrations, { table: "new_table_migrations" });
     await plugin(null);
 
-    // Direct exec must have been created (for DDL)
     expect(createDbExec).toHaveBeenCalledWith({ url: "postgres://direct" });
-    // And migrations applied
     const calls = directExec.execute.mock.calls.map((c) =>
       typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
     );
@@ -463,7 +572,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
   });
 
   it("opens the direct exec and applies pending migrations", async () => {
-    // Pooled exec reports version = 2 (version 3 pending)
     const pooledExec = makeExec([{ v: 2 }]);
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
     vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
@@ -488,7 +596,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     );
     // Version 3 migration (ALTER TABLE) must be applied
     expect(calls.some((s) => /ALTER TABLE t1/i.test(s))).toBe(true);
-    // Version 1 and 2 must NOT be applied (already at v2)
     expect(calls.some((s) => /CREATE TABLE t1/i.test(s))).toBe(false);
   });
 
@@ -533,7 +640,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     });
     await plugin(null);
 
-    // The exec's close() must be called (via releaseMigrationExec)
     expect(directExec.close).toHaveBeenCalledTimes(1);
   });
 
@@ -547,7 +653,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
         const s = typeof sql === "string" ? sql : sql.sql;
         if (/SELECT MAX/i.test(s)) return { rows: [{ v: 0 }], rowsAffected: 0 };
         if (/CREATE TABLE/i.test(s)) return { rows: [], rowsAffected: 0 };
-        // Fail on the actual migration DDL
         throw new Error("permission denied");
       }),
       close: vi.fn(async () => {}),
@@ -558,8 +663,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
       { version: 1, sql: "ALTER TABLE nonexistent ADD COLUMN x TEXT" },
     ];
 
-    // runMigrations swallows the error on serverless; on non-serverless it calls
-    // process.exit. We spy and prevent exit to keep the test alive.
     const exitSpy = vi
       .spyOn(process, "exit")
       .mockImplementation((() => {}) as () => never);
@@ -574,9 +677,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
   });
 
   it("serializes concurrent Postgres runners for the same database", async () => {
-    // Both pooled execs report current = 0 → both have pending migrations.
-    // The callbacks must not overlap: on a fresh database, concurrent DDL and
-    // bookkeeping probes can let auth mount before the schema it needs exists.
     const pooledExec = makeExec([{ v: 0 }]);
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
     vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
@@ -611,7 +711,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     const plugin1 = runMigrations(m1, { table: "shared_a_migrations" });
     const plugin2 = runMigrations(m2, { table: "shared_b_migrations" });
 
-    // Run both plugins concurrently
     await Promise.all([plugin1(null), plugin2(null)]);
 
     expect(maxActiveMigrations).toBe(1);
@@ -683,7 +782,6 @@ describe("runMigrations – name-based tracking", () => {
   });
 
   it("does not re-apply on a second run after recording the name", async () => {
-    // First run: name not yet applied.
     const firstExec = makeNamedExec({ version: 5, appliedNames: [] });
     vi.mocked(getDbExec).mockReturnValue(firstExec);
 
@@ -739,7 +837,6 @@ describe("runMigrations – name-based tracking", () => {
     const calls = directExec.execute.mock.calls.map((c) =>
       typeof c[0] === "string" ? c[0] : (c[0] as { sql: string }).sql,
     );
-    // v1/v2 already applied (version <= MAX), only v3 should run.
     expect(calls.some((s) => /CREATE TABLE t1/i.test(s))).toBe(false);
     expect(calls.some((s) => /CREATE TABLE t2/i.test(s))).toBe(false);
     expect(calls.some((s) => /CREATE TABLE t3/i.test(s))).toBe(true);
@@ -789,8 +886,6 @@ describe("runMigrations – name-based tracking", () => {
     });
     await plugin(null);
 
-    // Both the named row AND the legacy version row should be recorded,
-    // since version 6 > current max of 5.
     expect(directExec.insertedNames).toContain("advances-legacy");
     expect(directExec.insertedVersions).toContain(6);
   });

@@ -65,10 +65,8 @@ more, but both must agree on the key ones and name only real actions. See
 
 ## Public and private routes
 
-`app/routes/_index.tsx` is the public SSR marketing page: no sessions, cookies,
-or private data. Use Toolkit `MarketingHome` with value props, backgrounds,
-action slots, or `children` for a custom hero. Keep the browser-gated app
-under `/home`; never server-redirect `/` based on auth.
+`app/routes/_index.tsx` document-redirects to the shared `/sign-in` page. Keep
+authenticated app UI and data loads under `/home` or another private route.
 
 ## Lightweight defaults
 
@@ -112,9 +110,10 @@ action query invalidation to reflect agent writes without a manual refresh.
 
 ## Documentation lookup
 
-Version-matched docs and source examples ship with `@agent-native/core`. Use
-`pnpm action docs-search --query "<topic>"` and
-`pnpm action source-search --query "<pattern>"`; read the relevant skill
+Version-matched docs ship with `@agent-native/core`. Source-search includes
+template examples when the optional `@agent-native/core-corpus` package is
+installed at the same version. Use `pnpm action docs-search --query "<topic>"`
+and `pnpm action source-search --query "<pattern>"`; read the relevant skill
 before relying on a framework API. Never edit `node_modules` or deep-import
 package internals.
 

@@ -48,6 +48,11 @@ export interface RecordingRecoveryState {
   authenticated: boolean;
   finalizing: boolean;
   finalizingRecordingId?: string | null;
+  /**
+   * The recording being captured right now. Its backup is live, so it is
+   * never listed as recoverable (a Retry would upload a truncated prefix).
+   */
+  activeRecordingId?: string | null;
   showFinalizing?: boolean;
 }
 
@@ -93,10 +98,11 @@ function lookupDiagnostic(errors: RecoveryLookupError[]) {
 function recoveryPresentation(props: RecordingRecoveryState) {
   const uploads = props.uploads.filter(
     (upload) =>
-      !props.finalizing ||
-      upload.recordingId !== props.finalizingRecordingId ||
-      !!upload.lastError ||
-      !!props.actionErrors["failure:" + upload.recordingId],
+      upload.recordingId !== props.activeRecordingId &&
+      (!props.finalizing ||
+        upload.recordingId !== props.finalizingRecordingId ||
+        !!upload.lastError ||
+        !!props.actionErrors["failure:" + upload.recordingId]),
   );
   const orphanErrors = new Map<
     string,

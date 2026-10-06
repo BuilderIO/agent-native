@@ -1,27 +1,19 @@
-/**
- * Standard remote MCP OAuth 2.1 endpoints.
- *
- * These routes let MCP hosts such as Claude Code and ChatGPT authenticate
- * through their native remote-MCP OAuth flow instead of pasting bearer tokens.
- * The issued access tokens are audience-bound to the public `/mcp` route or
- * its legacy alias, carry
- * the same user/org identity as the existing connect flow, and are mediated by
- * `verifyAuth` before any MCP tool/resource request runs.
- */
-
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
-import {
-  getActiveOrgSettingForEvent,
-  getOrgDomain,
-  listOrgMembershipsForEvent,
-} from "../org/context.js";
+import type { DbExec } from "../db/client.js";
+import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  McpCredentialIssuanceError,
+  withMcpCredentialIssuance,
+} from "./credential-issuance.js";
 import {
   applicationTypeForRedirectUris,
   isAllowedOAuthRedirectUri,
@@ -33,11 +25,13 @@ import {
   createOAuthCode,
   createOAuthRefreshToken,
   consumeOAuthCode,
+  ensureOAuthTables,
   generateOpaqueToken,
   getOAuthClient,
   getOAuthCode,
   getOAuthRefreshToken,
   registerOAuthClient,
+  revokeOAuthRefreshToken,
   touchOAuthRefreshToken,
 } from "./oauth-store.js";
 import {
@@ -46,7 +40,9 @@ import {
   normalizeOAuthScope,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { resolveMcpOrgChoices } from "./org-choice.js";
 import {
+  MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
   MCP_ROUTE_PREFIXES,
@@ -191,9 +187,13 @@ export function getMcpOAuthIssuer(event: H3Event): string | undefined {
 }
 
 function normalizeMcpResourcePath(routePath?: string): string {
-  return routePath === MCP_LEGACY_ROUTE_PREFIX
-    ? MCP_LEGACY_ROUTE_PREFIX
-    : MCP_PUBLIC_ROUTE_PREFIX;
+  if (
+    routePath === MCP_LEGACY_ROUTE_PREFIX ||
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX
+  ) {
+    return routePath;
+  }
+  return MCP_PUBLIC_ROUTE_PREFIX;
 }
 
 export function getMcpOAuthResource(
@@ -205,13 +205,21 @@ export function getMcpOAuthResource(
   return `${issuer}${normalizeMcpResourcePath(routePath)}`;
 }
 
-function mcpResourcesForIssuer(issuer: string): string[] {
-  return [
-    MCP_PUBLIC_ROUTE_PREFIX,
-    ...MCP_ROUTE_PREFIXES.filter(
-      (prefix) => prefix !== MCP_PUBLIC_ROUTE_PREFIX,
-    ),
-  ].map((prefix) => `${issuer}${prefix}`);
+function mcpResourcesForIssuer(
+  issuer: string,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): string[] {
+  const normalizedPath = normalizeMcpResourcePath(routePath);
+  const paths =
+    normalizedPath === MCP_DIRECTORY_ROUTE_PREFIX
+      ? [MCP_DIRECTORY_ROUTE_PREFIX]
+      : [
+          MCP_PUBLIC_ROUTE_PREFIX,
+          ...MCP_ROUTE_PREFIXES.filter(
+            (prefix) => prefix !== MCP_PUBLIC_ROUTE_PREFIX,
+          ),
+        ];
+  return paths.map((prefix) => `${issuer}${prefix}`);
 }
 
 /**
@@ -223,21 +231,24 @@ function mcpResourcesForIssuer(issuer: string): string[] {
  * derived URL and vice-versa.  Returns both so `verifyMcpOAuthAccessToken`
  * accepts either without issuing a 401.
  */
-export function getMcpOAuthAudiences(event: H3Event): string[] {
+export function getMcpOAuthAudiences(
+  event: H3Event,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): string[] {
   const configuredIssuer = (() => {
     const base = configuredPublicBaseUrl();
     if (!base) return undefined;
-    // Re-apply base path if present so the configured resource is also
-    // base-path-aware, consistent with how getMcpOAuthResource computes it.
     return appendConfiguredBasePath(base);
   })();
   const seen = new Set<string>();
   const out: string[] = [];
   for (const r of [
     ...(getMcpOAuthIssuer(event)
-      ? mcpResourcesForIssuer(getMcpOAuthIssuer(event) as string)
+      ? mcpResourcesForIssuer(getMcpOAuthIssuer(event) as string, routePath)
       : []),
-    ...(configuredIssuer ? mcpResourcesForIssuer(configuredIssuer) : []),
+    ...(configuredIssuer
+      ? mcpResourcesForIssuer(configuredIssuer, routePath)
+      : []),
   ]) {
     const n = r?.replace(/\/+$/, "");
     if (n && !seen.has(n)) {
@@ -255,11 +266,11 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer) return undefined;
   const metadataUrl = new URL(`${issuer}/.well-known/oauth-protected-resource`);
-  // The public and legacy endpoints share one host-level metadata route. Keep
-  // the legacy resource identity in the challenge so OAuth clients that verify
-  // an exact resource URL can authenticate old MCP configurations.
-  if (normalizeMcpResourcePath(routePath) === MCP_LEGACY_ROUTE_PREFIX) {
-    metadataUrl.searchParams.set("resource", MCP_LEGACY_ROUTE_PREFIX);
+  if (normalizeMcpResourcePath(routePath) !== MCP_PUBLIC_ROUTE_PREFIX) {
+    metadataUrl.searchParams.set(
+      "resource",
+      normalizeMcpResourcePath(routePath),
+    );
   }
   return metadataUrl.toString();
 }
@@ -273,6 +284,26 @@ export function buildMcpOAuthChallenge(
   return metadata
     ? `Bearer resource_metadata="${metadata}", scope="${scope}"`
     : `Bearer scope="${scope}"`;
+}
+
+function protectedResourcePathFromRequest(
+  event: H3Event,
+): string | undefined | null {
+  let pathname = event.url?.pathname ?? "";
+  const wellKnownPath = "/.well-known/oauth-protected-resource";
+  const wellKnownIndex = pathname.lastIndexOf(wellKnownPath);
+  if (wellKnownIndex >= 0) {
+    pathname = pathname.slice(wellKnownIndex + wellKnownPath.length);
+  }
+  pathname = pathname.replace(/\/+$/, "");
+  if (!pathname || pathname === "/") return undefined;
+  return (
+    [
+      MCP_PUBLIC_ROUTE_PREFIX,
+      MCP_LEGACY_ROUTE_PREFIX,
+      MCP_DIRECTORY_ROUTE_PREFIX,
+    ].find((path) => path === pathname) ?? null
+  );
 }
 
 function authorizationEndpoint(event: H3Event): string | undefined {
@@ -300,12 +331,30 @@ export function handleMcpOAuthProtectedResourceMetadata(
   if (getMethod(event) !== "GET") {
     return oauthError("invalid_request", "Method not allowed", 405);
   }
-  const requestedResourcePath = getQuery(event).resource;
+  const pathResource = protectedResourcePathFromRequest(event);
+  const queryResource = getQuery(event).resource;
+  const allowedPaths = [
+    MCP_PUBLIC_ROUTE_PREFIX,
+    MCP_LEGACY_ROUTE_PREFIX,
+    MCP_DIRECTORY_ROUTE_PREFIX,
+  ];
+  const queryPath =
+    queryResource === undefined
+      ? undefined
+      : typeof queryResource === "string" &&
+          allowedPaths.includes(queryResource)
+        ? queryResource
+        : null;
+  if (
+    pathResource === null ||
+    queryPath === null ||
+    (pathResource && queryPath && pathResource !== queryPath)
+  ) {
+    return oauthError("invalid_target", "Unknown MCP resource", 404);
+  }
   const resource = getMcpOAuthResource(
     event,
-    requestedResourcePath === MCP_LEGACY_ROUTE_PREFIX
-      ? MCP_LEGACY_ROUTE_PREFIX
-      : MCP_PUBLIC_ROUTE_PREFIX,
+    pathResource ?? queryPath ?? MCP_PUBLIC_ROUTE_PREFIX,
   );
   const issuer = getMcpOAuthIssuer(event);
   if (!resource || !issuer) {
@@ -585,8 +634,6 @@ function isValidCodeVerifier(value: unknown): value is string {
   );
 }
 
-// Shared styling for the browser-facing OAuth pages (consent + post-authorize
-// confirmation) so they read as one coherent dark surface.
 const OAUTH_PAGE_BASE_STYLE = `
   :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #09090b; color: #f4f4f5; }
   body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; }
@@ -672,11 +719,6 @@ function renderConsentPage(params: {
 </html>`;
 }
 
-// Shown after the user approves a native/desktop client (cursor://, vscode://, …)
-// whose redirect is a private-use scheme. A bare 302 to a custom scheme hands the
-// code to the OS app but leaves the browser tab dangling on a blank/error page, so
-// we render a friendly confirmation that also re-fires the deep link (so the client
-// still receives the code) and tells the user they can return to their agent.
 function renderAuthorizedPage(params: {
   appName: string;
   clientName: string | null;
@@ -787,7 +829,10 @@ async function handleAuthorize(
     /\/+$/,
     "",
   );
-  const expectedResources = getMcpOAuthAudiences(event);
+  const expectedResources = [
+    ...getMcpOAuthAudiences(event),
+    ...getMcpOAuthAudiences(event, MCP_DIRECTORY_ROUTE_PREFIX),
+  ];
 
   if (params.response_type !== "code") {
     return oauthError(
@@ -832,9 +877,9 @@ async function handleAuthorize(
         error: "login_required",
       });
     }
-    const loginHtml = getConfiguredLoginHtml(event);
-    return loginHtml
-      ? html(loginHtml, 200)
+    const loginPage = getConfiguredLoginHtml(event);
+    return loginPage
+      ? html(loginPage.html, loginPage.status)
       : oauthError("login_required", "Sign in required", 401);
   }
 
@@ -848,42 +893,13 @@ async function handleAuthorize(
     });
   }
 
-  const activeOrgSetting = await getActiveOrgSettingForEvent(
+  const { organizations, defaultOrganizationId } = await resolveMcpOrgChoices(
     event,
-    session.email,
-  );
-  const explicitPersonal = activeOrgSetting?.orgId === null;
-  const requestedOrganizationId =
+    session,
     method === "POST" && params.organization_id !== undefined
       ? params.organization_id || null
-      : explicitPersonal
-        ? null
-        : (activeOrgSetting?.orgId ?? session.orgId ?? null);
-  const memberships = await listOrgMembershipsForEvent(
-    event,
-    session.email,
-    requestedOrganizationId,
+      : undefined,
   );
-  const organizations =
-    memberships?.map((membership) => ({
-      id: membership.orgId,
-      name: membership.orgName,
-      domain: membership.allowedDomain,
-    })) ??
-    (!explicitPersonal && session.orgId
-      ? [{ id: session.orgId, name: "Organization", domain: null }]
-      : []);
-  const organizationOptions = explicitPersonal
-    ? [{ id: "", name: "Personal", domain: null }, ...organizations]
-    : organizations;
-  const defaultOrganizationId = explicitPersonal
-    ? ""
-    : activeOrgSetting?.orgId &&
-        organizations.some(({ id }) => id === activeOrgSetting.orgId)
-      ? activeOrgSetting.orgId
-      : session.orgId && organizations.some(({ id }) => id === session.orgId)
-        ? session.orgId
-        : organizations[0]?.id;
 
   if (method === "GET") {
     return html(
@@ -893,7 +909,7 @@ async function handleAuthorize(
         clientName: client.clientName || client.clientId,
         redirectUri,
         scopes: scope.split(/\s+/),
-        organizations: organizationOptions,
+        organizations,
         fields: {
           response_type: "code",
           client_id: clientId,
@@ -946,10 +962,7 @@ async function handleAuthorize(
   const selectedOrganization = organizations.find(
     ({ id }) => id === selectedOrganizationId,
   );
-  const selectedPersonal =
-    selectedOrganizationId === "" &&
-    (explicitPersonal || organizations.length === 0);
-  if (organizations.length > 0 && !selectedPersonal && !selectedOrganization) {
+  if (organizations.length > 0 && !selectedOrganization) {
     return oauthError(
       "invalid_request",
       "A valid organization selection is required",
@@ -959,23 +972,46 @@ async function handleAuthorize(
   const orgDomain = selectedOrganization
     ? await resolveOrgDomain(selectedOrganization.id)
     : undefined;
-  const code = await createOAuthCode({
-    clientId,
-    redirectUri,
-    codeChallenge: params.code_challenge,
-    codeChallengeMethod: "S256",
-    ownerEmail: session.email,
-    orgId: selectedOrganization?.id ?? null,
-    orgDomain: orgDomain ?? null,
-    scope,
-    resource,
-  });
+  let code;
+  try {
+    await ensureOAuthTables();
+    code = await withMcpCredentialIssuance(
+      {
+        email: session.email,
+        orgId: selectedOrganization?.id ?? null,
+        requestOrigin: getOrigin(event),
+      },
+      (tx) =>
+        createOAuthCode(
+          {
+            clientId,
+            redirectUri,
+            codeChallenge: params.code_challenge,
+            codeChallengeMethod: "S256",
+            ownerEmail: session.email,
+            orgId: selectedOrganization?.id ?? null,
+            orgDomain: orgDomain ?? null,
+            scope,
+            resource,
+          },
+          tx,
+        ),
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      return redirectWithOAuthError({
+        redirectUri,
+        issuer,
+        state,
+        error: "access_denied",
+      });
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 
-  // Native/desktop clients register a private-use scheme (cursor://, vscode://, …).
-  // A 302 to that scheme opens the app but leaves the browser tab dangling, so we
-  // render a friendly confirmation page that re-fires the deep link instead. For
-  // https/loopback callbacks the client (or its local server) renders its own page,
-  // so keep the standard redirect there.
   let isDeepLinkRedirect = false;
   try {
     const protocol = new URL(redirectUri).protocol;
@@ -1008,25 +1044,31 @@ async function handleAuthorize(
   });
 }
 
-async function issueTokenSet(params: {
-  ownerEmail: string;
-  orgId?: string | null;
-  orgDomain?: string | null;
-  clientId: string;
-  scope: string;
-  resource: string;
-  issuer: string;
-}): Promise<Record<string, unknown>> {
+async function issueTokenSet(
+  params: {
+    ownerEmail: string;
+    orgId?: string | null;
+    orgDomain?: string | null;
+    clientId: string;
+    scope: string;
+    resource: string;
+    issuer: string;
+  },
+  tx: DbExec,
+): Promise<Record<string, unknown>> {
   const refreshToken = generateOpaqueToken();
-  await createOAuthRefreshToken({
-    refreshToken,
-    clientId: params.clientId,
-    ownerEmail: params.ownerEmail,
-    orgId: params.orgId ?? null,
-    orgDomain: params.orgDomain ?? null,
-    scope: params.scope,
-    resource: params.resource,
-  });
+  await createOAuthRefreshToken(
+    {
+      refreshToken,
+      clientId: params.clientId,
+      ownerEmail: params.ownerEmail,
+      orgId: params.orgId ?? null,
+      orgDomain: params.orgDomain ?? null,
+      scope: params.scope,
+      resource: params.resource,
+    },
+    tx,
+  );
   const accessToken = await signMcpOAuthAccessToken(params);
   return {
     access_token: accessToken,
@@ -1035,6 +1077,16 @@ async function issueTokenSet(params: {
     refresh_token: refreshToken,
     scope: params.scope,
   };
+}
+
+const NOT_A_MEMBER_DESCRIPTION =
+  "The user is no longer a member of the organization this grant was issued for";
+
+/** Retryable: the client must keep its refresh token, not start over. */
+function grantUnavailableError(description: string): Response {
+  const response = oauthError("temporarily_unavailable", description, 503);
+  response.headers.set("Retry-After", "5");
+  return response;
 }
 
 async function handleAuthorizationCodeGrant(
@@ -1048,7 +1100,13 @@ async function handleAuthorizationCodeGrant(
   if (!code || !clientId || !redirectUri || !isValidCodeVerifier(verifier)) {
     return oauthError("invalid_request", "Missing authorization-code fields");
   }
-  const row = await getOAuthCode(code);
+  let row;
+  try {
+    await ensureOAuthTables();
+    row = await getOAuthCode(code);
+  } catch {
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
   if (!row) return oauthError("invalid_grant", "Invalid or expired code");
   if (row.clientId !== clientId || row.redirectUri !== redirectUri) {
     return oauthError("invalid_grant", "Code was issued to another client");
@@ -1057,22 +1115,50 @@ async function handleAuthorizationCodeGrant(
   if (!safeEqual(expectedChallenge, row.codeChallenge)) {
     return oauthError("invalid_grant", "PKCE verification failed");
   }
-  const consumed = await consumeOAuthCode(code);
-  if (!consumed) return oauthError("invalid_grant", "Invalid or expired code");
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
-  return json(
-    await issueTokenSet({
-      ownerEmail: row.ownerEmail,
-      orgId: row.orgId,
-      orgDomain: row.orgDomain,
-      clientId,
-      scope: row.scope,
-      resource: row.resource,
-      issuer,
-    }),
-  );
+  try {
+    return await withMcpCredentialIssuance(
+      {
+        email: row.ownerEmail,
+        orgId: row.orgId,
+        requestOrigin: getOrigin(event),
+      },
+      async (tx) => {
+        const consumed = await consumeOAuthCode(code, row.ownerEmail, tx);
+        if (!consumed)
+          return oauthError("invalid_grant", "Invalid or expired code");
+        return json(
+          await issueTokenSet(
+            {
+              ownerEmail: consumed.ownerEmail,
+              orgId: consumed.orgId,
+              orgDomain: consumed.orgDomain,
+              clientId,
+              scope: consumed.scope,
+              resource: consumed.resource,
+              issuer,
+            },
+            tx,
+          ),
+        );
+      },
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      try {
+        await consumeOAuthCode(code, row.ownerEmail);
+      } catch {
+        return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+      }
+      return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 }
 
 async function handleRefreshTokenGrant(
@@ -1087,7 +1173,13 @@ async function handleRefreshTokenGrant(
   if (!clientId) {
     return oauthError("invalid_request", "client_id is required");
   }
-  const existing = await getOAuthRefreshToken(refreshToken);
+  let existing;
+  try {
+    await ensureOAuthTables();
+    existing = await getOAuthRefreshToken(refreshToken);
+  } catch {
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
   if (!existing) return oauthError("invalid_grant", "Invalid refresh token");
   if (existing.clientId !== clientId) {
     return oauthError(
@@ -1095,26 +1187,56 @@ async function handleRefreshTokenGrant(
       "Refresh token belongs to another client",
     );
   }
-  await touchOAuthRefreshToken(refreshToken).catch(() => undefined);
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
-  const accessToken = await signMcpOAuthAccessToken({
-    ownerEmail: existing.ownerEmail,
-    orgId: existing.orgId,
-    orgDomain: existing.orgDomain,
-    clientId: existing.clientId,
-    scope: existing.scope,
-    resource: existing.resource,
-    issuer,
-  });
-  return json({
-    access_token: accessToken,
-    token_type: "Bearer",
-    expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
-    refresh_token: refreshToken,
-    scope: existing.scope,
-  });
+  try {
+    return await withMcpCredentialIssuance(
+      {
+        email: existing.ownerEmail,
+        orgId: existing.orgId,
+        requestOrigin: getOrigin(event),
+      },
+      async (tx) => {
+        const renewal = await touchOAuthRefreshToken(
+          refreshToken,
+          existing.ownerEmail,
+          tx,
+        );
+        if (renewal !== "renewed")
+          return oauthError("invalid_grant", "Invalid refresh token");
+        const accessToken = await signMcpOAuthAccessToken({
+          ownerEmail: existing.ownerEmail,
+          orgId: existing.orgId,
+          orgDomain: existing.orgDomain,
+          clientId: existing.clientId,
+          scope: existing.scope,
+          resource: existing.resource,
+          issuer,
+        });
+        return json({
+          access_token: accessToken,
+          token_type: "Bearer",
+          expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+          refresh_token: refreshToken,
+          scope: existing.scope,
+        });
+      },
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      try {
+        await revokeOAuthRefreshToken(refreshToken, existing.ownerEmail);
+      } catch {
+        return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+      }
+      return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 }
 
 async function handleToken(event: H3Event): Promise<Response> {

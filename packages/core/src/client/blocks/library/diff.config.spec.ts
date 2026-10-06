@@ -3,12 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { diffMdx, diffSchema, type DiffData } from "./diff.config.js";
 
-/**
- * Minimal `BlockAttrReader` over a plain attribute bag, mirroring the runtime
- * `createAttrReader` value-domain narrowing (string-vs-number-vs-object). Lets
- * the test assert the `toAttrs` → `fromAttrs` round-trip without spinning up the
- * full MDX serialize/parse pipeline.
- */
 function reader(attrs: Record<string, unknown>): BlockAttrReader {
   const read = (name: string) => attrs[name];
   return {
@@ -28,7 +22,6 @@ function reader(attrs: Record<string, unknown>): BlockAttrReader {
   };
 }
 
-/** Re-decode data from the attribute bag `toAttrs` produced. */
 function roundTrip(data: DiffData): DiffData {
   const attrs = diffMdx.toAttrs(data) as Record<string, unknown>;
   return diffMdx.fromAttrs(reader(attrs), "");
@@ -82,7 +75,6 @@ describe("diff block config", () => {
       after: "const x = 1\nconst y = 3\nconst z = 4\nconsole.log(x, y, z)",
       mode: "split",
     };
-    // No annotations attribute is emitted, so the decode preserves absence.
     expect(roundTrip(data)).toEqual(data);
   });
 
@@ -91,7 +83,6 @@ describe("diff block config", () => {
       before: "old line",
       after: "new line",
     };
-    // No optional attributes are emitted, so the decode preserves absence.
     expect(roundTrip(data)).toEqual({
       filename: undefined,
       language: undefined,
@@ -137,7 +128,6 @@ describe("diff block config", () => {
       after: "b",
       annotations: [{ lines: "1", note: "no side" }],
     }) as DiffData;
-    // `side` stays optional in storage; the renderer treats absent as "after".
     expect(parsed.annotations?.[0]).toEqual({ lines: "1", note: "no side" });
   });
 

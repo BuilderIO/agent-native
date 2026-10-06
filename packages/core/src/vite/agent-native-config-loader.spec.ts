@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
+import { createLogger, createServer } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -23,6 +25,35 @@ afterEach(() => {
 });
 
 describe("agent-native config loading", () => {
+  it("keeps runtime config imports outside Vite analysis", async () => {
+    const warnings: string[] = [];
+    const logger = createLogger();
+    logger.warn = (message) => warnings.push(message);
+    const root = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../..",
+    );
+    const server = await createServer({
+      root,
+      configFile: false,
+      customLogger: logger,
+      server: { middlewareMode: true, ws: false },
+      optimizeDeps: { noDiscovery: true, include: [] },
+    });
+
+    try {
+      await server.transformRequest("/src/vite/agent-native-config-loader.ts", {
+        ssr: true,
+      });
+    } finally {
+      await server.close();
+    }
+
+    expect(warnings.join("\n")).not.toContain(
+      "The above dynamic import cannot be analyzed by Vite",
+    );
+  });
+
   it("inherits workspace config and lets an app override its policy", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
     temporaryRoots.push(root);

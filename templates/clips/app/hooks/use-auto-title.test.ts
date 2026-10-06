@@ -11,7 +11,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   bumpChangeVersion: (...args: unknown[]) => mocks.bumpChangeVersion(...args),
   callAction: (...args: unknown[]) => mocks.callAction(...args),
   getChangeVersion: mocks.getChangeVersion,
-  useChangeVersions: vi.fn(() => "0"),
+  useChangeVersion: vi.fn(() => 0),
+  useActionQuery: vi.fn(() => ({ data: undefined })),
 }));
 
 import {
@@ -22,17 +23,12 @@ import {
   WORKFLOW_ACTION_MAX_ATTEMPTS,
 } from "./use-auto-title";
 
-const recording = {
-  id: "rec_123",
-  title: "Demo recording",
-} as any;
-
 describe("notifyAiRequestQueued", () => {
-  it("wakes the bridge for the queued recording request", () => {
+  it("wakes the bridge through the AI request refresh signal", () => {
     notifyAiRequestQueued("rec_123");
 
     expect(mocks.bumpChangeVersion).toHaveBeenCalledWith(
-      "app-state:clips-ai-request-rec_123",
+      "app-state:refresh-signal",
       expect.any(Number),
     );
   });
@@ -40,7 +36,7 @@ describe("notifyAiRequestQueued", () => {
 
 describe("buildAiRequestChatOptions", () => {
   it("keeps queued AI requests hidden by default", () => {
-    const options = buildAiRequestChatOptions(recording, {
+    const options = buildAiRequestChatOptions({
       kind: "regenerate-chapters",
       recordingId: "rec_123",
       message: "Generate chapters",
@@ -52,7 +48,7 @@ describe("buildAiRequestChatOptions", () => {
   });
 
   it("focuses requests that were explicitly opened from the UI", () => {
-    const options = buildAiRequestChatOptions(recording, {
+    const options = buildAiRequestChatOptions({
       kind: "regenerate-chapters",
       recordingId: "rec_123",
       message: "Generate chapters",
@@ -65,7 +61,7 @@ describe("buildAiRequestChatOptions", () => {
   });
 
   it("passes combined title and summary context to the agent", () => {
-    const options = buildAiRequestChatOptions(recording, {
+    const options = buildAiRequestChatOptions({
       kind: "generate-metadata",
       recordingId: "rec_123",
       currentDescription: "",
@@ -140,48 +136,28 @@ describe("retryWorkflowAction", () => {
 
 describe("nextAutoTitleFallbackDelay", () => {
   const now = Date.parse("2026-07-11T12:02:00.000Z");
-  const readyRecording = {
-    id: "rec_123",
-    title: "Untitled recording",
-    titleSource: "default",
-    status: "ready",
-    transcriptStatus: "ready",
-    transcriptHasText: true,
-    createdAt: "2026-07-11T12:01:00.000Z",
-  } as any;
+  const candidate = { id: "rec_123", createdAt: "2026-07-11T12:01:00.000Z" };
 
   it("schedules one wake-up when a fallback becomes eligible", () => {
-    expect(nextAutoTitleFallbackDelay([readyRecording], new Set(), now)).toBe(
+    expect(nextAutoTitleFallbackDelay([candidate], new Set(), now)).toBe(
       60_000,
     );
   });
 
-  it("runs an overdue transcript-backed fallback immediately", () => {
+  it("runs an overdue fallback immediately", () => {
     expect(
       nextAutoTitleFallbackDelay(
-        [
-          {
-            ...readyRecording,
-            createdAt: "2026-07-11T11:59:00.000Z",
-          },
-        ],
+        [{ ...candidate, createdAt: "2026-07-11T11:59:00.000Z" }],
         new Set(),
         now,
       ),
     ).toBe(0);
   });
 
-  it("does not schedule work for pending transcripts or dispatched fallbacks", () => {
+  it("does not schedule work for dispatched fallbacks", () => {
     expect(
       nextAutoTitleFallbackDelay(
-        [{ ...readyRecording, transcriptStatus: "pending" }],
-        new Set(),
-        now,
-      ),
-    ).toBeNull();
-    expect(
-      nextAutoTitleFallbackDelay(
-        [readyRecording],
+        [candidate],
         new Set(["rec_123:fallback"]),
         now,
       ),

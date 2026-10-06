@@ -297,18 +297,11 @@ export default defineAction({
       );
     }
 
-    // A status value is a lifecycle transition, not just another local value:
-    // the enterable set is the attribute's own options, so a move into a
-    // retired or undeclared stage is refused with the reason a person can act
-    // on. Only local writes are gated — a provider-target status change is a
-    // proposal, which is the working flow, not a blocked transition.
     if (args.target === "local") {
       for (const fieldName of fieldNames) {
         const policy = policyByName.get(fieldName)!;
         if (policy.attributeType !== "status") continue;
         const value = fields[fieldName];
-        // Leaving a status is always allowed, including a stage that is now
-        // retired; only entering one is governed.
         if (value === null) continue;
         if (typeof value !== "string") {
           throw new CrmLifecycleError(

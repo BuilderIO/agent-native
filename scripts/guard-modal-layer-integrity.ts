@@ -25,11 +25,8 @@ const GLOBAL_CSS_CANDIDATES = [
 ];
 
 export interface StyleSourceContract {
-  /** Workspace package that ships Tailwind `@source` directives. */
   packageName: string;
-  /** Import specifier an app must add to its global CSS. */
   styleImport: string;
-  /** Import prefixes that mean the app renders that package's components. */
   componentImports: string[];
 }
 
@@ -99,13 +96,6 @@ export function checkTemplateStyleSources(
   return { checked, errors };
 }
 
-/**
- * pnpm keys each installed instance by its full `snapshots:` locator, peer
- * suffix included. Two entries of the same published version resolved against
- * different peers are still two directories and therefore two module scopes,
- * so the locator - not the version - is the instance boundary here. The
- * `packages:` section lists each version once and would hide that.
- */
 export function findDuplicateLayerResolutions(
   lockfile: string,
   packageName: string = SINGLETON_LAYER_PACKAGE,

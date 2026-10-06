@@ -105,9 +105,27 @@ describe("resolveBuilderApiAuthorization", () => {
       "user@example.com",
       null,
       ASSETS_WRITE,
+      { forceRefresh: undefined },
     );
-    // OAuth wins outright — the legacy key is never even consulted.
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("forces an OAuth token refresh when the caller saw a 401", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<FRESH_OAUTH_TOKEN_EXAMPLE>",
+      scopes: [ASSETS_WRITE],
+    });
+
+    await expect(
+      resolveBuilderApiAuthorization(ASSETS_WRITE, { forceRefresh: true }),
+    ).resolves.toBe("Bearer <FRESH_OAUTH_TOKEN_EXAMPLE>");
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+      ASSETS_WRITE,
+      { forceRefresh: true },
+    );
   });
 
   it("names the missing scope instead of falling back to a legacy key", async () => {
@@ -128,8 +146,6 @@ describe("resolveBuilderApiAuthorization", () => {
         "Builder.io access needs re-authorizing to grant builder:assets:write. Open Settings and authorize Builder.io again.",
       statusCode: 400,
     });
-    // Falling back here would let a deploy-level key act for a user who never
-    // authorized it.
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
@@ -186,8 +202,6 @@ describe("resolveBuilderApiAuthorization", () => {
     );
   });
 
-  // The grant is org-scoped, so a recording that finalizes after the user
-  // switched active org must still authorize against its own org.
   it("binds the lookup to the request organization, not the active one", async () => {
     getRequestOrgIdMock.mockReturnValue("org-recording");
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
@@ -206,6 +220,7 @@ describe("resolveBuilderApiAuthorization", () => {
       "user@example.com",
       "org-recording",
       ASSETS_WRITE,
+      { forceRefresh: undefined },
     );
   });
 
@@ -494,8 +509,6 @@ describe("canAuthorizeBuilderApiRequest", () => {
 });
 
 describe("hasBuilderApiCredentialCustody", () => {
-  // The reported bug: storage gates only knew about private keys, so every
-  // OAuth-only connection was treated as having no storage at all.
   it("counts an OAuth grant with no private key as connected", async () => {
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
     resolveBuilderCredentialMock.mockResolvedValue(null);

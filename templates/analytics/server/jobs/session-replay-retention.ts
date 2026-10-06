@@ -2,10 +2,6 @@ import { runSessionReplayRetentionSweep } from "../lib/session-replay";
 
 let running = false;
 
-/**
- * Run one session replay retention sweep. Exported for deployment-specific
- * scheduled functions that should not rely on a long-lived Node process.
- */
 export async function runSessionReplayRetentionOnce(): Promise<{
   finalized: number;
   expired: number;

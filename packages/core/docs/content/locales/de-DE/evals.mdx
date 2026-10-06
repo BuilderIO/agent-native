@@ -250,6 +250,18 @@ Fügen Sie es der Pipeline hinzu, die vor einer Bereitstellung ausgeführt wird:
 
 Eine Regression, die einen Scorer unter den Schwellenwert fallen lässt, schlägt den Schritt fehl und blockiert die Bereitstellung. Eine App ohne Evaluierungsdateien wird `0` beendet, daher ist die Übernahme von Evals eine Opt-in-Aktion pro App.
 
+## Aus einem Produktionstrace {#from-trace}
+
+Wenn ein echter Lauf überrascht — er ist in Produktion fehlgeschlagen, nachdem er in einer Demo funktionierte, oder er hat das falsche Tool aufgerufen — fördern Sie diesen abgeschlossenen Trace zu einem CI-Fall, statt einen Prompt zu erfinden.
+
+```bash
+agent-native eval promote <runId> --write evals/from-trace.eval.ts
+```
+
+Der Befehl speichert eine `EvalDataset`-Zeile (derselbe Helper wie Dashboard und `promote-trace-eval`) und schreibt ein `defineEval`-Fixture, das das bestehende `agent-native eval`-Gate bereits findet. Standard-Scorer sind `usesTool(...)` für jedes erfolgreiche Tool plus optional `--must-contain`. Abgeschnittene, abgebrochene oder promptlose Läufe schlagen geschlossen fehl.
+
+Die gehostete Action und `POST /_agent-native/observability/traces/:runId/promote` schreiben nie den App-Baum. `--write` ist der CI-Schritt. Die Trace-Detailansicht hat **Promote to eval**.
+
 ## Was kommt als nächstes?
 
 - [**Observability**](/docs/observability) – Post-hoc-Bewertung realer Produktionsläufe (die ergänzende Ebene)

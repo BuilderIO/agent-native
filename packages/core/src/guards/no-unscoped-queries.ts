@@ -26,9 +26,6 @@ import { readFileSafe, relPosix, walk } from "./scan-utils.js";
 import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
 export interface UnscopedQueriesOptions extends GuardScanOptions {
-  /** Exact repo-relative paths to exempt from the per-statement scan
-   * (e.g. this app's own sharing-primitive implementation, if any).
-   * Default `[]`. */
   extraExemptPaths?: string[];
 }
 

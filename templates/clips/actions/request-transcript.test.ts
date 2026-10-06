@@ -36,8 +36,7 @@ const mockRegenerateSummaryRun = vi.hoisted(() => vi.fn());
 const mockQueueTitleRegenerationRequest = vi.hoisted(() => vi.fn());
 const mockResolveHasBuilderGatewayCredential = vi.hoisted(() => vi.fn());
 const mockTranscribeWithBuilder = vi.hoisted(() => vi.fn());
-const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
-const mockPrepareAudioOnlyTranscriptionMedia = vi.hoisted(() => vi.fn());
+const mockPrepareRecordingTranscriptionAudio = vi.hoisted(() => vi.fn());
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() =>
   vi.fn(async () => undefined),
@@ -56,10 +55,6 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: vi.fn(),
-}));
-
-vi.mock("@agent-native/core/extensions/url-safety", () => ({
-  ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -146,8 +141,12 @@ vi.mock("./lib/audio-only-transcription.js", () => ({
   assertAudioHasAudibleSignal: vi.fn(),
   isNoExtractableAudioError: vi.fn(() => false),
   isTransientExtractionError: vi.fn(() => false),
-  prepareAudioOnlyTranscriptionMedia: (...args: unknown[]) =>
-    mockPrepareAudioOnlyTranscriptionMedia(...args),
+  audioExtractionTimeoutMs: vi.fn(() => 30_000),
+}));
+
+vi.mock("./lib/recording-audio-source.js", () => ({
+  prepareRecordingTranscriptionAudio: (...args: unknown[]) =>
+    mockPrepareRecordingTranscriptionAudio(...args),
 }));
 
 vi.mock("./lib/loom-transcript.js", () => ({
@@ -301,8 +300,6 @@ describe("resolveCleanupSegmentsJson", () => {
   });
 
   it("does not stretch a sparse transcript across the whole recording", () => {
-    // A 31-word transcript of a 2-minute clip used to be re-timed into cues
-    // ~4.3s apart, which looked like minute-long gaps of dropped speech.
     const sparse = JSON.stringify([
       { startMs: 0, endMs: 900, text: "I'm in the Builder desktop app," },
       { startMs: 900, endMs: 1_800, text: "and I zipped a PNG file and" },
@@ -365,6 +362,17 @@ describe("recordingMediaFetchTimeoutMs", () => {
     expect(recordingMediaFetchTimeoutMs(null, null)).toBe(45_000);
     expect(recordingMediaFetchTimeoutMs(250 * 1024 * 1024, null)).toBe(80_000);
     expect(recordingMediaFetchTimeoutMs(null, 55 * 60_000)).toBe(90_000);
+  });
+
+  it("budgets for the larger of the stored size and the duration estimate", () => {
+    // A small stored size can describe the compressed copy while the CDN
+    // still serves the original upload.
+    expect(recordingMediaFetchTimeoutMs(10 * 1024 * 1024, 55 * 60_000)).toBe(
+      90_000,
+    );
+    expect(recordingMediaFetchTimeoutMs(250 * 1024 * 1024, 60_000)).toBe(
+      80_000,
+    );
   });
 
   it("allows a bounded operator override", () => {
@@ -440,13 +448,12 @@ describe("requestTranscript regeneration", () => {
     mockSelectRows.queue = [];
     mockResolveHasBuilderGatewayCredential.mockResolvedValue(true);
     mockAssertAccess.mockResolvedValue({ role: "editor" });
-    mockSsrfSafeFetch.mockResolvedValue(
-      new Response(new Blob(["recording"], { type: "video/webm" })),
-    );
-    mockPrepareAudioOnlyTranscriptionMedia.mockResolvedValue({
-      audioBytes: new Uint8Array([1, 2, 3]),
-      mimeType: "audio/webm",
-      filename: "recording.webm",
+    mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
+      mimeType: "audio/mp4",
+      maxVolumeDb: -12,
+      chunks: [
+        { audioBytes: new Uint8Array([1, 2, 3]), startMs: 0, durationMs: 1200 },
+      ],
     });
     mockTranscribeWithBuilder.mockResolvedValue({
       text: "Fresh transcript.",
@@ -577,6 +584,71 @@ describe("requestTranscript regeneration", () => {
       "private detail",
     );
     expect(JSON.stringify(mockTrack.mock.calls)).not.toContain("Private title");
+  });
+
+  it("fails a multi-part recording as CHUNK_FAILED without saving a partial transcript", async () => {
+    mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
+      mimeType: "audio/mp4",
+      maxVolumeDb: -12,
+      chunks: [
+        { audioBytes: new Uint8Array([1, 2]), startMs: 0, durationMs: 480_000 },
+        {
+          audioBytes: new Uint8Array([3, 4]),
+          startMs: 480_000,
+          durationMs: 60_000,
+        },
+      ],
+    });
+    mockTranscribeWithBuilder
+      .mockResolvedValueOnce({
+        text: "First part.",
+        language: "en",
+        segments: [{ startMs: 0, endMs: 1000, text: "First part." }],
+      })
+      .mockRejectedValue(new Error("Gemini returned malformed JSON"));
+    mockSelectRows.queue = [
+      [{ status: "failed", retryCount: 0 }],
+      [],
+      [
+        {
+          videoUrl: "https://cdn.builder.io/o/recording",
+          videoFormat: "mp4",
+          hasAudio: true,
+          durationMs: 540_000,
+          title: "Long talk",
+        },
+      ],
+      [],
+    ];
+
+    const result = await requestTranscript.run({ recordingId: "rec_long" });
+
+    expect(result).toMatchObject({ recordingId: "rec_long", status: "failed" });
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(2);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_transcription_failed",
+      expect.objectContaining({ failure_code: "CHUNK_FAILED" }),
+      expect.anything(),
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "transcript-cleanup-rec_long",
+      expect.objectContaining({
+        status: "builder-transcription-failed",
+        chunkIndex: 1,
+        chunkCount: 2,
+      }),
+    );
+    const savedRows = [
+      ...mockInsertValues.mock.calls.map(([row]) => row),
+      ...mockUpdateSet.mock.calls.map(([row]) => row),
+    ] as Array<Record<string, unknown>>;
+    expect(savedRows.some((row) => row.status === "ready")).toBe(false);
+    expect(savedRows).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "CHUNK_FAILED",
+      }),
+    );
   });
 
   it("replaces a ready transcript when regeneration is explicitly requested", async () => {
@@ -815,6 +887,14 @@ describe("requestTranscript regeneration", () => {
     );
     expect(mockTranscribeWithBuilder).toHaveBeenCalledWith(
       expect.objectContaining({ diarize: true }),
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_completed",
+      expect.objectContaining({
+        recording_attempt_id: "rec_empty",
+        output_id: "rec_empty",
+      }),
+      expect.anything(),
     );
   });
 

@@ -231,8 +231,7 @@ sendToAgentChat({
 
 ## openAgentSettings(section?) {#openagentsettings}
 
-當應用程式設定頁面或設定卡應該開啟標準的 `/settings` 頁面時，使用 `openAgentSettings()`。傳入一個區段 id，例如 `"llm"`、`"secrets"`、
-`"automations"`、`"voice"` 或 `"limits"`，以開啟特定區段。
+當設定卡或聊天介面需要開啟 Settings 時，使用 `openAgentSettings()`。傳入一個區段 id，例如 `"llm"`、`"secrets"`、`"automations"`、`"voice"` 或 `"limits"`，Settings 的重新導向表會開啟負責該區段的頁面（Model、API keys、Automations、Preferences，或 Model 上的限制列）。
 
 ```ts
 import { openAgentSettings } from "@agent-native/core/client/navigation";
@@ -240,7 +239,7 @@ openAgentSettings();
 openAgentSettings("secrets");
 ```
 
-優先使用此輔助函式，而不是直接派送 `agent-panel:open-settings`。
+優先使用此輔助函式，而不是直接派送 `agent-panel:open-settings`。若要依 id 開啟頁面，呼叫 `openSettingsPage("integrations")`，或使用 `buildSettingsRoute(page, sub?)` 建立連結；請參閱 [Settings Kit](/docs/toolkit-settings#links)。
 
 ## 代理聊天脈絡狀態 {#agent-chat-context-state}
 

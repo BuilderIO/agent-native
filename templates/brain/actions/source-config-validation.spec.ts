@@ -14,8 +14,6 @@ const mocks = vi.hoisted(() => ({
   assertSourceWorkspaceConnectionAvailable: vi.fn(),
 }));
 
-// The real fail() is what makes the reason survive the action HTTP route as a
-// readable 400 instead of a generic 500, so it is deliberately not mocked.
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (action: unknown) => action,
@@ -53,8 +51,6 @@ type ActionRun = { run: (args: Record<string, unknown>) => Promise<unknown> };
 const createSource = createSourceAction as unknown as ActionRun;
 const updateSource = updateSourceAction as unknown as ActionRun;
 
-// The exact value from the bug report: a markdown link pasted into the plain
-// text "Allowed channels" field.
 const GARBLED_PASTE = "http://slack.com/channel](http://slack.com/channel)";
 
 describe("create-source config validation", () => {
@@ -160,6 +156,57 @@ describe("create-source config validation", () => {
 
     expect(mocks.createSource).toHaveBeenCalledTimes(1);
   });
+
+  it("refuses a Zoom meeting filter entry that is not an ID or title", async () => {
+    for (const zoom of [
+      { meetingIds: ["GTM Weekly Sync"] },
+      { meetingIds: ["123"] },
+      { meetingTopics: ["   "] },
+    ]) {
+      await expect(
+        createSource.run({
+          title: "Zoom meetings",
+          provider: "zoom",
+          visibility: "org",
+          config: { zoom },
+        }),
+        JSON.stringify(zoom),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("creates a source from config passed as a JSON string", async () => {
+    await createSource.run({
+      title: "Zoom meetings",
+      provider: "zoom",
+      visibility: "org",
+      configJson: JSON.stringify({ zoom: { meetingIds: ["123 4567 8901"] } }),
+    });
+
+    expect(mocks.createSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: { zoom: { meetingIds: ["123 4567 8901"] } },
+      }),
+    );
+  });
+
+  it("creates a Zoom source filtered to meeting IDs and titles", async () => {
+    await expect(
+      createSource.run({
+        title: "Zoom meetings",
+        provider: "zoom",
+        visibility: "org",
+        config: {
+          zoom: {
+            meetingIds: ["123 4567 8901", 98765432101],
+            meetingTopics: ["Marketing Standup"],
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ source: { id: "source-1" } });
+  });
 });
 
 describe("update-source config validation", () => {
@@ -190,5 +237,46 @@ describe("update-source config validation", () => {
     await expect(
       updateSource.run({ id: "source-1", config: { pollMinutes: 30 } }),
     ).resolves.toBeDefined();
+  });
+
+  it("saves config passed as a JSON string", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: { id: "source-1", provider: "zoom", configJson: "{}" },
+    });
+    const zoom = { lookbackDays: 7, meetingTopics: ["Marketing Standup"] };
+
+    await updateSource.run({
+      id: "source-1",
+      configJson: JSON.stringify({ zoom }),
+    });
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ configJson: JSON.stringify({ zoom }) }),
+    );
+  });
+
+  it("validates config passed as a JSON string", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: { id: "source-1", provider: "zoom", configJson: "{}" },
+    });
+
+    for (const configJson of [
+      JSON.stringify({ zoom: { meetingIds: ["Weekly Sync"] } }),
+      "not json",
+      "[1]",
+    ]) {
+      await expect(
+        updateSource.run({ id: "source-1", configJson }),
+        configJson,
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("rejects an update that changes nothing", async () => {
+    await expect(
+      updateSource.run({ id: "source-1", config: {} }),
+    ).rejects.toMatchObject({ errorCode: "no_source_changes" });
+    expect(set).not.toHaveBeenCalled();
   });
 });

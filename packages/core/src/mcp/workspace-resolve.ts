@@ -1,50 +1,23 @@
-/**
- * Workspace / app resolution for the MCP stdio transport + builtin tools.
- *
- * Node-only. Never bundled into the serverless function — only the local
- * `agent-native mcp` CLI path and the in-process standalone builder use it.
- *
- * Resolution model (mirrors `cli/workspace-dev.ts`):
- *
- *   - Workspace root  = nearest ancestor whose package.json has
- *     `agent-native.workspaceCore` set, with an `apps/` dir.
- *   - Gateway         = `http://127.0.0.1:<WORKSPACE_PORT|PORT|8080>`.
- *   - Per-app ports   = the gateway's `/_workspace/apps` JSON (authoritative,
- *     accounts for port reservation when 8100+ are taken). Fallback when the
- *     gateway isn't up yet: discover `apps/*` dirs and assign `8100 + index`
- *     in the same sorted order `discoverApps` uses (dispatch first).
- *   - Standalone (no workspace) = the single app at the cwd; dev server on
- *     `PORT` (default Vite 5173 / framework dev). The app id is the package
- *     name's last path segment.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 
 export interface ResolvedApp {
   id: string;
-  /** Local origin where this app's dev server listens, e.g. http://127.0.0.1:8100 */
   url: string;
   port: number;
-  /** True when a TCP probe to the port succeeds. */
   running: boolean;
 }
 
 export interface ResolvedWorkspace {
-  /** Workspace root dir, or the standalone app dir. */
   root: string;
-  /** True when `root` is a multi-app workspace (has apps/ + workspaceCore). */
   isWorkspace: boolean;
-  /** Gateway origin (workspace) — undefined for standalone single app. */
   gatewayUrl?: string;
-  /** Discovered apps. For standalone this is a single entry. */
   apps: ResolvedApp[];
 }
 
 const DEFAULT_GATEWAY_PORT = 8080;
 const DEFAULT_APP_PORT_START = 8100;
 
-/** Walk up from `startDir` for a package.json with `agent-native.workspaceCore`. */
 export function findWorkspaceRoot(startDir: string): string | null {
   let dir = path.resolve(startDir);
   for (let i = 0; i < 20; i++) {
@@ -79,10 +52,6 @@ function readJson(file: string): any {
   }
 }
 
-/**
- * Mirror of `cli/workspace-dev.ts`'s `compareApps` — dispatch first, then
- * alphabetical. Keeps the fallback port assignment aligned with the gateway's.
- */
 function compareApps(a: { id: string }, b: { id: string }): number {
   if (a.id === "dispatch") return -1;
   if (b.id === "dispatch") return 1;
@@ -130,7 +99,6 @@ function probePort(port: number, timeoutMs = 600): Promise<boolean> {
   });
 }
 
-/** Fetch the gateway's authoritative apps list (ports may be reassigned). */
 async function fetchGatewayApps(
   gatewayUrl: string,
 ): Promise<Array<{ id: string; port: number }> | null> {
@@ -149,12 +117,6 @@ async function fetchGatewayApps(
   }
 }
 
-/**
- * Resolve the workspace (or standalone app) the MCP server should bridge to.
- *
- * @param cwd       Working directory (defaults to process.cwd()).
- * @param env       Env (defaults to process.env). Reads WORKSPACE_PORT / PORT.
- */
 export async function resolveWorkspace(
   cwd: string = process.cwd(),
   env: NodeJS.ProcessEnv = process.env,
@@ -171,8 +133,6 @@ export async function resolveWorkspace(
       env.WORKSPACE_APP_PORT_START || DEFAULT_APP_PORT_START,
     );
 
-    // Prefer the gateway's authoritative list (handles port reassignment);
-    // fall back to a filesystem scan with the same ordering the gateway uses.
     const fromGateway = await fetchGatewayApps(gatewayUrl);
     const discovered =
       fromGateway ?? discoverAppDirs(path.join(root, "apps"), appPortStart);
@@ -189,7 +149,6 @@ export async function resolveWorkspace(
     return { root, isWorkspace: true, gatewayUrl, apps };
   }
 
-  // Standalone single app — the cwd is the app.
   const pkg = readJson(path.join(cwd, "package.json"));
   const rawName: string =
     (typeof pkg?.name === "string" && pkg.name) ||
@@ -210,18 +169,6 @@ export async function resolveWorkspace(
   };
 }
 
-/**
- * Resolve the local app the stdio proxy should connect its MCP HTTP client
- * to. Honours an explicit `--app` / appId and `--port` / explicit port.
- * Returns the chosen app's origin (where `/mcp` is mounted; the legacy
- * `/_agent-native/mcp` alias is supported too).
- *
- * Order of precedence:
- *   1. explicit `port` → http://127.0.0.1:<port>
- *   2. explicit `appId` matched against resolved apps
- *   3. workspace default (dispatch if present, else first app)
- *   4. standalone single app
- */
 export async function resolveLocalAppOrigin(opts: {
   cwd?: string;
   env?: NodeJS.ProcessEnv;

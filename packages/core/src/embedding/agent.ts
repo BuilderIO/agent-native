@@ -2,9 +2,6 @@ import { A2AClient, callAgent } from "../a2a/client.js";
 import type { Message, Task } from "../a2a/types.js";
 
 export interface AgentEndpointOptions {
-  /**
-   * Optional URL base used when resolving relative app URLs.
-   */
   base?: string;
 }
 
@@ -13,10 +10,6 @@ export interface SendMessageOptions {
   contextId?: string;
   metadata?: Record<string, unknown>;
   requestTimeoutMs?: number;
-  /**
-   * If the target does not support streaming, fall back to async send + poll.
-   * Defaults to true.
-   */
   fallbackToPolling?: boolean;
   timeoutMs?: number;
   userEmail?: string;
@@ -108,9 +101,6 @@ function extractTaskText(task: Task): string {
   );
 }
 
-/**
- * Send a text prompt to an Agent-Native A2A endpoint and yield text deltas.
- */
 export async function* sendMessage(
   url: string,
   text: string,

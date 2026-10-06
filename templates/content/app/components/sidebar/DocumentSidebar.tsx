@@ -1,24 +1,24 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   setClientAppState,
   useActionMutation,
   useActionQuery,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import {
   AppSidebarFooter,
   AppSidebarHeader,
-  FeedbackButton,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentSidebarViewOrder,
-  ContentNavigationContext,
   Document,
 } from "@shared/api";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
@@ -28,7 +28,6 @@ import {
   IconArrowsSort,
   IconPlus,
   IconRestore,
-  IconSettings,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -81,10 +80,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  contentFilesCollectionFilter,
+  contentRowTargets,
+  invalidateContentQueries,
+  useContentActionMutation,
+} from "@/hooks/use-content-action-mutation";
+import {
   applyOptimisticItemToContentDatabase,
   contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
-  invalidateContentDatabaseNavigationQueries,
+  contentDatabaseNavigationQueryFilter,
   isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
@@ -103,6 +108,7 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  useContentNavigationContext,
   useDocuments,
   useCreateDocument,
   useDeleteDocument,
@@ -112,8 +118,11 @@ import {
   useMoveDocument,
   useUpdateDocument,
   documentQueryFilter,
+  removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument,
   restoreDeletedDocumentSnapshots,
+  seedCreatedDocumentNavigation,
+  startPageOpenDocumentReads,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
@@ -121,6 +130,16 @@ import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
+import {
+  filesNavigationOrder,
+  openFilesFolderIds,
+} from "@/lib/files-navigation";
+import {
+  filesRootHintScope,
+  prefetchPagedFilesRoot,
+  readPagedFilesRootHint,
+  rememberPagedFilesRoot,
+} from "@/lib/files-root-hint";
 import {
   consumeLiveLocalFolderActivation,
   liveLocalFolderSourceId,
@@ -131,6 +150,14 @@ import {
   markDocumentCreationPending,
   shouldCreateDocumentOptimistically,
 } from "@/lib/optimistic-document";
+import {
+  readSidebarLayoutHint,
+  rememberSidebarLayout,
+  withShownFilesBranch,
+  type SidebarLayoutHint,
+  type SidebarRowsHint,
+} from "@/lib/sidebar-layout-hint";
+import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import {
@@ -157,6 +184,7 @@ import {
   toggleExpandedWorkspaceIds,
 } from "./select-content-space";
 import { type SidebarReorderLabels } from "./sidebar-reorder";
+import { SidebarRowsSkeleton } from "./SidebarNavigationRow";
 import { sidebarRowClassName } from "./SidebarNavigationRow";
 import {
   SidebarPageActionsProvider,
@@ -385,9 +413,6 @@ function useDeferredFilesDatabaseId(
       };
     }
 
-    // An already-expanded workspace can contain thousands of files. Give the
-    // selected page's critical read one turn before starting that inventory;
-    // direct expansion remains immediate.
     setReady(false);
     const timeout = window.setTimeout(
       () => setReady(true),
@@ -396,11 +421,6 @@ function useDeferredFilesDatabaseId(
     return () => window.clearTimeout(timeout);
   }, [databaseId, deferUntilDocumentId, expanded]);
 
-  // `databaseId` stays stable across the defer window so the query key never
-  // changes; only `enabled` pauses the fetch. Swapping `databaseId` itself to
-  // null here would move the tree to a disabled, never-fetched query key and
-  // drop the rows already on screen for the whole deferred window instead of
-  // just holding off the refetch.
   return { databaseId: expanded ? databaseId : null, enabled: ready };
 }
 
@@ -427,6 +447,10 @@ function WorkspaceSidebarItem({
   onDeleteItem,
   onToggleFavorite,
   compact = false,
+  filesPlaceholder,
+  onFilesRootShown,
+  filesBranchPlaceholders,
+  onFilesBranchShown,
 }: {
   space: ContentSpaceSummary;
   selected: boolean;
@@ -456,6 +480,10 @@ function WorkspaceSidebarItem({
   onDeleteItem: (item: ContentDatabaseItem) => void;
   onToggleFavorite: (item: ContentDatabaseItem) => void;
   compact?: boolean;
+  filesPlaceholder?: SidebarRowsHint;
+  onFilesRootShown?: (shown: SidebarRowsHint) => void;
+  filesBranchPlaceholders?: Readonly<Record<string, SidebarRowsHint>>;
+  onFilesBranchShown?: (documentId: string, shown: SidebarRowsHint) => void;
 }) {
   const t = useT();
   const [localWorkingCopies, setLocalWorkingCopies] = useState<
@@ -514,9 +542,15 @@ function WorkspaceSidebarItem({
     expanded,
     deferInitialReadUntilDocumentId,
   );
+  // The paged tree draws cloud Files; only local-source matching needs rows.
+  const needsFilesRows = localFileMode || localWorkingCopies.length > 0;
   const filesDatabase = useContentDatabaseById(
     deferredFilesDatabase.databaseId,
-    { enabled: deferredFilesDatabase.enabled, systemRole: "files" },
+    {
+      enabled: deferredFilesDatabase.enabled,
+      systemRole: "files",
+      ...(needsFilesRows ? {} : { limit: 0 }),
+    },
   );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
@@ -617,12 +651,17 @@ function WorkspaceSidebarItem({
   const pagedOverrides = filesPersonalView.data?.overrides;
   const { activeViewId, order: sidebarOrder } = localFileMode
     ? personalSidebarOrderForDatabase(filesDatabaseData, pagedOverrides)
-    : {
-        activeViewId: pagedOverrides?.activeViewId ?? "default",
-        order: pagedOverrides?.views.find(
-          (view) => view.id === (pagedOverrides.activeViewId ?? "default"),
-        )?.sidebarOrder ?? { mode: "custom" as const, itemIds: [] },
-      };
+    : filesNavigationOrder(pagedOverrides);
+  const queryClient = useQueryClient();
+  const { session } = useSession();
+  const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
+  const filesRootConfirmed = !localFileMode && expanded;
+  useEffect(() => {
+    if (!filesRootScope || !filesRootConfirmed) return;
+    rememberPagedFilesRoot(filesRootScope, {
+      databaseId: space.filesDatabaseId,
+    });
+  }, [filesRootConfirmed, filesRootScope, space.filesDatabaseId]);
   const reorderLabels: SidebarReorderLabels = {
     drag: (label) => t("sidebar.dragToReorder", { label }),
     moveUp: t("sidebar.moveUp"),
@@ -917,8 +956,6 @@ function WorkspaceSidebarItem({
           ) : (
             <PagedContentFilesSidebarView
               databaseId={space.filesDatabaseId}
-              sort={sidebarOrder.mode}
-              viewId={activeViewId}
               activeDocumentId={activeDocumentId}
               expandedDocumentIds={expandedDocumentIds}
               onDocumentExpandedChange={onDocumentExpandedChange}
@@ -927,7 +964,12 @@ function WorkspaceSidebarItem({
                 (document) => document.id !== space.filesDocumentId,
               )}
               onOpenItem={(item) => {
-                if (selected) return false;
+                if (selected) {
+                  // The link opens the page; its reads start with the click
+                  // rather than after the route renders.
+                  startPageOpenDocumentReads(queryClient, item.document.id);
+                  return false;
+                }
                 onActivate(space, item.document.id);
                 return true;
               }}
@@ -939,6 +981,10 @@ function WorkspaceSidebarItem({
               onToggleFavorite={onToggleFavorite}
               navigationLabel={`${space.name} ${t("sidebar.files")}`}
               untitledLabel={t("sidebar.untitled")}
+              rootPlaceholder={filesPlaceholder}
+              onRootPageShown={onFilesRootShown}
+              branchPlaceholders={filesBranchPlaceholders}
+              onBranchShown={onFilesBranchShown}
             />
           )}
         </div>
@@ -981,6 +1027,15 @@ export function DocumentSidebar({
     [t],
   );
   const contentSpacesQuery = useContentSpaces();
+  const { session } = useSession();
+  const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
+  useEffect(() => {
+    if (!filesRootScope) return;
+    const root = readPagedFilesRootHint(filesRootScope);
+    if (!root) return;
+    const { branches } = readSidebarLayoutHint(filesRootScope, null);
+    prefetchPagedFilesRoot(queryClient, root, Object.keys(branches ?? {}));
+  }, [filesRootScope, queryClient]);
   const localFileMode = contentSpacesQuery.data?.sourceMode === "local-files";
   const documentsQuery = useDocuments({ enabled: localFileMode });
   const { data: documents = [] } = documentsQuery;
@@ -993,9 +1048,7 @@ export function DocumentSidebar({
   const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
 
   const restoreDocument = useRestoreDocument();
-  const { data: trashedDocuments } = useTrashedDocuments();
   const restoreContentDatabase = useRestoreContentDatabase();
-  const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
   const ensureContentSpaces = useEnsureContentSpaces();
@@ -1012,6 +1065,22 @@ export function DocumentSidebar({
     spaces: contentSpaces,
     storedSpaceId,
   });
+  const selectedSpaceId = selectedSpace?.id ?? null;
+  // Read once per space: the hint sizes this load's placeholders, and what
+  // this load draws is remembered for the next one.
+  const sidebarLayoutHint = useMemo(
+    () => readSidebarLayoutHint(filesRootScope, selectedSpaceId),
+    [filesRootScope, selectedSpaceId],
+  );
+  const rememberLayout = useCallback(
+    (shown: SidebarLayoutHint) =>
+      rememberSidebarLayout(filesRootScope, selectedSpaceId, shown),
+    [filesRootScope, selectedSpaceId],
+  );
+  const rememberFilesRoot = useCallback(
+    (files: SidebarRowsHint) => rememberLayout({ files }),
+    [rememberLayout],
+  );
   const favoritesDatabaseId =
     contentSpacesQuery.data?.favoritesDatabaseId ?? null;
   const favoritesDatabase = useContentDatabaseById(favoritesDatabaseId, {
@@ -1133,6 +1202,18 @@ export function DocumentSidebar({
     provisioningPending: ensureContentSpaces.isPending,
     provisioningError: ensureContentSpaces.isError,
   });
+  // Null only while Pinned's reads are in flight. Every settled read gives a
+  // count, so a failed or unavailable database draws its own state instead of
+  // holding the placeholder.
+  const pinnedCount = !favoritesDatabaseId
+    ? contentSpacesQuery.isSuccess
+      ? 0
+      : null
+    : favoritesDatabase.isError || favoritesPersonalView.isError
+      ? 0
+      : favoritesDatabase.isPending || favoritesPersonalView.isPending
+        ? null
+        : (favoritesData?.items.length ?? 0); // coercion-ok: an unavailable database draws as an empty Pinned list.
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
       attemptedSpaceReconciliationKeyRef.current = null;
@@ -1356,16 +1437,23 @@ export function DocumentSidebar({
         // Space selection remains usable when best-effort agent context sync fails.
       });
   }, [selectedSpace]);
-  const removeLocalFileSource = useActionMutation<
+  const removeLocalFileSource = useContentActionMutation<
     RemoveLocalFileSourceResult,
     { sourceRootPath?: string | null }
-  >("remove-local-file-source");
+  >("remove-local-file-source", {
+    invalidates: [
+      contentDatabaseNavigationQueryFilter(),
+      ["action", "get-document"],
+      ["action", "get-content-database"],
+      ["action", "get-content-navigation-context"],
+      ["action", "get-content-recent"],
+      ["action", "list-content-spaces"],
+    ],
+  });
   const [isMac, setIsMac] = useState(false);
   useEffect(() => {
     setIsMac(/Mac|iPhone|iPad|iPod/.test(navigator.platform));
   }, []);
-  // Track user-expanded nodes only; active ancestors are derived below so they
-  // do not stay open after navigation unless the user explicitly expanded them.
   const expandedIdsRef = useRef(new Set<string>());
   const [isResizing, setIsResizing] = useState(false);
   const [storedCollapsedSections, setStoredCollapsedSections] = useLocalStorage<
@@ -1375,6 +1463,12 @@ export function DocumentSidebar({
     () => normalizeCollapsedSections(storedCollapsedSections),
     [storedCollapsedSections],
   );
+  const { data: trashedDocuments } = useTrashedDocuments({
+    enabled: !collapsedSections.trash,
+  });
+  const { data: trashedDatabases } = useTrashedContentDatabases({
+    enabled: !collapsedSections.trash,
+  });
   useEffect(() => {
     try {
       if (
@@ -1442,11 +1536,7 @@ export function DocumentSidebar({
     [onResize, width],
   );
 
-  const navigationContextQuery = useActionQuery<ContentNavigationContext>(
-    "get-content-navigation-context",
-    activeDocumentId ? { id: activeDocumentId } : undefined,
-    { enabled: Boolean(activeDocumentId) },
-  );
+  const navigationContextQuery = useContentNavigationContext(activeDocumentId);
   useEffect(() => {
     const filesDatabaseId =
       navigationContextQuery.data?.workspaceFilesDatabaseId ?? null;
@@ -1528,9 +1618,47 @@ export function DocumentSidebar({
     return ids;
   }, [activeDocumentId, navigationContextQuery.data?.path]);
   const visibleExpandedDocumentIds = useMemo(
-    () => new Set([...expandedDocumentIds, ...activeAncestorIds]),
+    () => openFilesFolderIds(activeAncestorIds, expandedDocumentIds),
     [activeAncestorIds, expandedDocumentIds],
   );
+  // Open folders are kept by ID with the rows they drew, so the next load
+  // reads them with the tree and holds their rows. Until the stored open
+  // folders arrive, only the active page's ancestors are known to be open, so
+  // folders are dropped from the hint only after that.
+  const rememberFilesBranches = useCallback(
+    (shown?: { documentId: string; rows: SidebarRowsHint }) => {
+      const current = readSidebarLayoutHint(
+        filesRootScope,
+        selectedSpaceId,
+      ).branches;
+      const branches = shown
+        ? withShownFilesBranch(current, shown.documentId, shown.rows)
+        : { ...current };
+      rememberLayout({
+        branches: Object.fromEntries(
+          Object.entries(branches).filter(
+            ([documentId]) =>
+              !sidebarStateHydratedRef.current ||
+              visibleExpandedDocumentIds.has(documentId),
+          ),
+        ),
+      });
+    },
+    [
+      filesRootScope,
+      rememberLayout,
+      selectedSpaceId,
+      visibleExpandedDocumentIds,
+    ],
+  );
+  const rememberFilesBranch = useCallback(
+    (documentId: string, rows: SidebarRowsHint) =>
+      rememberFilesBranches({ documentId, rows }),
+    [rememberFilesBranches],
+  );
+  useEffect(() => {
+    if (sidebarStateHydratedRef.current) rememberFilesBranches();
+  }, [rememberFilesBranches]);
 
   const expandedIds = new Set(expandedIdsRef.current);
   for (const id of activeAncestorIds) expandedIds.add(id);
@@ -1606,13 +1734,17 @@ export function DocumentSidebar({
       const previousPath = `${location.pathname}${location.search}${location.hash}`;
       pendingOptimisticCreationIdsRef.current.add(id);
 
-      // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
           old?.documents ?? (Array.isArray(old) ? old : []);
         return withDocumentsCacheShape(old, [...docs, tempDoc]);
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        rootFilesDatabaseId ?? null,
+      );
       if (rootFilesDatabaseId) {
         const optimisticItem: ContentDatabaseItem = {
           id: `optimistic-${id}`,
@@ -1647,8 +1779,6 @@ export function DocumentSidebar({
           queryClient.removeQueries(documentQueryFilter(id));
           navigateToDocument(nextId);
         }
-        // Replace optimistic doc with real server doc + clear any 404 error
-        // state from the in-flight fetch that ran before create completed.
         void queryClient.invalidateQueries(documentQueryFilter(nextId));
         settleOptimisticListRefresh(id);
         if (rootFilesDatabaseId) {
@@ -1666,6 +1796,7 @@ export function DocumentSidebar({
         );
         settleOptimisticListRefresh(id);
         queryClient.removeQueries(documentQueryFilter(id));
+        removeCreatedDocumentNavigation(queryClient, tempDoc);
         if (rootFilesDatabaseId) {
           queryClient.setQueryData<ContentDatabaseResponse>(
             contentDatabaseByIdQueryKey(rootFilesDatabaseId),
@@ -1737,6 +1868,12 @@ export function DocumentSidebar({
         });
       }
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      seedCreatedDocumentNavigation(
+        queryClient,
+        tempDoc,
+        contentSpaces.find((space) => space.id === rootSpaceId)
+          ?.filesDatabaseId ?? null,
+      );
       navigateToDocument(id);
       onNavigate?.();
 
@@ -1776,6 +1913,7 @@ export function DocumentSidebar({
           );
         }
         queryClient.removeQueries(documentQueryFilter(id));
+        removeCreatedDocumentNavigation(queryClient, tempDoc);
         settleOptimisticListRefresh(id);
         if (window.location.pathname === `/page/${id}`) {
           void navigate(previousPath, {
@@ -1986,7 +2124,6 @@ export function DocumentSidebar({
         { id, isFavorite },
         {
           onError: (error) => {
-            // Recent shows pin state optimistically; reload its truth.
             void queryClient.invalidateQueries({
               queryKey: ["action", "get-content-recent"],
             });
@@ -2006,7 +2143,11 @@ export function DocumentSidebar({
   const moveDocument = useMoveDocument();
   const duplicateDocument = useActionMutation("duplicate-page", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => invalidateContentDatabaseNavigationQueries(queryClient),
+    onSuccess: (_result, { documentId }) =>
+      invalidateContentQueries(queryClient, [
+        ...contentRowTargets(queryClient, [documentId]),
+        contentFilesCollectionFilter(),
+      ]),
   });
   const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
   const sidebarPageActions = useMemo<SidebarPageActions>(
@@ -2051,7 +2192,6 @@ export function DocumentSidebar({
     }),
     [duplicateDocument, selectedSpace?.id, t, updateDocument],
   );
-  // Any space the viewer may add pages to, plus the Page's own space.
   const moveSpaces = useMemo(
     () =>
       contentSpaces.filter(
@@ -2068,7 +2208,6 @@ export function DocumentSidebar({
         { id: page.documentId, parentId, ...(crossSpace ? { spaceId } : {}) },
         {
           onSuccess: () => {
-            // Reveal the Page where it landed.
             if (parentId) handleDocumentExpandedChange(parentId, true);
             if (crossSpace) {
               const space = contentSpaces.find(
@@ -2246,8 +2385,8 @@ export function DocumentSidebar({
           type="button"
           aria-label={t("sidebar.search")}
           variant="ghost"
-          size="icon"
-          className="size-10 text-muted-foreground hover:text-foreground"
+          size="icon-lg"
+          className="text-muted-foreground hover:text-foreground"
           onClick={handleOpenSearch}
         >
           <IconSearch size={16} />
@@ -2258,6 +2397,7 @@ export function DocumentSidebar({
   );
   const searchButton = (
     <Button
+      {...startupAnchor("sidebar-search")}
       ref={searchTriggerRef}
       type="button"
       variant="ghost"
@@ -2274,7 +2414,10 @@ export function DocumentSidebar({
     </Button>
   );
   const contentSpaceSelector = selectedSpace ? (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2">
+    <div
+      {...startupAnchor("sidebar-space")}
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2"
+    >
       <WorkspaceSourceMenu
         onCreated={handleWorkspaceCreated}
         contentClassName="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)]"
@@ -2316,8 +2459,8 @@ export function DocumentSidebar({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="size-8 shrink-0 hover:bg-sidebar-accent/60"
+            size="icon-sm"
+            className="shrink-0 hover:bg-sidebar-accent/60"
             aria-label={`${t("sidebar.new")} — ${selectedSpace.name}`}
             disabled={createDocument.isPending || createDatabase.isPending}
           >
@@ -2340,6 +2483,16 @@ export function DocumentSidebar({
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+  ) : contentSpaceState === "loading" ? (
+    <div
+      {...startupAnchor("sidebar-space")}
+      aria-hidden="true"
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-1 ps-3 pe-2 pt-2"
+    >
+      <div className="flex h-8 items-center ps-2">
+        <Skeleton className="h-3.5 w-24 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
+      </div>
+    </div>
   ) : null;
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
@@ -2354,17 +2507,20 @@ export function DocumentSidebar({
     });
   };
 
+  // The Files list's own boxes, holding the rows it last drew.
   const renderTreeSkeleton = () => (
-    <div aria-hidden="true" className="grid gap-1 px-3 py-1">
-      {[70, 55, 85, 60, 45].map((w, i) => (
-        <div key={i} className="flex items-center gap-2 px-1 py-1.5">
-          <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
-          <Skeleton
-            className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
-            style={{ width: `${w}%` }}
-          />
-        </div>
-      ))}
+    <div className="min-w-0 pb-1">
+      <div
+        aria-hidden="true"
+        className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
+      >
+        <SidebarRowsSkeleton
+          framed={false}
+          rows={sidebarLayoutHint.files?.rows ?? 3}
+          more={sidebarLayoutHint.files?.more}
+          firstRowProps={startupAnchor("sidebar-files-first-row")}
+        />
+      </div>
     </div>
   );
 
@@ -2437,6 +2593,10 @@ export function DocumentSidebar({
       onToggleFavorite={(item) =>
         handleToggleFavorite(item.document.id, !item.document.isFavorite)
       }
+      filesPlaceholder={compact ? sidebarLayoutHint.files : undefined}
+      onFilesRootShown={compact ? rememberFilesRoot : undefined}
+      filesBranchPlaceholders={compact ? sidebarLayoutHint.branches : undefined}
+      onFilesBranchShown={compact ? rememberFilesBranch : undefined}
     />
   );
 
@@ -2462,8 +2622,6 @@ export function DocumentSidebar({
 
   const renderTrashSection = () => {
     const trashActive = location.pathname.startsWith("/trash");
-    // Lifecycle destinations sit in their own fixed group below the scrolling
-    // navigation, so Trash never hides beneath a long Files tree.
     return (
       <div className="shrink-0 border-t border-border/70 px-2 py-2">
         <Link
@@ -2715,16 +2873,6 @@ export function DocumentSidebar({
             footerExtras={
               <>
                 {isCodeMode ? <DevDatabaseLink /> : null}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link to="/settings" aria-label={t("navigation.settings")}>
-                      <IconSettings className="size-4" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {t("navigation.settings")}
-                  </TooltipContent>
-                </Tooltip>
                 {collapseButton}
               </>
             }
@@ -2757,20 +2905,26 @@ export function DocumentSidebar({
       <SidebarPageActionsProvider value={sidebarPageActions}>
         <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
           <div className="w-full min-w-0 py-2">
-            {selectedSpace ? (
+            {selectedSpace || contentSpaceState === "loading" ? (
               <PersonalSidebarSections
-                spaceId={selectedSpace.id}
-                pinnedCount={favoritesData?.items.length ?? 0}
+                spaceId={selectedSpaceId}
+                pinnedCount={pinnedCount}
                 renderFiles={renderWorkspaceNavigation}
                 activeDocumentId={sidebarActiveDocumentId}
                 onNavigate={onNavigate}
                 onToggleFavorite={handleToggleFavorite}
                 reorderLabels={sidebarReorderLabels}
-                seeAllHrefs={{
-                  pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
-                  recent: `/favorites?view=recent&spaceId=${encodeURIComponent(selectedSpace.id)}`,
-                  files: `/page/${selectedSpace.filesDocumentId}`,
-                }}
+                layoutHint={sidebarLayoutHint}
+                onLayoutShown={rememberLayout}
+                seeAllHrefs={
+                  selectedSpace
+                    ? {
+                        pinned: `/favorites?spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                        recent: `/favorites?view=recent&spaceId=${encodeURIComponent(selectedSpace.id)}`,
+                        files: `/page/${selectedSpace.filesDocumentId}`,
+                      }
+                    : null
+                }
                 renderPinned={(limit) => {
                   const serverOrdered = favoritesOrder.order.mode !== "custom";
                   const renderedItems = (
@@ -2856,7 +3010,9 @@ export function DocumentSidebar({
                   );
                 }}
               />
-            ) : null}
+            ) : (
+              renderWorkspaceNavigation()
+            )}
           </div>
         </ScrollArea>
       </SidebarPageActionsProvider>
@@ -2890,16 +3046,6 @@ export function DocumentSidebar({
         footerExtras={
           <>
             {isCodeMode ? <DevDatabaseLink /> : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link to="/settings" aria-label={t("navigation.settings")}>
-                  <IconSettings className="size-4" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("navigation.settings")}
-              </TooltipContent>
-            </Tooltip>
             {collapseButton}
           </>
         }

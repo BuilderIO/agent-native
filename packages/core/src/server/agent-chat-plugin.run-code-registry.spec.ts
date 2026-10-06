@@ -2,22 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { loadRunCodeToolEntries } from "./agent-chat-plugin.js";
 
-/**
- * The agent-chat plugin registers the sandboxed code-execution tools through
- * `loadRunCodeToolEntries` for every registry that gets `run-code` (prod,
- * lean, and dev tool bags). These tests pin the registration contract:
- * `tool-orchestration` — the bounded read-only fan-out/reduction path — and
- * `get-code-execution` — the standalone, access-scoped poll tool for durable
- * background executions exported by `createGetCodeExecutionEntry` — is
- * registered ALONGSIDE `run-code`, so the enqueue guidance run-code emits
- * ("check it with get-code-execution") always points at a callable tool.
- *
- * The data-programs actions (`save-data-program`, `preview-data-program`,
- * `run-data-program`, `list-data-programs`, `get-data-program`,
- * `delete-data-program`) are registered identically to run-code — same
- * try/dynamic-import guard — so every registry that gets run-code also gets
- * the data-programs primitive without per-template wiring.
- */
 describe("loadRunCodeToolEntries (code execution registration)", () => {
   it("registers tool-orchestration, get-code-execution, and data-program actions alongside run-code", async () => {
     const entries = await loadRunCodeToolEntries(() => ({}));
@@ -32,6 +16,16 @@ describe("loadRunCodeToolEntries (code execution registration)", () => {
       "save-data-program",
       "tool-orchestration",
     ]);
+  });
+
+  it("leaves names the app defines itself to the app's own actions", async () => {
+    const entries = await loadRunCodeToolEntries(() => ({}), {
+      appActionNames: ["list-data-programs", "get-data-program", "unrelated"],
+    });
+    expect(entries).not.toHaveProperty("list-data-programs");
+    expect(entries).not.toHaveProperty("get-data-program");
+    expect(entries).toHaveProperty("run-code");
+    expect(entries).toHaveProperty("save-data-program");
   });
 
   it("registers tool-orchestration as a bounded Act-mode read-only tool", async () => {

@@ -1,12 +1,10 @@
 ---
 name: performance
 description: >-
-  Keep apps and templates loading fast. Read when adding a data model, a
-  list/read action, a page or sidebar that loads data, or when something loads
-  slowly, or when adding a dependency to the deployed server bundle. Covers
-  column projection, indexing hot-path queries, avoiding N+1 and round-trip
-  waterfalls, cheap polling, not recomputing on every read, and cold-start
-  artifact size.
+  Keep apps fast to load and use. Read when adding a data model, list/read
+  action, data-loading page, server-bundle dependency, or long-lived editor, or
+  when something loads slowly, jumps, lags, or grows memory. Covers queries,
+  cold start, stable placeholders, and client runtime memory.
 scope: dev
 metadata:
   internal: true
@@ -154,6 +152,12 @@ duplicate the provider transport, auth, quota, and cache implementation.
   loading skeleton wait on a serial chain.
 - Load the visible page from one read where possible, and **lazy-load**
   secondary / below-the-fold data after first paint.
+- When a read needs an id that another read returns, keep this browser's last
+  copy of that id in localStorage and start the read from it as the app
+  hydrates. The server's answer still decides where the page goes, and a read
+  it doesn't use is dropped. Content's `last-location-hint.ts` names the page
+  `/home` will reopen, so that page's read starts before application state
+  answers.
 
 ## 5. Poll cheaply; compute once
 
@@ -317,6 +321,121 @@ node -e 'const t=Date.now();import(process.argv[1]).then(()=>{console.log(`${Dat
   ./.netlify/functions-internal/server/main.mjs
 ```
 
+## 10. Placeholders hold the final layout
+
+A load that moves things feels slower than it is. When a placeholder gives way
+to the real element and the element starts somewhere else, the reader loses
+their place, even if the data arrived quickly. On Content this jank, more than
+latency, was what made fast loads feel slow: the sidebar's Files rows jumped
+316px, the page title 60px, and the old score never noticed, because the
+layout-shift score ignores placeholders that are removed and replaced.
+
+- **A placeholder occupies the final element's box.** Same container classes,
+  padding, line height, and row heights. Share the class names from one module
+  instead of copying values. Content's `document-editor-layout.ts` is used by
+  both the editor and `DocumentEditorSkeleton`.
+- **Draw nothing below an element whose height is still unknown.** A title
+  that may wrap, or a list whose length is not known yet, moves everything
+  under it when it resolves. Leave the content below out until the height is
+  known: something that appears is fine, something that moves is not.
+- **Restore the last layout before the data arrives.** Keep the shape the user
+  last saw in local storage, as counts and ids only: rows per section, section
+  order, sidebar width, collapsed state. Then draw that shape at once. Content's
+  `sidebar-layout-hint.ts` holds the sidebar's. When the shape depends on the
+  item itself, such as a page's icon, whether this person can edit it, whether
+  it is a collection, or whether its open comments hold the review margin
+  open, remember it per id. Content's `page-startup-hints.ts` holds these.
+- **Start every read the first layout depends on together.** A box that opens
+  when a second read answers (the review margin after comments and
+  suggestions) moves the page if that read starts only after the first one
+  lands. Start it with the page read.
+- **Never draw rows in an order the view is about to change.** A collection
+  whose saved view sorts or filters must not show the unsorted rows of a base
+  read first. Resolve the view from what the page read already carries, and
+  keep the placeholder until that view's own rows arrive.
+- **A box whose content loads late keeps its final size.** A library icon
+  draws only once its glyph loads, so a wrapper sized by its content is 8px
+  tall and then 56px. Give the box the size it ends at.
+- **The server-rendered first paint counts.** An app's `clientOnlyFallback`
+  must draw the app's own shell, with the same sidebar width, header heights,
+  and title position. It must not use a generic skeleton. Anything only the
+  browser knows (saved width, collapsed state, the page's icon row) is applied
+  by an inline `<head>` script before the first paint (`ContentStartupShell`).
+- **Read layout preferences before the first paint.** Use a synchronous read
+  or a layout effect. A passive `useEffect` paints the default for a frame
+  first, and that frame is a visible jump.
+- **`cn()` drops `leading-*` when a later `text-*` size class sets a line
+  height.** tailwind-merge treats them as conflicting, so measure computed
+  styles rather than trusting the class list.
+
+Check it with the Content startup trace. It follows every `data-startup-anchor`
+element (placeholders and real elements share a name) on every frame, and
+fails a run when any anchor moves more than 2px. It exits 1 when a run fails
+and 2 when a run found no anchors:
+
+```sh
+node templates/content/scripts/trace-startup.mjs --base-url <url>   --email <fixture> --password <fixture password>   --state cached --path /page/<id> --runs 5 --stability   --latency-ms 150 --jitter-ms 150 --frames .tmp/frames --out .tmp/trace.json
+```
+
+Run it on a production build, since a dev server can reload mid-run. Cover a
+hard refresh (`--state hard`), a phone (`--viewport 390x844`), saved sidebar
+layouts (`--local-storage '{"content.sidebar.collapsed":"true"}'`), a page
+with an icon, a page the fixture account can only view, a page with open
+comments and a pending suggestion, and a collection page whose saved view
+sorts and filters.
+Then look at the saved frames: the check proves nothing moved, and the frames
+show whether what appeared looked right. The report's `documentAfterSession`
+is how long the page's read waited after the session arrived.
+
+## 11. Client runtime: interactions and memory
+
+Sections 1–10 are the load path. A long-lived editor fails differently: every
+interaction leaves something behind, and a session that opened at 140 MB sits
+at 2 GB an hour later. Measured on Design's 48-screen stress board, `main` grew
+~320 MB per edit cycle; the rules below took it to ~40 MB.
+
+- **Measure a production build, heap after a forced GC, per repeated action.**
+  Dev builds are dominated by `jsxDEV`, and the DevTools heap figure is taken
+  before GC. Repeat one action N times and read the slope after the first
+  repetition: a plateau is a cache, a slope is a leak. Assert the action took
+  effect before trusting its number; a selection that never selected costs
+  nothing.
+- **A large component's closures keep its old renders alive.** V8 gives every
+  closure created in one call a single shared context, so one memoized
+  callback from render *k* pins everything render *k* computed, and callbacks
+  memoized at different times chain renders together. Don't rebuild big
+  derived values (trees, `Map`s of nodes, parsed documents) per render: cache
+  them in a `WeakMap` keyed by their immutable source so every render shares
+  one copy, and read heavy values through refs at call time instead of
+  capturing them.
+- **Cache by content with a size budget, not a count.** Each edit makes a new
+  multi-megabyte document, so "keep 100 entries" held 170 MB of stale copies.
+  Evict a derived entry with the entry it derives from, and drop entries for
+  deleted records.
+- **Library defaults retain too.** A settled TanStack mutation keeps its
+  options, and with them the render scope that started it, for five minutes;
+  core's query client sets `mutations.gcTime: 0`. Don't raise it for
+  mutations whose variables are documents.
+- **Keep whole-document work out of the interaction frame.** Parsing,
+  serializing, or annotating a whole document inside a click or a commit is a
+  long frame. Do it in a worker ahead of need, during the network round trip
+  the action already waits on, or lazily for the one item that needs it.
+  Mount expensive children a few per frame, and hold new ones while a gesture
+  is still moving.
+- **Never let a swap show a blank.** Replacing one view of an item with
+  another (preview and editor, placeholder and content) keeps the outgoing
+  view until the incoming one has painted, and `load` fires before the first
+  frame reaches the screen. Re-inserting or reordering an iframe reloads it,
+  so keep its element in the same slot.
+- **Scope compositor hints to the gesture.** `will-change: transform` on a
+  moving heavy subtree removes its per-frame repaint, but the layer keeps its
+  raster scale: left on, it blurs after the next zoom.
+- **Turn a budget into a count a unit test can fail.** "Documents retained
+  after eight edits ≤ 5", "the preview element survives a promotion", "the
+  three most recent editors stay warm" run in the fast lanes in milliseconds
+  and fail the PR before any browser would. Revert the fix and watch each one
+  fail; when the fix lives in a memo, revert its dependency array with it.
+
 ## Checklist — run before shipping a list/read or a new table
 
 - [ ] List selects only displayed columns; heavy blobs excluded or `substr`-truncated.
@@ -332,6 +451,11 @@ node -e 'const t=Date.now();import(process.argv[1]).then(()=>{console.log(`${Dat
       aggregations and re-syncs run on every cold start there (see §8).
 - [ ] Mutation-fresh reads go through actions + `useActionQuery`, not SSR loader
       data.
+- [ ] Every loading placeholder occupies the final element's box, and nothing
+      below an element of unknown height is drawn early (see §10).
 - [ ] No heavy runtime (browser, ffmpeg, rasterizer) added to what the `/*` page
       function ships, and no new copied dependency resolved by walking ancestor
       `node_modules` (see §9).
+- [ ] Repeating an interaction on a large document plateaus in heap after GC
+      instead of growing per action, and derived values are shared through a
+      source-keyed cache rather than rebuilt per render (see §11).

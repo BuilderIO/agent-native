@@ -1,10 +1,4 @@
-/**
- * manage-agent-engine — unified tool for listing, setting, and testing agent engines.
- *
- * Consolidates the former list-agent-engines, set-agent-engine, and test-agent-engine
- * tools into a single tool with an `action` discriminator.
- */
-
+import type { ActionRunContext } from "../../action.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
   normalizeAgentAppModelDefaultAppId,
@@ -12,6 +6,8 @@ import {
   resetAgentAppModelDefaultSettings,
   writeAgentAppModelDefaultSettings,
 } from "../../agent/app-model-defaults.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../../agent/chatgpt-subscription-contract.js";
+import { listChatGPTSubscriptionModels } from "../../agent/engine/chatgpt-subscription-engine.js";
 import {
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
@@ -31,7 +27,7 @@ import { run as runTest } from "./test-agent-engine.js";
 
 export const tool: ActionTool = {
   description:
-    'Manage AI agent engines: list available engines, set the active global engine/model, test an engine, or manage the current app/template default model. Pass action="list" to see options, action="set" to change the global default, action="test" to verify connectivity, action="get-app-default" to inspect this app default, action="set-app-default" to set this app default, or action="reset-app-default" to clear it.',
+    'Manage AI agent engines: list available engines, set the organization default engine/model, test an engine, or manage the current app/template default model. Pass action="list" to see options, action="set" to change the organization default (owners and admins only; list reports canUpdateDefault), action="test" to verify connectivity, action="get-app-default" to inspect this app default, action="set-app-default" to set this app default, or action="reset-app-default" to clear it.',
   parameters: {
     type: "object",
     properties: {
@@ -46,7 +42,7 @@ export const tool: ActionTool = {
           "reset-app-default",
         ],
         description:
-          '"list" — show available engines and current global selection. "set" — change the active global engine/model. "test" — send a trivial prompt to verify connectivity. "get-app-default" — show this app/template default. "set-app-default" — set this app/template default. "reset-app-default" — clear this app/template default.',
+          '"list" — show available engines, the current selection, and whether you can change the organization default. "set" — change the organization default engine/model (owners and admins only). "test" — send a trivial prompt to verify connectivity. "get-app-default" — show this app/template default. "set-app-default" — set this app/template default. "reset-app-default" — clear this app/template default.',
       },
       engine: {
         type: "string",
@@ -56,7 +52,7 @@ export const tool: ActionTool = {
       model: {
         type: "string",
         description:
-          "Model ID (e.g. 'gpt-5.6-sol', 'claude-sonnet-5', 'gemini-3-1-pro'). Required for \"set-app-default\"; optional for \"set\" and \"test\" where it defaults to the engine's default model.",
+          "Model ID (e.g. 'gpt-5.6-sol', 'claude-sonnet-5-5', 'gemini-3-1-pro'). Required for \"set-app-default\"; optional for \"set\" and \"test\" where it defaults to the engine's default model.",
       },
       baseUrl: {
         type: "string",
@@ -110,6 +106,23 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   if (!engine) return "Error: engine is required";
   if (!model) return "Error: model is required";
 
+  const ctx = currentContext();
+  if (engine === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    if (ctx.orgId) {
+      return "Error: ChatGPT plan access is personal and cannot be selected as an organization default.";
+    }
+    const email = ctx.userEmail;
+    if (!email) return "Error: Sign in before selecting ChatGPT plan access.";
+    try {
+      const catalog = await listChatGPTSubscriptionModels(email);
+      if (!catalog.models.includes(model)) {
+        return "Error: Choose a visible model from the selected ChatGPT account's model list.";
+      }
+    } catch (error) {
+      return `Error: ${error instanceof Error ? error.message : "Unable to load the ChatGPT account's model list."}`;
+    }
+  }
+
   const entry = getAgentEngineEntry(engine);
   if (!entry) return `Error: Unknown engine "${engine}"`;
   if (!isAgentEnginePackageInstalled(entry)) {
@@ -122,7 +135,6 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
     preserveCustomModels,
   });
 
-  const ctx = currentContext();
   const canUpdate = await canUpdateAgentAppModelDefaultSettings(
     ctx.userEmail,
     ctx.orgId,
@@ -180,14 +192,17 @@ async function runResetAppDefault(
   );
 }
 
-export async function run(args: Record<string, string>): Promise<string> {
+export async function run(
+  args: Record<string, string>,
+  context?: ActionRunContext,
+): Promise<string> {
   const { action } = args;
 
   switch (action) {
     case "list":
       return runList(args);
     case "set":
-      return runSet(args);
+      return runSet(args, context);
     case "test":
       return runTest(args);
     case "get-app-default":

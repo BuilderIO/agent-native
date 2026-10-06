@@ -36,12 +36,6 @@ import { buildDesignSnapshot } from "./design-snapshot.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
 const MAX_INLINE_DESIGN_VERSION_BYTES = 256 * 1024;
-// An editor save fires this on every keystroke-debounced commit, so a fresh
-// full-design checkpoint on each one is pure write amplification (see
-// captureDesignVersion's own buildDesignSnapshot cost) for history nobody
-// looks at between saves. Skip a new one while the latest checkpoint is
-// already an editor-surface capture within this window. Agent ('tool')
-// checkpoints below are exempt — each is a distinct turn's rollback point.
 const EDITOR_CHECKPOINT_THROTTLE_MS = 5 * 60 * 1000;
 
 export interface DesignVersionChatContext {
@@ -51,8 +45,6 @@ export interface DesignVersionChatContext {
   actionName?: string;
   phase?: "start" | "end";
   surface?: "editor";
-  /** Which editor-surface caller wrote this checkpoint. Only set alongside
-   * `surface: "editor"` — see Throttle 1 below for why it matters. */
   caller?: "frontend" | "webmcp";
 }
 
@@ -90,23 +82,10 @@ export interface DesignVersionListEntry {
   editable: boolean;
 }
 
-/**
- * A fixed code the client can render copy for — never the raw Error message,
- * which can carry DB/driver/upstream text. Unlike a thrown error, this result
- * reaches the client in a normal 200 response, so action-routes.ts's "never
- * echo a bare Error message" policy never gets a chance to apply to it; the
- * real detail still reaches captureError below.
- */
 export type DesignVersionCheckpointSkipReason =
   | "blob-storage-unavailable"
   | "checkpoint-failed";
 
-/**
- * An editor-surface checkpoint is auxiliary (version history), not the save
- * itself. Callers that reach this instead of a captured version must still
- * complete their real write and should surface the skip to the user — see
- * `snapshotDesignBeforeAgentEditInLock`.
- */
 export interface DesignVersionCheckpointSkipped {
   skipped: true;
   reason: DesignVersionCheckpointSkipReason;
@@ -117,12 +96,6 @@ export type DesignVersionCheckpointResult =
   | DesignVersionCheckpointSkipped
   | null;
 
-/**
- * Spread this into an editor-surface write action's return value so a
- * skipped checkpoint reaches the client (e.g. update-file.ts, create-file.ts,
- * import-design-source.ts). Empty for every other outcome — existing callers
- * that don't check for `checkpoint` see no change.
- */
 export function checkpointSkippedResultField(
   result: DesignVersionCheckpointResult,
 ): { checkpoint: DesignVersionCheckpointSkipped } | Record<string, never> {
@@ -138,9 +111,6 @@ export class DesignVersionRestoreConflictError extends Error {
   }
 }
 
-/** Distinguishes the specific "no blob provider configured" failure from any
- * other checkpoint error, so the editor-surface catch below can classify it
- * without parsing message text. */
 class DesignCheckpointBlobUnavailableError extends Error {
   constructor() {
     super(
@@ -239,11 +209,6 @@ function isSafeFilename(filename: string): boolean {
   );
 }
 
-/**
- * Validate the stored snapshot before exposing it as a restore target.
- * Existing branch/context snapshots use the same `files` shape, so they remain
- * listable and restorable when their file ids are still available.
- */
 export function parseDesignVersionSnapshot(
   raw: string,
   expectedDesignId: string,
@@ -394,7 +359,6 @@ function isPrivateBlobHandle(value: unknown): value is PrivateBlobHandle {
   );
 }
 
-/** Read both legacy inline snapshots and bounded private-blob references. */
 export async function readDesignVersionSnapshot(
   raw: string,
   expectedDesignId: string,
@@ -576,25 +540,15 @@ type DesignDatabase = Pick<ReturnType<typeof getDb>, "select" | "insert">;
 
 const designVersionLocks = new Map<string, Promise<unknown>>();
 
-// Best-effort and per-instance only (resets on redeploy/cold start):
-// a real checkpoint failure keeps failing for the same reason for minutes at
-// a time, so this just spares repeat editor saves the full buildDesignSnapshot
-// + blob-upload attempt (~110 queries) in between. Upgrade to a shared store
-// if failures need to stay throttled across instances.
 const editorCheckpointRecentSkips = new Map<
   string,
   { at: number; reason: DesignVersionCheckpointSkipReason }
 >();
 
-/** Test-only: this module-level map otherwise leaks a skip across specs. */
 export function __clearEditorCheckpointSkipsForTests(): void {
   editorCheckpointRecentSkips.clear();
 }
 
-/**
- * Rows carrying a state hash answer "unchanged?" without downloading and
- * re-serializing a snapshot that can be megabytes on a large design.
- */
 async function latestStateMatches(
   raw: string,
   designId: string,
@@ -936,26 +890,6 @@ function checkpointSkipReason(
     : "checkpoint-failed";
 }
 
-/**
- * Create one durable pre-edit checkpoint for a chat turn. The turn key makes
- * retries and multi-action turns converge on the earliest checkpoint instead
- * of filling history with one copy per tool call.
- *
- * `editorCheckpointMode` only affects the editor-surface branch:
- * - "auxiliary" (default): version history, not the save itself. Throttle 1
- *   (reusing a recent existing checkpoint) applies to every frontend caller
- *   regardless of `allowCheckpointFailureSkip`, since it only ever reuses a
- *   successful checkpoint. A capture failure throws by default — only a
- *   caller that passes `allowCheckpointFailureSkip: true` also gets
- *   Throttle 2 (reusing a recent capture FAILURE) and a `{ skipped, reason }`
- *   sentinel instead of the throw. That flag exists for the few callers that
- *   spread the sentinel into their result and surface it to the user (see
- *   `checkpointSkippedResultField`) — every other caller must see the real
- *   failure — see `snapshotDesignBeforeAgentEdit`.
- * - "required": this checkpoint IS the caller's only recovery point (delete-
- *   file's pre-delete capture). Never throttled, and a failure propagates —
- *   see `snapshotDesignBeforeAgentEditInVersionLock`.
- */
 async function snapshotDesignBeforeAgentEditInLock(
   designId: string,
   context: ActionRunContext,
@@ -982,20 +916,7 @@ async function snapshotDesignBeforeAgentEditInLock(
         database,
       );
     }
-    // Throttling below only protects the frontend canvas's debounced
-    // autosave, which is where the repeat-checkpoint volume comes from. A
-    // webmcp edit is an external agent driving the page; skipping its
-    // checkpoint against a recent USER save would let a later restore
-    // silently discard that agent's own in-between edits. Symmetrically,
-    // Throttle 1 below only reuses a latest checkpoint whose own `caller` is
-    // "frontend" — reusing a recent webmcp checkpoint here would skip
-    // capturing state entirely between the agent's edit and this one, so a
-    // restore to that webmcp checkpoint would discard both.
     if (context.caller === "frontend") {
-      // Throttle 1: a debounced canvas save can fire this every few seconds.
-      // Reading just the latest version row is far cheaper than the full
-      // buildDesignSnapshot() captureDesignVersion would otherwise run on
-      // every one of them.
       const [latestVersion] = await (database ?? getDb())
         .select({
           id: schema.designVersions.id,
@@ -1033,13 +954,6 @@ async function snapshotDesignBeforeAgentEditInLock(
           };
         }
       }
-      // Throttle 2: a checkpoint that just failed (e.g. no blob provider
-      // configured for this owner) will fail again for the same reason on
-      // the very next autosave a few seconds later. Reuse that verdict
-      // instead of repeating the full capture attempt just to fail again.
-      // Only an opt-in caller may receive that reused verdict — a non-opt-in
-      // caller ignores the sentinel, so it must always attempt its own
-      // capture and let a real failure throw.
       if (allowCheckpointFailureSkip) {
         const recentSkip = editorCheckpointRecentSkips.get(designId);
         if (
@@ -1065,19 +979,11 @@ async function snapshotDesignBeforeAgentEditInLock(
       editorCheckpointRecentSkips.delete(designId);
       return captured;
     } catch (error) {
-      // Report loudly (never silently) regardless of outcome below.
       const reason = checkpointSkipReason(error);
       captureError(error, {
         tags: { source: "design-versions", checkpoint: "editor" },
         extra: { designId, actionName: context.actionName },
       });
-      // An editor-surface checkpoint is an auxiliary side effect (version
-      // history), not the save itself — unlike an agent 'tool' edit's
-      // checkpoint below, which IS that turn's rollback point and must stay
-      // blocking. But only a caller that opted in (spreads
-      // checkpointSkippedResultField into its result and surfaces it to the
-      // user) may let its real write proceed on a sentinel instead of a
-      // throw; every other caller must see the failure like it always has.
       if (!allowCheckpointFailureSkip) throw error;
       if (context.caller === "frontend") {
         editorCheckpointRecentSkips.set(designId, { at: Date.now(), reason });
@@ -1145,14 +1051,6 @@ export async function snapshotDesignBeforeAgentEdit(
   designId: string,
   context?: ActionRunContext,
   options?: {
-    /**
-     * Opt in to a failed editor-surface checkpoint returning a
-     * `{ skipped, reason }` sentinel instead of throwing. Only pass this when
-     * the caller spreads `checkpointSkippedResultField(checkpoint)` into its
-     * result and the frontend surfaces the skip to the user — every other
-     * caller must see the failure, since it silently discards the result
-     * otherwise.
-     */
     allowCheckpointFailureSkip?: boolean;
   },
 ): Promise<DesignVersionCheckpointResult> {
@@ -1168,12 +1066,6 @@ export async function snapshotDesignBeforeAgentEdit(
   );
 }
 
-/**
- * Call only while the caller owns withDesignVersionLock(designId, ...).
- * "required" mode: delete-file's pre-delete checkpoint is the delete's only
- * recovery point, so unlike the auxiliary checkpoint above it is never
- * throttled and a capture failure propagates instead of being swallowed.
- */
 export async function snapshotDesignBeforeAgentEditInVersionLock(
   designId: string,
   context?: ActionRunContext,

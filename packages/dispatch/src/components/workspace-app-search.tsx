@@ -37,10 +37,11 @@ export function WorkspaceAppSearch({
         />
         <Input
           id={inputId}
+          size="sm"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder={placeholder}
-          className="h-9 bg-background ps-9"
+          className="bg-background ps-9"
           autoComplete="off"
         />
       </div>

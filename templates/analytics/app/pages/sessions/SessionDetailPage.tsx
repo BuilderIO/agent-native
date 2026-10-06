@@ -1,12 +1,18 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import {
+  callAction,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   AgentToggleButton,
   useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
-import { trackEvent } from "@agent-native/core/client/analytics";
-import { appApiPath } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+  useSendToAgentChat as useCoreSendToAgentChat,
+} from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   isFailedSessionReplayNetworkStatus,
@@ -15,6 +21,7 @@ import {
 } from "@shared/session-replay-diagnostics";
 import {
   IconArrowLeft,
+  IconBolt,
   IconCheck,
   IconChevronRight,
   IconCopy,
@@ -28,6 +35,7 @@ import {
   IconPlayerSkipForward,
   IconPlayerTrackNext,
   IconRoute,
+  IconRouteOff,
   IconSearch,
   IconTerminal2,
   IconTimelineEvent,
@@ -70,12 +78,26 @@ import {
 import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
+import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
+import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../../shared/session-events";
+import type { SessionRecordingFriction } from "../../../shared/session-friction";
+import {
+  formatPerformanceValue,
+  rateWebVital,
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+} from "../../../shared/session-performance";
+import {
+  isSlowRequest,
+  isWaitedActionResponse,
+} from "../../../shared/slow-request";
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
   type SessionIssueMatch,
   SessionDevToolsPanel,
 } from "./SessionDevToolsPanel";
+import { SessionFrictionPanel } from "./SessionFriction";
 
 type SessionRecordingSummary = {
   id: string;
@@ -151,11 +173,20 @@ type ReplayMarker = {
   id: string;
   offsetMs: number;
   timestamp: number;
-  kind: "navigation" | "input" | "click" | "console" | "custom";
+  kind: "navigation" | "input" | "click" | "console" | "custom" | "event";
   label: string;
   detail?: string;
   severity?: "info" | "warn" | "error";
   fields?: Array<{ label: string; value: string }>;
+  /** Navigation markers merged into this one when page changes collapse. */
+  collapsedCount?: number;
+};
+
+export type ReplayMarkerOptions = {
+  /** Show tracked app events and failed actions (Sessions triage Lab). */
+  appEvents?: boolean;
+  /** Mark page-view Web Vitals and slow requests (Sessions triage Lab). */
+  performance?: { pageVitals: string; slowRequest: string };
 };
 
 type SkipRange = {
@@ -190,12 +221,6 @@ const SCRUBBER_MARKER_LIMIT = 500;
 const TIMELINE_MARKER_LIMIT = 300;
 const TIMELINE_FOLLOW_PAUSE_MS = 4000;
 const REPLAY_CLOCK_UPDATE_INTERVAL_MS = 100;
-/**
- * Keep captured overlays intact. Toasts and snackbars are product feedback,
- * not recorder chrome, and can be essential to understanding the session.
- * The recorder does not inject notification UI into the recorded document, so
- * blanket selectors (including Sonner's data attributes) are not justified.
- */
 export const REPLAY_OVERLAY_STYLE_RULES: string[] = [];
 type ReplayConsoleDiagnostics = ReturnType<
   typeof extractReplayDiagnostics
@@ -208,14 +233,6 @@ type ConsoleErrorSignaturePayload = {
   stack?: string;
 };
 
-/**
- * Distill the resolvable error lines from a session's console diagnostics for
- * issue matching. Only error-level lines are worth sending: window errors,
- * unhandled rejections, and manual `captureException` all surface at `error`
- * level with a serialized `Name: message` (+ stack) that the server can
- * fingerprint back to a captured issue. Non-error console lines are left alone,
- * and anything without a captured issue simply comes back unmatched.
- */
 function buildConsoleErrorSignatures(
   entries: ReplayConsoleDiagnostics,
 ): ConsoleErrorSignaturePayload[] {
@@ -389,7 +406,7 @@ function AskSessionPopover({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const { send, isGenerating } = useSendToAgentChat();
+  const { send, isGenerating } = useCoreSendToAgentChat();
 
   function handleSubmit(text: string) {
     const trimmed = text.trim();
@@ -449,8 +466,29 @@ function ReplayWorkbench({
   response: SessionReplayPlaybackResponse;
   initialSeekMs: number;
 }) {
+  const t = useT();
   const events = useReplayEvents(response);
-  const markers = useMemo(() => buildReplayMarkers(events), [events]);
+  const appEvents = useLab(ANALYTICS_SESSIONS_TRIAGE_LAB);
+  const [pageChangesCollapsed, setPageChangesCollapsed] = useState(false);
+  const pageVitalsLabel = t("sessions.markerPageVitals");
+  const slowRequestLabel = t("sessions.markerSlowRequest");
+  const allMarkers = useMemo(
+    () =>
+      buildReplayMarkers(events, {
+        appEvents,
+        performance: appEvents
+          ? { pageVitals: pageVitalsLabel, slowRequest: slowRequestLabel }
+          : undefined,
+      }),
+    [events, appEvents, pageVitalsLabel, slowRequestLabel],
+  );
+  const markers = useMemo(
+    () =>
+      appEvents && pageChangesCollapsed
+        ? collapsePageChangeMarkers(allMarkers)
+        : allMarkers,
+    [allMarkers, appEvents, pageChangesCollapsed],
+  );
   const [currentTime, setCurrentTime] = useState(0);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
   const seekRef = useRef<(ms: number, autoplay?: boolean) => void>(() => {});
@@ -479,12 +517,21 @@ function ReplayWorkbench({
         initialSeekMs={initialSeekMs}
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
+        frictionLab={appEvents}
       />
       <ReplayTimeline
         markers={markers}
         isLoading={!response.isComplete}
         activeMarkerId={activeMarkerId}
         onSeek={(ms) => seekRef.current(ms, true)}
+        pageChanges={
+          appEvents
+            ? {
+                collapsed: pageChangesCollapsed,
+                onCollapsedChange: setPageChangesCollapsed,
+              }
+            : undefined
+        }
       />
     </div>
   );
@@ -497,6 +544,7 @@ function ReplayPlayer({
   initialSeekMs,
   onTimeUpdate,
   registerSeek,
+  frictionLab,
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
@@ -504,6 +552,7 @@ function ReplayPlayer({
   initialSeekMs: number;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
+  frictionLab: boolean;
 }) {
   const t = useT();
   const stageAreaRef = useRef<HTMLDivElement>(null);
@@ -538,8 +587,6 @@ function ReplayPlayer({
   const eventsRef = useLiveRef(events);
   const viewportTimelineRef = useLiveRef(viewportTimeline);
   const streamedDimsRef = useLiveRef(streamedDims);
-  // Stable identity for the loaded event set so progressive chunk publishes
-  // that only grow the array do not tear down a healthy Replayer mid-playback.
   const eventsIdentity = useMemo(
     () =>
       `${events.length}:${Number(events[0]?.timestamp ?? 0)}:${Number(
@@ -550,9 +597,6 @@ function ReplayPlayer({
   const scrubbingRef = useRef(false);
   const scrubResumePlayingRef = useRef(false);
 
-  // Fall back to the default player size only when the viewport is unknown;
-  // otherwise render the raw recorded dimensions untouched. See the Replayer
-  // construction below for why "recovery" heuristics were removed here.
   const displayDims = resolveReplayDisplayDimensions(
     streamedDims ?? initialDims,
   );
@@ -575,10 +619,6 @@ function ReplayPlayer({
     response.isComplete,
   );
 
-  // Resolve captured console errors in this replay to their Sentry-style issue
-  // groups (one batched, access-scoped call, server-computed fingerprints) so
-  // each error can deep-link to its full issue detail. Only runs once devtools
-  // are open and there is at least one error line worth looking up.
   const errorSignatures = useMemo(
     () => buildConsoleErrorSignatures(diagnostics.console),
     [diagnostics.console],
@@ -588,17 +628,27 @@ function ReplayPlayer({
     [errorSignatures],
   );
   const recordingId = response.recording.id;
+  const recordingApp = response.recording.app;
   const issueMatchQuery = useQuery({
     queryKey: ["match-error-issues", recordingId, errorSignaturesKey],
     queryFn: () =>
       callAction<Record<string, SessionIssueMatch>>(
         "match-error-issues",
-        { signatures: errorSignatures },
+        {
+          signatures: errorSignatures,
+          ...(recordingApp ? { app: recordingApp } : {}),
+        },
         { method: "POST" },
       ),
     enabled: devToolsOpen && errorSignatures.length > 0,
     staleTime: 60_000,
   });
+  const frictionQuery = useActionQuery<SessionRecordingFriction>(
+    "list-session-friction",
+    { recordingIds: [recordingId] },
+    { enabled: frictionLab && devToolsOpen, staleTime: 30_000 },
+  );
+  const friction = frictionQuery.data?.friction[recordingId];
   const issueMatches = useMemo(() => {
     const map = new Map<string, SessionIssueMatch>();
     const data = issueMatchQuery.data;
@@ -631,8 +681,6 @@ function ReplayPlayer({
     return () => observer.disconnect();
   }, [playerHeight, playerWidth]);
 
-  // Keep Dev Tools from eating the stage. On short viewports the panel used to
-  // shrink the replay area into a ribbon even when Meta dimensions were fine.
   useEffect(() => {
     const el = playerShellRef.current;
     if (!el) return;
@@ -654,10 +702,6 @@ function ReplayPlayer({
   const updateTime = useCallback(
     (next: number) => {
       if (!Number.isFinite(next) || next === currentTimeRef.current) return;
-      // Keep the live value in sync before React commits. The animation clock
-      // can run again while React is still processing the previous render;
-      // relying on useLiveRef's effect here republishes the same value and can
-      // create a nested update loop in development.
       currentTimeRef.current = next;
       setCurrentTime(next);
       onTimeUpdate(next);
@@ -687,9 +731,6 @@ function ReplayPlayer({
         clamped,
       );
       if (seekDims) {
-        // rrweb 2.1 does not reliably re-emit its resize event when seeking
-        // backwards, so mirror the raw viewport-timeline lookup onto both
-        // rrweb's iframe and the outer stage state to keep them in sync.
         const currentDims = streamedDimsRef.current;
         if (
           currentDims?.width !== seekDims.width ||
@@ -744,9 +785,6 @@ function ReplayPlayer({
 
     async function loadReplay() {
       const replayEvents = eventsRef.current;
-      // Replayer construction remains all-or-nothing. Progressive response
-      // publishes update loading progress only; rebuilding during download
-      // rewinds the player and can desync the scrubber/playhead.
       if (!response.isComplete) {
         setStatus("loading");
         setError(null);
@@ -768,17 +806,7 @@ function ReplayPlayer({
       if (cancelled || !stageRootRef.current) return;
 
       stageRootRef.current.innerHTML = "";
-      // Viewport and pointer events must pass through to rrweb untouched.
-      // The 2026-07 "ultra-wide replay" bugs (e.g. a stored 1,152px-wide
-      // recording rendering as a 4,491px Meta width) were caused by demo
-      // mode's fetch redaction faking numbers >= 1000 in raw replay JSON at
-      // view time, not by malformed stored geometry — fixed in
-      // packages/core/src/demo/fetch-interceptor.ts. Stored recordings were
-      // always sane, so never add viewport "recovery" heuristics here; they
-      // can only corrupt genuine recordings (e.g. a real ultrawide window).
       setStreamedDims(replayInitialViewportDimensions(replayEvents));
-      // Keep this loosely typed: our internal AnyReplayEvent shape doesn't
-      // exactly match rrweb's declared eventWithTime type.
       localReplayer = new Replayer(replayEvents as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
@@ -786,15 +814,9 @@ function ReplayPlayer({
         showWarning: false,
         showDebug: false,
         mouseTail: false,
-        // Match stock rrweb/builder-internal focus replay. Disabling focus
-        // drops recorded focus-visible state and can leave menus/forms looking
-        // unlike the source page even when the snapshot CSS is correct.
         triggerFocus: true,
         insertStyleRules: REPLAY_OVERLAY_STYLE_RULES,
       });
-      // rrweb already sandboxes the replay document without script execution.
-      // Do not mutate recorded URLs/CSS; suppress viewer-page referrer leakage
-      // at the iframe boundary while retaining historical visual resources.
       localReplayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
       stopCursorVisibilityObserver =
         hideReplayCursorUntilPosition(localReplayer);
@@ -826,9 +848,6 @@ function ReplayPlayer({
             width: Math.round(dims.width),
             height: Math.round(dims.height),
           };
-          // rrweb owns its iframe geometry from raw Meta/ViewportResize
-          // events. Only mirror the raw dims into React state here, for the
-          // outer stage's fit-to-container scaling.
           const currentDims = streamedDimsRef.current;
           if (
             currentDims?.width === rawDims.width &&
@@ -1030,11 +1049,6 @@ function ReplayPlayer({
                   type="button"
                   className={cn(
                     "absolute inset-0 z-20 rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
-                    // INTENTIONAL — KEEP THE VIEWER CURSOR VISIBLE.
-                    // The recorded cursor is a separate overlay, while this
-                    // button owns the live hover target for pause/play. Do
-                    // not add `cursor-none`: it makes the user's cursor
-                    // disappear when they move over the preview.
                     "cursor-pointer",
                   )}
                   disabled={disabled}
@@ -1084,11 +1098,10 @@ function ReplayPlayer({
               </ReplayIconButton>
               <Button
                 type="button"
-                size="icon"
+                size="icon-sm"
                 disabled={disabled}
                 onClick={togglePlay}
                 aria-label={playing ? t("sessions.pause") : t("sessions.play")}
-                className="h-8 w-8"
               >
                 {playing ? (
                   <IconPlayerPause className="h-4 w-4" />
@@ -1116,6 +1129,7 @@ function ReplayPlayer({
                 disabled={disabled}
                 onScrub={beginScrub}
                 onScrubEnd={endScrub}
+                onMarkerSeek={(ms) => seek(ms, true)}
               />
               <span className="w-12 text-center font-mono text-xs text-muted-foreground">
                 {formatClock(totalTime)}
@@ -1220,6 +1234,19 @@ function ReplayPlayer({
                 onSeek={(ms) => seek(ms, true)}
                 issueMatches={issueMatches}
                 issueMatching={issueMatchQuery.isFetching}
+                friction={
+                  frictionLab ? (
+                    <SessionFrictionPanel
+                      friction={friction}
+                      failed={
+                        frictionQuery.isError ||
+                        (frictionQuery.data !== undefined && !friction)
+                      }
+                      fetching={frictionQuery.isFetching}
+                      onRetry={() => void frictionQuery.refetch()}
+                    />
+                  ) : undefined
+                }
               />
             ) : null}
 
@@ -1246,6 +1273,7 @@ function ReplayScrubber({
   disabled,
   onScrub,
   onScrubEnd,
+  onMarkerSeek,
 }: {
   currentTime: number;
   totalTime: number;
@@ -1255,6 +1283,7 @@ function ReplayScrubber({
   disabled: boolean;
   onScrub: (ms: number) => void;
   onScrubEnd: (ms: number) => void;
+  onMarkerSeek: (ms: number) => void;
 }) {
   const t = useT();
   const scrubberMarkers = useMemo(
@@ -1308,6 +1337,28 @@ function ReplayScrubber({
       <div className="pointer-events-none absolute inset-x-0 top-1/2 z-30 h-5 -translate-y-1/2">
         {scrubberMarkers.map((marker) => {
           const left = totalTime > 0 ? (marker.offsetMs / totalTime) * 100 : 0;
+          if (marker.kind === "event") {
+            // App events are clickable seek targets; the timeline list is the
+            // keyboard path to the same markers.
+            return (
+              <button
+                key={marker.id}
+                type="button"
+                tabIndex={-1}
+                disabled={disabled}
+                title={`${marker.label} ${formatClock(marker.offsetMs)}`}
+                aria-label={`${marker.label} ${formatClock(marker.offsetMs)}`}
+                className={cn(
+                  "pointer-events-auto absolute top-1/2 h-3 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-sm ring-1 ring-background/80 transition-transform hover:scale-y-125",
+                  marker.severity === "error"
+                    ? "bg-destructive"
+                    : "bg-indigo-500",
+                )}
+                style={{ left: `${left}%` }}
+                onClick={() => onMarkerSeek(marker.offsetMs)}
+              />
+            );
+          }
           return (
             <span
               key={marker.id}
@@ -1353,8 +1404,7 @@ function ReplayIconButton({
         <Button
           type="button"
           variant="outline"
-          size="icon"
-          className="h-8 w-8"
+          size="icon-sm"
           aria-label={label}
           disabled={disabled}
           onClick={onClick}
@@ -1372,11 +1422,16 @@ function ReplayTimeline({
   isLoading,
   activeMarkerId,
   onSeek,
+  pageChanges,
 }: {
   markers: ReplayMarker[];
   isLoading: boolean;
   activeMarkerId: string | null;
   onSeek: (ms: number) => void;
+  pageChanges?: {
+    collapsed: boolean;
+    onCollapsedChange: (collapsed: boolean) => void;
+  };
 }) {
   const t = useT();
   const [expandedMarkerId, setExpandedMarkerId] = useState<string | null>(null);
@@ -1416,8 +1471,35 @@ function ReplayTimeline({
     <Card className="analytics-session-detail-timeline min-h-0 min-w-0 overflow-hidden">
       <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-0">
         <div className="min-w-0 shrink-0 space-y-2 border-b px-3 py-2">
-          <div className="truncate text-sm font-semibold">
-            {t("sessions.timeline")}
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="truncate text-sm font-semibold">
+              {t("sessions.timeline")}
+            </div>
+            {pageChanges ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant={pageChanges.collapsed ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    aria-pressed={pageChanges.collapsed}
+                    aria-label={t("sessions.collapsePageChanges")}
+                    onClick={() =>
+                      pageChanges.onCollapsedChange(!pageChanges.collapsed)
+                    }
+                  >
+                    {pageChanges.collapsed ? (
+                      <IconRouteOff className="h-4 w-4" />
+                    ) : (
+                      <IconRoute className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("sessions.collapsePageChanges")}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
           {!isLoading || markers.length ? (
             <div className="relative">
@@ -1485,14 +1567,31 @@ function ReplayTimeline({
                             "border-red-500/35 bg-red-500/10 text-red-500",
                           marker.kind === "custom" &&
                             "border-violet-500/35 bg-violet-500/10 text-violet-500",
+                          marker.kind === "event" &&
+                            marker.severity !== "error" &&
+                            "border-indigo-500/35 bg-indigo-500/10 text-indigo-500",
+                          marker.kind === "event" &&
+                            marker.severity === "error" &&
+                            "border-destructive/35 bg-destructive/10 text-destructive",
                         )}
                       >
                         <MarkerIcon kind={marker.kind} />
                       </span>
                       <span className="min-w-0 flex-1 overflow-hidden">
                         <span className="flex min-w-0 items-center justify-between gap-3">
-                          <span className="truncate text-sm font-medium">
-                            {marker.label}
+                          <span
+                            className={cn(
+                              "truncate text-sm font-medium",
+                              marker.kind === "event" &&
+                                marker.severity !== "error" &&
+                                "font-mono",
+                            )}
+                          >
+                            {marker.collapsedCount
+                              ? t("sessions.pageChangesCollapsed", {
+                                  count: String(marker.collapsedCount),
+                                })
+                              : marker.label}
                           </span>
                           <span className="shrink-0 font-mono text-xs text-muted-foreground">
                             {formatClock(marker.offsetMs)}
@@ -1534,6 +1633,7 @@ function MarkerIcon({ kind }: { kind: ReplayMarker["kind"] }) {
   if (kind === "input") return <IconKeyboard className="h-4 w-4" />;
   if (kind === "click") return <IconMouse className="h-4 w-4" />;
   if (kind === "console") return <IconTerminal2 className="h-4 w-4" />;
+  if (kind === "event") return <IconBolt className="h-4 w-4" />;
   return <IconTimelineEvent className="h-4 w-4" />;
 }
 
@@ -1615,9 +1715,6 @@ function useSessionReplayPlayback(recordingId: string) {
           const chunks = loadedChunks.filter(
             (chunk): chunk is ReplayChunkEvents => Boolean(chunk),
           );
-          // Only hand events to the player once every chunk is in. Partial
-          // publishes used to rebuild the Replayer mid-playback and break the
-          // scrubber; the loading bar still updates while chunks stream in.
           const shouldPublishEvents = force || complete;
 
           if (shouldPublishEvents) {
@@ -1648,8 +1745,6 @@ function useSessionReplayPlayback(recordingId: string) {
                   loadedBytes,
                   unavailableChunks,
                 }),
-            // Keep the page shell mounted so the player loading bar can show
-            // chunk progress; the Replayer itself still waits for isComplete.
             isLoading: false,
             error: null,
           }));
@@ -2007,7 +2102,10 @@ export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
     .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
 }
 
-export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
+export function buildReplayMarkers(
+  events: AnyReplayEvent[],
+  options: ReplayMarkerOptions = {},
+): ReplayMarker[] {
   const startedAt = replayStartedAt(events);
   const markers: ReplayMarker[] = [];
   for (const event of events) {
@@ -2087,6 +2185,7 @@ export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
         timestamp,
         startedAt,
         markers.length,
+        options,
       );
       if (marker) markers.push(marker);
     }
@@ -2115,8 +2214,6 @@ function collapseScrollMarkerBursts(markers: ReplayMarker[]): ReplayMarker[] {
       previous &&
       marker.timestamp - previous.timestamp <= SCROLL_MARKER_BURST_MS
     ) {
-      // Keep one marker per continuous scroll gesture, using its final
-      // position while retaining the first marker's stable id/time.
       collapsed[previous.index] = {
         ...marker,
         id: collapsed[previous.index].id,
@@ -2145,10 +2242,36 @@ function customReplayMarker(
   timestamp: number,
   startedAt: number,
   index: number,
+  options: ReplayMarkerOptions,
 ): ReplayMarker | null {
   const tag = String(event.data?.tag ?? "Custom event");
   const payload = isRecord(event.data?.payload) ? event.data.payload : {};
   const offsetMs = Math.max(0, timestamp - startedAt);
+
+  if (tag === SESSION_REPLAY_ANALYTICS_EVENT_TAG) {
+    const name = typeof payload.name === "string" ? payload.name.trim() : "";
+    if (!options.appEvents || !name) return null;
+    return {
+      id: `event-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "event",
+      label: name,
+      severity: "info",
+      fields: markerFields([["Event", name]]),
+    };
+  }
+
+  if (tag === SESSION_REPLAY_VITALS_EVENT_TAG) {
+    if (!options.performance) return null;
+    return vitalsReplayMarker(
+      payload,
+      timestamp,
+      offsetMs,
+      index,
+      options.performance.pageVitals,
+    );
+  }
 
   if (tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
     const level = typeof payload.level === "string" ? payload.level : "log";
@@ -2174,18 +2297,72 @@ function customReplayMarker(
     };
   }
 
+  if (tag === SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG) {
+    const durationMs = Number(payload.duration_ms);
+    // Mark exactly what the row's slow-request count counts: the same
+    // action.response timing, under the same rule.
+    if (
+      !options.performance ||
+      !isWaitedActionResponse(payload) ||
+      !isSlowRequest(durationMs)
+    ) {
+      return null;
+    }
+    const action =
+      typeof payload.action === "string" ? payload.action : undefined;
+    const status = Number(payload.status_code);
+    return {
+      id: `slow-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "event",
+      label: options.performance.slowRequest,
+      detail: [action, formatPerformanceValue("request", durationMs)]
+        .filter(Boolean)
+        .join(" · "),
+      severity: "warn",
+      fields: markerFields([
+        ["Action", action],
+        ["Method", payload.method],
+        ["Status", Number.isFinite(status) && status ? status : undefined],
+        ["Duration", formatPerformanceValue("request", durationMs)],
+      ]),
+    };
+  }
+
   if (tag === SESSION_REPLAY_NETWORK_EVENT_TAG) {
     const status = Number(payload.status ?? 0);
+    const method =
+      typeof payload.method === "string" ? payload.method : undefined;
+    const url = typeof payload.url === "string" ? payload.url : undefined;
     if (
       payload.ok !== false &&
       (!Number.isFinite(status) || !isFailedSessionReplayNetworkStatus(status))
     ) {
       return null;
     }
-    const method =
-      typeof payload.method === "string" ? payload.method : undefined;
-    const url = typeof payload.url === "string" ? payload.url : undefined;
     const error = typeof payload.error === "string" ? payload.error : undefined;
+    const actionName = options.appEvents ? replayActionName(url) : null;
+    if (actionName) {
+      return {
+        id: `action-${timestamp}-${index}`,
+        timestamp,
+        offsetMs,
+        kind: "event",
+        label: "Action failed", // i18n-ignore: timeline protocol label.
+        detail: [actionName, Number.isFinite(status) && status ? status : null]
+          .filter(Boolean)
+          .join(" · "),
+        severity: "error",
+        fields: markerFields([
+          ["Action", actionName],
+          ["Method", method],
+          ["Status", Number.isFinite(status) ? status : undefined],
+          ["Error", error],
+          ["Duration", payload.durationMs],
+        ]),
+      };
+    }
     return {
       id: `network-${timestamp}-${index}`,
       timestamp,
@@ -2212,6 +2389,54 @@ function customReplayMarker(
     label: tag,
     detail: typeof payload.message === "string" ? payload.message : undefined,
   };
+}
+
+const ACTION_ROUTE_PATTERN = /\/_agent-native\/actions\/([A-Za-z0-9._:%-]+)/;
+
+/** The action name when a captured request called an Agent-Native action. */
+export function replayActionName(url: string | undefined): string | null {
+  if (!url) return null;
+  const match = ACTION_ROUTE_PATTERN.exec(url);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+/**
+ * Merge each run of page changes into one marker. App events, errors, and
+ * input end a run; clicks and scrolls, which usually cause the navigation,
+ * do not.
+ */
+export function collapsePageChangeMarkers(
+  markers: ReplayMarker[],
+): ReplayMarker[] {
+  const collapsed: ReplayMarker[] = [];
+  let runIndex: number | null = null;
+  for (const marker of markers) {
+    if (marker.kind === "navigation") {
+      if (runIndex === null) {
+        runIndex = collapsed.push({ ...marker }) - 1;
+        continue;
+      }
+      const run = collapsed[runIndex];
+      collapsed[runIndex] = {
+        ...run,
+        collapsedCount: (run.collapsedCount ?? 1) + 1,
+        detail: marker.detail,
+        fields: marker.fields,
+      };
+      continue;
+    }
+    const passive =
+      marker.kind === "click" ||
+      (marker.kind === "custom" && marker.label === "Scroll");
+    if (!passive) runIndex = null;
+    collapsed.push(marker);
+  }
+  return collapsed;
 }
 
 export function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
@@ -2261,10 +2486,6 @@ function replayActivityTimestamps(
     const positions = Array.isArray(event.data?.positions)
       ? event.data.positions
       : [];
-    // IMPORTANT: rrweb batches pointer positions and schedules each one at
-    // event.timestamp + timeOffset. Treat those exact moments as activity.
-    // Ignoring the batch made Skip inactivity jump across visible movement,
-    // which looked like a frozen cursor even though the recording was intact.
     return positions.flatMap((position: unknown) => {
       if (!isRecord(position)) return [];
       const timeOffset = Number(position.timeOffset ?? 0);
@@ -2371,8 +2592,6 @@ function hideReplayCursorUntilPosition(replayer: any): () => void {
 export function replayViewportDimensions(
   events: AnyReplayEvent[],
 ): ReplayViewportDimensions | null {
-  // Latest Meta / ViewportResize for CSS fit-to-stage only. Never rewrite these
-  // into the event stream — rrweb must keep Meta in sync with the FullSnapshot.
   let best: ReplayViewportDimensions | null = null;
   for (const event of events) {
     const dims = dimensionsFromReplayEvent(event);
@@ -2384,9 +2603,6 @@ export function replayViewportDimensions(
 export function replayInitialViewportDimensions(
   events: AnyReplayEvent[],
 ): ReplayViewportDimensions | null {
-  // rrweb itself initializes from the first Meta event. A resize can appear
-  // earlier in chunk order after reconnect/flush boundaries, but it must not
-  // replace the snapshot's native starting viewport.
   for (const event of events) {
     if (event.type !== RRWEB_EVENT_TYPE.Meta) continue;
     const dims = dimensionsFromReplayEvent(event);
@@ -2463,7 +2679,6 @@ function dimensionsFromReplayEvent(
   return null;
 }
 
-/** Read raw positive finite dimensions; no aspect clamping. */
 export function normalizeReplayDimensions(
   width: unknown,
   height: unknown,
@@ -2484,15 +2699,6 @@ export function normalizeReplayDimensions(
   };
 }
 
-/**
- * Fall back to the default player size only when the viewport is entirely
- * unknown (no Meta/ViewportResize event yet). This is not a "recovery"
- * heuristic for real recorded geometry — it never rewrites valid dims, no
- * matter how wide, narrow, or unusual the aspect ratio. See the Replayer
- * construction in ReplayPlayer for why viewport "correction" was removed:
- * the 2026-07 ultra-wide replay bugs were caused by demo mode's fetch
- * redaction faking numbers at view time, not by malformed stored geometry.
- */
 export function resolveReplayDisplayDimensions(
   dims: ReplayViewportDimensions | null,
 ): ReplayViewportDimensions {
@@ -2573,6 +2779,52 @@ function pointerDetail(data: AnyRecord): string | undefined {
   return undefined;
 }
 
+const VITAL_MARKER_METRICS = [
+  ["lcp", "lcpMs", "LCP"],
+  ["inp", "inpMs", "INP"],
+  ["cls", "cls", "CLS"],
+  ["ttfb", "ttfbMs", "TTFB"],
+] as const;
+
+function vitalsReplayMarker(
+  payload: AnyRecord,
+  timestamp: number,
+  offsetMs: number,
+  index: number,
+  label: string,
+): ReplayMarker | null {
+  const measured = VITAL_MARKER_METRICS.flatMap(([metric, key, name]) => {
+    const value = payload[key];
+    return typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? [{ metric, name, value }]
+      : [];
+  });
+  if (!measured.length) return null;
+  const poor = measured.some(
+    ({ metric, value }) => rateWebVital(metric, value) === "poor",
+  );
+  const summary = measured.map(
+    ({ metric, name, value }) =>
+      `${name} ${formatPerformanceValue(metric, value)}`,
+  );
+  return {
+    id: `vitals-${timestamp}-${index}`,
+    timestamp,
+    offsetMs,
+    kind: "event",
+    label,
+    detail: summary.join(" · "),
+    severity: poor ? "warn" : "info",
+    fields: markerFields([
+      ["Route", typeof payload.route === "string" ? payload.route : undefined],
+      ...measured.map(({ metric, name, value }): [string, unknown] => [
+        name,
+        formatPerformanceValue(metric, value),
+      ]),
+    ]),
+  };
+}
+
 function markerFields(
   entries: Array<[string, unknown]>,
 ): Array<{ label: string; value: string }> | undefined {
@@ -2612,6 +2864,7 @@ function visibleScrubberMarkers(
 
 function markerPriority(marker: ReplayMarker): number {
   if (marker.severity === "error") return 6;
+  if (marker.kind === "event") return 5.5;
   if (marker.kind === "navigation") return 5;
   if (marker.kind === "click") return 4;
   if (marker.severity === "warn") return 3;

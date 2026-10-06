@@ -21,14 +21,6 @@ async function isConfiguredForRequest(
   }
 }
 
-/**
- * Resolve the provider that owns a persisted resumable session.
- *
- * Request-scoped S3 credentials live in the encrypted secrets store, so the
- * synchronous registry lookup used by older upload code cannot see them. The
- * provider id is persisted with the session to prevent a newly configured or
- * reordered provider from receiving another provider's opaque session handle.
- */
 export async function resolveResumableUploadProvider(
   providerId: string,
 ): Promise<FileUploadProvider | null> {

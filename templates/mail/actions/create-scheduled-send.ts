@@ -3,7 +3,7 @@ import {
   fail,
   type ActionRunContext,
 } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
@@ -68,7 +68,11 @@ export default defineAction({
   run: async (args, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) fail("Unauthenticated", { errorCode: "unauthenticated" });
-    if (!Number.isFinite(args.runAt) || args.runAt <= Date.now()) {
+    if (
+      !Number.isFinite(args.runAt) ||
+      !Number.isFinite(new Date(args.runAt).getTime()) ||
+      args.runAt <= Date.now()
+    ) {
       fail("runAt must be a future timestamp", {
         errorCode: "invalid_run_at",
       });
@@ -143,7 +147,7 @@ export default defineAction({
     );
     const persistedPayload = { ...payload, accountEmail };
 
-    return createScheduledJobRecord({
+    const job = await createScheduledJobRecord({
       type: "send_later",
       ownerEmail,
       emailId: args.emailId ?? null,
@@ -152,5 +156,17 @@ export default defineAction({
       payload: persistedPayload,
       runAt: args.runAt,
     });
+    const title = payload.subject.trim().slice(0, 180);
+    return {
+      ...job,
+      change: {
+        verb: "scheduled",
+        kind: "scheduled-email",
+        title: title || "Scheduled email",
+        ...(title ? {} : { titleIsFallback: true }),
+        detail: new Date(job.runAt).toISOString(),
+        url: buildDeepLink({ app: "mail", view: "scheduled" }),
+      },
+    };
   },
 });

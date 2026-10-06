@@ -40,6 +40,12 @@ vi.mock("../server/db/index.js", () => ({
 import action from "./get-design-system.js";
 
 describe("get-design-system", () => {
+  it("classifies its Builder doc-count cache refresh as a write", () => {
+    expect(action.readOnly).toBe(false);
+    expect(action.mcpAnnotations?.readOnlyHint).toBe(false);
+    expect(action.mcpAnnotations?.openWorldHint).toBe(true);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockResolveAccess.mockResolvedValue({

@@ -1,7 +1,5 @@
 name: Deploy Agent-Native docs site from GitHub
 
-# The docs beta site is published by deploy-beta-sites-prebuilt.yml alongside
-# the app fleet. This workflow remains the production docs publisher.
 on:
   push:
     branches: [main]
@@ -32,12 +30,57 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: agent-native-docs-production
   cancel-in-progress: false
 
 jobs:
+  verify-stable-release:
+    name: Verify coordinated stable release commit
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      verified: ${{ steps.verify.outputs.verified }}
+    steps:
+      - name: Verify the stable release pull request
+        id: verify
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            if (context.actor !== "builder-io-integration[bot]") {
+              core.setOutput("verified", "false");
+              return;
+            }
+
+            const pullRequests = await github.paginate(
+              "GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls",
+              { owner, repo, commit_sha: context.sha },
+            );
+            const verified = pullRequests.some(
+              (pullRequest) =>
+                pullRequest.base?.ref === "main" &&
+                pullRequest.head?.ref === "changeset-release/main" &&
+                pullRequest.head?.repo?.full_name === `${owner}/${repo}` &&
+                pullRequest.user?.login === "builder-io-integration[bot]" &&
+                pullRequest.merged_at != null &&
+                pullRequest.merge_commit_sha === context.sha &&
+                typeof pullRequest.title === "string" &&
+                pullRequest.title.includes("[stable-release]"),
+            );
+            core.setOutput("verified", verified ? "true" : "false");
+            if (!verified) {
+              core.warning(
+                "The stable-release marker is not backed by the trusted merged release PR; docs will deploy normally.",
+              );
+            }
+
   migrate:
     name: Migrate docs production schema
     permissions:
@@ -77,6 +120,8 @@ jobs:
 
   pause-netlify-builds:
     name: Pause docs site's Git-connected Netlify builds
+    needs: [verify-stable-release]
+    if: ${{ always() && !cancelled() && needs.verify-stable-release.outputs.verified != 'true' }}
     concurrency:
       group: agent-native-production-site-fw
       cancel-in-progress: false
@@ -239,8 +284,8 @@ jobs:
 
   restore-netlify-builds:
     name: Restore docs site's Git-connected Netlify builds
-    needs: [pause-netlify-builds, migrate, deploy]
-    if: ${{ always() }}
+    needs: [verify-stable-release, pause-netlify-builds, migrate, deploy]
+    if: ${{ always() && !cancelled() && needs.verify-stable-release.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
     concurrency:
       group: agent-native-production-site-fw

@@ -258,6 +258,128 @@ describe("builderFileUploadProvider", () => {
     ).toBe(false);
   });
 
+  it("refreshes the access token and retries once when the signed-URL request gets 401", async () => {
+    resolveBuilderApiAuthorizationMock
+      .mockResolvedValueOnce("Bearer revoked-token")
+      .mockResolvedValueOnce("Bearer fresh-token");
+    fetchMock
+      .mockResolvedValueOnce(errorResponse(401, "Unauthorized"))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/session",
+          assetId: "asset-2",
+          requiredHeaders: {},
+        }),
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ location: "https://storage.example.com/s/1" }),
+        text: async () => "",
+      } as unknown as Response);
+
+    const session = await builderFileUploadProvider.resumable!.startSession(
+      "rec.webm",
+      "video/webm",
+      1024,
+    );
+
+    expect(session.sessionId).toBe("https://storage.example.com/s/1");
+    expect(resolveBuilderApiAuthorizationMock).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      { forceRefresh: true },
+    );
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer revoked-token",
+    );
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe(
+      "Bearer fresh-token",
+    );
+  });
+
+  it("marks a 401 after a real refresh as rejected Builder credentials", async () => {
+    resolveBuilderApiAuthorizationMock
+      .mockResolvedValueOnce("Bearer revoked-token")
+      .mockResolvedValueOnce("Bearer also-refused");
+    fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
+
+    await expect(
+      builderFileUploadProvider.resumable!.startSession(
+        "rec.webm",
+        "video/webm",
+        1024,
+      ),
+    ).rejects.toMatchObject({
+      status: 401,
+      errorCode: "builder_credentials_rejected",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not resend the same token when the refresh could not change it", async () => {
+    fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
+
+    await expect(
+      builderFileUploadProvider.resumable!.startSession(
+        "rec.webm",
+        "video/webm",
+        1024,
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(resolveBuilderApiAuthorizationMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a rejected Builder key as a persistent authorization failure", async () => {
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-rejected-key",
+      publicKey: "public-key",
+    });
+    resolveBuilderApiAuthorizationMock.mockResolvedValue(
+      "Bearer btk-rejected-key",
+    );
+    fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
+
+    await expect(
+      builderFileUploadProvider.resumable!.startSession(
+        "rec.webm",
+        "video/webm",
+        1024,
+      ),
+    ).rejects.toMatchObject({
+      status: 401,
+      errorCode: "builder_credentials_rejected",
+    });
+    expect(resolveBuilderApiAuthorizationMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes and retries the small-file upload path on 401", async () => {
+    resolveBuilderApiAuthorizationMock
+      .mockResolvedValueOnce("Bearer revoked-token")
+      .mockResolvedValueOnce("Bearer fresh-token");
+    fetchMock
+      .mockResolvedValueOnce(errorResponse(401, "Unauthorized"))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/abc", id: "abc" }),
+      );
+
+    const result = await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "photo.png",
+      mimeType: "image/png",
+    });
+
+    expect(result.url).toBe("https://cdn.builder.io/abc");
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer revoked-token",
+    );
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe(
+      "Bearer fresh-token",
+    );
+  });
+
   it("includes the target space when uploading with a personal access token", async () => {
     resolveBuilderApiAuthorizationMock.mockResolvedValue(
       "Bearer btk-agent-native",
@@ -431,7 +553,6 @@ describe("builderFileUploadProvider", () => {
     await builderFileUploadProvider.upload({ data: new Uint8Array([1]) });
 
     const [url, init] = fetchMock.mock.calls[0];
-    // No filename -> no name search param.
     expect(new URL(url.toString()).searchParams.has("name")).toBe(false);
     expect(init.headers["Content-Type"]).toBe("application/octet-stream");
   });
@@ -456,7 +577,6 @@ describe("builderFileUploadProvider", () => {
     const promise = builderFileUploadProvider.upload({
       data: new Uint8Array([1]),
     });
-    // Advance past the first backoff delay (600ms) so the retry fires.
     await vi.advanceTimersByTimeAsync(600);
     const result = await promise;
 
@@ -489,11 +609,9 @@ describe("builderFileUploadProvider", () => {
       data: new Uint8Array([1]),
     });
     const expectation = expect(promise).rejects.toThrow(/\(503\): Unavailable/);
-    // Two backoff windows: 600ms then 1800ms.
     await vi.advanceTimersByTimeAsync(600);
     await vi.advanceTimersByTimeAsync(1800);
     await expectation;
-    // 1 initial + 2 retries = 3 attempts.
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 

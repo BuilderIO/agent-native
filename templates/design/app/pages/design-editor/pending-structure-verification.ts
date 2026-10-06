@@ -94,9 +94,6 @@ function resolveRuntimeStructureNode(args: {
     ) {
       return { node: direct.node };
     }
-    // A live identity is stronger evidence than a stale content signature.
-    // Do not let an unrelated sibling with the old signature validate this
-    // edit while the original runtime node is still present but changed.
     return {
       failure:
         args.role === "subject"
@@ -145,8 +142,6 @@ function verifyRuntimeStructureSubjectAbsent(
   edit: PendingLiveStructureEdit,
   replacement?: CodeLayerNode,
 ): RuntimeStructureVerificationResult {
-  // Absence must inspect the old identity alone: a positional selector may
-  // now point at the replacement or an unrelated sibling.
   const subject = resolveCodeLayerTargetFromBridge(
     projection,
     edit.sourceId ? undefined : edit.selector,
@@ -169,9 +164,6 @@ function verifyRuntimeStructureSubjectAbsent(
     return { ok: false, failure: "subject-still-present" };
   }
 
-  // Signature-only fallback cannot distinguish unchanged old content. A
-  // unique identity or selector independently resolves the replacement;
-  // captured document evidence still has to prove the resulting structure.
   const replacementTarget = resolveCodeLayerTargetFromBridge(
     projection,
     edit.replacementSourceId ? undefined : edit.replacementSelector,
@@ -292,8 +284,6 @@ function verifyGridPlacement(
   return { ok: true };
 }
 
-// These attributes are injected by serializeRuntimeLayerSnapshot, not authored
-// semantic state. Keep this list exact so other data-* attributes remain evidence.
 const runtimeSnapshotMetadataAttributes = new Set([
   "style",
   "data-agent-native-node-id",
@@ -329,8 +319,6 @@ const runtimeSnapshotMetadataAttributes = new Set([
   "data-source-unavailable",
 ]);
 
-/** Full visual-tree evidence: sibling order, nesting, content and semantic
- * attributes must match; runtime identities and computed styles may change. */
 export function runtimeStructureSnapshotSignature(
   snapshotHtml: string,
 ): string {
@@ -393,11 +381,6 @@ function runtimeStructureNodeForNoOp(
   );
 }
 
-/**
- * Proves that a post-source-write runtime snapshot reconstructed the exact
- * optimistic relationship. This deliberately checks hierarchy/order and the
- * flow-vs-absolute contract; matching selectors alone is not confirmation.
- */
 export function verifyPendingStructureRuntime(
   snapshotHtml: string,
   edit: PendingLiveStructureEdit,
@@ -662,8 +645,6 @@ export function isPendingStructureDropNoOp(
 function replacementSnapshotsByScreen(
   edits: readonly PendingLiveStructureEdit[],
 ) {
-  // Later replacement gestures include the earlier optimistic replacements.
-  // Verify the composed screen without discarding each edit's identity checks.
   return new Map(
     edits
       .flatMap((edit) => pendingLiveStructureEditsFromEdit(edit))
@@ -729,7 +710,6 @@ export function partitionPendingStructuresRuntime(
       ok,
     };
   });
-  // Keep the shared evidence until every replacement using it verifies.
   const blockedScreens = new Set(
     results
       .filter(({ edit, ok }) => edit.replaced && !ok)

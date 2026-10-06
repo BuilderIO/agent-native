@@ -22,7 +22,6 @@ type Box = { left: number; top: number; width: number; height: number };
 const box = (id: string, b: Box) =>
   `<div data-agent-native-node-id="${id}" style="position:absolute;left:${b.left}px;top:${b.top}px;width:${b.width}px;height:${b.height}px;background:#ccc"></div>`;
 
-// The selection is always 200x120 at (200, 200): Figma's probe rectangle.
 async function measure(hovered: Box) {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -54,7 +53,6 @@ async function measure(hovered: Box) {
       const selected = document
         .querySelector('[data-agent-native-node-id="selected"]')!
         .getBoundingClientRect();
-      // A point on the hovered box clear of the selection and its handles.
       const margin = 16;
       for (let y = r.top + 4; y < r.bottom - 4; y += 4) {
         for (let x = r.left + 4; x < r.right - 4; x += 4) {

@@ -17,7 +17,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => path,
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   openBuilderConnectPopup: vi.fn(),
 }));
 

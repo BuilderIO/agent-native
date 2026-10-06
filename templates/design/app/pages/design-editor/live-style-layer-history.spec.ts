@@ -113,10 +113,6 @@ describe("live style runtime history", () => {
   });
 
   it("reverts a localhost style edit through the runtime node-id namespace, not the source projection", () => {
-    // A localhost screen's selection is canonicalized onto the host's own
-    // source projection, so selector/sourceId name nodes the live document has
-    // never carried. Reverting against them resolves nothing and the bridge
-    // returns silently — the reported undo-does-not-revert bug.
     const canonicalized: PendingVisualStyleEdit = {
       screenId: "screen-home",
       filename: "http://localhost:8210/",

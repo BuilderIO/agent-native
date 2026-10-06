@@ -1,3 +1,5 @@
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   safeParseIconValue,
   serializeIconValue,
@@ -30,10 +32,13 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
+import { useState } from "react";
 
+import { usePageLinkTarget } from "../../../hooks/use-content-links";
 import { ContentIcon } from "../../icons/ContentIcon";
 import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
+import { isSuggestingEdits } from "../suggestions/read-only-blocks";
 
 const BLOCK_ATOM_TAGS = [
   "page",
@@ -59,15 +64,8 @@ const INLINE_ATOM_TAGS = [
   "mention-custom-emoji",
 ];
 
-export interface NotionPageLink {
-  notionPageId: string;
-  documentId: string;
-  title: string;
-  icon: IconValue | string | null;
-}
-
 interface NotionBlockAtomOptions {
-  resolvePageLink?: (notionPageId: string) => NotionPageLink | null;
+  documentId?: string;
   onOpenPageLink?: (documentId: string) => void;
 }
 
@@ -355,9 +353,13 @@ export function focusToggleSummaryAtPosition(
 }
 
 function ToggleView({ node, editor, getPos }: NodeViewProps) {
-  const open = !!node.attrs.open;
+  // The page stores whether a Toggle is open, which a suggestion cannot
+  // change, so while suggesting it opens and closes only in this view.
+  const suggesting = isSuggestingEdits(editor.state);
+  const [suggestingOpen, setSuggestingOpen] = useState<boolean | null>(null);
+  const open = suggestingOpen ?? !!node.attrs.open;
   const summary = (node.attrs.summary || "") as string;
-  const isEditable = editor.isEditable;
+  const isEditable = editor.isEditable && !suggesting;
   const bodyHasNoBlocks = node.childCount === 0;
 
   const updateToggleAttributes = (
@@ -378,7 +380,9 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   };
 
   const setOpen = (value: boolean) =>
-    updateToggleAttributes({ open: value }, "pointer");
+    suggesting
+      ? setSuggestingOpen(value)
+      : updateToggleAttributes({ open: value }, "pointer");
 
   const focusEmptyBody = (event: React.MouseEvent<HTMLElement>) => {
     if (!isEditable) return;
@@ -513,7 +517,6 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       e.preventDefault();
       const pos = getPos();
       if (typeof pos !== "number") return;
-      // Delete this empty toggle and replace with paragraph
       const paragraph = editor.state.schema.nodes.paragraph;
       if (!paragraph) return;
       const tr = editor.state.tr.replaceWith(
@@ -597,10 +600,15 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const label = (node.attrs.label || "") as string;
   const attrs = parseAttrsJson(node.attrs.attrsJson as string);
   const options = extension.options as NotionBlockAtomOptions;
+  const t = useT();
   const notionPageId = tagName === "page" ? getNotionPageId(attrs) : null;
-  const pageLink = notionPageId
-    ? options.resolvePageLink?.(notionPageId)
-    : null;
+  const pageLinkQuery = usePageLinkTarget(
+    notionPageId && options.onOpenPageLink ? notionPageId : null,
+  );
+  const pageLink = pageLinkQuery.data ?? null;
+  // An unreadable lookup is not a missing page: keep the block usable so a
+  // click retries instead of presenting the link as gone.
+  const pageLinkLookupFailed = pageLinkQuery.isError;
   const primary =
     pageLink?.title ||
     label ||
@@ -629,6 +637,15 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
         options.onOpenPageLink(pageLink.documentId);
         return;
       }
+      if (pageLinkLookupFailed) {
+        const retry = pageLinkQuery.refetch();
+        if (!externalUrl) {
+          void retry.then((result) => {
+            if (result.data) options.onOpenPageLink?.(result.data.documentId);
+          });
+          return;
+        }
+      }
       if (externalUrl) {
         window.open(externalUrl, "_blank", "noopener,noreferrer");
       }
@@ -637,16 +654,20 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
     return (
       <NodeViewWrapper
         className={`notion-page-reference ${
-          canOpenLocalPage || externalUrl
+          canOpenLocalPage || pageLinkLookupFailed || externalUrl
             ? "notion-page-reference--clickable"
             : ""
         }`}
+        data-page-link-state={pageLinkLookupFailed ? "unavailable" : undefined}
       >
         <button
           type="button"
           className="notion-page-reference__button"
           contentEditable={false}
-          disabled={!canOpenLocalPage && !externalUrl}
+          disabled={!canOpenLocalPage && !pageLinkLookupFailed && !externalUrl}
+          title={
+            pageLinkLookupFailed ? t("editor.reference.loadError") : undefined
+          }
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -911,13 +932,6 @@ export const NotionToggle = Node.create({
   addStorage() {
     return {
       markdown: {
-        // NOTE: must be a regular function (not arrow) so that
-        // tiptap-markdown's `serialize.bind({editor, options})` actually
-        // sets `this`. Arrow functions ignore .bind() — that left
-        // `this.editor` undefined inside `serializeInnerMarkdown`,
-        // which silently fell back to `node.textContent` and stripped
-        // every paragraph break, blockquote marker, and inline mark
-        // from the toggle's contents on save.
         serialize: function (_state: any, node: any) {
           const attrs: Record<string, string> = {};
           if (node.attrs.color) attrs.color = String(node.attrs.color);
@@ -948,10 +962,21 @@ export const NotionToggle = Node.create({
   },
 });
 
-function CalloutView({ editor, getPos, node }: NodeViewProps) {
+function CalloutView({ editor, getPos, node, extension }: NodeViewProps) {
+  const documentId = (extension.options as NotionBlockAtomOptions).documentId;
+  const registerPrivateIcon = useActionMutation(
+    "register-private-callout-icon",
+  );
   const icon = typeof node.attrs.icon === "string" ? node.attrs.icon : "💡";
-  const updateIcon = (value: IconValue | null) => {
+  const updateIcon = async (value: IconValue | null) => {
     if (!editor.isEditable) throw new Error("Callout is not editable");
+    if (value?.kind === "image" && value.authority === "private-icon") {
+      if (!documentId) throw new Error("Callout document is unavailable");
+      await registerPrivateIcon.mutateAsync({
+        documentId,
+        assetId: value.assetId,
+      });
+    }
     const pos = getPos();
     if (typeof pos !== "number") throw new Error("Callout is unavailable");
     const currentNode = editor.state.doc.nodeAt(pos);
@@ -972,7 +997,18 @@ function CalloutView({ editor, getPos, node }: NodeViewProps) {
       data-color={node.attrs.color || undefined}
     >
       <div data-notion-callout-icon="true" contentEditable={false}>
-        <EmojiPicker icon={icon} variant="compact" onSelect={updateIcon} />
+        {isSuggestingEdits(editor.state) ? (
+          <span className="flex size-9 shrink-0 items-center justify-center">
+            <ContentIcon value={icon} size={22} />
+          </span>
+        ) : (
+          <EmojiPicker
+            icon={icon}
+            assetScopeDocumentId={documentId}
+            variant="compact"
+            onSelect={updateIcon}
+          />
+        )}
       </div>
       <NodeViewContent data-notion-callout-content="true" />
     </NodeViewWrapper>
@@ -1047,7 +1083,6 @@ export const NotionCallout = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(
@@ -1089,7 +1124,6 @@ export const NotionColumns = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("columns", {}, inner));
@@ -1121,7 +1155,6 @@ export const NotionColumn = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("column", {}, inner));
@@ -1142,7 +1175,6 @@ export const NotionBlockAtom = Node.create({
 
   addOptions(): NotionBlockAtomOptions {
     return {
-      resolvePageLink: undefined,
       onOpenPageLink: undefined,
     };
   },
@@ -1152,12 +1184,6 @@ export const NotionBlockAtom = Node.create({
       tagName: { default: "unknown" },
       attrsJson: { default: "{}" },
       label: { default: "" },
-      // Verbatim source for unrecognized raw containers (e.g. <meeting-notes>)
-      // preserved by parseRawContainer. Must survive editor load/save so the
-      // real content isn't replaced by the tagName summary on the next save.
-      // Kept out of the rendered DOM (see renderHTML) since the NodeView
-      // renders from label/tagName; parseHTML restores it from data-raw for
-      // the rare case content is round-tripped through HTML (e.g. paste).
       __raw: { default: "" },
     };
   },
@@ -1339,7 +1365,7 @@ export function createNotionEditorExtensions(
   return [
     NotionSpanMark,
     NotionToggle,
-    NotionCallout,
+    NotionCallout.configure({ documentId: blockAtomOptions.documentId }),
     NotionColumns,
     NotionColumn,
     NotionBlockAtom.configure(blockAtomOptions),

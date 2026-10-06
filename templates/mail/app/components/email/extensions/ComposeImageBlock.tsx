@@ -31,7 +31,6 @@ export function ComposeImageBlock({
     }
   }, [updateAttributes]);
 
-  // No src — show placeholder
   if (!src) {
     return (
       <NodeViewWrapper>
@@ -56,7 +55,6 @@ export function ComposeImageBlock({
     );
   }
 
-  // Has src — show the image
   return (
     <NodeViewWrapper>
       <div

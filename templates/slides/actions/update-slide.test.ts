@@ -5,10 +5,9 @@ const mockNotifyClients = vi.fn();
 const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
 const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 
-// Captured by the Drizzle `update().set()` mock so tests can assert on the
-// persisted deck JSON + bumped updatedAt.
 let lastUpdateSet: { data?: string; updatedAt?: string } | undefined;
 let updateRowsAffected = 1;
+let onUpdateMiss: (() => void) | undefined;
 
 let mockDeckRow: Record<string, unknown> | undefined;
 const mockGetGenerationCreativeContext = vi.fn(async () => null);
@@ -29,9 +28,6 @@ const mockValidateGenerationCreativeContext = vi.fn(
   }),
 );
 
-// Minimal Drizzle query-builder stub. The action only uses:
-//   db.select({...}).from(decks).where(...).limit(1)  -> [row]
-//   db.update(decks).set({...}).where(...)            -> persists
 const mockDb = {
   select: () => ({
     from: () => ({
@@ -43,7 +39,17 @@ const mockDb = {
   update: () => ({
     set: (values: { data?: string; updatedAt?: string }) => {
       lastUpdateSet = values;
-      return { where: async () => ({ rowsAffected: updateRowsAffected }) };
+      return {
+        where: async () => {
+          if (updateRowsAffected === 0) {
+            updateRowsAffected = 1;
+            onUpdateMiss?.();
+            return { rowsAffected: 0 };
+          }
+          if (mockDeckRow) mockDeckRow = { ...mockDeckRow, ...values };
+          return { rowsAffected: 1 };
+        },
+      };
     },
   }),
   transaction: async (callback: (tx: any) => Promise<unknown>) =>
@@ -119,8 +125,6 @@ vi.mock("./_tab-state.js", () => ({
     mockReadAppStateForCurrentTab(...args),
 }));
 
-// Real per-deck lock just runs the fn; passthrough keeps the unit test focused
-// on update-slide's own read-modify-write logic.
 vi.mock("./patch-deck.js", () => ({
   isAgentPatchCaller: (caller?: string) =>
     caller === "tool" || caller === "mcp" || caller === "a2a",
@@ -142,10 +146,33 @@ import { hashSlideContent } from "../shared/slide-fit";
 import { nextDeckRevision } from "./_deck-write";
 import action from "./update-slide";
 
+async function runSlideActionWithCurrentHash(args: any, context?: any) {
+  const elementEdit = Array.isArray(args.edits)
+    ? args.edits.some((edit: any) => typeof edit?.objectId === "string")
+    : false;
+  const needsHash =
+    args.fullContent !== undefined ||
+    args.objectId !== undefined ||
+    args.styleOnly === true ||
+    elementEdit;
+  if (needsHash && args.baseContentHash === undefined) {
+    const deck = JSON.parse(String(mockDeckRow?.data ?? "{}"));
+    const slide = Array.isArray(deck.slides)
+      ? deck.slides.find((candidate: any) => candidate.id === args.slideId)
+      : undefined;
+    args = {
+      ...args,
+      baseContentHash: hashSlideContent(String(slide?.content ?? "")),
+    };
+  }
+  return action.run(args, context);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   lastUpdateSet = undefined;
   updateRowsAffected = 1;
+  onUpdateMiss = undefined;
   mockDeckRow = {
     id: "deck-1",
     title: "Deck",
@@ -167,7 +194,7 @@ describe("update-slide", () => {
       "verified layout overflow: call get-deck with slideId",
     );
     expect(action.tool.description).toContain(
-      "one fullContent repair with baseContentHash",
+      "one fullContent repair with that baseContentHash",
     );
   });
 
@@ -198,11 +225,12 @@ describe("update-slide", () => {
         },
       ],
     });
-    const result = await action.run(
+    const result = await runSlideActionWithCurrentHash(
       {
         deckId: "deck-1",
         slideId: "slide-1",
         fullContent: "<div>New</div>",
+        baseContentHash: hashSlideContent("<div>Old</div>"),
       },
       { caller: "tool" },
     );
@@ -215,9 +243,6 @@ describe("update-slide", () => {
     });
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
 
-    // The persisted deck JSON contains the new content and a bumped updatedAt,
-    // and the row updatedAt matches the JSON updatedAt (the freshness signal
-    // the open editor uses to detect a genuinely-newer external edit).
     expect(lastUpdateSet).toBeDefined();
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
@@ -225,8 +250,6 @@ describe("update-slide", () => {
     expect(deck.slides[0].animations).toBeUndefined();
     expect(deck.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(lastUpdateSet!.updatedAt).toBe(deck.updatedAt);
-    // The broadcast now carries the changed slideId + agent actor (backwards-
-    // compatible — { type, deckId } are still present in the wire payload).
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
       slideId: "slide-1",
       actor: "agent",
@@ -235,7 +258,6 @@ describe("update-slide", () => {
     // Context scope must not enter the generation-context gate.
     expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
     expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
-    // The agent's presence is recorded on the DECK presence doc for this slide.
     expect(mockAgentTouchDocument).toHaveBeenCalledWith(
       "deck-deck-1",
       expect.objectContaining({
@@ -245,6 +267,27 @@ describe("update-slide", () => {
         }),
       }),
     );
+  });
+
+  it("requires a source hash for full-slide and selected-object replacements", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: "<div>Replacement</div>",
+      }),
+    ).rejects.toThrow("exact source contentHash");
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        objectId: "title",
+        replace: "Replacement",
+      }),
+    ).rejects.toThrow("exact source contentHash");
+
+    expect(lastUpdateSet).toBeUndefined();
   });
 
   it("rejects a stale browser-tab target before writing", async () => {
@@ -257,7 +300,7 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         edits: [{ find: "Old", replace: "New" }],
@@ -281,7 +324,7 @@ describe("update-slide", () => {
       items: [{ selectedText: "Old" }],
     });
 
-    const result = await action.run({
+    const result = await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       edits: [{ find: "Old", replace: "New", expectedMatches: 1 }],
@@ -295,7 +338,7 @@ describe("update-slide", () => {
   });
 
   it("does not require Creative Context for an unscoped WebMCP edit", async () => {
-    const result = await action.run(
+    const result = await runSlideActionWithCurrentHash(
       {
         deckId: "deck-1",
         slideId: "slide-1",
@@ -323,18 +366,20 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = await action.run(
+    const result = await runSlideActionWithCurrentHash(
       {
         deckId: "deck-1",
         slideId: "slide-1",
         objectId: "title",
         replace: "New",
+        baseContentHash: hashSlideContent(
+          '<div class="fmd-slide"><h1 data-slide-object-id="title" style="color:red">Old</h1></div>',
+        ),
       },
       { caller: "webmcp" },
     );
 
     expect(result).toMatchObject({ ok: true, applied: true });
-    // The edit left the slide root alone, so no padding is added to it.
     expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
       '<div class="fmd-slide"><h1 data-slide-object-id="title" style="color:red">New</h1></div>',
     );
@@ -350,13 +395,14 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         fullContent: stored.replace(
           '<p class="x">',
           '<p class="x" data-builder-id="b-1" data-src-i="slide-r1.s:3">',
         ),
+        baseContentHash: hashSlideContent(stored),
       }),
     ).rejects.toMatchObject({
       errorCode: "render_artifact_in_slide_content",
@@ -364,10 +410,11 @@ describe("update-slide", () => {
     });
     expect(lastUpdateSet).toBeUndefined();
 
-    const result = await action.run({
+    const result = await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       fullContent: stored.replace("Old", "New"),
+      baseContentHash: hashSlideContent(stored),
     });
     expect(result).toMatchObject({ ok: true, applied: true });
     expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
@@ -377,7 +424,7 @@ describe("update-slide", () => {
 
   it("rejects a compact object edit without an explicit replacement", async () => {
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         objectId: "title",
@@ -390,7 +437,7 @@ describe("update-slide", () => {
 
   it("rejects a legacy find edit without an explicit replacement", async () => {
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         find: "Old",
@@ -414,11 +461,12 @@ describe("update-slide", () => {
       ],
     });
 
-    await action.run(
+    await runSlideActionWithCurrentHash(
       {
         deckId: "deck-1",
         slideId: "slide-1",
         fullContent: "<div>Human edit</div>",
+        baseContentHash: hashSlideContent("<div>Old</div>"),
       },
       { caller: "frontend" },
     );
@@ -430,7 +478,7 @@ describe("update-slide", () => {
   });
 
   it("applies a surgical find/replace edit", async () => {
-    const result = (await action.run({
+    const result = (await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       find: "Old",
@@ -444,7 +492,7 @@ describe("update-slide", () => {
 
   it("rejects an orphaned legacy replacement before reading or writing", async () => {
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         replace: "Fresh",
@@ -458,7 +506,7 @@ describe("update-slide", () => {
 
   it("rejects an empty legacy find before mutating the deck", async () => {
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         find: "",
@@ -485,7 +533,11 @@ describe("update-slide", () => {
 
     for (const input of mixedInputs) {
       await expect(
-        action.run({ deckId: "deck-1", slideId: "slide-1", ...input }),
+        runSlideActionWithCurrentHash({
+          deckId: "deck-1",
+          slideId: "slide-1",
+          ...input,
+        }),
       ).rejects.toThrow("Use exactly one input mode");
     }
 
@@ -493,10 +545,6 @@ describe("update-slide", () => {
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
-  // A style request fans out one call per slide, so every call is in flight
-  // before the first rejection lands and the run's across-arguments breaker
-  // ends the turn. The rejection has to carry the accepted call, not just the
-  // rule, or the model never gets a chance to correct itself.
   it("answers a styleOnly legacy find/replace with the edits call that would work", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
@@ -509,18 +557,16 @@ describe("update-slide", () => {
       ],
     });
 
-    const rejection = await action
-      .run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        styleOnly: true,
-        find: "background:#111111",
-        replace: "background:#f4f0e8",
-      })
-      .then(
-        () => undefined,
-        (error: Error) => error,
-      );
+    const rejection = await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      find: "background:#111111",
+      replace: "background:#f4f0e8",
+    }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
 
     expect(rejection?.message).toContain('must use the structured "edits"');
     expect(rejection?.message).toContain(
@@ -528,16 +574,13 @@ describe("update-slide", () => {
     );
     expect(lastUpdateSet).toBeUndefined();
 
-    // The suggestion is only worth anything if it is a call the action
-    // accepts, so replay the payload the rejection handed back instead of a
-    // hand-written equivalent.
     const suggested = JSON.parse(
       rejection!.message.slice(
         rejection!.message.indexOf('[{"find"'),
         rejection!.message.lastIndexOf("]") + 1,
       ),
     );
-    const result = await action.run({
+    const result = await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       styleOnly: true,
@@ -550,9 +593,6 @@ describe("update-slide", () => {
     );
   });
 
-  // The legacy find path replaces the first match; the edits path refuses an
-  // ambiguous literal outright. A declaration repeated on the slide is the case
-  // where a careless conversion swaps one rejection for another.
   it("suggests an edits call that still works when the declaration repeats", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
@@ -565,18 +605,16 @@ describe("update-slide", () => {
       ],
     });
 
-    const rejection = await action
-      .run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        styleOnly: true,
-        find: "background:#111111",
-        replace: "background:#f4f0e8",
-      })
-      .then(
-        () => undefined,
-        (error: Error) => error,
-      );
+    const rejection = await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      find: "background:#111111",
+      replace: "background:#f4f0e8",
+    }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
 
     const suggested = JSON.parse(
       rejection!.message.slice(
@@ -584,7 +622,7 @@ describe("update-slide", () => {
         rejection!.message.lastIndexOf("]") + 1,
       ),
     );
-    const result = await action.run({
+    const result = await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       styleOnly: true,
@@ -592,28 +630,23 @@ describe("update-slide", () => {
     });
 
     expect(result).toMatchObject({ ok: true, applied: true });
-    // First match only, exactly as the rejected legacy call would have done.
     expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
       '<div class="fmd-slide" style="background:#f4f0e8"><div style="background:#111111"><h1>Headline</h1></div></div>',
     );
   });
 
   it("refuses to route a styleOnly change through objectId", async () => {
-    const rejection = await action
-      .run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        styleOnly: true,
-        objectId: "slide-object-7",
-        replace: "<span>x</span>",
-      })
-      .then(
-        () => undefined,
-        (error: Error) => error,
-      );
+    const rejection = await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      objectId: "slide-object-7",
+      replace: "<span>x</span>",
+    }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
 
-    // objectId only swaps inner content, so echoing it back would hand over a
-    // call that cannot reach the element's own style attribute.
     expect(rejection?.message).toContain('cannot go through "objectId"');
     expect(rejection?.message).not.toContain('"objectId":"slide-object-7"');
     expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
@@ -621,17 +654,15 @@ describe("update-slide", () => {
   });
 
   it("points a styleOnly fullContent attempt at a targeted read instead of echoing it", async () => {
-    const rejection = await action
-      .run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        styleOnly: true,
-        fullContent: '<div class="fmd-slide">rewritten</div>',
-      })
-      .then(
-        () => undefined,
-        (error: Error) => error,
-      );
+    const rejection = await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      fullContent: '<div class="fmd-slide">rewritten</div>',
+    }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
 
     expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
     expect(rejection?.message).not.toContain("rewritten");
@@ -640,18 +671,16 @@ describe("update-slide", () => {
 
   it("does not echo an oversized legacy payload back into the rejection", async () => {
     const huge = "a".repeat(5000);
-    const rejection = await action
-      .run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        styleOnly: true,
-        find: huge,
-        replace: "background:#f4f0e8",
-      })
-      .then(
-        () => undefined,
-        (error: Error) => error,
-      );
+    const rejection = await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      find: huge,
+      replace: "background:#f4f0e8",
+    }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
 
     expect(rejection?.message).not.toContain(huge);
     expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
@@ -659,25 +688,49 @@ describe("update-slide", () => {
   });
 
   it("does not suggest an unusable edits entry for an empty legacy find", async () => {
-    const rejection = await action
-      .run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        styleOnly: true,
-        find: "",
-        replace: "background:#f4f0e8",
-      })
-      .then(
-        () => undefined,
-        (error: Error) => error,
-      );
+    const rejection = await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      find: "",
+      replace: "background:#f4f0e8",
+    }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
 
-    // An empty find cannot become a valid edits entry — applySlideContentEdits
-    // rejects it outright — so the generic read-first hint is the only honest
-    // answer here.
     expect(rejection?.message).not.toContain('"find":""');
     expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
     expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("tells the agent which fields to drop when an edit mixes find and objectId", () => {
+    const parsed = (
+      action.schema as unknown as {
+        safeParse: (input: unknown) => {
+          success: boolean;
+          error?: { issues: Array<{ message: string }> };
+        };
+      }
+    ).safeParse({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [
+        {
+          find: "Old",
+          objectId: "title",
+          replace: "New",
+          all: false,
+          occurrence: 1,
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+    const messages = parsed.error!.issues.map((issue) => issue.message);
+    const mixed = messages.find((message) => message.includes("both find"));
+    expect(mixed).toContain("Resend it with ONLY objectId");
+    expect(mixed).toContain("ONLY find");
   });
 
   it("teaches styleOnly and the edits requirement in the agent-facing schema", () => {
@@ -691,9 +744,6 @@ describe("update-slide", () => {
     expect(styleOnly.description).toContain('"occurrence":1');
     expect(styleOnly.description).not.toContain('"expectedMatches":1');
 
-    // The advertised tool description is the only styleOnly guidance a model
-    // gets before its first call, and a style request gets exactly one batch
-    // before the across-arguments breaker ends the turn.
     const advertised = action.tool.description ?? "";
     expect(advertised).toContain("styleOnly=true");
     expect(advertised).toContain('"occurrence":1');
@@ -715,7 +765,7 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         styleOnly: true,
@@ -739,7 +789,7 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = await action.run({
+    const result = await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       styleOnly: true,
@@ -770,7 +820,7 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = await action.run({
+    const result = await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       styleOnly: true,
@@ -801,7 +851,7 @@ describe("update-slide", () => {
       ],
     });
 
-    await action.run({
+    await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       styleOnly: true,
@@ -832,7 +882,7 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         styleOnly: true,
@@ -863,7 +913,7 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         styleOnly: true,
@@ -893,7 +943,7 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         styleOnly: true,
@@ -923,7 +973,7 @@ describe("update-slide", () => {
       ],
     });
 
-    await action.run({
+    await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       styleOnly: true,
@@ -941,22 +991,129 @@ describe("update-slide", () => {
     ).toEqual([{ id: "reveal-1", elementPath: [0], type: "fade" }]);
   });
 
-  it("rejects a stale deck revision instead of overwriting a concurrent write", async () => {
+  it("rebases a surgical edit after a lost database CAS", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "<div>Old</div>" },
+        { id: "slide-2", content: "<div>Before</div>" },
+      ],
+    });
+    onUpdateMiss = () => {
+      const latest = JSON.parse(mockDeckRow!.data as string);
+      latest.slides[1].content = "<div>Remote edit</div>";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+    updateRowsAffected = 0;
+
+    await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [{ find: "Old", replace: "New" }],
+    });
+
+    const slides = JSON.parse(lastUpdateSet!.data!).slides;
+    expect(slides.map((slide: { content: string }) => slide.content)).toEqual([
+      "<div>New</div>",
+      "<div>Remote edit</div>",
+    ]);
+    expect(mockNotifyClients).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an explicit same-slide base hash conflict after a lost CAS", async () => {
+    const originalContent = "<div>Old</div>";
+    onUpdateMiss = () => {
+      const latest = JSON.parse(mockDeckRow!.data as string);
+      latest.slides[0].content = "<div>Remote edit</div>";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
     updateRowsAffected = 0;
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        baseContentHash: hashSlideContent(originalContent),
+        edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "slide_content_stale",
+      statusCode: 409,
+    });
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(
+      "<div>Remote edit</div>",
+    );
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("does not reapply a bounded edit after the slide changes during a lost CAS", async () => {
+    onUpdateMiss = () => {
+      const latest = JSON.parse(mockDeckRow!.data as string);
+      latest.slides[0].content = "<div>Remote edit</div>";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+    updateRowsAffected = 0;
+
+    await expect(
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         edits: [{ find: "Old", replace: "New" }],
       }),
     ).rejects.toMatchObject({
-      message: expect.stringContaining("changed while saving slide edit"),
+      errorCode: "slide_content_stale",
       statusCode: 409,
     });
 
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(
+      "<div>Remote edit</div>",
+    );
     expect(mockNotifyClients).not.toHaveBeenCalled();
-    expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("does not rebase a full-slide replacement over concurrent content", async () => {
+    onUpdateMiss = () => {
+      const latest = JSON.parse(mockDeckRow!.data as string);
+      latest.slides[0].content = "<div>Remote edit</div>";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+    updateRowsAffected = 0;
+
+    await expect(
+      runSlideActionWithCurrentHash({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: "<div>Local replacement</div>",
+        baseContentHash: hashSlideContent("<div>Old</div>"),
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "slide_content_stale",
+      statusCode: 409,
+    });
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(
+      "<div>Remote edit</div>",
+    );
+    expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
   it("rejects newly introduced unresolved placeholder content", async () => {
@@ -971,7 +1128,7 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         edits: [
@@ -1000,11 +1157,8 @@ describe("update-slide", () => {
       ],
     });
 
-    // Nothing matched, so nothing was written — and that must reach the
-    // runner as a throw. A returned value is stamped `completedSideEffect`
-    // and replayed to a resumed run as work already done.
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         edits: [{ find: "Missing", replace: "Never written", required: false }],
@@ -1027,7 +1181,7 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         format: true,
@@ -1051,7 +1205,7 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = (await action.run({
+    const result = (await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       edits: [
@@ -1074,7 +1228,7 @@ describe("update-slide", () => {
   });
 
   it("surfaces per-edit results so a skipped optional edit is distinguishable from the batch's aggregate success", async () => {
-    const result = (await action.run({
+    const result = (await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       edits: [
@@ -1088,10 +1242,6 @@ describe("update-slide", () => {
       ],
     })) as Record<string, unknown>;
 
-    // The required find/replace matched, but the optional image insert never
-    // found its marker. The aggregate `applied` boolean cannot express that,
-    // so the result flags it explicitly — otherwise the agent reports the
-    // image as inserted.
     expect(result).toMatchObject({ ok: true, applied: true, partial: true });
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
@@ -1102,7 +1252,7 @@ describe("update-slide", () => {
 
   it("does not write a partial edit list when a later edit fails", async () => {
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         edits: [
@@ -1116,7 +1266,7 @@ describe("update-slide", () => {
 
   it("rejects a patch based on stale slide source", async () => {
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         baseContentHash: "fnv1a-stale",
@@ -1139,7 +1289,7 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         baseContentHash: hashSlideContent("costarring"),
@@ -1150,7 +1300,7 @@ describe("update-slide", () => {
   });
 
   it("persists formatted multiline HTML when requested", async () => {
-    const result = await action.run({
+    const result = await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       format: true,
@@ -1192,10 +1342,13 @@ describe("update-slide", () => {
     });
 
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         fullContent: "<div><h1>Generic replacement</h1></div>",
+        baseContentHash: hashSlideContent(
+          '<div><img src="https://files.example/page.png"></div>',
+        ),
       }),
     ).rejects.toThrow("remove 1 original image");
     expect(lastUpdateSet).toBeUndefined();
@@ -1228,10 +1381,11 @@ describe("update-slide", () => {
       influence: "adapted" as const,
     };
 
-    await action.run({
+    await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       fullContent: "<div>Adapted</div>",
+      baseContentHash: hashSlideContent("<div>Old</div>"),
       reuseLabels: [evidence],
     });
 
@@ -1271,10 +1425,11 @@ describe("update-slide", () => {
       slides: [{ id: "slide-1", content: "<div>Old</div>" }],
     });
 
-    await action.run({
+    await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       fullContent: "<div>Unbranded edit</div>",
+      baseContentHash: hashSlideContent("<div>Old</div>"),
       contextModeOverride: "off",
     });
 
@@ -1296,7 +1451,7 @@ describe("update-slide", () => {
 
   it("throws without writing when the find text is missing", async () => {
     await expect(
-      action.run({
+      runSlideActionWithCurrentHash({
         deckId: "deck-1",
         slideId: "slide-1",
         find: "this text does not exist in the slide",
@@ -1308,10 +1463,11 @@ describe("update-slide", () => {
   });
 
   it("returns a pending fit check keyed to the persisted slide revision", async () => {
-    const result = (await action.run({
+    const result = (await runSlideActionWithCurrentHash({
       deckId: "deck-1",
       slideId: "slide-1",
       fullContent: "<div>Updated</div>",
+      baseContentHash: hashSlideContent("<div>Old</div>"),
     })) as Record<string, unknown>;
 
     expect(result).toMatchObject({

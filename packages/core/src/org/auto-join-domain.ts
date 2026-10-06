@@ -18,45 +18,20 @@ export interface AutoJoinDomainResult {
 
 type DomainMatch = { orgId: string; federated: boolean };
 
-/**
- * Negative cache for "no org has this email domain as its `allowed_domain`".
- *
- * `resolveOrgContext` calls this function on EVERY authenticated request for
- * any account that holds no membership in a domain-matched org — which is every
- * solo user and every user in a team org that never configured domain matching.
- * The probe finds nothing, changes no state, and runs again on the next
- * request: production showed 318k of these, ~64% of all authenticated requests,
- * with no fixed point because not-joining an org is not a state the user can
- * leave.
- *
- * Keyed on the DOMAIN, not the email, so one entry covers every account at that
- * domain. Only a SUCCESSFUL zero-row read is cached — a failed probe stays on
- * the uncached path so an unreadable `organizations` table never masquerades as
- * "no matching org". Invalidated whenever `allowed_domain` is written, so
- * correctness does not rest on the TTL.
- */
 const NO_DOMAIN_MATCH_TTL_MS = 60_000;
 const noDomainMatchCache = createTtlCache<true>({
   ttlMs: NO_DOMAIN_MATCH_TTL_MS,
   maxEntries: 512,
 });
 
-/**
- * Call after any write that could make a domain start matching an org —
- * `organizations.allowed_domain` updates and org creation. Clears every domain
- * rather than one: the caller knows which org changed, not which domains a
- * stale negative was recorded for.
- */
 export function invalidateDomainMatchCache(): void {
   noDomainMatchCache.clear();
 }
 
-/** Test seam — the cache is module state, so suites must be able to clear it. */
 export function __resetDomainMatchCacheForTests(): void {
   noDomainMatchCache.clear();
 }
 
-/** Whether the email's verified domain is configured for automatic org join. */
 export async function hasAutoJoinDomainMatch(
   rawEmail: string,
 ): Promise<boolean> {
@@ -86,35 +61,9 @@ export async function hasAutoJoinDomainMatch(
 }
 
 export interface AutoJoinDomainOptions {
-  /**
-   * The signup hook should not clobber an org selected by an invite flow, but
-   * request-time org resolution may need to move an existing account from a
-   * personal workspace into its newly matched company org. `"never"` joins
-   * without touching `active-org-id` — the caller decides activation itself.
-   */
   activateJoinedOrg?: "if-missing" | "always" | "never";
 }
 
-/**
- * Auto-join a newly-signed-up user into every org whose `allowed_domain`
- * matches their email domain.
- *
- * Called from the Better Auth `user.create.after` hook so that e.g. a new
- * `@builder.io` signup lands inside the existing Builder.io org on first
- * page load instead of starting in Personal and having to find the join
- * CTA. The org's owner opts into this by setting
- * `organizations.allowed_domain` — the column already gated the manual
- * "Join your team" UI in the picker; we use the same opt-in to drive
- * automatic join.
- *
- * Idempotent — skips orgs the user is already a member of and, by default,
- * never overwrites an existing `active-org-id` setting.
- *
- * Safe to call when the org tables don't exist (some templates don't use
- * the org module): it swallows the missing-relation error and returns
- * empty. Never throws — the caller is a signup hook and we don't want to
- * block a user from creating their account because of an org-tier issue.
- */
 export async function autoJoinDomainMatchingOrgs(
   rawEmail: string,
   options: AutoJoinDomainOptions = {},
@@ -125,9 +74,6 @@ export async function autoJoinDomainMatchingOrgs(
   const domain = email.split("@")[1]?.toLowerCase();
   if (!domain) return { joined: [], activeOrgId: null };
 
-  // `org/handlers.ts` REFUSES to set `allowed_domain` to a free provider, so no
-  // org can ever match `gmail.com` — every consumer-email account was probing
-  // for a row that is structurally impossible to exist.
   if (isFreeEmailProvider(domain)) return { joined: [], activeOrgId: null };
 
   if (noDomainMatchCache.get(domain)) {
@@ -161,10 +107,6 @@ export async function autoJoinDomainMatchingOrgs(
       ),
     }));
   } catch {
-    // Template without org tables (or `allowed_domain` column not yet
-    // migrated). Not fatal — return empty. Deliberately NOT cached: this branch
-    // cannot tell "no org matches" from "the table was unreadable", and caching
-    // it would let one blip answer every later request for a minute.
     return { joined: [], activeOrgId: null };
   }
 
@@ -191,8 +133,6 @@ export async function autoJoinDomainMatchingOrgs(
           continue;
         }
       } catch {
-        // A linked org must not fall back to a local join when rollout state
-        // is unreadable; retry the authority-gated path on the next request.
         federationSkipped = true;
         federationUnavailable = true;
         continue;
@@ -217,9 +157,6 @@ export async function autoJoinDomainMatchingOrgs(
     noDomainMatchCache.set(domain, true);
   }
 
-  // Set active-org-id to the first match only if the user doesn't already have
-  // one, unless the caller is request-time org resolution intentionally moving
-  // an existing account into its newly matched company org.
   let activeOrgId: string | null = null;
   if (joined[0] && options.activateJoinedOrg !== "never") {
     try {

@@ -1549,6 +1549,50 @@ describe("workspace connection store", () => {
     expect(grant?.lastUsedAt).toBe(connection?.lastUsedAt);
   }, 15_000);
 
+  it("does not use a reviewer credential for an org-scoped workspace connection read", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { writeAppSecret } = await import("../secrets/index.js");
+    const { resolveWorkspaceConnectionCredentialForApp } =
+      await import("./credentials.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "customer@example.com", orgId: "customer-org" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "conn-customer-bigquery",
+          provider: "bigquery",
+          label: "Customer BigQuery",
+          allowedApps: ["analytics"],
+          credentialRefs: [{ key: "BIGQUERY_PROJECT_ID" }],
+        }),
+    );
+    await writeAppSecret({
+      key: "BIGQUERY_PROJECT_ID",
+      value: "reviewer-project",
+      scope: "user",
+      scopeId: "admin@example.com",
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "analytics",
+          provider: "bigquery",
+          key: "BIGQUERY_PROJECT_ID",
+        }),
+    );
+
+    expect(result.available).toBe(false);
+    expect(result.value).toBeUndefined();
+  });
+
   it("skips last-used recording when recordUsage is false", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

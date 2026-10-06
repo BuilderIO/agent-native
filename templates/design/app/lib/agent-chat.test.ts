@@ -89,6 +89,25 @@ describe("Design agent chat routing", () => {
     );
   });
 
+  it("preserves new-branch prompts for the ChatGPT host router", async () => {
+    const result = await sendToDesignAgentChatAndConfirm({
+      message: "Apply the alternate direction",
+      submit: true,
+      newTab: true,
+    });
+
+    expect(result).toEqual({ tabId: "tab-design", delivered: true });
+    expect(sendToAgentChatAndConfirmMock).toHaveBeenCalledWith(
+      {
+        message: "Apply the alternate direction",
+        submit: true,
+        newTab: true,
+        chatTarget: "local",
+      },
+      undefined,
+    );
+  });
+
   it("hands source edits to Builder on the shell canvas, which holds no session of its own", async () => {
     isBuilderHostEmbedMock.mockReturnValue(true);
     isEmbedChromeRequestedMock.mockReturnValue(true);
@@ -107,9 +126,6 @@ describe("Design agent chat routing", () => {
     expect(sendToBuilderChatMock).toHaveBeenCalledWith({
       message: "Apply the pending visual style edits to the source.",
       context: "Structured source instructions",
-      // Submitted, not prefilled: the prompt is generated from the pending
-      // edits, and the origin comes from the handshake rather than the
-      // loopback-blind parent sniff.
       submit: true,
       targetOrigin: "https://builder.io",
     });

@@ -273,16 +273,9 @@ with no single correct fix, a short reason, and reaction robot_face 🤖.`;
       factoryId: "product-an-feedback",
       config,
     });
-    // Recomposition always rebuilds guardrails/alignment from the current
-    // source, so an existing automation picks up the risk/confidence gate.
     expect(body).toContain(
       "Builder is only tagged when clearBug is true, risk is low, and confidence is high",
     );
-    // It does not rewrite the caller's own prompt text: an already-saved
-    // automation keeps whatever dispatch instructions it had (including
-    // retired wording with no risk/confidence) until someone updates the
-    // prompt by hand. This is intentional, not a bug -- there is no
-    // automated migration path for saved automation prompts.
     expect(body).toContain(retiredUserPrompt);
   });
 

@@ -23,6 +23,7 @@ Read the relevant skill before deeper work:
 | `create-form` | Create a form with fields; status defaults to draft |
 | `update-form` | Change title, settings, or status (publish with `status: "published"`) |
 | `patch-form-fields` | Upsert or reorder individual fields without a full rewrite |
+| `show-response-insight` | Show a theme card |
 | `list-forms` / `get-form` | List forms / read one form's definition |
 | `preview-form` | Inline setup summary with an open-editor link |
 | `response-insights` | Chart, table, or combined response analytics |
@@ -82,7 +83,7 @@ Read the relevant skill before deeper work:
 
 - The `/home` route is the primary chat surface. Use it to ask clarifying
   questions, create or edit forms, explain setup, and surface response insights.
-  The public `/` route is reserved for the SSR marketing page.
+  The public `/` route redirects to the shared sign-in/signup page.
 - When the user needs a focused workspace, call `navigate` to open `/forms`,
   `/forms/:id?tab=edit`, `/forms/:id?tab=responses`,
   `/forms/:id?tab=settings`, `/forms/:id?tab=integrations`,

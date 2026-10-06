@@ -26,15 +26,12 @@ import {
   stripInjectedAnalyticsGuardContext,
 } from "./real-data-actions";
 
-// These tests exercise the predicates, not the derivation: the agent-chat
-// plugin is what reads `grounding: true` off the shipped action definitions.
 registerGroundingActions([
   "account-deep-dive",
   "bigquery",
   "get-session-replay-summary",
   "get-session-replay-timeline",
   "gong-calls",
-  "gong-native-insights",
   "hubspot-deals",
   "hubspot-records",
   "jira-search",
@@ -45,13 +42,17 @@ registerGroundingActions([
   "provider-corpus-job",
   "query-agent-native-analytics",
   "query-staged-dataset",
+  "run-gong-native-insight",
   "slack-messages",
 ]);
 
 describe("real data action classification", () => {
   it("treats unstructured source records as real analytics evidence", () => {
     expect(hasDataQueryAttempt([{ name: "gong-calls" }])).toBe(true);
-    expect(hasDataQueryAttempt([{ name: "gong-native-insights" }])).toBe(true);
+    expect(hasDataQueryAttempt([{ name: "gong-native-insights" }])).toBe(false);
+    expect(hasDataQueryAttempt([{ name: "run-gong-native-insight" }])).toBe(
+      true,
+    );
     expect(hasDataQueryAttempt([{ name: "slack-messages" }])).toBe(true);
   });
 
@@ -1686,10 +1687,6 @@ describe("incomplete evidence detection", () => {
   });
 
   it("does not treat authoring/saving a dashboard or extension alone as construction progress", () => {
-    // update-dashboard/mutate-dashboard/create-extension/update-extension can
-    // all author brand-new SQL or extension content, so calling them with no
-    // prior inspection/clone step must not be enough to bypass the real-data
-    // guard for an invented dashboard or extension.
     expect(
       hasDashboardConstructionAttempt([
         { name: "update-dashboard", content: "{}" },
@@ -1710,7 +1707,6 @@ describe("incomplete evidence detection", () => {
         { name: "update-extension", content: "{}" },
       ]),
     ).toBe(false);
-    // But it's fine alongside a real inspection/clone step.
     expect(
       hasDashboardConstructionAttempt([
         { name: "get-extension", content: "{}" },
@@ -1756,7 +1752,6 @@ describe("incomplete evidence detection", () => {
     expect(draftClaimsAnalyticsMetrics("churn was lower than expected")).toBe(
       true,
     );
-    // Still a topic word, not a claim — no assertion is being made.
     expect(draftClaimsAnalyticsMetrics("what's the trend for signups?")).toBe(
       false,
     );

@@ -20,7 +20,6 @@ struct RewindCaptureSuspensionRuntime {
 }
 
 impl RewindCaptureSuspensionRuntime {
-    /// True only when this release removed the final live owner.
     fn release_lease(&mut self, lease_id: &str) -> bool {
         self.leases.remove(lease_id) && self.leases.is_empty()
     }
@@ -55,9 +54,6 @@ pub(crate) fn is_active(app: &AppHandle) -> bool {
     SUSPENSION_ACTIVE.load(Ordering::Acquire)
 }
 
-/// Hands the one physical capture graph to an ordinary Clip that cannot reuse
-/// Rewind. The first lease stops Rewind; nested leases keep it stopped until
-/// the final owner releases. Persisted enable/pause/mode settings are untouched.
 #[tauri::command]
 pub async fn rewind_capture_suspension_acquire(
     app: AppHandle,
@@ -71,19 +67,12 @@ pub async fn rewind_capture_suspension_acquire(
         let sources = crate::screen_memory::rewind_clip_sources(&app);
         let conflicts = capture_conflicts(requires_screen, requires_microphone, &sources);
         let rewind_config = crate::config::feature_config(&app).screen_memory;
-        // Enabled, unpaused Rewind may currently be stopped for a privacy
-        // exclusion or transient producer transition. Lease the handoff based
-        // on its durable ownership intent so its worker cannot resume halfway
-        // through an ordinary recording.
         if !conflicts || !rewind_config.enabled || rewind_config.paused {
             return Ok(RewindCaptureSuspensionLease {
                 lease_id: None,
                 suspended_rewind: false,
             });
         }
-        // Publish the reservation before entering the Screen Memory transition
-        // lock. Config sync and temporary audio demand can then observe the
-        // handoff without taking this module's mutex (avoiding lock inversion).
         SUSPENSION_ACTIVE.store(true, Ordering::Release);
         if let Err(error) = crate::screen_memory::suspend_physical_capture(&app) {
             SUSPENSION_ACTIVE.store(false, Ordering::Release);
@@ -100,8 +89,6 @@ pub async fn rewind_capture_suspension_acquire(
     })
 }
 
-/// Idempotent release: stale duplicate cleanup cannot resume Rewind while a
-/// second logical owner still holds the physical capture handoff.
 #[tauri::command]
 pub async fn rewind_capture_suspension_release(
     app: AppHandle,

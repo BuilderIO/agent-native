@@ -106,6 +106,14 @@ Os caminhos canônicos que controlam como o agente usa cada recurso:
 
 Esses caminhos se aplicam a todos os três escopos: espaço de trabalho, organização/aplicativo e pessoal. O escopo posterior vence quando o mesmo caminho existe em vários níveis.
 
+## Leve os recursos com você {#resource-pack}
+
+Exporte um pacote JSON com checksum dos recursos de texto que você já pode ler (`export-resource-pack`) e importe-o em outro app ou usuário (`import-resource-pack`). Os controles **Export pack** / **Import pack** da aba Recursos chamam as mesmas ações.
+
+- A exportação inclui só texto. Uploads binários são omitidos. Strings no formato de chave de API e campos de token MCP `env` / `headers` são redigidos; reconecte o MCP depois de importar.
+- A importação usa por padrão o escopo **pessoal** e ignora conflitos. A importação da organização exige o mesmo ACL de escrita de admin que editar arquivos da organização. A importação de workspace não está disponível.
+- Um pacote com mais de 200 arquivos de texto ou 1 MB falha com `too_large` em vez de ser truncado. Um checksum divergente falha de forma fechada.
+
 <Diagram id="doc-block-e47wl0" title={"Três escopos, um arquivo eficaz"} summary={"O tempo de execução resolve o mesmo caminho no espaço de trabalho, no aplicativo e nos escopos pessoais na leitura – o escopo mais específico vence."}>
 
 ```html

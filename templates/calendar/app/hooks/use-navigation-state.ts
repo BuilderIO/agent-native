@@ -90,7 +90,6 @@ export function useNavigationState() {
     openAddPersonPrefilled,
   } = useCalendarContext();
 
-  // Capture setters in refs so the onNavigate callback always closes over current values.
   const setViewModeRef = useRef(setViewMode);
   setViewModeRef.current = setViewMode;
   const setSelectedDateRef = useRef(setSelectedDate);
@@ -126,15 +125,12 @@ export function useNavigationState() {
         if (match?.[1] && match[1] !== "new") state.extensionId = match[1];
       }
 
-      // Include the current calendar view mode
       state.calendarViewMode = viewMode;
 
-      // Include the currently selected date
       if (selectedDate) {
         state.date = dateToCalendarDateKey(selectedDate);
       }
 
-      // Include the selected event if one is open
       if (sidebarEvent?.id) {
         state.eventId = sidebarEvent.id;
       }
@@ -166,21 +162,15 @@ export function useNavigationState() {
       return path;
     },
     onNavigate: (cmd) => {
-      // Apply calendar view mode change (day/week/month)
       if (cmd.calendarViewMode) {
         setViewModeRef.current(cmd.calendarViewMode);
       }
 
-      // Apply date change
       if (cmd.date) {
-        // Parse YYYY-MM-DD as local date (not UTC)
         const [y, m, d] = cmd.date.split("-").map(Number);
         setSelectedDateRef.current(new Date(y, m - 1, d));
       }
 
-      // A deep link can carry an eventId to focus a specific event. Fetch it
-      // via the read-only get-event action, open it in the sidebar, and move
-      // the calendar to its start date so the user lands on the event.
       if (cmd.eventId) {
         const eventId = cmd.eventId;
         void (async () => {
@@ -205,17 +195,10 @@ export function useNavigationState() {
         })();
       }
 
-      // A deep link can carry a peer to add — typically from the overlay
-      // access request email. This only opens the dialog prefilled; the
-      // recipient still confirms, so opening an email never writes.
       if (cmd.addPersonEmail) {
         openAddPersonPrefilledRef.current(cmd.addPersonEmail);
       }
 
-      // A deep link can also carry an unsent event draft. The draft lives in
-      // app-state and opens as a visible calendar placeholder with the native
-      // event detail editor; nothing is written to Google Calendar until the
-      // user creates it.
       if (cmd.eventDraftId || cmd.calendarDraft) {
         void (async () => {
           const draft = await loadEventDraft(cmd);

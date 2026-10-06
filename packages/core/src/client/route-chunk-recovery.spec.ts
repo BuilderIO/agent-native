@@ -2,21 +2,30 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+import {
   createRouteChunkRecoveryState,
   getFreshIntendedNavigation,
   installRouteChunkRecovery,
   intendedHrefFromClick,
   isDynamicImportFailureMessage,
   isRouteModuleReloadMessage,
+  readStaleChunkRecoveryExhausted,
   recoverFromStaleChunkError,
   reloadForStaleChunk,
   rememberIntendedNavigation,
+  STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
 } from "./route-chunk-recovery.js";
 
 function createFakeWindow(
   startHref = "https://example.com/dispatch/apps",
   opts: {
     lockReload?: boolean;
+    sessionStorageGetterThrows?: boolean;
+    sessionStorageThrows?: boolean;
     userAgent?: string;
     viteDevRecovery?: boolean;
   } = {},
@@ -64,8 +73,14 @@ function createFakeWindow(
   };
   const sessionStore = new Map<string, string>();
   const sessionStorage = {
-    getItem: vi.fn((key: string) => sessionStore.get(key) ?? null),
+    getItem: vi.fn((key: string) => {
+      if (opts.sessionStorageThrows)
+        throw new Error("session storage unavailable");
+      return sessionStore.get(key) ?? null;
+    }),
     setItem: vi.fn((key: string, value: string) => {
+      if (opts.sessionStorageThrows)
+        throw new Error("session storage unavailable");
       sessionStore.set(key, value);
     }),
     removeItem: vi.fn((key: string) => {
@@ -100,6 +115,14 @@ function createFakeWindow(
       ? { __agentNativeViteDevRecoveryInstalled: true }
       : {}),
   } as unknown as Window;
+  if (opts.sessionStorageGetterThrows) {
+    Object.defineProperty(fakeWindow, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new Error("session storage unavailable");
+      },
+    });
+  }
 
   return {
     fakeWindow,
@@ -115,6 +138,29 @@ function createFakeWindow(
       for (const listener of windowListeners.get(type) ?? []) listener(event);
     },
   };
+}
+
+function expectRecoveryNavigation(
+  fakeLocation: ReturnType<typeof createFakeWindow>["fakeLocation"],
+  expectedHref: string,
+): void {
+  const assignedHref = fakeLocation.assign.mock.calls.at(-1)?.[0];
+  expect(assignedHref).toBeDefined();
+
+  const actual = new URL(assignedHref ?? "");
+  const expected = new URL(expectedHref);
+  expect(actual.origin).toBe(expected.origin);
+  expect(actual.pathname).toBe(expected.pathname);
+  expect(actual.hash).toBe(expected.hash);
+  expect(actual.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM)).toBe(
+    CHUNK_RECOVERY_QUERY_VALUE,
+  );
+  actual.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
+  expect(
+    actual.searchParams.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM),
+  ).toBeTruthy();
+  actual.searchParams.delete(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  expect(actual.href).toBe(expected.href);
 }
 
 describe("route chunk recovery", () => {
@@ -289,14 +335,12 @@ describe("route chunk recovery", () => {
       "Error loading route module `/dispatch/assets/new-app-stale.js`, reloading page...",
     );
 
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
+    expectRecoveryNavigation(
+      fakeLocation,
       "https://example.com/dispatch/new-app",
     );
-    expect(fakeLocation.href).toBe("https://example.com/dispatch/new-app");
+    expect(new URL(fakeLocation.href).pathname).toBe("/dispatch/new-app");
 
-    // React Router calls location.reload() after logging the route-module
-    // failure. If our best-effort reload patch sticks, it must not reload the
-    // old page; if it cannot stick in a real browser, the href is already fixed.
     fakeLocation.reload();
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
     expect(originalReload).not.toHaveBeenCalled();
@@ -407,7 +451,8 @@ describe("route chunk recovery", () => {
       preventDefault,
     } as unknown as PromiseRejectionEvent);
 
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
+    expectRecoveryNavigation(
+      fakeLocation,
       "https://example.com/dispatch/new-app",
     );
     expect(preventDefault).toHaveBeenCalled();
@@ -452,7 +497,8 @@ describe("route chunk recovery", () => {
       preventDefault,
     } as unknown as ErrorEvent);
 
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
+    expectRecoveryNavigation(
+      fakeLocation,
       "https://example.com/dispatch/new-app",
     );
     expect(preventDefault).toHaveBeenCalled();
@@ -528,7 +574,11 @@ describe("route chunk recovery", () => {
     );
     fakeLocation.reload();
 
-    expect(fakeLocation.href).toBe("https://example.com/dispatch/new-app");
+    expectRecoveryNavigation(
+      fakeLocation,
+      "https://example.com/dispatch/new-app",
+    );
+    expect(new URL(fakeLocation.href).pathname).toBe("/dispatch/new-app");
     expect(originalReload).toHaveBeenCalledOnce();
   });
 
@@ -538,8 +588,133 @@ describe("route chunk recovery", () => {
     installRouteChunkRecovery(fakeWindow);
     installRouteChunkRecovery(fakeWindow);
 
-    expect(fakeWindow.document.addEventListener).toHaveBeenCalledTimes(1);
+    expect(fakeWindow.document.addEventListener).toHaveBeenCalledTimes(2);
     expect(fakeWindow.addEventListener).toHaveBeenCalledTimes(2);
+  });
+
+  it("reloads for a failed module preload while ignoring other resource errors", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/dispatch/apps?tab=activity#latest",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    dispatchDocument("error", {
+      target: { tagName: "IMG", src: "https://example.com/avatar.png" },
+    } as unknown as Event);
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+
+    dispatchDocument("error", {
+      target: {
+        tagName: "LINK",
+        rel: "modulepreload",
+        hasAttribute: (name: string) =>
+          name === "data-agent-native-route-warmup",
+        getAttribute: (name: string) =>
+          name === "rel" ? "modulepreload" : null,
+      },
+    } as unknown as Event);
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+
+    dispatchDocument("error", {
+      target: {
+        tagName: "LINK",
+        rel: "modulepreload",
+        getAttribute: (name: string) =>
+          name === "rel" ? "modulepreload" : null,
+      },
+    } as unknown as Event);
+
+    expectRecoveryNavigation(
+      fakeLocation,
+      "https://example.com/dispatch/apps?tab=activity#latest",
+    );
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+  });
+
+  it("removes the browser cache buster after the fresh app shell loads", () => {
+    const startUrl = new URL(
+      "https://example.com/dispatch/apps?tab=activity#latest",
+    );
+    startUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      CHUNK_RECOVERY_QUERY_VALUE,
+    );
+    startUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "cached");
+    const { fakeWindow, fakeLocation, originalReplaceState } = createFakeWindow(
+      startUrl.href,
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    expect(originalReplaceState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/dispatch/apps?tab=activity#latest",
+    );
+    expect(fakeLocation.href).toBe(
+      "https://example.com/dispatch/apps?tab=activity#latest",
+    );
+  });
+
+  it("keeps the recovery marker as a cooldown when session storage is unavailable", () => {
+    for (const storageOptions of [
+      { sessionStorageThrows: true },
+      { sessionStorageGetterThrows: true },
+    ]) {
+      const startUrl = new URL("https://example.com/dispatch/apps");
+      startUrl.searchParams.set(
+        CHUNK_RECOVERY_QUERY_PARAM,
+        CHUNK_RECOVERY_QUERY_VALUE,
+      );
+      const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+        startUrl.href,
+        storageOptions,
+      );
+
+      installRouteChunkRecovery(fakeWindow);
+      expect(
+        new URL(fakeLocation.href).searchParams.get(CHUNK_RECOVERY_QUERY_PARAM),
+      ).toBe(CHUNK_RECOVERY_QUERY_VALUE);
+
+      dispatchDocument("error", {
+        target: { tagName: "SCRIPT", type: "module" },
+      } as unknown as Event);
+
+      expect(fakeLocation.assign).not.toHaveBeenCalled();
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
+        reason: "cooldown",
+      });
+    }
+  });
+
+  it("preserves the storage-unavailable cooldown across a recovery navigation", () => {
+    const firstPage = createFakeWindow("https://example.com/dispatch/apps", {
+      sessionStorageThrows: true,
+    });
+
+    expect(reloadForStaleChunk(firstPage.fakeWindow, 1_000)).toBe(true);
+    const recoveryUrl = firstPage.fakeLocation.assign.mock.calls[0]?.[0];
+    expect(recoveryUrl).toBeDefined();
+    expect(
+      new URL(recoveryUrl ?? "").searchParams
+        .get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)
+        ?.startsWith(`${(1_000).toString(36)}-`),
+    ).toBe(true);
+
+    const nextPage = createFakeWindow(recoveryUrl ?? "", {
+      sessionStorageThrows: true,
+    });
+    installRouteChunkRecovery(nextPage.fakeWindow);
+
+    expect(reloadForStaleChunk(nextPage.fakeWindow, 5_000)).toBe(false);
+    expect(readStaleChunkRecoveryExhausted(nextPage.fakeWindow)).toEqual({
+      reason: "cooldown",
+    });
+    expect(nextPage.fakeLocation.assign).not.toHaveBeenCalled();
+
+    expect(reloadForStaleChunk(nextPage.fakeWindow, 12_000)).toBe(true);
+    expect(nextPage.fakeLocation.assign).toHaveBeenCalledOnce();
   });
 
   it("bounds same-route React Router reloads when there is no fresh target", () => {
@@ -557,9 +732,7 @@ describe("route chunk recovery", () => {
     fakeLocation.reload();
 
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
-      "https://example.com/dispatch/apps",
-    );
+    expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
     expect(originalReload).not.toHaveBeenCalled();
   });
 
@@ -569,16 +742,11 @@ describe("route chunk recovery", () => {
     );
 
     expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
-      "https://example.com/dispatch/apps",
-    );
+    expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
 
-    // Within the cooldown window: do not reload again, so genuinely
-    // unreachable assets surface to Sentry instead of thrashing.
     expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(false);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(1);
 
-    // After the cooldown a later stale chunk can recover again.
     expect(reloadForStaleChunk(fakeWindow, 20_000)).toBe(true);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(2);
   });
@@ -598,9 +766,7 @@ describe("route chunk recovery", () => {
       preventDefault,
     } as unknown as PromiseRejectionEvent);
 
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
-      "https://example.com/dispatch/apps",
-    );
+    expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
     expect(preventDefault).toHaveBeenCalled();
   });
 
@@ -622,6 +788,19 @@ describe("route chunk recovery", () => {
 
     expect(fakeLocation.assign).not.toHaveBeenCalled();
     expect(preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("leaves local Vite module asset errors to the dev server", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "http://localhost:5173/dispatch/apps",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+    dispatchDocument("error", {
+      target: { tagName: "SCRIPT", type: "module" },
+    } as unknown as Event);
+
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
   });
 
   it("reloads the current route for React Router failures in Vite dev", () => {
@@ -717,5 +896,65 @@ describe("route chunk recovery", () => {
       ),
     ).toBe(false);
     expect(fakeLocation.assign).not.toHaveBeenCalled();
+  });
+  describe("when a reload cannot recover the stale chunk", () => {
+    const staleChunk = new Error(
+      "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/x.js",
+    );
+
+    it("stays silent while a reload is actually attempted", () => {
+      const { fakeWindow } = createFakeWindow();
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+
+      expect(recoverFromStaleChunkError(staleChunk, fakeWindow)).toBe(true);
+
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+      expect(dispatchEvent).not.toHaveBeenCalled();
+    });
+
+    it("reports exactly once when the reload cooldown blocks it", () => {
+      const { fakeWindow } = createFakeWindow();
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+
+      expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
+      expect(reloadForStaleChunk(fakeWindow, 2_000)).toBe(false);
+      expect(reloadForStaleChunk(fakeWindow, 3_000)).toBe(false);
+
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
+        reason: "cooldown",
+      });
+      expect(dispatchEvent).toHaveBeenCalledTimes(1);
+      const event = dispatchEvent.mock.calls[0][0] as CustomEvent;
+      expect(event.type).toBe(STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT);
+      expect(event.detail).toEqual({ reason: "cooldown" });
+    });
+
+    it("reports exactly once on desktop, where it never reloads", () => {
+      const { fakeWindow, fakeLocation, dispatchWindow } = createFakeWindow(
+        "https://example.com/dispatch/apps",
+        { userAgent: "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7" },
+      );
+      const dispatchEvent = vi.fn();
+      (fakeWindow as unknown as { dispatchEvent: unknown }).dispatchEvent =
+        dispatchEvent;
+      installRouteChunkRecovery(fakeWindow);
+
+      for (let i = 0; i < 3; i += 1) {
+        dispatchWindow("unhandledrejection", {
+          reason: staleChunk,
+          preventDefault: vi.fn(),
+        } as unknown as PromiseRejectionEvent);
+      }
+
+      expect(fakeLocation.assign).not.toHaveBeenCalled();
+      expect(readStaleChunkRecoveryExhausted(fakeWindow)).toEqual({
+        reason: "desktop",
+      });
+      expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -3,16 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Figma parity (context-menu-2/3): the layer name shown anywhere in the UI
- * for a given node must be the same string. The Layers panel names an
- * unnamed, non-leaf `<div>` by what it structurally is ("Frame" —
- * shared/code-layer.ts's layerNameFor falls back to the tag when a container
- * has no explicit/semantic name), but the "Select layer" and "Edit with AI"
- * context-menu submenus reused the node's raw textContent instead, so the
- * same `<div><span>Tiana</span></div>` read "Frame" in one place and "Tiana"
- * in the other.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -94,9 +84,6 @@ async function contextMenuLayerCandidates(
 
 describe("layer candidate label matches the layers-panel name", () => {
   it("names an unnamed non-leaf container by what it is ('Frame'), not its child's text", async () => {
-    // "card" is a <div> with no explicit/semantic name wrapping one <span>
-    // child — a container, per the layers panel's own leaf-vs-container
-    // rule, so it must read "Frame" everywhere, never the span's "Tiana".
     const candidates = await contextMenuLayerCandidates(FIXTURE, 190, 140);
     const cardCandidate = candidates.find(
       (candidate) => (candidate.info as any)?.sourceId === "card",

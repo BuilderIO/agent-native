@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Locator,
   type Page,
 } from "@playwright/test";
 
@@ -136,8 +137,6 @@ test("built-in template preserves its dimensions and locks and can be saved agai
       page.getByRole("button", { name: "Move", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
 
-    // The board row is minted lazily by the editor once it sees no
-    // `boardFileId`, so it lands after the canvas is interactive.
     await expect
       .poll(
         async () => {
@@ -240,13 +239,14 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   }
 });
 
-/**
- * New Design opens the prompt popover first; skipping it is what creates the
- * empty shell and lands in the editor. The starting-point row and its design
- * system picker live in the agent rail, which arrival no longer opens.
- */
-async function startEmptyDesignFromHome(page: Page): Promise<string> {
+async function startEmptyDesignFromHome(
+  page: Page,
+  beforeSkip?: (promptPopover: Locator) => Promise<void>,
+): Promise<string> {
   await page.getByRole("button", { name: "New Design", exact: true }).click();
+  const promptPopover = page.locator("[data-agent-native-prompt-popover]");
+  await expect(promptPopover).toBeVisible();
+  if (beforeSkip) await beforeSkip(promptPopover);
   await page.getByRole("button", { name: "Skip prompt", exact: true }).click();
   await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, { timeout: 30_000 });
   const designId = page.url().match(/\/design\/([^/?#]+)/)?.[1];
@@ -281,14 +281,27 @@ test("New Design starts an empty design and fills it from a template in the rail
 
     await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("load");
-    createdDesignId = await startEmptyDesignFromHome(page);
+    createdDesignId = await startEmptyDesignFromHome(
+      page,
+      async (promptPopover) => {
+        const designSystemTrigger = promptPopover.getByRole("combobox");
+        await expect(designSystemTrigger).toBeVisible({ timeout: 30_000 });
+        await designSystemTrigger.click();
+        await page
+          .getByRole("option", { name: selectedSystemTitle, exact: true })
+          .click();
+        await expect(designSystemTrigger).toContainText(selectedSystemTitle);
+      },
+    );
 
-    const designSystemPicker = page.locator("[data-design-system-picker]");
-    await expect(designSystemPicker).toBeVisible({ timeout: 30_000 });
-    await designSystemPicker.getByRole("combobox").click();
-    await page
-      .getByRole("option", { name: selectedSystemTitle, exact: true })
-      .click();
+    await expect
+      .poll(
+        async () =>
+          (await getAction(request, "get-design", { id: createdDesignId! }))
+            .designSystemId ?? null,
+        { timeout: 20_000 },
+      )
+      .toBe(designSystemIds[1]);
 
     const templateCard = page.locator(
       '[data-template-card="preset-social-square"]',
@@ -308,7 +321,6 @@ test("New Design starts an empty design and fills it from a template in the rail
     expect(response.ok()).toBe(true);
     const sent = response.request().postDataJSON();
     expect(sent).not.toHaveProperty("prompt");
-    // Fills the design that already exists rather than stranding it.
     expect(sent).toMatchObject({
       targetDesignId: createdDesignId,
       designSystemId: designSystemIds[1],
@@ -337,13 +349,17 @@ test("New Design starts an empty design and fills it from a template in the rail
       )
       .toContain("social-square.html");
 
-    // Filling the design retires the starting-point row, not the design system
-    // every later generation still reads.
     await expect(page.locator("[data-design-first-run]")).toBeHidden({
       timeout: 30_000,
     });
-    await expect(designSystemPicker).toBeVisible();
-    await expect(designSystemPicker).toContainText(selectedSystemTitle);
+    await expect
+      .poll(
+        async () =>
+          (await getAction(request, "get-design", { id: createdDesignId! }))
+            .designSystemId ?? null,
+        { timeout: 20_000 },
+      )
+      .toBe(designSystemIds[1]);
   } finally {
     if (createdDesignId) {
       await postAction(request, "delete-design", { id: createdDesignId }).catch(
@@ -379,23 +395,25 @@ test("choosing No design system clears the design instead of snapping back", asy
 
     await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("load");
-    createdDesignId = await startEmptyDesignFromHome(page);
+    createdDesignId = await startEmptyDesignFromHome(
+      page,
+      async (promptPopover) => {
+        const trigger = promptPopover.getByRole("combobox");
+        await expect(trigger).toBeVisible({ timeout: 30_000 });
+        await trigger.click();
+        await page
+          .getByRole("option", { name: systemTitle, exact: true })
+          .click();
+        await expect(trigger).toContainText(systemTitle);
 
-    const trigger = page
-      .locator("[data-design-system-picker]")
-      .getByRole("combobox");
-    await expect(trigger).toBeVisible({ timeout: 30_000 });
-    await trigger.click();
-    await page.getByRole("option", { name: systemTitle, exact: true }).click();
-    await expect(trigger).toContainText(systemTitle);
+        await trigger.click();
+        await page
+          .getByRole("option", { name: "No design system", exact: true })
+          .click();
+        await expect(trigger).toContainText("No design system");
+      },
+    );
 
-    await trigger.click();
-    await page
-      .getByRole("option", { name: "No design system", exact: true })
-      .click();
-    // Clearing used to read as "nothing chosen yet", which re-resolved the
-    // default system on the very next render.
-    await expect(trigger).toContainText("No design system");
     await expect
       .poll(
         async () =>
@@ -404,7 +422,6 @@ test("choosing No design system clears the design instead of snapping back", asy
         { timeout: 20_000 },
       )
       .toBeNull();
-    await expect(trigger).toContainText("No design system");
   } finally {
     if (createdDesignId) {
       await postAction(request, "delete-design", { id: createdDesignId }).catch(

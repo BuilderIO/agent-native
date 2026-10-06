@@ -24,13 +24,6 @@ async function boardHtml(
   );
 }
 
-/**
- * Computed styles are not paint. Every earlier board-colour assertion read
- * `background-color` off the layer and passed while the frame in front of it
- * painted an opaque white base, which is the bug users kept reporting — so
- * these read the rendered pixels instead.
- */
-
 async function postAction(
   request: APIRequestContext,
   name: string,
@@ -79,10 +72,6 @@ async function pixelAt(page: Page, x: number, y: number): Promise<string> {
   );
 }
 
-/** A point on the canvas confirmed clear of the chrome rails —
- * `elementFromPoint` can otherwise land on the left layers rail's own
- * `--design-editor-panel-bg`, which reads as a plausible but wrong canvas
- * colour (see parity-canvas-background.spec.ts's sampleXY). */
 async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
   const canvasBox = await page
     .locator("[data-design-canvas-container]")
@@ -175,12 +164,8 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
       });
       await expect(page.locator("html")).toHaveClass(new RegExp(theme));
 
-      // Well clear of both the shape drawn below and the floating toolbar.
       const { x: sampleX, y: sampleY } = await sampleXY(page);
 
-      // Read the actual rendered canvas colour before any edit, rather than
-      // hardcoding a palette literal — a rendered-vs-token mismatch is a
-      // separate bug from the flash this test exists to catch.
       const initialCanvasRgb = await pixelAt(page, sampleX, sampleY);
       expect(initialCanvasRgb).toBe(expectedCanvasRgb);
 
@@ -205,8 +190,6 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
       await page.mouse.move(1000, 520, { steps: 12 });
       await page.mouse.up();
 
-      // The board layer only mounts once the board has content, so this is the
-      // first moment a second colour can appear over the canvas.
       await expect(page.locator("[data-board-surface-layer]")).toBeVisible({
         timeout: 20_000,
       });
@@ -218,8 +201,6 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
         .poll(() => pixelAt(page, sampleX, sampleY))
         .toBe(initialCanvasRgb);
 
-      // Board text keys off the same canvas colour: white on a dark canvas,
-      // inherited on a light one, where white would be unreadable.
       await page.locator('button[aria-label="Text"]').first().click();
       await expect(
         page.locator('button[aria-label="Text"]').first(),
@@ -238,7 +219,6 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
             const style = html.match(
               /data-an-primitive="text"[^>]*style="([^"]*)"/,
             )?.[1];
-            // Absent is not "no colour": without it there is nothing to judge.
             if (!style) return null;
             return style.match(/(?:^|;)\s*color:\s*([^;"]+)/i)?.[1].trim();
           },

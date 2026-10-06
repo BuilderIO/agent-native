@@ -62,6 +62,11 @@ vi.mock("./session-replay.js", () => ({
     mockGetSessionReplayTokenizedEvents(...args),
 }));
 
+import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../shared/session-events";
+import {
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+} from "../../shared/session-performance";
 import {
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
@@ -187,7 +192,6 @@ describe("session replay agent context links", () => {
     expect(mockCreateScopedAgentAccessGrant).toHaveBeenCalledWith({
       resourceKind: "analytics-session-replay-agent-context",
       resourceId: "sr_1",
-      viewerEmail: "owner@example.com",
       ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
     });
     expect(link.url).toBe(
@@ -233,6 +237,22 @@ describe("session replay agent context links", () => {
       "navigation",
       "click",
     ]);
+  });
+
+  it("accepts recording-scoped agent access without a viewer identity claim", async () => {
+    mockVerifyScopedAgentAccessToken.mockReturnValueOnce({ ok: true });
+
+    await buildSessionReplayAgentContext({
+      recordingId: "sr_1",
+      token: "scoped-token-without-viewer-email",
+      origin: "https://analytics.example.com",
+      includeTimeline: false,
+    });
+
+    expect(mockGetSessionReplayTokenizedSummary).toHaveBeenCalledWith(
+      "sr_1",
+      undefined,
+    );
   });
 
   it("returns sanitized timeline markers without raw replay events", async () => {
@@ -345,6 +365,16 @@ describe("session replay agent context links", () => {
         durationMs: 4,
       }),
       { type: 5, timestamp: 1600, data: { tag: "app.custom", payload: {} } },
+      // Markers the Sessions triage Lab owns stay off agent timelines.
+      ...[
+        SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+        SESSION_REPLAY_VITALS_EVENT_TAG,
+        SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+      ].map((tag, index) => ({
+        type: 5,
+        timestamp: 1700 + index,
+        data: { tag, payload: { action: "save-clip", duration_ms: 1_500 } },
+      })),
     ]);
 
     const context = await buildSessionReplayAgentContext({
@@ -768,8 +798,6 @@ describe("buildSessionReplayDiagnostics", () => {
       maxConsoleEntries: 3,
     });
 
-    // Priority (error) entry is kept even though it's chronologically last,
-    // and the cap only holds 2 of the 10 routine logs alongside it.
     expect(diagnostics.console.entries).toHaveLength(3);
     expect(
       diagnostics.console.entries.some((entry) => entry.level === "error"),
@@ -802,7 +830,6 @@ describe("buildSessionReplayDiagnostics", () => {
       offset: 0,
     });
 
-    // Chronological: first 3 by offsetMs, regardless of level priority.
     expect(diagnostics.console.entries.map((entry) => entry.message)).toEqual([
       "log 0",
       "log 1",
@@ -840,7 +867,6 @@ describe("buildSessionReplayDiagnostics", () => {
       Array.from({ length: 10 }, (_, i) => `entry ${i + 10}`),
       Array.from({ length: 5 }, (_, i) => `entry ${i + 20}`),
     ]);
-    // Union of all pages is the full chronological set, no dupes/gaps.
     const union = pages.flat();
     expect(union).toHaveLength(25);
     expect(new Set(union).size).toBe(25);
@@ -857,7 +883,6 @@ describe("buildSessionReplayDiagnostics", () => {
         }),
       );
     }
-    // offsetMs values will be 0, 100, 200, ..., 900 (startedAt = 1000).
 
     const diagnostics = buildSessionReplayDiagnostics(events as any, {
       fromMs: 200,
@@ -870,7 +895,6 @@ describe("buildSessionReplayDiagnostics", () => {
       "entry 4",
       "entry 5",
     ]);
-    // total reflects the windowed population (4), not the full 10.
     expect(diagnostics.console.total).toBe(4);
     expect(diagnostics.console.truncated).toBe(false);
     expect(diagnostics.console.hasMore).toBe(false);
@@ -895,7 +919,6 @@ describe("buildSessionReplayDiagnostics", () => {
       maxConsoleEntries: 2,
     });
 
-    // Windowed population is entries 2..9 (offsetMs 200-900, 8 entries).
     expect(diagnostics.console.total).toBe(8);
     expect(diagnostics.console.entries.map((entry) => entry.message)).toEqual([
       "entry 4",

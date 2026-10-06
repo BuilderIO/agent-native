@@ -25,7 +25,6 @@ import type { InteractionState } from "../../../../shared/interaction-states";
 
 export type { InteractionState };
 
-/** `null` (or omitted) means the Default (base) state is active. */
 export type ActiveInteractionState = InteractionState | null;
 
 const TRANSIENT_CLOSE_WINDOW_MS = 400;
@@ -38,28 +37,10 @@ export function isImmediateInteractionMenuClose(
 }
 
 export interface InteractionStatePanelProps {
-  /** `null` = Default. */
   activeState: ActiveInteractionState;
   onActiveStateChange: (state: ActiveInteractionState) => void;
-  /**
-   * Which non-default states are actually applicable to the selected
-   * element. `disabled` only makes sense on form controls / buttons, for
-   * example. Defaults to all five supported states when omitted so callers
-   * that haven't wired element-kind detection yet still get a working
-   * selector.
-   */
   availableStates?: readonly InteractionState[];
-  /**
-   * States that already have at least one authored override, for the
-   * dropdown's per-row accent dot. Does not affect availability.
-   */
   statesWithOverrides?: ReadonlySet<InteractionState>;
-  /**
-   * Controlled dropdown state owned by EditPanel. The inspector's element
-   * subtree can transiently unmount while a just-authored style is reconciled;
-   * keeping this one level higher prevents that refresh from closing a menu
-   * the user just opened.
-   */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -123,9 +104,6 @@ export function InteractionStatePanel({
       const ignoreThisClose =
         ignoreNextImplicitCloseRef.current &&
         isImmediateInteractionMenuClose(openedAtRef.current, performance.now());
-      // One-shot even when the close arrived outside the timing window: no
-      // later outside click can be trapped by an opening event that never
-      // produced the reconciliation callback.
       ignoreNextImplicitCloseRef.current = false;
       if (ignoreThisClose) return;
       onOpenChange?.(false);
@@ -136,9 +114,6 @@ export function InteractionStatePanel({
     ignoreNextImplicitCloseRef.current = false;
     onOpenChange?.(false);
   }, [onOpenChange]);
-  // The menu's order is part of the Figma interaction contract. Callers may
-  // narrow the applicable states, but cannot accidentally reorder or repeat
-  // them by passing a differently ordered capability list.
   const orderedAvailableStates = DEFAULT_AVAILABLE_STATES.filter((state) =>
     availableStates.includes(state),
   );
@@ -234,18 +209,6 @@ export function InteractionStatePanel({
   );
 }
 
-/**
- * PropertyRow reset/override indicator — a small accent dot placed next to
- * any style-section field row that has a declared override in the active
- * interaction state, plus a reset button that clears just that property.
- * Follows the same "dot + reset" shape as the breakpoint-override indicator
- * convention (`getBreakpointOverrideState` callers elsewhere in EditPanel).
- *
- * Usage: wrap or place inline next to a field's label when
- * `hasOverride` is true. `onReset` should call the shared
- * `removeStateProperty` helper (via the parent's style-change plumbing) for
- * that property/state.
- */
 export function InteractionStateOverrideIndicator({
   hasOverride,
   onReset,

@@ -519,7 +519,8 @@ before telling the user they are unauthenticated.
 - Don't hand-write product UI in `mcpApp.resource.html`; use a real React
   route/component and embed it with `embedApp()`.
 - Don't test Claude full-app embeds against raw Vite dev modules and conclude
-  production is broken; use `pnpm exec agent-native start`, a preview deploy, or prod.
+  production is broken; use `pnpm exec agent-native start` with `DATABASE_URL`
+  set to Postgres and `BETTER_AUTH_SECRET` set, a preview deploy, or prod.
 - Don't scope the `navigate` write to the agent token, or pass privileged
   state through the deep link — it's a pure pointer.
 - Don't invent a new navigation mechanism; bridge to the existing

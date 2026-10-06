@@ -1,8 +1,3 @@
-/**
- * DOM-only helpers for the contentEditable slide text surface. The inspector
- * owns persistence; these helpers deliberately only touch the live edit DOM.
- */
-
 import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
 import {
@@ -38,7 +33,12 @@ export interface InlineTextStyleApplication {
   range?: Range;
 }
 
-export type InlineTextFormat = "bold" | "italic" | "underline" | "strike";
+export type InlineTextFormat =
+  | "bold"
+  | "italic"
+  | "underline"
+  | "strike"
+  | "code";
 
 const CSS_PROPERTY_NAMES: Record<InlineTextStyleKey, string> = {
   color: "color",
@@ -52,6 +52,14 @@ const CSS_PROPERTY_NAMES: Record<InlineTextStyleKey, string> = {
 };
 
 const INLINE_STYLE_SPAN = "span[data-slide-inline-style]";
+const INLINE_TEXT_BLOCKS =
+  "address,article,aside,blockquote,dd,div,dl,dt,figcaption,figure,footer,h1,h2,h3,h4,h5,h6,header,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+const INLINE_LAYOUT_DISPLAYS = new Set([
+  "flex",
+  "grid",
+  "inline-flex",
+  "inline-grid",
+]);
 
 const DECORATION_LINE: Record<"underline" | "strike", string> = {
   underline: "underline",
@@ -86,14 +94,9 @@ function elementAttributesMatch(a: Element, b: Element) {
   );
 }
 
-/**
- * Removes only markup this module creates. Author spans are never removed or
- * merged, even when empty or identical: an empty span is often a decorative
- * dot, and merging author runs rewrites what the stored slide says.
- */
-export function normalizeInlineTextSpans(editable: HTMLElement) {
+function normalizeInlineTextSpanScope(scope: HTMLElement) {
   const spans = Array.from(
-    editable.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
+    scope.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
   );
   for (const span of spans.reverse()) {
     if (!span.isConnected) continue;
@@ -110,7 +113,7 @@ export function normalizeInlineTextSpans(editable: HTMLElement) {
   while (merged) {
     merged = false;
     for (const span of Array.from(
-      editable.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
+      scope.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
     )) {
       const next = span.nextSibling;
       if (
@@ -126,10 +129,32 @@ export function normalizeInlineTextSpans(editable: HTMLElement) {
   }
 }
 
-/**
- * Returns a non-empty native selection only when both of its endpoints belong
- * to this editable. A range in another slide must never receive inspector CSS.
- */
+function inlineTextNormalizationScope(editable: HTMLElement, text: Text) {
+  const block =
+    text.parentElement?.closest<HTMLElement>(INLINE_TEXT_BLOCKS) ?? editable;
+  if (INLINE_LAYOUT_DISPLAYS.has(getComputedStyle(block).display)) {
+    return (
+      Array.from(block.children).find((child) => child.contains(text)) ?? null
+    );
+  }
+  return block;
+}
+
+export function normalizeInlineTextSpans(
+  editable: HTMLElement,
+  selectedText?: readonly Text[],
+) {
+  const scopes = selectedText
+    ? new Set(
+        selectedText.flatMap((text) => {
+          const scope = inlineTextNormalizationScope(editable, text);
+          return scope instanceof HTMLElement ? [scope] : [];
+        }),
+      )
+    : new Set([editable]);
+  for (const scope of scopes) normalizeInlineTextSpanScope(scope);
+}
+
 export function getEditableTextRange(
   editable: HTMLElement,
   selection: Selection | null = window.getSelection(),
@@ -141,7 +166,6 @@ export function getEditableTextRange(
   return hasRangeInside(editable, range) ? range : null;
 }
 
-/** Clones the live selection before an inspector control takes focus. */
 export function snapshotEditableTextRange(
   editable: HTMLElement,
   selection: Selection | null = window.getSelection(),
@@ -149,7 +173,6 @@ export function snapshotEditableTextRange(
   return getEditableTextRange(editable, selection)?.cloneRange() ?? null;
 }
 
-/** Selects the complete contents of one live slide text block. */
 export function selectAllEditableText(
   editable: HTMLElement,
   selection: Selection | null = window.getSelection(),
@@ -163,7 +186,6 @@ export function selectAllEditableText(
   return true;
 }
 
-/** Restores a captured range only while it is still safe to use in this block. */
 export function restoreEditableTextRange(
   editable: HTMLElement,
   range: Range | null,
@@ -176,7 +198,6 @@ export function restoreEditableTextRange(
   return true;
 }
 
-/** Text that is page structure rather than a run a span can style. */
 function isStylableText(text: Text) {
   // ponytail: whitespace-only text holding a newline is treated as source
   // indentation; styling a deliberately blank line would need layout reads.
@@ -184,10 +205,6 @@ function isStylableText(text: Text) {
   return !text.parentElement?.closest("style, script, template, svg");
 }
 
-/**
- * Splits text nodes at the range ends and returns each selected text run.
- * Only text nodes are split, so no author element is ever cut in two.
- */
 function splitSelectedText(editable: HTMLElement, range: Range): Text[] {
   const { startContainer, startOffset, endContainer, endOffset } = range;
   const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
@@ -206,7 +223,6 @@ function splitSelectedText(editable: HTMLElement, range: Range): Text[] {
   });
 }
 
-/** The run's own style span: reused when it wraps exactly this run. */
 function innermostStyleSpan(text: Text): HTMLSpanElement {
   const parent = text.parentElement;
   if (
@@ -230,28 +246,34 @@ function styleSelectedText(
 ): InlineTextStyleApplication {
   const range = getEditableTextRange(editable, selection);
   if (!range) return { scope: "block" };
+  const backward =
+    selection?.anchorNode === range.endContainer &&
+    selection.anchorOffset === range.endOffset &&
+    selection.focusNode === range.startContainer &&
+    selection.focusOffset === range.startOffset;
   const texts = splitSelectedText(editable, range);
   if (texts.length === 0) return { scope: "selection", range };
   style(texts);
-  normalizeInlineTextSpans(editable);
+  normalizeInlineTextSpans(editable, texts);
 
-  // Anchor on the text nodes: normalization moves them but never replaces them.
   const last = texts[texts.length - 1];
   const nextRange = document.createRange();
   nextRange.setStart(texts[0], 0);
   nextRange.setEnd(last, last.length);
   if (selection) {
-    selection.removeAllRanges();
-    selection.addRange(nextRange);
+    if (backward && typeof selection.setBaseAndExtent === "function") {
+      selection.setBaseAndExtent(last, last.length, texts[0], 0);
+    } else if (backward && typeof selection.extend === "function") {
+      selection.collapse(last, last.length);
+      selection.extend(texts[0], 0);
+    } else {
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+    }
   }
   return { scope: "selection", range: nextRange };
 }
 
-/**
- * Styles precisely the selected text. Each selected run gets its own innermost
- * `span[data-slide-inline-style]`, so the patch beats any nested author style
- * while no author element is split, merged, or removed.
- */
 export function applyInlineTextStyle(
   editable: HTMLElement,
   patch: InlineTextStylePatch,
@@ -275,10 +297,6 @@ function ownDecorationLines(element: Element) {
   );
 }
 
-/**
- * Decorations are not inherited: a run is underlined when any ancestor up to
- * the editable draws the line, whatever the run's own computed value says.
- */
 function isFormatActive(
   text: Text,
   format: InlineTextFormat,
@@ -293,6 +311,7 @@ function isFormatActive(
   if (format === "italic") {
     return /italic|oblique/.test(window.getComputedStyle(element).fontStyle);
   }
+  if (format === "code") return !!element.closest("code");
   for (
     let current: Element | null = element;
     current && editable.contains(current);
@@ -315,12 +334,10 @@ function setOwnDecorationLine(element: HTMLElement, line: string, on: boolean) {
   );
 }
 
-/** Stops `element` drawing `line`, writing `none` only when a rule would still draw it. */
 function clearOwnDecorationLine(element: HTMLElement, line: string) {
   const lines = new Set(ownDecorationLines(element));
   lines.delete(line);
   const rest = lines.size ? [...lines].join(" ") : "none";
-  // Its own `text-decoration` shorthand stays one declaration.
   if (element.style.getPropertyValue("text-decoration")) {
     element.style.setProperty("text-decoration-line", rest);
     return;
@@ -342,12 +359,6 @@ const DECORATION_LOOK = [
   "text-decoration-thickness",
 ] as const;
 
-/**
- * Removes `line` from the selected runs. A line is drawn over all the text
- * of the element declaring it and nothing inside can cancel it, so every
- * element drawing it over the selection stops, and each unselected run those
- * elements covered draws it again with the look it had.
- */
 function removeDecorationLine(
   editable: HTMLElement,
   texts: Text[],
@@ -403,15 +414,6 @@ const FORMAT_DECLARATION = {
   italic: ["font-style", "italic", "normal"],
 } as const;
 
-/**
- * Toggles a format from the selection's effective computed value. The run's
- * own declaration is dropped first and the explicit value (700/400,
- * italic/normal) is written only when what it inherits differs, so bold on
- * then off leaves no markup, while un-bolding a heading made bold by its class
- * still works without touching the class. A line is switched off where it is
- * drawn, on the author element itself (see `removeDecorationLine`), never by
- * splitting that element.
- */
 export function toggleInlineTextFormat(
   editable: HTMLElement,
   format: InlineTextFormat,
@@ -419,6 +421,38 @@ export function toggleInlineTextFormat(
 ): InlineTextStyleApplication {
   return styleSelectedText(editable, selection, (texts) => {
     const on = !texts.every((text) => isFormatActive(text, format, editable));
+    if (format === "code") {
+      if (on) {
+        texts.splice(0, texts.length, ...wrapSelectedCode(editable, texts));
+        return;
+      }
+      for (const text of texts) {
+        const code = text.parentElement?.closest("code");
+        if (!code || !editable.contains(code) || text.parentNode !== code) {
+          if (code && editable.contains(code)) removeCodeFromText(code, text);
+          continue;
+        }
+        const children = Array.from(code.childNodes);
+        const selectedIndex = children.indexOf(text);
+        if (selectedIndex < 0) continue;
+        const replacement = document.createDocumentFragment();
+        const before = children.slice(0, selectedIndex);
+        const after = children.slice(selectedIndex + 1);
+        if (before.length) {
+          const wrapper = code.cloneNode(false) as HTMLElement;
+          wrapper.append(...before);
+          replacement.append(wrapper);
+        }
+        replacement.append(text);
+        if (after.length) {
+          const wrapper = code.cloneNode(false) as HTMLElement;
+          wrapper.append(...after);
+          replacement.append(wrapper);
+        }
+        code.replaceWith(replacement);
+      }
+      return;
+    }
     if (format === "underline" || format === "strike") {
       if (!on) {
         removeDecorationLine(editable, texts, format);
@@ -445,7 +479,159 @@ export function toggleInlineTextFormat(
   });
 }
 
-/** Moves the part of `link` on one side of `text` into its own copy of the link. */
+function wrapSelectedCodeInBlock(editable: HTMLElement, texts: Text[]) {
+  const range = document.createRange();
+  range.setStart(texts[0]!, 0);
+  range.setEnd(texts.at(-1)!, texts.at(-1)!.length);
+  const scope =
+    range.commonAncestorContainer instanceof HTMLElement
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+  const contents = extractWithoutCopiedIdentity(range);
+  for (const nested of Array.from(contents.querySelectorAll("code"))) {
+    nested.replaceWith(...Array.from(nested.childNodes));
+  }
+  const code = document.createElement("code");
+  code.setAttribute("data-slide-authoring-format", "code");
+  code.append(contents);
+  range.insertNode(code);
+  let parent = code.parentElement;
+  while (
+    parent &&
+    parent !== editable &&
+    parent !== scope &&
+    !SLIDE_CLIPBOARD_BLOCK_TAGS.has(parent.tagName)
+  ) {
+    const beforeRange = document.createRange();
+    beforeRange.selectNodeContents(parent);
+    beforeRange.setEndBefore(code);
+    const before = extractWithoutCopiedIdentity(beforeRange);
+    const afterRange = document.createRange();
+    afterRange.selectNodeContents(parent);
+    afterRange.setStartAfter(code);
+    const after = extractWithoutCopiedIdentity(afterRange);
+    const replacement = document.createDocumentFragment();
+    const appendParentPart = (part: DocumentFragment) => {
+      if (!part.childNodes.length) return;
+      const copy = parent!.cloneNode(false) as HTMLElement;
+      stripCopiedIdentity(copy);
+      copy.append(part);
+      replacement.append(copy);
+    };
+    appendParentPart(before);
+    replacement.append(code);
+    appendParentPart(after);
+    parent.replaceWith(replacement);
+    parent = code.parentElement;
+  }
+
+  const isEmptyInline = (node: Node | null): node is HTMLElement =>
+    node instanceof HTMLElement &&
+    !SLIDE_CLIPBOARD_BLOCK_TAGS.has(node.tagName) &&
+    !node.textContent &&
+    node.childElementCount === 0;
+  for (
+    let sibling = code.previousSibling;
+    sibling;
+    sibling = code.previousSibling
+  ) {
+    if (sibling instanceof Text && !sibling.data) sibling.remove();
+    else if (isEmptyInline(sibling)) sibling.remove();
+    else break;
+  }
+  for (let sibling = code.nextSibling; sibling; sibling = code.nextSibling) {
+    if (sibling instanceof Text && !sibling.data) sibling.remove();
+    else if (isEmptyInline(sibling)) sibling.remove();
+    else break;
+  }
+
+  const selected: Text[] = [];
+  const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    selected.push(node as Text);
+  }
+  return selected;
+}
+
+function wrapSelectedCode(editable: HTMLElement, texts: Text[]) {
+  const groups = new Map<HTMLElement, Text[]>();
+  for (const text of texts) {
+    let block = text.parentElement;
+    while (
+      block &&
+      block !== editable &&
+      !SLIDE_CLIPBOARD_BLOCK_TAGS.has(block.tagName)
+    ) {
+      block = block.parentElement;
+    }
+    const scope = block ?? editable;
+    const group = groups.get(scope) ?? [];
+    group.push(text);
+    groups.set(scope, group);
+  }
+  return Array.from(groups.values()).flatMap((group) =>
+    wrapSelectedCodeInBlock(editable, group),
+  );
+}
+
+function removeCodeFromText(code: HTMLElement, text: Text) {
+  const ancestors: HTMLElement[] = [];
+  for (
+    let parent = text.parentElement;
+    parent && parent !== code;
+    parent = parent.parentElement
+  ) {
+    ancestors.push(parent);
+  }
+
+  const beforeRange = code.ownerDocument.createRange();
+  beforeRange.selectNodeContents(code);
+  beforeRange.setEndBefore(text);
+  const before = extractWithoutCopiedIdentity(beforeRange);
+
+  const selectedRange = code.ownerDocument.createRange();
+  selectedRange.selectNode(text);
+  const selected = extractWithoutCopiedIdentity(selectedRange);
+  let selectedNode = selected.firstChild;
+  if (!selectedNode) return;
+  for (const ancestor of ancestors) {
+    const wrapper = ancestor.cloneNode(false) as HTMLElement;
+    wrapper.append(selectedNode);
+    selectedNode = wrapper;
+  }
+
+  const afterRange = code.ownerDocument.createRange();
+  afterRange.selectNodeContents(code);
+  const after = extractWithoutCopiedIdentity(afterRange);
+
+  const replacement = code.ownerDocument.createDocumentFragment();
+  let hasCodeWrapper = false;
+  const appendCode = (content: DocumentFragment) => {
+    if (
+      !content.textContent &&
+      !content.querySelector(
+        "br, img, svg, video, canvas, picture, iframe, input",
+      )
+    ) {
+      return;
+    }
+    const wrapper = code.cloneNode(false) as HTMLElement;
+    if (hasCodeWrapper) {
+      wrapper.removeAttribute("id");
+      for (const { name } of Array.from(wrapper.attributes)) {
+        if (/^data-.+-id$/.test(name)) wrapper.removeAttribute(name);
+      }
+    }
+    wrapper.append(content);
+    replacement.append(wrapper);
+    hasCodeWrapper = true;
+  };
+  appendCode(before);
+  replacement.append(selectedNode);
+  appendCode(after);
+  code.replaceWith(replacement);
+}
+
 function splitLinkPart(
   link: HTMLElement,
   text: Text,
@@ -466,13 +652,6 @@ function splitLinkPart(
   link[side](copy);
 }
 
-/**
- * Links, or unlinks, precisely the selected text. Each selected run is
- * wrapped in its own `<a>`. A run inside a link is split out of it first, so
- * linking keeps that link's attributes (a link inside a link is split apart
- * when the slide is parsed again) and unlinking leaves the unselected rest of
- * the link linked.
- */
 export function setInlineTextLink(
   editable: HTMLElement,
   href: string | null,
@@ -521,11 +700,6 @@ function computedStyleValues(element: HTMLElement): InlineTextStyleValues {
   ) as InlineTextStyleValues;
 }
 
-/**
- * Reads the active selection's effective styles, returning null plus the key in
- * `mixed` when multiple selected text runs disagree. A collapsed/cross-block
- * selection intentionally reports the editable's block-level text style.
- */
 export function getInlineTextStyleSnapshot(
   editable: HTMLElement,
   selection: Selection | null = window.getSelection(),
@@ -637,10 +811,26 @@ function isSlideClipboardBlock(element: Element): boolean {
   return SLIDE_CLIPBOARD_BLOCK_TAGS.has(element.tagName);
 }
 
-/** Keep selected rich text, but discard editor context and source geometry. */
 export function normalizeSlideClipboardHtml(html: string): string | null {
   if (!html || typeof DOMParser === "undefined") return null;
-  const sanitized = sanitizeSlideHtml(html);
+  const officeDoc = new DOMParser().parseFromString(html, "text/html");
+  officeDoc.querySelectorAll<HTMLElement>("[style]").forEach((element) => {
+    if (!/mso-list\s*:\s*ignore\b/i.test(element.getAttribute("style") ?? ""))
+      return;
+    let parent = element.parentElement;
+    element.remove();
+    while (
+      parent &&
+      parent !== officeDoc.body &&
+      !isSlideClipboardBlock(parent) &&
+      parent.childNodes.length === 0
+    ) {
+      const next = parent.parentElement;
+      parent.remove();
+      parent = next;
+    }
+  });
+  const sanitized = sanitizeSlideHtml(officeDoc.body.innerHTML);
   if (!sanitized.trim()) return null;
 
   const doc = new DOMParser().parseFromString(sanitized, "text/html");
@@ -649,6 +839,13 @@ export function normalizeSlideClipboardHtml(html: string): string | null {
       "style, .fmd-layout-spacer, [data-slide-layout-spacer-for]",
     )
     .forEach((element) => element.remove());
+  doc
+    .querySelectorAll<HTMLElement>("b[style], strong[style]")
+    .forEach((element) => {
+      if (/^(?:normal|400)$/i.test(element.style.fontWeight.trim())) {
+        element.replaceWith(...Array.from(element.childNodes));
+      }
+    });
   doc.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
     if (!image.getAttribute("src")?.trim().toLowerCase().startsWith("data:")) {
       return;
@@ -666,8 +863,6 @@ export function normalizeSlideClipboardHtml(html: string): string | null {
       element.remove();
       return;
     }
-    // Editor state and identity: a pasted copy answering to its source's id
-    // or object id breaks selection, freeform moves, and export.
     for (const attribute of Array.from(element.attributes)) {
       if (attribute.name.startsWith("data-") || attribute.name === "id")
         element.removeAttribute(attribute.name);

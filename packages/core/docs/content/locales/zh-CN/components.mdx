@@ -13,11 +13,11 @@ Agent-Native 附带了完整的侧边栏，但侧边栏不是合同。
 从聚焦的客户端子路径导入浏览器UI：
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { AgentConversation } from "@agent-native/core/client/conversation";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
+import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { ResourcesPanel } from "@agent-native/core/client/resources";
 ```
 
@@ -103,26 +103,102 @@ import { useToast } from "@/hooks/use-toast";
 
 </Diagram>
 
+## 提示词主页与模板库 {#prompt-home}
+
+`PromptHome`、`PromptHomeLibrary`、`TemplateLibraryGrid` 和 `TemplateLibraryCard` 从 `@agent-native/toolkit/app-shell` 导出。它们共享主页间距、居中的 700px 编辑器和响应式四列模板库。main 地标由应用外壳保留。应用提供真实数据、本地化标签、预览、操作和路由。
+
+`PromptHome` 接收 `title`、`composer`、可选的 `mobileToolbar`、`connection`、`quickActions` 和作为模板库的 `children`。`PromptHomeLibrary` 接收受控的 `value`（`templates` 或 `recent`）、`onValueChange`、`labels`、`showRecent`、`templates`，以及可选的 `recent`、`browseAll`、`recentActions`。没有最近项目时直接显示模板，不创建虚假选项卡。`browseAll` 是应用提供的真实链接。语义组件的 `Tabs.headerActions` 插槽将当前操作放在选项卡旁。
+
+```tsx
+import { PromptHome, PromptHomeLibrary } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
+
+<PromptHome
+  title={labels.create}
+  composer={composer}
+  quickActions={quickActions}
+>
+  <PromptHomeLibrary
+    value={tab}
+    onValueChange={setTab}
+    labels={labels.library}
+    showRecent={hasOwnedWork}
+    browseAll={<Link to="/templates">{labels.browseAll}</Link>}
+    templates={templateGrid}
+    recent={recentItems}
+  />
+</PromptHome>;
+```
+
+`TemplateLibraryGrid` 接收带有 `id`、`title`、可选的已存储 `description` 和 `disabled` 的类型化 `items`，以及 `renderPreview`。它支持 `selectedId`、`pendingId`、`disabled`、`loading`、`error`、`onRetry`、可选的 `empty`，以及加载、空状态和重试所需的 `labels`。只能选择 `onSelect(item, element)` 或 `renderLink(item, children)` 之一。图片和标题共享一个激活目标。`renderActions` 位于激活目标外部，与标题和可选描述同行排列。卡片采用统一的预览和说明区域尺寸；直接激活会使用或复制模板，预览仅从说明区域的菜单打开。刷新失败后仍保留已加载项目。`TemplateLibraryCard` 为单个 `item` 提供相同行为，接收 `preview` 及可选的 `actions`、`selected`、`pending`、`disabled`。
+
+```tsx
+import { TemplateLibraryGrid } from "@agent-native/toolkit/app-shell";
+
+<TemplateLibraryGrid
+  items={templates}
+  labels={labels.grid}
+  renderPreview={renderTemplatePreview}
+  onSelect={selectTemplate}
+  selectedId={selectedId}
+  pendingId={pendingId}
+  loading={loading}
+  error={error}
+  onRetry={reloadTemplates}
+/>;
+```
+
+从同一入口导出的 `TemplatePreviewDialog` 使用语义化 `Dialog`，默认 `size="viewport"`，也可选择 `size="large"`。它接收受控的 `open`、`onOpenChange`、`title` 以及应用渲染的 `children`；标题栏不包含使用操作。可选的 `thumbnails` 包含 `{ id, title, preview, disabled? }`，并要求提供 `selectedId` 和 `onSelectedIdChange`。缩略图栏在窄屏上横向排列，支持方向键、Home 和 End。
+
+`viewport` 是保留边距的居中模态框：高度为 90dvh，最大宽度为 96rem，移动端侧边距为 1rem，较宽屏幕为 1.5rem。它保留标准对话框的边框、圆角、阴影和遮罩。在支持悬停的设备上，卡片悬停或获得键盘焦点时显示说明区域菜单；触屏设备上始终显示，预留空间不会变化。
+
+传入本地化的 `labels`（`close`、`loading`、`empty`、`retry`、`thumbnails`），以及可选的 `loading`、`error`、`empty` 和 `onRetry`，以显示互斥的就绪状态。`initialFocusRef` 和 `restoreFocusRef` 控制焦点。说明区域的菜单关闭交接完成后再打开查看器；读取、取消、授权和安全的隔离渲染仍由应用负责。
+
+```tsx
+import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
+
+<TemplatePreviewDialog
+  open={previewOpen}
+  onOpenChange={setPreviewOpen}
+  title={template.title}
+  labels={labels.preview}
+  loading={previewLoading}
+  error={previewError}
+  empty={!pages.length}
+  onRetry={reloadPreview}
+  restoreFocusRef={menuTriggerRef}
+  thumbnails={pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    preview: renderThumbnail(page),
+  }))}
+  selectedId={selectedPageId}
+  onSelectedIdChange={setSelectedPageId}
+>
+  {renderSelectedPage(selectedPageId)}
+</TemplatePreviewDialog>;
+```
+
+Toolkit 样式包含共享布局尺寸。`@agent-native/toolkit/app-shell/prompt-home.css` 是专用样式表导出。现有 `toolkit/app-shell` 弹出单元包含布局和样式表。数据加载、授权、导入流程和编辑器状态仍由应用负责。
+
 ## 代理并聊天UI {#agent-chat-ui}
 
-| API                                  | 导入路径                                      | 何时使用                                                    |
-| ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` 或 `/client/chat` | 您希望应用程序周围有完整的侧边栏。                          |
-| `<AgentToggleButton>`                | `@agent-native/core/client` 或 `/client/chat` | 您为侧边栏渲染自己的标题按钮。                              |
-| `<AgentPanel>`                       | `@agent-native/core/client` 或 `/client/chat` | 您希望在自己的布局、路线、对话框或侧栏中显示完整面板。      |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` 或 `/client/chat` | 您希望在面板或页面模式下聊天，而不需要侧边栏包装。          |
-| `<AssistantChat>`                    | `@agent-native/core/client`或`/client/chat`   | 您希望拥有周围的镶边，同时保持标准对话和作曲家运行时。      |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 或 `/client/chat` | 您希望框架的线程选项卡没有 `AgentPanel` chrome。            |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` 或 `/client/chat` | 您有一个 BYO 代理端点，用于流式传输规范化的聊天事件。       |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` 或 `/client/chat` | 您有一个 OpenAI 代理 SDK 流，并希望围绕它进行标准聊天 UI。  |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` 或 `/client/chat` | 您有一个 OpenAI 响应事件流，并希望将其规范化到聊天 UI 中。  |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client`或`/client/chat`   | 您有一个 AG-UI 事件流，并希望将其规范化到聊天 UI 中。       |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client`或`/client/chat`   | 您有一个 Claude 代理 SDK 流，并希望将其规范化到聊天 UI 中。 |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` 或 `/client/chat` | 您有一个 Vercel AI SDK 流，并希望将其规范化到聊天 UI 中。   |
-| `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` 或 `/client/chat` | 需要自己将一个`AgentChatRuntime`适配成assistant-ui。        |
-| `createAgentChatAdapter()`           | `@agent-native/core/client` 或 `/client/chat` | 您需要内置 Agent-Native SSE 传输作为低级助手 UI 适配器。    |
-| `useChatThreads()`                   | `@agent-native/core/client`或`/client/chat`   | 您需要自定义话题列表、历史记录选择器或范围聊天 UI。         |
-| `sendToAgentChat()`                  | `@agent-native/core/client` 或 `/client/chat` | 产品操作应该将工作交给代理聊天。                            |
+| API                                  | 导入路径                               | 何时使用                                                    |
+| ------------------------------------ | -------------------------------------- | ----------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat`       | 您希望应用程序周围有完整的侧边栏。                          |
+| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat`       | 您为侧边栏渲染自己的标题按钮。                              |
+| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat`       | 您希望在自己的布局、路线、对话框或侧栏中显示完整面板。      |
+| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat`       | 您希望在面板或页面模式下聊天，而不需要侧边栏包装。          |
+| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat`       | 您希望拥有周围的镶边，同时保持标准对话和作曲家运行时。      |
+| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat`       | 您希望框架的线程选项卡没有 `AgentPanel` chrome。            |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | 您有一个 BYO 代理端点，用于流式传输规范化的聊天事件。       |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | 您有一个 OpenAI 代理 SDK 流，并希望围绕它进行标准聊天 UI。  |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | 您有一个 OpenAI 响应事件流，并希望将其规范化到聊天 UI 中。  |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | 您有一个 AG-UI 事件流，并希望将其规范化到聊天 UI 中。       |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | 您有一个 Claude 代理 SDK 流，并希望将其规范化到聊天 UI 中。 |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | 您有一个 Vercel AI SDK 流，并希望将其规范化到聊天 UI 中。   |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | 您需要自定义话题列表、历史记录选择器或范围聊天 UI。         |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | 产品操作应该将工作交给代理聊天。                            |
 
 `AgentChatRuntime` 是标准聊天 shell 的 BYO 代理合约。通过
 当外部代理应该为 `runtime` 到 `<AssistantChat>` 供电时
@@ -136,7 +212,7 @@ Agent-Native 保留作曲家、文字记录、工具卡和
 最短的自定义路线仍然是预接线表面：
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -146,7 +222,8 @@ export default function ChatRoute() {
 对于标准运行时的自定义镶边：
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -173,7 +250,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## 聊天字段和作曲家 {#composer}
 
-当您需要在自定义 UI 中使用与侧边栏相同的聊天字段时，请使用 `@agent-native/core/client/composer`。
+当您需要在自定义 UI 中使用与侧边栏相同的聊天字段时，请使用 `@agent-native/toolkit/app/chat/composer`。
 `@agent-native/toolkit/composer` 提供可移植的纯 Tiptap 和 UI 实现；要使用框架服务，
 请用 `ComposerRuntimeAdaptersProvider` 包裹它并提供这些服务。Core 是已连接附件、提及、技能、语音和模型选择的包装器。
 
@@ -188,7 +265,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 大多数自定义 UI 应以 `PromptComposer` 开头：
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 <PromptComposer
   placeholder="Ask the agent..."
@@ -201,9 +278,150 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 仅当您已经连接 Assistant-ui 原语时才使用 `TiptapComposer`
 你自己。这是字段，而不是整个聊天运行时。
 
+### 暂存的输入框上下文 {#composer-context}
+
+`PromptComposer` 和 `TiptapComposer` 的 `submissionDisabled` 仅阻止提交，仍允许编辑草稿、添加文件和准备上下文。未配置提供商不会阻止准备工作。`disabled` 仍会禁用整个输入框。
+
+`PromptComposer`、`TiptapComposer` 和 `AgentKitComposer` 接受 `contextItems` 与 `contextMenuItems`。应用负责读取来源和提供本地化菜单标签。
+
+每个 `AgentChatContextItem` 包含 `key`、`title` 和 `context`。可选 `status` 为 `ready`、`pending` 或 `error`。`statusMessage` 说明失败原因。`onRemoveContextItem`、`onInspectContextItem` 和 `onRetryContextItem` 接收条目键。`removable: false` 隐藏移除操作。等待中或失败的条目会阻止提交，除非用 `blocksSubmission: false` 明确设为仅供参考。
+
+宿主可暂存已获访问授权的上下文，并在提交时接收不可变快照：
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  onRemoveContextItem={removeContext}
+  onSubmit={(text, files, references, options) =>
+    submitPrompt({
+      text,
+      files,
+      references,
+      contextItems: options.contextItems,
+    })
+  }
+/>
+```
+
+上下文源通过 `ComposerContextMenuItem` 上的 `picker` 注册。`ComposerContextMenu` 管理相互连接的 shadcn/Radix 级联子菜单，而不是替换当前面板：根菜单先提供文件上传，再提供添加上下文 → 宿主分类 → 源选择器。没有宿主条目时，不显示添加上下文。方向键和 Escape 用于遍历菜单层级。链接选择器中的返回操作仅在同一个子菜单内从结果返回链接输入。共享选择器负责搜索、列表行、加载、空列表和错误状态、重试、分页及链接输入。应用提供已授权数据和选择回调，而不是自行渲染选择器 JSX。
+
+选择器配置支持：
+
+- `searchPlaceholder` 和可选的 `emptyMessage` 使用应用的本地化文案。`selectedIds` 标记已选行。条目包含 `id`、`title`，以及可选的 `disabled` 和 `url`。
+- 使用本地 `items` 及可选的 `loading`、`error`、`onRetry()`，或使用远程 `load(request)`。两种模式不能混用。
+- `load(request)` 接收 `search`、从一开始的 `page`、可选的 `cursor` 和 `url`，以及 `AbortSignal`。返回 `{ items, hasMore?, nextCursor? }`。失败时必须拒绝 Promise，不能返回空结果。
+- `onSelect(item, request)` 暂存来源，可异步执行。返回 `false` 会保持选择器打开。抛出错误会显示错误和重试操作。可选的 `clearSelection` 提供本地化 `label` 和 `onSelect()` 回调。
+- 可选的 `link` 提供本地化 `placeholder` 和 `submitLabel`。`validate(url)` 可返回错误文本。共享表单负责链接输入和导航。
+- `scopeKey` 在身份或访问范围变化时重置选择器的全部状态。`refreshKey` 在来源或版本标记变化时使当前查询失效，但不重置 URL。搜索变化会回到第一页。智能体写入导致源数据变化时，应用传入更新的标记。
+
+应用可以注册已经获得授权的选项。此处 `labels` 包含本地化文案，`stageReference` 更新宿主暂存的上下文：
+
+```tsx
+import type { ComposerContextMenuItem } from "@agent-native/toolkit/app/chat/composer";
+import { Link } from "react-router";
+
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      items: authorizedReferences,
+      selectedIds,
+      onSelect: stageReference,
+      footerAction: {
+        label: labels.createReference,
+        renderLink: (children) => (
+          <Link to={createReferenceHref}>{children}</Link>
+        ),
+      },
+    },
+  },
+];
+```
+
+对于可搜索或通过链接访问的来源，应用提供经过身份验证的加载器。`loadAuthorizedReferences` 实现上述请求和结果契约，保留访问检查，并向客户端辅助函数传递中止信号：
+
+```tsx
+const contextMenuItems: ComposerContextMenuItem[] = [
+  {
+    id: "references",
+    label: labels.references,
+    picker: {
+      searchPlaceholder: labels.searchReferences,
+      scopeKey: accessScope,
+      refreshKey: sourceVersion,
+      load: loadAuthorizedReferences,
+      presentation: {
+        type: "dialog",
+        mode: "multiple",
+        onAttach: stageReferences,
+      },
+      link: {
+        label: labels.referenceUrl,
+        placeholder: labels.referenceLink,
+        submitLabel: labels.findReferences,
+        validate: validateReferenceLink,
+      },
+    },
+  },
+];
+```
+
+`presentation` 默认为 `"submenu"`。设置 `{ type: "dialog", mode: "multiple", onAttach }` 后，普通菜单项会打开共享对话框，并以菜单项标签为标题。`link.label` 是网址输入框的标签。“继续”会先验证不含凭据的 HTTP(S) 网址，再加载结果。空白或无效输入不会调用提供商。`link.validate()` 可应用提供商专属规则。对话框按钮使用共享的本地化标签，而非 `link.submitLabel`。
+
+`presentation.onAttach(items, request)` 一次接收一批已冻结的新勾选项。此模式不允许 `onSelect`。搜索和翻页时保留选择。`selectedIds` 对应项显示为已勾选且禁用，不会加入批次。ID 必须区分不同的源文件。返回 `false` 会保持对话框打开。拒绝时显示可重试的错误。取消或更改 `scopeKey` 会中止待处理工作，并忽略迟到的结果。重新打开时会重置网址。异步回调提交更改前，宿主必须检查 `request.signal`。`footerAction` 和 `clearSelection` 仍仅用于子菜单。
+
+`{ type: "dialog", mode: "url" }` 直接执行附加，不加载结果列表。`onSelect(item, request)` 接收 `{ id: url, title: url, url }` 和 `request.url`：
+
+```tsx
+const websiteContextItem: ComposerContextMenuItem = {
+  id: "website",
+  label: labels.attachWebsite,
+  picker: {
+    searchPlaceholder: labels.searchReferences,
+    scopeKey: accessScope,
+    presentation: { type: "dialog", mode: "url" },
+    link: {
+      label: labels.websiteUrl,
+      placeholder: labels.websiteUrl,
+      submitLabel: labels.attach,
+      validate: validateWebsiteUrl,
+    },
+    onSelect: stageWebsiteReference,
+  },
+};
+```
+
+`@agent-native/core/server` 的 `readComposerWebsiteSource(url, extractCallback)` 使用宿主现有的 SSRF 安全提取器创建网站引用。`@agent-native/core/shared` 的 `composerSourceRequestSchema` 仅在 `operation: "read"` 且 `url` 为不含凭据、长度不超过 2,048 个字符的 HTTP(S) 网址时接受 `source: "website"`。辅助函数返回 `{ id, title, url, context }`，其中 ID 是稳定的网址哈希，context 最多为 20,000 个字符。提取状态、警告、渲染来源及任何 `[truncated]` 标记都保留在上下文文本中。部分提取结果会明确标注。提取失败或缺少可用的 `designMd` 会抛出类型明确的失败。授权仍由宿主的[操作](/docs/actions-overview)负责。
+
+选择器条目不能同时定义 `render` 或条目级 `onSelect`。分类使用 `children`。根菜单和每个分类都保留顶部搜索框。分类可提供本地化的 `searchPlaceholder`；未提供时使用共享的上下文搜索占位文本。源列表的搜索框使用 `picker.searchPlaceholder`。注册不授予源访问权限。共享选择器会忽略已被新请求替代的加载响应。
+
+可选的 `footerAction` 始终保留在结果下方，包括加载中、错误或列表为空时。它接受本地化的 `label`、可选的 `icon` 和 `disabled`，以及 `onSelect()` 或 `renderLink(children)` 二者之一。模态框等有状态流程使用回调：`false` 保持菜单打开，`true` 或 `void` 关闭菜单，Promise 拒绝时显示错误和重试操作。纯导航应由 `renderLink` 返回真正的 React Router `Link` 或 HTML 链接；共享菜单通过 `asChild` 提供菜单行，保留其 `href` 和浏览器原生导航行为。应接入已有且经过授权的流程，不要添加占位操作。
+
+向 `ComposerContextMenu` 传入 `addAttachment` 会将标准上传操作放在首位，并保留宿主的文件处理回调。
+
+`PromptComposer` 和 `AgentKitComposer` 接受 `attachmentAdapter`，使用 `@assistant-ui/react` 的公开类型 `AttachmentAdapter`。通过该适配器提供宿主的文件类型接收、大小校验和附件暂存策略；省略时保留默认适配器。上传控件、文件选择器、上下文选择器和附件标签仍由共享编辑器管理。不要为了定制文件暂存行为而替换这些控件。
+
+`PromptComposer` 和 `AgentKitComposer` 的 `inlineTextAttachments` 默认为 `true`。如果宿主已经提取普通文本文件，请设为 `false`：编辑器将原文件传给宿主，不再读取内容并追加到提示词。由粘贴文本生成的合成附件仍会转换为提示词文本。此选项不会改变附件接收规则或共享控件。
+
+```tsx
+<PromptComposer
+  contextItems={contextItems}
+  contextMenuItems={contextMenuItems}
+  attachmentAdapter={hostAttachmentAdapter}
+  onRetryContextItem={retryContext}
+  onSubmit={submitPrompt}
+/>
+```
+
+快照区分 `undefined` 和显式空数组。超过 32 个条目或 64 KiB 的序列化 UTF-8 数据会被拒绝，不会截断。发送或排队前会等待 `AgentKitComposer.beforeSend(submission)`，传入冻结的上下文、引用、已上传附件和运行选项。拒绝时保留草稿。上下文包含在消息文本与元数据中。
+
+`composerRef.current.submitWithText(text)` 沿用当前文件、模型设置和提交路径，不会先替换编辑器内容。接受后返回 `true`，被阻止或拒绝时返回 `false`。选择上下文并不授予访问权限。应用必须通过已认证的操作重新检查来源访问权限。
+
 ## 对话渲染 {#conversation}
 
-使用 `@agent-native/core/client/conversation` 进行转录样式渲染
+使用 `@agent-native/toolkit/app/chat/conversation` 进行转录样式渲染
 在完整代理运行时之外。
 
 | API                                             | 何时使用                           |
@@ -221,7 +439,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 当操作结果应呈现为应用质量 UI 时，请使用本机工具小部件
 内部聊天而不是普通的 JSON。内置可重复使用的输出包括
 `DataTableWidget`、`DataChartWidget` 和 `DataWidgetResult`；它们被导出
-来自 `@agent-native/core/client/chat` 和根客户端条目。请参阅
+来自 `@agent-native/core/client/widgets` 和根客户端条目。请参阅
 [Native 聊天界面](/docs/native-chat-ui) 表示操作结果合约。
 
 | API                              | 何时使用                                                                      |
@@ -320,7 +538,7 @@ import {
 
 ## 丰富的编辑器 {#rich-editor}
 
-当需要共享markdown编辑器时使用`@agent-native/core/client/editor`
+当需要共享markdown编辑器时使用`@agent-native/toolkit/editor`
 计划、内容、资源和协作文档使用的表面
 经验。
 
@@ -338,7 +556,7 @@ import {
 基本的受控编辑器只是 markdown in 和 markdown out：
 
 ```tsx
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 <SharedRichEditor
   value={markdown}
@@ -355,7 +573,7 @@ import {
   emailToColor,
   useCollaborativeDoc,
 } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 const editorUser = {
   name: user.name,
@@ -451,9 +669,9 @@ function WorkspaceResources() {
 | 通知         | `<NotificationsBell>`                          | `@agent-native/core/client/notifications` |
 | 进度         | `<RunsTray>`，进度挂钩和类型                   | `@agent-native/core/client/progress`      |
 | 入职         | `useOnboarding()`，入门面板挂钩                | `@agent-native/core/client/onboarding`    |
-| 可观察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>` | `@agent-native/core/client/observability` |
+| 可观察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>` | `@agent-native/toolkit/app/observability` |
 | 资源         | `<ResourcesPanel>`、`<ResourceTree>`、资源挂钩 | `@agent-native/core/client/resources`     |
-| 丰富的编辑器 | `<SharedRichEditor>`，斜杠命令，块节点挂钩     | `@agent-native/core/client/editor`        |
+| 丰富的编辑器 | `<SharedRichEditor>`，斜杠命令，块节点挂钩     | `@agent-native/toolkit/editor`            |
 
 ## 一次性文本完成 {#one-off-text-completion}
 

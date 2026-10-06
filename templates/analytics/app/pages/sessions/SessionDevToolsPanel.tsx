@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconAlertTriangle,
   IconArrowUpRight,
   IconChevronRight,
   IconCloudDataConnection,
@@ -37,19 +38,14 @@ import {
   type ReplayNetworkEntry,
 } from "./session-replay-devtools";
 
-/**
- * A session console error line resolved to its captured, Sentry-style issue.
- * Keyed by `ReplayConsoleEntry.id`, computed server-side by `match-error-issues`
- * so the resolution shares one fingerprint implementation with ingest.
- */
 export type SessionIssueMatch = { issueId: string; status: string };
 
-/** Deep-link from a session error to the Monitoring → Errors issue detail. */
+type DevToolsTab = "console" | "network" | "friction";
+
 export function issueDetailPath(issueId: string): string {
   return `/monitoring?view=errors&issue=${encodeURIComponent(issueId)}`;
 }
 
-/** Search Monitoring for all captured issues resembling an unmatched line. */
 export function issueSearchPath(message: string): string {
   const params = new URLSearchParams({
     view: "errors",
@@ -59,7 +55,6 @@ export function issueSearchPath(message: string): string {
   return `/monitoring?${params.toString()}`;
 }
 
-/** Pause row auto-follow for a while after the user scrolls the list. */
 const MANUAL_SCROLL_FOLLOW_PAUSE_MS = 4000;
 const DEVTOOLS_ROW_HEIGHT = 34;
 const DEVTOOLS_EXPANDED_ESTIMATE = 220;
@@ -67,11 +62,6 @@ const DEVTOOLS_OVERSCAN_ROWS = 10;
 const DEVTOOLS_MIN_HEIGHT = 180;
 const DEVTOOLS_MAX_HEIGHT = 620;
 
-/**
- * Layout offsets for the virtualized Dev Tools list. Expanded rows reserve
- * extra height so details render inline under the selected line without
- * disabling virtualization for the rest of the list.
- */
 export function buildDevToolsRowOffsets(
   entryCount: number,
   expandedIndex: number,
@@ -96,6 +86,7 @@ export function SessionDevToolsPanel({
   onSeek,
   issueMatches,
   issueMatching = false,
+  friction,
 }: {
   diagnostics: ReplayDevToolsDiagnostics;
   currentTime: number;
@@ -103,13 +94,13 @@ export function SessionDevToolsPanel({
   maxHeight?: number;
   onHeightChange: (height: number) => void;
   onSeek: (ms: number) => void;
-  /** Resolved error issues by console entry id, for cross-linking to Errors. */
   issueMatches?: ReadonlyMap<string, SessionIssueMatch>;
-  /** Prevent an unmatched fallback from flashing while issue lookup is active. */
   issueMatching?: boolean;
+  /** The Lab's friction tab; there is no tab without it. */
+  friction?: ReactNode;
 }) {
   const t = useT();
-  const [tab, setTab] = useState<"console" | "network">("console");
+  const [tab, setTab] = useState<DevToolsTab>("console");
   const [consoleLevel, setConsoleLevel] = useState<ConsoleLevelFilter>("all");
   const [consoleQuery, setConsoleQuery] = useState("");
   const [networkKind, setNetworkKind] = useState<NetworkKindFilter>("all");
@@ -188,7 +179,7 @@ export function SessionDevToolsPanel({
       />
       <Tabs
         value={tab}
-        onValueChange={(value) => setTab(value as "console" | "network")}
+        onValueChange={(value) => setTab(value as DevToolsTab)}
         className="flex min-h-0 flex-1 flex-col"
       >
         <div className="flex shrink-0 items-center gap-2 px-3 pt-2">
@@ -211,6 +202,15 @@ export function SessionDevToolsPanel({
                 <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
               ) : null}
             </TabsTrigger>
+            {friction ? (
+              <TabsTrigger
+                value="friction"
+                className="h-7 gap-1.5 px-2.5 text-xs"
+              >
+                <IconAlertTriangle className="h-3.5 w-3.5" />
+                {t("sessions.friction")}
+              </TabsTrigger>
+            ) : null}
           </TabsList>
         </div>
 
@@ -353,6 +353,15 @@ export function SessionDevToolsPanel({
             )}
           />
         </TabsContent>
+
+        {friction ? (
+          <TabsContent
+            value="friction"
+            className="mt-0 min-h-0 flex-1 overflow-y-auto"
+          >
+            {friction}
+          </TabsContent>
+        ) : null}
       </Tabs>
     </div>
   );
@@ -649,11 +658,6 @@ function JumpToButton({
   );
 }
 
-/**
- * Compact link from a captured session error to its Errors issue detail. Kept
- * outside the row's toggle `<button>` (an anchor nested in a button is invalid)
- * and stops click propagation so following the link never also toggles/seeks.
- */
 function ViewIssueLink({
   issueId,
   className,

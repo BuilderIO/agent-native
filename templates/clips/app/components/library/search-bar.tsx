@@ -159,7 +159,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
               onFocus={() => setOpen(true)}
               placeholder={t("searchBar.placeholder")}
               aria-label={t("searchBar.placeholder")}
-              className="h-9 ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
+              className="ps-9 pe-12 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 focus-visible:ring-offset-0 [appearance:textfield] [&::-webkit-search-cancel-button]:appearance-none"
             />
             {query ? (
               <Button
@@ -254,6 +254,11 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
                       <span className="uppercase tracking-wide">
                         {matchLabel(hit, t)}
                       </span>
+                      {hit.trashedAt ? (
+                        <span className="rounded-sm border border-border px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {t("navigation.trash")}
+                        </span>
+                      ) : null}
                       {typeof hit.matchMs === "number" ? (
                         <>
                           <span aria-hidden="true">·</span>

@@ -1,7 +1,3 @@
-/**
- * Public exports for the pluggable agent engine system.
- */
-
 export type {
   AgentEngine,
   EngineCapabilities,
@@ -41,6 +37,13 @@ export {
   type AgentEngineEntry,
   type ResolveEngineConfig,
 } from "./registry.js";
+
+export {
+  readDefaultAgentEngineSetting,
+  readDefaultAgentEngineSettingDetailed,
+  type DefaultAgentEngineRead,
+  type DefaultAgentEngineSource,
+} from "../default-agent-engine.js";
 
 export {
   createBuilderEngine,

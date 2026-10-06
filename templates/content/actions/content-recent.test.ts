@@ -89,7 +89,6 @@ beforeEach(() => {
     async (email: string, key: string) =>
       stored.get(settingId(email, key)) ?? null,
   );
-  // Model the settings mutation boundary's serialization, not its SQL/CAS implementation.
   let queue = Promise.resolve();
   boundary.mutateSetting.mockImplementation(
     (email: string, key: string, mutate: (current: unknown) => unknown) => {
@@ -482,7 +481,6 @@ describe("Recent action persistence", () => {
       version: 2,
       entries: [entry("page", { databaseId: "db", viewId: "table" })],
     });
-    // A different View of the same Database is the same Recent destination.
     expect(
       await removeRecent.run(
         { documentId: "page", databaseId: "db", viewId: "table" },

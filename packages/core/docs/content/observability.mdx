@@ -19,7 +19,7 @@ These three pages are easy to confuse. Pick by the question you're asking:
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "Does the agent do the right thing on this fixed input?"   | Active, deterministic, a CI/deploy gate      | Quality        |
 | **[Observational Memory](/docs/observational-memory)** | "Is this long thread staying cheap and inside the window?" | Background compaction on long threads        | Cost / context |
 
-Observability and the CI Eval Gate both score _quality_ but from opposite ends — passive post-hoc scoring of real traffic vs. active pass/fail checks on fixed inputs. Observational Memory is unrelated to quality; it's about token cost and context-window pressure.
+Observability and the CI Eval Gate both score _quality_ but from opposite ends — passive post-hoc scoring of real traffic vs. active pass/fail checks on fixed inputs. Promote a completed production trace into a `*.eval.ts` case (dashboard **Promote to eval**, `promote-trace-eval`, or `agent-native eval promote <runId> --write evals/from-trace.eval.ts`) so the miss becomes the next CI gate. See [From a production trace](/docs/evals#from-trace). Observational Memory is unrelated to quality; it's about token cost and context-window pressure.
 
 ## What's captured automatically {#captured}
 
@@ -93,7 +93,7 @@ No code changes needed. The instrumentation hooks into `production-agent.ts` tra
 Add the dashboard to any template with a single route:
 
 ```tsx filename="app/routes/observability.tsx"
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -120,7 +120,7 @@ The dashboard has 6 tabs:
 
 Select a run to inspect its spans. Expand any span to view captured tool inputs, outputs, errors, and metadata. Use **Open full conversation** to jump to the associated chat thread.
 
-Tool arguments and results are off by default. Enable `captureToolArgs` and `captureToolResults` in the `observability` config to store them. Sensitive fields and tool error messages are redacted before storage.
+Tool arguments, results, and full error bodies are off by default. Enable `captureToolArgs` to store arguments and `captureToolResults` to store results and full error bodies in the `observability` config. Sensitive fields are redacted before storage. A failed tool always keeps a bounded first line of its error, with credentials, emails, and long opaque ids redacted, so failures stay diagnosable even when `captureToolResults` is off.
 
 ### Human review {#review}
 
@@ -282,7 +282,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+Content is **redacted by default**: token counts, costs, and timing are stored, plus, for a failed tool, a bounded first line of its error with credentials, emails, and long opaque ids redacted. Prompts, tool inputs, tool results, and full error bodies stay off unless `capturePrompts`, `captureToolArgs`, and `captureToolResults` are on. Turn them on only when you need prompt or argument content for debugging.
 
 </Callout>
 
@@ -290,23 +290,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 All auto-mounted at `/_agent-native/observability/`:
 
-| Method | Path                       | Purpose                        |
-| ------ | -------------------------- | ------------------------------ |
-| GET    | `/`                        | Overview stats                 |
-| GET    | `/traces`                  | List trace summaries           |
-| GET    | `/traces/:runId`           | Trace detail (summary + spans) |
-| GET    | `/traces/:runId/evals`     | Evals for a run                |
-| POST   | `/feedback`                | Submit feedback                |
-| GET    | `/feedback`                | List feedback                  |
-| GET    | `/feedback/stats`          | Feedback aggregation           |
-| GET    | `/satisfaction`            | Satisfaction scores            |
-| GET    | `/evals/stats`             | Eval statistics                |
-| POST   | `/experiments`             | Create experiment              |
-| GET    | `/experiments`             | List experiments               |
-| GET    | `/experiments/:id`         | Get experiment detail          |
-| PUT    | `/experiments/:id`         | Update experiment              |
-| POST   | `/experiments/:id/results` | Compute results                |
-| GET    | `/experiments/:id/results` | Get results                    |
+| Method | Path                       | Purpose                              |
+| ------ | -------------------------- | ------------------------------------ |
+| GET    | `/`                        | Overview stats                       |
+| GET    | `/traces`                  | List trace summaries                 |
+| GET    | `/traces/:runId`           | Trace detail (summary + spans)       |
+| GET    | `/traces/:runId/evals`     | Evals for a run                      |
+| POST   | `/traces/:runId/promote`   | Promote a completed run to a CI eval |
+| POST   | `/feedback`                | Submit feedback                      |
+| GET    | `/feedback`                | List feedback                        |
+| GET    | `/feedback/stats`          | Feedback aggregation                 |
+| GET    | `/satisfaction`            | Satisfaction scores                  |
+| GET    | `/evals/stats`             | Eval statistics                      |
+| POST   | `/experiments`             | Create experiment                    |
+| GET    | `/experiments`             | List experiments                     |
+| GET    | `/experiments/:id`         | Get experiment detail                |
+| PUT    | `/experiments/:id`         | Update experiment                    |
+| POST   | `/experiments/:id/results` | Compute results                      |
+| GET    | `/experiments/:id/results` | Get results                          |
 
 All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
 
@@ -395,13 +396,28 @@ So the cost when you haven't wired OTel is a couple of cached property reads per
 
 The agent loop emits three span kinds:
 
-| Span        | When                       | Attributes                                                        |
-| ----------- | -------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | once per agent run         | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | once per action invocation | `tool.name`, plus success/error status                            |
-| `llm.call`  | per model call             | timing + OK/error status                                          |
+| Span                  | When                       | Attributes                                                                                                                                                                    |
+| --------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | once per agent run         | `gen_ai.provider.name` (the engine), `gen_ai.conversation.id` (the thread), `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `agent.run_id` |
+| `chat {model}`        | per model call             | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.usage.*`                                                   |
+| `execute_tool {tool}` | once per action invocation | `gen_ai.tool.name`, `gen_ai.tool.call.id`, plus success/error status                                                                                                          |
 
 Spans are finished with OK/ERROR status and record the error message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
+
+### Metrics {#otel-metrics}
+
+Core also records metrics once the host registers a meter provider with `registerObservabilityProvider()` from `@agent-native/core/server`. Metrics are recorded for every request and run, with no sampling:
+
+| Instrument                              | Attributes                                                                                   |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+On metrics, `gen_ai.tool.name` is a framework action's name or `other`, and `gen_ai.request.model` is the model id only when the engine lists it as supported, otherwise `_OTHER`. App-defined tools and caller-supplied model ids therefore cannot create unbounded series; spans keep the exact values.
 
 ## Error reporting (Sentry or PostHog) {#sentry}
 

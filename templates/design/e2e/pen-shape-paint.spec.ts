@@ -85,7 +85,6 @@ async function createDesign(
   return designId;
 }
 
-/** The committed vector's paint, read from both the wrapper and the shape. */
 async function vectorPaint(page: Page) {
   return page.evaluate(() => {
     const doc = document.querySelector<HTMLIFrameElement>(
@@ -258,7 +257,6 @@ function addStrokeButton(section: Locator) {
     .last();
 }
 
-/** Draws a closed triangle with the pen tool and selects it with the move tool. */
 async function drawClosedTriangle(page: Page, designId: string) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
     waitUntil: "domcontentloaded",
@@ -280,7 +278,6 @@ async function drawClosedTriangle(page: Page, designId: string) {
   await penClick(page, a.x, a.y);
   await penClick(page, card.x + 180, card.y + 160);
   await penClick(page, card.x + 140, card.y + 260);
-  // Clicking the first anchor again closes the path — Enter would leave it open.
   await penClick(page, a.x, a.y);
   await page.waitForTimeout(2500);
 
@@ -293,7 +290,7 @@ test("a closed pen path starts with a stroke and no fill, like Figma", async ({
 }) => {
   const designId = await createDesign(request);
   try {
-    await drawClosedTriangle(page, designId);
+    const { centroid } = await drawClosedTriangle(page, designId);
 
     const paint = await vectorPaint(page);
     expect(paint).not.toBeNull();
@@ -301,7 +298,11 @@ test("a closed pen path starts with a stroke and no fill, like Figma", async ({
     expect(paint!.strokeAttribute).toBe("#000000");
     expect(paint!.shapeStroke).toBe("rgb(0, 0, 0)");
 
+    await page.keyboard.press("v");
+    await page.waitForTimeout(400);
+    await page.mouse.click(centroid.x, centroid.y);
     const fillSection = inspectorSection(page, /^Fill$/i);
+    await expect(fillSection).toBeVisible();
     await fillSection.getByRole("button", { name: "Add fill" }).last().click();
     await expect
       .poll(async () => (await vectorPaint(page))?.shapeFill)
@@ -338,8 +339,6 @@ test("fill and stroke edits paint the pen shape, not its selection bounds", asyn
       .poll(async () => (await vectorPaint(page))?.shapeStroke)
       .toBe("rgb(0, 0, 0)");
 
-    // The wrapper is the geometry box; painting it would tint the whole
-    // bounding rectangle instead of the triangle.
     const paint = (await vectorPaint(page))!;
     expect(paint.wrapperBackground).toBe("");
     expect(paint.wrapperBorderWidth).toBe("");

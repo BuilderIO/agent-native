@@ -15,8 +15,6 @@ import {
   gotoEditor,
 } from "./helpers";
 
-/** The node id of the element (or its nearest text-wrapping ancestor) whose
- * text content is `text`. `occurrence` picks among duplicate text (0-based). */
 function nodeIdForText(html: string, text: string, occurrence = 0): string {
   let searchFrom = 0;
   let textIndex = -1;
@@ -35,19 +33,6 @@ function nodeIdForText(html: string, text: string, occurrence = 0): string {
   if (!last) throw new Error(`no node id before text "${text}"`);
   return last[1];
 }
-
-/**
- * Figma Learn tutorial 2: "Create a responsive card with auto layout and
- * constraints" (figma-interaction-spec.md Part 2 §2). Followed step by step
- * against the Design app's real gestures: frame tool (board + in-screen),
- * inspector-typed corner radius / effects / min-max width / constraints,
- * text tool, alt-drag duplicate across the screen boundary, arrow-key nudge,
- * shift-click multi-select, Shift+A auto layout, and Fill/Hug sizing.
- *
- * Design now has native components and instance prop controls. The remaining
- * tutorial gap is the Figma-specific multi-variant/page workflow; the
- * component shortcut is exercised directly below.
- */
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
@@ -120,7 +105,6 @@ interface BoardObjectSummary {
   name?: string;
   radius?: number;
   effects?: string[];
-  /** Set only for a direct (depth-1) child of a top-level board frame. */
   parentId?: string;
 }
 
@@ -168,22 +152,6 @@ async function boardObjects(
   return result;
 }
 
-/**
- * Page-relative bounding box of a node id wherever it lives — the screen
- * iframe or the board iframe alike — by reaching directly into each
- * same-origin iframe's contentDocument (mirrors pen-board-commit.spec.ts's
- * allVectors helper). The board iframe carries no data-screen-iframe-id, so
- * designFrame()'s selector can't target it.
- *
- * The overview canvas zooms by CSS-transform-scaling an ancestor of the
- * iframe, not by resizing it: `iframe.getBoundingClientRect()` reflects that
- * scale (it is page space), but `el.getBoundingClientRect()` computed INSIDE
- * the iframe's own document does not — it is the iframe's native, unscaled
- * layout space. This spec opens the overview at zoom=15, where the two
- * spaces differ by ~6.7x, so adding them directly sent a driven drag to a
- * page position far from the actual object. Rescale by the iframe's own
- * rendered-vs-native width ratio before combining the two spaces.
- */
 async function boardObjectBoundingBox(
   page: Page,
   nodeId: string,
@@ -211,13 +179,6 @@ async function boardObjectBoundingBox(
   }, nodeId);
 }
 
-/**
- * Freshly drawn objects (board objects and in-screen code-layer nodes alike)
- * are first assigned a transient client-side id of the form
- * `draft-frame-<timestamp>-<rand>`, later replaced by a stable persisted id.
- * Reading a draft id and then searching the layers panel for it races that
- * stabilization and times out. Poll `getIds` until a non-draft id shows up.
- */
 async function waitForStableNodeId(
   getIds: () => Promise<string[]>,
   timeoutMs = 15_000,
@@ -260,12 +221,6 @@ async function drawWithTool(
   await page.mouse.up();
 }
 
-/**
- * Draw a board-level shape and don't return until a NEW, stable (non-draft)
- * board object id shows up. The draw occasionally misses (an emptyBoardPoint
- * that lands on chrome, or a draft id that never gets read past) so this
- * retries the whole gesture at a fresh point rather than failing the step.
- */
 async function drawBoardShapeAndWaitStable(
   page: Page,
   request: APIRequestContext,
@@ -295,7 +250,6 @@ async function drawBoardShapeAndWaitStable(
   );
 }
 
-/** An empty point on the overview board, away from any screen card. */
 async function emptyBoardPoint(page: Page) {
   const point = await page.evaluate(() => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
@@ -327,11 +281,6 @@ async function emptyBoardPoint(page: Page) {
   return point;
 }
 
-/** Page-px rect of the first screen card, plus content-px → page-px scale
- * (screens default to 320 content-units wide, matching frame-screen-nesting.spec). */
-/** Content-px → page-px mapping for the first screen's own iframe (NOT the
- * [data-screen-card] wrapper, which includes a name-label header above the
- * iframe and offsets every coordinate computed from it upward). */
 async function screenBox(page: Page) {
   const box = (await page
     .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
@@ -345,8 +294,6 @@ async function screenCardBox(page: Page) {
   return box;
 }
 
-/** Create text in one native click-to-edit gesture and require the first
- * gesture to focus and commit it. A retry would hide a missed initial focus. */
 async function typeCanvasTextOnce(
   page: Page,
   request: APIRequestContext,
@@ -379,7 +326,6 @@ async function typeCanvasTextOnce(
   await page.waitForTimeout(150);
   await page.keyboard.type(text);
   await page.keyboard.press("Escape");
-  // Poll persistence rather than racing the queued save RPC.
   await expect
     .poll(
       async () => (await fileContent(request, designId)).includes(`>${text}<`),
@@ -388,9 +334,6 @@ async function typeCanvasTextOnce(
     .toBe(true);
 }
 
-/** Draw with the Frame/Screen tool at content-px coordinates inside the
- * first screen card, scaled to page px. Mirrors frame-screen-nesting.spec's
- * verified `drawFrameTool`. */
 async function drawInScreenFrame(
   page: Page,
   from: { x: number; y: number },
@@ -413,27 +356,12 @@ function layerTree(page: Page) {
   return page.getByRole("tree", { name: "Layers" });
 }
 
-/** Layer row located by its LAYERS-PANEL node id (the code-layer
- * projection's own hashed id, e.g. "html:1r0xyc7") — never the raw,
- * persisted data-agent-native-node-id a draw/duplicate/drop hands back.
- * Those two never coincide (shared/code-layer.ts's nodeIdFor always hashes
- * the authored id); resolve the real one via selectedLayerNodeId() before
- * calling this, the same convention parity-alt-drag-duplicate.spec.ts
- * established. */
 function layerRowById(page: Page, nodeId: string) {
   return layerTree(page).locator(
     `[data-layer-row-button][data-layer-node-id="${nodeId}"]`,
   );
 }
 
-/**
- * The Layers-panel node id of whatever is currently selected. A freshly
- * drawn, duplicated, or dropped primitive is always left selected (see
- * canvas-tools.spec.ts's "insertion keeps the new primitive selected"
- * contract), so this is the reliable way to learn its real panel id right
- * after the gesture that created it — never assume it equals the raw
- * data-agent-native-node-id (see layerRowById above).
- */
 async function selectedLayerNodeId(page: Page): Promise<string> {
   const button = layerTree(page)
     .locator('[aria-selected="true"] [data-layer-row-button]')
@@ -454,7 +382,6 @@ async function selectLayerRowById(
   await button.click({ force: true, modifiers: options?.modifiers });
 }
 
-/** Rename a layer (by node id) by double-clicking its row and typing a new name. */
 async function renameLayerRowById(page: Page, nodeId: string, to: string) {
   const button = layerRowById(page, nodeId);
   await expect(button).toBeVisible({ timeout: 10_000 });
@@ -510,8 +437,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         timeout: 40_000,
       })
       .toBeGreaterThan(0);
-    // Overview layout settles asynchronously after mount with no discrete
-    // event — poll the screen card's box until two consecutive reads agree.
     const card = page.locator("[data-screen-card]").first();
     let lastCardBox: { x: number; y: number } | null = null;
     await expect
@@ -533,9 +458,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     const before = await boardObjects(request, designId);
     expect(Object.keys(before)).toHaveLength(0);
 
-    // Step 1: press F (Frame tool, not Screen), draw a frame away from the
-    // screen card — the Figma equivalent of a plain top-level frame that is
-    // not itself a routable artboard.
     const frameId = await drawBoardShapeAndWaitStable(
       page,
       request,
@@ -548,18 +470,13 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       "Frame tool must create exactly one board frame",
     ).toHaveLength(1);
     expect(afterDraw[frameId].kind).toBe("frame");
-    // The layers panel keys rows by its own hashed projection id, never the
-    // raw frameId above — read the real one off the still-selected row.
     const frameLayerNodeId = await selectedLayerNodeId(page);
 
-    // Rename via the layers panel (double-click), like Figma.
     await renameLayerRowById(page, frameLayerNodeId, "play-button");
     await expect
       .poll(async () => (await boardObjects(request, designId))[frameId]?.name)
       .toBe("play-button");
 
-    // Select it and type exact corner radius (Figma types "100" for a fully
-    // pill-rounded 40x40 square).
     await selectLayerRowById(page, frameLayerNodeId);
     const radiusInput = page.locator('input[aria-label="Corner radius" i]');
     await expect(radiusInput).toBeVisible({ timeout: 10_000 });
@@ -573,10 +490,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       )
       .toBeTruthy();
 
-    // Add a drop-shadow effect (Effects section → Add effect → Drop shadow,
-    // the same two-click sequence inspector-styles.spec.ts and
-    // parity-tutorial-1.spec.ts use — "Add effect" alone only opens the
-    // kind menu, it never itself commits a shadow).
     const effectsSection = inspectorSection(page, /^Effects$/i);
     await effectsSection.getByRole("button", { name: "Add effect" }).click();
     await page.getByRole("menuitem", { name: "Drop shadow" }).click();
@@ -606,8 +519,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         timeout: 40_000,
       })
       .toBeGreaterThan(0);
-    // Overview layout settles asynchronously after mount with no discrete
-    // event — poll the screen card's box until two consecutive reads agree.
     {
       const card = page.locator("[data-screen-card]").first();
       let lastCardBox: { x: number; y: number } | null = null;
@@ -628,11 +539,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         .toBe(true);
     }
 
-    // Figma's step 2 draws a 16x16 triangle with the Polygon tool inside the
-    // frame. Design has no polygon/star/triangle tool in its tool shortcuts
-    // (v/f/r/o/l/t/p/h/k/c — no polygon key, no shape-type dropdown observed
-    // on the Rectangle tool). Verify that absence, then use Rectangle as the
-    // closest equivalent so the rest of the tutorial can proceed.
     const polygonButton = page.locator(
       '[data-design-bottom-toolbar] button[aria-label*="Polygon" i], [data-design-bottom-toolbar] button[aria-label*="Triangle" i]',
     );
@@ -647,14 +553,9 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       designId,
       "Frame",
     );
-    // The board object renders inside the board's own same-origin iframe
-    // (no data-board-object-id wrapper exists anywhere in the app) — reach
-    // into the iframe directly rather than querying the host page.
     const frameBox = await boardObjectBoundingBox(page, frameId);
     expect(frameBox, "no bounding box for the drawn frame").toBeTruthy();
 
-    // Draw the substitute rectangle centered inside the frame's on-screen box
-    // so the draw hit-tests as "inside the frame" and reparents.
     const inside = {
       x: frameBox!.x + frameBox!.width / 2,
       y: frameBox!.y + frameBox!.height / 2,
@@ -692,8 +593,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         timeout: 40_000,
       })
       .toBeGreaterThan(0);
-    // Overview layout settles asynchronously after mount with no discrete
-    // event — poll the screen card's box until two consecutive reads agree.
     {
       const card = page.locator("[data-screen-card]").first();
       let lastCardBox: { x: number; y: number } | null = null;
@@ -714,7 +613,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         .toBe(true);
     }
 
-    // Step 3: press F, draw a 360x240 "album-art" frame INSIDE the screen.
     await drawInScreenFrame(page, { x: 40, y: 60 }, { x: 220, y: 200 });
 
     const albumArtId = await waitForStableNodeId(async () => {
@@ -730,17 +628,10 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       html,
       "step 3 must add a frame inside the screen, not a new screen file",
     ).toMatch(/data-an-primitive="frame"/);
-    // The layers panel keys rows by its own hashed projection id, never the
-    // raw albumArtId above — read the real one off the still-selected row.
     const albumArtLayerNodeId = await selectedLayerNodeId(page);
     await expandAllLayers(page);
     await renameLayerRowById(page, albumArtLayerNodeId, "album-art");
 
-    // Step 4: create a source board object (stand-in for the play-button
-    // instance) then Option/Alt-drag it across the screen boundary into
-    // album-art. Real Figma alt-drags an *instance* of a component; Design
-    // has no components, so alt-dragging the frame itself is the closest
-    // equivalent — it is reported as a finding, not silently skipped.
     const sourceId = await drawBoardShapeAndWaitStable(
       page,
       request,
@@ -748,14 +639,9 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       "Frame",
       60,
     );
-    // The board object renders inside the board's own same-origin iframe
-    // (no data-board-object-id wrapper exists anywhere in the app) — reach
-    // into the iframe directly rather than querying the host page.
     const sourceBox = await boardObjectBoundingBox(page, sourceId);
     expect(sourceBox, "no bounding box for the source frame").toBeTruthy();
 
-    // album-art lives inside the screen's own iframe document; drop
-    // somewhere well inside its (40,60)-(220,200) content-px rect.
     const box = await screenBox(page);
     const dropTarget = {
       x: box.x + 110 * box.scale,
@@ -788,20 +674,12 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       )
       .toBeGreaterThan(0);
 
-    // Original board object must still exist (alt-drag duplicates, not
-    // moves) and a new code-layer node must now be a child of album-art.
     const boardAfter = await boardObjects(request, designId);
     expect(
       Object.keys(boardAfter),
       "alt-drag must leave the original board frame in place",
     ).toContain(sourceId);
 
-    // Shift+Arrow nudge (this app's registered "nudge-large" binding — see
-    // keyboard-shortcuts.ts; there is no alt+arrow nudge shortcut, so the
-    // original Option/Alt+Arrow gesture here never reached onNudge at all)
-    // on the newly-dropped copy. The drop leaves the new copy selected —
-    // read its real layers-panel id off that selection rather than assuming
-    // it equals the raw newChildId.
     const newChildId = albumArtChildren[albumArtChildren.length - 1];
     const newChildLayerNodeId = await selectedLayerNodeId(page);
     await expandAllLayers(page);
@@ -850,11 +728,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
   }) => {
     designId = await createDesign(request);
     await gotoEditor(page, designId);
-    // The overview layout settles asynchronously after mount with no
-    // discrete event — a screenBox() read before it settles stamps a stale
-    // rect, so the "click canvas" below can miss the screen entirely and
-    // silently create nothing (see harnessNotes). Poll until two
-    // consecutive reads agree, as the "step 2 substitute" test above does.
     {
       let last: string | null = null;
       await expect
@@ -871,15 +744,7 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
         .toBe(true);
     }
 
-    // Step 7: Press T, click canvas, type "title".
     const box = await screenBox(page);
-    // box.y + 260 * box.scale is Figma step 7's literal content-px point,
-    // but this blank design's screen can render shorter than 260 content-px
-    // tall — the click would land BELOW the screen card entirely, on the
-    // overview canvas's own creation shield (data-canvas-creation-shield),
-    // so the text tool drew a free-floating BOARD object instead of a node
-    // inside the screen, and index.html stayed completely empty. Clamp to a
-    // point that is always inside the screen's actual rendered height.
     const titleClickY = Math.min(260, box.height / box.scale - 40);
     await typeCanvasTextOnce(
       page,
@@ -891,29 +756,14 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     );
 
     let html = await fileContent(request, designId);
-    // Not `expect(html).toContain("title")` — the document's own
-    // `<title>Card</title>` tag contains that substring even when the
-    // canvas is empty, which let this pass while masking the real bug
-    // above (the created text node never landing at all). nodeIdForText
-    // below only matches a real `>title<` text node and throws a clear
-    // error if none exists.
     const titleId = nodeIdForText(html, "title");
-    // The layers panel keys rows by its own hashed projection id, never the
-    // raw data-agent-native-node-id titleId is (see album-art's identical
-    // note above) — read the real one off the still-selected row (Escape
-    // above exits text-edit but leaves the node selected) rather than
-    // trying to look it up by titleId, which layerRowById would never find.
     const titleLayerNodeId = await selectedLayerNodeId(page);
 
-    // Duplicate for "creator" (Cmd+D), then rename the duplicate's text.
     await expandAllLayers(page);
     await selectLayerRowById(page, titleLayerNodeId);
     await focusCanvas(page);
     await page.keyboard.press(`${PRIMARY}+d`);
     await page.waitForTimeout(500);
-    // Cmd+D leaves the duplicate selected — read its real layers-panel id
-    // the same way, instead of trying to look it up by the raw content id
-    // nodeIdForText below returns.
     const duplicateLayerNodeId = await selectedLayerNodeId(page);
     html = await fileContent(request, designId);
     const titleCount = (html.match(/>title</g) ?? []).length;
@@ -921,7 +771,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     const duplicateId = nodeIdForText(html, "title", 1);
     expect(duplicateId).not.toBe(titleId);
 
-    // Shift-select title + its duplicate, then Shift+A.
     await expandAllLayers(page);
     await selectLayerRowById(page, titleLayerNodeId);
     await selectLayerRowById(page, duplicateLayerNodeId, {
@@ -937,9 +786,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       html,
       `Shift+A on two selected text layers must wrap them in a new auto-layout frame:\n${html.slice(0, 4000)}`,
     ).toMatch(/data-an-primitive="frame"/);
-    // Shift+A leaves the new wrapper selected — read its LAYERS-PANEL id off
-    // the selection rather than regex-matching the raw HTML (that raw id
-    // never equals the panel's hashed data-layer-node-id, see layerRowById).
     const metadataId = await selectedLayerNodeId(page);
 
     await expandAllLayers(page);
@@ -961,22 +807,13 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     designId = await createDesign(request);
     await gotoEditor(page, designId);
 
-    // Build album-art (in-screen frame) and a metadata-text text node
-    // quickly via the same gestures as the previous test, then run the
-    // higher-level wrap.
     await drawInScreenFrame(page, { x: 40, y: 30 }, { x: 220, y: 120 });
-    // The freshly drawn frame is left selected — read its LAYERS-PANEL id
-    // straight off the selection instead of regex-extracting the raw
-    // data-agent-native-node-id from HTML (the two never coincide, see
-    // layerRowById's doc comment).
     const albumArtId = await selectedLayerNodeId(page);
     let html = await fileContent(request, designId);
     await expandAllLayers(page);
     await renameLayerRowById(page, albumArtId, "album-art");
 
     const box = await screenBox(page);
-    // Click near the rendered screen's bottom edge so the text stays outside
-    // the smaller album-art frame on both native and bounded screen sizes.
     await typeCanvasTextOnce(
       page,
       request,
@@ -985,12 +822,9 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       box.y + box.height - 20,
       "metatext",
     );
-    // The typed text node is left selected — read its real layers-panel id
-    // the same way album-art's was above, not the raw content id.
     const metaTextLayerNodeId = await selectedLayerNodeId(page);
     html = await fileContent(request, designId);
 
-    // Select album-art + metatext, Shift+A → "card".
     await expandAllLayers(page);
     await selectLayerRowById(page, albumArtId!);
     await selectLayerRowById(page, metaTextLayerNodeId, {
@@ -1005,9 +839,7 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     expect(
       frameCount,
       "Shift+A over album-art + metatext must add exactly one new wrapping frame",
-    ).toBeGreaterThanOrEqual(2); // album-art itself + the new card wrapper
-    // Shift+A leaves the new "card" wrapper selected — read its
-    // LAYERS-PANEL id off the selection (same fix as metadataId above).
+    ).toBeGreaterThanOrEqual(2);
     const cardId = await selectedLayerNodeId(page);
 
     await expandAllLayers(page);
@@ -1024,8 +856,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     html = await fileContent(request, designId);
     expect(html).toMatch(/gap:\s*12px/);
 
-    // Step 10: set album-art's sizing to Fill on both axes (it is now a
-    // flex child of "card").
     await expandAllLayers(page);
     await selectLayerRowById(page, albumArtId!);
     const widthModeButton = page
@@ -1045,7 +875,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
       /(?:flex(-grow)?:\s*1|width:\s*(?:100%|auto)[\s\S]*align-self:\s*stretch)/,
     );
 
-    // Step 11: min/max width on the "card" frame.
     await expandAllLayers(page);
     await selectLayerRowById(page, cardId!);
     const widthCaret = page
@@ -1068,11 +897,6 @@ test.describe("parity: tutorial 2 — responsive card with auto layout and const
     designId = await createDesign(request);
     await gotoEditor(page, designId);
     await drawInScreenFrame(page, { x: 40, y: 60 }, { x: 200, y: 160 });
-    // The freshly drawn frame is left selected already — no need to
-    // re-select it by (wrong) id, see the album-art fix above. Still wait
-    // for the draw to persist before reading "before", or this reads the
-    // pre-draw content and "no structural change" trivially passes for the
-    // wrong reason.
     await expect
       .poll(async () =>
         (await fileContent(request, designId)).includes(

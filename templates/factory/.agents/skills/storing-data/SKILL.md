@@ -17,6 +17,8 @@ All application data lives in **SQL** (local PGlite, hosted Postgres in producti
 
 Large binary or file-like payloads (images, video/audio, PDFs, ZIPs, screenshots, session replay chunks, thumbnails, generated assets, `data:` URLs, and base64 file bodies) must go through configured file/blob storage such as `uploadFile()` or `putPrivateBlob()`. Persist only the returned URL, asset id, or opaque blob handle in SQL. If storage is unavailable in hosted or persistent-database mode, fail closed with setup guidance instead of falling back to base64 in `application_state`, `settings`, `resources`, or app tables.
 
+**Uploaded files an action opens later** (chat attachments, import controls, chunked commits) are one core `AttachmentRef`: mint with `mintAttachmentRef`, open with `resolveAttachment` and `unwrapAttachment` from `@agent-native/core/private-blob`. Never write a template descriptor, never branch on error text, and never truncate a ref (`ATTACHMENT_REF_MAX_CHARS` is the floor for any prompt or field that carries one). Each failure is typed: `notFound`, `forbiddenScope`, `expired` and `malformed` are definitive and stop the turn; only `storageUnavailable` is retryable, and the same ref works once storage is back, so never ask the user to attach the file again for it.
+
 **Local File Mode exception:** some artifact apps (Content, Plans, Slides, Dashboards, Designs, etc.) can intentionally use repo files as the source of truth for the artifact itself. This must be explicit via `agent-native.json`, `AGENT_NATIVE_MODE=local-files`, or an app-owned local-file action helper. In that mode, the UI and agent still go through app actions, but those actions read/write scoped files through `@agent-native/core/local-artifacts` instead of SQL rows. App state, auth, settings, credentials, collaboration metadata, and hosted database mode remain SQL. File-to-database or file-to-provider synchronization is an explicit sync step, not an implicit side effect of editing.
 
 When you add a data model, a list, or a read path, also follow the `performance` skill: project only the columns a list renders, index the columns hot queries filter/sort on, and avoid query waterfalls — so apps stay fast as data grows.
@@ -68,6 +70,36 @@ const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 
 Outside a managed Drizzle scaffold, use `drizzle-orm/pg-core` so app schemas
 state their PostgreSQL types directly.
+
+#### Identity-shaped columns need a policy
+
+Member offboarding and email changes refuse to run while any column named
+`email`, `*_email`, `*scope_id`, `created_by`, `updated_by`, `invited_by`,
+`owner`, `principal_id`, `session_id`, or `user_id` has no policy.
+`createSharesTable()` tables are handled for you, and undeclared `owner_email`
+columns transfer to the successor, which is right only for owned content.
+Declare every other one, including columns that are not member identities, from
+the app's database plugin graph (Clips does it in `server/db/index.ts`):
+
+```ts
+import { registerIdentityColumns } from "@agent-native/core/org";
+
+registerIdentityColumns([
+  // Access grant: follows an email change, ends with the membership.
+  { table: "space_members", column: "email", emailChange: "rekey", offboard: "delete", orgScope: { column: "space_id", references: { table: "spaces", column: "id", orgColumn: "org_id" } }, reason: "Space membership grants access." },
+  // Someone else's address: never rewritten.
+  { table: "meeting_participants", column: "email", emailChange: "retain", offboard: "retain", reason: "Attendee address from the calendar provider." },
+  // A credential in an owner_email table: never handed to the successor.
+  { table: "api_keys", column: "owner_email", emailChange: "rekey", offboard: "revoke", reason: "Bearer keys act as their owner." },
+]);
+```
+
+Choose `delete` for grants, credentials, and pending tokens, or `revoke` (sets
+`revoked_at`) when a reader treats a missing row as "not revoked"; `retain` for
+attribution, history, and third-party addresses; `transfer` only for owned
+data. Declare `owner_email` tables that hold credentials or grants, or
+offboarding hands them to the successor. A table without `org_id` needs
+`orgScope` or an organization-scoped removal leaves its rows alone.
 
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |

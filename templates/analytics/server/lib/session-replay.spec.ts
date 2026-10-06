@@ -7,6 +7,18 @@ const putPrivateBlobMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
+const recordReplayFrictionMock = vi.hoisted(() => vi.fn());
+const performanceMocks = vi.hoisted(() => ({
+  getSessionPerformanceSummaries: vi.fn(),
+  getPerformanceCoverageStart: vi.fn(),
+}));
+
+vi.mock("./session-performance.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./session-performance.js")>()),
+  getSessionPerformanceSummaries:
+    performanceMocks.getSessionPerformanceSummaries,
+  getPerformanceCoverageStart: performanceMocks.getPerformanceCoverageStart,
+}));
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -23,6 +35,11 @@ vi.mock("@agent-native/core/private-blob", () => ({
   readPrivateBlob: readPrivateBlobMock,
 }));
 
+vi.mock("./session-friction.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./session-friction.js")>()),
+  recordReplayFriction: recordReplayFrictionMock,
+}));
+
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/sharing")>();
@@ -32,6 +49,7 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
   };
 });
 
+import { organizations } from "@agent-native/core/org";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -41,10 +59,12 @@ import { schema } from "../db/index.js";
 import {
   assertReplayKeyBudget,
   compactSessionRecordingSummary,
+  getSessionRecordingPerformance,
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
   getSessionReplayTokenizedSummary,
   listSessionRecordings,
+  listSessionRecordingsPage,
   MAX_REPLAY_CHUNK_READ_BATCH_BYTES,
   MAX_REPLAY_CHUNK_READ_BATCH_SIZE,
   parseSessionReplayIngestPayload,
@@ -137,6 +157,218 @@ function conditionText(value: unknown): string {
   });
 }
 
+describe("session replay list page", () => {
+  it.each([
+    { offset: 9_007_199_254_740_800, total: 137 },
+    { offset: 137, total: 137 },
+    { offset: 0, total: 0 },
+  ])(
+    "avoids a row scan for offset $offset beyond total $total",
+    async ({ offset, total }) => {
+      const rowSelect = vi.fn(() => {
+        throw new Error("Out-of-range recording row query must not run");
+      });
+      const db = {
+        select: vi.fn((selection?: Record<string, unknown>) => {
+          if (!selection) return rowSelect();
+          const rows = selection.app
+            ? [{ app: "clips", count: "137" }]
+            : [{ count: String(total) }];
+          const query = {
+            from: () => query,
+            where: () => query,
+            groupBy: () => query,
+            orderBy: () => query,
+            then: (resolve: (value: unknown[]) => void) =>
+              Promise.resolve(rows).then(resolve),
+          };
+          return query;
+        }),
+      };
+      getDbMock.mockReturnValue(db);
+
+      await expect(
+        listSessionRecordingsPage(
+          { userEmail: "qa@example.test", orgId: null },
+          { offset },
+        ),
+      ).resolves.toEqual({
+        recordings: [],
+        total,
+        appCounts: [{ app: "clips", count: 137 }],
+      });
+      expect(rowSelect).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity])(
+    "rejects invalid direct offset %s before database access",
+    async (offset) => {
+      getDbMock.mockClear();
+      await expect(
+        listSessionRecordingsPage(
+          { userEmail: "qa@example.test", orgId: null },
+          { offset },
+        ),
+      ).rejects.toThrow(/offset/);
+      expect(getDbMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns a real filtered total and app counts before pagination", async () => {
+    const conditions: unknown[] = [];
+    const orders: unknown[][] = [];
+    const db = {
+      select: vi.fn((selection?: Record<string, unknown>) => ({
+        from: vi.fn((table: unknown) => ({
+          where: vi.fn((condition: unknown) => {
+            if (table === organizations) {
+              return {
+                limit: async () => [
+                  { allowedDomain: null, createdBy: "owner@builder.io" },
+                ],
+              };
+            }
+            if (table !== schema.sessionRecordings)
+              throw new Error("Unexpected table in session list query");
+            conditions.push(condition);
+            const result = selection?.app
+              ? [{ app: "clips", count: "137" }]
+              : selection?.count
+                ? [{ count: "137" }]
+                : [];
+            const query = {
+              orderBy: (...values: unknown[]) => {
+                orders.push(values);
+                return query;
+              },
+              groupBy: () => query,
+              limit: () => query,
+              offset: async () => result,
+              then: (resolve: (value: unknown[]) => void) =>
+                Promise.resolve(result).then(resolve),
+            };
+            return query;
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    const page = await listSessionRecordingsPage(
+      { userEmail: "owner@builder.io", orgId: "org_123" },
+      {
+        from: "2026-01-01T00:00:00.000Z",
+        to: "2026-01-02T23:59:59.999Z",
+        app: "clips",
+        hideEmpty: true,
+        hasNetworkErrors: true,
+        visitorType: "internal",
+        sort: "longest",
+        offset: 100,
+        limit: 50,
+      },
+    );
+
+    expect(page).toEqual({
+      recordings: [],
+      total: 137,
+      appCounts: [{ app: "clips", count: 137 }],
+    });
+    expect(conditions).toHaveLength(3);
+    expect(conditionText(conditions[0])).toContain("clips");
+    expect(conditionText(conditions[0])).toContain("builder.io");
+    expect(conditionText(conditions[1])).not.toContain("clips");
+    expect(conditionText(conditions[2])).toContain("clips");
+    expect(conditionText(orders[1])).toContain("nulls last");
+  });
+});
+
+describe("session recording performance", () => {
+  const summary = {
+    ttfbMs: null,
+    lcpMs: 4_200,
+    inpMs: null,
+    cls: null,
+    slowRequests: null,
+    maxRequestMs: null,
+    atLeast: [],
+    incomplete: false,
+  };
+
+  beforeEach(() => {
+    performanceMocks.getPerformanceCoverageStart.mockResolvedValue(
+      "2026-09-20T00:00:00.000Z",
+    );
+    performanceMocks.getSessionPerformanceSummaries.mockImplementation(
+      async () => new Map([["r1", summary]]),
+    );
+  });
+
+  it("reads only recordings the viewer can access, and says which were never measured", async () => {
+    const rows = [
+      {
+        id: "r1",
+        sessionId: "s1",
+        ownerEmail: "owner@example.test",
+        orgId: "org_1",
+      },
+      {
+        id: "r2",
+        sessionId: "s2",
+        ownerEmail: "owner@example.test",
+        orgId: "org_1",
+      },
+    ];
+    let condition: unknown;
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn((where: unknown) => {
+            condition = where;
+            return { limit: vi.fn(async () => rows) };
+          }),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue(db);
+
+    const result = await getSessionRecordingPerformance(
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+      ["r1", "r2", "r1", "r-unreadable"],
+    );
+
+    expect(result).toEqual({
+      performance: { r1: summary, r2: null },
+      coverageStartedAt: "2026-09-20T00:00:00.000Z",
+    });
+    expect(conditionText(condition)).toContain("viewer@example.test");
+    expect(conditionText(condition)).toContain("r-unreadable");
+    expect(
+      performanceMocks.getSessionPerformanceSummaries,
+    ).toHaveBeenCalledWith(
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+      rows,
+    );
+  });
+
+  it("reports coverage without reading recordings when given no ids", async () => {
+    const db = { select: vi.fn() };
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      getSessionRecordingPerformance(
+        { userEmail: "viewer@example.test", orgId: null },
+        [],
+      ),
+    ).resolves.toEqual({
+      performance: {},
+      coverageStartedAt: "2026-09-20T00:00:00.000Z",
+    });
+    expect(db.select).not.toHaveBeenCalled();
+  });
+});
+
 describe("session replay agent summaries", () => {
   it("omits owner, org, visibility, and metadata from compact agent payloads", () => {
     const summary = compactSessionRecordingSummary({
@@ -200,6 +432,39 @@ describe("session replay ingest parsing", () => {
     deletePrivateBlobMock.mockReset();
     readPrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
+    recordReplayFrictionMock.mockReset();
+  });
+
+  it("rejects ids too long to index instead of failing the insert", () => {
+    const events = [{ type: 4, timestamp: 1, data: { href: "/" } }];
+    const tooLong = "s".repeat(257);
+    for (const ids of [
+      { sessionId: tooLong },
+      { sessionId: "session_1", replayId: tooLong },
+    ]) {
+      expect(() =>
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          sequence: 0,
+          events,
+          ...ids,
+        }),
+      ).toThrow(
+        expect.objectContaining({
+          statusCode: 400,
+          message:
+            "Replay session and recording ids must be at most 256 characters",
+        }),
+      );
+    }
+    expect(
+      parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        sessionId: "s".repeat(256),
+        sequence: 0,
+        events,
+      }).sessionId,
+    ).toHaveLength(256);
   });
 
   it("normalizes recorder payloads into session recording chunks", () => {
@@ -232,6 +497,39 @@ describe("session replay ingest parsing", () => {
       eventCount: 1,
       storageKind: "inline",
     });
+  });
+
+  it("drops NUL and lone surrogates before deriving fields and chunks", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording\u0000_1",
+      sessionId: "session\u0000_1",
+      userId: "dev@example.com\uD83D",
+      sequence: 0,
+      events: [
+        {
+          type: 4,
+          timestamp: 1,
+          data: {
+            href: "https://example.com/a\u0000b",
+            "no\u0000te": "x\uDE00",
+          },
+        },
+      ],
+    });
+
+    expect(parsed).toMatchObject({
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com�",
+    });
+    expect(JSON.parse(parsed.chunks[0].inlineData ?? "")).toEqual([
+      {
+        type: 4,
+        timestamp: 1,
+        data: { href: "https://example.com/ab", note: "x�" },
+      },
+    ]);
   });
 
   it("derives error and network-error counts from tagged diagnostics events", () => {
@@ -310,9 +608,6 @@ describe("session replay ingest parsing", () => {
             },
           },
         },
-        // Legacy-style event whose message matches the old substring
-        // heuristic; it must NOT add to errorCount once tagged diagnostics
-        // exist (no double counting).
         { type: 5, timestamp: 7, data: { message: "Uncaught error thing" } },
       ],
     });
@@ -355,7 +650,6 @@ describe("session replay ingest parsing", () => {
         click(1_000, 7),
         click(1_002, 7),
         click(1_400, 7),
-        // Different target and a long gap: neither extends the burst.
         click(9_000, 8),
         click(30_000, 8),
       ],
@@ -666,8 +960,6 @@ describe("session replay ingest parsing", () => {
       orgId: "org_123",
     });
 
-    // Returns the raw JSON string, ready to be served as application/json and
-    // parsed with response.json() — no pre-gzipped body / Content-Encoding.
     expect(result.json).toBe(eventsJson);
     expect(JSON.parse(result.json)).toEqual([
       { type: 4, data: { href: "/inbox" } },
@@ -704,7 +996,6 @@ describe("session replay ingest parsing", () => {
       ],
     ]);
     getDbMock.mockReturnValue(db);
-    // Stored at rest gzipped; the read path must gunzip before serving.
     readPrivateBlobMock.mockResolvedValue({
       data: gzipSync(Buffer.from(eventsJson, "utf8")),
     });
@@ -1234,6 +1525,26 @@ describe("session replay ingest parsing", () => {
     });
   });
 
+  it("keeps a recording active while the recorder says so, despite its end time", () => {
+    const payload = {
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      endedAt: "2026-01-01T00:00:04.500Z",
+      events: [{ type: 3, timestamp: Date.parse("2026-01-01T00:00:04.500Z") }],
+    };
+
+    expect(
+      parseSessionReplayIngestPayload({ ...payload, status: "active" }).status,
+    ).toBe("active");
+    expect(
+      parseSessionReplayIngestPayload({ ...payload, status: "completed" })
+        .status,
+    ).toBe("completed");
+    expect(parseSessionReplayIngestPayload(payload).status).toBe("completed");
+  });
+
   it("requires an Origin header when an allowlist is configured", async () => {
     await expect(
       assertReplayKeyBudget(
@@ -1292,8 +1603,6 @@ describe("session replay ingest parsing", () => {
     ).rejects.toMatchObject({
       statusCode: 429,
       message: "Replay ingest byte quota exceeded for this public key",
-      // The recorder stops for the session on a day-long window and only
-      // pauses on a short one, so the two 429s must stay distinguishable.
       retryAfterSeconds: 24 * 60 * 60,
     });
   });
@@ -1323,9 +1632,6 @@ describe("session replay ingest parsing", () => {
   });
 
   it("rejects a new recording at 90% of the daily byte budget", async () => {
-    // Admission ceiling for a new recording is 85% of the 1,000-byte cap
-    // (850), so 900 already-used bytes plus any request exceeds it even
-    // though the hard cap (1,000) has headroom left.
     const db = createBudgetDbMock([[{ bytes: 900 }]]);
     getDbMock.mockReturnValue(db);
 
@@ -1465,8 +1771,6 @@ describe("session replay ingest parsing", () => {
         statusCode: 503,
       });
 
-      // The reserved usage row is deleted first (rollback of the pre-upload
-      // reservation), then the empty-recording placeholder.
       expect(deletes).toHaveLength(2);
       expect(deletes[0]?.table).toBe(schema.sessionReplayIngests);
       const cleanupCondition = conditionText(deletes[1]?.where);
@@ -1516,9 +1820,45 @@ describe("session replay ingest parsing", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 429, retryAfterSeconds: 60 });
 
-    // key, daily bytes, per-minute count, and no session_recordings lookup
     expect(db.select).toHaveBeenCalledTimes(3);
     expect(inserts).toHaveLength(0);
+  });
+
+  it("stores nothing for a test identity's replay and says why", async () => {
+    const { db, inserts } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 0 }],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          replayId: "recording_1",
+          sessionId: "session_1",
+          userEmail: "qa+autoz@builder.io",
+          sequence: 0,
+          events: [{ type: 4, timestamp: 1 }],
+        }),
+        { origin: "https://app.example.com", requestBytes: 100 },
+      ),
+    ).resolves.toEqual({ skipped: "test-identity", acceptedChunks: 0 });
+
+    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(inserts).toHaveLength(0);
+    expect(putPrivateBlobMock).not.toHaveBeenCalled();
   });
 
   it("removes a new recording's placeholder when the usage reservation fails", async () => {
@@ -1770,10 +2110,6 @@ describe("session replay ingest parsing", () => {
   });
 
   it("uploads replay chunks in the public key owner's org scope (anonymous ingest)", async () => {
-    // The ingest endpoint is anonymous + cross-origin (no session). Without the
-    // runWithRequestContext wrap, resolveBuilderPrivateKey()/S3 scoped-secret
-    // lookups would see no user/org and every upload would 503 -> empty
-    // recordings. Assert the upload runs in the key owner's scope.
     const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     let seenEmail: string | undefined;
@@ -1781,7 +2117,7 @@ describe("session replay ingest parsing", () => {
     putPrivateBlobMock.mockImplementation(async () => {
       seenEmail = getRequestUserEmail();
       seenOrgId = getRequestOrgId();
-      return null; // force the 503 path after capturing the resolution scope
+      return null;
     });
     const { db } = createReplayDbMock(replayIngestKeyDbResults("org_123"));
     getDbMock.mockReturnValue(db);
@@ -1844,6 +2180,65 @@ describe("session replay ingest parsing", () => {
     );
     expect((recordingInsert?.values as { visibility: string }).visibility).toBe(
       "private",
+    );
+  });
+
+  it("measures friction for exactly the chunks a batch stored, after the ones before it", async () => {
+    // Stored as a blob, the chunk row has no inline data; friction must still
+    // read the events the upload carried.
+    putPrivateBlobMock.mockResolvedValue({
+      opaque: "blob_1",
+      provider: "test",
+    });
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 1,
+      status: "active",
+      endedAt: 1,
+      events: [{ type: 4, timestamp: 1 }],
+    });
+    const [key, bytes, requests, , , recording] =
+      replayIngestKeyDbResults(null);
+    const { db, inserts } = createReplayDbMock([
+      key,
+      bytes,
+      requests,
+      [{ ...recording[0], chunkCount: 1, errorCount: 2, rageClickCount: 1 }],
+      [{ seq: 0, checksum: "earlier", eventCount: 1, byteLength: 10 }],
+    ]);
+    const update = vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    await recordSessionReplayChunks(input, {
+      origin: "https://app.example.com",
+      requestBytes: 100,
+    });
+    expect(
+      inserts.find((entry) => entry.table === schema.sessionReplayChunks)
+        ?.values,
+    ).toEqual([
+      expect.objectContaining({
+        seq: 1,
+        storageKind: "blob",
+        inlineData: null,
+      }),
+    ]);
+    expect(recordReplayFrictionMock).toHaveBeenCalledTimes(1);
+    expect(recordReplayFrictionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "sr_new",
+        sessionId: "session_1",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        priorChunkCount: 1,
+        newChunks: [{ seq: 1, inlineData: input.chunks[0]!.inlineData }],
+        errorCount: 2,
+        rageClickCount: 1,
+        recordingEnded: false,
+      }),
     );
   });
 

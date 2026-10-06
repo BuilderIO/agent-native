@@ -1,20 +1,3 @@
-/**
- * Agent Teams — sub-agent orchestration for agent-native.
- *
- * The main agent chat acts as an orchestrator. It spawns sub-agents
- * for individual tasks, which run in their own threads. Sub-agents
- * appear as rich preview cards (chips) inline in the main chat.
- *
- * This module provides the server-side infrastructure:
- * - Creating sub-agent threads and running them in background
- * - Tracking task status and results
- * - Emitting SSE events for live preview cards
- * - Bidirectional messaging between main agent and sub-agents
- *
- * Task state is persisted in application_state (SQL) so it survives
- * serverless cold starts and works across multiple processes.
- */
-
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
@@ -103,23 +86,8 @@ import {
 } from "./request-context.js";
 import { fireInternalDispatch } from "./self-dispatch.js";
 
-/**
- * Ambient delegation depth for the agent whose run is currently executing.
- *
- * `processAgentTeamRun` runs each sub-agent inside `runWithDelegationDepth(d)`
- * where `d` is that sub-agent's own depth. So if a sub-agent calls `spawnTask`
- * (e.g. because tool-stripping was bypassed and it was handed the `agent-teams`
- * tool anyway), the spawn path reads its parent's depth from here and refuses
- * once the cap is reached — independent of any tool-level guard. The top-level
- * chat runs outside this storage, so its ambient depth is 0.
- */
 const delegationDepthStorage = new AsyncLocalStorage<number>();
 
-/**
- * Run `fn` with `depth` recorded as the ambient delegation depth so any
- * `spawnTask` call made transitively from `fn` knows the depth of the agent
- * doing the spawning.
- */
 function runWithDelegationDepth<T>(
   depth: number,
   fn: () => T | Promise<T>,
@@ -127,42 +95,22 @@ function runWithDelegationDepth<T>(
   return delegationDepthStorage.run(Math.max(0, Math.floor(depth || 0)), fn);
 }
 
-/** Depth of the agent currently executing (0 = top-level chat). */
 function currentAmbientDelegationDepth(): number {
   return delegationDepthStorage.getStore() ?? 0;
 }
 
-/**
- * Public read of the ambient sub-agent delegation depth for the currently
- * executing agent. 0 = the top-level (user-facing) chat; 1+ = a spawned
- * sub-agent. Used by the chat plugin to thread the depth into
- * `buildRuntimeContextPrompt` so a sub-agent at the cap is told it can't
- * delegate further. Mirrors `currentAmbientDelegationDepth`; exported under a
- * descriptive name so callers outside this module don't depend on the private
- * helper or the test-only export object.
- */
 export function getCurrentDelegationDepth(): number {
   return currentAmbientDelegationDepth();
 }
 
 export interface SubagentDepthDecision {
-  /** Whether the spawn is allowed under the depth cap. */
   allowed: boolean;
-  /** Depth of the agent doing the spawning (parent). */
   parentDepth: number;
-  /** Depth the spawned sub-agent would have (parentDepth + 1). */
   childDepth: number;
-  /** The effective cap (resolved from env, clamped). */
   maxDepth: number;
-  /** Human-readable refusal message when `allowed` is false. */
   error?: string;
 }
 
-/**
- * Decide whether an agent at `parentDepth` may spawn another sub-agent. The
- * child would sit at `parentDepth + 1`; a child deeper than `maxDepth` is
- * refused. Pure + exported so the enforcement is unit-testable and reusable.
- */
 export function evaluateSubagentDepth(
   parentDepth: number,
   env: Record<string, string | undefined> = process.env,
@@ -184,22 +132,16 @@ export function evaluateSubagentDepth(
   };
 }
 
-/** Framework route the self-fire dispatch targets to run a queued sub-agent in
- * a fresh function invocation. Mounted inside the agent-chat plugin (where the
- * sub-agent action/prompt/engine closures live). */
 export const AGENT_TEAM_PROCESS_RUN_PATH =
   "/_agent-native/agent-teams/_process-run";
 
-/** Heartbeat cadence for the queue row while a chunk is actively processing. */
 const RUN_QUEUE_HEARTBEAT_MS = 5_000;
 
 export interface AgentTask {
   taskId: string;
   threadId: string;
   parentThreadId?: string;
-  /** Request owner used to scope every browser-visible task read and control. */
   ownerEmail?: string | null;
-  /** Organization scope captured when the task was spawned. */
   orgId?: string | null;
   name?: string;
   description: string;
@@ -213,11 +155,6 @@ export interface AgentTask {
   completedAt?: number;
   runId?: string;
   error?: string;
-  /**
-   * Delegation depth of THIS sub-agent: 1 for a sub-agent spawned by the
-   * top-level chat, 2 for a sub-agent spawned by a depth-1 sub-agent, etc.
-   * Drives the runaway-delegation guardrail (see `evaluateSubagentDepth`).
-   */
   delegationDepth?: number;
 }
 
@@ -292,27 +229,14 @@ export function createAgentTeamBackgroundAgentController(): BackgroundAgentContr
 export const agentTeamBackgroundAgentController =
   createAgentTeamBackgroundAgentController();
 
-/** Key prefix for task records: agent-task:{taskId} */
 const TASK_PREFIX = "agent-task:";
 
-/** Key prefix for thread→task reverse lookup: agent-task-thread:{threadId} */
 const THREAD_PREFIX = "agent-task-thread:";
 
-/** Key prefix for queued orchestrator→sub-agent messages. */
 const TASK_MESSAGE_PREFIX = "task-message:";
 
-/**
- * Key prefix for durable completion-injection entries that tell the parent
- * thread's next turn about a finished sub-agent. Pattern mirrors
- * `TASK_MESSAGE_PREFIX` (appstate key → JSON payload consumed once).
- *
- * Key: `parent-completion:{parentThreadId}:{injectionId}`
- * Value: `ParentCompletionInjection` JSON.
- */
 const PARENT_COMPLETION_PREFIX = "parent-completion:";
 
-/** Max chars of the sub-agent summary to include inline in the injection.
- * The orchestrator can always call read-result for the full output. */
 const PARENT_COMPLETION_INLINE_MAX = 2_000;
 
 export interface ParentCompletionInjection {
@@ -334,7 +258,6 @@ function generateInjectionId(): string {
   return `inj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Append a completion-injection entry to the parent thread's queue. */
 async function appendParentCompletionInjection(
   parentThreadId: string,
   task: AgentTask,
@@ -366,8 +289,6 @@ async function appendParentCompletionInjection(
   );
 }
 
-/** Format a parent-completion injection as a human-readable orchestrator
- * message. Mirrors `formatQueuedTaskMessages`. */
 function formatParentCompletionInjection(
   inj: ParentCompletionInjection,
 ): string {
@@ -384,11 +305,6 @@ function formatParentCompletionInjection(
   return `Sub-agent ${name} ${statusLine}:\n\n${inj.summaryExcerpt}${tail}`;
 }
 
-/**
- * Drain the parent-completion injection queue for a thread. Returns all
- * pending injections and deletes them atomically. Exported so the agent-chat
- * plugin can drain these into the orchestrator's next user-turn.
- */
 export async function drainParentCompletionInjections(
   parentThreadId: string,
 ): Promise<ParentCompletionInjection[]> {
@@ -410,10 +326,6 @@ export async function drainParentCompletionInjections(
   return injections.sort((a, b) => a.timestamp - b.timestamp);
 }
 
-/**
- * Format all drained parent-completion injections as a single user-turn
- * message to inject into the orchestrator thread.
- */
 export function formatParentCompletionInjections(
   injections: ParentCompletionInjection[],
 ): string {
@@ -511,7 +423,6 @@ async function listQueuedTaskMessages(
       } => Boolean(entry),
     );
 
-  // Backward compatibility for messages queued by the old implementation.
   const legacyKey = `${TASK_MESSAGE_PREFIX}${taskId}`;
   const legacy = await readAppState(legacyKey);
   const legacyMessage = legacy
@@ -565,10 +476,6 @@ function createMessageAwareActions(
       {
         ...entry,
         run: async (args, context) => {
-          // Sub-agents / agent-teams run through the production-agent loop, so
-          // the loop already passes a full ctx with caller "tool". Forward it,
-          // defaulting caller to "tool" if a caller invokes this wrapper without
-          // a context object.
           const result = await entry.run(args, {
             ...context,
             caller: context?.caller ?? "tool",
@@ -576,10 +483,6 @@ function createMessageAwareActions(
           const queuedMessages = await drainQueuedTaskMessages(taskId);
           if (queuedMessages.length === 0) return result;
 
-          // Tool results are already the next safe model-visible boundary:
-          // the loop records all tool output, then asks the model to continue.
-          // Attaching queued updates here avoids mutating message history while
-          // an assistant tool-call turn is still being resolved.
           const formatted = formatQueuedTaskMessages(queuedMessages);
           const resultText =
             typeof result === "string"
@@ -599,17 +502,10 @@ function createTaskMessageFinalGuard(
     const queuedMessages = await drainQueuedTaskMessages(taskId);
     if (queuedMessages.length === 0) return null;
 
-    // This is queued delivery, not a live interrupt: if the sub-agent is
-    // already producing a final answer, the guard asks the loop for one more
-    // continuation that includes the orchestrator update as a fresh user turn.
     return {
       retryMessage: formatQueuedTaskMessages(queuedMessages),
       fallbackMessage:
         "I received an orchestrator update while finishing, but could not continue from it. Please check the task status and send the update again if needed.",
-      // A queued update can introduce a request for an action that was
-      // deferred behind tool-search. The retry is already a corrective turn,
-      // so expose the full authorized registry rather than making the
-      // sub-agent spend that turn rediscovering the same tool.
       expandToolSurface: true,
     };
   };
@@ -685,7 +581,6 @@ async function failReconciledTask(
   if (ownerEmail) {
     await completeTaskProgressRun(task, ownerEmail, progressStatus, message);
   }
-  // Make the dispatch row terminal too so it isn't re-fired.
   await completeAgentTeamRun(task.taskId, "failed").catch(() => {});
   return task;
 }
@@ -696,12 +591,6 @@ function subAgentDispatchFailureMessage(err: unknown): string {
     : "Failed to start sub-agent.";
 }
 
-/**
- * Re-fire a dropped self-dispatch. When the queue row is still queued/running
- * but its heartbeat has gone stale (the self-fire never landed, or the
- * processing invocation died), kick the processor again before the hard
- * stuck-cutoff fail path gives up. Best-effort — the fail path is the backstop.
- */
 async function refireStuckAgentTeamRunIfNeeded(
   task: AgentTask,
   dispatch: NonNullable<
@@ -711,8 +600,8 @@ async function refireStuckAgentTeamRunIfNeeded(
 ): Promise<void> {
   if (dispatch.status !== "queued" && dispatch.status !== "running") return;
   const idleFor = Date.now() - dispatch.updatedAt;
-  if (idleFor < RUN_DISPATCH_STUCK_AFTER_MS) return; // still fresh — leave it
-  if (idleFor >= RUN_PROCESSING_STUCK_AFTER_MS) return; // fail path owns this
+  if (idleFor < RUN_DISPATCH_STUCK_AFTER_MS) return;
+  if (idleFor >= RUN_PROCESSING_STUCK_AFTER_MS) return;
   try {
     await fireInternalDispatch({
       event,
@@ -729,19 +618,6 @@ async function refireStuckAgentTeamRunIfNeeded(
   }
 }
 
-/**
- * Reconcile a task that still reads "running" against the actual run state.
- *
- * Durable-dispatch path (the normal case): the `agent_team_run_queue` row is
- * the authority. While it's queued/running the task stays running (a single
- * completed agent_runs chunk at a soft-timeout boundary does NOT mean the task
- * finished — a continuation may be queued/in-flight). A dropped dispatch is
- * re-fired; a genuinely stalled one (past the hard cutoff) is failed.
- *
- * Legacy fallback (no queue row — pre-upgrade tasks, or the in-process
- * Cloudflare path): fall back to the in-memory/SQL run state via
- * `getActiveRunForThreadAsync`, with the original missing-run grace.
- */
 async function reconcileTaskWithRun(
   task: AgentTask,
   event?: any,
@@ -777,12 +653,9 @@ async function reconcileTaskWithRun(
         task.error || task.summary || "Sub-agent run failed.",
       );
     }
-    // status === "done" but task still running — safety net (the processor
-    // normally sets the task terminal before completing the queue row).
     return await completeReconciledTask(task, ownerEmail);
   }
 
-  // ── Legacy fallback: no durable queue row ────────────────────────────────
   if (!task.runId) return task;
   let runState:
     | Awaited<ReturnType<typeof getActiveRunForThreadAsync>>
@@ -816,12 +689,6 @@ async function reconcileTaskWithRun(
   );
 }
 
-/**
- * Reconcile all of an owner's in-flight sub-agent runs. Wired into the RunsTray
- * data path (`/_agent-native/runs`) so the tray self-heals: dropped dispatches
- * are re-fired and dead runs are marked failed promptly, even when the
- * orchestrator chat never polls `status`/`read-result`.
- */
 export async function reconcileAgentTeamRunsForOwner(
   owner: string,
   event?: any,
@@ -859,8 +726,6 @@ function taskIdFromBackgroundRunId(runId: string): string {
     ? runId.slice("run-task-".length)
     : runId;
   const chunkTaskId = taskId.match(/^(.*)-c\d+$/)?.[1];
-  // Public background run ids are stable base ids. Only strip a chunk suffix
-  // when the caller passed a live run-manager chunk id.
   return chunkTaskId && getRun(runId)?.status === "running"
     ? chunkTaskId
     : taskId;
@@ -991,12 +856,6 @@ async function completeTaskProgressRun(
   }
 }
 
-/**
- * Maximum characters stored in `task.summary` (the full result surfaced to the
- * orchestrator via `read-result`). Generous enough to avoid destroying long
- * sub-agent output; matches the tool-result truncation cap used in the main
- * production-agent loop.
- */
 const TASK_SUMMARY_MAX_CHARS = 50_000;
 
 function resolveTaskCompletion(
@@ -1025,7 +884,6 @@ function resolveTaskCompletion(
     };
   }
   if (run.status === "errored") {
-    // Keep a reasonable tail for error context; errors are rarely huge.
     const failed = text.slice(-500) || "Task failed.";
     return {
       taskStatus: "errored",
@@ -1035,9 +893,6 @@ function resolveTaskCompletion(
       error: failed,
     };
   }
-  // Store up to TASK_SUMMARY_MAX_CHARS so the orchestrator's read-result tool
-  // can access the full output without truncation. If the absolute continuation
-  // cap was hit, mark the result so the orchestrator can distinguish it.
   let summary =
     text.length > TASK_SUMMARY_MAX_CHARS
       ? text.slice(-TASK_SUMMARY_MAX_CHARS)
@@ -1248,47 +1103,22 @@ export function toAgentTaskBackgroundTranscriptEvent(
 }
 
 export interface SpawnTaskOptions {
-  /** Description of what the sub-agent should do */
   description: string;
-  /** Additional instructions scoped to this sub-agent */
   instructions?: string;
-  /** Model to use (e.g. "claude-haiku-4-5"). Uses default if omitted */
   model?: string;
-  /** The owner email for thread creation */
   ownerEmail: string;
-  /** The system prompt base for the sub-agent */
   systemPrompt: string;
-  /** Available actions for the sub-agent */
   actions: Record<string, ActionEntry>;
-  /** Agent engine to use. Falls back to creating an Anthropic engine with apiKey. */
   engine?: AgentEngine;
-  /** API key for Anthropic (used only if engine is not provided) */
   apiKey?: string;
-  /** Callback to emit events to the parent chat stream */
   parentSend: (event: AgentChatEvent) => void;
-  /** Parent thread ID — used to auto-respond when the sub-agent finishes */
   parentThreadId?: string;
-  /** App id that owns the parent chat, used to scope the child thread. */
   parentSourceAppId?: string | null;
-  /** Parent run ID used to correlate child telemetry after durable handoff. */
   parentRunId?: string;
-  /** Display name for the sub-agent tab (carried into the dispatch payload). */
   name?: string;
-  /**
-   * Delegation depth of the agent doing the spawning (the parent). Top-level
-   * chat is 0. When omitted, the depth is read from the ambient run context
-   * (set by `processAgentTeamRun` when a sub-agent is itself running), so a
-   * sub-agent that reaches `spawnTask` inherits its own depth automatically.
-   * The spawned sub-agent's depth is `parentDelegationDepth + 1`.
-   */
   parentDelegationDepth?: number;
 }
 
-/**
- * Error thrown when a spawn is refused because it would exceed the delegation
- * depth cap. Carries the structured decision so callers (and the tool layer)
- * can surface a precise message to the parent agent.
- */
 export class SubagentDelegationDepthError extends Error {
   readonly decision: SubagentDepthDecision;
   constructor(decision: SubagentDepthDecision) {
@@ -1301,16 +1131,7 @@ export class SubagentDelegationDepthError extends Error {
   }
 }
 
-/**
- * Spawn a sub-agent task. Creates a thread, starts a background agent run,
- * and emits agent_task events to the parent chat stream.
- */
 export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
-  // ── Delegation-depth guardrail ────────────────────────────────────────────
-  // Defensive, server-side enforcement that holds regardless of any tool-level
-  // stripping in the agent-chat plugin: a sub-agent cannot infinitely spawn
-  // sub-agents. The spawning agent's depth comes from the explicit option or,
-  // failing that, the ambient depth recorded while a sub-agent run executes.
   const parentDepth =
     typeof opts.parentDelegationDepth === "number"
       ? opts.parentDelegationDepth
@@ -1323,18 +1144,12 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
 
   const taskId = generateTaskId();
 
-  // Create a dedicated thread for the sub-agent with the task as the first message
   const parentSourceAppId = opts.parentSourceAppId?.trim();
   const thread = await createThread(opts.ownerEmail, {
     title: opts.description.slice(0, 100),
     ...(parentSourceAppId ? { source: { appId: parentSourceAppId } } : {}),
   });
 
-  // Save the initial user message to thread data so the tab shows content
-  // immediately. Shape must match assistant-ui's ExportedMessageRepository —
-  // each entry carries an explicit `parentId` so the runtime threads messages
-  // into a linked list; without it, later assistant messages render as
-  // orphaned siblings and only the one under `headId` is shown.
   const userMsgId = `msg-${taskId}-user`;
   try {
     const { updateThreadData } = await import("../chat-threads/store.js");
@@ -1397,7 +1212,6 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   await saveTask(task);
   await startTaskProgressRun(task, opts.ownerEmail);
 
-  // Notify parent chat that a sub-agent was spawned
   opts.parentSend({
     type: "agent_task",
     taskId,
@@ -1406,16 +1220,6 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     status: "running",
   });
 
-  // Hand the run off to the durable dispatch queue and self-fire a fresh
-  // function invocation to execute it. This is what makes background
-  // sub-agents survive serverless: the spawning request returns immediately
-  // while the sub-agent runs in its OWN invocation (with its own timeout
-  // budget) instead of as a detached in-process promise that the host freezes
-  // when this response flushes. Same enqueue-to-SQL + self-fire-HTTP pattern
-  // as A2A async tasks (a2a/handlers.ts) and integration webhooks
-  // (integrations/webhook-handler.ts). Execution happens in `processAgentTeamRun`,
-  // invoked by the `/_agent-native/agent-teams/_process-run` route mounted
-  // inside the agent-chat plugin (where the action/prompt/engine closures live).
   const payload: AgentTeamRunPayload = {
     description: opts.description,
     instructions: opts.instructions,
@@ -1426,7 +1230,6 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     ...(getRequestRunContext()?.allowedActionNames !== undefined
       ? { allowedActionNames: Object.keys(opts.actions) }
       : {}),
-    // Stable across continuation chunks so the durable assistant message folds.
     turnId: runId,
   };
 
@@ -1445,9 +1248,6 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
       body: { mode: "start" },
     });
   } catch (err) {
-    // Enqueue/dispatch failed outright — surface as an errored task rather
-    // than a ghost "running" one. (A dropped self-fire that still enqueued is
-    // recovered by the reconcile stuck-refire path.)
     await failReconciledTask(
       task,
       opts.ownerEmail,
@@ -1458,11 +1258,6 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   return task;
 }
 
-/**
- * Build the sub-agent system prompt: a "you are a sub-agent" preamble (so it
- * starts on its task instead of exploring), the base prompt, and any
- * task-specific instructions.
- */
 function buildSubAgentSystemPrompt(
   baseSystemPrompt: string,
   actions: Record<string, ActionEntry>,
@@ -1489,12 +1284,6 @@ You are a focused sub-agent with a specific task. You have been given a curated 
   return prompt;
 }
 
-/**
- * Persist the sub-agent conversation to thread_data, folding continuation
- * chunks of the same turn into one assistant message (same `foldAssistantTurn`
- * mechanism the main chat uses). Returns the full folded assistant text for use
- * as the task summary so multi-chunk runs don't lose earlier chunks' output.
- */
 async function persistTaskThreadData(
   task: AgentTask,
   description: string,
@@ -1514,7 +1303,6 @@ async function persistTaskThreadData(
     }
     if (!Array.isArray(repo.messages)) repo.messages = [];
 
-    // Ensure the seed user message exists (first chunk / fresh thread).
     const userMsgId = `msg-${task.taskId}-user`;
     const hasUser = repo.messages.some(
       (m: any) => (m?.message ?? m)?.id === userMsgId,
@@ -1540,7 +1328,6 @@ async function persistTaskThreadData(
       repo = foldAssistantTurn(repo, assistantMsg, { runId, turnId });
     }
 
-    // Extract the folded assistant text (full content across chunks).
     let assistantText = "";
     const headEntry = Array.isArray(repo.messages)
       ? repo.messages.find((m: any) => (m?.message ?? m)?.id === repo.headId)
@@ -1566,7 +1353,6 @@ async function persistTaskThreadData(
   }
 }
 
-/** Mark a sub-agent task terminal: task record, progress row, and queue row. */
 async function finalizeAgentTeamRun(
   task: AgentTask,
   run: ActiveRun,
@@ -1597,10 +1383,6 @@ async function finalizeAgentTeamRun(
     options?.claimedAttempts,
   );
 
-  // ── Completion loop: notify the parent thread ─────────────────────────────
-  // Append a durable injection to the parent thread's queue so the
-  // orchestrator automatically sees the result at its next turn start.
-  // Also write a NotificationsBell entry so the user sees a badge.
   if (task.parentThreadId) {
     try {
       await appendParentCompletionInjection(task.parentThreadId, task, {
@@ -1642,34 +1424,18 @@ async function finalizeAgentTeamRun(
   }
 }
 
-/** Run config the processor route resolves from plugin-scope closures. */
 export interface AgentTeamRunConfig {
   baseSystemPrompt: string;
   actions: Record<string, ActionEntry>;
   engine: AgentEngine;
   model: string;
-  /**
-   * Tool names to expose on the FIRST engine request for this sub-agent
-   * chunk. See `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) —
-   * same semantics: when provided, every other action in `actions` is
-   * deferred behind an attached `tool-search` entry instead of being
-   * serialized on every chunk; `runAgentLoop`'s mid-run tool expansion still
-   * lets the model discover and call them after a search. Omit to keep the
-   * full `actions` set visible up front (current behavior).
-   */
   initialToolNames?: string[];
 }
 
 export interface ProcessAgentTeamRunOptions {
   taskId: string;
-  /** "start" = first chunk; "continue" = resume from thread_data after a
-   * soft-timeout boundary. Defaults from the queue row's continuation count. */
   mode?: "start" | "continue";
-  /** Inbound request event, used to resolve the self-dispatch base URL for
-   * continuation self-fires. */
   event?: any;
-  /** Count of consecutive non-progressing chunks carried forward from the
-   * previous invocation. Used by the progress-aware continuation budget. */
   noProgressCount?: number;
   /** Builds the sub-agent run config from the queue payload + resolved owner.
    * The plugin supplies this because the action registry / base prompt /
@@ -1681,14 +1447,6 @@ export interface ProcessAgentTeamRunOptions {
   }) => Promise<AgentTeamRunConfig>;
 }
 
-/**
- * Execute one chunk of a queued sub-agent run in a fresh function invocation.
- * Called by the `/_agent-native/agent-teams/_process-run` route. Atomically
- * claims the run (idempotent on duplicate self-fires), reconstructs the
- * messages (start vs continue), runs the agent loop to completion, persists
- * thread_data, and either self-fires a continuation (soft-timeout boundary,
- * under the cap) or finalizes the task.
- */
 export async function processAgentTeamRun(
   opts: ProcessAgentTeamRunOptions,
 ): Promise<{ ok: boolean; skipped?: string }> {
@@ -1793,9 +1551,6 @@ export async function processAgentTeamRun(
       }
 
       const initialToolNames = config.initialToolNames;
-      // Only attach tool-search (and pay its schema cost) when the caller
-      // actually supplied an initial subset to filter down to — otherwise
-      // this is byte-for-byte the prior unfiltered behavior.
       const baseActions = initialToolNames
         ? attachToolSearch({ ...config.actions })
         : config.actions;
@@ -1806,8 +1561,6 @@ export async function processAgentTeamRun(
       const availableTools = actionsToEngineTools(messageAwareActions);
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
-      // Fresh runId per chunk (avoids agent_runs PK collisions); stable turnId so
-      // the durable assistant message folds across chunks.
       const runId = `${taskRunId(opts.taskId)}-c${claimed.continuationCount}`;
 
       task.currentStep =
@@ -1823,9 +1576,6 @@ export async function processAgentTeamRun(
       const claimedAttempts = claimed.attempts;
 
       const heartbeat = setInterval(() => {
-        // Best-effort: a dropped Neon WebSocket (Lambda freeze/thaw) rejects
-        // with a raw ErrorEvent; a floating rejection here surfaces as an
-        // unhandled promise rejection, so it must be caught and logged.
         touchAgentTeamRun(opts.taskId, claimedAttempts).catch((err) => {
           console.warn(
             `[agent-teams] heartbeat update failed for task ${opts.taskId}:`,
@@ -1838,10 +1588,8 @@ export async function processAgentTeamRun(
       let accumulatedText = "";
       let lastProgressSent = 0;
       const PROGRESS_INTERVAL_MS = 2000;
-      // Track no-progress continuation budget (Fix 3).
       let consecutiveNoProgressChunks = opts.noProgressCount ?? 0;
 
-      // Capture loop usage for token accounting (Fix 4).
       let chunkUsage:
         | import("../agent/production-agent.js").AgentLoopUsage
         | null = null;
@@ -1899,21 +1647,11 @@ export async function processAgentTeamRun(
                     ? undefined
                     : { allowedActionNames: persistedAllowedActionNames },
               },
-              // Record THIS sub-agent's own delegation depth as the ambient
-              // depth for the duration of its agent loop. If a tool call from
-              // within the loop reaches `spawnTask` (even with the team tool not
-              // stripped), the spawn path reads this depth and refuses once the
-              // cap is hit. Fall back to depth 1 for legacy tasks persisted
-              // before delegationDepth was tracked.
               () =>
                 runWithDelegationDepth(task.delegationDepth ?? 1, async () => {
                   const agentLoopOpts = {
                     engine: config.engine,
                     model: config.model,
-                    // Agent-team runs are delegated turns too. Keep their
-                    // first attempt on the same model-aware budget as A2A /
-                    // MCP so reasoning models do not spend the old 4K
-                    // default before emitting a tool call or answer.
                     maxOutputTokens: resolveMainChatMaxOutputTokens(
                       config.model,
                     ),
@@ -1965,9 +1703,6 @@ export async function processAgentTeamRun(
                       });
                     }
                   } catch (error) {
-                    // Configuration is best effort. Once the wrapper starts,
-                    // preserve its errors so a failed child is not reported
-                    // as a successful run with missing telemetry.
                     if (instrumented) throw error;
                   }
                   if (!instrumented) {
@@ -1987,7 +1722,6 @@ export async function processAgentTeamRun(
                 turnId,
               );
 
-              // Record token usage for this chunk (Fix 4).
               if (chunkUsage && ownerEmail) {
                 try {
                   const u = chunkUsage;
@@ -2019,17 +1753,10 @@ export async function processAgentTeamRun(
                 }
               }
 
-              // A soft-timeout boundary means the host function wall is near and
-              // the partial turn is checkpointed in thread_data — self-fire the
-              // next continuation chunk (server-side analog of the client re-POST
-              // that continues the main chat) instead of finalizing.
               const reachedBoundary = (run.events ?? []).some(
                 (e) => e.event.type === "auto_continue",
               );
               if (reachedBoundary) {
-                // Progress check (Fix 3): count substantive events in this chunk.
-                // Any text or tool activity counts as progress. An empty chunk
-                // (only auto_continue with no actual work) is non-progressing.
                 const substantiveEvents = (run.events ?? []).filter(
                   (e) =>
                     e.event.type === "text" ||
@@ -2077,9 +1804,6 @@ export async function processAgentTeamRun(
                   }
                   return;
                 }
-                // Hit the absolute cap or no-progress limit — finalize with an
-                // explicit marker so the orchestrator can distinguish this from a
-                // clean completion.
                 await finalizeAgentTeamRun(
                   task,
                   run,
@@ -2119,7 +1843,6 @@ export async function processAgentTeamRun(
   );
 }
 
-/** Get task by ID, optionally constrained to the current request scope. */
 export async function getTask(
   taskId: string,
   scope?: AgentTeamOwnerScope,
@@ -2131,7 +1854,6 @@ export async function getTask(
   return await reconcileTaskWithRun(task);
 }
 
-/** Get task by thread ID, optionally constrained to the current request scope. */
 export async function getTaskByThread(
   threadId: string,
   scope?: AgentTeamOwnerScope,
@@ -2143,7 +1865,6 @@ export async function getTaskByThread(
   return await reconcileTaskWithRun(task);
 }
 
-/** List tasks in the current owner/org scope (most recent first). */
 export async function listTasks(
   scope?: AgentTeamOwnerScope,
 ): Promise<AgentTask[]> {
@@ -2250,7 +1971,6 @@ async function getPersistedRunEvents(runId: string): Promise<RunEvent[]> {
     .filter((event): event is RunEvent => Boolean(event));
 }
 
-/** Send a message/update to a running sub-agent via application state */
 export async function sendToTask(
   taskId: string,
   message: string,
@@ -2270,10 +1990,6 @@ export async function sendToTask(
   if (message.trim().length === 0)
     return { ok: false, error: "Message is required" };
 
-  // Append to a durable per-task queue. Running sub-agents drain this queue
-  // after tool batches and immediately before a final response. This does not
-  // interrupt an in-flight model stream or tool call; it guarantees the next
-  // safe continuation sees the update.
   try {
     const queued = await appendQueuedTaskMessage(taskId, message);
     return { ok: true, ...queued };
@@ -2379,9 +2095,6 @@ function resolveOwnerScope(
   if (ownerEmail === undefined) return undefined;
   return {
     ownerEmail,
-    // A few non-HTTP test/CLI hosts only provide the user scope. Keep that
-    // owner check active without requiring every lightweight request-context
-    // adapter to implement organization lookup.
     orgId:
       typeof getRequestOrgId === "function" ? getRequestOrgId() : undefined,
   };
@@ -2398,7 +2111,6 @@ function taskMatchesOwnerScope(
   );
 }
 
-/** Mark a task as errored */
 export async function markTaskErrored(
   taskId: string,
   error: string,

@@ -38,12 +38,6 @@ export const WORKSPACE_OWNER = "__workspace__";
 const ORGANIZATION_OWNER_PREFIX = "__organization__:";
 const WORKSPACE_ORGANIZATION_OWNER_PREFIX = `${WORKSPACE_OWNER}:`;
 
-/**
- * Encode an organization id into the existing resource owner key. This keeps
- * organization resources isolated without a destructive resources-table
- * migration, while preserving the legacy `__shared__` owner as the app-wide
- * default/fallback used by older deployments and solo mode.
- */
 export function organizationResourceOwner(orgId: string): string {
   const normalized = orgId.trim();
   if (!normalized) {
@@ -63,21 +57,33 @@ export function organizationIdFromResourceOwner(owner: string): string | null {
   }
 }
 
-/** Active organization scope, with the legacy app-shared owner as solo fallback. */
 export function sharedResourceOwner(orgId?: string | null): string {
   const activeOrgId = orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
   return activeOrgId ? organizationResourceOwner(activeOrgId) : SHARED_OWNER;
 }
 
-/**
- * Active organization's workspace-default owner, with the bare workspace owner
- * as the solo fallback. Dispatch materializes each organization's "All apps"
- * resources here so two organizations in one database never collide on a
- * path. The organization owner is nested under the workspace sentinel rather
- * than reused outright: `organizationResourceOwner` already names the
- * organization/app override layer, and one owner cannot be both layers of the
- * same effective-context stack.
- */
+export function isBinaryResourceMimeType(mimeType: string): boolean {
+  const normalized = mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
+  return !(normalized.startsWith("text/") || normalized === "application/json");
+}
+
+export function packScopeFromOwner(
+  owner: string,
+  userEmail: string,
+): "personal" | "organization" | "workspace" {
+  if (owner === userEmail) return "personal";
+  if (isWorkspaceResourceOwner(owner)) return "workspace";
+  return "organization";
+}
+
+export function ownerForPackTarget(
+  target: "personal" | "organization",
+  userEmail: string,
+  orgId?: string | null,
+): string {
+  return target === "personal" ? userEmail : sharedResourceOwner(orgId);
+}
+
 export function workspaceResourceOwner(orgId?: string | null): string {
   const activeOrgId = orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
   return activeOrgId
@@ -92,7 +98,6 @@ export function isWorkspaceResourceOwner(owner: string): boolean {
   );
 }
 
-/** Local File Mode has one repo-backed workspace, represented by this owner. */
 function isBareWorkspaceResourceOwner(owner: string): boolean {
   return owner === WORKSPACE_OWNER;
 }
@@ -115,14 +120,6 @@ function isOrganizationWorkspaceResourceVisibleToOrganization(
   return ownerOrgId !== null && ownerOrgId === orgId;
 }
 
-/**
- * Owners a workspace read consults, most specific first. A bare
- * `WORKSPACE_OWNER` read follows the active organization the same way
- * `sharedResourceOwner` does; an organization-encoded owner is used as given.
- * Rows written before workspace defaults were organization-scoped live under
- * the bare owner and stay readable as the inherited fallback, mirroring the
- * legacy `__shared__` rule.
- */
 function workspaceReadOwners(owner: string, orgId?: string | null): string[] {
   const resolved =
     owner === WORKSPACE_OWNER
@@ -133,11 +130,6 @@ function workspaceReadOwners(owner: string, orgId?: string | null): string[] {
     : [resolved, WORKSPACE_OWNER];
 }
 
-/**
- * Rows written by the old organization workspace-files adapter used the
- * global shared owner. Keep true app defaults visible, but do not let those
- * tagged rows fall through to another organization's inherited resources.
- */
 export function isLegacySharedResourceVisibleToOrganization(
   resource: Pick<ResourceMeta, "owner" | "metadata">,
   orgId?: string | null,
@@ -218,14 +210,6 @@ function legacyDispatchWorkspaceResourceId(
     : null;
 }
 
-/**
- * Rows Dispatch materialized before workspace defaults were organization
- * scoped live under the bare owner and carry only the Dispatch resource id.
- * Resolve the organization through `workspace_resources`, the way legacy
- * `__shared__` rows resolve through their metadata, so a pre-upgrade copy is
- * inherited only by the organization that authored it. Untagged bare rows are
- * genuine deployment-wide defaults and stay visible everywhere.
- */
 async function filterLegacyDispatchWorkspaceRows<
   T extends Pick<ResourceMeta, "owner" | "metadata">,
 >(resources: T[], orgId: string | null): Promise<T[]> {
@@ -244,8 +228,6 @@ async function filterLegacyDispatchWorkspaceRows<
       args: ids,
     }));
   } catch (error) {
-    // A tagged row has no safe tenant without Dispatch's tenancy record.
-    // Untagged bare-owner rows remain genuine deployment-wide defaults.
     if (!isMissingResourceSchemaError(error)) throw error;
     return resources.filter(
       (resource) => legacyDispatchWorkspaceResourceId(resource) === null,
@@ -343,7 +325,6 @@ export interface ResourceConditionalWrite {
   content: string;
   expectedId: string;
   expectedUpdatedAt: number;
-  /** Also guards the rare case where two writes share the same millisecond. */
   expectedContent: string;
   mimeType?: string;
 }
@@ -367,6 +348,7 @@ export interface ResourceSnapshotWriteResult {
 
 export interface ResourceListOptions {
   includeAgentScratch?: boolean;
+  limit?: number;
   workspaceAppId?: string | null;
   userEmail?: string | null;
   orgId?: string | null;
@@ -424,16 +406,6 @@ Keep this file tidy — revise, consolidate, and remove outdated entries. Don't 
 ## Patterns
 `;
 
-/**
- * Read the project-root learnings seed file for the shared LEARNINGS.md
- * resource. Prefers `learnings.md` (scaffolded by `create.ts`, possibly
- * customized locally), then the checked-in `learnings.defaults.md` — the
- * scaffolded copy is gitignored, so production deploys built from git only
- * carry the defaults file. Returns null when neither file is present, both
- * are empty, or fs is unavailable (e.g. edge runtimes) so seeding falls back
- * to the built-in default. Only consulted on first insert (INSERT OR IGNORE),
- * so an existing LEARNINGS.md resource is never overwritten.
- */
 async function readProjectRootLearningsSeed(): Promise<string | null> {
   try {
     const [fs, path] = await Promise.all([import("fs"), import("path")]);
@@ -867,12 +839,14 @@ async function localWorkspaceResourceByPath(
 
 async function localWorkspaceResourceMetas(
   pathPrefix?: string,
+  limit?: number,
 ): Promise<ResourceMeta[]> {
-  const resources = (await listLocalWorkspaceResources()).map(
-    localWorkspaceResourceToMeta,
-  );
-  if (!pathPrefix) return resources;
-  return resources.filter((resource) => resource.path.startsWith(pathPrefix));
+  return (
+    await listLocalWorkspaceResources({
+      ...(limit === undefined ? {} : { maxResults: limit }),
+      ...(pathPrefix === undefined ? {} : { pathPrefix }),
+    })
+  ).map(localWorkspaceResourceToMeta);
 }
 
 export async function canWriteLocalWorkspaceResourcePath(
@@ -918,6 +892,15 @@ function mergeResourceMetas(
   return merged;
 }
 
+function limitResourceMetas(
+  resources: ResourceMeta[],
+  limit?: number,
+): ResourceMeta[] {
+  return limit === undefined
+    ? resources
+    : resources.slice(0, Math.max(0, Math.floor(limit)));
+}
+
 async function selectGrantedWorkspaceResourceRows(
   input: {
     resourceId?: string;
@@ -927,7 +910,7 @@ async function selectGrantedWorkspaceResourceRows(
     userEmail?: string | null;
     orgId?: string | null;
   },
-  options: { includeContent?: boolean } = {},
+  options: { includeContent?: boolean; limit?: number } = {},
 ): Promise<any[]> {
   const appId = currentWorkspaceAppId(input.workspaceAppId);
   const { userEmail, orgId } = requestScopedResourceIdentity(input);
@@ -966,10 +949,11 @@ async function selectGrantedWorkspaceResourceRows(
     options.includeContent === false
       ? `${"octet_length(wr.content)"} AS content_size`
       : "wr.content";
+  const limited = options.limit !== undefined;
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `
-      SELECT
+      SELECT ${limited ? "DISTINCT ON (wr.path)" : ""}
         wr.id,
         wr.kind,
         wr.name,
@@ -983,14 +967,16 @@ async function selectGrantedWorkspaceResourceRows(
       FROM workspace_resources wr
       INNER JOIN workspace_resource_grants wg ON wg.resource_id = wr.id
       WHERE ${conditions.join(" AND ")}
-      ORDER BY wr.updated_at DESC
+      ORDER BY ${limited ? "wr.path, wr.updated_at DESC, wg.id" : "wr.updated_at DESC"}
+      ${limited ? "LIMIT ?" : ""}
     `,
-    args,
+    args: limited ? [...args, options.limit] : args,
   });
   return rows;
 }
 
 async function grantedWorkspaceResources(input: {
+  limit?: number;
   pathPrefix?: string;
   workspaceAppId?: string | null;
   userEmail?: string | null;
@@ -999,6 +985,7 @@ async function grantedWorkspaceResources(input: {
   try {
     const rows = await selectGrantedWorkspaceResourceRows(input, {
       includeContent: false,
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
     });
     return rows.map(rowToGrantedWorkspaceResource);
   } catch {
@@ -1079,7 +1066,6 @@ function scheduleExpiredAgentScratchCleanup(client: DbExec): void {
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = _doEnsureTable().catch((err) => {
-      // Don't cache the rejection — let the next caller retry a fresh init.
       _initPromise = undefined;
       throw err;
     });
@@ -1111,18 +1097,7 @@ async function _doEnsureTable(): Promise<void> {
   `;
 
   {
-    // Hot path: the `resources` table and its additive columns are virtually
-    // always already present in production. Issuing `CREATE TABLE`/`ALTER
-    // TABLE` still takes an ACCESS EXCLUSIVE lock that, in a fresh
-    // background-worker process behind a concurrent connection on the shared
-    // Neon DB, can block ~indefinitely. The ensure* wrappers probe
-    // `information_schema` first (plain reads, no lock) and run DDL ONLY for
-    // what is actually missing, bounded by a transaction-scoped `lock_timeout`.
-    // If a swallowed lock-timeout leaves the schema still missing they RE-PROBE
-    // and THROW rather than letting init memoize success against absent schema.
     await ensureTableExists("resources", createSql);
-    // Additive columns — guarded so the hot path (columns already present)
-    // skips the ACCESS EXCLUSIVE ALTER entirely.
     const pgColumns: Array<[string, string]> = [
       ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
       ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
@@ -1140,21 +1115,12 @@ async function _doEnsureTable(): Promise<void> {
     }
   }
 
-  // Older deployments have 32-bit timestamp columns; on Postgres the
-  // `Date.now()` written on insert/update overflows int4. Widen in place
-  // (no-op once done / on fresh DBs).
   await widenIntColumnsToBigInt("resources", [
     "created_at",
     "updated_at",
     "expires_at",
   ]);
 
-  // `scheduleExpiredAgentScratchCleanup` filters on exactly these two columns
-  // and, without this, full-scans `resources` — a table shared by every
-  // template and read from agent discovery, docs, chat scratch and remote-agent
-  // manifests. Its 60s throttle is a module-scope timestamp that starts at 0 in
-  // a fresh isolate, so the first resource read after EVERY cold start pays
-  // that scan. Idempotent and backed by a Postgres expression index.
   await ensureIndexExists(
     "resources_visibility_expires_idx",
     `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
@@ -1187,7 +1153,6 @@ async function _doEnsureTable(): Promise<void> {
   const now = Date.now();
   const seedSql = `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`;
 
-  // AGENTS.md — shared agent instructions
   const agentsSize = Buffer.byteLength(DEFAULT_AGENTS_SHARED_MD, "utf8");
   await client.execute({
     sql: seedSql,
@@ -1203,11 +1168,6 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  // LEARNINGS.md — shared learnings (preferences, corrections, patterns).
-  // Prefer the project-root learnings.md (scaffolded from the template's
-  // learnings.defaults.md) so template-authored defaults reach the prompt
-  // without a manual migrate-learnings step. INSERT OR IGNORE means this only
-  // applies on first seed — existing LEARNINGS.md content is never overwritten.
   const learningsSeedContent =
     (await readProjectRootLearningsSeed()) ?? DEFAULT_LEARNINGS_SHARED_MD;
   const learningsSize = Buffer.byteLength(learningsSeedContent, "utf8");
@@ -1233,7 +1193,6 @@ async function _doEnsureTable(): Promise<void> {
     defaultContent: DEFAULT_SKILL_LEARN_SHARED_MD,
   });
 
-  // skills/learn-shared/SKILL.md — shared skill for updating shared LEARNINGS.md
   const learnSharedSize = Buffer.byteLength(
     DEFAULT_SKILL_LEARN_SHARED_MD,
     "utf8",
@@ -1252,19 +1211,10 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  // Seed built-in agents as shared resources under remote-agents/. ALWAYS
-  // use the production URL here, never the env-resolved devUrl. The seed
-  // runs once per DB (ON CONFLICT DO NOTHING), so a localhost URL written
-  // during a dev run sticks forever — including when that DB is later used
-  // by a prod deploy and the override wins over the built-in's prod URL.
-  // (Verified problem: `dispatch.agent-native.com` had every remote-agents
-  // entry pointing at localhost from an early-seed run, breaking call-agent
-  // outbound from Lambda for ~12h before this was caught.)
   try {
-    const { getBuiltinAgents, BUILTIN_AGENTS_FOR_SEEDING } =
+    const { getBuiltinAgentsForSeeding } =
       await import("../server/agent-discovery.js");
-    void getBuiltinAgents; // referenced to keep type-only import alive
-    const builtins = BUILTIN_AGENTS_FOR_SEEDING;
+    const builtins = getBuiltinAgentsForSeeding();
     for (const agent of builtins) {
       const agentJson = JSON.stringify(
         {
@@ -1296,9 +1246,6 @@ async function _doEnsureTable(): Promise<void> {
     // Agent discovery not available — skip seeding
   }
 
-  // One-time migration: rename legacy agents/*.json (A2A manifests) to
-  // remote-agents/*.json so they live in their own folder, separate from
-  // custom agents (agents/*.md).
   try {
     const legacy = await client.execute({
       sql: `SELECT id, path FROM resources WHERE path LIKE ? AND path LIKE ?`,
@@ -1325,21 +1272,8 @@ async function _doEnsureTable(): Promise<void> {
   await markSeeded(SHARED_SEED_KEY);
 }
 
-/**
- * Bump when a default resource is ADDED, or when existing seed content must
- * reach databases that already ran an earlier seed.
- *
- * The marker below records which version a database has been seeded at, so the
- * seed runs once per database instead of once per process. Without a version, a
- * newly added default would never reach an already-seeded deployment.
- */
 const RESOURCE_SEED_VERSION = 1;
 
-/**
- * Per-process memo ON TOP of the durable marker, so a warm process doesn't even
- * pay the marker read. The durable marker is what makes this correct across cold
- * starts; this only avoids a repeat lookup within one process.
- */
 const _personalSeeded = new Set<string>();
 
 function personalSeedKey(owner: string): string {
@@ -1348,15 +1282,6 @@ function personalSeedKey(owner: string): string {
 
 const SHARED_SEED_KEY = `resources-seeded:shared:v${RESOURCE_SEED_VERSION}`;
 
-/**
- * Has this database already been seeded at the current version?
- *
- * A failed marker read returns `false` — "seed again" — because the seeds are
- * `ON CONFLICT DO NOTHING` and therefore idempotent. Guessing "already seeded"
- * on an unreadable marker would skip seeding a fresh database and leave it
- * without its default AGENTS.md / LEARNINGS.md, which is not recoverable by
- * retrying a read.
- */
 async function alreadySeeded(key: string): Promise<boolean> {
   try {
     const row = await getSetting(key);
@@ -1375,10 +1300,6 @@ async function markSeeded(key: string): Promise<void> {
   }
 }
 
-/**
- * Seed personal AGENTS.md and LEARNINGS.md for a user if they don't exist.
- * Called when listing resources or from the agent chat plugin.
- */
 export async function ensurePersonalDefaults(owner: string): Promise<void> {
   if (
     owner === SHARED_OWNER ||
@@ -1389,9 +1310,6 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
   }
   await ensureTable();
 
-  // The in-memory Set resets on every cold start, so on serverless this seed ran
-  // its 5 writes per container per owner, forever. The durable marker is what
-  // actually makes it once-per-owner.
   const seedKey = personalSeedKey(owner);
   if (await alreadySeeded(seedKey)) {
     _personalSeeded.add(owner);
@@ -1435,7 +1353,6 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
     ],
   });
 
-  // memory/MEMORY.md — personal structured memory index
   const memoryIndexContent = "# Memory Index\n";
   const memoryIndexSize = Buffer.byteLength(memoryIndexContent, "utf8");
   await client.execute({
@@ -1460,7 +1377,6 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
     defaultContent: DEFAULT_SKILL_LEARN_MD,
   });
 
-  // skills/learn/SKILL.md — personal skill for updating memory
   const learnSize = Buffer.byteLength(DEFAULT_SKILL_LEARN_MD, "utf8");
   await client.execute({
     sql: seedSql,
@@ -1476,10 +1392,6 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
     ],
   });
 
-  // Mark seeded only after all seeds succeed. If any await above throws (e.g. a
-  // transient DB error), the owner is NOT cached as seeded, so the next request
-  // retries instead of permanently skipping seeding. Seeds use INSERT OR IGNORE
-  // / ON CONFLICT DO NOTHING, so a concurrent re-run is harmless.
   _personalSeeded.add(owner);
   await markSeeded(seedKey);
 }
@@ -1642,7 +1554,6 @@ export async function resourcePut(
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
 
-  // Check for existing resource to preserve ID on upsert
   const { rows: existing } = await client.execute({
     sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
@@ -1734,13 +1645,31 @@ export async function resourcePut(
   };
 }
 
-/** Insert a resource only when its owner/path pair is still unused. */
 export async function resourcePutIfAbsent(
   owner: string,
   path: string,
   content: string,
   mimeType?: string,
   options?: ResourceWriteOptions,
+): Promise<Resource | null> {
+  return resourcePutIfAbsentInternal(
+    owner,
+    path,
+    content,
+    mimeType,
+    options,
+    true,
+  );
+}
+
+async function resourcePutIfAbsentInternal(
+  owner: string,
+  path: string,
+  content: string,
+  mimeType: string | undefined,
+  options: ResourceWriteOptions | undefined,
+  emitChange: boolean,
+  clientOverride?: DbExec,
 ): Promise<Resource | null> {
   await ensureTable();
   if (
@@ -1753,7 +1682,7 @@ export async function resourcePutIfAbsent(
     await assertWritableWorkspaceResourcePath(path);
   }
 
-  const client = getDbExec();
+  const client = clientOverride ?? getDbExec();
   const now = Date.now();
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
@@ -1795,7 +1724,7 @@ export async function resourcePutIfAbsent(
   });
   if (result.rowsAffected !== 1) return null;
 
-  emitResourceChange(id, path, owner, options?.requestSource);
+  if (emitChange) emitResourceChange(id, path, owner, options?.requestSource);
 
   return {
     id,
@@ -1815,13 +1744,6 @@ export async function resourcePutIfAbsent(
   };
 }
 
-/**
- * Update an existing SQL resource only when the caller still owns the version
- * it read. Completion bookkeeping uses this instead of an upsert because a
- * run must never overwrite an edit or recreate a replacement at the same
- * path. Local workspace artifacts have no atomic conditional-write primitive,
- * so this helper fails closed for them.
- */
 export async function resourcePutIfCurrent(
   input: ResourceConditionalWrite,
 ): Promise<Resource | null> {
@@ -1899,6 +1821,14 @@ function localWorkspaceResourceSnapshot(resource: Resource) {
 export async function resourcePutIfSnapshot(
   input: ResourceSnapshotWrite,
 ): Promise<ResourceSnapshotWriteResult | null> {
+  return resourcePutIfSnapshotInternal(input, true);
+}
+
+async function resourcePutIfSnapshotInternal(
+  input: ResourceSnapshotWrite,
+  emitChange: boolean,
+  clientOverride?: DbExec,
+): Promise<ResourceSnapshotWriteResult | null> {
   await ensureTable();
   let previous = input.previous;
   if (
@@ -1914,8 +1844,6 @@ export async function resourcePutIfSnapshot(
     isBareWorkspaceResourceOwner(input.owner) &&
     (await shouldHandleWorkspaceResourceAsLocal(input.path));
   if (localPath && previous && !localPrevious) {
-    // A bare SQL fallback is not the local target. Preserve it for legacy
-    // cleanup, but materialize the requested workspace file only if absent.
     previous = null;
   }
   if (localPath && (!previous || localPrevious)) {
@@ -1955,12 +1883,14 @@ export async function resourcePutIfSnapshot(
   }
 
   if (!previous) {
-    const resource = await resourcePutIfAbsent(
+    const resource = await resourcePutIfAbsentInternal(
       input.owner,
       input.path,
       input.content,
       input.mimeType,
       input.options,
+      emitChange,
+      clientOverride,
     );
     return resource ? { before: null, resource } : null;
   }
@@ -1972,7 +1902,7 @@ export async function resourcePutIfSnapshot(
       ? input.options?.createdBy
       : previous.createdBy,
   );
-  const client = getDbExec();
+  const client = clientOverride ?? getDbExec();
   const updatedAt = Math.max(Date.now(), previous.updatedAt + 1);
   const size = Buffer.byteLength(input.content, "utf8");
   const mimeType = input.mimeType || "text/markdown";
@@ -1991,13 +1921,84 @@ export async function resourcePutIfSnapshot(
   });
   if (rows.length !== 1) return null;
   const resource = rowToResource(rows[0]);
-  emitResourceChange(
-    resource.id,
-    resource.path,
-    resource.owner,
-    input.options?.requestSource,
-  );
+  if (emitChange) {
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      input.options?.requestSource,
+    );
+  }
   return { before: previous, resource };
+}
+
+const SNAPSHOT_WRITE_CONFLICT = Symbol("resource snapshot write conflict");
+
+export type ResourceSnapshotWriteOptions = {
+  beforeWrite?: (tx: DbExec) => Promise<void>;
+};
+export type ResourceSnapshotPairOptions = ResourceSnapshotWriteOptions;
+
+export async function resourcePutSnapshotBatchIfCurrent(
+  writes: readonly ResourceSnapshotWrite[],
+  options?: ResourceSnapshotWriteOptions,
+): Promise<readonly ResourceSnapshotWriteResult[] | null> {
+  const owner = writes[0]?.owner;
+  if (
+    writes.length < 2 ||
+    writes.some((write) => write.owner !== owner) ||
+    new Set(writes.map((write) => write.path)).size !== writes.length ||
+    owner === WORKSPACE_OWNER
+  ) {
+    throw new Error(
+      "Resource snapshot batches require one SQL-backed owner and distinct paths.",
+    );
+  }
+
+  await ensureTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Resource snapshot batches require database transactions.");
+  }
+
+  let result: readonly ResourceSnapshotWriteResult[];
+  try {
+    result = await client.transaction(async (tx) => {
+      await options?.beforeWrite?.(tx);
+      const written: ResourceSnapshotWriteResult[] = [];
+      for (const write of writes) {
+        const result = await resourcePutIfSnapshotInternal(write, false, tx);
+        if (!result) throw SNAPSHOT_WRITE_CONFLICT;
+        written.push(result);
+      }
+      return written;
+    });
+  } catch (error) {
+    if (error === SNAPSHOT_WRITE_CONFLICT) return null;
+    throw error;
+  }
+
+  for (const [index, { resource }] of result.entries()) {
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      writes[index]?.options?.requestSource,
+    );
+  }
+  return result;
+}
+
+export async function resourcePutSnapshotPairIfCurrent(
+  writes: readonly [ResourceSnapshotWrite, ResourceSnapshotWrite],
+  options?: ResourceSnapshotWriteOptions,
+): Promise<
+  readonly [ResourceSnapshotWriteResult, ResourceSnapshotWriteResult] | null
+> {
+  const result = await resourcePutSnapshotBatchIfCurrent(writes, options);
+  return result as
+    | readonly [ResourceSnapshotWriteResult, ResourceSnapshotWriteResult]
+    | null;
 }
 
 export async function resourceRestoreSnapshotIfCurrent(
@@ -2114,9 +2115,6 @@ export async function resourceDeleteIfCurrent(
   }
 
   const client = getDbExec();
-  // `updated_at` is a wall-clock millisecond, not a logical version. Compare
-  // the full mutable row snapshot so same-ms or clock-skewed writes cannot be
-  // deleted by a stale caller.
   const result = await client.execute({
     sql: `DELETE FROM resources WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ? AND mime_type = ? AND size = ? AND created_at = ? AND created_by = ? AND visibility = ? AND thread_id IS NOT DISTINCT FROM ? AND run_id IS NOT DISTINCT FROM ? AND expires_at IS NOT DISTINCT FROM ? AND metadata IS NOT DISTINCT FROM ?`,
     args: [
@@ -2156,7 +2154,6 @@ export async function resourceDelete(id: string): Promise<boolean> {
   }
   const client = getDbExec();
 
-  // Get resource info for emitter before deleting
   const { rows } = await client.execute({
     sql: `SELECT path, owner FROM resources WHERE id = ?`,
     args: [id],
@@ -2195,7 +2192,6 @@ export async function resourceDeleteByPath(
   }
   const client = getDbExec();
 
-  // Get resource info for emitter before deleting
   const { rows } = await client.execute({
     sql: `SELECT id FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
@@ -2231,35 +2227,62 @@ export async function resourceList(
     ? workspaceReadOwners(owner, options?.orgId)
     : [owner];
   const listOwner = async (candidate: string): Promise<ResourceMeta[]> => {
-    const { rows } = await client.execute(
-      pathPrefix
-        ? {
-            sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
-            args: [candidate, prefixLike(pathPrefix)],
-          }
-        : {
-            sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-            args: [candidate],
-          },
-    );
-    return filterLegacyDispatchWorkspaceRows(
-      rows
-        .map(rowToMeta)
-        .filter((resource) =>
-          isLegacySharedResourceVisibleToOrganization(resource, orgId),
-        ),
-      orgId,
-    );
+    const query = pathPrefix
+      ? {
+          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
+          args: [candidate, prefixLike(pathPrefix)],
+        }
+      : {
+          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
+          args: [candidate],
+        };
+    const listRows = async (limit?: number, offset = 0) =>
+      client.execute(
+        limit === undefined
+          ? query
+          : {
+              sql: `${query.sql} ORDER BY path LIMIT ? OFFSET ?`,
+              args: [...query.args, limit, offset],
+            },
+      );
+    if (options?.limit === undefined) {
+      const { rows } = await listRows();
+      return filterLegacyDispatchWorkspaceRows(
+        rows
+          .map(rowToMeta)
+          .filter((resource) =>
+            isLegacySharedResourceVisibleToOrganization(resource, orgId),
+          ),
+        orgId,
+      );
+    }
+
+    const limit = Math.max(0, Math.floor(options.limit));
+    const resources: ResourceMeta[] = [];
+    let offset = 0;
+    while (resources.length < limit) {
+      const { rows } = await listRows(limit, offset);
+      const visible = await filterLegacyDispatchWorkspaceRows(
+        rows
+          .map(rowToMeta)
+          .filter((resource) =>
+            isLegacySharedResourceVisibleToOrganization(resource, orgId),
+          ),
+        orgId,
+      );
+      resources.push(...visible);
+      offset += rows.length;
+      if (rows.length < limit) break;
+    }
+    return mergeResourceMetas([], resources).slice(0, limit);
   };
-  // The organization's own rows win over legacy bare-owner rows at the same
-  // path, so `owners` order is precedence order.
   const ownerResources = await Promise.all(owners.map(listOwner));
   const resources = ownerResources.reduce((merged, candidate) =>
     mergeResourceMetas(merged, candidate),
   );
-  if (!workspace) return resources;
+  if (!workspace) return limitResourceMetas(resources, options?.limit);
 
-  const local = await localWorkspaceResourceMetas(pathPrefix);
+  const local = await localWorkspaceResourceMetas(pathPrefix, options?.limit);
   const primaryResources = ownerResources[0] ?? [];
   const inheritedResources = ownerResources[1] ?? [];
   const workspaceResources = isBareWorkspaceResourceOwner(owners[0])
@@ -2269,19 +2292,18 @@ export async function resourceList(
         mergeResourceMetas(local, inheritedResources),
       );
   const granted = await grantedWorkspaceResources({
+    limit: options?.limit,
     pathPrefix,
     workspaceAppId: options?.workspaceAppId,
     userEmail: options?.userEmail,
     orgId: options?.orgId,
   });
-  return mergeResourceMetas(workspaceResources, granted.map(resourceToMeta));
+  return limitResourceMetas(
+    mergeResourceMetas(workspaceResources, granted.map(resourceToMeta)),
+    options?.limit,
+  );
 }
 
-/**
- * Read complete resource bodies for a small set of owners and path prefixes in
- * one projected query. Directory discovery uses this instead of listing
- * metadata and then issuing one content query per manifest.
- */
 export async function resourceListContentByOwnersAndPrefixes(
   owners: readonly string[],
   pathPrefixes: readonly string[],
@@ -2313,9 +2335,6 @@ export async function resourceListContentByOwnersAndPrefixes(
   try {
     ({ rows } = await client.execute(query));
   } catch (error) {
-    // Healthy hosted databases already have the resources schema. Avoid the
-    // schema-assurance path on every cold directory request, but retain lazy
-    // initialization for a genuinely fresh local or self-hosted database.
     if (!isMissingResourceSchemaError(error)) throw error;
     await ensureTable();
     ({ rows } = await client.execute(query));
@@ -2356,15 +2375,36 @@ export async function resourceListAccessible(
     }),
   ]);
 
-  // Later layers are inherited fallbacks. A personal resource wins over an
-  // organization resource, which wins over the legacy app-shared default,
-  // which wins over the workspace default.
-  return mergeResourceMetas(
-    personal,
+  return limitResourceMetas(
     mergeResourceMetas(
-      organization,
-      mergeResourceMetas(legacyShared, workspace),
+      personal,
+      mergeResourceMetas(
+        organization,
+        mergeResourceMetas(legacyShared, workspace),
+      ),
     ),
+    options?.limit,
+  );
+}
+
+/** Organization/shared rows a caller can list, including the legacy app default. */
+export async function resourceListOrganization(
+  orgId: string | null,
+  pathPrefix?: string,
+  options?: ResourceListOptions,
+): Promise<ResourceMeta[]> {
+  const organizationOwner = sharedResourceOwner(orgId);
+  const scopedOptions = { ...options, orgId };
+  if (organizationOwner === SHARED_OWNER) {
+    return resourceList(SHARED_OWNER, pathPrefix, scopedOptions);
+  }
+  const [organization, legacyAppDefaults] = await Promise.all([
+    resourceList(organizationOwner, pathPrefix, scopedOptions),
+    resourceList(SHARED_OWNER, pathPrefix, scopedOptions),
+  ]);
+  return limitResourceMetas(
+    mergeResourceMetas(organization, legacyAppDefaults),
+    options?.limit,
   );
 }
 
@@ -2375,9 +2415,6 @@ export async function resourceEffectiveContext(
 ): Promise<EffectiveResourceContext> {
   await ensureTable();
 
-  // Four independent reads of the same path under different owners; the
-  // precedence below is pure JS, so serialising them only bought four round
-  // trips of latency. Mirrors `resourceListAccessible`, which already fans out.
   const organizationOwner = sharedResourceOwner(options?.orgId);
   const workspaceOwner = workspaceResourceOwner(options?.orgId);
   const [workspace, organization, legacyShared, personal] = await Promise.all([
@@ -2445,10 +2482,6 @@ export async function resourceEffectiveContext(
   };
 }
 
-/**
- * List all resources matching a path prefix across ALL owners.
- * Used by the recurring jobs scheduler to find all job resources.
- */
 export async function resourceListAllOwners(
   pathPrefix: string,
   options: { includeShadowedWorkspaceRows?: boolean } = {},
@@ -2488,7 +2521,6 @@ export async function resourceMove(
   const client = getDbExec();
   const now = Date.now();
 
-  // Get current resource info
   const { rows } = await client.execute({
     sql: `SELECT path, owner FROM resources WHERE id = ?`,
     args: [id],

@@ -67,7 +67,6 @@ const RANK = {
   owner: 4,
 } as const;
 
-/** Stand in for core's real role check, including its exact refusal wording. */
 function grantRole(role: keyof typeof RANK) {
   mocks.assertAccess.mockImplementation(
     async (resourceType: string, resourceId: string, minRole: string) => {
@@ -130,8 +129,6 @@ describe("generation provenance record role", () => {
       undefined,
       { skipResourceBody: true },
     );
-    // Recorded against the org, not the caller, so an editor reviewing the
-    // draft later still sees where it came from.
     expect(mocks.recordLocal).toHaveBeenCalledWith(
       draftRun,
       expect.objectContaining({

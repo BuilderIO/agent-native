@@ -320,10 +320,6 @@ describe("normalizeCodeAgentTranscript", () => {
           "The run is paused; approve from the Agent-Native Code UI/CLI if this command is intentional.",
         ].join("\n"),
       }),
-      // Mirrors executePendingCodeAgentApproval's resolution event in
-      // cli/code-agent-executor.ts — folded into hiddenEvents (status:
-      // "running" reads as low-signal lifecycle noise) but still visible to
-      // the raw-event resolution scan.
       event(
         "evt-approval-running",
         "status",

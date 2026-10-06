@@ -110,6 +110,8 @@ Multiple providers can be active simultaneously. All receive every event.
 
 Browser-side `trackEvent()` also forwards to Agent-Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent-Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
 
+An app served from a hosted beta host (`beta.*.agent-native.com`) reports to beta Analytics: `resolveLaneEndpoint` moves an endpoint on a production lane host to its beta lane for browser events, auth-page events, replay uploads, and server events. A new sender that reads the analytics endpoint must pass it through `resolveLaneEndpoint` too, or beta traffic splits. Beta and production Analytics share one database, so an ingest change runs on beta traffic first, and checking it on beta proves the merged code rather than production's. An endpoint on any other host is left as configured.
+
 ## Error Capture
 
 Exceptions fan out through `server/capture-error.ts` to every registered
@@ -136,10 +138,26 @@ providers build it.
   `error` hook is in `core-routes-plugin.ts`, not `sentry-plugin.ts`, because
   that plugin returns early when no `SENTRY_DSN` is set — hooking route errors
   there meant an app on any other backend silently reported none.
-- **Every backend applies `server/error-noise-filter.ts`.** It holds
-  production-tuned drop rules (expected 4xx, access-control rejections, Lambda
-  freeze/thaw `socket hang up`). A backend that skips it receives a firehose;
-  the `socket hang up` rule alone is ~10k events/day.
+- **`captureError()` is the one noise and flood boundary.** The drop rules live
+  in `shared/error-noise.ts` (expected 4xx, access-control rejections, Lambda
+  `socket hang up`, third-party/extension/GTM stacks, stale chunks, opaque
+  `Script error.`); the Nitro hook, every explicit `captureError()` call, the
+  browser capture, Sentry `beforeSend`, and the analytics ingest all call
+  `classifyErrorNoise()`. After the filter, `server/capture-error.ts` folds
+  transient-database, database-credential, and configuration failures into one
+  aggregate per (class, route): the first event immediately, then one summary
+  per window carrying `suppressedCount`. Every drop is counted
+  (`getCaptureErrorStats()`); an error that matches no rule is reported every
+  time. A backend must hang off `registerErrorCaptureProvider`, never call a
+  provider SDK from a catch block, or it skips both. Two escape hatches keep a
+  rule from hiding a real failure: tag a capture
+  `reportExpected: "true"` (`REPORT_EXPECTED_FAILURE_TAG`) when your code raises
+  an access-control or 4xx failure as a failure (a runner whose grant was
+  lost), and give an explicit browser capture a `context` or `area` tag so a
+  stackless Safari/Firefox network error from it is not dropped as
+  unattributable. Stale-chunk failures are dropped because route-chunk-recovery
+  reloads on them; when it cannot (cooldown, desktop) it reports one
+  `RouteChunkRecoveryExhausted` per page session instead.
 - **A backend can accept a malformed payload and still show a count.** PostHog
   ingested the framework's camelCase `$exception` for a long time and rendered
   empty, ungroupable issues — which reads as coverage, not as breakage. When
@@ -149,6 +167,70 @@ providers build it.
   `anonymous` and split one person in two against their browser events. Pass
   `aiTraceId` for anything inside an agent run so the issue and the LLM trace
   resolve to each other.
+- **Every server capture carries a failure packet** at
+  `extra.failureContext` (`observability/failure-context.ts`): app, route,
+  action or automation name, `threadId`, `runId`, `requestId`, `userScope`
+  (`org` or `personal`, never an email), `threadUrl`
+  (`https://<app host>/?thread=<chat_threads.id>`), build, environment,
+  `errorCode`, `failureClass`. The boundary derives it from what the call site
+  already passes (`tags.action`, `extra.runId` / `threadId` / `request_id`,
+  `aiTraceId`) and from the ambient chat run, so a capture inside a run names
+  its thread with no change at the call site. Work that runs outside any
+  request (a scheduled automation) passes `failure: { threadId, automationName,
+  userScope }` on the capture. A run id also becomes `aiTraceId`. The Analytics
+  issue page links `threadUrl`; hand any agent the packet and it can run
+  `get-agent-thread-debug` with the `runId`. Never put an email, a token or a
+  prompt in it.
+- **Rates are events, not log lines.** `tracking/failure-counters.ts` counts a
+  failure class per (event, bounded dimensions) and ships `count` per window
+  (first occurrence at once, the rest once a minute, `SUM(count)` is exact):
+  `action_error_counts` (`action_name`, `error_code`, `status_class`,
+  `action_source`) and `credential_state_counts` (`credential_state`,
+  `credential_subject`, `source`). Automation pauses and automatic resumes are
+  `automation_paused` / `automation_resumed` (`automation_hash`, never the
+  name), the client's open circuits are `action_circuit_tripped`, and a chat run
+  that ended on a credential problem is a `$ai_trace` with `credential_state`.
+  Attachment mint/resolve/delete outcomes (ok included) are
+  `attachment_outcome_counts` (`operation`, `status`, `reason`, `who_can_fix`),
+  and a template counts its own classes with `countOutcome("<thing>_counts",
+  { ...tokens })` from `@agent-native/core/tracking` (Mail's Gmail cooldowns are
+  `gmail_cooldown_counts`, by `site`). Never one event per failure; a name that
+  is not `<thing>_counts` is dropped with one console error.
+- **Browser outcomes are bounded, too.** `agent_run_outcome` is one event per
+  run (`outcome`, legacy `code`, `terminal_source`,
+  `verified_after_pipe_closed`, `resume_attempts`, `run_id`, `thread_id`):
+  every `interrupted` / `failed` / `unverified` run up to 30 per page, every
+  `stopped` run up to its own 30 (so stops never crowd out failures), and
+  `succeeded` sampled at 10% with `sample_weight`. A turn the server refuses
+  at its start (no model connected, a 5xx) is a `failed` run too, with
+  `terminal_source: local` and the refused turn's id. A failed or
+  interrupted run adds its `cause` from `AGENT_TROUBLE_CAUSES` when one fits
+  its `code`, and Analytics groups the rest by `code`. A code that is not
+  an identifier is sent as `unrecognized_code` (`agentErrorCodeForTelemetry`),
+  because a thrower's `data.code` can be a sentence. It never carries the
+  run's message, not even redacted: no pattern can tell an unquoted document
+  or person's name from the words around it, so a message stays out of every
+  event. A provider error is `provider_error` only when its code
+  came from a structured HTTP status (`http_5xx`, including a status on a
+  wrapped cause); a status that appears only in message text is not read. `agent_feedback_submitted` (`sentiment`,
+  `run_id`, `thread_id`) is the browser's copy of a thumbs rating, because
+  `$ai_feedback` has no browser session. Every `pageview` carries
+  `agent_signals: 1` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY`): clients before it
+  sampled stops at 10% and sent no ratings or `page_load_id`, so Analytics
+  reads a session's cancelled runs, thumbs-down, and quick backs as measured
+  only after seeing the marker and while no unmarked pageview or sampled stop
+  shares the session (tabs share one session id), and counts only stops sent
+  unsampled. Keep all three guarantees while the marker ships. Every
+  `pageview` also carries `page_load_id` (`PAGE_LOAD_PAGEVIEW_PROPERTY`),
+  the same until the page reloads, because quick backs compare pages only
+  within one page load.
+  `session_navigation` is one event per document that left because of the
+  session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
+  `http_401`), never the destination. Both are emitted from the single place
+  that decides (`agentkit-protocol.ts`, `navigateForSession`; a refused
+  start from the transport's start-run catch), not the callers.
+  `agent_chat_stuck_detected` fires once per run and only while the stuck
+  banner shows, so Analytics' stuck chats are ones the person saw.
 
 Symbolication is per-backend and not automatic: the framework uploads no source
 maps to PostHog, so minified browser stacks stay minified there. Known gap, not
@@ -226,7 +308,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 - Event: `pageview`
 - Fires on initial load, `history.pushState`, `history.replaceState`, and `popstate`
 - De-dupes repeated events for the same URL
-- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `app`, and inferred `template`
+- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `agent_signals`, `page_load_id`, `app`, and inferred `template`
 - Includes LLM connection context on browser events when known: `llm_connection` (`builder`, `anthropic`, `openai`, etc.), `llm_engine`, `llm_model`, `llm_connection_source`, and `llm_connection_configured`
 - Does not send first-party events from localhost/local dev
 
@@ -269,10 +351,31 @@ Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
 - `action.response` from the browser action transport, with action name,
+  the `route` template of the page that made the request (omitted when no
+  manifest route matches),
   browser-perceived duration and TTFB, response status/outcome, response size
   when known, and parsed `Server-Timing` phases for framework readiness and
   database work. Its `request_id` joins the exact browser and server events.
-  This separates server time from CDN/network/body overhead.
+  This separates server time from CDN/network/body overhead. One at or over
+  `SLOW_ACTION_RESPONSE_MS` (1 s) is never sampled. When someone waited for
+  it (`isWaitedActionResponse`: the page stayed visible and the request was
+  not cancelled), it is also marked on the session replay
+  (`agent-native.slow_request`) with its action, method, duration, status,
+  outcome, and `page_hidden`.
+- `web_vitals` once per page view, with the React Router `route` template
+  (`/sessions/:id`, never the ids; omitted when no manifest route matches,
+  because a normalized raw path still carries slugs and emails. It is the one
+  tracked event with no `url` or `path`, even from `getDefaultProps`:
+  `ROUTE_ONLY_EVENT_NAMES` in `client/analytics.ts` strips them),
+  `navigation_type` (`load`, `client`, or `resume` after the tab was
+  hidden, sent only when it saw an interaction or layout shift), and
+  `ttfb_ms`, `lcp_ms`, `inp_ms`, and `cls`. TTFB and LCP exist only for
+  document loads, a load in a background tab is not reported, and a metric the browser cannot measure (including CLS when
+  the layout-shift observer fails) is omitted rather than sent as 0. A page
+  view ends on `pushState`/`popstate` to another path or when the tab is
+  hidden; `replaceState` keeps it, so redirects land on the final route.
+  Measured with native `PerformanceObserver`s; `configureTracking({
+  webVitals: false })` turns it off. Each page view also marks the replay.
 - `http.response` from Nitro request/response hooks, with normalized path,
   status, request duration, first-request-in-isolate cold marker, process age,
   framework readiness wait, deploy/runtime fingerprint, database
@@ -288,7 +391,7 @@ Other framework-level baseline events:
   `AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE` on the server and
   `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
-- `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
+- `builder connect clicked` and `builder connect popup blocked` from browser Use Builder.io CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
 - `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
 
@@ -366,6 +469,7 @@ interface TrackingEvent {
 | `packages/core/src/tracking/types.ts`     | `TrackingEvent` and `TrackingProvider` interfaces                                                                   |
 | `packages/core/src/tracking/posthog-exception.ts` | `$exception_list` builder + stack-frame parser (isomorphic: server and browser)                             |
 | `packages/core/src/tracking/redaction.ts` | Shared bounding/redaction helpers used by every exception emitter                                                   |
+| `packages/core/src/shared/error-noise.ts` | The one noise rule set (`classifyErrorNoise`) plus frame-origin and PII scrubbers; browser, server, Sentry, and ingest all call it |
 | `packages/core/src/server/error-noise-filter.ts` | Provider-agnostic drop rules, applied by both Sentry `beforeSend` and the route error hook                   |
 | `packages/core/src/server/posthog-config.ts` | Public browser PostHog config (mirrored in `deploy/build.ts`)                                                    |
 

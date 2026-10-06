@@ -1,7 +1,3 @@
-// Compares Chromium's per-line text layout (export.ts layout/slide-NN.json)
-// with Google Slides' layout transcribed from its editor SVG.
-//   pnpm exec tsx compare-layout.ts <anLayoutDir> <google.txt> --slides <n>
-// google.txt: one line per Google text line, "slide|x|baseline|right|text".
 import { compareLayoutFiles } from "./compare-layout-lib.js";
 
 const [anDir, googleFile] = process.argv.slice(2);

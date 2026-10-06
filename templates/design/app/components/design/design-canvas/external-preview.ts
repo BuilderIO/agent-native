@@ -49,10 +49,6 @@ export function resolveLiveEditPreviewUrl(args: {
   ) {
     return null;
   }
-  // Every localhost mode registers a keyed injected script before rendering:
-  // editable modes include editor chrome, while Interact/read-only modes use
-  // the gesture-only bridge. Waiting for the matching key prevents a raw URL
-  // load followed by a second proxied load (the flash/state-loss regression).
   if (args.registeredBridgeKey !== args.bridgeKey) return null;
   return liveEditEndpointUrl(args.bridgeUrl, args.previewUrl, {
     previewToken: args.previewToken,
@@ -184,13 +180,6 @@ export function getDesignCanvasIframeAllow(
   return isLoopbackPreviewUrl(previewUrl) ? "local-network-access" : undefined;
 }
 
-/**
- * Remove development-server HTML transforms before treating a live snapshot as
- * writable source. Vite injects its HMR client and React Refresh preamble into
- * the served document; persisting either back to index.html corrupts the real
- * source and can duplicate refresh runtimes on every Apply-to-source cycle.
- * User-authored module scripts and inline application scripts are preserved.
- */
 export function sanitizeLocalhostSourceSnapshotHtml(html: string): string {
   return html.replace(
     SCRIPT_TAG_RE,
@@ -211,10 +200,6 @@ export function sanitizeLocalhostSourceSnapshotHtml(html: string): string {
   );
 }
 
-// Prototypes are still sandboxed, but user-initiated print/download controls
-// need the browser permissions that make `window.print()` and download links
-// work inside an iframe. Without these tokens the browser silently ignores
-// the common "Download / Print PDF" pattern.
 const EXTERNAL_PREVIEW_IFRAME_SANDBOX =
   "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals";
 const TRUSTED_EXTERNAL_PREVIEW_IFRAME_SANDBOX = `${EXTERNAL_PREVIEW_IFRAME_SANDBOX} allow-same-origin`;
@@ -258,9 +243,6 @@ export function getDesignCanvasIframeSandbox(args: {
 }): string {
   if (args.snapshotOnly) return VISUAL_EDIT_SNAPSHOT_IFRAME_SANDBOX;
   if (args.externalPreview) {
-    // Keep loopback previews opaque: a local page with scripts and
-    // allow-same-origin could navigate to the editor origin and remove its
-    // own sandbox. The bridge opts opaque frames into COEP/CORS instead.
     return isTrustedCrossOriginPreviewUrl(args.previewUrl, args.parentOrigin)
       ? TRUSTED_EXTERNAL_PREVIEW_IFRAME_SANDBOX
       : EXTERNAL_PREVIEW_IFRAME_SANDBOX;

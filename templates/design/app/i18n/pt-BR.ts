@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "Integrações" } },
   creativeContext: {
     title: "Biblioteca",
     description:
@@ -166,14 +167,16 @@ export default {
     agentDescription:
       "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
     openAgentSettings: "Gerenciar agente",
-    languageTitle: "Idioma",
-    languageDescription: "Escolha o idioma da interface do Design.",
-    languageLabel: "Idioma da interface",
-    labs: "Labs",
-    labsIntro:
-      "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
     labTweaks: "Ajustes de design",
     labTweaksDescription: "Experimente ajustes de design com IA.",
+    labFullAppBuilding: "Criação de apps completos",
+    labFullAppBuildingDescription:
+      "Experimente criar apps funcionais a partir dos seus designs com o Builder.",
+    labDesignReviewTools: "Ferramentas de revisão de design",
+    labDesignReviewToolsDescription:
+      "Verifique problemas de acessibilidade nos seus designs e compare alterações visuais.",
+    mcpAbout:
+      "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
   pages: {
     presentEmpty: "Nenhum conteúdo para apresentar",
@@ -182,8 +185,18 @@ export default {
     notFoundDescription: "A página que você procura não existe.",
     notFoundSignIn: "Entrar",
     notFoundBackToDesigns: "Voltar aos designs",
-    teamCreateOrgDescription:
-      "Configure uma equipe para compartilhar designs com seus colegas.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Conecte o armazenamento para enviar arquivos",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable:
+        "Não foi possível confirmar se a IA está pronta.",
+    },
+    common: { retry: "Tentar novamente" },
   },
   chat: {
     emptyState: "Descreva um design para criar",
@@ -203,7 +216,7 @@ export default {
       tokenLabel: "Token de acesso do Figma",
       tokenPlaceholder: "Cole o token de acesso do Figma",
       connecting: "Conectando…",
-      connect: "Conectar",
+      connect: "Conectar ao Figma",
       getToken: "Obter token",
       importFrame: "Importar frame",
       chooseFrame: "Escolher frame",
@@ -214,6 +227,7 @@ export default {
     },
   },
   common: {
+    loading: "Carregando...",
     genericError: "Algo deu errado",
   },
   editPanel: {
@@ -311,6 +325,8 @@ export default {
       bottomLeft: "IE",
       bottomRight: "ID",
       blend: "Mistura",
+      blendMode: "Modo de mesclagem",
+      removeBlendMode: "Remover modo de mesclagem",
       border: "Borda",
       outline: "Contorno",
       inside: "Dentro",
@@ -1253,6 +1269,7 @@ export default {
       verifying: "Verificando origem e runtime…",
       retryWithAgent: "Tentar verificar a origem novamente",
       copyPrompt: "Copiar prompt para seu agente",
+      copyAgentPrompt: "Copiar prompt do agente",
       copyFullPrompt: "Copiar o prompt completo",
       abortPreview: "Cancelar prévia e interagir",
       agentMessage: "Aplique as edições visuais de estilo pendentes à origem.",
@@ -1357,6 +1374,16 @@ export default {
         "A captura PNG não está disponível em visualizações somente leitura",
       pngSaveError: "Não foi possível salvar PNG",
       pngExportError: "Não foi possível exportar PNG",
+      exportTooLarge:
+        "A exportação é grande demais. As solicitações têm limite de 5 MB; reduza os recursos incorporados ou as dimensões rasterizadas e tente novamente.",
+      exportResourcesUnavailable:
+        "Não foi possível renderizar a exportação com precisão porque uma ou mais imagens, fontes ou folhas de estilo estão indisponíveis. Verifique esses recursos e tente novamente.",
+      exportTimedOut:
+        "A exportação atingiu o tempo limite. Tente novamente ou reduza o tamanho do design.",
+      exportBusy:
+        "Outra exportação está sendo renderizada. Aguarde um momento e tente novamente.",
+      exportChromiumUnavailable:
+        "A exportação está indisponível porque o renderizador não conseguiu iniciar. Tente novamente mais tarde.",
       pdfExportError: "Não foi possível exportar PDF",
       pdfDownloaded: "PDF baixado",
       pdfAllScreensDownloaded: "PDF baixado (todas as telas)",
@@ -1417,6 +1444,8 @@ export default {
         "Não foi possível localizar esta camada no código-fonte. Tente novamente quando o app terminar de carregar, ou peça ao agente para fazer essa alteração.",
       reactSourceAnchorsUnavailable:
         "Este app não expõe localizações de código ao editor, então esta camada não pode ser associada a uma linha. Peça ao agente para fazer essa alteração.",
+      sourceLocationSnapshotFailed:
+        "Não foi possível verificar os locais do código-fonte desta visualização.",
       screenSourceUpdated: "Fonte da tela atualizada",
       screenSourceUpdateFailed: "Não foi possível atualizar a fonte da tela",
       vectorEditUnsupported:
@@ -1474,6 +1503,13 @@ export default {
         "Mesmo após várias tentativas, a ponte do editor em tempo real não confirmou a conexão.",
       connectionNotConfirmed:
         "A ponte do editor em tempo real não confirmou a conexão. O servidor de desenvolvimento local ainda está em execução?",
+      permissionPromptTitle: "Conecte suas telas locais",
+      permissionPromptDescription:
+        "Para ativar a edição ao vivo, escolha Permitir no aviso do Chrome.",
+      permissionPromptNoPrompt: "O aviso do Chrome não apareceu?",
+      permissionPromptSettingsInstructions:
+        "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e defina Rede local como Permitir.",
+      permissionPromptRetry: "Tentar conexão novamente",
     },
   },
   multiScreenCanvas: {
@@ -1661,7 +1697,65 @@ export default {
     staleAnchorDetail:
       "O elemento original não foi mais encontrado na tela de design.",
   },
+  homeContext: {
+    websiteReference: "Adicionar site",
+    websiteUrlLabel: "URL do site",
+    websiteUrl: "Cole a URL de um site",
+    figmaUrlLabel: "Link do Figma",
+    invalidFigmaUrl: "Insira uma URL válida de quadro ou arquivo do figma.com.",
+    tooMany: "Escolha até 20 referências.",
+    invalidWebsiteUrl: "Insira uma URL HTTP ou HTTPS válida.",
+    createSystem: "Criar um sistema de design",
+    noSystems:
+      "Você ainda não tem um sistema de design. Crie um a partir de um site, arquivos ou Figma.",
+    searchSystems: "Buscar sistemas de design…",
+    searchFrames: "Buscar quadros do Figma…",
+    searchDesigns: "Buscar designs…",
+    searchPresentations: "Buscar apresentações…",
+    searchDesign: "Buscar design…",
+    useDesignSystem: "Usar um sistema de design",
+    notReady:
+      "A solicitação ainda não está pronta. Confira o contexto selecionado e a conexão e tente novamente.",
+    search: "Buscar contexto…",
+    figmaUrl: "Cole um link do Figma",
+    browse: "Explorar quadros",
+    loadFailed: "Não foi possível carregar esta referência.",
+    retry: "Tentar novamente",
+    empty: "Nenhuma referência correspondente.",
+    none: "Nenhum",
+    design: "Design",
+    slides: "Slides",
+    referenceDesign: "Usar um design como referência",
+    figmaReference: "Adicionar Figma",
+    referenceDeck: "Usar uma apresentação como referência",
+    quickSaas: "Criar uma página de SaaS",
+    quickDashboard: "Criar um painel",
+    quickDeck: "Criar uma apresentação",
+    deckPrompt:
+      "Crie uma apresentação refinada com slide de título, narrativa clara, dados visuais e um slide final conciso.",
+  },
   home: {
+    suggestedPrompts: "Prompts sugeridos",
+    import: "Importar",
+    importOptions: "Opções de importação",
+    figmaLink: "Link do Figma",
+    importFromFigma: "Importar do Figma",
+    figmaFile: "Arquivo do Figma (.fig)",
+    openImport: "Abrir importação",
+    importSelectedFile: "Importar arquivo selecionado",
+    starterSaasPrompt:
+      "Uma página inicial moderna de SaaS com tema escuro, seção de destaque, três cartões de funcionalidades e uma chamada para ação final.",
+    starterDashboardPrompt:
+      "Um painel de análise simples com navegação lateral, quatro cartões de indicadores, um gráfico e uma tabela de atividades recentes.",
+    starterMobilePrompt:
+      "Um protótipo de aplicativo móvel em uma moldura de celular, com uma barra de abas na parte inferior e três cartões de lista na tela inicial.",
+    starterPricingPrompt:
+      "Uma página de preços com três planos, alternância mensal/anual, listas de funcionalidades e o plano recomendado em destaque.",
+    designPromptTitle: "Vamos criar seu primeiro design",
+    recent: "Recentes",
+    browseAllTemplates: "Ver todos",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando o Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Pesquisar desenhos...",
     newDesign: "Novo Design",
@@ -1671,6 +1765,9 @@ export default {
     allAuthors: "Todos os autores",
     me: "Eu",
     designFilter: "Filtro de designs",
+    ownedByAnyone: "De qualquer pessoa",
+    ownedByMe: "Meus",
+    sharedWithMe: "Compartilhado comigo",
     mine: "Meus",
     all: "Todos",
     showMineDesigns: "Mostrar meus designs",
@@ -1705,6 +1802,7 @@ export default {
       "Escolha um ponto de partida ou escreva seu próprio prompt.",
     searchNoResultsTitle: "Nenhum design corresponde a esta busca",
     searchNoResultsDescription: "Tente outra busca.",
+    noDesignsMatchFilter: "Nenhum design corresponde ao filtro atual.",
     starterSaas: "Página de destino SaaS",
     starterDashboard: "Painel",
     starterPricing: "Página de preços",
@@ -1728,6 +1826,8 @@ export default {
     layoutLabel: "Layout de tela pronto para salvar",
   },
   templatesPage: {
+    previewEmpty: "Este modelo não contém telas para visualizar.",
+    loading: "Carregando modelos",
     title: "Modelos",
     description:
       "Comece com as dimensões e padrões certos e ajuste o conteúdo desbloqueado por prompt.",
@@ -1756,7 +1856,7 @@ export default {
     deleteTitle: "Excluir modelo?",
     deleteDescription:
       "Isso exclui {{title}} permanentemente. Designs já criados não serão afetados.",
-    templateActions: "Ações do modelo",
+    templateActions: "Ações de {{title}}",
     lockedCount: "{{count}} bloqueadas",
     categories: {
       ad: "Anúncio",

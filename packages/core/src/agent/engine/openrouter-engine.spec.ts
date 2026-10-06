@@ -16,9 +16,9 @@ describe("OpenRouter builtin engine", () => {
     expect(entry).toBeDefined();
     expect(entry?.label).toContain("OpenRouter");
     expect(entry?.requiredEnvVars).toEqual(["OPENROUTER_API_KEY"]);
-    expect(entry?.defaultModel).toBe("openai/gpt-5.6-luna");
+    expect(entry?.defaultModel).toBe("openai/gpt-6-luna");
     expect(entry?.supportedModels).toEqual(
-      expect.arrayContaining(["openai/gpt-5.6-luna", "z-ai/glm-5.2"]),
+      expect.arrayContaining(["openai/gpt-6-luna", "z-ai/glm-5.2"]),
     );
     expect(entry?.installPackage).toContain("@openrouter/ai-sdk-provider");
   });
@@ -40,7 +40,6 @@ describe("OpenRouter builtin engine", () => {
       __isModel: true,
       modelId: "anthropic/claude-sonnet-4.5",
     };
-    // `@openrouter/ai-sdk-provider`'s returned provider is callable AND has .chat().
     const providerCallable = vi.fn().mockReturnValue(chatModel);
     const openrouter: any = Object.assign(providerCallable, {
       chat: vi.fn().mockReturnValue(chatModel),

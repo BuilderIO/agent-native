@@ -170,7 +170,7 @@ describe("Slides canvas interaction adapter", () => {
     ).toBeNull();
   });
 
-  it("reserves only a selected object's edge band for movement", () => {
+  it("gives editable text selection priority over a selected object's edge band", () => {
     expect(
       resolveSlidesCanvasPointerIntent({
         hasSelectedObject: true,
@@ -179,7 +179,7 @@ describe("Slides canvas interaction adapter", () => {
         pointerWithinMoveBand: true,
         targetIsEditableText: true,
       }),
-    ).toBe("move-object-perimeter");
+    ).toBe("edit-text");
     expect(
       resolveSlidesCanvasPointerIntent({
         hasSelectedObject: true,
@@ -342,8 +342,6 @@ describe("Slides canvas interaction adapter", () => {
       committed: true,
       gesture: { canvasDelta: { x: 20, y: 20 } },
     });
-    // Releasing at the already-previewed pointer does not run a second
-    // preview, so DOM-backed adapters cannot flash or mutate twice on drop.
     expect(preview).toHaveBeenCalledTimes(1);
     expect(commit).toHaveBeenCalledTimes(1);
   });

@@ -84,13 +84,6 @@ export default defineAction({
   },
 });
 
-/**
- * The records a scope resolves to, access-scoped.
- *
- * An explicit record id that does not resolve is an error, not a silent
- * omission: quoting a price for four records when the user named five is a
- * quote for a different job.
- */
 export async function resolveScopeRecordIds(args: {
   scopeKind: CrmEnrichmentScopeKind;
   targetId?: string;
@@ -143,7 +136,6 @@ export async function resolveScopeRecordIds(args: {
         ),
       )
       .limit(MAX_ENRICHMENT_RECORDS_PER_RUN + 1);
-    // A record may hold several entries in one list; it is still one record to enrich.
     return [...new Set(rows.map((row) => row.recordId))];
   }
 
@@ -167,13 +159,6 @@ export async function resolveScopeRecordIds(args: {
   return rows.map((row) => row.id);
 }
 
-/**
- * Spend since the period start, per actor and across the workspace.
- *
- * A run still in flight counts at its estimate, not at zero: otherwise ten
- * concurrent launches all see the same pre-spend total and every one of them
- * passes a cap they collectively blow through.
- */
 export async function readEnrichmentSpendToDate(input: {
   ownerEmail: string;
   periodStart: string;
@@ -205,7 +190,6 @@ export async function readEnrichmentSpendToDate(input: {
   return { actorUnits, workspaceUnits };
 }
 
-/** An unreadable estimate throws — an unknown cost must not be counted as zero. */
 function estimatedUnitsOf(runId: string, estimateJson: string): number {
   let parsed: unknown;
   try {

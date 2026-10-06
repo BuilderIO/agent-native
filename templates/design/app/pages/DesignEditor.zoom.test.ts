@@ -51,7 +51,6 @@ describe("getNextZoomStepUp / getNextZoomStepDown — Figma-style doubling ancho
   });
 
   it("never stalls at the old ZOOM_PRESETS ceiling (200)", () => {
-    // Previously handleZoomIn returned the input unchanged once past 200.
     expect(getNextZoomStepUp(200)).toBeGreaterThan(200);
     expect(getNextZoomStepUp(500)).toBeGreaterThan(500);
   });
@@ -192,7 +191,6 @@ describe("getAllScreenFrameEntries", () => {
     expect(a.geometry.y).toBe(500);
     expect(a.geometry.width).toBeGreaterThan(0);
     const b = entries.find((e) => e.id === "b")!;
-    // No persisted geometry for "b" — falls back to getInitialFrameGeometry.
     expect(Number.isFinite(b.geometry.x)).toBe(true);
     expect(Number.isFinite(b.geometry.y)).toBe(true);
   });
@@ -273,7 +271,6 @@ describe("resolveScreenEntryZoom — per-screen zoom memory", () => {
 
   it("does not mix up different screens' remembered zooms", () => {
     const screenZoomById = new Map<string, number>([["screen-a", 250]]);
-    // screen-c was never visited — must fall back to default, not screen-a's.
     expect(resolveScreenEntryZoom("screen-c", screenZoomById, 100)).toBe(100);
   });
 
@@ -288,10 +285,6 @@ describe("resolveScreenEntryZoom — per-screen zoom memory", () => {
     expect(resolveScreenEntryZoom("", screenZoomById, 100)).toBe(100);
   });
 
-  // Item 5 — camera restore: a corrupted/degenerate remembered zoom (e.g.
-  // 1506%/3968%, observed in the field) must never be blindly restored —
-  // re-entering a screen at it shows an unrecognizable close-up instead of
-  // the screen the user expects ("lands on empty canvas").
   it("falls back to the default zoom when the remembered value is absurdly high", () => {
     const screenZoomById = new Map<string, number>([
       ["screen-a", 1506],
@@ -325,8 +318,6 @@ describe("resolveScreenEntryZoom — per-screen zoom memory", () => {
 
   it("clamps a remembered value below the shared minimum instead of restoring it raw", () => {
     const screenZoomById = new Map<string, number>([["screen-a", 0.5]]);
-    // Below DEFAULT_CANVAS_MIN_ZOOM (2) but still finite/positive — clamped up
-    // to the shared minimum rather than falling back to the default.
     expect(resolveScreenEntryZoom("screen-a", screenZoomById, 100)).toBe(2);
   });
 });
@@ -335,9 +326,6 @@ describe("shouldPopToOverviewOnZoomChange — explicit zoom-to-N% presets never 
   const threshold = 60;
 
   it("reproduces the reported bug: 'Zoom to 50%' from the default 100% single-view zoom must NOT pop to overview when unsuppressed (documents why suppression is required)", () => {
-    // FOCUSED_SCREEN_ZOOM is 100; the "Zoom to 50%" menu preset sets zoom to
-    // 50, which is below OVERVIEW_ZOOM_THRESHOLD (60) and previousZoom (100)
-    // was at/above it — the raw edge-trigger heuristic alone says "pop".
     expect(
       shouldPopToOverviewOnZoomChange({
         previousZoom: 100,
@@ -371,8 +359,6 @@ describe("shouldPopToOverviewOnZoomChange — explicit zoom-to-N% presets never 
   });
 
   it("still pops for a genuine continuous zoom-out gesture (unsuppressed)", () => {
-    // handleZoomOut / scroll / pinch never set the suppression flag — the
-    // Figma-style pop-on-zoom-out-past-threshold behavior must be preserved.
     expect(
       shouldPopToOverviewOnZoomChange({
         previousZoom: 62,
@@ -486,8 +472,6 @@ describe("board flip zoom corruption (observed displayed zoom: 10241.49%)", () =
       boardFileId: "board-file",
       overviewScreenIds,
     });
-    // Board text-tool creation / board element click flips activeFileId to
-    // the board file; the basis must not follow it.
     const basisAfter = resolveOverviewZoomBasisScreenId({
       candidateFileId: "board-file",
       boardFileId: "board-file",
@@ -498,15 +482,11 @@ describe("board flip zoom corruption (observed displayed zoom: 10241.49%)", () =
   });
 
   it("documents the old derivation: a board basis has neither frame geometry nor a source width, snapping the scale to the 0.25 double-fallback and displaying garbage against the pinned explicit zoom", () => {
-    // The board is excluded from overviewScreens and canvasFrames, so BOTH
-    // getOverviewZoomScale inputs fell back: 320 / 1280.
     const boardBasisScale = getOverviewZoomScale({
       frameWidth: undefined,
       sourceWidth: undefined,
     });
     expect(boardBasisScale).toBe(0.25);
-    // explicitOverviewCanvasZoom stayed pinned to a value established under
-    // the real screen's scale — the product is the garbage seen in the wild.
     const pinnedExplicitCanvasZoom = 40965.96;
     expect(
       getOverviewDisplayZoom(pinnedExplicitCanvasZoom, boardBasisScale),
@@ -538,8 +518,6 @@ describe("shouldResetExplicitOverviewZoomOnBasisChange — basis-identity invali
   });
 
   it("keeps the pin across a normal screen-to-screen basis change (sane label shift, camera untouched)", () => {
-    // canvas zoom 40 under a 2.5 scale (display 100%) → basis change to a
-    // 1.25-scale screen displays 50% — a legitimate Figma-like label shift.
     expect(
       shouldResetExplicitOverviewZoomOnBasisChange({
         previousBasisScreenId: "screen-1",
@@ -625,15 +603,6 @@ describe("shouldDeferOverviewZoomCommand — zoom-hydration compounding fix", ()
 });
 
 describe("overview zoom hydration is idempotent across reloads (regression: compounding zoom bug)", () => {
-  // Reproduces the field bug end to end using the real conversion helpers:
-  // a persisted DISPLAY zoom must survive N reload/hydration passes
-  // unchanged when no user interaction happens in between. The bug applied
-  // the persisted display zoom -> canvas-zoom conversion against the
-  // pre-load fallback scale (files not loaded yet: frameWidth/sourceWidth
-  // both fall back, scale = 320/1280 = 0.25), then displayed the result
-  // through the REAL scale once resolved — a different, inflated value that
-  // got re-persisted, compounding every reload by a factor of
-  // (realScale / fallbackScale).
   const FALLBACK_SCALE = getOverviewZoomScale({
     frameWidth: undefined,
     sourceWidth: undefined,
@@ -641,25 +610,18 @@ describe("overview zoom hydration is idempotent across reloads (regression: comp
   const REAL_SCALE = getOverviewZoomScale({
     frameWidth: 1123,
     sourceWidth: 1280,
-  }); // an arbitrary real screen frame/source ratio, deliberately far from 0.25
+  });
 
-  /** Old (buggy) hydration: converts against whatever scale is live at the
-   *  moment the persisted display zoom is applied — the fallback, since this
-   *  ran before files loaded. */
   function hydrateWithoutDeferral(persistedDisplayZoom: number): number {
     const canvasZoomUnderFallback = getOverviewCanvasZoom(
       persistedDisplayZoom,
       FALLBACK_SCALE,
     );
-    // The pin then displays through the REAL scale once screens load.
     return getOverviewDisplayZoom(canvasZoomUnderFallback, REAL_SCALE);
   }
 
-  /** Fixed hydration: shouldDeferOverviewZoomCommand withholds the
-   *  conversion until files (and therefore the real scale) are loaded, so
-   *  the conversion only ever runs once, against REAL_SCALE on both sides. */
   function hydrateWithDeferral(persistedDisplayZoom: number): number {
-    const filesLoaded = true; // the retried application always waits for this
+    const filesLoaded = true;
     expect(
       shouldDeferOverviewZoomCommand({
         hasZoomCommand: true,
@@ -678,9 +640,6 @@ describe("overview zoom hydration is idempotent across reloads (regression: comp
       zoom = hydrateWithoutDeferral(zoom);
       history.push(zoom);
     }
-    // Each pass multiplies by the same (realScale / fallbackScale) factor —
-    // this is the exact mechanism behind the field report's 100 -> 351 ->
-    // 1211 -> 7088 -> 17152 style growth.
     const factor = REAL_SCALE / FALLBACK_SCALE;
     expect(factor).toBeGreaterThan(1);
     for (let i = 1; i < history.length; i++) {
@@ -727,7 +686,6 @@ describe("clampOverviewDisplayZoom — final displayed-zoom sanity net", () => {
   it("passes legitimate display zooms through unchanged, including sub-minimum products of small screen scales", () => {
     expect(clampOverviewDisplayZoom(100)).toBe(100);
     expect(clampOverviewDisplayZoom(60)).toBe(60);
-    // canvas zoom near min times a sub-1 scale legitimately displays < 2%.
     expect(clampOverviewDisplayZoom(0.5)).toBe(0.5);
   });
 });
@@ -757,8 +715,6 @@ describe("computeFitCameraForFrames", () => {
       height: 500,
     });
     expect(camera).not.toBeNull();
-    // A 1000x1000 frame fit into a 500x500 viewport (minus padding) must zoom
-    // out well below 100%.
     expect(camera!.zoom).toBeLessThan(100);
     expect(camera!.zoom).toBeGreaterThan(0);
   });
@@ -773,13 +729,10 @@ describe("computeFitCameraForFrames", () => {
       height: 800,
     });
     expect(camera).not.toBeNull();
-    // The union bounds span ~1200x1200 — must zoom out to fit both.
     expect(camera!.zoom).toBeLessThan(100);
   });
 
   it("still fits a board far too wide to show at a legible zoom", () => {
-    // Zoom to fit must reach the bottom of the zoom range: a floor of 10% caps
-    // an explicit fit at roughly nine 1280px screens in a row.
     const frames = Array.from({ length: 30 }, (_, index) => ({
       id: `s${index}`,
       geometry: { x: index * 1400, y: 0, width: 1280, height: 900 },
@@ -794,8 +747,6 @@ describe("computeFitCameraForFrames", () => {
   });
 
   it("clamps the computed zoom to the shared canvas zoom range", () => {
-    // A tiny frame in a huge viewport would otherwise want to zoom in far
-    // past the max zoom.
     const frames = [{ id: "a", geometry: { x: 0, y: 0, width: 1, height: 1 } }];
     const camera = computeFitCameraForFrames(frames, {
       width: 4000,
@@ -807,12 +758,6 @@ describe("computeFitCameraForFrames", () => {
 });
 
 describe("computeIframeLocalCanvasPoint — PASTE-HERE-IN-CONTENT", () => {
-  // handleIframeContextMenu opens the canvas context menu imperatively via a
-  // ref, bypassing CanvasContextMenu's own onContextMenuCapture (the only
-  // place that normally attaches canvasX/canvasY to the menu's point). This
-  // is the shared math both paths now use so "Paste here" lands under the
-  // cursor whether the right-click hit the canvas background or actual
-  // rendered screen content.
   it("converts a viewport point to iframe-local document coordinates at 100% zoom", () => {
     expect(
       computeIframeLocalCanvasPoint({
@@ -825,8 +770,6 @@ describe("computeIframeLocalCanvasPoint — PASTE-HERE-IN-CONTENT", () => {
   });
 
   it("divides by the zoom factor so a zoomed-out iframe still maps to the correct document point", () => {
-    // 50% zoom means 1 document px renders as 0.5 screen px, so a 100px
-    // on-screen offset from the iframe's origin is 200 document px.
     expect(
       computeIframeLocalCanvasPoint({
         clientX: 150,

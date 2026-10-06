@@ -1,7 +1,3 @@
--- Query Set 1: Overall Conversion Trend
--- Purpose: Calculate weekly conversion rate over last 6 months to identify when decline started
--- Expected output: Weekly unique visitors, signups, conversion rate, and week-over-week change
-
 WITH visitors AS (
   SELECT
     DATE_TRUNC(DATE(created_date), WEEK) AS week,
@@ -34,19 +30,13 @@ SELECT
   unique_visitors,
   total_signups,
   ROUND(conversion_rate * 100, 2) AS conversion_rate_pct,
-  -- Week-over-week change
+
   LAG(conversion_rate) OVER (ORDER BY week) AS prev_week_conversion,
   ROUND((conversion_rate - LAG(conversion_rate) OVER (ORDER BY week)) * 100, 2) AS wow_change_pct,
-  -- Show percentage change
+
   ROUND(SAFE_DIVIDE(
     conversion_rate - LAG(conversion_rate) OVER (ORDER BY week),
     LAG(conversion_rate) OVER (ORDER BY week)
   ) * 100, 1) AS wow_pct_change
 FROM combined
 ORDER BY week DESC;
-
--- Interpretation Guide:
--- 1. Look for the week where conversion_rate_pct starts to decline
--- 2. Check wow_change_pct for sudden drops (negative values indicate decline)
--- 3. Compare recent 4 weeks average vs previous 4 weeks average
--- 4. A consistent negative trend in wow_pct_change indicates gradual decline

@@ -6,8 +6,6 @@ import {
 } from "drizzle-orm/pg-core";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Tests pass a fake `DbExec`, so no real database is required.
-
 describe("ensureAdditiveColumns", () => {
   let originalEnv: NodeJS.ProcessEnv;
   beforeEach(() => {
@@ -19,11 +17,6 @@ describe("ensureAdditiveColumns", () => {
     vi.resetModules();
   });
 
-  // A tiny Postgres table: an existing `id` column, a NOT NULL column with a
-  // literal default (`count`), a nullable column with no default (`note`), a
-  // NOT NULL column with a `now()` sql default (`created_at`), and a NOT NULL
-  // column with NO renderable default (`required_no_default`) to exercise the
-  // skip path.
   const pgSessionRecordings = pgTable("session_recordings", {
     id: pgText("id").primaryKey(),
     networkErrorCount: pgInteger("network_error_count").notNull().default(0),
@@ -71,6 +64,22 @@ describe("ensureAdditiveColumns", () => {
   describe("Postgres", () => {
     beforeEach(() => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    });
+
+    it("skips catalog reads when the hosted function marker is present without NODE_ENV", async () => {
+      vi.stubEnv("NODE_ENV", "");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+      const { ensureAdditiveColumns } =
+        await import("./ensure-additive-columns.js");
+      const execute = vi.fn();
+
+      const result = await ensureAdditiveColumns({
+        db: { execute } as any,
+        tables: [pgSessionRecordings],
+      });
+
+      expect(result.mode).toBe("skipped-serverless");
+      expect(execute).not.toHaveBeenCalled();
     });
 
     it("adds a missing NOT NULL column with its literal default", async () => {
@@ -234,8 +243,6 @@ describe("ensureAdditiveColumns", () => {
         tables: [pgSessionRecordings, pgErrors],
       });
 
-      // The whole point: a clean result here would be indistinguishable from
-      // "every declared column already exists".
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0].error).toMatch(/connection terminated/);
       expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
@@ -278,7 +285,6 @@ describe("ensureAdditiveColumns", () => {
         db: client,
         tables: [pgSessionRecordings],
       });
-      // network_error_count fails, created_at still gets applied.
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0].column).toBe(
         "session_recordings.network_error_count",
@@ -331,7 +337,7 @@ describe("ensureAdditiveColumns", () => {
   });
 
   it("does not inspect schema from a production serverless function", async () => {
-    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
     const { ensureAdditiveColumns } =
       await import("./ensure-additive-columns.js");
@@ -347,6 +353,28 @@ describe("ensureAdditiveColumns", () => {
     expect(result.mode).toBe("skipped-serverless");
     expect(result.applied).toEqual([]);
     expect(client.execute).not.toHaveBeenCalled();
+  });
+
+  it("checks schema during an explicitly executing runtime migration", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { ensureAdditiveColumns } =
+      await import("./ensure-additive-columns.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+    const { client, calls } = fakePgClient({
+      tableExists: true,
+      liveColumns: ["id", "created_at"],
+    });
+
+    await expect(
+      withMigrationExecutionRuntime(() =>
+        ensureAdditiveColumns({ db: client, tables: [pgSessionRecordings] }),
+      ),
+    ).resolves.toMatchObject({ mode: "checked" });
+    expect(
+      calls.some((call) => /information_schema\.columns/i.test(call)),
+    ).toBe(true);
   });
 
   it("logs applied/skipped/error lines through an injected logger", async () => {

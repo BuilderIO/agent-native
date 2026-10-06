@@ -10,9 +10,7 @@ export interface SessionReplayContext {
 }
 
 export interface SessionReplayLinkOptions {
-  /** Event time to seek to when the replay link opens. */
   at?: Date | number | string;
-  /** Overrides the configured Analytics app origin for this link. */
   linkBaseUrl?: string;
 }
 

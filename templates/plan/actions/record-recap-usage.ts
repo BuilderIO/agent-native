@@ -38,8 +38,6 @@ export default defineAction({
     outputTokens: z.number().int().nonnegative(),
     cacheReadTokens: z.number().int().nonnegative().default(0),
     cacheWriteTokens: z.number().int().nonnegative().default(0),
-    // Claude Code reports a real dollar cost; Codex and compatible providers
-    // generally provide tokens only.
     reportedCostUsd: z.number().nonnegative().optional(),
   }),
   run: async (args) => {
@@ -78,8 +76,6 @@ export default defineAction({
       })
       .where(eq(schema.plans.id, args.planId));
 
-    // Mirror tokens into the shared usage table. Unknown compatible-provider
-    // prices remain explicitly unavailable instead of inheriting a generic rate.
     await recordUsage({
       ownerEmail: row.ownerEmail,
       inputTokens: args.inputTokens,

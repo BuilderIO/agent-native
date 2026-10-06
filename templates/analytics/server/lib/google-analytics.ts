@@ -1,6 +1,3 @@
-// Google Analytics 4 Data API (v1beta) helper
-// Runs reports for active users, top pages, sessions by source
-
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -11,9 +8,8 @@ import { signRs256Jwt } from "./sign-jwt";
 
 const API_BASE = "https://analyticsdata.googleapis.com/v1beta";
 
-// In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE = 100;
 
 async function getConfig(): Promise<{ propertyId: string }> {
@@ -67,9 +63,8 @@ async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-// Cache the access token separately (1 hour TTL)
 const tokenCache = new Map<string, { token: string; ts: number }>();
-const TOKEN_TTL_MS = 50 * 60 * 1000; // 50 minutes (tokens last 60)
+const TOKEN_TTL_MS = 50 * 60 * 1000;
 
 async function getCachedToken(): Promise<string> {
   const tokenKey = credentialCacheScope("GOOGLE_APPLICATION_CREDENTIALS_JSON");
@@ -90,8 +85,6 @@ function cacheSet(key: string, data: unknown) {
   cache.set(key, { data, ts: Date.now() });
 }
 
-// -- Types --
-
 export interface GA4DateRange {
   startDate: string;
   endDate: string;
@@ -108,8 +101,6 @@ export interface GA4ReportResponse {
   rows: GA4ReportRow[];
   rowCount: number;
 }
-
-// -- API functions --
 
 export async function getGA4Client() {
   const config = await getConfig();

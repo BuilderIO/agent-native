@@ -48,6 +48,7 @@ import {
   MCP_OAUTH_FLOW_COOKIE_MAX_CHUNKS as FLOW_COOKIE_MAX_CHUNKS,
   readMcpOAuthFlowCookiePayload,
 } from "./oauth-flow-cookie.js";
+import { normalizeMcpPrincipal, type McpPrincipal } from "./principal.js";
 import {
   addOAuthRemoteServer,
   listRemoteServers,
@@ -89,11 +90,6 @@ function isBuilderPublishMcpServer(serverUrl: URL): boolean {
   return resolveTrustedMcpOAuthAuthorizationScope(serverUrl) !== undefined;
 }
 
-/**
- * Which side of the scope contract the request broke. Builder Publish shares one
- * workspace grant with Content database sources, so it is org-only; managed
- * OAuth clients authorize one human at a time, so they are personal-only.
- */
 export type McpOAuthScopeViolation =
   | "organization-scope-required"
   | "personal-scope-required";
@@ -108,9 +104,12 @@ const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
   serverOrigins: ReadonlyArray<string>;
   credentialPairs: ReadonlyArray<readonly [string, string]>;
+  allowOrganizationScope?: boolean;
+  requireClientCredentials?: boolean;
 }> = [
   {
     serverOrigins: ["https://mcp.hubspot.com"],
+    requireClientCredentials: true,
     credentialPairs: [
       ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"],
       ["HUBSPOT_INTEGRATION_CLIENT_ID", "HUBSPOT_INTEGRATION_CLIENT_SECRET"],
@@ -128,11 +127,18 @@ const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
       "https://chatmcp.googleapis.com",
       "https://people.googleapis.com",
     ],
+    requireClientCredentials: true,
     credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
   },
   {
     serverOrigins: ["https://workspacemcp.googleapis.com"],
+    requireClientCredentials: true,
     credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+  },
+  {
+    serverOrigins: ["https://mcp.gong.io"],
+    allowOrganizationScope: true,
+    credentialPairs: [["GONG_MCP_CLIENT_ID", "GONG_MCP_CLIENT_SECRET"]],
   },
 ];
 
@@ -160,6 +166,7 @@ export interface McpOAuthRoutesOptions {
     scope: RemoteMcpScope;
     scopeId: string;
     server: StoredRemoteMcpServer;
+    principal: McpPrincipal;
   }) => Promise<boolean>;
 }
 
@@ -186,12 +193,6 @@ export function bindMcpOAuthAuthorizationScope(
     : credentials;
 }
 
-/**
- * h3 hands a returned web `Response` straight back without merging the
- * `Set-Cookie` headers staged earlier on `event.res`. The callback stages the
- * flow-cookie deletion before it validates anything, so a `Response` that drops
- * those headers leaves the encrypted PKCE/state cookie in the browser.
- */
 export function withStagedCookies(
   event: H3Event,
   response: Response,
@@ -260,6 +261,8 @@ async function handleMcpOAuthStart(
   // coercion-ok: OAuth requests fail closed when session resolution is unavailable.
   const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const principal = normalizeMcpPrincipal({ userEmail: session?.email });
+  if (!principal) return unauthorized(event);
 
   const query = getQuery(event);
   const reconnectServerId = text(query.serverId);
@@ -401,7 +404,10 @@ async function handleMcpOAuthStart(
       const clientInformation = await resolveManagedMcpOAuthClient(
         urlCheck.url!,
       );
-      if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
+      if (
+        managedMcpOAuthClientFor(urlCheck.url!)?.requireClientCredentials &&
+        !clientInformation
+      ) {
         return null;
       }
       const storedCredentials =
@@ -478,12 +484,6 @@ async function handleMcpOAuthStart(
 export const MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE =
   "Managed MCP OAuth is not configured for this workspace. A workspace owner must register the OAuth client once; after that, any workspace member can connect a personal account.";
 
-/**
- * Why a start failed, in the terms a person can act on. The two specific cases
- * are the ones a retry can never fix, so collapsing them into the generic
- * message is what left users re-clicking Connect against a provider that was
- * never going to work.
- */
 export type McpOAuthStartErrorBody = {
   error: string;
   errorCode?: string;
@@ -549,11 +549,6 @@ function authorizationServerLabel(
   }
 }
 
-/**
- * The start route is only ever reached by a browser navigation (a popup or a
- * Desktop OAuth window), so a failure has to render as a page. Returning the
- * JSON body painted the raw error object across the popup.
- */
 export function mcpOAuthStartFailureResponse(
   event: H3Event,
   failure: { status: number; body: McpOAuthStartErrorBody },
@@ -568,7 +563,6 @@ export function mcpOAuthStartFailureResponse(
   );
 }
 
-/** Shorthand for the single-message refusals in the browser-facing routes. */
 function refuse(
   event: H3Event,
   status: number,
@@ -582,7 +576,12 @@ export function wantsHtmlResponse(event: H3Event): boolean {
 }
 
 function isManagedMcpOAuthServer(serverUrl: URL): boolean {
-  return MANAGED_MCP_OAUTH_CLIENTS.some((client) =>
+  const client = managedMcpOAuthClientFor(serverUrl);
+  return Boolean(client && !client.allowOrganizationScope);
+}
+
+function managedMcpOAuthClientFor(serverUrl: URL) {
+  return MANAGED_MCP_OAUTH_CLIENTS.find((client) =>
     client.serverOrigins.includes(serverUrl.origin),
   );
 }
@@ -660,6 +659,10 @@ async function handleMcpOAuthCallback(
   // coercion-ok: OAuth callbacks fail closed when session resolution is unavailable.
   const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const authenticatedPrincipal = normalizeMcpPrincipal({
+    userEmail: session?.email,
+  });
+  if (!authenticatedPrincipal) return unauthorized(event);
 
   const query = getQuery(event);
   const code = text(query.code);
@@ -748,9 +751,13 @@ async function handleMcpOAuthCallback(
       scope: flow.scope,
       scopeId: flow.scopeId,
       server: persistedServer,
+      principal: {
+        userEmail: authenticatedPrincipal.userEmail,
+        orgId: org?.orgId ?? null,
+      },
     });
-  } catch {
-    // coercion-ok: the persisted remote is durable; false records reload failure.
+  } catch (error) {
+    console.warn("[mcp-client/oauth] saved server did not reconnect:", error);
   }
   const returnPath = resolveMcpOAuthReturnPath(connected, flow);
   return redirectWithStagedCookies(

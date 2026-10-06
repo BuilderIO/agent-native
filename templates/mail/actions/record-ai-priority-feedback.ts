@@ -39,7 +39,7 @@ function parseStoredFeedback(stored: unknown) {
 export default defineAction({
   description: "Record a user's importance feedback for an email.",
   schema: feedbackSchema,
-  agentTool: false,
+  agentTool: true,
   run: async (input) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) fail("Unauthenticated", { errorCode: "unauthenticated" });

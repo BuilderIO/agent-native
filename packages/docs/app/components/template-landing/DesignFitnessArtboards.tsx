@@ -24,48 +24,18 @@ export const BOARD_SCALE = 0.4;
 export const DESKTOP_ARTBOARD_WIDTH = 1280;
 export const MOBILE_ARTBOARD_WIDTH = 390;
 
-/**
- * Screen height of a frame body, deliberately taller than the canvas viewport
- * so both screens run off the bottom edge and get cut there. A design that
- * stopped neatly inside the canvas would read as a fixed-height graphic; real
- * pages keep going past the fold, and the editor just clips them.
- */
 export const FRAME_BODY_HEIGHT = 700;
 
-/**
- * Floor for the artboards, not a fixed size: height is content-driven so a
- * short screen can never leave white space above the cut, and a long one simply
- * extends further past it.
- */
 export const ARTBOARD_MIN_HEIGHT = FRAME_BODY_HEIGHT / BOARD_SCALE;
 
-/**
- * The design's page background, per docs theme. Exported so the frame body
- * behind the artboard matches it — the frame is taller than the content, so a
- * mismatched backing flashes below the fold.
- */
 export const ARTBOARD_BG = "#0c0c0e";
 export const ARTBOARD_BG_LIGHT = "#f4f4f5";
 
-/** Logical size of the selected CTA, mirrored by the inspector's W/H fields. */
 export const SELECTED_CTA_WIDTH = 160;
 export const SELECTED_CTA_HEIGHT = 52;
 
-/**
- * Selection chrome lives inside the scaled artboard so it tracks the element it
- * outlines instead of being positioned by hand, which means every length has to
- * be divided by the board scale to land at its intended on-screen size. CSS
- * transforms scale vector borders exactly, so a 1.5px outline authored as
- * 3.75px is still a crisp 1.5px.
- */
 const inverse = (screenPx: number) => `${screenPx / BOARD_SCALE}px`;
 
-/**
- * The runner sits in the right third of the frame, so the near-square hero crop
- * has to bias right or it cuts him in half. `width` is ~2x the 460px slot for
- * retina; no `height`, so the CDN keeps the source aspect ratio and
- * `object-fit: cover` does the cropping.
- */
 const HERO_ATHLETE_SRC =
   "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9eb46e6b1f494d6694c8b93785d3cb77?format=webp&width=920";
 const HERO_ATHLETE_POSITION = "75% center";
@@ -125,7 +95,6 @@ function ImageSlot({
 }: {
   className?: string;
   src: string;
-  /** Crop focus, since these photos are rarely centred on their subject. */
   objectPosition?: string;
 }) {
   return (
@@ -143,11 +112,6 @@ function ImageSlot({
   );
 }
 
-/**
- * The element the editor has selected. The outline, handles, and dimension
- * badge are part of the editor, not the design, but they are drawn here so they
- * stay glued to the button through any layout change above it.
- */
 function SelectedCta({ full = false }: { full?: boolean }) {
   return (
     <div className={full ? "ft-selected is-full" : "ft-selected"}>
@@ -360,39 +324,15 @@ export function FitnessMobileArtboard() {
 }
 
 export const DESIGN_FITNESS_CSS = [
-  // Palette. Follows the docs theme rather than staying pinned to one mode: a
-  // dark design inside a light page was a hole in the middle of the layout.
-  //
-  // Monochrome with a single accent. The earlier five-hue palette turned the
-  // artboard into the loudest thing on the page and competed with the editor
-  // for attention — the mock is meant to read as a design being worked on, not
-  // as the hero image. Structure comes from surface steps and hairlines;
-  // `--ft-accent` is rationed to the emphasis word, the wordmark dot, and the
-  // two real calls to action.
-  //
-  // The accent has no hue at all — it is simply the brightest neutral, and the
-  // body text sits a step below it so emphasis still reads. Anything saturated
-  // here, lime included, kept stealing the eye from the editor chrome.
-  //
-  // `--ft-accent` is the brightest value in the design and stays under #e0e0e0;
-  // pure white pulled focus even on a dark ground. Every other neutral is one
-  // base at reduced alpha, so nothing can drift above the accent.
-  // `--ft-accent-on` is whatever text sits on an accent fill and therefore has
-  // to invert with it: dark on the light accent, light on the dark one.
   `.design-mock .ft { --ft-bg: ${ARTBOARD_BG}; --ft-elevated: #16161a; --ft-hero-bg: #131317; --ft-fg: #a9a9af; --ft-fg-soft: rgba(169, 169, 175, 0.62); --ft-line: rgba(169, 169, 175, 0.1); --ft-line-strong: rgba(169, 169, 175, 0.24); --ft-accent: #cdcdd1; --ft-accent-on: #0c0c0e; }`,
   `html.light .design-mock .ft { --ft-bg: ${ARTBOARD_BG_LIGHT}; --ft-elevated: #ffffff; --ft-hero-bg: #e8e8ea; --ft-fg: #55555e; --ft-fg-soft: rgba(85, 85, 94, 0.62); --ft-line: rgba(85, 85, 94, 0.12); --ft-line-strong: rgba(85, 85, 94, 0.26); --ft-accent: #26262b; --ft-accent-on: #f4f4f5; }`,
   ".design-mock .ft { width: 100%; min-height: 100%; background: var(--ft-bg); color: var(--ft-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }",
-  // The docs shell colors every h1-h4 and prose paragraph directly, so an
-  // artboard heading would otherwise pick up the docs foreground instead of the
-  // design's own ink.
   ".design-mock .ft h2, .design-mock .ft h3, .design-mock .ft p { color: inherit; }",
   ".design-mock .ft-desktop, .design-mock .ft-mobile { display: flex; flex-direction: column; }",
 
-  // Photo slots
   ".design-mock .ft-slot { position: relative; overflow: hidden; border-radius: 16px; }",
   ".design-mock .ft-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }",
 
-  // Nav
   ".design-mock .ft-nav { display: flex; height: 88px; flex-shrink: 0; align-items: center; gap: 48px; padding: 0 48px; }",
   ".design-mock .ft-wordmark { font-size: 32px; font-weight: 700; letter-spacing: -0.04em; }",
   ".design-mock .ft-wordmark-dot { color: var(--ft-accent); }",
@@ -400,10 +340,7 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-nav-cta { display: flex; height: 48px; flex-shrink: 0; align-items: center; padding: 0 26px; border: 2px solid var(--ft-line-strong); border-radius: 999px; color: var(--ft-fg); font-size: 17px; font-weight: 600; }",
   ".design-mock .ft-nav-menu { margin-left: auto; color: var(--ft-fg-soft); font-size: 16px; font-weight: 600; }",
 
-  // Hero
   ".design-mock .ft-hero { position: relative; display: flex; flex-shrink: 0; align-items: center; gap: 48px; overflow: hidden; margin: 0 24px; padding: 44px 48px; border-radius: 36px; background: var(--ft-hero-bg); color: var(--ft-fg); }",
-  // Barely-there glows. At the old 0.7 these were two saturated colour fields;
-  // now they only lift the corners of the hero panel off the page.
   ".design-mock .ft-hero-blob { position: absolute; border-radius: 999px; filter: blur(4px); opacity: 0.12; }",
   ".design-mock .ft-hero-blob-a { width: 420px; height: 420px; right: -120px; top: -180px; background: radial-gradient(circle, var(--ft-accent), transparent 68%); }",
   ".design-mock .ft-hero-blob-b { width: 360px; height: 360px; left: -140px; bottom: -200px; background: radial-gradient(circle, var(--ft-fg), transparent 68%); }",
@@ -416,7 +353,6 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-cta-ghost { display: flex; height: 52px; align-items: center; padding: 0 24px; border: 2px solid var(--ft-line-strong); border-radius: 999px; color: var(--ft-fg); font-size: 17px; font-weight: 600; }",
   ".design-mock .ft-hero-art { width: 460px; height: 380px; flex-shrink: 0; border-radius: 28px; }",
 
-  // The selected `Start free trial` CTA and its editor chrome.
   ".design-mock .ft-selected { position: relative; width: 160px; }",
   ".design-mock .ft-selected.is-full { width: 100%; }",
   ".design-mock .ft-cta { display: flex; height: 52px; align-items: center; justify-content: center; border-radius: 999px; background: var(--ft-accent); color: var(--ft-accent-on); font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }",
@@ -428,30 +364,23 @@ export const DESIGN_FITNESS_CSS = [
   `.design-mock .ft-sel-handle-br { right: ${inverse(-4)}; bottom: ${inverse(-4)}; }`,
   `.design-mock .ft-sel-badge { position: absolute; left: 50%; top: calc(100% + ${inverse(6)}); z-index: 2; transform: translateX(-50%); padding: ${inverse(2)} ${inverse(6)}; border-radius: ${inverse(3)}; background: var(--dm-selection); color: var(--dm-selection-contrast); font-size: ${inverse(10)}; font-weight: 600; line-height: ${inverse(12)}; font-variant-numeric: tabular-nums; white-space: nowrap; }`,
 
-  // Stat strip
   ".design-mock .ft-stats { display: grid; flex-shrink: 0; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 24px 0; }",
   ".design-mock .ft-stat { display: flex; flex-direction: column; gap: 6px; padding: 24px 26px; border: 2px solid var(--ft-line); border-radius: 24px; background: var(--ft-elevated); }",
   ".design-mock .ft-stat-value { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }",
   ".design-mock .ft-stat-label { color: var(--ft-fg-soft); font-size: 15px; font-weight: 600; }",
 
-  // Sections
   ".design-mock .ft-section { flex-shrink: 0; padding: 30px 48px 0; }",
   ".design-mock .ft-section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }",
   ".design-mock .ft-section-title { margin: 0; font-size: 34px; font-weight: 700; letter-spacing: -0.03em; }",
   ".design-mock .ft-section-link { color: var(--ft-fg-soft); font-size: 16px; font-weight: 600; }",
   ".design-mock .ft-class-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }",
   ".design-mock .ft-class { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-elevated); }",
-  // Covers are ~345px wide, so 190 keeps the roughly 4:3 photos from being
-  // sliced into letterbox strips without pushing the frame into the toolbar.
   ".design-mock .ft-class .ft-slot { height: 190px; border-radius: 18px; }",
   ".design-mock .ft-class-title { font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }",
   ".design-mock .ft-class-meta { color: var(--ft-fg-soft); font-size: 15px; font-weight: 500; }",
 
-  // Plans
   ".design-mock .ft-plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }",
   ".design-mock .ft-plan { display: flex; flex-direction: column; gap: 8px; padding: 28px; border: 2px solid var(--ft-line); border-radius: 26px; background: var(--ft-elevated); }",
-  // The featured plan is marked with the accent hairline and its price, not a
-  // filled panel — a block of accent this large was most of the old glare.
   ".design-mock .ft-plan.is-featured { border-color: var(--ft-accent); }",
   ".design-mock .ft-plan-name { font-size: 17px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; }",
   ".design-mock .ft-plan-price { font-size: 50px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }",
@@ -461,16 +390,13 @@ export const DESIGN_FITNESS_CSS = [
   ".design-mock .ft-plan-cta { display: flex; height: 48px; align-items: center; justify-content: center; margin-top: 12px; border: 2px solid var(--ft-line); border-radius: 999px; font-size: 16px; font-weight: 700; }",
   ".design-mock .ft-plan.is-featured .ft-plan-cta { border-color: transparent; background: var(--ft-accent); color: var(--ft-accent-on); }",
 
-  // Closing band
   ".design-mock .ft-band { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 28px 24px 24px; padding: 30px 40px; border: 2px solid var(--ft-line); border-radius: 32px; background: var(--ft-elevated); color: var(--ft-fg); }",
   ".design-mock .ft-band-title { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }",
   ".design-mock .ft-band-cta { display: flex; height: 52px; align-items: center; padding: 0 26px; border-radius: 999px; background: var(--ft-accent); color: var(--ft-accent-on); font-size: 17px; font-weight: 700; }",
 
-  // Footer
   ".design-mock .ft-footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; margin: 0 48px; padding: 32px 0 40px; border-top: 2px solid var(--ft-line); }",
   ".design-mock .ft-footer-links { display: flex; align-items: center; gap: 28px; color: var(--ft-fg-soft); font-size: 16px; font-weight: 500; }",
 
-  // Mobile breakpoint. Same design, stacked.
   ".design-mock .ft-mobile .ft-nav { height: 68px; gap: 0; padding: 0 20px; }",
   ".design-mock .ft-mobile .ft-wordmark { font-size: 24px; }",
   ".design-mock .ft-mobile .ft-hero { flex-direction: column; align-items: stretch; gap: 24px; margin: 0 16px; padding: 28px 24px; border-radius: 28px; }",

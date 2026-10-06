@@ -8,6 +8,7 @@ import {
   isOpaqueDeckTitle,
   repairGeneratedDeckTitle,
   resolveImportedDeckTitle,
+  summarizeSlideContent,
 } from "./deck-title";
 
 describe("deck title safeguards", () => {
@@ -15,6 +16,7 @@ describe("deck title safeguards", () => {
     expect(isOpaqueDeckTitle("H3sVsnns-TEVUOpz9w")).toBe(true);
     expect(isOpaqueDeckTitle("Agent-Native Strategy")).toBe(false);
     expect(isOpaqueDeckTitle("Q4 Pipeline Review")).toBe(false);
+    expect(isOpaqueDeckTitle("CPC_2425_A1_reference")).toBe(false);
   });
 
   it("recognizes imported placeholders as generated titles", () => {
@@ -94,5 +96,23 @@ describe("deck title safeguards", () => {
     expect(() => assertHumanReadableDeckTitle("H3sVsnns-TEVUOpz9w")).toThrow(
       /human-readable title/,
     );
+  });
+});
+
+describe("slide content summaries", () => {
+  it("strips slide markup and decodes text for social descriptions", () => {
+    expect(summarizeSlideContent("<h1>Launch</h1><p>A &amp; B</p>")).toBe(
+      "Launch A & B",
+    );
+  });
+
+  it("truncates a long summary at a word boundary", () => {
+    const summary = summarizeSlideContent(
+      `<p>${"Launch plan details ".repeat(12)}</p>`,
+    );
+
+    expect(summary.length).toBeLessThanOrEqual(160);
+    expect(summary.endsWith("…")).toBe(true);
+    expect(summary).not.toContain("details …");
   });
 });

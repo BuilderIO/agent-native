@@ -33,8 +33,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
+import {
+  captureAnchor,
+  trimSelectionRange,
+  type CommentTextAnchor,
+} from "./comment-anchors";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
+import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
 export type CommentRange = { from: number; to: number };
 
@@ -45,7 +50,24 @@ export interface BubbleToolbarProps {
     offsetTop: number,
     anchor?: CommentTextAnchor,
     range?: CommentRange,
+    suggestionId?: string,
   ) => void;
+}
+
+// Suggested text exists only in the author's draft, so a page comment anchored
+// to it has nothing to point at once the draft is saved; it belongs on the
+// suggestion's own thread.
+export function draftSuggestionIdInRange(
+  state: EditorState,
+  from: number,
+  to: number,
+) {
+  return suggestionHighlightKey
+    .getState(state)
+    ?.specs.find(
+      (spec) =>
+        spec.editableText && !spec.settling && spec.to > from && to > spec.from,
+    )?.suggestionId;
 }
 
 const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
@@ -268,7 +290,6 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
         return;
       previousSize = { width, height };
       if (frame !== undefined) return;
-      // A rail can resize the editor without a selection or window-resize event.
       frame = requestAnimationFrame(() => {
         frame = undefined;
         if (disposed || editor.isDestroyed) return;
@@ -287,10 +308,15 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
 
   const createCommentFromSelection = useCallback(() => {
     if (!onComment) return false;
-    const { from, to } = editor.state.selection;
+    const { from, to } = trimSelectionRange(
+      editor.state.doc,
+      editor.state.selection.from,
+      editor.state.selection.to,
+    );
     const text = editor.state.doc.textBetween(from, to, " ");
     if (!text.trim()) return false;
     const anchor = captureAnchor(editor.state.doc, from, to);
+    const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
     const coords = editor.view.coordsAtPos(from);
     const scrollContainer = editor.view.dom.closest(
       ".flex-1.min-h-0.overflow-auto",
@@ -301,7 +327,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
     editor.commands.setTextSelection(from);
-    onComment(text.trim(), offsetTop, anchor, { from, to });
+    onComment(text.trim(), offsetTop, anchor, { from, to }, suggestionId);
     return true;
   }, [editor, onComment]);
 

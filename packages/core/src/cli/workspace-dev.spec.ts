@@ -11,14 +11,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const sentryMock = vi.hoisted(() => ({
   captureException: vi.fn(),
 }));
+const spawnSyncMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@sentry/node", () => sentryMock);
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawnSync: spawnSyncMock,
+}));
 
 import {
+  DEFAULT_PROXY_READY_TIMEOUT_MS,
   initialWorkspaceAppIds,
   isWorkspaceWatcherLimitError,
   runWorkspaceDev,
   shouldEagerStartWorkspaceApps,
+  shouldOpenWorkspaceBrowser,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
   workspaceGatewayUrl,
@@ -32,6 +39,7 @@ let handle: WorkspaceDevHandle | undefined;
 afterEach(() => {
   handle?.shutdown();
   vi.restoreAllMocks();
+  spawnSyncMock.mockReset();
   handle = undefined;
   sentryMock.captureException.mockClear();
   if (tmpDir) {
@@ -278,8 +286,6 @@ describe("workspace dev startup", () => {
     });
     await handle.ready;
 
-    // Only the default app is started synchronously; prewarm catches up in
-    // the background.
     expect(fake.startedApps().includes("dispatch")).toBe(true);
 
     await waitUntil(() => {
@@ -307,7 +313,6 @@ describe("workspace dev startup", () => {
     });
     await handle.ready;
 
-    // Give any (hypothetically) scheduled prewarm a chance to fire.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fake.startedApps()).toEqual(["dispatch"]);
   });
@@ -504,11 +509,8 @@ describe("workspace dev startup", () => {
       root: tmpDir,
       env: {
         ...testEnv(),
-        // Container detected (would normally auto-enable polling) ...
         BUILDER_PROJECT_ID: "builder-project",
-        // ... but operator explicitly disabled it.
         AGENT_NATIVE_DEV_USE_POLLING: "0",
-        // Inherited from a stale parent shell — must NOT leak through.
         CHOKIDAR_USEPOLLING: "1",
         CHOKIDAR_INTERVAL: "500",
         TSC_WATCHFILE: "DynamicPriorityPolling",
@@ -533,8 +535,6 @@ describe("workspace dev startup", () => {
       root: tmpDir,
       env: {
         ...testEnv(),
-        // No container, no explicit toggle — auto-detection says no polling.
-        // The user's custom TSC_WATCHFILE override must still pass through.
         TSC_WATCHFILE: "UseFsEventsWithFallbackDynamicPolling",
       },
       spawnProcess: fake.spawnProcess,
@@ -877,15 +877,168 @@ describe("workspace dev startup", () => {
     handle.shutdown();
     expect(handle.apps[0].restartTimer).toBeUndefined();
   });
+
+  it("force-kills the Windows process tree when taskkill cannot kill it softly", async () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(
+      process,
+      "platform",
+    );
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "win32",
+    });
+    const killProcessGroup = vi.spyOn(process, "kill").mockReturnValue(true);
+    spawnSyncMock
+      .mockReturnValueOnce({ status: 1 })
+      .mockReturnValueOnce({ status: 0 });
+
+    try {
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn(489);
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: {
+          ...testEnv(),
+          WORKSPACE_EAGER: "1",
+        },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+      });
+      await handle.ready;
+      const appCall = fake.calls().at(-1);
+      appCall?.child.kill.mockClear();
+      handle.shutdown();
+
+      expect(spawnSyncMock).toHaveBeenNthCalledWith(
+        1,
+        "taskkill",
+        ["/pid", "489", "/T"],
+        { stdio: "ignore" },
+      );
+      expect(spawnSyncMock).toHaveBeenNthCalledWith(
+        2,
+        "taskkill",
+        ["/pid", "489", "/T", "/F"],
+        { stdio: "ignore" },
+      );
+      expect(appCall?.child.kill).not.toHaveBeenCalled();
+      expect(killProcessGroup).not.toHaveBeenCalled();
+    } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+    }
+  });
 });
 
 describe("workspace dev helpers", () => {
+  it("uses a 60-second default app readiness timeout", () => {
+    expect(DEFAULT_PROXY_READY_TIMEOUT_MS).toBe(60_000);
+  });
+
   it("parses eager mode from args or env", () => {
     expect(shouldEagerStartWorkspaceApps(["--eager"], {})).toBe(true);
     expect(shouldEagerStartWorkspaceApps([], { WORKSPACE_EAGER: "1" })).toBe(
       true,
     );
     expect(shouldEagerStartWorkspaceApps([], {})).toBe(false);
+  });
+
+  it("skips browser auto-open when headless or opted out", () => {
+    expect(shouldOpenWorkspaceBrowser([], {}, "darwin")).toBe(true);
+    expect(shouldOpenWorkspaceBrowser([], { DISPLAY: ":0" }, "linux")).toBe(
+      true,
+    );
+    expect(shouldOpenWorkspaceBrowser([], {}, "linux")).toBe(false);
+    expect(shouldOpenWorkspaceBrowser(["--no-open"], {}, "darwin")).toBe(false);
+    expect(
+      shouldOpenWorkspaceBrowser([], { WORKSPACE_NO_OPEN: "1" }, "darwin"),
+    ).toBe(false);
+    expect(
+      shouldOpenWorkspaceBrowser([], { AGENT_NATIVE_NO_OPEN: "1" }, "darwin"),
+    ).toBe(false);
+    expect(shouldOpenWorkspaceBrowser([], { CI: "true" }, "darwin")).toBe(
+      false,
+    );
+    expect(
+      shouldOpenWorkspaceBrowser([], { CODESPACES: "true" }, "darwin"),
+    ).toBe(false);
+  });
+
+  it("keeps the gateway running when the browser opener is missing", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let errors = "";
+    const env = { ...testEnv(), DISPLAY: ":0" };
+    delete env.WORKSPACE_NO_OPEN;
+    delete env.AGENT_NATIVE_NO_OPEN;
+    delete env.CI;
+    delete env.BUILDER_IO_DEV_SERVER;
+    delete env.BUILDER_PROJECT_ID;
+    delete env.CODESPACES;
+    delete env.GITPOD_WORKSPACE_ID;
+    delete env.REMOTE_CONTAINERS;
+    delete env.DEVCONTAINER;
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env,
+      spawnProcess: fake.spawnProcess,
+      stdout: { write: () => true },
+      stderr: { write: (chunk) => void (errors += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    const opener = fake
+      .calls()
+      .find((call) => call.options?.detached && call.command !== "pnpm");
+    expect(opener).toBeDefined();
+    const err = Object.assign(new Error("spawn xdg-open ENOENT"), {
+      code: "ENOENT",
+    });
+    expect(() => opener!.child.emit("error", err)).not.toThrow();
+    expect(errors).toContain("Could not auto-open browser");
+    expect((await fetch(`${url}/_workspace/apps`)).ok).toBe(true);
+  });
+
+  it.each([
+    { code: 1, signal: null, exit: "exited with code 1" },
+    {
+      code: null,
+      signal: "SIGTERM" as NodeJS.Signals,
+      exit: "exited after SIGTERM",
+    },
+  ])("warns when the browser opener $exit", async ({ code, signal, exit }) => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let errors = "";
+    const env = { ...testEnv(), DISPLAY: ":0" };
+    delete env.WORKSPACE_NO_OPEN;
+    delete env.AGENT_NATIVE_NO_OPEN;
+    delete env.CI;
+    delete env.BUILDER_IO_DEV_SERVER;
+    delete env.BUILDER_PROJECT_ID;
+    delete env.CODESPACES;
+    delete env.GITPOD_WORKSPACE_ID;
+    delete env.REMOTE_CONTAINERS;
+    delete env.DEVCONTAINER;
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env,
+      spawnProcess: fake.spawnProcess,
+      stdout: { write: () => true },
+      stderr: { write: (chunk) => void (errors += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    const opener = fake
+      .calls()
+      .find((call) => call.options?.detached && call.command !== "pnpm");
+    expect(opener).toBeDefined();
+    opener!.child.emit("close", code, signal);
+
+    expect(errors).toContain("Could not auto-open browser");
+    expect(errors).toContain(exit);
+    expect((await fetch(url + "/_workspace/apps")).ok).toBe(true);
   });
 
   it("defaults prewarm off in lazy mode and supports explicit opt-in", () => {
@@ -898,7 +1051,6 @@ describe("workspace dev helpers", () => {
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_NO_PREWARM: "1" })).toBe(
       false,
     );
-    // Eager mode already starts every app, so prewarm has nothing to do.
     expect(shouldPrewarmWorkspaceApps(["--eager"], {})).toBe(false);
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_EAGER: "1" })).toBe(
       false,
@@ -913,7 +1065,6 @@ describe("workspace dev helpers", () => {
     expect(
       workspacePrewarmConcurrency([], { WORKSPACE_PREWARM_CONCURRENCY: "3" }),
     ).toBe(3);
-    // Bogus values clamp back to the default.
     expect(
       workspacePrewarmConcurrency([], { WORKSPACE_PREWARM_CONCURRENCY: "0" }),
     ).toBe(2);
@@ -922,7 +1073,6 @@ describe("workspace dev helpers", () => {
         WORKSPACE_PREWARM_CONCURRENCY: "nope",
       }),
     ).toBe(2);
-    // CLI flag wins over env.
     expect(
       workspacePrewarmConcurrency(["--prewarm-concurrency=5"], {
         WORKSPACE_PREWARM_CONCURRENCY: "9",
@@ -1067,7 +1217,7 @@ async function waitUntil(
   throw new Error("Timed out waiting for condition");
 }
 
-function fakeSpawn(): {
+function fakeSpawn(pid?: number): {
   spawnProcess: typeof spawn;
   calls: () => Array<{
     command: string;
@@ -1102,6 +1252,12 @@ function fakeSpawn(): {
       },
     ) => {
       const child = new EventEmitter() as ChildProcess;
+      if (pid !== undefined) {
+        Object.defineProperty(child, "pid", {
+          configurable: true,
+          value: pid,
+        });
+      }
       child.stdout = new EventEmitter() as ChildProcess["stdout"];
       child.stderr = new EventEmitter() as ChildProcess["stderr"];
       child.killed = false;

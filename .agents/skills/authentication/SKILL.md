@@ -29,6 +29,29 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Static bearer fallback for MCP/connect clients that cannot use OAuth. Not browser auth and never a token login page.         |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
 
+Auth emails (verify signup, reset password, magic link, email change) and org
+invites render through `renderTransactionalEmail`. An app changes their copy or
+design with `overrideTransactionalEmail(id, render)` from a server plugin, never
+by editing `better-auth-instance.ts` call sites. See
+`/docs/deployment#email-templates`.
+
+## Hosted Sign-In Pages and the Shared Wave
+
+- First-party server auth plugins use `createToolkitAuthPlugin` from
+  `@agent-native/toolkit/app/auth/server`. It server-renders `AuthPage` and
+  `ResetPasswordPage` before hydration. Direct Core `createAuthPlugin` calls
+  leave generic fallback markup in the response and can flash before React
+  replaces it.
+- `AuthPage` uses Toolkit's full-page `WaveBackground` for every auth view.
+  The Agent-Native homepage hero and Calendar booking use the same renderer:
+  Calendar's animated FFT ocean wave with its WebGL fallback. Do not substitute
+  the older Starfield shader, a gradient, a signup-only strip, or a copied
+  renderer. `StarfieldBackground` is only a compatibility export for older
+  callers.
+- Hosted marketing apps keep auth enabled at `/` so the public root response
+  contains the full server-rendered sign-in page. Keep session decisions out of
+  public SSR; `RequireSession` resolves signed-in app navigation in the client.
+
 > **Never** use `local@localhost` as a fallback identity in app code
 > (`getRequestUserEmail() ?? "local@localhost"`, `session?.email ?? "local@localhost"`,
 > etc.). There is no dev auth shim. That pattern pools every unauthenticated
@@ -50,7 +73,15 @@ authorization-code + PKCE at
 Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
 advertising `offline_access` lets hosts such as ChatGPT retain refresh access.
-Refresh tokens are stored hashed and rotate. Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
+Refresh tokens are stored hashed and are not rotated: a refresh returns the
+same token and slides its 365-day expiry. MCP OAuth and connect tokens carry
+the org chosen when they were issued, so `verifyAuth` and the token endpoint
+re-check live org membership on every use. A removed member gets a 401 or
+`invalid_grant`; a failed check answers a retryable 503. Offboarding revokes
+their MCP refresh and connect tokens instead of transferring them. Cross-app A2A
+tokens are not re-checked, because their `org_id` is the signing app's
+assertion, and the A2A endpoint rejects MCP credentials.
+Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
 local stdio proxying and fallback clients. The CLI
 uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
 default; use the Connect page or `npx @agent-native/core@latest connect --token <token>` when a
@@ -118,7 +149,9 @@ nothing else, so
 cannot silently widen a guard. Org membership is a precondition, resolved in the
 same statement as the assignment, so a leftover assignment for a removed member
 can never authorize. Only org owners/admins may assign app roles; render the
-picker with `<TeamPage appRoles={descriptor} />`.
+picker with `<TeamPage appRoles={descriptor} />`. In Settings, register a
+replacement `members` page that renders
+`<OrgMembersPage appRoles={descriptor} />` instead.
 
 Members may have multiple roles. `resolve` returns `{ status: "assigned", roles }`,
 and `assertAny` accepts any intersection with its requested roles. Declare
@@ -173,11 +206,19 @@ checklist, chat, and CLI stay usable during setup.
 
 ## A2A Identity
 
-Set `A2A_SECRET` (same value) on all apps that must verify each other's identity.
+Set a distinct `A2A_SECRET` (same value) on apps that must verify each other's
+user identity. Only this deployment secret may sign a per-user A2A assertion;
+mint it from the authenticated request context. The shared organization
+`a2a_secret` proves organization scope only. Its subject/email claims are
+ignored, so it cannot impersonate a member or carry human approval into A2A or
+MCP. Keep each organization's secret different from `A2A_SECRET`.
 
-- Outbound A2A calls are signed with JWTs
-- Inbound calls are verified cryptographically
-- Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev)
+- Outbound calls sign user assertions with `A2A_SECRET` and verify them
+  cryptographically at the receiver.
+- Organization-secret calls run as an organization principal without a user
+  email; user-owned reads, tasks, and approvals need a verified user assertion.
+- Without a verifiable credential, production rejects A2A calls; local dev can
+  remain open.
 
 ## Cross-App SSO (Dispatch identity hub)
 
@@ -234,6 +275,13 @@ Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 ## Builder Browser Access
 
 Apps can connect to Builder via the `cli-auth` flow and persist shared browser credentials in `.env`. Agents then use the built-in `get-browser-connection` tool to provision a real browser session via AI Services.
+
+Signed-in users use Builder.io through one of two OAuth connections.
+Owners and admins connect the organization's connection, which every member
+uses. Members can add a personal connection that only they use, ahead of the
+organization's; owners and admins get none. Roles are enforced on the server
+at connect start, in the callback, and on disconnect. The `secrets` skill has
+the routes and status fields.
 
 ## Protecting Custom Routes
 

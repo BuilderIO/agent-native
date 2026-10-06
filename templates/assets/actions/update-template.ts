@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -10,7 +10,10 @@ import {
   assertPresetReferenceModelCompatible,
   assertPresetSkeletonAssetsValid,
 } from "./_preset-skeleton-validation.js";
-import { resolveTemplateAccess } from "./_template-access.js";
+import {
+  accessibleTemplateFilter,
+  resolveTemplateAccess,
+} from "./_template-access.js";
 import { templateFieldsSchema, templateHasPins } from "./_template-input.js";
 
 export default defineAction({
@@ -20,6 +23,7 @@ export default defineAction({
     .extend({ id: z.string() }),
   run: async ({ id, ...args }) => {
     const template = (await resolveTemplateAccess(id, "editor")).resource;
+    const templateFilter = await accessibleTemplateFilter();
     const db = getDb();
     if (args.collectionId) {
       if (!template.libraryId)
@@ -78,10 +82,11 @@ export default defineAction({
       if (args[key] !== undefined) updates[key] = args[key];
     if (args.settings !== undefined || args.includeLogo !== undefined)
       updates.settings = stringifyJson(nextSettings);
+    // guard:allow-unscoped — resolveTemplateAccess requires editor access through the template or inherited Brand Kit ACL; the SQL filter repeats accessible-template scope before update.
     await db
       .update(schema.assetTemplates)
       .set(updates)
-      .where(eq(schema.assetTemplates.id, id));
+      .where(and(eq(schema.assetTemplates.id, id), templateFilter));
     return serializeTemplate({ ...template, ...updates });
   },
 });

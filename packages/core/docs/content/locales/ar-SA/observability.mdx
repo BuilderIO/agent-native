@@ -19,7 +19,7 @@ description: "تتبعات الوكيل، وعمليات التقييم، وال
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                    | "هل يفعل الوكيل الشيء الصحيح بشأن هذا الإدخال الثابت؟" | بوابة CI/نشر نشطة وحتمية            | الجودة         |
 | **[Observational Memory](/docs/observational-memory)**           | "هل يظل هذا الخيط الطويل رخيصًا وداخل النافذة؟"        | ضغط الخلفية على المواضيع الطويلة    | التكلفة/السياق |
 
-تسجل كل من إمكانية المراقبة وبوابة تقييم CI _الجودة_ ولكن من طرفين متعاكسين - تسجيل سلبي لاحق لحركة المرور الحقيقية مقابل عمليات فحص النجاح/الفشل النشطة على المدخلات الثابتة. ذاكرة الملاحظة لا علاقة لها بالجودة؛ يتعلق الأمر بتكلفة الرمز المميز وضغط نافذة السياق.
+تسجل كل من إمكانية المراقبة وبوابة تقييم CI _الجودة_ ولكن من طرفين متعاكسين - تسجيل سلبي لاحق لحركة المرور الحقيقية مقابل عمليات فحص النجاح/الفشل النشطة على المدخلات الثابتة. ذاكرة الملاحظة لا علاقة لها بالجودة؛ يتعلق الأمر بتكلفة الرمز المميز وضغط نافذة السياق. رقِّ أثر إنتاج مكتمل إلى حالة `*.eval.ts` (لوحة **Promote to eval** أو `promote-trace-eval` أو `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). انظر [من أثر إنتاج](/docs/evals#from-trace).
 
 ## ما يتم التقاطه تلقائيًا {#captured}
 
@@ -94,7 +94,7 @@ description: "تتبعات الوكيل، وعمليات التقييم، وال
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -121,7 +121,7 @@ export default function ObservabilityPage() {
 
 تعرض علامة تبويب المحادثات عمليات التشغيل المسجلة. اختر عملية لعرض النطاقات، ثم وسّع أي نطاق لرؤية مدخلات الأدوات ومخرجاتها وأخطائها وبياناتها الوصفية التي تم التقاطها. استخدم **فتح المحادثة الكاملة** للانتقال إلى سلسلة الدردشة المرتبطة.
 
-يكون التقاط وسيطات الأدوات ونتائجها متوقفًا افتراضيًا. فعّل `captureToolArgs` و`captureToolResults` في إعدادات `observability` لحفظها. تُنقّح الحقول الحساسة ورسائل أخطاء الأدوات قبل التخزين.
+يكون التقاط وسيطات الأدوات ونتائجها وأجسام الأخطاء الكاملة متوقفًا افتراضيًا. فعّل `captureToolArgs` لحفظ الوسيطات و`captureToolResults` لحفظ النتائج وأجسام الأخطاء الكاملة في إعدادات `observability`. تُنقّح الحقول الحساسة قبل التخزين. وتحتفظ الأداة الفاشلة دائمًا بالسطر الأول المحدود الطول من خطئها، مع تنقيح بيانات الاعتماد وعناوين البريد الإلكتروني والمعرّفات الطويلة غير الشفافة، بحيث تبقى الإخفاقات قابلة للتشخيص حتى عند إيقاف `captureToolResults`.
 
 ### المراجعة البشرية {#review}
 
@@ -288,7 +288,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+يتم **تنقيح المحتوى افتراضيًا**: تُخزَّن أعداد الرموز والتكاليف والتوقيت، وكذلك السطر الأول المحدود الطول من خطأ الأداة الفاشلة مع تنقيح بيانات الاعتماد وعناوين البريد الإلكتروني والمعرّفات الطويلة غير الشفافة. تبقى المطالبات ومدخلات الأدوات ونتائجها وأجسام الأخطاء الكاملة متوقفة ما لم تُفعَّل `capturePrompts` و`captureToolArgs` و`captureToolResults`. فعّلها فقط عندما تحتاج إلى محتوى المطالبات أو الوسيطات لأغراض التصحيح.
 
 </Callout>
 
@@ -302,6 +302,7 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 | GET     | `/traces`                  | سرد ملخصات التتبع                   |
 | GET     | `/traces/:runId`           | تتبع التفاصيل (الملخص + الامتدادات) |
 | GET     | `/traces/:runId/evals`     | تقييمات التشغيل                     |
+| POST    | `/traces/:runId/promote`   | ترقية تشغيل مكتمل إلى تقييم CI      |
 | POST    | `/feedback`                | إرسال تعليقات                       |
 | GET     | `/feedback`                | إدراج التعليقات                     |
 | GET     | `/feedback/stats`          | تجميع التعليقات                     |
@@ -335,13 +336,28 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 تصدر حلقة الوكيل ثلاثة أنواع من الامتداد:
 
-| امتداد      | متى                         | السمات                                                            |
-| ----------- | --------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | مرة واحدة لكل وكيل          | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | مرة واحدة لكل استدعاء إجراء | `tool.name`، بالإضافة إلى حالة النجاح/الخطأ                       |
-| `llm.call`  | لكل مكالمة نموذجية          | التوقيت + حالة موافق/خطأ                                          |
+| امتداد                | متى                         | السمات                                                                                                    |
+| --------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | مرة واحدة لكل وكيل          | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | مرة واحدة لكل استدعاء إجراء | `gen_ai.tool.name`، بالإضافة إلى حالة النجاح/الخطأ                                                        |
+| `chat {model}`        | لكل مكالمة نموذجية          | `gen_ai.provider.name`, التوقيت + حالة موافق/خطأ                                                          |
 
 تم الانتهاء من الامتدادات بحالة OK/ERROR وتسجيل رسالة الخطأ عند الفشل. يتم تقليم قيم السمات الصفرية/الحارسة حتى لا تزدحم الامتدادات بالضوضاء. تعتبر طبقة OTel هذه إضافة بحتة إلى جداول `agent_trace_spans` / `agent_trace_summaries` الداخلية التي تعمل على تشغيل لوحة المعلومات أعلاه - وكلاهما يتم إنتاجهما من نفس أحداث التشغيل.
+
+### المقاييس {#otel-metrics}
+
+يسجّل Core أيضًا المقاييس بمجرد أن يسجّل المضيف موفّر مقاييس (meter provider) باستخدام `registerObservabilityProvider()` من `@agent-native/core/server`. تُسجَّل المقاييس لكل طلب وكل تشغيل، دون أخذ عينات:
+
+| الأداة                                  | السمات                                                                                       |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+في المقاييس، تكون `gen_ai.tool.name` اسم إجراء من إجراءات إطار العمل أو `other`، وتكون `gen_ai.request.model` معرّف النموذج فقط عندما يدرجه المحرك ضمن النماذج المدعومة، وإلا فهي `_OTHER`. لذلك لا يمكن للأدوات التي يعرّفها التطبيق ولا لمعرّفات النماذج التي يمرّرها المستدعي إنشاء سلاسل غير محدودة؛ وتحتفظ الامتدادات (spans) بالقيم الدقيقة.
 
 ## الإبلاغ عن الأخطاء (Sentry) {#sentry}
 

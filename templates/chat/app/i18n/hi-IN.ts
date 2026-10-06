@@ -1,10 +1,6 @@
 const messages = {
   settings: {
     title: "सेटिंग्स",
-    description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
     workspaceTitle: "कार्यस्थान",
     workspaceDescription:
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
@@ -32,6 +28,10 @@ const messages = {
     pinChat: "चैट पिन करें",
     pinned: "पिन की गई",
     recents: "हाल की",
+    retryPreviousRequest:
+      "मेरा पिछला अनुरोध फिर से आज़माएँ, अब जबकि मॉडल प्रदाता कनेक्ट हो गया है।",
+    retryAttachmentUnavailable:
+      "Chat इस अटैचमेंट को फिर से खोलकर दोबारा नहीं भेज सकता। सुलभ फ़ाइल URL जोड़ें और फिर कोशिश करें।",
     renameChat: "चैट का नाम बदलें",
     renameFailed: "नाम बदलना विफल",
     renameThread: "थ्रेड का नाम बदलें",

@@ -8,7 +8,6 @@ import {
 
 export interface ContextMenuPasteArgs {
   canEditDesign: boolean;
-  /** Images/SVG read from the OS clipboard when the menu opened. */
   clipboardFiles: File[];
   handlePasteSelection: (position?: { x: number; y: number }) => Promise<void>;
   handlePastedImageFiles: (
@@ -22,10 +21,6 @@ export interface ContextMenuPasteArgs {
   ) => void;
 }
 
-/**
- * Paste / Paste here from the canvas menu. The OS clipboard is newer than any
- * in-memory Design copy whenever it holds an image or SVG, so that wins.
- */
 export async function runContextMenuPaste(
   {
     canEditDesign,
@@ -64,7 +59,6 @@ export interface SystemPasteToReplaceArgs {
   uploadImageFileForHtml: (file: File) => Promise<string>;
 }
 
-/** Paste to replace with an OS image/SVG, else with the copied Design layer. */
 export async function runSystemPasteToReplace({
   clipboardFiles,
   replaceWithLayerCopy,

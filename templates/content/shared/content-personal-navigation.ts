@@ -67,7 +67,6 @@ export type ContentRecentResult = ContentRecentEntry & {
   icon: string | null;
   viewName: string | null;
   fallback?: { reason: "saved_view_unavailable"; requestedViewId: string };
-  /** Whether the requesting user has this destination pinned. */
   isFavorite?: boolean;
 };
 
@@ -130,7 +129,6 @@ export function recordContentRecentVisit(
   };
 }
 
-/** Forget one Recent destination; the target itself is untouched. */
 export function removeContentRecentEntry(
   state: ContentRecentState,
   target: ContentRecentTarget,

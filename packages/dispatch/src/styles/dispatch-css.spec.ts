@@ -47,8 +47,25 @@ describe("dispatch Tailwind styles", () => {
     );
 
     expect(stylesheet).toMatch(
-      /\.dispatch-chat-panel \[data-agent-empty-state="centered"\] \.agent-composer-area \{[\s\S]*?max-width: min\(750px, 100%\);/,
+      /\.dispatch-chat-panel\.agentkit-chat\[data-empty=\\?"true\\?"\]\[data-empty-composer-placement=\\?"center\\?"\][\s\S]*?\.agent-composer-area \{[\s\S]*?max-width: min\(750px, 100%\);/,
     );
+  });
+
+  it("scopes migrated full-page chat styles to the AgentKit root", () => {
+    const surfaces = [
+      ["templates/analytics/app/global.css", "analytics-chat-panel"],
+      ["templates/assets/app/global.css", "assets-create-chat-panel"],
+      ["templates/brain/app/global.css", "brain-chat-panel"],
+      ["templates/crm/app/global.css", "crm-chat-panel"],
+      ["templates/forms/app/global.css", "forms-ask-chat-panel"],
+    ] as const;
+
+    for (const [file, surfaceClass] of surfaces) {
+      const stylesheet = fs.readFileSync(path.join(repoRoot, file), "utf-8");
+      expect(stylesheet).toContain(
+        `.${surfaceClass}.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]`,
+      );
+    }
   });
 });
 

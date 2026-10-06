@@ -32,7 +32,7 @@ export type MobileTabParamList = {
 
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<MobileTabParamList> | undefined;
-  App: { id: string };
+  App: { id: string; path?: string };
   CaptureAudio: undefined;
   CaptureDictate: { requestId?: string; source?: string } | undefined;
   CaptureVideo: undefined;
@@ -83,9 +83,13 @@ function targetForPath(href: string): NavigationTarget {
     };
   }
   if (path.startsWith("/app/")) {
+    const appPath = url.searchParams.get("path") ?? undefined;
     return {
       name: "App",
-      params: { id: decodeURIComponent(path.slice("/app/".length)) },
+      params: {
+        id: decodeURIComponent(path.slice("/app/".length)),
+        ...(appPath ? { path: appPath } : {}),
+      },
     };
   }
   if (path === "/capture/audio") return { name: "CaptureAudio" };
@@ -149,8 +153,10 @@ function pathForRoute(route: Route<string> | undefined): string {
     return `/${route.name}`;
   }
   if (route.name === "App") {
-    const id = (route.params as RootStackParamList["App"] | undefined)?.id;
-    return id ? `/app/${encodeURIComponent(id)}` : "/more";
+    const params = route.params as RootStackParamList["App"] | undefined;
+    if (!params?.id) return "/more";
+    const path = params.path ? `?path=${encodeURIComponent(params.path)}` : "";
+    return `/app/${encodeURIComponent(params.id)}${path}`;
   }
   const paths: Partial<Record<keyof RootStackParamList, string>> = {
     CaptureAudio: "/capture/audio",

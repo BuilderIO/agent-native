@@ -101,8 +101,6 @@ beforeEach(() => {
     update,
     transaction: async (run: (tx: unknown) => Promise<void>) => run(tx),
   });
-  // Reaching the GitHub client is the signal that the repository gate passed;
-  // the evidence fetch itself is not what these cases exercise.
   createGitHubClientMock.mockReturnValue({
     getPullRequestSummary: () => {
       throw new Error("reached-github-evidence");

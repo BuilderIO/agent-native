@@ -8,7 +8,6 @@ describe("agentEnv", () => {
 
   describe("setVars in Node.js (no window)", () => {
     it("logs BUILDER_PARENT_MESSAGE with env vars", async () => {
-      // Ensure no window global
       vi.stubGlobal("window", undefined);
 
       const spy = vi.spyOn(console, "log").mockImplementation(() => {});

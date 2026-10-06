@@ -254,9 +254,6 @@ function writeChecklistMissingItemLabel(dir: string) {
   );
 }
 
-// A checklist authored as a JSON object nested inside a TabsBlock, missing the
-// required per-item `id`. The renderer rejects this; the old tag-scanning lint
-// never saw it (it is not a top-level `<Checklist>` tag) — the "false green".
 function writeNestedChecklistMissingItemId(dir: string) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
@@ -335,9 +332,6 @@ function writeQuestionFormInvalidMode(dir: string) {
 }
 
 function writeScaffoldExamplePlan(dir: string) {
-  // Mirrors the `plan local init` scaffold prose, which documents block usage
-  // with an inline-code example. That example must NOT be linted as a real
-  // block (it previously tripped the wireframe linter → init → serve failed).
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, "plan.mdx"),
@@ -726,9 +720,6 @@ describe("local plan CLI helpers", () => {
   it("does not lint block tags written inside inline code (init scaffold passes)", () => {
     const dir = path.join(tmpDir(), "scaffold");
     writeScaffoldExamplePlan(dir);
-    // The scaffold's `<WireframeBlock><Screen>...` is a documentation example in
-    // inline code, not a real block — validation must not trip on it so the
-    // default `init` → `serve`/`check` flow works out of the box.
     expect(() => writeLocalPlanPreview({ dir })).not.toThrow();
   });
 
@@ -794,10 +785,6 @@ describe("local plan CLI helpers", () => {
     }
   });
 
-  // fetchFn that proxies the real localhost bridge calls to global fetch but
-  // intercepts the validate-local-plan-source action with a canned verdict, so
-  // verify stays hermetic (no external network) while exercising both paths.
-  // Pass `null` to simulate the endpoint being unreachable.
   function verifyFetchFn(
     validation: { status?: number; body?: unknown } | null,
   ): typeof fetch {
@@ -908,8 +895,6 @@ describe("local plan CLI helpers", () => {
     const dir = path.join(tmpDir(), "verify-invalid-renderer");
     writeNestedChecklistMissingItemId(dir);
 
-    // The offline lint would reject this, but verify must still reach the
-    // authoritative renderer and report ITS verdict — not throw early.
     const result = await verifyLocalPlanBridge({
       dir,
       appUrl: "http://localhost:8096",

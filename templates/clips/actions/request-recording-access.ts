@@ -343,9 +343,6 @@ export default defineAction({
       .onConflictDoNothing()
       .returning({ id: schema.recordingEvents.id });
 
-    // Historical requests use random IDs, so the read above still handles
-    // them. New requests use a deterministic primary key so concurrent
-    // callers have one database-backed winner before notifications are sent.
     if (!insertedRequest) {
       return {
         ok: true as const,

@@ -3,13 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockMkdir = vi.hoisted(() => vi.fn(async () => undefined));
 const mockWriteFile = vi.hoisted(() => vi.fn(async () => undefined));
 const mockIsHostedSlidesRuntime = vi.hoisted(() => vi.fn(() => false));
-const mockStoreUploadedReferenceBlob = vi.hoisted(() => vi.fn());
+const mockIsPrivateBlobConfiguredForRequest = vi.hoisted(() => vi.fn());
+const mockMintUploadedReference = vi.hoisted(() => vi.fn());
+const mockDeleteUploadedReference = vi.hoisted(() => vi.fn());
 const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
 const mockWithSlidesRequestContext = vi.hoisted(() => vi.fn());
 const mockHasExpectedSvgSignature = vi.hoisted(() => vi.fn(() => true));
 const mockIsSafeSvg = vi.hoisted(() => vi.fn(() => true));
+const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockCanSaveAsUploadedAsset = vi.hoisted(() =>
+  vi.fn((..._args: unknown[]) => false),
+);
+const mockUploadImageAsset = vi.hoisted(() =>
+  vi.fn((..._args: unknown[]) => Promise.resolve({ url: "" })),
+);
+
+vi.mock("@agent-native/core/server", () => ({
+  getRequestOrgId: () => mockGetRequestOrgId(),
+}));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -27,21 +40,30 @@ vi.mock("fs", () => ({
   },
 }));
 
+vi.mock("@agent-native/core/private-blob", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/private-blob")>()),
+  isPrivateBlobConfiguredForRequest: (...args: unknown[]) =>
+    mockIsPrivateBlobConfiguredForRequest(...args),
+}));
+
 vi.mock("../lib/tenant-files.js", () => ({
   tenantUploadDir: () => "/tmp/slides-test-uploads",
 }));
 
 vi.mock("../lib/uploaded-reference-storage.js", () => ({
   isHostedSlidesRuntime: () => mockIsHostedSlidesRuntime(),
-  storeUploadedReferenceBlob: (...args: unknown[]) =>
-    mockStoreUploadedReferenceBlob(...args),
+  deleteUploadedReference: (...args: unknown[]) =>
+    mockDeleteUploadedReference(...args),
+  mintUploadedReference: (...args: unknown[]) =>
+    mockMintUploadedReference(...args),
 }));
 
 vi.mock("./assets.js", () => ({
-  canSaveAsUploadedAsset: () => false,
+  canSaveAsUploadedAsset: (...args: unknown[]) =>
+    mockCanSaveAsUploadedAsset(...args),
   hasExpectedSvgSignature: mockHasExpectedSvgSignature,
   isSafeSvg: () => mockIsSafeSvg(),
-  uploadImageAsset: vi.fn(),
+  uploadImageAsset: (...args: unknown[]) => mockUploadImageAsset(...args),
 }));
 
 vi.mock("./request-auth-context.js", () => ({
@@ -55,23 +77,43 @@ import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
   MAX_SVG_REFERENCE_FILE_BYTES,
+  getUploadStorageStatus,
   maxReferenceFileBytes,
   saveUploadedReferenceFile,
   uploadFiles,
 } from "./uploads";
+
+const mintedRef = {
+  status: "ok" as const,
+  ref: "attachment:v1:scoped-handle",
+  handle: {
+    id: "blob-1",
+    provider: "test",
+    opaque: true as const,
+    encrypted: true,
+  },
+};
 
 describe("Slides reference upload limits", () => {
   beforeEach(() => {
     mockMkdir.mockClear();
     mockWriteFile.mockClear();
     mockIsHostedSlidesRuntime.mockReturnValue(false);
-    mockStoreUploadedReferenceBlob.mockReset();
+    mockIsPrivateBlobConfiguredForRequest.mockReset();
+    mockIsPrivateBlobConfiguredForRequest.mockResolvedValue(false);
+    mockMintUploadedReference.mockReset();
+    mockDeleteUploadedReference.mockReset();
     mockReadMultipartFormData.mockReset();
     mockSetResponseStatus.mockReset();
     mockHasExpectedSvgSignature.mockReset();
     mockHasExpectedSvgSignature.mockReturnValue(true);
     mockIsSafeSvg.mockReset();
     mockIsSafeSvg.mockReturnValue(true);
+    mockGetRequestOrgId.mockReset();
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockCanSaveAsUploadedAsset.mockReset();
+    mockCanSaveAsUploadedAsset.mockReturnValue(false);
+    mockUploadImageAsset.mockReset();
     mockResolveSlidesRequestAuth.mockResolvedValue({
       ok: true,
       context: { email: "owner@example.com", orgId: "active-org" },
@@ -83,6 +125,16 @@ describe("Slides reference upload limits", () => {
         context: { email?: string; orgId?: string },
       ) => callback(context),
     );
+  });
+
+  it("allows tenant-local reference storage outside hosted deployments", async () => {
+    const event = {} as any;
+
+    await expect(getUploadStorageStatus(event)).resolves.toEqual({
+      referenceStorageReady: true,
+    });
+
+    expect(mockIsPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
   });
 
   it("allows larger .fig files than ordinary references", () => {
@@ -223,9 +275,7 @@ describe("Slides reference upload limits", () => {
 
   it("stores hosted reference uploads in durable private blob storage", async () => {
     mockIsHostedSlidesRuntime.mockReturnValue(true);
-    mockStoreUploadedReferenceBlob.mockResolvedValue(
-      "slides-upload:v1:scoped-handle",
-    );
+    mockMintUploadedReference.mockResolvedValue(mintedRef);
     const pptx = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
     await expect(
@@ -237,11 +287,11 @@ describe("Slides reference upload limits", () => {
         type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
       }),
     ).resolves.toMatchObject({
-      path: "slides-upload:v1:scoped-handle",
+      path: "attachment:v1:scoped-handle",
       originalName: "deck.pptx",
     });
 
-    expect(mockStoreUploadedReferenceBlob).toHaveBeenCalledWith({
+    expect(mockMintUploadedReference).toHaveBeenCalledWith({
       data: pptx,
       email: "owner@example.com",
       orgId: "org-1",
@@ -254,9 +304,7 @@ describe("Slides reference upload limits", () => {
 
   it("uses the live active organization when the upload route saves files", async () => {
     mockIsHostedSlidesRuntime.mockReturnValue(true);
-    mockStoreUploadedReferenceBlob.mockResolvedValue(
-      "slides-upload:v1:scoped-handle",
-    );
+    mockMintUploadedReference.mockResolvedValue(mintedRef);
     const pptx = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
     mockReadMultipartFormData.mockResolvedValue([
       {
@@ -269,7 +317,7 @@ describe("Slides reference upload limits", () => {
     const event = {} as any;
 
     await expect(uploadFiles(event)).resolves.toEqual([
-      expect.objectContaining({ path: "slides-upload:v1:scoped-handle" }),
+      expect.objectContaining({ path: "attachment:v1:scoped-handle" }),
     ]);
 
     expect(mockResolveSlidesRequestAuth).toHaveBeenCalledWith(event);
@@ -278,7 +326,7 @@ describe("Slides reference upload limits", () => {
       expect.any(Function),
       { email: "owner@example.com", orgId: "active-org" },
     );
-    expect(mockStoreUploadedReferenceBlob).toHaveBeenCalledWith(
+    expect(mockMintUploadedReference).toHaveBeenCalledWith(
       expect.objectContaining({
         email: "owner@example.com",
         orgId: "active-org",
@@ -286,9 +334,91 @@ describe("Slides reference upload limits", () => {
     );
   });
 
-  it("fails closed when hosted private file storage is unavailable", async () => {
+  it("keeps the active organization for private and embeddable chat images", async () => {
     mockIsHostedSlidesRuntime.mockReturnValue(true);
-    mockStoreUploadedReferenceBlob.mockResolvedValue(null);
+    mockGetRequestOrgId.mockReturnValue("active-org");
+    mockMintUploadedReference.mockResolvedValue(mintedRef);
+    mockCanSaveAsUploadedAsset.mockReturnValue(true);
+    mockUploadImageAsset.mockResolvedValue({
+      url: "https://cdn.builder.io/slides/chat-image.png",
+    });
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "chat-image.png",
+        data: png,
+        type: "image/png",
+      }),
+    ).resolves.toMatchObject({
+      path: "attachment:v1:scoped-handle",
+      url: "https://cdn.builder.io/slides/chat-image.png",
+    });
+
+    expect(mockMintUploadedReference).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "active-org" }),
+    );
+    expect(mockUploadImageAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "active-org" }),
+    );
+  });
+
+  it("names the rejected file in a failed batch and cleans up successful files", async () => {
+    const event = {} as any;
+    mockReadMultipartFormData.mockResolvedValue([
+      {
+        name: "files",
+        filename: "deck.pdf",
+        type: "application/pdf",
+        data: Buffer.from("%PDF-1.7"),
+      },
+      {
+        name: "files",
+        filename: "reference.exe",
+        type: "application/octet-stream",
+        data: Buffer.from("not allowed"),
+      },
+    ]);
+
+    await expect(uploadFiles(event)).resolves.toEqual({
+      error: expect.stringMatching(
+        /^File "reference\.exe": Unsupported file type\./,
+      ),
+      failedFileName: "reference.exe",
+    });
+
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    expect(mockDeleteUploadedReference).toHaveBeenCalledOnce();
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 400);
+  });
+
+  it("stores HTML references as text", async () => {
+    const data = Buffer.from("<main>Design system</main>");
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "reference.html",
+        data,
+        type: "text/html",
+      }),
+    ).resolves.toMatchObject({
+      originalName: "reference.html",
+      type: "text/html",
+      size: data.length,
+      filename: expect.stringContaining(".html"),
+    });
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed with a typed retryable error when hosted storage is not connected", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockMintUploadedReference.mockResolvedValue({
+      status: "storageUnavailable",
+      reason: "not_configured",
+      whoCanFix: "workspace_admin",
+    });
 
     await expect(
       saveUploadedReferenceFile({
@@ -297,19 +427,20 @@ describe("Slides reference upload limits", () => {
         data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
       }),
     ).rejects.toMatchObject({
-      message: expect.stringContaining(
-        "Private file storage is not configured",
-      ),
+      errorCode: "attachment_storage_unavailable",
       statusCode: 503,
+      details: { retryable: true, whoCanFix: "workspace_admin" },
     });
     expect(mockWriteFile).not.toHaveBeenCalled();
   });
 
-  it("reports hosted private storage failures as service errors", async () => {
+  it("reports hosted private storage failures as typed service errors", async () => {
     mockIsHostedSlidesRuntime.mockReturnValue(true);
-    mockStoreUploadedReferenceBlob.mockRejectedValue(
-      new Error("provider unavailable"),
-    );
+    mockMintUploadedReference.mockResolvedValue({
+      status: "storageUnavailable",
+      reason: "provider_unavailable",
+      whoCanFix: "self_resolving",
+    });
 
     await expect(
       saveUploadedReferenceFile({
@@ -318,9 +449,38 @@ describe("Slides reference upload limits", () => {
         data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
       }),
     ).rejects.toMatchObject({
-      message: "Private file storage failed while saving the upload.",
+      errorCode: "attachment_storage_unavailable",
       statusCode: 503,
+      details: { retryable: true, whoCanFix: "self_resolving" },
     });
     expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("answers an upload route failure with the typed code and a user-facing message", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockMintUploadedReference.mockResolvedValue({
+      status: "storageUnavailable",
+      reason: "not_configured",
+      whoCanFix: "workspace_admin",
+    });
+    mockReadMultipartFormData.mockResolvedValue([
+      {
+        name: "files",
+        filename: "deck.pdf",
+        type: "application/pdf",
+        data: Buffer.from("%PDF-1.7"),
+      },
+    ]);
+    const event = {} as any;
+
+    await expect(uploadFiles(event)).resolves.toMatchObject({
+      error: expect.stringMatching(
+        /^File "deck\.pdf": No object storage is connected\./,
+      ),
+      errorCode: "attachment_storage_unavailable",
+      details: { retryable: true, whoCanFix: "workspace_admin" },
+      failedFileName: "deck.pdf",
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 503);
   });
 });

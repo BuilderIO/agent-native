@@ -17,8 +17,6 @@ export default defineEventHandler(async (event) => {
     return { error: "Invalid settings payload" };
   }
 
-  // Merge so partial Settings saves (playback, notifications, …) don't wipe
-  // AI-tool prefs written from the recording page popover.
   const existing =
     (await getUserSetting(session.email, CLIPS_USER_PREFS_KEY)) ?? {};
   const next = {

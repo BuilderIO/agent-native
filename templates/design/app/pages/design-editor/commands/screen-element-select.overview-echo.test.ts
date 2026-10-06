@@ -27,6 +27,8 @@ function makeArgs(overrides: {
     createdOverviewLayerSelection: null,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
+    revealLayer: () => {},
+    selectedElementRef: { current: null },
     selectedLayerIdsState: [],
     setActiveFileId: vi.fn(),
     setActiveTool: vi.fn(),
@@ -65,8 +67,6 @@ describe("runScreenElementSelect — overview screen selection on intent-less ec
         result = next;
       },
     });
-    // No `intent` argument — this is the bridge's intent-less echo, not a
-    // real user pick.
     expect(runScreenElementSelect(args, "screen-1", info)).toBe(true);
     expect(result).toEqual(["desk-screen"]);
   });

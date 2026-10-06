@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   agentHandleNumberVariant,
-  BUILTIN_AGENTS_FOR_SEEDING,
   discoverAgents,
   discoverOrgDirectoryAgents,
   findAgent,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
+  getBuiltinAgentsForSeeding,
   loadWorkspaceAppsManifest,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
@@ -136,7 +136,9 @@ describe("agent discovery", () => {
   });
 
   it("seeds built-in remote agents with production URLs only", () => {
-    for (const agent of BUILTIN_AGENTS_FOR_SEEDING) {
+    const seeded = getBuiltinAgentsForSeeding();
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const agent of seeded) {
       expect(agent.url).toMatch(/^https:\/\/.+\.agent-native\.com$/);
       expect(agent.url).not.toContain("localhost");
       expect(agent.url).not.toContain("127.0.0.1");
@@ -1089,8 +1091,6 @@ describe("agent discovery", () => {
 
   describe("singular/plural handle resolution", () => {
     it("resolves the Plan app when a caller asks for 'plans'", async () => {
-      // The Plan app labels itself "Plans" in its own sidebar, nav state, and
-      // skills, so the model naturally delegates to agent="plans".
       await expect(findAgent("plans", "brain")).resolves.toMatchObject({
         id: "plan",
       });
@@ -1135,7 +1135,6 @@ describe("agent discovery", () => {
             },
       );
 
-      // "report" matches exactly; only the ambiguous variant lookup is refused.
       await expect(findAgent("report")).resolves.toMatchObject({
         id: "report",
       });

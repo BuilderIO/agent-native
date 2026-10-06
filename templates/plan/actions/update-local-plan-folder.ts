@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
@@ -29,8 +29,6 @@ const CONTENT_DESCRIPTION =
 const CONTENT_PATCHES_DESCRIPTION =
   "Targeted structured content edits addressed by stable block/prototype/canvas ids.";
 
-// Named so `agentInputSchema` below can `.extend()` it with compact
-// `content`/`contentPatches` fields instead of duplicating every other key.
 const updateLocalPlanFolderSchema = z.object({
   slug: z
     .string()
@@ -61,9 +59,6 @@ export default defineAction({
   description:
     "Update a DB-free local Agent-Native Plan MDX folder from PLAN_LOCAL_DIR or an optional repo-relative path. Applies the same structured contentPatches used by update-visual-plan, writes plan.mdx/canvas.mdx/prototype.mdx back to the same local folder, and never writes to the database.",
   schema: updateLocalPlanFolderSchema,
-  // ADVERTISED-ONLY: same shape, but `content`/`contentPatches` swap the deep
-  // per-block-type union for a compact `type`-enum stand-in. Runtime
-  // validation always runs the full schema above — see the `actions` skill.
   agentInputSchema: updateLocalPlanFolderSchema.extend({
     content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
     contentPatches: agentPlanContentPatchesSchema
@@ -83,8 +78,9 @@ export default defineAction({
   },
   run: async (args) => {
     if (!isLocalPlanRuntime()) {
-      throw new Error(
+      fail(
         "Local plan folder editing is only available in local Plan runtime.",
+        { errorCode: "local_plan_runtime_required", statusCode: 412 },
       );
     }
 
@@ -95,8 +91,9 @@ export default defineAction({
     const currentComments = await readLocalPlanComments(current.folder);
     const kind = resolveLocalPlanKind(args.kind, current.mdx) as PlanKind;
     if (kind === "recap") {
-      throw new Error(
+      fail(
         "Local recap folders are read-only through this action; do not retry it. To change this recap, edit the folder's MDX files (plan.mdx / canvas.mdx / prototype.mdx) directly on disk, or re-run create-visual-recap to publish a fresh hosted recap.",
+        { errorCode: "local_recap_read_only", statusCode: 409 },
       );
     }
 
@@ -145,8 +142,6 @@ export default defineAction({
       slug: current.slug,
       path: current.repoPath,
     });
-    // Editing prose must not blank the persisted review comments, so the
-    // returned bundle carries the same comments.json the reader would load.
     const result = await buildLocalPlanBundleResult({
       local: updated,
       kind,

@@ -19,7 +19,7 @@ Estas tres páginas son fáciles de confundir. Elija según la pregunta que est�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)                        | "¿El agente hace lo correcto en esta entrada fija?"        | Activo, determinista, una puerta de implementación/CI    | Calidad        |
 | **[Observational Memory](/docs/observational-memory)**               | "¿Este hilo largo se queda barato y dentro de la ventana?" | Compactación de fondo en hilos largos                    | Costo/contexto |
 
-La observabilidad y la puerta de evaluación de CI puntúan _calidad_ pero desde extremos opuestos: puntuación pasiva post-hoc del tráfico real frente a comprobaciones activas de aprobación/rechazo en entradas fijas. La Memoria Observacional no está relacionada con la calidad; se trata del costo simbólico y la presión de la ventana de contexto.
+La observabilidad y la puerta de evaluación de CI puntúan _calidad_ pero desde extremos opuestos: puntuación pasiva post-hoc del tráfico real frente a comprobaciones activas de aprobación/rechazo en entradas fijas. La Memoria Observacional no está relacionada con la calidad; se trata del costo simbólico y la presión de la ventana de contexto. Promocione una traza de producción completada a un caso `*.eval.ts` (panel **Promote to eval**, acción `promote-trace-eval`, o `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). Véase [Desde una traza de producción](/docs/evals#from-trace).
 
 ## Qué se captura automáticamente {#captured}
 
@@ -96,7 +96,7 @@ Agregue el panel a cualquier plantilla con una única ruta:
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -123,7 +123,7 @@ El panel tiene 6 pestañas:
 
 La pestaña Conversaciones muestra las ejecuciones registradas. Selecciona una para inspeccionar sus tramos y expande cualquiera para ver las entradas, salidas, errores y metadatos de herramientas capturados. **Abrir conversación completa** te lleva al hilo de chat correspondiente.
 
-Los argumentos y resultados de herramientas no se capturan de forma predeterminada. Activa `captureToolArgs` y `captureToolResults` en la configuración `observability` para almacenarlos. Los campos sensibles y los mensajes de error de herramientas se redactan antes de guardarlos.
+Los argumentos, los resultados y los cuerpos de error completos de las herramientas no se capturan de forma predeterminada. Activa `captureToolArgs` para almacenar los argumentos y `captureToolResults` para almacenar los resultados y los cuerpos de error completos en la configuración `observability`. Los campos sensibles se redactan antes de guardarlos. Una herramienta que falla conserva siempre una primera línea acotada de su error, con las credenciales, los correos electrónicos y los identificadores opacos largos redactados, de modo que los fallos sigan siendo diagnosticables aunque `captureToolResults` esté desactivado.
 
 ### Revisión humana {#review}
 
@@ -290,7 +290,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+El contenido se **redacta de forma predeterminada**: se almacenan los recuentos de tokens, los costes y los tiempos y, para una herramienta que falla, una primera línea acotada de su error con las credenciales, los correos electrónicos y los identificadores opacos largos redactados. Los prompts, las entradas de herramientas, los resultados de herramientas y los cuerpos de error completos permanecen desactivados a menos que `capturePrompts`, `captureToolArgs` y `captureToolResults` estén activados. Actívalos solo cuando necesites el contenido de prompts o argumentos para depurar.
 
 </Callout>
 
@@ -298,23 +298,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 Todo montado automáticamente en `/_agent-native/observability/`:
 
-| Método | Ruta                       | Propósito                                 |
-| ------ | -------------------------- | ----------------------------------------- |
-| GET    | `/`                        | Estadísticas generales                    |
-| GET    | `/traces`                  | Enumerar resúmenes de seguimiento         |
-| GET    | `/traces/:runId`           | Detalle de seguimiento (resumen + tramos) |
-| GET    | `/traces/:runId/evals`     | Evaluaciones para una ejecución           |
-| POST   | `/feedback`                | Enviar comentarios                        |
-| GET    | `/feedback`                | Enumerar comentarios                      |
-| GET    | `/feedback/stats`          | Agregación de comentarios                 |
-| GET    | `/satisfaction`            | Puntuaciones de satisfacción              |
-| GET    | `/evals/stats`             | Estadísticas de evaluación                |
-| POST   | `/experiments`             | Crear experimento                         |
-| GET    | `/experiments`             | Enumerar experimentos                     |
-| GET    | `/experiments/:id`         | Obtener detalles del experimento          |
-| PUT    | `/experiments/:id`         | Actualizar experimento                    |
-| POST   | `/experiments/:id/results` | Calcular resultados                       |
-| GET    | `/experiments/:id/results` | Obtener resultados                        |
+| Método | Ruta                       | Propósito                                   |
+| ------ | -------------------------- | ------------------------------------------- |
+| GET    | `/`                        | Estadísticas generales                      |
+| GET    | `/traces`                  | Enumerar resúmenes de seguimiento           |
+| GET    | `/traces/:runId`           | Detalle de seguimiento (resumen + tramos)   |
+| GET    | `/traces/:runId/evals`     | Evaluaciones para una ejecución             |
+| POST   | `/traces/:runId/promote`   | Promover una ejecución completada a eval CI |
+| POST   | `/feedback`                | Enviar comentarios                          |
+| GET    | `/feedback`                | Enumerar comentarios                        |
+| GET    | `/feedback/stats`          | Agregación de comentarios                   |
+| GET    | `/satisfaction`            | Puntuaciones de satisfacción                |
+| GET    | `/evals/stats`             | Estadísticas de evaluación                  |
+| POST   | `/experiments`             | Crear experimento                           |
+| GET    | `/experiments`             | Enumerar experimentos                       |
+| GET    | `/experiments/:id`         | Obtener detalles del experimento            |
+| PUT    | `/experiments/:id`         | Actualizar experimento                      |
+| POST   | `/experiments/:id/results` | Calcular resultados                         |
+| GET    | `/experiments/:id/results` | Obtener resultados                          |
 
 Todos los puntos finales admiten los parámetros de consulta `?since=N` (marca de tiempo ms) y `?limit=N`.
 
@@ -337,13 +338,28 @@ Entonces, el costo cuando no ha conectado OTel es un par de lecturas de propieda
 
 El bucle del agente emite tres tipos de intervalos:
 
-| Lapso       | Cuándo                           | Atributos                                                         |
-| ----------- | -------------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | una vez por ejecución de agente  | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | una vez por invocación de acción | `tool.name`, más estado de éxito/error                            |
-| `llm.call`  | por llamada de modelo            | tiempo + estado correcto/error                                    |
+| Lapso                 | Cuándo                           | Atributos                                                                                                 |
+| --------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | una vez por ejecución de agente  | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | una vez por invocación de acción | `gen_ai.tool.name`, más estado de éxito/error                                                             |
+| `chat {model}`        | por llamada de modelo            | `gen_ai.provider.name`, tiempo + estado correcto/error                                                    |
 
 Los tramos finalizan con el estado OK/ERROR y registran el mensaje de error en caso de falla. Los valores de atributo cero/centinela se eliminan para que los intervalos no estén saturados de ruido. Esta capa OTel es puramente aditiva a las tablas internas `agent_trace_spans` / `agent_trace_summaries` que alimentan el tablero de arriba; ambas se producen a partir de los mismos eventos de ejecución.
+
+### Métricas {#otel-metrics}
+
+Core también registra métricas en cuanto el host registra un proveedor de medidores con `registerObservabilityProvider()` de `@agent-native/core/server`. Las métricas se registran para cada solicitud y ejecución, sin muestreo:
+
+| Instrumento                             | Atributos                                                                                    |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+En las métricas, `gen_ai.tool.name` es el nombre de una acción del framework u `other`, y `gen_ai.request.model` es el ID del modelo solo cuando el motor lo declara como compatible; de lo contrario, `_OTHER`. Así, las herramientas definidas por la app y los ID de modelo proporcionados por quien llama no pueden crear series ilimitadas; los spans conservan los valores exactos.
 
 ## Informe de errores (Sentry) {#sentry}
 

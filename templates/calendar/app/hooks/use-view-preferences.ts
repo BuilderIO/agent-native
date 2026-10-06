@@ -139,8 +139,6 @@ function save(prefs: CalendarViewPreferences) {
 }
 
 const REFRESH_INTERVAL_MS = 2_000;
-// Bounds the refresh fetch so a hung request can't stall the self-rescheduling
-// setTimeout loop forever.
 const REFRESH_ABORT_MS = Math.max(10_000, REFRESH_INTERVAL_MS * 4);
 
 export function shouldApplyPreferencePoll(

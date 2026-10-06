@@ -20,11 +20,6 @@ const FONT_FAMILY = Platform.select({
   default: "System",
 });
 
-/**
- * Native equivalent of the web agent-thinking-shine text treatment. The
- * invisible text keeps native layout and accessibility authoritative while
- * SVG clips the moving highlight to the same glyphs.
- */
 export function ShineText({
   children,
   className,

@@ -36,9 +36,6 @@ export default defineAction({
 
     const id = nanoid();
     await db.transaction(async (tx) => {
-      // Lock the parent row before checking the one-CTA invariant. This keeps
-      // simultaneous UI and agent calls serialized on both SQLite and
-      // PostgreSQL without adding a destructive migration for legacy data.
       await tx
         .update(schema.recordings)
         .set({ updatedAt: recording.updatedAt })

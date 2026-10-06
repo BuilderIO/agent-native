@@ -12,6 +12,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
+import {
   isBuilderMdxSourcePath,
   isContentSourcePath,
   parseContentSourceFile,
@@ -500,6 +505,13 @@ export default defineAction({
           }
           if (lockedDescriptionChanged) updates.description = file.description;
           if (lockedIconChanged) updates.icon = file.icon ?? null;
+          if (lockedIconChanged) {
+            await verifyPrivateIconAssignment({
+              icon: file.icon === undefined ? null : file.icon,
+              userEmail: currentUserEmail,
+              orgId: locked.orgId,
+            });
+          }
           if (lockedFavoriteChanged) {
             updates.isFavorite = boolToInt(file.isFavorite);
           }
@@ -518,6 +530,32 @@ export default defineAction({
                 eq(schema.documents.ownerEmail, locked.ownerEmail),
               ),
             );
+          if (lockedIconChanged) {
+            await syncPrivateIconReference(
+              tx as unknown as ReturnType<typeof getDb>,
+              {
+                elementType: "document",
+                elementId: id,
+                documentId: id,
+                icon: file.icon ?? null,
+                ownerEmail: locked.ownerEmail,
+                orgId: locked.orgId,
+              },
+            );
+          }
+          if (lockedContentChanged) {
+            await syncPrivateCalloutReferences(
+              tx as unknown as ReturnType<typeof getDb>,
+              {
+                documentId: id,
+                before: locked.content,
+                after: file.content,
+                userEmail: currentUserEmail,
+                ownerEmail: locked.ownerEmail,
+                orgId: locked.orgId,
+              },
+            );
+          }
           if (lockedFavoriteChanged) {
             await setFavoriteMembership({
               db: tx,
@@ -547,23 +585,52 @@ export default defineAction({
 
       if (!dryRun) {
         try {
-          await db.insert(schema.documents).values({
-            id,
-            spaceId: defaultSpaceId,
-            ownerEmail: currentUserEmail,
+          await verifyPrivateIconAssignment({
+            icon: file.icon === undefined ? null : file.icon,
+            userEmail: currentUserEmail,
             orgId: currentOrgId,
-            parentId: null,
-            title: file.title,
-            description: file.description ?? "",
-            content: file.content,
-            icon: file.icon ?? null,
-            position: file.position ?? index,
-            isFavorite: boolToInt(file.isFavorite),
-            hideFromSearch: boolToInt(file.hideFromSearch),
-            ...localSourceFields(file.path, now),
-            visibility: file.visibility ?? "private",
-            createdAt: now,
-            updatedAt: now,
+          });
+          await db.transaction(async (tx) => {
+            await tx.insert(schema.documents).values({
+              id,
+              spaceId: defaultSpaceId,
+              ownerEmail: currentUserEmail,
+              orgId: currentOrgId,
+              parentId: null,
+              title: file.title,
+              description: file.description ?? "",
+              content: file.content,
+              icon: file.icon ?? null,
+              position: file.position ?? index,
+              isFavorite: boolToInt(file.isFavorite),
+              hideFromSearch: boolToInt(file.hideFromSearch),
+              ...localSourceFields(file.path, now),
+              visibility: file.visibility ?? "private",
+              createdAt: now,
+              updatedAt: now,
+            });
+            await syncPrivateIconReference(
+              tx as unknown as ReturnType<typeof getDb>,
+              {
+                elementType: "document",
+                elementId: id,
+                documentId: id,
+                icon: file.icon ?? null,
+                ownerEmail: currentUserEmail,
+                orgId: currentOrgId,
+              },
+            );
+            await syncPrivateCalloutReferences(
+              tx as unknown as ReturnType<typeof getDb>,
+              {
+                documentId: id,
+                before: "",
+                after: file.content,
+                userEmail: currentUserEmail,
+                ownerEmail: currentUserEmail,
+                orgId: currentOrgId,
+              },
+            );
           });
           if (file.isFavorite) {
             await setFavoriteMembership({

@@ -37,7 +37,6 @@ describe("sanitizeHtml", () => {
   });
 
   it("handles self-closing tags", () => {
-    // DOMParser serializes void elements without self-closing slash
     expect(sanitizeHtml("<br>")).toMatch(/^<br\s?\/?>$/);
     expect(sanitizeHtml("<br/>")).toMatch(/^<br\s?\/?>$/);
     expect(sanitizeHtml("<hr>")).toMatch(/^<hr\s?\/?>$/);
@@ -113,12 +112,9 @@ describe("stripGcalInviteHtml", () => {
 
     const result = stripGcalInviteHtml(sanitized);
 
-    // Must not start with "p>" (broken tag)
     expect(result).not.toMatch(/^p>/);
-    // Must start with a proper tag
     expect(result).toMatch(/^<[a-z]/);
 
-    // Must preserve key content
     expect(result).toContain("LinkedIn:");
     expect(result).toContain("425-647-6517");
     expect(result).toContain("Zoom meeting");

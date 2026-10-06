@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock the store module
 const mockGetSetting = vi.fn();
 const mockGetSettings = vi.fn();
 const mockMutateSetting = vi.fn();
@@ -17,6 +16,10 @@ vi.mock("./store.js", () => ({
   deleteSettingIfValue: (...args: any[]) => mockDeleteSettingIfValue(...args),
 }));
 
+import {
+  __resetProcessMemberOrgCacheForTests,
+  cachedActiveOrgSetting,
+} from "../org/request-org-cache.js";
 import {
   getUserSetting,
   getUserSettings,
@@ -100,8 +103,6 @@ describe("user-settings", () => {
       );
 
       expect(mockGetSettings).toHaveBeenCalledTimes(2);
-      // Only Bob is re-read: Alice's normalized key already hit, and an
-      // already-lowercase email has no distinct legacy key to fall back to.
       expect(mockGetSettings).toHaveBeenNthCalledWith(2, [
         "u:Bob@Test.com:pref",
       ]);
@@ -405,6 +406,63 @@ describe("user-settings", () => {
         undefined,
       );
       expect(result).toBe(false);
+    });
+  });
+
+  describe("active organization preference", () => {
+    async function cachedPreferenceReads(write: () => Promise<unknown>) {
+      __resetProcessMemberOrgCacheForTests();
+      const load = vi.fn(async () => ({ orgId: "org-1" }));
+      await cachedActiveOrgSetting("alice@test.com", "", load);
+      await write();
+      await cachedActiveOrgSetting("alice@test.com", "", load);
+      return load.mock.calls.length;
+    }
+
+    it("drops the cross-request cache on every write path to the key", async () => {
+      mockGetSetting.mockResolvedValue({ orgId: "org-1" });
+      mockDeleteSettingIfValue.mockResolvedValue(true);
+      mockMutateSetting.mockImplementation(async (_key, updater) =>
+        updater({ orgId: "org-1" }),
+      );
+
+      expect(
+        await cachedPreferenceReads(() =>
+          putUserSetting("alice@test.com", "active-org-id", { orgId: "org-2" }),
+        ),
+      ).toBe(2);
+      expect(
+        await cachedPreferenceReads(() =>
+          deleteUserSetting("alice@test.com", "active-org-id"),
+        ),
+      ).toBe(2);
+      expect(
+        await cachedPreferenceReads(() =>
+          mutateUserSetting("alice@test.com", "active-org-id", () => ({
+            orgId: null,
+          })),
+        ),
+      ).toBe(2);
+    });
+
+    it("drops it even when the write throws, since it may have landed", async () => {
+      mockPutSetting.mockRejectedValue(new Error("connection reset"));
+
+      expect(
+        await cachedPreferenceReads(() =>
+          putUserSetting("alice@test.com", "active-org-id", {
+            orgId: "org-2",
+          }).catch((error: unknown) => error),
+        ),
+      ).toBe(2);
+    });
+
+    it("leaves it alone for other keys", async () => {
+      expect(
+        await cachedPreferenceReads(() =>
+          putUserSetting("alice@test.com", "theme", { value: "dark" }),
+        ),
+      ).toBe(1);
     });
   });
 

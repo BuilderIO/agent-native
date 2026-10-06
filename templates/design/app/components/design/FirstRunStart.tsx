@@ -8,7 +8,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const COLLAPSED_COUNT = 3;
 
-/** Its shape is what you pick a starting point by; the category is a raw slug. */
 function subtitleFor(template: PromptTemplateOption): string | null {
   if (template.width && template.height) {
     return `${template.width} × ${template.height}`;
@@ -23,13 +22,6 @@ export interface FirstRunStartProps {
   onPickTemplate: (templateId: string) => void;
 }
 
-/**
- * The empty-design starting point, in the agent rail rather than over the
- * canvas: choosing one is the first turn of the conversation, and the board
- * and tools stay usable behind it for anyone who would rather just draw.
- * Cards, not a dropdown — a template applies on click, so the row is the
- * action rather than a value you set and then submit.
- */
 export function FirstRunStart({
   templates,
   templatesLoading,

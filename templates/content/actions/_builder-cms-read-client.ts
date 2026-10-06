@@ -805,7 +805,6 @@ async function initializeBuilderMcp(args: {
       } satisfies BuilderMcpConnection;
     }
   } catch (error) {
-    // A legacy server may reject server/discover before initialize.
     if (
       !(error instanceof Error) ||
       !(
@@ -1007,9 +1006,6 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     builderContentApiHost(),
   );
   url.searchParams.set("apiKey", args.publicKey);
-  // Normal list reads enrich references and project away heavyweight bodies.
-  // Fidelity reads intentionally do neither: Builder's raw data object is the
-  // clone contract, including unresolved references and every nested field.
   url.searchParams.set("enrich", args.rawData === true ? "false" : "true");
   if (args.allowCached !== true || args.rawData === true) {
     url.searchParams.set("noCache", "true");

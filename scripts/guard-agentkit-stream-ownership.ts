@@ -11,22 +11,52 @@ export interface StreamOwnershipViolation {
 interface ParsedImport {
   index: number;
   specifier: string;
-  /** Bindings that survive to runtime. `import type` and `{ type X }` do not. */
   valueBindings: string[];
-  /** A bare `import "x"` still evaluates the module. */
   sideEffectOnly: boolean;
 }
 
 const SSE_MODULE = /(?:^|\/)sse-event-processor(?:\.js)?$/;
 const SSE_STREAM_READERS = new Set(["readSSEStream", "readSSEStreamRaw"]);
 
-/**
- * `/protocol` is types plus pure helpers and owns no stream, so importing it
- * beside the SSE reader is fine. Every other AgentKit entry can build a client
- * or a transport.
- */
 const AGENTKIT_STREAM_OWNING_MODULE =
-  /^@agent-native\/agentkit(?!\/protocol$)(?:\/.*)?$/;
+  /^@agent-native\/(?:agentkit(?!\/protocol$)(?:\/.*)?|toolkit\/app\/agentkit(?:\/.*)?)$/;
+const LEGACY_ASSISTANT_UI_BINDINGS = new Set([
+  "ActionBarPrimitive",
+  "AssistantRuntimeProvider",
+  "BranchPickerPrimitive",
+  "ChatModelAdapter",
+  "ChatModelRunResult",
+  "MessagePrimitive",
+  "ThreadPrimitive",
+  "useLocalRuntime",
+  "useMessageRuntime",
+  "useThreadRuntime",
+]);
+const SHARED_COMPOSER_ROOT = "packages/toolkit/src/composer/";
+const LEGACY_CHAT_COMPONENT_EXPORT =
+  /\bexport\s+(?:const|function)\s+AssistantChat\b/;
+const CORE_CHAT_MODULE =
+  /^@agent-native\/core\/client(?:\/chat|\/agent-chat)?$/;
+const REMOVED_CHAT_API_BINDINGS = new Set([
+  "createAgentChatAdapter",
+  "CreateAgentChatAdapterOptions",
+  "createCodeAgentChatAdapter",
+  "CodeAgentChatController",
+  "CodeAgentChatControlResult",
+  "CodeAgentChatFollowUpMode",
+  "CodeAgentChatTranscriptEvent",
+  "CreateCodeAgentChatAdapterOptions",
+  "createAgentChatRuntimeAdapter",
+  "CreateAgentChatRuntimeAdapterOptions",
+  "codeAgentTranscriptEventsToContent",
+  "codeAgentTranscriptHasPendingApproval",
+  "AssistantMessageActionBar",
+  "AssistantMessageActionBarProps",
+  "FormattedMessageTimestamp",
+]);
+const REMOVED_CHAT_ADAPTER_PROP = /<AssistantChat\b[^>]*\bcreateAdapter\s*=/s;
+const CHAT_MIGRATION_GUIDE =
+  "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md";
 
 export function parseImports(source: string): ParsedImport[] {
   const imports: ParsedImport[] = [];
@@ -92,12 +122,6 @@ function valueBindingsOf(clause: string): string[] {
   return bindings.filter(Boolean);
 }
 
-/**
- * Two readers on one stream is silent until a reconnect, when both try to
- * resume and the transcript forks. Only runtime ownership counts: a type-only
- * import erases, so a file that merely shares AgentKit's types with the SSE
- * reader is not a second owner.
- */
 export function findStreamOwnershipViolations(
   file: string,
   content: string,
@@ -127,11 +151,57 @@ export function findStreamOwnershipViolations(
   ];
 }
 
+/** The old transcript controller cannot remain behind a compatibility shell. */
+export function findLegacyChatOwnerViolations(
+  file: string,
+  content: string,
+): StreamOwnershipViolation[] {
+  const imports = parseImports(content);
+  const lineAt = (index: number) => content.slice(0, index).split("\n").length;
+  const legacyAssistantUi = imports.find(
+    (entry) =>
+      entry.specifier === "@assistant-ui/react" &&
+      entry.valueBindings.some((binding) =>
+        LEGACY_ASSISTANT_UI_BINDINGS.has(binding),
+      ) &&
+      !file.replaceAll("\\", "/").startsWith(SHARED_COMPOSER_ROOT),
+  );
+  const removedChatImport = imports.find(
+    (entry) =>
+      CORE_CHAT_MODULE.test(entry.specifier) &&
+      entry.valueBindings.some((binding) =>
+        REMOVED_CHAT_API_BINDINGS.has(binding),
+      ),
+  );
+  const legacyDefinition = LEGACY_CHAT_COMPONENT_EXPORT.exec(content);
+  const removedAdapterProp = REMOVED_CHAT_ADAPTER_PROP.exec(content);
+  const hit =
+    legacyAssistantUi ??
+    (removedChatImport ? { index: removedChatImport.index } : undefined) ??
+    (removedAdapterProp
+      ? { index: removedAdapterProp.index }
+      : legacyDefinition
+        ? { index: legacyDefinition.index }
+        : undefined);
+
+  if (!hit) return [];
+  return [
+    {
+      file,
+      line: lineAt(hit.index),
+      reason: `uses a removed chat controller API or assistant-ui transcript owner. See ${CHAT_MIGRATION_GUIDE} for the supported AssistantChat alias and migration steps; keep AgentPanel, AgentSidebar, and MultiTabAssistantChat as shells around one AgentKit conversation owner.`,
+    },
+  ];
+}
+
+const STREAM_SCAN_ROOTS = ["packages", "templates"];
+
 function walkSources(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const child = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist") return [];
+      if (["node_modules", "dist", ".cache", "build"].includes(entry.name))
+        return [];
       return walkSources(child);
     }
     if (!entry.isFile() || !/\.tsx?$/.test(entry.name)) return [];
@@ -142,14 +212,15 @@ function walkSources(directory: string): string[] {
 
 function main(): void {
   const root = path.resolve(import.meta.dirname, "..");
-  const violations = ["packages/core/src", "templates/chat"].flatMap(
-    (directory) =>
-      walkSources(path.join(root, directory)).flatMap((file) =>
-        findStreamOwnershipViolations(
-          path.relative(root, file),
-          readFileSync(file, "utf8"),
-        ),
-      ),
+  const violations = STREAM_SCAN_ROOTS.flatMap((directory) =>
+    walkSources(path.join(root, directory)).flatMap((file) => {
+      const rel = path.relative(root, file);
+      const content = readFileSync(file, "utf8");
+      return [
+        ...findStreamOwnershipViolations(rel, content),
+        ...findLegacyChatOwnerViolations(rel, content),
+      ];
+    }),
   );
 
   if (violations.length > 0) {

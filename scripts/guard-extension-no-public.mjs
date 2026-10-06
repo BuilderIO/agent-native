@@ -64,15 +64,7 @@ const SKIP_DIRS = new Set([
   ".generated",
 ]);
 
-// Files where the literal-scan should be skipped — they legitimately accept
-// "public" as one of several allowed values, and the runtime guards (the
-// per-resource `allowPublic: false` flag, `updateExtension`'s
-// ForbiddenError) are what actually block the value for extensions. These
-// files are STILL scanned for the registration check.
 const SKIP_LITERAL_SCAN = new Set([
-  // Type unions and helper signatures use "public" for compile-time
-  // compatibility with the generic share UI. Defense in depth lives in the
-  // runtime guards inside `updateExtension`.
   "packages/core/src/extensions/store.ts",
   "packages/core/src/extensions/store.spec.ts",
 ]);
@@ -115,14 +107,6 @@ function hasAllowMarkerNear(lines, idx) {
   return false;
 }
 
-/**
- * Strip `// ...` line comments and `/* ... *\/` block comments from a TS/JS
- * snippet. The simple state machine here also ignores comment-shaped
- * sequences inside single, double, and backtick string literals so we don't
- * accidentally chop out user-facing strings — but it doesn't try to handle
- * regex literals or template-literal interpolation. That's fine for the
- * registration object literals we scan, which are plain key/value pairs.
- */
 function stripComments(input) {
   let out = "";
   let i = 0;
@@ -165,16 +149,6 @@ function stripComments(input) {
   return out;
 }
 
-/**
- * Find `registerShareableResource({ ... type: "extension" ... })` invocations
- * and verify the same object literal sets `allowPublic: false` AND
- * `requireOrgMemberForUserShares: true`. Comments inside the literal are
- * stripped before matching so a doc comment that *mentions* the flag in
- * prose doesn't satisfy the check.
- *
- * Uses a brace-balanced scan rather than a regex so multi-line object
- * literals (which is the normal style) are picked up correctly.
- */
 function checkExtensionRegistration(file, source) {
   const idx = source.indexOf("registerShareableResource(");
   if (idx === -1) return;
@@ -210,14 +184,6 @@ function checkExtensionRegistration(file, source) {
   }
 }
 
-/**
- * Flag string literals and raw SQL in extension source that would set an
- * extension row to `visibility = "public"`. The framework-level
- * set-resource-visibility action is skipped via SKIP_FILES — that file
- * legitimately accepts "public" as a Zod enum value because it's the
- * generic API; the per-resource `allowPublic: false` flag blocks the value
- * for extensions.
- */
 function checkPublicLiterals(file, source) {
   const rel = relative(file);
   if (!rel.startsWith("packages/core/src/extensions/")) return;
@@ -225,13 +191,11 @@ function checkPublicLiterals(file, source) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (hasAllowMarkerNear(lines, i)) continue;
-    // JS/TS object-literal form
     if (/visibility\s*:\s*["']public["']/.test(line)) {
       failures.push(
         `${relative(file)}:${i + 1}: extension code must not set \`visibility: "public"\` — extensions are restricted to private/org sharing.`,
       );
     }
-    // Raw SQL form
     if (/visibility\s*=\s*'public'/.test(line)) {
       failures.push(
         `${relative(file)}:${i + 1}: extension SQL must not write \`visibility = 'public'\` — extensions are restricted to private/org sharing.`,
@@ -240,8 +204,6 @@ function checkPublicLiterals(file, source) {
   }
 }
 
-// The guard file itself is excluded from both checks — it contains example
-// snippets in prose that would otherwise self-flag.
 const SELF_PATH = path.relative(REPO_ROOT, fileURLToPath(import.meta.url));
 
 const files = await walk(REPO_ROOT);
@@ -254,9 +216,6 @@ for (const file of files) {
   } catch {
     continue;
   }
-  // Registration check always runs (the regression we care about most is a
-  // registration that drops the flags). Literal scan skips files that
-  // legitimately accept "public" as a generic enum value.
   checkExtensionRegistration(file, source);
   if (!SKIP_LITERAL_SCAN.has(rel)) {
     checkPublicLiterals(file, source);

@@ -1,4 +1,14 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "تغيير حجم الإجابات أو إغلاقها",
+  },
+  agentChat: {
+    setup: {
+      connectBuilder: "استخدم Builder.io",
+      providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
+  },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
     helpOtherSideTerm: "اقتطاع اللقطات من المقطع الأيمن بدلًا من ذلك",
@@ -62,7 +72,6 @@ const messages = {
     create: "إنشاء",
     save: "حفظ",
     saving: "جار الحفظ…",
-    saveChanges: "حفظ التغييرات",
     connected: "متصل",
     notConnected: "غير متصل",
     disconnect: "قطع الاتصال",
@@ -106,6 +115,7 @@ const messages = {
   navigation: {
     brand: "المقاطع",
     library: "المكتبة",
+    screenshots: "لقطات الشاشة",
     sharedWithMe: "تمت مشاركته معي",
     spaces: "المساحات",
     meetings: "الاجتماعات",
@@ -208,7 +218,7 @@ const messages = {
     sharedWithYou: "تمت مشاركته معك",
     storageStillDisconnected: "وحدة التخزين لا تزال غير متصلة",
     finishBuilderOrS3:
-      "قم بإنهاء النافذة المنبثقة Builder.io أو قم بتكوين مساحة تخزين S3، ثم حاول مرة أخرى.",
+      "استخدم تخزين Builder.io أو كوّن تخزينًا متوافقًا مع S3، ثم حاول مرة أخرى.",
     loomImportResumed: "تم استئناف استيراد Loom",
     clipUploadResumed: "تم استئناف تحميل المقطع",
     couldNotRetryLoom: "تعذرت إعادة محاولة استيراد Loom",
@@ -252,9 +262,9 @@ const messages = {
     savingWentWrong: "حدث خطأ ما أثناء حفظ هذا المقطع.",
     finishingClip: "جارٍ الانتهاء من المقطع الخاص بك...",
     loomSourcePreserved:
-      "يتم الحفاظ على رابط المصدر Loom. قم بتوصيل وحدة تخزين Builder.io أو S3 وسيقوم Clips بإعادة محاولة حفظ نسخته الخاصة.",
+      "تم الاحتفاظ برابط مصدر Loom. استخدم تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو تخزينًا متوافقًا مع S3، وسيعيد Clips محاولة حفظ نسخته الخاصة.",
     clipDataPreserved:
-      "لا تزال بيانات المقطع الخاص بك محفوظة. قم بتوصيل وحدة تخزين Builder.io أو S3 وسيقوم Clips بتحميله تلقائيًا.",
+      "لا تزال بيانات المقطع محفوظة. استخدم تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو تخزينًا متوافقًا مع S3، وسيحمّل Clips المقطع تلقائيًا.",
     details: "تفاصيل",
     importingLoom: "جارٍ استيراد Loom...",
     uploadingSavedClip: "جارٍ تحميل المقطع المحفوظ…",
@@ -374,13 +384,13 @@ const messages = {
     savingWentWrong: "حدث خطأ ما أثناء حفظ هذا المقطع.",
     finishingClip: "الانتهاء من هذا المقطع...",
     loomPreservedManage:
-      "يتم الحفاظ على رابط المصدر Loom. قم بتوصيل وحدة تخزين Builder.io أو S3، ثم أعد محاولة الاستيراد.",
+      "تم الاحتفاظ برابط مصدر Loom. استخدم تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو تخزينًا متوافقًا مع S3، ثم أعد محاولة الاستيراد.",
     videoPreservedManage:
-      "الفيديو محفوظ. قم بتوصيل وحدة تخزين Builder.io أو S3 وسينتهي Clips من تحميله.",
+      "تم الاحتفاظ بالفيديو. استخدم تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو تخزينًا متوافقًا مع S3، وسيكمل Clips الرفع.",
     creatorNeedsStorage:
-      "يحتاج المنشئ إلى توصيل وحدة تخزين Builder.io أو S3 قبل انتهاء هذا المقطع.",
+      "على المنشئ استخدام تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو تخزين متوافق مع S3 قبل إكمال هذا المقطع.",
     signInStorage:
-      "إذا كان هذا هو المقطع الخاص بك، فقم بتسجيل الدخول هنا لتوصيل مساحة تخزين Builder.io أو S3 وإنهاء التحميل.",
+      "إذا كان هذا المقطع لك، فسجّل الدخول هنا لاستخدام تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو تخزين متوافق مع S3 وإكمال الرفع.",
     uploadNotCompleteSession:
       "لم يكتمل التحميل بعد. افتح لوحة التحكم لهذا المقطع أو اطلب من منشئ المحتوى التحقق من مساحة التخزين.",
     uploadNotCompleteSignIn:
@@ -414,11 +424,10 @@ const messages = {
     agentEmptyTitle: "انضم إلى المحادثة",
     agentEmptyDescription:
       "أنشئ حساب Clips مجانيًا للتعليق والتفاعل وطرح الأسئلة حول هذا المقطع.",
-    commentSignupTitle: "امنح وكيل الذكاء الاصطناعي الصورة كاملة",
-    commentSignupContext:
-      "شارك النص المكتوب والإطارات ذات الطوابع الزمنية في رابط واحد",
-    commentSignupFeedback: "حوّل الملاحظات المسجّلة إلى خطوات واضحة",
-    commentSignupDebug: "التقط أخطاء وحدة التحكم والطلبات الفاشلة",
+    commentSignupTitle:
+      "تسجيلات شاشة يستطيع وكيل الذكاء الاصطناعي رؤيتها وسماعها",
+    commentSignupDescription:
+      "Clips مسجل شاشة مجاني ومفتوح المصدر لمشاركة الأخطاء والملاحظات والشروحات خطوة بخطوة مع وكلاء الذكاء الاصطناعي.",
     agentEmptySignInPrompt: "لديك حساب بالفعل؟",
     signUp: "التسجيل",
     ownerInsights: "رؤى المالك",
@@ -525,9 +534,8 @@ const messages = {
     cleanupBuilderFailed:
       "تعذر إنهاء عملية التنظيف على الرغم من اتصال Builder.io. تم الاحتفاظ بالنص الأصلي.",
     cleanupPaused:
-      "التنظيف متوقف مؤقتًا. صِل الذكاء الاصطناعي من الإعدادات: Builder.io (أرصدة مجانية) أو مفتاح LLM الخاص بك.",
-    builderNoResponse:
-      "لم أتلق ردًا من Builder. اسمح بالنوافذ المنبثقة وحاول مرة أخرى.",
+      "التنظيف متوقف مؤقتًا. استخدم Builder.io للذكاء الاصطناعي من الإعدادات (أرصدة مجانية)، أو أضف مفتاح LLM الخاص بك.",
+    builderNoResponse: "لم أتلق ردًا من Builder. حاول مرة أخرى.",
     saveFailed: "فشل الحفظ ({{status}})",
     savedRetrying: "أنقذ. جارٍ إعادة محاولة تحويل الصوت إلى نص...",
     getGroqKey: "احصل على مفتاح Groq",
@@ -562,6 +570,9 @@ const messages = {
     saveThumbnail: "حفظ الصورة المصغرة",
   },
   shareDialog: {
+    redactionsPendingTitle: "أكمل التنقيح قبل المشاركة",
+    redactionsPendingBody:
+      "عمليات التنقيح المعلّقة: {{count}}. طبّقها في المحرر قبل المشاركة؛ فما زال الفيديو يحتوي على المحتوى الأصلي.",
     publicDescription:
       "يمكن لأي شخص لديه الرابط المشاهدة — قم بتسجيل الدخول للتعليق أو الرد",
     shareRecording: "مشاركة التسجيل",
@@ -616,9 +627,6 @@ const messages = {
     customizeEmbed: "تخصيص التضمين",
     more: "المزيد",
     sharePlainTitle: "مشاركة {{title}}",
-    redactionsPendingBody:
-      "رُسمت {{count}} من مناطق الإخفاء على هذا التسجيل لكنها لم تُثبَّت في الفيديو، لذا ما زال الملف يُظهر كل ما تحتها. افتح المحرّر وثبّتها، وستعود المشاركة متاحة.",
-    redactionsPendingTitle: "أكمِل مناطق الإخفاء أولًا",
   },
   shareUi: {
     owner: "المالك: {{email}}",
@@ -789,9 +797,13 @@ const messages = {
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
     agentTitle: "إدارة الوكيل",
-    title: "الإعدادات",
     pageTitle: "الإعدادات · Clips",
     labs: "Labs",
+    labResilientRecording: "تسجيل مرن",
+    labResilientRecordingDescription:
+      "جرّب رفع التسجيلات بسرعة أكبر واستعادتها بصورة أفضل بعد الانقطاع.",
+    labResilientRecordingMixedDescription:
+      "لا تزال إعدادات التسجيل السابقة سارية. اختر تشغيل أو إيقاف لاستخدام إعداد واحد.",
     labsIntro:
       "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     labVideoEditing: "تحرير الفيديو",
@@ -800,12 +812,6 @@ const messages = {
     labMeetingsDescription: "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات.",
     labWisprFlow: "الإملاء الصوتي",
     labWisprFlowDescription: "أظهر الإملاء الصوتي في Clips Desktop أو أخفه.",
-    intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
-    preferencesTitle: "التفضيلات",
-    languageTitle: "اللغة",
-    languageDescription:
-      "اختر لغة الواجهة لهذا الحساب. سيتذكرها Clips عبر أجهزتك.",
-    languageLabel: "لغة الواجهة",
     uploadWorkspaceTitle: "مساحة العمل النشطة",
     uploadWorkspaceDescription:
       "اختر مساحة العمل التي يستخدمها Clips للتسجيلات الجديدة، بما في ذلك تحميلات سطح المكتب.",
@@ -818,12 +824,15 @@ const messages = {
     uploadWorkspaceSaveFailed: "تعذر تحديث مساحة العمل النشطة",
     whatsNew: "ما الجديد",
     changelogEmpty: "لا توجد تحديثات بعد.",
+    changelogCommentSignup:
+      "توضح لوحة التعليقات الفارغة بإيجاز سبب تجربة Clips وتوفر مسارًا واضحًا للتسجيل.",
+    changelogCommentsEmptyState:
+      "توضح الحالة الفارغة للتعليقات الآن كيف تساعد تسجيلات الشاشة وكلاء الذكاء الاصطناعي.",
+    changelogShareLink:
+      "يصل المستخدمون المسجّلون الذين يفتحون رابط مشاركة غير متاح أو منتهي الصلاحية أو خاص إلى مكتبتهم عند اختيار «العودة إلى الصفحة الرئيسية» بدلًا من صفحة التسويق العامة.",
     viewAllUpdates: "عرض كل التحديثات",
     expand: "توسيع",
     collapse: "طي",
-    playback: "التشغيل",
-    defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
-    playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
     transcript: "النص",
     transcriptCleanup: "تنظيف في الخلفية",
     transcriptCleanupDescription:
@@ -831,26 +840,17 @@ const messages = {
     notifications: "الإشعارات",
     monthlyRecap: "الملخص الشهري",
     sharing: "المشاركة",
-    defaultVisibility: "الرؤية الافتراضية للتسجيلات الجديدة",
-    defaultVisibilityDescription:
-      "تُطبَّق على كل تسجيل تنشئه. لا يزال بإمكانك تغيير الرؤية لكل تسجيل.",
     visibilityPrivate: "خاص - أنت فقط",
     visibilityOrg: "المؤسسة - أي شخص في مساحة عملك",
     visibilityPublic: "عام - أي شخص لديه الرابط",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
       "اختر إشعارات البريد الإلكتروني الاختيارية من Clips التي تريد تلقيها.",
-    saved: "تم حفظ الإعدادات",
     saveFailed: "فشل الحفظ",
-    builderConnectedToast: "تم اتصال Builder.io",
-    videoStorage: "تخزين الفيديو",
     videoStorageDescription:
       "Builder.io هو مسار التخزين الأساسي لعمليات رفع Clips. يتوفر S3 عندما تحتاج إلى استخدام حاويتك الخاصة.",
-    checkingBuilder: "جار فحص Builder.io",
     builderConnected: "Builder.io متصل",
     connectBuilder: "استخدام Builder.io",
-    builderConnectedFor: "يتم استخدام Builder.io لـ {{orgName}}.",
-    builderConnectedGeneric: "تستخدم المقاطع الجديدة مزود Builder.io المتصل.",
     builderIncludes:
       "يشمل المستوى المجاني من Builder.io تخزين الكائنات والرفع والنسخ المُدار للمقاطع الجديدة.",
     s3Title: "تخزين متوافق مع S3",
@@ -858,11 +858,8 @@ const messages = {
     active: "نشط",
     s3BuilderConnectedDescription:
       "استخدم هذا فقط إذا كان يجب على هذه المساحة الرفع إلى حاويتك الخاصة بدلًا من Builder.io.",
-    s3CurrentProvider: "يتم حاليًا استخدام {{providerName}}.",
     s3OwnBucketDescription:
       "استخدم حاويتك الخاصة إذا كنت لا تريد تخزين Builder.io.",
-    configureS3: "إعداد S3",
-    hideS3: "إخفاء S3",
     saveStorage: "حفظ التخزين",
     storageSaved: "تم حفظ إعدادات التخزين",
     storageRequired: "Endpoint و bucket و access key و secret مطلوبة.",
@@ -877,7 +874,6 @@ const messages = {
     s3BucketInvalid:
       "يجب أن يتكون اسم الحاوية من 3 إلى 63 حرفًا صغيرًا أو رقمًا أو شرطة",
     s3RegionInvalid: 'يجب أن تكون منطقة صالحة (مثال: us-east-1) أو "auto"',
-    apiSetup: "إعداد الذكاء الاصطناعي",
     apiSetupDescription: "اختر كيفية اتصال Clips بالذكاء الاصطناعي.",
     builderEasySetup: "أرصدة Builder.io مجانية",
     builderAiAvailable:
@@ -888,18 +884,11 @@ const messages = {
     providerKeyDescription:
       "اختر Anthropic أو OpenAI أو OpenRouter أو Gemini أو Groq أو Mistral أو Cohere أو Ollama للاستخدام المفوتر من المزود.",
     providerKeysSet: "تم تعيين {{count}}",
-    providerActionTitle: "مزود الذكاء الاصطناعي",
-    providerActionDescription:
-      "يتضمن Builder.io مستوى مجانيًا، أو استخدم مفاتيح مخصصة.",
-    providerManage: "إدارة",
-    providerCustomKeys: "مفاتيح مخصصة",
-    checkingProviderKeys: "جار فحص مفاتيح المزود…",
     keySet: "تم التعيين",
     keyCleared: "تم مسح بيانات اعتماد التخزين",
     clearAllS3: "مسح بيانات الاعتماد",
     replaceKey: "استبدال المفتاح…",
     pasteProviderKey: "الصق مفتاح مزود أولًا.",
-    apiKeySaved: "تم حفظ مفتاح API",
     apiKeyFailed: "فشل حفظ المفتاح",
     slackTitle: "Agent-Native Clips لـ Slack",
     slackDescription:
@@ -931,6 +920,50 @@ const messages = {
       "سيحذف Clips رمز bot المخزن لـ {{team}} ويتوقف عن إرسال معاينات Slack القابلة للتشغيل.",
     thisWorkspace: "هذه المساحة",
     slackConnected: "Slack متصل",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "حظر المتصفح النافذة المنبثقة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مجددًا.",
+    recordingsTab: "التسجيلات",
+    meetingsTab: "الاجتماعات",
+    yourDefaults: "إعداداتك الافتراضية",
+    orgDefault: "الإعداد الافتراضي لـ {{org}}",
+    playbackSpeed: "سرعة التشغيل",
+    playbackSpeedDescription: "تُطبّق عند فتح تسجيل.",
+    visibility: "الرؤية",
+    visibilityDescription:
+      "تُطبّق على التسجيلات التي تنشئها. يمكنك تغييرها في أي تسجيل.",
+    useOrgDefault: "استخدام الإعداد الافتراضي لـ {{org}} ({{visibility}})",
+    useDefault: "استخدام الإعداد الافتراضي ({{visibility}})",
+    transcriptExport: "تصدير النصوص",
+    logoDescription: "يظهر في رسائل المشاركة وصفحات المقاطع العامة.",
+    change: "تغيير",
+    adminsOnly: "يمكن للمالكين والمسؤولين فقط تغيير هذا.",
+    brandColorInvalid: "أدخل رمز لون سداسيًا عشريًا.",
+    loadFailed: "تعذّر تحميل هذه الإعدادات.",
+    emailGroup: "البريد الإلكتروني",
+    calendarGroup: "التقويم",
+    googleCalendar: "Google Calendar",
+    connect: "اتصال",
+    reconnect: "إعادة الاتصال",
+    connectedAs: "متصل باسم {{account}}",
+    needsReconnect: "يجب إعادة ربط {{account}}.",
+    disconnectFailed: "تعذّر فصل التقويم.",
+    disconnectCalendarDescription:
+      "يتوقف Clips عن مزامنة الاجتماعات القادمة من {{account}}.",
+    calendarApp: "تطبيق Google Calendar",
+    desktopGroup: "سطح المكتب",
+    meetingCapture: "التقاط الاجتماعات",
+    meetingCaptureDescription:
+      "تُضبط الملاحظات والبدء التلقائي والإشعارات على كل جهاز في Clips Desktop.",
+    openClipsDesktop: "فتح Clips Desktop",
+    keySaved: "محفوظ",
+    keyNotSaved: "غير محفوظ",
+    manage: "إدارة",
+    add: "إضافة",
+    linkPreviews: "معاينات الروابط",
+    addWorkspace: "إضافة مساحة عمل",
+    storageAskAdmin: "اطلب من مالك أو مسؤول إعداد التخزين.",
   },
   insightsHub: {
     title: "الرؤى",
@@ -973,8 +1006,6 @@ const messages = {
     namedTitle: "{{name}} · الإعدادات",
     noOrganization: "لا توجد مؤسسة بعد. أنشئ واحدة من مبدل المؤسسات للبدء.",
     description: "إدارة المؤسسة: العلامة التجارية، الأعضاء، الدعوات.",
-    adminsOnlyBranding: "يمكن للمسؤولين فقط تعديل العلامة التجارية.",
-    brandingLoadFailed: "تعذّر تحميل هوية المؤسسة.",
     members: "الأعضاء",
     pendingInvites: "الدعوات المعلقة",
     noPendingInvites: "لا توجد دعوات معلقة.",
@@ -1079,7 +1110,7 @@ const messages = {
     pickAtLeastTwo: "اختر تسجيلين على الأقل لدمجهما",
     videoUrlMissing: "واحد أو أكثر من التسجيلات لا يحتوي بعد على رابط فيديو جاهز",
     connectStorage:
-      "صِل التخزين قبل دمج التسجيلات: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3.",
+      "استخدم تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو تخزينًا متوافقًا مع S3 قبل دمج التسجيلات.",
     created: "تم إنشاء التسجيل المدمج",
     failed: "فشل دمج التسجيلات",
     noOtherRecordings: "لا توجد تسجيلات أخرى متاحة.",
@@ -1190,14 +1221,14 @@ const messages = {
     elapsed: "الوقت المنقضي",
     cancel: "حذف التسجيل",
     cancelShortcut: "حذف (⌥⇧C)",
-    discardConfirmTitle: "هل تريد حذف هذا التسجيل؟",
+    discardConfirmTitle: "حذف هذا التسجيل؟",
     discardConfirmDescription:
       "لا يمكن التراجع عن هذا الإجراء. سيتم حذف تسجيلك حتى الآن نهائيًا.",
     resume: "استئناف",
     discardRecording: "حذف التسجيل",
     restart: "إعادة بدء التسجيل",
     restartShortcut: "إعادة البدء (⌥⇧R)",
-    restartQuestion: "هل تريد بدء تسجيل جديد؟",
+    restartQuestion: "حذف هذا التسجيل والبدء من جديد؟",
     restartConfirm: "إعادة البدء",
   },
   countdownOverlay: {
@@ -1418,16 +1449,22 @@ const messages = {
     disconnected: "تم فصل الميكروفون.",
   },
   storageSetup: {
-    builderTimeout:
-      "لم يصل رد من Builder خلال 5 دقائق. تحقق من النافذة المنبثقة وحاول مرة أخرى.",
+    builderConnectPopupError:
+      "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فحاول مرة أخرى.",
+    builderConnectError:
+      "تعذّر إعداد Builder.io. حاول مرة أخرى أو تواصل مع الدعم.",
+    checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
+    builderTimeout: "لم يصل رد من Builder خلال 5 دقائق. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
-    connectBuilder: "استخدام Builder.io",
+    description:
+      "خزّن مقاطع الفيديو المسجّلة باستخدام Builder.io أو تخزين متوافق مع S3. يتضمّن Builder.io استضافة مجانية ورصيد ذكاء اصطناعي.",
+    createBuilderAccount: "إنشاء حساب Builder.io",
+    signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
     free: "مجاني",
-    configureS3: "تكوين تخزين متوافق مع S3",
     whyPrompt: "لماذا أرى هذا؟",
     whyDescription:
-      "Clips تطبيق مجاني ومفتوح المصدر 100%، لذلك تحتاج إلى توصيل طريقة لتخزين المقاطع. صِل التخزين عبر Builder.io لتخزين وذكاء اصطناعي ضمن الخطة المجانية، أو استخدم تخزين كائنات متوافقًا مع S3 ومفاتيح LLM الخاصة بك.",
+      "Clips تطبيق مجاني ومفتوح المصدر 100%، لذا تحتاج إلى طريقة لتخزين المقاطع. استخدم Builder.io للتخزين والذكاء الاصطناعي ضمن الخطة المجانية، أو استخدم تخزين كائنات متوافقًا مع S3 ومفاتيح LLM الخاصة بك.",
   },
   captureInstall: {
     title: "Choose your recorder (مترجم)",
@@ -1525,7 +1562,7 @@ const messages = {
     deleteKey: "Delete",
     exportUnredactedTitle: "ثبِّت مناطق الإخفاء أولًا",
     exportUnredactedWarning:
-      "رُسمت {{count}} من مناطق الإخفاء على هذا التسجيل لكنها لم تُثبَّت في الفيديو، لذا ما زال الملف يُظهر كل ما تحتها — وكذلك ستفعل هذه النسخة. ثبِّتها ليعود ذلك متاحًا.",
+      "رُسمت {{count}} من مناطق الإخفاء على هذا التسجيل لكنها لم تُثبَّت بعد، لذا ما زال الملف يُظهر كل ما تحتها — وكذلك ستفعل هذه النسخة. ثبِّتها ليعود ذلك متاحًا.",
     redact: "إخفاء",
     redactHint: "غطِّ شيئًا في الصورة. لا يُخفى شيء فعليًا حتى تثبّته.",
     redactOn: "وضع الإخفاء",
@@ -1585,10 +1622,94 @@ const messages = {
     startWithoutMic: "تسجيل بدون صوت",
     unmuteMicrophone: "إلغاء كتم الميكروفون",
     uploadVideo: "Upload video (مترجم)",
+    takeScreenshot: "التقاط لقطة شاشة",
     importLoom: "Import Loom (مترجم)",
     importing: "Importing... (مترجم)",
     import: "Import (مترجم)",
     recordNew: "تسجيل جديد",
+  },
+  screenshot: {
+    capturing: "جارٍ الالتقاط...",
+    saving: "جارٍ حفظ لقطة الشاشة...",
+    saved: "تم حفظ لقطة الشاشة",
+    failed: "تعذّر التقاط لقطة الشاشة",
+    dragToSelect: "اسحب لتحديد منطقة",
+    blur: "إخفاء",
+    box: "مربع",
+    arrow: "سهم",
+    text: "نص",
+    edit: "تعديل",
+    deleteMark: "حذف",
+    textFont: "الخط",
+    textSize: "حجم الخط",
+    textSizeHint: "حجم الخط بوحدات بكسل لقطة الشاشة نفسها",
+    textSmaller: "نص أصغر",
+    textLarger: "نص أكبر",
+    alignLeft: "محاذاة لليسار",
+    alignCenter: "توسيط",
+    alignRight: "محاذاة لليمين",
+    editSave: "حفظ",
+    editSaved: "تم تحديث لقطة الشاشة",
+    editConfirm:
+      "يستبدل الحفظ الصورة المشتركة ليرى الجميع هذه العلامات. يمكنك نقلها أو إزالتها لاحقًا. هل تريد الحفظ؟",
+    textPlaceholder: "اكتب هنا. انقر خارجها للإنهاء",
+    undo: "تراجع",
+    redo: "إعادة",
+    redactSaving: "جارٍ الحفظ...",
+    redactFailed: "تعذّر حفظ لقطة الشاشة",
+    captureInsecure:
+      "يتطلب التقاط الشاشة HTTPS أو localhost. افتح Clips على عنوان URL آمن، ثم أعد المحاولة.",
+    captureUnavailable: "التقاط الشاشة غير متاح في هذا المتصفح.",
+    captureUnsupported:
+      "لا يدعم متصفحك التقاط الشاشة. جرّب إصدارًا حديثًا من Brave أو Chrome أو Edge أو Safari أو Firefox.",
+    captureNoScreen: "لم تتم مشاركة أي شاشة.",
+    captureNoCanvas: "تعذّر على هذا المتصفح تجهيز الصورة.",
+    captureNoPicture:
+      "لم ترسل الشاشة المشارَكة أي صورة. أعد المحاولة، أو شارك الشاشة بأكملها بدلًا من ذلك.",
+    redactLoadFailed: "تعذّر فتح لقطة الشاشة لتعديلها",
+    saveSelection: "حفظ التحديد",
+    saveWholeScreen: "حفظ الشاشة كاملة",
+    fullscreen: "ملء الشاشة",
+    exitFullscreen: "الخروج من ملء الشاشة",
+    resizeHandle: "اسحب لتغيير الحجم",
+    textWidthHandle: "اسحب لتحديد العرض",
+    crop: "قص",
+    cropApply: "تطبيق القص",
+    cropApplyHint: "اعرض هذا الجزء فقط. يُحتفظ بالباقي، فيمكنك توسيع القص لاحقًا",
+    cropReset: "عرض الصورة كاملة",
+    kind: {
+      box: "المربع",
+      arrow: "السهم",
+      text: "النص",
+      redact: "منطقة الإخفاء",
+    },
+    markToolbar: "تغيير {{kind}}",
+    duplicate: "تكرار {{kind}}",
+    addText: "إضافة نص جديد",
+    addArrow: "إضافة سهم جديد",
+    addBox: "إضافة مربع جديد",
+    addRedaction: "إضافة منطقة إخفاء جديدة",
+    colour: "اللون",
+    fillBox: "تعبئة المربع",
+    shadow: "ظل",
+    thickness: "سُمك الخط",
+    thin: "رفيع",
+    thick: "سميك",
+    align: "المحاذاة",
+    redactionStyle: "نمط الإخفاء",
+    background: "الخلفية",
+    backgroundTitle: "إضافة خلفية",
+    backgroundNone: "بلا",
+    notYetBurned:
+      "وُضعت {{count}} من مناطق الإخفاء لكنها لم تُثبَّت بعد. لم يُخفَ شيء حتى الآن، ولا يمكن لأحد غيرك رؤية لقطة الشاشة هذه حتى تثبّتها.",
+    editsUnreadable: "تعذّر على Clips قراءة تعديلات لقطة الشاشة المحفوظة.",
+    burnInHint: "إتلاف ما تغطيه مناطق الإخفاء نهائيًا وحذف الأصل",
+    burnInTitle: "هل تريد تثبيت {{count}} من مناطق الإخفاء في لقطة الشاشة هذه؟",
+    burnInWarning:
+      "ستُتلف المناطق المغطاة في نسخة جديدة من لقطة الشاشة، وسيُحذف الملف الأصلي. لا يمكن التراجع عن ذلك. تبقى المربعات والأسهم والنصوص قابلة للنقل. أي نسخة نُزّلت مسبقًا تحتفظ بما فيها.",
+    burning: "جارٍ التثبيت…",
+    burned: "تم تثبيت مناطق الإخفاء",
+    burnFailed: "تعذّر تثبيت مناطق الإخفاء",
   },
   playerSettings: {
     title: "Settings (مترجم)",
@@ -1673,13 +1794,63 @@ const messages = {
     storageConnectedReopeningRecorder:
       "تم توصيل مساحة التخزين. جارٍ إعادة فتح المسجّل...",
     connectStorageToFinish:
-      "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
+      "في الشاشة التالية، استخدم تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو كوّن تخزينًا متوافقًا مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
-      "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
-    leaveConfirmTitle: "مغادرة هذه الصفحة وحذف التسجيل؟",
+      "في الشاشة التالية، استخدم تخزين Builder.io (تخزين وذكاء اصطناعي ضمن الخطة المجانية) أو كوّن تخزينًا متوافقًا مع S3. سيعيد Clips محاولة الاستيراد.",
+    leaveConfirmTitle: "مغادرة هذا التسجيل؟",
     leaveConfirmDescription:
-      "لم يكتمل حفظ التسجيل الجاري بعد. مغادرة هذه الصفحة الآن ستؤدي إلى حذفه.",
+      "هذا التسجيل موجود في علامة التبويب هذه فقط. ستحذفه المغادرة ما لم تنزّل نسخة منه أولًا.",
     leaveAndDiscard: "مغادرة وحذف",
+    recordingWithoutSound:
+      "يتم التسجيل بدون صوت. شغّل الميكروفون للحصول على نص مكتوب.",
+    pendingStorageTitle: "اربط التخزين لحفظ تسجيلك",
+    pendingStorageDescription: "اربط مساحة تخزين وسيرفعه Clips فورًا.",
+    storageConnectedUploading: "تم ربط التخزين. جارٍ رفع تسجيلك…",
+    downloadCopy: "تنزيل نسخة",
+    localRecordingOpenElsewhere:
+      "هذا التسجيل لا يزال مفتوحًا في علامة تبويب أخرى من Clips.",
+    uploadWaitingForConnection:
+      "الرفع متوقف مؤقتًا. يعيد Clips المحاولة تلقائيًا.",
+    uploadDidNotFinish: "لم يكتمل الرفع.",
+    unfinishedRecording: "هناك تسجيل لم يكتمل رفعه",
+    finishUpload: "إكمال الرفع",
+    leaveKeepDescription:
+      'يحتفظ Clips به في هذا المتصفح ويعرض عليك إكمال الرفع عند عودتك. خيار "مغادرة وحذف" يحذفه نهائيًا.',
+    leaveAndKeep: "المغادرة مع الاحتفاظ",
+    copySafeInBrowser: "تسجيلك محفوظ بأمان في هذا المتصفح.",
+    copyOnlyInThisTab:
+      "هذا التسجيل موجود في علامة التبويب هذه فقط. أبقها مفتوحة أو نزّل نسخة.",
+    localCopyFull:
+      "مساحة هذا المتصفح ممتلئة، لذا لا يستطيع Clips الاحتفاظ بنسخة احتياطية. أبقِ علامة التبويب مفتوحة حتى ينتهي الرفع، أو نزّل نسخة.",
+    localCopyFailed:
+      "تعذّر على Clips الاحتفاظ بنسخة احتياطية في هذا المتصفح. أبقِ علامة التبويب مفتوحة حتى ينتهي الرفع، أو نزّل نسخة.",
+    localCopyUnreadable: "تعذّرت قراءة نسخة التسجيل الموجودة في هذا المتصفح.",
+    recordingOwnedByAnotherAccount:
+      "هذا التسجيل يخص حسابًا آخر. سجّل الدخول إلى ذلك الحساب في هذا المتصفح لرفعه.",
+    unclaimedRecording: "يوجد تسجيل في هذا المتصفح غير مرتبط بأي حساب",
+    reviewRecording: "مراجعة",
+    claimRecordingPrompt:
+      "هذا التسجيل غير مرتبط بأي حساب بعد. هل تريد رفعه إلى {{email}}؟",
+    claimRecording: "الرفع إلى حسابي",
+    lowBrowserStorage:
+      "مساحة هذا المتصفح منخفضة، لذا قد لا يتسع التسجيل الطويل لنسخته الاحتياطية. أبقِ علامة التبويب مفتوحة حتى يُرفع.",
+    recordingEndMissing:
+      "لم تُحفظ نهاية هذا التسجيل. سيرفع Clips ما لديه ويحتفظ بنسختك.",
+    uploadedPartialCopyKept:
+      "رُفع ما حفظه هذا المتصفح. قد تكون النهاية مفقودة، لذا احتفظ Clips بنسختك هنا.",
+    uploadUnverifiedCopyKept:
+      "تعذّر على Clips التأكد من رفع التسجيل كاملًا، لذا احتفظ بنسختك هنا.",
+    copyKeptAfterUpload:
+      "رُفع هذا التسجيل، لكن تعذّر على Clips التأكد من اكتماله، لذا احتفظ بنسختك هنا.",
+    localCopyLockUnavailable:
+      "لا يستطيع Clips التأكد من أن علامة تبويب أخرى لا تستخدم هذا التسجيل، لذا لن يرفعه أو يحذفه من هنا. نزّل نسخة بدلًا من ذلك.",
+    uploadAgain: "الرفع مرة أخرى",
+    keptCopyWaiting: "احتفظ Clips بنسخة من تسجيل في هذا المتصفح",
+    savedRecordingsUnreadable:
+      "تعذّر على Clips قراءة التسجيلات المحفوظة في هذا المتصفح.",
+    remindTomorrow: "ذكّرني غدًا",
+    stillProcessingCopyKept:
+      "لا يزال هذا التسجيل قيد المعالجة، لذا احتفظ Clips بنسختك هنا. انتظر اكتمالها أو ارفعه مرة أخرى.",
   },
   importRoute: {
     pageTitle: "استيراد Loom — Clips",
@@ -1819,6 +1990,8 @@ const messages = {
     retry: "إعادة المحاولة",
     retrying: "جارٍ إعادة المحاولة…",
     retryFailed: "تعذّرت إعادة محاولة هذا الرفع.",
+    retryCheckFailed:
+      "تعذّر التحقق مما إذا كان يمكن إعادة محاولة هذا الرفع. حدّث الصفحة للمحاولة مجددًا.",
     retryUnavailableHere:
       "لا تتوفر إعادة المحاولة إلا على الجهاز أو المتصفح الذي تم التسجيل عليه.",
     viewsCount: "{{count}} مشاهدة",

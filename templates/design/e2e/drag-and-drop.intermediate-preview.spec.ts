@@ -92,13 +92,18 @@ test("held canvas reorder tracks each intermediate insertion slot and is one und
     ]);
     if (!aBox || !bBox || !cBox)
       throw new Error("fixture nodes are not visible");
+    const textEditing = preview(page).locator(
+      '[data-agent-native-text-editing="true"]',
+    );
     await page.mouse.click(aBox.x + aBox.width / 2, aBox.y + aBox.height / 2);
-    await page.waitForTimeout(500);
+    await expect(textEditing).toHaveCount(0);
     await page.mouse.dblclick(
       aBox.x + aBox.width / 2,
       aBox.y + aBox.height / 2,
     );
-    await page.waitForTimeout(900);
+    await expect(textEditing).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(textEditing).toHaveCount(0);
     const start = { x: aBox.x + aBox.width / 2, y: aBox.y + aBox.height / 2 };
     const slots: Array<{
       x: number;

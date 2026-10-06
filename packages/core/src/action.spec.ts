@@ -29,8 +29,6 @@ describe("ActionContractError", () => {
   });
 });
 
-// Uses the legacy `parameters` mode so we don't need to pull in zod as a test
-// dep — the readOnly inference logic is independent of the schema path.
 describe("defineAction", () => {
   it("infers readOnly=true for GET actions", () => {
     const action = defineAction({
@@ -111,8 +109,6 @@ describe("defineAction", () => {
       readOnly: false,
       run: async () => "ok",
     });
-    // Stored as explicit false so the HTTP router / agent dispatcher emit a
-    // refresh event even though the method is GET.
     expect(action.readOnly).toBe(false);
   });
 
@@ -232,8 +228,6 @@ describe("defineAction", () => {
     expect(inAppOnly.mcpTool).toBe(false);
     expect(inAppOnly.deferLoading).toBe(true);
 
-    // Undefined is a third state both surfaces read — it must not collapse to
-    // the default value here, or the declaration becomes unreadable.
     const plain = defineAction({
       description: "normal action",
       parameters: { id: { type: "string" } },
@@ -244,8 +238,6 @@ describe("defineAction", () => {
   });
 
   it("resolves external exposure from mcpTool, falling back to agentTool", () => {
-    // Inheritance, not a flat default: one flag stays one decision until an
-    // action says otherwise.
     expect(isActionExposedToExternalAgents({})).toBe(true);
     expect(isActionExposedToExternalAgents({ agentTool: false })).toBe(false);
     expect(isActionExposedToExternalAgents({ mcpTool: false })).toBe(false);
@@ -256,9 +248,6 @@ describe("defineAction", () => {
       isActionExposedToExternalAgents({ agentTool: true, mcpTool: false }),
     ).toBe(false);
 
-    // A turn-ending action (e.g. an in-app question form) is in-app only by
-    // default — the user's answer flows back through the in-app chat that
-    // an external caller is not on — unless `mcpTool: true` is explicit.
     expect(isActionExposedToExternalAgents({ endsTurn: true })).toBe(false);
     expect(
       isActionExposedToExternalAgents({ uiOnly: true, mcpTool: true }),
@@ -270,8 +259,6 @@ describe("defineAction", () => {
       isActionExposedToExternalAgents({ endsTurn: true, mcpTool: true }),
     ).toBe(true);
 
-    // The runtime backstop refuses only what no surface may run, so an
-    // MCP-only action stays callable through the external registries.
     expect(isActionHiddenFromEveryAgentSurface({ agentTool: false })).toBe(
       true,
     );
@@ -344,7 +331,6 @@ describe("defineAction", () => {
     const action = defineAction({
       description: "wrong-typed metadata",
       parameters: {},
-      // arrays and non-functions must be rejected, not threaded through
       publicAgent: ["expose"] as any,
       link: "not-a-function" as any,
       mcpApp: { resource: [] } as any,
@@ -449,9 +435,6 @@ describe("defineAction", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Schema mode — JSON Schema conversion for the Claude API tool definition.
-// ---------------------------------------------------------------------------
 describe("defineAction schema mode — tool parameter JSON Schema", () => {
   it("converts a zod object into a JSON Schema with required vs optional fields", () => {
     const action = defineAction({
@@ -467,15 +450,12 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     const params = action.tool.parameters;
     expect(params.type).toBe("object");
     expect(params.properties.title).toMatchObject({ type: "string" });
-    // status has a default → must NOT be required; optional field also not required.
     expect(params.required).toEqual(["title"]);
-    // enum values surface as a string enum.
     expect(params.properties.status.enum).toEqual([
       "draft",
       "published",
       "closed",
     ]);
-    // description from .describe() is carried through.
     expect(params.properties.title.description).toBe("Form title");
   });
 
@@ -509,17 +489,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       run: async () => "ok",
     });
     const params = action.tool.parameters as any;
-    // The structural `propertyNames` keyword on the record is stripped…
     expect("propertyNames" in params.properties.cfg).toBe(false);
-    // …but the identically-named key inside the default *data* survives.
     expect(params.properties.cfg.default).toEqual({ propertyNames: "x" });
   });
 
-  // OpenAI answers a `oneOf` anywhere in a function schema with
-  // "Invalid schema for function 'x': ... 'oneOf' is not permitted" and 400s
-  // the whole request before a token streams. Zod emits `oneOf` for every
-  // discriminated union, so this was 178k errors across 786 users over seven
-  // weeks from one action.
   it("rewrites oneOf to anyOf so OpenAI does not reject the function schema", () => {
     const action = defineAction({
       description: "with a discriminated union",
@@ -561,9 +534,6 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect(inner.anyOf).toHaveLength(3);
   });
 
-  // OpenAI rejects a schema position with no `type` — "schema must have a
-  // 'type' key" — and 400s the whole request, exactly like `oneOf` did. This
-  // surfaced only after the oneOf fix let the validator reach the next layer.
   it("gives z.unknown() a typed value union so OpenAI accepts it", () => {
     const action = defineAction({
       description: "typeless field",
@@ -590,7 +560,6 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     }
   });
 
-  // An enum carries its own shape; adding a value union would widen it.
   it("leaves an enum-only schema alone", () => {
     const action = defineAction({
       description: "enum field",
@@ -613,18 +582,12 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// agentInputSchema — advertised-only schema override. Lets an action swap in
-// a compact JSON Schema for the tool definition shown to the model/MCP/A2A
-// listings while runtime validation keeps enforcing the full `schema`.
-// ---------------------------------------------------------------------------
 describe("defineAction schema mode — agentInputSchema (advertised-only override)", () => {
   it("advertises the compact schema instead of the full schema", () => {
     const action = defineAction({
       description: "create widget",
       schema: z.object({
         title: z.string(),
-        // Pretend this is a deep block-type union like the plan actions.
         blocks: z.array(
           z.discriminatedUnion("type", [
             z.object({
@@ -656,10 +619,7 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
     });
 
     const params = action.tool.parameters as any;
-    // Top-level shape survives (both fields still present, title required).
     expect(params.required).toEqual(["title", "blocks"]);
-    // The advertised `blocks` items only carry `type`, not the full union's
-    // nested `data` fields — this is what keeps the request small.
     const blockItemProps = params.properties.blocks.items.properties;
     expect(Object.keys(blockItemProps)).toEqual(["type"]);
     expect(blockItemProps.type.enum).toEqual(["a", "b"]);
@@ -680,13 +640,11 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
       run,
     });
 
-    // …but a call missing `count` still fails full-schema validation.
     await expect(action.run({ title: "x" } as any)).rejects.toThrow(
       /Missing required parameter.*count/s,
     );
     expect(run).not.toHaveBeenCalled();
 
-    // A call satisfying the full schema still succeeds and reaches run().
     await expect(action.run({ title: "x", count: 2 } as any)).resolves.toEqual({
       title: "x",
       count: 2,
@@ -704,10 +662,6 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
   });
 });
 
-// ---------------------------------------------------------------------------
-// Runtime validation wrapper — the most important behavior: invalid agent
-// input is rejected with a self-correcting error and never reaches run().
-// ---------------------------------------------------------------------------
 describe("defineAction schema mode — runtime validation wrapper", () => {
   it("passes validated + coerced args to run() on success", async () => {
     let received: unknown;
@@ -725,7 +679,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
 
     const out = await action.run({ title: "Hi" });
     expect(out).toBe("done");
-    // Default applied by the schema before reaching run().
     expect(received).toEqual({ title: "Hi", status: "a" });
   });
 
@@ -772,9 +725,7 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     } catch (err) {
       message = (err as Error).message;
     }
-    // Echoes what was actually passed…
     expect(message).toContain('Received: {"slideId":"s1"}');
-    // …and the expected signature with required (*) / optional (?) markers.
     expect(message).toContain("deckId*: string");
     expect(message).toContain("slideId?: string");
     expect(message).toContain("* = required, ? = optional");
@@ -793,7 +744,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     } catch (err) {
       message = (err as Error).message;
     }
-    // A wrong-type error is NOT classified as "missing".
     expect(message).not.toMatch(/Missing required parameter/);
     expect(message).toContain("count");
   });
@@ -812,7 +762,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     } catch (err) {
       message = (err as Error).message;
     }
-    // The truncation ellipsis is appended; the full 2000-char blob is not echoed.
     expect(message).toContain("…");
     expect(message.length).toBeLessThan(1000);
   });
@@ -829,8 +778,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
       },
     });
 
-    // The marker is keyed by `ctx` (see `preValidatedForContext`), not by
-    // `args` — so the exact same context object must be passed to both calls.
     const ctx = { caller: "http" as const };
     const validated = await validateActionArgs(
       schema,
@@ -839,8 +786,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
       ctx,
     );
     await action.run(validated, ctx);
-    // A second pass through the non-idempotent preprocess would have produced
-    // "a!!"; the marker means run() executes with the exact value validated.
     expect(received).toEqual({ tag: "a!" });
   });
 
@@ -856,9 +801,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
       },
     });
 
-    // Validated with no ctx, so nothing is marked and run() validates as usual
-    // — a primitive-valued schema result (which a WeakMap/WeakSet can't key
-    // on directly) still goes through the normal path safely.
     const validated = await validateActionArgs(schema, { tag: "a" });
     await action.run(validated);
     expect(received).toEqual({ tag: "a!!" });
@@ -877,8 +819,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
       },
     });
 
-    // Validated against schemaA, so it satisfies schemaA but is missing the
-    // field schemaB requires.
     const validatedForA = await validateActionArgs(schemaA, { tag: "x" });
     await expect(actionB.run(validatedForA)).rejects.toThrow(
       /Invalid action parameters/,
@@ -887,8 +827,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
   });
 
   it("skips re-validation for a schema that validates down to a primitive", async () => {
-    // A WeakMap/WeakSet can't key on a primitive value at all — this is why
-    // the marker is keyed by `ctx` instead of by the validated value.
     let received: unknown;
     const schema = z.preprocess((v) => `${v}!`, z.string());
     const action = defineAction({
@@ -904,16 +842,10 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     const validated = await validateActionArgs(schema, "a", undefined, ctx);
     expect(validated).toBe("a!");
     await action.run(validated, ctx);
-    // A second pass would have produced "a!!"; skipping it keeps this the
-    // exact value a `needsApproval` predicate would have decided against.
     expect(received).toBe("a!");
   });
 
   it("recognizes a cached NaN result via Object.is instead of ===", async () => {
-    // NaN !== NaN, so a `===` comparison would miss the cache entry and
-    // silently re-invoke a schema transform a caller already validated
-    // against — reopening the same non-idempotent-transform gap for any
-    // schema that legitimately validates down to NaN.
     let transformCalls = 0;
     const schema = z.preprocess(() => {
       transformCalls += 1;
@@ -934,11 +866,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// outputSchema — validate the action's RETURN value (Mastra/Flue-style
-// structured output). Default "warn" never alters behavior; "strict" throws;
-// "fallback" substitutes a safe value.
-// ---------------------------------------------------------------------------
 describe("defineAction — outputSchema (return-value validation)", () => {
   it("passes the result through untouched when no outputSchema is provided", async () => {
     const original = { id: "abc", extra: 123 };
@@ -948,7 +875,6 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       run: async () => original,
     });
     const out = await action.run({ x: "hi" });
-    // Same reference: zero wrapping when outputSchema is absent.
     expect(out).toBe(original);
     expect("outputSchema" in action).toBe(false);
     expect(action.outputErrorStrategy).toBeUndefined();
@@ -963,7 +889,6 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
     const out = await action.run({ x: "hi" });
     expect(out).toEqual({ id: "abc", count: 2 });
-    // Defaults to the non-breaking "warn" strategy.
     expect(action.outputErrorStrategy).toBe("warn");
     expect(action.outputSchema).toBeDefined();
   });
@@ -983,7 +908,6 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         run: async () => bad,
       });
       const out = await action.run({ x: "hi" });
-      // Unchanged result — behavior is never altered under "warn".
       expect(out).toBe(bad);
     } finally {
       console.warn = original;
@@ -1036,13 +960,11 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       },
     });
 
-    // Bad input is rejected before run() ever executes (input path unchanged).
     await expect(action.run({} as any)).rejects.toThrow(
       /Invalid action parameters/,
     );
     expect(ran).toBe(false);
 
-    // Valid input → run() executes → valid output passes through.
     const out = await action.run({ title: "Hi" });
     expect(ran).toBe(true);
     expect(out).toEqual({ ok: true });
@@ -1061,9 +983,6 @@ describe("defineAction — outputSchema (return-value validation)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// authorize — pre-run gate wrapped around `run`, so it covers every caller.
-// ---------------------------------------------------------------------------
 describe("defineAction — authorize", () => {
   it("runs the gate before the body and passes args + ctx through", async () => {
     const authorize = vi.fn();
@@ -1147,9 +1066,6 @@ describe("defineAction — authorize", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// AgentActionStopError — the stop-the-turn signal used by actions.
-// ---------------------------------------------------------------------------
 describe("AgentActionStopError", () => {
   it("carries the stop marker, safe details, errorCode, and toolResult", () => {
     const err = new AgentActionStopError("nothing more to do", {
@@ -1167,7 +1083,6 @@ describe("AgentActionStopError", () => {
 
   it("isAgentActionStopError recognizes real instances and duck-typed objects", () => {
     expect(isAgentActionStopError(new AgentActionStopError("x"))).toBe(true);
-    // Duck-typed (e.g. structured-cloned across a worker boundary).
     expect(isAgentActionStopError({ agentNativeStop: true })).toBe(true);
   });
 
@@ -1202,10 +1117,6 @@ describe("AgentConnectionRequiredError", () => {
 });
 
 describe("gateway-stringified tool-arg coercion", () => {
-  // Some model gateways (Builder's Gemini-backed one) hand back structured
-  // tool-call args as JSON strings — arrays as "[...]", booleans as "true".
-  // Zod validate doesn't coerce, so the agent thrashed. We coerce against the
-  // schema's declared types before validation.
   function makeAction() {
     let received: any = null;
     const action = defineAction({

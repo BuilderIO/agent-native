@@ -82,13 +82,6 @@ describe("agent CLI", () => {
   });
 });
 
-/*
- * `agent-native agent` runs app actions with no Nitro plugins mounted, and
- * action discovery skips `run.ts` (`SKIP_FILES`), so this loop reaches an app's
- * own provider registration only through the shared CLI bootstrap. Without it,
- * a template whose provider accepts a configuration the framework's rejects
- * runs here against the framework provider instead of its own.
- */
 describe("agent CLI bootstrap", () => {
   const originalCwd = process.cwd();
   let tmpDir: string | null = null;
@@ -119,8 +112,6 @@ describe("agent CLI bootstrap", () => {
     );
     process.chdir(tmpDir);
 
-    // No prompt: `runAgent` bootstraps, then exits on the argument error, which
-    // keeps the test off the model path.
     const code = await runAgent([], { stderr: () => {}, stdout: () => {} });
 
     expect(code).not.toBe(0);

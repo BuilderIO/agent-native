@@ -52,8 +52,6 @@ export interface PasteToReplaceArgs {
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
-/** Pixel lengths only: `10%` or `2rem` parsed loosely would be re-serialized
- *  as `10px` and visibly move the replacement. */
 function pixelLength(value: string | undefined): number | null {
   const raw = (value ?? "").trim();
   if (raw === "0") return 0;
@@ -63,7 +61,6 @@ function pixelLength(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** `externalLayerHtml` replaces with pasted OS content instead of a layer copy. */
 export function runPasteToReplace(
   {
     activeFile,
@@ -150,12 +147,6 @@ export function runPasteToReplace(
     failed();
     return;
   }
-  // insertClonedHtmlLayers writes authored, parent-relative left/top, but
-  // targetPosition is iframe-document space. A board surface renders its
-  // content at ~4000,4000, so passing that through drops the copy thousands
-  // of pixels away from the layer it replaced. The target's own authored
-  // offsets are already in the space being written to; the parent-rect
-  // subtraction is the fallback for a target positioned by class or transform.
   const authoredLeft = pixelLength(targetNode.style.left);
   const authoredTop = pixelLength(targetNode.style.top);
   const hasAuthoredPosition = authoredLeft !== null && authoredTop !== null;
@@ -166,9 +157,6 @@ export function runPasteToReplace(
         x: targetPosition.x - (parentRect?.x ?? 0),
         y: targetPosition.y - (parentRect?.y ?? 0),
       };
-  // Inserted after the target, then the target removed: those offsets are
-  // relative to the target's parent, so the replacement must land in it too,
-  // and inserting after leaves the target's own selector unchanged.
   const inserted = insertClonedHtmlLayers(baseContent, [layerHtml], {
     anchorSelectors: [targetSelector],
     placement: "after",

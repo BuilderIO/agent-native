@@ -11,7 +11,6 @@ export interface ReviewPinPosition {
   canvasPoint?: ReviewCanvasPoint;
 }
 
-// Layer identity enriches the comment; the point remains user-authored.
 export function getReviewPinPosition(
   anchor: unknown,
   screenId?: string | null,

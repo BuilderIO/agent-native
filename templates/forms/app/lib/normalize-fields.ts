@@ -2,17 +2,6 @@ import type { FormField, FormFieldType } from "@shared/types";
 
 import type { AppFormFieldType } from "@/lib/form-field-types";
 
-// Single source of truth for coercing FormField[] coming back from the API
-// into a renderable shape. Both the agent and the UI can write arbitrary
-// JSON into form.fields — this helper protects every React consumer from:
-//   - missing/object/numeric `type` (defaults to "text" rather than dropping
-//     the field, so the user doesn't silently lose data)
-//   - `options` being a non-array, or an array of {label,value} objects /
-//     numbers / blanks / duplicates (any of which would crash a downstream
-//     `.map()` or render duplicate React keys)
-// FieldRenderer keeps its own `dedupeRenderableOptions` for the *builder*
-// preview where the user is mid-typing — that handles transient live-edit
-// state, not stored data.
 const KNOWN_FIELD_TYPES: AppFormFieldType[] = [
   "text",
   "email",

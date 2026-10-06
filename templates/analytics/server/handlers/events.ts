@@ -1,4 +1,8 @@
-import { readBody } from "@agent-native/core/server";
+import {
+  isTestIdentity,
+  readBody,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
@@ -6,16 +10,49 @@ import {
 import { defineEventHandler, getHeader, setResponseStatus } from "h3";
 
 import { getAppEventsTable } from "../lib/bigquery";
-import { resolveCredential } from "../lib/credentials";
-import { withRequestContextFromEvent } from "../lib/credentials";
+import {
+  getCredentialContextFromEvent,
+  resolveCredential,
+} from "../lib/credentials";
 import { getAccessToken } from "../lib/gcloud";
 
-/**
- * POST /api/events/track
- *
- * Logs custom events to the configured BigQuery events table.
- * Used for tracking metric views, user actions, etc.
- */
+// The legacy client sends `data` as a JSON string; anything unparseable is
+// stored as it came.
+function eventData(data: unknown): Record<string, unknown> | string {
+  if (typeof data !== "string") {
+    return data && typeof data === "object"
+      ? { ...(data as Record<string, unknown>) }
+      : {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return data;
+  }
+  return data;
+}
+
+// A retained test identity's exception carries `test_identity: true` for
+// metric SQL to exclude. Only the server sets it: a client-sent marker is
+// dropped, or anyone could hide a real user's errors.
+function storedEventData(
+  props: Record<string, unknown> | string,
+  testIdentity: string | undefined,
+): string {
+  if (typeof props === "string") {
+    return testIdentity
+      ? JSON.stringify({ data: props, test_identity: true })
+      : props;
+  }
+  const { test_identity: _clientMarker, ...fields } = props;
+  return JSON.stringify(
+    testIdentity ? { ...fields, test_identity: true } : fields,
+  );
+}
+
 export const handleTrackEvent = defineEventHandler(async (event) => {
   if (isSyntheticTrafficValue(getHeader(event, SYNTHETIC_TRAFFIC_HEADER))) {
     setResponseStatus(event, 202);
@@ -30,16 +67,31 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       return { error: "Missing or invalid 'event' field" };
     }
 
-    // Auth has been removed — user info comes from request body only
-    let authenticatedUserId: string | null = null;
-    let userEmail: string | null = null;
+    // The legacy client sends an opaque uid, so only the signed-in email can
+    // match a configured test identity. No session is not a test identity.
+    const ctx = await getCredentialContextFromEvent(event);
+    const props = eventData(data);
+    const fields = typeof props === "string" ? {} : props;
+    const testIdentity = [
+      userId,
+      ctx?.userEmail,
+      fields.user_email,
+      fields.userEmail,
+      fields.email,
+    ].find((value): value is string => isTestIdentity(value));
+    // `$exception` stays: this table is the only place it is queryable.
+    if (eventName !== "$exception" && testIdentity) {
+      setResponseStatus(event, 202);
+      return { success: true, accepted: 0, suppressedTestIdentity: 1 };
+    }
 
-    // Prepare event row for BigQuery
+    let authenticatedUserId: string | null = null;
+
     const eventRow = {
       event: eventName,
-      data: typeof data === "string" ? data : JSON.stringify(data || {}),
+      data: storedEventData(props, testIdentity),
       userId: authenticatedUserId || userId || null,
-      userEmail: userEmail || null,
+      userEmail: testIdentity ?? null,
       sessionId: null, // Could be added later if we track sessions
       organizationId: null, // Could be derived from user if needed
       createdDate: timestamp
@@ -54,26 +106,26 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       modelId: null,
     };
 
-    // Insert into BigQuery via REST API. We need the request context to
-    // resolve the per-user BIGQUERY_PROJECT_ID + service-account credential,
-    // so wrap inside withRequestContextFromEvent. The fetch itself still
-    // doesn't block the response (resolved upfront, fired async after).
-    const ctxResult = await withRequestContextFromEvent(event, async (ctx) => {
-      const [credentials, projectId] = await Promise.all([
-        resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
-        resolveCredential("BIGQUERY_PROJECT_ID", ctx),
-      ]);
-      if (!credentials || !projectId) return null;
-      const [token, table] = await Promise.all([
-        getAccessToken(),
-        getAppEventsTable(projectId, ctx),
-      ]);
-      return { token, table };
-    });
+    const ctxResult = ctx
+      ? await runWithRequestContext(
+          { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
+          async () => {
+            const [credentials, projectId] = await Promise.all([
+              resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+              resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+            ]);
+            if (!credentials || !projectId) return null;
+            const [token, table] = await Promise.all([
+              getAccessToken(),
+              getAppEventsTable(projectId, ctx),
+            ]);
+            return { token, table };
+          },
+        )
+      : null;
 
     if (ctxResult) {
       const { token, table } = ctxResult;
-      // Fire and forget — don't block the response on the BigQuery insert.
       fetch(
         `https://bigquery.googleapis.com/bigquery/v2/projects/${table.projectId}/datasets/${table.datasetId}/tables/${table.tableId}/insertAll`,
         {
@@ -100,7 +152,6 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
         });
     }
 
-    // Respond immediately - don't wait for BigQuery
     setResponseStatus(event, 202);
     return { success: true };
   } catch (err: any) {

@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   currentOrgId: vi.fn((): string | null => null),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
   registerBuiltinEngines: vi.fn(),
+  dispatchConfig: {
+    adminEmails: [] as string[],
+    workspaceOwnerEmails: [] as string[],
+    defaultOwnerEmail: undefined as string | undefined,
+  },
 }));
 
 vi.mock("@agent-native/core/agent/engine", () => ({
@@ -19,6 +24,7 @@ vi.mock("@agent-native/core/agent/engine", () => ({
   getAgentEngineEntry: vi.fn(() => null),
   isAgentEngineSettingConfigured: vi.fn(() => false),
   isStoredEngineUsable: vi.fn(() => false),
+  readDefaultAgentEngineSetting: (...args: any[]) => mocks.getSetting(...args),
   registerBuiltinEngines: () => mocks.registerBuiltinEngines(),
 }));
 
@@ -30,6 +36,10 @@ vi.mock("@agent-native/core/db", () => ({
 
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: any[]) => mocks.getSetting(...args),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getAppConfig: () => ({ dispatch: mocks.dispatchConfig }),
 }));
 
 vi.mock("@agent-native/core/usage", () => ({
@@ -74,6 +84,9 @@ afterEach(() => {
   vi.clearAllMocks();
   mocks.currentOrgId.mockReturnValue(null);
   mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+  mocks.dispatchConfig.adminEmails = [];
+  mocks.dispatchConfig.workspaceOwnerEmails = [];
+  mocks.dispatchConfig.defaultOwnerEmail = undefined;
 });
 
 describe("listDispatchUsageMetrics", () => {
@@ -92,6 +105,20 @@ describe("listDispatchUsageMetrics", () => {
     });
     expect(mocks.getUsageSummary).not.toHaveBeenCalled();
     expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
+  });
+
+  it("allows a configured deployment admin to view workspace metrics", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.dispatchConfig.workspaceOwnerEmails = ["Owner@Example.Test"];
+    mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+
+    const metrics = await listDispatchUsageMetrics({ sinceDays: 30 });
+
+    expect(metrics.access.viewerEmail).toBe("owner@example.test");
+    expect(metrics.access.role).toBe("member");
   });
 
   it("returns empty metrics when usage storage bootstrap and reads fail", async () => {
@@ -467,9 +494,6 @@ describe("listDispatchUsageMetrics", () => {
         ),
       ),
     ).toBe(false);
-    // A workspace roll-up spans other members, so it must NOT admit rows whose
-    // organization is unknown — a member shared with another organization
-    // would otherwise have that spend claimed here.
     expect(
       mocks.execute.mock.calls.some(([query]) => {
         const sql = String((query as { sql?: string }).sql);
@@ -485,9 +509,6 @@ describe("listDispatchUsageMetrics", () => {
   });
 
   it("admits unattributed usage for a one-member workspace", async () => {
-    // selectedUserEmail is null here, but the effective owner list is exactly
-    // the viewer, so the read is self-scoped and must count their own
-    // unattributed spend.
     mocks.currentOrgId.mockReturnValue("org-a");
     mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
     mocks.getUsageSummary.mockResolvedValue(null);

@@ -8,21 +8,16 @@ vi.mock("h3", async (importOriginal) => {
   const actual = await importOriginal<typeof import("h3")>();
   return {
     ...actual,
-    // verifyWebhook reads the Telegram secret header through h3.getHeader.
     getHeader: vi.fn(() => hoisted.header),
   };
 });
 
-// telegram.ts reads the request body via the core readBody helper; the parser
-// uses the body cached on event.context.__rawBody when present, so tests set
-// that directly and never need the real h3 stream.
 vi.mock("../../server/h3-helpers.js", () => ({
   readBody: vi.fn(async (event: any) => event.context.__rawBody ?? {}),
 }));
 
 import { telegramAdapter } from "./telegram.js";
 
-/** Event whose pre-cached body is the given Telegram update object. */
 function eventWithBody(body: unknown): any {
   return { context: { __rawBody: body } };
 }
@@ -123,7 +118,6 @@ describe("telegramAdapter parseIncomingMessage", () => {
       eventWithBody(update({ text: "/start" })),
     );
     expect(msg?.text).toBe("Hello! I'm ready to chat.");
-    // rawText preserves the original command.
     expect(msg?.platformContext.rawText).toBe("/start");
   });
 
@@ -283,7 +277,7 @@ describe("telegramAdapter verifyWebhook (security)", () => {
 
   it("with a secret set, rejects a same-length mismatched header (timingSafeEqual returns false)", async () => {
     process.env.TELEGRAM_WEBHOOK_SECRET = "s3cr3t-token";
-    hoisted.header = "wrong--token"; // same 12-char length, different content
+    hoisted.header = "wrong--token";
 
     await expect(telegramAdapter().verifyWebhook({} as any)).resolves.toBe(
       false,
@@ -292,7 +286,7 @@ describe("telegramAdapter verifyWebhook (security)", () => {
 
   it("with a secret set, rejects a different-length header (timingSafeEqual throws, caught)", async () => {
     process.env.TELEGRAM_WEBHOOK_SECRET = "s3cr3t-token";
-    hoisted.header = "wrong-token"; // 11 chars vs 12 — length mismatch path
+    hoisted.header = "wrong-token";
 
     await expect(telegramAdapter().verifyWebhook({} as any)).resolves.toBe(
       false,
@@ -417,7 +411,7 @@ describe("telegramAdapter sendResponse", () => {
       vi.fn((_url: string, init?: RequestInit) => {
         bodies.push(JSON.parse(String(init?.body)));
         call += 1;
-        const ok = call > 1; // first attempt fails with a parse error
+        const ok = call > 1;
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -442,7 +436,6 @@ describe("telegramAdapter sendResponse", () => {
 
     expect(bodies).toHaveLength(2);
     expect(bodies[0].parse_mode).toBe("Markdown");
-    // retry strips parse_mode entirely
     expect(bodies[1].parse_mode).toBeUndefined();
     expect(bodies[1].text).toBe("*broken");
   });

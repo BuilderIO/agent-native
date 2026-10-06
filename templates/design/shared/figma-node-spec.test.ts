@@ -40,7 +40,6 @@ function box(
   };
 }
 
-/** A 256x100 row: two 100x100 children, 16px gap, 20px horizontal padding. */
 function flexRow(overrides: Partial<FigmaSvgLayoutFacts> = {}): FigmaSvgNode {
   return box(
     "row",
@@ -98,7 +97,7 @@ describe("buildFigmaNodeSpec — layout mapping", () => {
 
   it("maps justify-content: center to CENTER", () => {
     const scene = flexRow({ justifyContent: "center" });
-    scene.rect.width = 336; // 40px of free space on each side
+    scene.rect.width = 336;
     scene.children![0].rect.x = 60;
     scene.children![1].rect.x = 176;
     const { root } = buildFigmaNodeSpec(scene);
@@ -134,9 +133,6 @@ describe("buildFigmaNodeSpec — layout mapping", () => {
     scene.children![1].rect.x = 137;
     scene.children![1].rect.y = 1;
     const { root } = buildFigmaNodeSpec(scene);
-    // A Figma stroke does not inset auto-layout children the way a CSS
-    // border does, so the border has to arrive as padding or every child
-    // lands 1px high and left.
     expect(root.layout.mode).toBe("HORIZONTAL");
     expect(root.layout.paddingLeft).toBe(21);
     expect(root.layout.paddingTop).toBe(1);
@@ -181,7 +177,6 @@ describe("buildFigmaNodeSpec — layout mapping", () => {
     scene.children![0].layout = facts({ flexGrow: 1 });
     scene.children![1].layout = facts({ flexGrow: 1 });
     const { root } = buildFigmaNodeSpec(scene);
-    // 256 - 40 padding - 16 gap = 200, split evenly = the measured 100 each.
     expect(root.children[0].layoutGrow).toBe(1);
     expect(root.children[0].layoutSizingHorizontal).toBe("FILL");
   });
@@ -315,8 +310,6 @@ describe("buildFigmaNodeSpec — layout mapping", () => {
 
   it("falls back to absolute when auto-layout would move a child (CSS margin)", () => {
     const scene = flexRow();
-    // A 12px margin-left on the second child is real CSS with no Figma
-    // equivalent — auto-layout would slide it back by 12px.
     scene.children![1].rect.x = 148;
     scene.rect.width = 248;
     const { root, report } = buildFigmaNodeSpec(scene);
@@ -332,7 +325,7 @@ describe("buildFigmaNodeSpec — layout mapping", () => {
     expect(hugging.root.layout.counterAxisSizingMode).toBe("AUTO");
 
     const oversized = flexRow({ justifyContent: "flex-start" });
-    oversized.rect.width = 400; // 164px of slack the children do not fill
+    oversized.rect.width = 400;
     oversized.rect.height = 160;
     const fixed = buildFigmaNodeSpec(oversized);
     expect(fixed.root.layout.primaryAxisSizingMode).toBe("FIXED");
@@ -385,9 +378,6 @@ describe("buildFigmaNodeSpec — layout mapping", () => {
       },
     );
     const { root } = buildFigmaNodeSpec(scene);
-    // Every width in this spec is Helvetica's width; materializing in Inter
-    // silently changes them, so the family that was measured has to travel
-    // with the geometry.
     expect(root.text?.resolvedFontFamily).toBe("Helvetica");
     expect(root.text?.fontFamily).toBe("Inter, Helvetica, Arial, sans-serif");
   });
@@ -411,7 +401,6 @@ describe("buildFigmaNodeSpec — layout mapping", () => {
     );
     const { root } = buildFigmaNodeSpec(scene);
     expect(root.type).toBe("TEXT");
-    // Figma's SVG importer drops tracking; the node path carries it.
     expect(root.text?.letterSpacingPx).toBe(0.5);
   });
 });
@@ -537,8 +526,6 @@ describe("buildFigmaNodeSpec — wrapper collapsing", () => {
       "root",
       { x: 0, y: 0, width: 200, height: 200 },
       {
-        // An auto-layout parent, so the wrapper cannot be hoisted either —
-        // this isolates the pass-through rule's exact-box requirement.
         layout: facts({ display: "flex", flexDirection: "column" }),
         fills: [{ kind: "solid", color: "rgb(3, 3, 3)" }],
         children: [
@@ -630,7 +617,6 @@ describe("buildFigmaNodeSpec — wrapper collapsing", () => {
     const { root, report } = buildFigmaNodeSpec(scene);
     expect(report.wrappersCollapsed).toBe(1);
     expect(root.children.map((child) => child.id)).toEqual(["a", "b"]);
-    // Paint order and geometry both survive the hoist.
     expect(root.children[0].x).toBe(10);
     expect(root.children[1].y).toBe(90);
   });

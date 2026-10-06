@@ -14,10 +14,6 @@ import { readAppStateForCurrentTab } from "./_tab-state.js";
 const FORMS_LIST_LIMIT = 25;
 const RESPONSE_PREVIEW_LIMIT = 5;
 const FIELD_PREVIEW_LIMIT = 20;
-/** Options shown per field in the screen preview. `patch-form-fields` upsert
- *  replaces a field wholesale, so a caller that rebuilds a field from this
- *  preview drops every option past the cap — `optionsTruncated` is what makes
- *  a preview distinguishable from the real option list. */
 const FIELD_OPTION_PREVIEW_LIMIT = 8;
 
 function canReadPrivateFormData(role: string): boolean {
@@ -91,14 +87,6 @@ interface FormSelectionSummary {
   hint: string;
 }
 
-/**
- * The form builder (FormBuilderPage) writes `forms-selection` whenever the
- * Field Properties panel is open for a field, and clears it (null) on
- * deselect/unmount. Only surface it here when it names the SAME form the
- * screen is currently showing — otherwise a selection left over from a form
- * the user has since navigated away from would get attributed to whatever
- * form they're viewing now.
- */
 export function buildFormSelectionSummary(
   selection: FormsSelectionState | null,
   formId: string,
@@ -159,8 +147,6 @@ export default defineAction({
           const selectionState = (await readAppStateForCurrentTab(
             "forms-selection",
             {
-              // No global fallback: another tab's selected field must never
-              // become this tab's patch target.
               fallbackToGlobal: false,
             },
           )) as FormsSelectionState | null;

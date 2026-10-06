@@ -266,7 +266,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder ist nicht verbunden. Gehe zurück und verwende zuerst Builder.io.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -278,7 +278,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "Verwende dein Builder-Konto, um die Spaces und Modelle zu durchsuchen.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -667,6 +667,34 @@ const editor = {
     pageCount_few: "{{count}}-Seiten",
     pageCount_many: "{{count}}-Seiten",
     pageCount_other: "{{count}}-Seiten",
+    back: "Zurück",
+    relatedDatabase: "Verknüpfte Datenbank",
+    searchDatabases: "Datenbanken durchsuchen",
+    thisDatabase: "Diese Datenbank",
+    noDatabases: "Keine Datenbanken gefunden",
+    searchPages: "Seiten durchsuchen",
+    noMatchingPages: "Keine passenden Seiten",
+    removeRelation: "{{name}} entfernen",
+    openPage: "{{name}} öffnen",
+    unavailablePage: "Nicht verfügbare Seite",
+    unavailablePageCount_zero: "{{count}} nicht verfügbar",
+    unavailablePageCount_one: "{{count}} nicht verfügbar",
+    unavailablePageCount_two: "{{count}} nicht verfügbar",
+    unavailablePageCount_few: "{{count}} nicht verfügbar",
+    unavailablePageCount_many: "{{count}} nicht verfügbar",
+    unavailablePageCount_other: "{{count}} nicht verfügbar",
+    noRelatedDatabase: "Keine verknüpfte Datenbank festgelegt",
+    linkAPage: "Seite verknüpfen oder erstellen…",
+    createPage: "„{{name}}“ erstellen",
+    reorderRelation: "{{name}} verschieben",
+    selectMore: "Weitere auswählen",
+    selectAPage: "Seite auswählen",
+    selectedCount_zero: "{{count}} ausgewählt",
+    selectedCount_one: "{{count}} ausgewählt",
+    selectedCount_two: "{{count}} ausgewählt",
+    selectedCount_few: "{{count}} ausgewählt",
+    selectedCount_many: "{{count}} ausgewählt",
+    selectedCount_other: "{{count}} ausgewählt",
     pasteFileOrMediaLink: "Datei- oder Medienlink einfügen",
     personOrEmail: "Person oder E-Mail",
     propertyMenuFor: "Eigenschaftenmenü für {{name}}",
@@ -952,8 +980,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
-  requestedPageUnavailable:
-    "Diese Seite ist für dein Konto nicht verfügbar. Daher wurde die Willkommensseite geöffnet.",
   saveFailed: "Deine Position konnte nicht gespeichert werden",
   workspaceWelcomeUnavailableTitle: "Hier ist noch nichts geöffnet",
   workspaceWelcomeUnavailableDescription:
@@ -983,6 +1009,10 @@ const comments = {
   suggestionWith: "durch",
   suggestionReplace: "Ersetzen",
   suggestionDetails: "Vorschlagsdetails",
+  proposalEditCount_one: "{{count}} Änderung",
+  proposalEditCount_other: "{{count}} Änderungen",
+  acceptRemaining: "Übrige annehmen",
+  rejectRemaining: "Übrige ablehnen",
   typeFilter: "Typ",
   statusFilter: "Status",
   authorFilter: "Person",
@@ -1069,6 +1099,10 @@ const exactEnglish = {
     iconPickerUploading: "Wird hochgeladen…",
     suggestionAmendmentEmpty:
       "Diese Bearbeitung entspricht der aktuellen Seite. Lehnen Sie den Vorschlag ab, um ihn zu entfernen.",
+    suggestionUnplaceable:
+      "Der Text um diesen Vorschlag hat sich geändert, daher kann er nicht übernommen werden. Er bleibt offen: Lehnen Sie ihn ab oder schlagen Sie die Änderung erneut vor.",
+    proposalUnplaceable:
+      "Einer dieser Vorschläge kann nicht übernommen werden, weil sich der Text um ihn herum geändert hat. Daher wurde keiner übernommen. Alle bleiben offen: Nehmen Sie sie einzeln an oder lehnen Sie sie einzeln ab.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
     suggestionAmendmentResolved:
       "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
@@ -1094,6 +1128,25 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informationen",
+      copyLink: "Link kopieren",
+      copyForPeople: "Für Personen kopieren",
+      copyForAgents: "Für Agenten kopieren",
+      whoHasAccess: "Wer Zugriff hat",
+      sharePeople: "Personen",
+      shareAgents: "Agenten",
+      copyAgentPrompt: "Agenten-Anweisung kopieren",
+      openInClaude: "In Claude öffnen",
+      openInClaudeCode: "In Claude Code öffnen",
+      openInCodex: "In Codex öffnen",
+      agentCopyAccessNote:
+        "Agenten können Content MCP mit deinen bestehenden Berechtigungen nutzen",
+      temporaryAgentLink: "Temporärer Agentenlink",
+      privateLinkCanView: "Nur Personen mit Zugriff können ihn ansehen",
+      publicLinkCanView: "Jede Person mit dem Link kann ihn ansehen",
+      copiedAgentPrompt: "Agenten-Anweisung kopiert",
+      couldNotCopyAgentPrompt: "Agenten-Anweisung konnte nicht kopiert werden",
+      agentPrompt:
+        'Lies dieses Content-Dokument: {{documentUrl}}\n\nNutze eine verfügbare Content-MCP-Verbindung für {{mcpUrl}}, um get-document mit der ID "{{documentId}}" aufzurufen. Eine öffentlich lesbare Seite kann auch direkt gelesen werden.\n\nFalls authentifizierter Zugriff nötig ist und Content MCP nicht verfügbar oder abgemeldet ist, bitte mich, die Verbindung herzustellen und mich anzumelden. Verbindung einrichten: {{connectUrl}}. Offizielle Anleitung: {{docsUrl}}\n\nNachdem ich bestätigt habe, dass die Verbindung bereit ist, versuche erneut, das Dokument mit den bestehenden Berechtigungen meines Kontos zu lesen. Wenn der authentifizierte Lesezugriff verweigert wird, teile mir dieses Ergebnis mit.',
       closeUtilityPanel: "Bereich schließen",
       exportCsv: "Als CSV exportieren",
       exportDatabase: "Sammlung exportieren",
@@ -1117,6 +1170,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportiert",
       copiedPageLink: "Seitenlink kopiert",
       copyPageLink: "Seitenlink kopieren",
+      createShareableCopy: "Teilbare Kopie erstellen",
       couldNotCopyLink: "Link konnte nicht kopiert werden",
       clipboardAccessUnavailable:
         "Der Zugriff auf die Zwischenablage ist in diesem Browser nicht verfügbar.",
@@ -1175,6 +1229,17 @@ const history = {
 };
 
 const overrides = {
+  close: "Schließen",
+  setup: {
+    providerStatusUnavailable:
+      "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Speicher verbinden, um Dateien hochzuladen",
+      statusUnavailable: "Der Status des Dateispeichers ist nicht verfügbar.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1220,6 +1285,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "Inhalt",
+    loadingContent: "Inhalt wird geladen",
     commandSearchDocuments: "Dokumente suchen",
     searchSince: "Seit {{date}}",
     searchModifiedSince: "Geändert seit {{date}}",
@@ -1277,15 +1343,14 @@ const overrides = {
   },
   settings: {
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für Content.",
-    emailNotifications: "E-Mail-Benachrichtigungen",
-    emailNotificationsDescription:
-      "Erhalte eine E-Mail, wenn jemand dein Dokument kommentiert, antwortet oder dich erwähnt.",
     saveFailed: "Speichern fehlgeschlagen",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
+    notificationsEmail: "E-Mail",
+    commentsRepliesMentions: "Kommentare, Antworten und Erwähnungen",
+    commentsRepliesMentionsDescription:
+      "Wenn jemand dein Dokument kommentiert, darin antwortet oder dich erwähnt.",
+    retry: "Erneut versuchen",
+    mcpAbout:
+      "Verbinde Content mit Claude, ChatGPT, Cursor oder jeder KI-App, die MCP unterstützt. Diese App kann dann in Content für dich arbeiten: Dokumente durchsuchen, schreiben und bearbeiten. Sie sieht nur, was du sehen kannst.",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Mitwirkende und gemeinsamen Dokumentzugriff.",
@@ -1325,6 +1390,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Keine Seite ausgewählt",
+    pageNoAccess: "Du hast keinen Zugriff auf diese Seite",
+    pageMissing: "Diese Seite gibt es nicht",
+    pageInTrash: "Diese Seite liegt im Papierkorb",
+    pageInTrashAskOwner: "Bitte den Eigentümer, sie wiederherzustellen.",
+    openTrash: "Papierkorb öffnen",
+    goToMyPages: "Zu meinen Seiten",
     noPageDescription:
       "Wähle eine Seite in der Seitenleiste oder erstelle eine neue.",
     newPage: "Neue Seite",
@@ -1375,6 +1446,24 @@ const overrides = {
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",
+    agentBadge: "Agent",
+    addEmoji: "Emoji hinzufügen",
+    mentionSomeone: "Jemanden erwähnen",
+    mentionPeople: "Personen",
+    mentionAgents: "Agenten",
+    commentTitle: "Kommentar",
+    suggestionTitle: "Vorschlag",
+    close: "Schließen",
+    showEarlierReplies: "Frühere Antworten anzeigen",
+    replyAction: "Antworten",
+    panelTabs: "Seitenbereiche",
+    aiAuto: "Automatisch",
+    aiModel: "KI-Modell",
+    aiRemoveRecipient: "KI-Empfänger entfernen",
+    aiSend: "An KI senden",
+    aiSendShort: "Senden",
+    aiResponseMode: "Antwort",
+    aiChooseSendMode: "KI-Sendemodus auswählen",
     aiSuggestChanges: "Änderungen vorschlagen",
     aiUnavailable: "Nicht verfügbar",
     aiReplyInThread: "Im Thread antworten",
@@ -1387,9 +1476,36 @@ const overrides = {
     aiReplied: "KI hat geantwortet",
     aiSuggestionReady: "Vorschlag prüfen",
     aiChangesApplied: "Änderungen angewendet",
+    aiAppliedAndResolved: "Angewendet und erledigt",
+    aiChangeUndone: "Änderung rückgängig gemacht",
+    aiUndo: "Rückgängig",
+    aiDone: "Fertig",
+    aiMoreChanges: "+{{count}} weitere",
+    aiUndoUnavailable:
+      "Entfernter Text lässt sich nicht automatisch wiederherstellen",
+    aiUndoFailed: "Änderung konnte nicht rückgängig gemacht werden",
+    aiResolvedByAi: "Von KI erledigt",
     aiNeedsReview: "Prüfung erforderlich",
     aiFailed: "KI-Anfrage fehlgeschlagen",
     retry: "Erneut versuchen",
+    aiQueued: "KI wartet…",
+    aiRefreshing: "KI prüft die neueste Seite…",
+    aiCancelled: "KI-Anfrage gestoppt",
+    aiStop: "Stoppen",
+    aiStopping: "Wird gestoppt…",
+    aiReplyToAi: "Der KI antworten",
+    aiReplyingToAi: "Antwort an die KI",
+    aiOpenConversation: "KI-Unterhaltung öffnen",
+    aiConversationPrefill: "Diese Kommentarunterhaltung fortsetzen…",
+    aiConversationUnavailable: "Diese KI-Unterhaltung ist nicht verfügbar.",
+    aiFollowUpYou: "Du",
+    aiFollowUpIncomplete: "Diese Antwort wurde vorzeitig beendet.",
+    aiRequestCouldNotBeConfirmed:
+      "Die KI-Anfrage konnte nicht bestätigt werden",
+    aiFollowUpCouldNotBeConfirmed:
+      "Die KI-Folgeanfrage konnte nicht bestätigt werden",
+    aiRequestStopCouldNotBeConfirmed:
+      "Die KI-Anfrage konnte nicht gestoppt werden, da der Versand nicht bestätigt wurde",
     sourceComment: "Quellkommentar",
     resolve: "Erledigen",
     resolved: "Erledigt ({{count}})",

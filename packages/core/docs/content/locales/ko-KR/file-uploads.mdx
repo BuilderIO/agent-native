@@ -126,6 +126,8 @@ UI는 업로드가 시도되기 전에 동기적인 `isConfigured()` 검사만�
 
 프레임워크에는 S3 호환 스토리지(AWS S3, Cloudflare R2, MinIO 등)용 내장 공급자가 이미 포함되어 있습니다. 환경 변수를 사용하거나 사이드바 온보딩 체크리스트를 통해 연결할 수 있습니다. 코드를 작성할 필요는 없습니다. [온보딩](/docs/onboarding)을 참고하세요.
 
+설정, 온보딩 체크리스트, Clips의 Video storage는 모두 같은 스토리지 양식을 표시합니다. 이 양식은 `S3_*` 값을 워크스페이스 시크릿으로 저장하며, 조직 소유자와 관리자만 저장하거나 지울 수 있습니다. 등록된 `s3` 공급자가 `publicBaseUrlOptional: true`를 설정하지 않는 한 Public URL은 필수입니다(Clips는 서명된 요청으로 녹화본을 다시 읽기 때문에 이를 설정합니다). **Clear credentials**는 먼저 확인을 요청한 뒤 저장된 모든 스토리지 키를 삭제합니다. 기존 파일은 버킷에 남습니다. 에이전트는 `get-file-storage` 및 `manage-file-storage` 액션으로 같은 작업을 합니다.
+
 사용자 지정 공급자는 다른 종류의 백엔드를 사용할 때만 등록하세요. 다음 예시는 `fetch()`를 사용하여 일반 HTTP API를 통해 업로드합니다.
 
 ```ts filename="server/plugins/file-upload.ts"

@@ -10,17 +10,6 @@ import {
   Label,
   Textarea,
 } from "@agent-native/toolkit/ui";
-/**
- * BookingLinkCreateDialog — dialog prompting for Title / URL / Duration
- * when creating a new booking link (a.k.a. event type).
- *
- * The consumer owns the mutation — this component just collects the four
- * inputs and calls `onSubmit` once the user clicks Continue. It stays
- * dumb: no data fetching, no optimistic UI.
- *
- * Shadcn primitives expected in the consumer: dialog, button, input,
- * label, textarea.
- */
 import { useEffect, useState } from "react";
 
 import { useSchedulingT } from "../../i18n.js";
@@ -35,15 +24,9 @@ export interface BookingLinkCreateDraft {
 export interface BookingLinkCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /**
-   * URL prefix shown before the slug input, e.g.
-   * "calendar.app/meet/alice/" or "cal.local/steve@foo.com/"
-   */
   slugPrefix: string;
-  /** Default duration in minutes. Defaults to 30. */
   defaultLength?: number;
   onSubmit: (draft: BookingLinkCreateDraft) => void | Promise<void>;
-  /** Button label — defaults to "Continue". */
   submitLabel?: string;
 }
 
@@ -75,7 +58,6 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
   const [submitting, setSubmitting] = useState(false);
   const [slugEdited, setSlugEdited] = useState(false);
 
-  // Reset form when the dialog reopens
   useEffect(() => {
     if (open) {
       setForm({
@@ -136,10 +118,6 @@ export function BookingLinkCreateDialog(props: BookingLinkCreateDialogProps) {
                 className="rounded-l-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                 value={form.slug}
                 onChange={(e) => {
-                  // Capture before setForm — React nulls e.currentTarget once
-                  // the event finishes synchronous propagation, so reading it
-                  // inside the updater closure throws "Cannot read properties
-                  // of null (reading 'value')".
                   const next = e.currentTarget.value;
                   setSlugEdited(true);
                   setForm((prev) => ({

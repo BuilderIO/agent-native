@@ -125,7 +125,6 @@ export const handleSlackChannels = defineEventHandler((event) =>
   }),
 );
 
-/** Reconstruct text from Slack blocks for better line-break formatting */
 function enrichMessages(messages: SlackMessage[]): SlackMessage[] {
   return messages.map((m) => {
     const blocks = (m as any).blocks;
@@ -211,12 +210,6 @@ export const handleSlackHistory = defineEventHandler((event) =>
   }),
 );
 
-/**
- * Multi-channel paginated history endpoint.
- * Fetches `pageSize` messages from each channel (using cursor if provided),
- * merges by timestamp, and returns the top `pageSize` messages.
- * Returns per-channel cursors for next page.
- */
 export const handleSlackMultiHistory = defineEventHandler((event) =>
   runApiHandlerWithContext(event, async () => {
     try {
@@ -231,7 +224,6 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
       if (!workspace) return invalidWorkspace(event);
       const missing = await requireSlackCredential(event, workspace);
       if (missing) return missing;
-      // cursors is a JSON-encoded object: { channelId: timestamp }
       const pageSize = parseInt((pageSizeParam as string) || "20", 10);
 
       if (!channelsParam) {
@@ -247,8 +239,6 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
       if (!parsedCursors.ok) return invalidCursors(event);
       const cursors = parsedCursors.value;
 
-      // Fetch pageSize messages from each channel in parallel while preserving
-      // partial results when the bot is not invited to one of the channels.
       const channelResults = await Promise.allSettled(
         channelIds.map((channelId) =>
           getChannelHistory(workspace, channelId, pageSize, cursors[channelId]),
@@ -263,7 +253,6 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
         entry.status === "rejected" ? [channelIds[index]] : [],
       );
 
-      // Tag messages with channel name and merge
       const allMessages: (SlackMessage & {
         channel_id: string;
         channel_name: string;
@@ -287,10 +276,8 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
         perChannelHasMore[channelId] = true;
       });
 
-      // Sort merged by timestamp (newest first)
       allMessages.sort((a, b) => parseFloat(b.ts) - parseFloat(a.ts));
 
-      // Take top pageSize
       const pageMessages = allMessages.slice(0, pageSize);
 
       const emittedByChannel = new Map<string, SlackMessage[]>();
@@ -307,14 +294,12 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
           nextCursors[channelId] = cursors[channelId];
       }
 
-      // Enrich text from blocks
       const enrichedMessages = pageMessages.map((message) => {
         const enriched = enrichMessages([message])[0] ?? message;
         const { channel_id: _channelId, ...rest } = enriched as typeof message;
         return rest;
       });
 
-      // Resolve users
       const userIds = enrichedMessages
         .map((m) => m.user)
         .filter((id): id is string => !!id);
@@ -324,7 +309,6 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
         enrichedMessages,
       );
 
-      // has_more is true if any channel has more messages
       const providerTruncated = successfulResults.some(
         ({ result }) => result.truncated,
       );

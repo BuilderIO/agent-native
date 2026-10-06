@@ -4,10 +4,10 @@ import {
   getAgentEngineEntry,
   isAgentEngineSettingConfigured,
   isStoredEngineUsable,
+  readDefaultAgentEngineSetting,
   registerBuiltinEngines,
 } from "@agent-native/core/agent/engine";
 import { getDbExec } from "@agent-native/core/db";
-import { getSetting } from "@agent-native/core/settings";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   builderCreditsFromCostCents,
@@ -18,6 +18,7 @@ import {
   type UsageBillingMode,
 } from "@agent-native/core/usage";
 
+import { isDispatchEnvironmentAdmin } from "./admin-config.js";
 import {
   listWorkspaceApps,
   type WorkspaceAppSummary,
@@ -373,25 +374,9 @@ function appOwner(app: WorkspaceAppSummary): string | null {
   return owner || null;
 }
 
-function envEmails(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function isEnvAdmin(email: string): boolean {
-  const normalized = email.trim().toLowerCase();
-  return [
-    ...envEmails("DISPATCH_ADMIN_EMAILS"),
-    ...envEmails("WORKSPACE_OWNER_EMAIL"),
-    ...envEmails("DISPATCH_DEFAULT_OWNER_EMAIL"),
-  ].includes(normalized);
-}
-
 async function detectUsageEngineName(): Promise<string | null> {
   try {
-    const stored = (await getSetting("agent-engine")) as {
+    const stored = (await readDefaultAgentEngineSetting()) as {
       engine?: string;
     } | null;
     if (isAgentEngineSettingConfigured(stored)) {
@@ -427,8 +412,6 @@ async function queryRows<T extends Record<string, unknown>>(
 
 async function initializeUsageMetricsTable(sinceMs: number): Promise<void> {
   try {
-    // Initializes token_usage on fresh deployments before the read-only
-    // aggregate queries below. The fake owner avoids changing visible data.
     await getUsageSummary({ ownerEmail: "__dispatch_metrics_init__", sinceMs });
   } catch {
     // Metrics should still render an empty state if usage storage is locked,
@@ -489,9 +472,6 @@ function withOrgUsageScope(
   orgId: string | null,
   selfScoped: boolean,
 ): { where: string; args: unknown[] } {
-  // A no-org viewer keeps the narrow `IS NULL` scope: `usageScope` degrades to
-  // an unfiltered owner scope when it has no member emails, so dropping the
-  // org predicate there would widen the read to the whole table.
   const org = usageOrgScope({ orgId, selfScoped });
   return {
     where: `${scope.where} AND ${org.where || "org_id IS NULL"}`,
@@ -944,7 +924,7 @@ async function assertCanViewMetrics(viewScope: UsageMetricsScope): Promise<{
   const role = await getViewerOrgRole(orgId, viewerEmail);
   if (
     viewScope === "me" ||
-    isEnvAdmin(viewerEmail) ||
+    isDispatchEnvironmentAdmin(viewerEmail) ||
     role === "owner" ||
     role === "admin"
   ) {
@@ -990,7 +970,9 @@ export async function listDispatchUsageMetrics(input: {
   }
   const selectedAppOwner = selectedApp ? appOwner(selectedApp) : null;
   const isMetricsAdmin = Boolean(
-    isEnvAdmin(viewerEmail) || role === "owner" || role === "admin",
+    isDispatchEnvironmentAdmin(viewerEmail) ||
+    role === "owner" ||
+    role === "admin",
   );
   if (
     viewScope === "app" &&
@@ -1033,11 +1015,6 @@ export async function listDispatchUsageMetrics(input: {
   const memberEmails = selectedUserEmail
     ? [selectedUserEmail]
     : members.map((member) => member.email);
-  // Unattributed (`org_id IS NULL`) usage may only be admitted when the read is
-  // narrowed to the viewer's own spend. An admin-selected member or a
-  // workspace-wide roll-up must not claim rows whose organization is unknown.
-  // Classified from the effective owner list, so a one-member organization's
-  // default workspace view still counts the viewer's own unattributed spend.
   const selfScopedUsage = isSelfScopedUsageRead(memberEmails, viewerEmail);
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),

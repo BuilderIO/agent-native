@@ -5,11 +5,6 @@ export interface DesktopLocalCodeChangeDetail {
   prompt: string;
 }
 
-/**
- * Ask an embedding desktop shell to prepare a local code-change workspace.
- * The optional target keeps bubbling events scoped to the shell that owns the
- * chat card while preserving a window fallback for standalone consumers.
- */
 export function requestDesktopLocalCodeChange(
   prompt: string,
   target: EventTarget | null = typeof window === "undefined" ? null : window,

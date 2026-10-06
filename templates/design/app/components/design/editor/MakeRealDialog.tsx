@@ -1,10 +1,10 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
-import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
+} from "@agent-native/toolkit/app/settings";
 import {
   IconCircleCheck,
   IconExternalLink,
@@ -25,7 +25,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 
-/** Result of `migrate-inline-design-to-app`, including the not-configured CTA. */
 export interface DesignMigrationResult {
   branchName?: string;
   url?: string;

@@ -71,6 +71,9 @@ export interface AgentThreadState {
   annotations: Record<string, AgentAnnotation>;
   annotationMessageIds: Record<string, string>;
   suggestions: AgentSuggestion[];
+  /** A submitted user turn has not acquired its run identity yet. */
+  suggestionsPendingTurn?: boolean;
+  suggestionsUserMessageId?: string;
   actions: Record<
     string,
     {
@@ -118,6 +121,96 @@ export function createAgentThreadState(threadId: ThreadId): AgentThreadState {
     actions: {},
     uploads: {},
   };
+}
+
+export function hasActiveAgentRuns(
+  thread: Pick<AgentThreadState, "activeRunIds"> &
+    Partial<Pick<AgentThreadState, "runs" | "events" | "approvalRunIds">>,
+): boolean {
+  const resolvedApprovalIds = new Set<string>();
+  const requestIdsByRun = new Map<RunId, Set<string>>();
+  for (const event of thread.events ?? []) {
+    if (event.type === "approval.requested") {
+      const requestIds = requestIdsByRun.get(event.runId) ?? new Set<string>();
+      requestIds.add(event.request.id);
+      requestIdsByRun.set(event.runId, requestIds);
+    } else if (event.type === "approval.resolved") {
+      resolvedApprovalIds.add(event.approvalId);
+    }
+  }
+
+  return thread.activeRunIds.some((runId) => {
+    const status = thread.runs?.[runId]?.status;
+    if (
+      status === "completed" ||
+      status === "failed" ||
+      status === "cancelled"
+    ) {
+      return false;
+    }
+    if (status !== "awaiting_approval") return true;
+    const requestIds = requestIdsByRun.get(runId) ?? new Set<string>();
+    for (const [approvalId, approvalRunId] of Object.entries(
+      thread.approvalRunIds ?? {},
+    )) {
+      if (approvalRunId === runId) requestIds.add(approvalId);
+    }
+    return (
+      requestIds.size === 0 ||
+      [...requestIds].some((approvalId) => !resolvedApprovalIds.has(approvalId))
+    );
+  });
+}
+
+export function selectLatestAgentRun(
+  thread: AgentThreadState,
+): AgentRunState | undefined {
+  return Object.values(thread.runs).reduce<AgentRunState | undefined>(
+    (latest, run) => {
+      if (!latest) return run;
+      const latestTime = latest.startedAt ?? latest.completedAt;
+      const runTime = run.startedAt ?? run.completedAt;
+      return latestTime && runTime && runTime < latestTime ? latest : run;
+    },
+    undefined,
+  );
+}
+
+/** Only model-authored follow-ups belonging to the latest successful turn. */
+export function selectAgentSuggestions(
+  thread: AgentThreadState,
+): AgentSuggestion[] {
+  const run = selectLatestAgentRun(thread);
+  if (
+    !run ||
+    run.status !== "completed" ||
+    thread.suggestionsPendingTurn ||
+    hasActiveAgentRuns(thread) ||
+    Object.keys(thread.approvals).length > 0
+  )
+    return [];
+  const latestUser = thread.messages.findLast(
+    (message) => message.role === "user",
+  );
+  if (
+    latestUser?.status === "error" ||
+    thread.suggestionsUserMessageId !== latestUser?.id
+  )
+    return [];
+  return thread.suggestions.filter((suggestion) => suggestion.runId === run.id);
+}
+
+export function isCurrentAgentSuggestion(
+  thread: AgentThreadState,
+  suggestion: AgentSuggestion,
+): boolean {
+  return selectAgentSuggestions(thread).some(
+    (item) =>
+      item.id === suggestion.id &&
+      item.runId === suggestion.runId &&
+      item.prompt === suggestion.prompt &&
+      item.label === suggestion.label,
+  );
 }
 
 export function selectActiveAgentRoster(
@@ -250,11 +343,6 @@ function isExpectedTerminalFollowup(
   );
 }
 
-/**
- * A terminal run is authoritative even when an upstream adapter omitted the
- * individual completion events. Keeping its last projected work active would
- * strand the transcript in a working state forever.
- */
 export function settleRunProjection(
   thread: AgentThreadState,
   runId: RunId,
@@ -414,10 +502,6 @@ export type AgentEventAdmission =
   | { status: "duplicate"; lastSequence: number }
   | { status: "gap"; expectedSequence: number; receivedSequence: number };
 
-/**
- * The one place the ordering rule lives, so a caller that needs to count a
- * rejection cannot drift from the reducer that performs it.
- */
 export function classifyAgentEvent(
   thread: AgentThreadState,
   event: AgentEvent,
@@ -453,8 +537,6 @@ export function reduceAgentEvent(
     !isExpectedTerminalFollowup(currentRun.status, event) &&
     (currentRun.status !== "failed" || hasTerminalEvent)
   ) {
-    // Once a terminal lifecycle event has been accepted, late work events are
-    // stale replay and must not reopen a settled transcript item.
     return thread;
   }
   const admission = classifyAgentEvent(thread, event);
@@ -480,6 +562,8 @@ export function reduceAgentEvent(
           startedAt: event.occurredAt,
         }),
         ...updateActiveRuns(next, event.runId, true),
+        suggestions: [],
+        suggestionsPendingTurn: false,
       };
     case "run.status": {
       const terminal = isTerminalRunStatus(event.status);
@@ -508,8 +592,6 @@ export function reduceAgentEvent(
     case "agent.unregistered":
       return {
         ...next,
-        // Keep the participant projection for durable attribution while
-        // making its live-roster state unambiguous for every consumer.
         agents: {
           ...next.agents,
           [event.agent.id]: {
@@ -577,8 +659,6 @@ export function reduceAgentEvent(
         (message) => message.id === event.message.id,
       );
       if (current?.status === "complete") return next;
-      // A reconnect can deliver a delta before the lifecycle marker. Do not
-      // let the late marker erase text or reasoning already accepted.
       if (current?.status === "streaming" && current.parts.length > 0) {
         return {
           ...next,
@@ -822,7 +902,21 @@ export function reduceAgentEvent(
       return { ...next, annotations, annotationMessageIds };
     }
     case "suggestions.updated":
-      return { ...next, suggestions: event.suggestions };
+      if (
+        next.suggestionsPendingTurn ||
+        selectLatestAgentRun(next)?.id !== event.runId
+      )
+        return next;
+      return {
+        ...next,
+        suggestionsUserMessageId: next.messages.findLast(
+          (message) => message.role === "user",
+        )?.id,
+        suggestions: event.suggestions.map((suggestion) => ({
+          ...suggestion,
+          runId: event.runId,
+        })),
+      };
     case "action.started":
       if (next.actions[event.invocation.id]?.result) return next;
       return {

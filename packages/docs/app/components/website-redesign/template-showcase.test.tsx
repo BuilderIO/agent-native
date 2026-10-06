@@ -94,7 +94,6 @@ describe("TemplateShowcase", () => {
     expect(
       within(card).getByRole("heading", { name: "Build from scratch" }),
     ).toBeTruthy();
-    // The two interactive children are the reason the card cannot be an anchor.
     expect(
       within(card).getByRole("button", { name: "Build online" }),
     ).toBeTruthy();

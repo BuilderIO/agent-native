@@ -1,5 +1,4 @@
 import {
-  FeatureFlagsEditor,
   type FeatureFlagMetadata,
   type SetFeatureFlagInput,
 } from "@agent-native/core/client/feature-flags";
@@ -8,6 +7,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FeatureFlagsEditor } from "@agent-native/toolkit/app/feature-flags";
 import { IconRefresh } from "@tabler/icons-react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 
@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 
 export interface FeatureFlag {
   key: string;
+  canManage?: boolean;
+  movedToLab?: string;
   displayName?: string | null;
   description?: string | null;
   defaultValue?: boolean;

@@ -64,10 +64,6 @@ async function syncDashboardToCollab(
   }
 }
 
-/**
- * Queue the live-editor sync after SQL has committed. SQL remains the source
- * of truth, so a collab lock or unavailable database must not hold a mutation.
- */
 export function queueDashboardCollabSync(
   dashboardId: string,
   config: Record<string, unknown>,

@@ -25,7 +25,7 @@ import type { VideoRedaction } from "@/lib/video-redactions";
 import { RedactionLane } from "./redaction-lane";
 
 const DURATION = 10_000;
-const WIDTH = 1_000; // 1px = 10ms
+const WIDTH = 1_000;
 
 const redaction: VideoRedaction = {
   id: "r1",
@@ -121,8 +121,6 @@ describe("dragging a redaction's edges", () => {
 
     act(() => {
       pointer(end, "pointerdown", 400);
-      // Well past the right-hand edge of the track, which is where a
-      // redaction used to strand itself beyond the end of the recording.
       pointer(lane(), "pointermove", 4_000);
       pointer(lane(), "pointerup", 4_000);
     });
@@ -143,12 +141,6 @@ describe("dragging a redaction's edges", () => {
     expect(onCommit.mock.calls[0][0][0]).toMatchObject({ startMs: 0 });
   });
 
-  /**
-   * These gestures are counted from pointer events rather than left to
-   * `click` and `dblclick`, which never arrive: a pointerdown whose default is
-   * prevented — as a drag's must be — takes the browser's compatibility mouse
-   * events with it. That bug shipped, so it is pinned here.
-   */
   it("pins a waypoint where the bar is clicked", () => {
     render([redaction]);
     const bar = container.querySelector('[role="button"]')!;

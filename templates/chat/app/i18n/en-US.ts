@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",
@@ -33,6 +28,10 @@ const messages = {
     pinChat: "Pin Chat",
     pinned: "Pinned",
     recents: "Recents",
+    retryPreviousRequest:
+      "Retry my previous request now that the model provider is connected.",
+    retryAttachmentUnavailable:
+      "Chat can't reopen this attachment for retry. Add an accessible file URL, then retry.",
     renameChat: "Rename Chat",
     renameFailed: "Rename Failed",
     renameThread: "Rename Thread",

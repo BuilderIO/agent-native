@@ -1,7 +1,13 @@
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 import type { ActionAutomationContext, ActionCaller } from "../action.js";
 import {
+  CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "../agent/engine/credential-errors.js";
+import {
   getStoredModelForEngine,
+  isResolvedEngineUsableForRequest,
   normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
@@ -10,7 +16,7 @@ import type { AgentEngine } from "../agent/engine/types.js";
 import {
   actionsToEngineTools,
   filterInitialEngineTools,
-  getOwnerActiveApiKey,
+  resolveOwnerEngineApiKey,
   runAgentLoop,
   type ActionEntry,
 } from "../agent/production-agent.js";
@@ -32,6 +38,7 @@ import {
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import {
+  lookupOwnerAccount,
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
 } from "../automations/service.js";
@@ -49,10 +56,25 @@ import {
 } from "../resources/store.js";
 import { captureError } from "../server/capture-error.js";
 import {
+  BuilderCredentialLookupError,
+  CredentialStoreUnavailableError,
+} from "../server/credential-provider.js";
+import {
   runWithRequestContext,
   type RequestContext,
 } from "../server/request-context.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
+import {
+  applyAutomationFailure,
+  automationOwnerKind,
+  classifyAutomationFailure,
+  CONFIG_INVALID_ERROR_CODE,
+  MISSING_TOOLS_ERROR_CODE,
+  OWNER_MISSING_ERROR_CODE,
+  pausedMessage,
+  withDeliveryNote,
+  type AutomationFailure,
+} from "./automation-outcome.js";
 import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
@@ -63,20 +85,8 @@ import {
   startAutomationRun,
 } from "./run-history.js";
 
-/**
- * Default hard abort for one in-process automation run. Read through
- * `resolveBackgroundRunHardTimeoutMs()` at the use site — this is the host's
- * real function budget for scheduled work, and it differs by deployment.
- */
 export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 
-/**
- * Terminal failure of a background automation, carrying the machine-readable
- * code the failure taxonomy already computes.
- *
- * The code used to be produced and then dropped, so "how often are runs cut
- * off?" was a `LIKE '%no_progress%'` over an English sentence.
- */
 export class BackgroundAutomationRunError extends Error {
   readonly errorCode: string;
   constructor(message: string, errorCode: string) {
@@ -107,6 +117,12 @@ export interface BackgroundAutomationDeps {
   appId?: string;
 }
 
+/** The run an automation started, filled in as soon as it has one. */
+interface AutomationRunRef {
+  current: string | null;
+  threadId?: string;
+}
+
 export interface BackgroundAutomationRunOptions {
   automation: BackgroundAutomationContext;
   ownerEmail: string;
@@ -119,17 +135,15 @@ export interface BackgroundAutomationRunOptions {
   requestContext?: Omit<RequestContext, "userEmail" | "orgId">;
   actionCaller?: ActionCaller;
   actionAutomation?: ActionAutomationContext;
-  /** Reuse a history row created by a durable run-now enqueue. */
   historyId?: string;
-  /**
-   * Per-run overrides for the run-manager no-progress backstop. `startRun` has
-   * always accepted these; the automation path had no way to reach them, and
-   * the one indirect route (zeroing `agent.runSoftTimeoutMs`) is global and
-   * would strip foreground chat of its chunk boundary. Additive: unset means
-   * the configured/default behaviour, unchanged.
-   */
+  hardTimeoutMs?: number;
+  hardDeadlineAt?: number;
   noProgressTimeoutMs?: number;
   backgroundNoProgressTimeoutMs?: number;
+  /** A run the owner asked for: it records its cause but never pauses the automation. */
+  manual?: boolean;
+  /** The event this run handles; retries of one event move the streak once. */
+  eventId?: string;
 }
 
 export interface BackgroundAutomationRunResult {
@@ -137,20 +151,24 @@ export interface BackgroundAutomationRunResult {
   runId: string;
 }
 
+/**
+ * `owner_missing` is permanent (the user or membership is gone);
+ * `owner_unverifiable` means the lookup itself failed and must be retried, not
+ * recorded as the owner being gone.
+ */
+export type AutomationIdentityFailureCode =
+  | typeof OWNER_MISSING_ERROR_CODE
+  | "owner_unverifiable"
+  | typeof CONFIG_INVALID_ERROR_CODE;
+
 export type AutomationIdentityValidation =
   | { ok: true }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; code: AutomationIdentityFailureCode };
 
 export type BackgroundAutomationIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; code?: AutomationIdentityFailureCode };
 
-/**
- * A persisted background run must not outlive its execution identity.
- * Organization runs fail closed when membership state cannot be read. A
- * brand-new personal install without auth tables remains a distinct
- * not-applicable case so local/CLI jobs keep working before auth is configured.
- */
 export async function validateAutomationRunIdentity(
   ownerEmail: string,
   orgId?: string,
@@ -163,13 +181,22 @@ export async function validateAutomationRunIdentity(
   }
 
   try {
-    const { getDbExec } = await import("../db/client.js");
-    const userResult = await getDbExec().execute({
-      sql: `SELECT 1 FROM "user" WHERE email = ? LIMIT 1`,
-      args: [ownerEmail],
-    });
-    if (!userResult.rows || userResult.rows.length === 0) {
-      return { ok: false, reason: `user "${ownerEmail}" no longer exists` };
+    const account = await lookupOwnerAccount(ownerEmail);
+    if (account === "missing") {
+      return {
+        ok: false,
+        reason: `user "${ownerEmail}" no longer exists`,
+        code: OWNER_MISSING_ERROR_CODE,
+      };
+    }
+    // No built-in accounts: like unconfigured auth tables, a personal owner
+    // cannot be checked here; an org member's standing cannot be proven.
+    if (account === "untracked" && orgId) {
+      return {
+        ok: false,
+        reason: `could not verify user "${ownerEmail}": this deployment keeps no built-in user accounts`,
+        code: "owner_unverifiable",
+      };
     }
   } catch (error) {
     const message =
@@ -182,6 +209,7 @@ export async function validateAutomationRunIdentity(
     return {
       ok: false,
       reason: `could not verify user "${ownerEmail}" for this run`,
+      code: "owner_unverifiable",
     };
   }
 
@@ -199,19 +227,23 @@ export async function validateAutomationRunIdentity(
       return {
         ok: false,
         reason: `could not verify membership in org "${orgId}"`,
+        code: "owner_unverifiable",
       };
     }
     if (memberRows.length === 0) {
       return {
         ok: false,
         reason: `user "${ownerEmail}" is no longer a member of org "${orgId}"`,
+        code: OWNER_MISSING_ERROR_CODE,
       };
     }
     return { ok: true };
   } catch {
+    // coercion-ok: reported as `owner_unverifiable`, which the scheduler retries instead of treating the owner as gone.
     return {
       ok: false,
       reason: `could not verify membership in org "${orgId}"`,
+      code: "owner_unverifiable",
     };
   }
 }
@@ -220,17 +252,32 @@ export async function resolveBackgroundAutomationIdentity(
   automation: BackgroundAutomationContext,
 ): Promise<BackgroundAutomationIdentityResult> {
   if (automation.meta.triggerType) {
+    let resolved: Awaited<
+      ReturnType<typeof resolveAutomationExecutionIdentity>
+    >;
     try {
-      return await resolveAutomationExecutionIdentity(
+      resolved = await resolveAutomationExecutionIdentity(
         automation.resource.owner,
         automation.meta,
       );
     } catch {
+      // coercion-ok: reported as `owner_unverifiable`, which the scheduler retries instead of treating the owner as gone.
       return {
         ok: false,
         reason: "Could not verify the automation execution identity.",
+        code: "owner_unverifiable",
       };
     }
+    if (!resolved.ok) return resolved;
+    // The service verifies an organization creator exists; a personal
+    // automation's owner was never looked up, so a deleted user kept running.
+    if (!organizationIdFromResourceOwner(automation.resource.owner)) {
+      const exists = await validateAutomationRunIdentity(
+        resolved.identity.userEmail,
+      );
+      if (!exists.ok) return exists;
+    }
+    return resolved;
   }
 
   const effectiveRunAs = automation.meta.runAs ?? "creator";
@@ -266,20 +313,12 @@ export function isBackgroundAutomationRunActive(
   if (meta.lastStatus !== "running") return false;
   if (!meta.lastRun) return false;
   const startedAt = new Date(meta.lastRun).getTime();
-  // Tracks the hard abort: past it no run of this automation is still alive, so
-  // a deployment that raises the abort must not have its live runs treated as
-  // stuck and re-dispatched underneath themselves.
   return (
     Number.isFinite(startedAt) &&
     now.getTime() - startedAt < resolveBackgroundRunHardTimeoutMs()
   );
 }
 
-/**
- * A soft-timeout/no-progress checkpoint is a continuation boundary, not a
- * successful finish. Only the last terminal event decides whether an
- * in-invocation resume recovered from the boundary.
- */
 export function backgroundRunCutOffReason(run: {
   events?: readonly { event: { type: string; reason?: string } }[];
 }): string | null {
@@ -300,6 +339,15 @@ function uniqueToolNames(names: readonly string[]): string[] {
   return [...new Set(names)];
 }
 
+function assertHardDeadline(deadlineAt?: number): void {
+  if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+    throw new BackgroundAutomationRunError(
+      "Background automation time budget expired during setup.",
+      "background_automation_hard_timeout",
+    );
+  }
+}
+
 function assertRequestedMcpToolsAvailable(
   automation: BackgroundAutomationContext,
   actions: Record<string, ActionEntry>,
@@ -307,10 +355,141 @@ function assertRequestedMcpToolsAvailable(
   const requested = automation.meta.mcpTools ?? [];
   const missing = requested.filter((toolName) => !actions[toolName]);
   if (missing.length > 0) {
-    throw new Error(
+    throw new BackgroundAutomationRunError(
       `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the automation's capability list.`,
+      MISSING_TOOLS_ERROR_CODE,
     );
   }
+}
+
+function missingCredentialsMessage(ownerEmail: string, orgId?: string): string {
+  const kind = automationOwnerKind(ownerEmail);
+  if (kind === "user") return LLM_MISSING_CREDENTIALS_MESSAGE;
+  // A shared or organization automation never borrows its creator's personal
+  // connection, so only someone who administers that scope can fix this.
+  const scope =
+    kind === "organization"
+      ? `organization "${orgId ?? organizationIdFromResourceOwner(ownerEmail)}"`
+      : "the shared workspace";
+  return `${LLM_MISSING_CREDENTIALS_MESSAGE} This automation runs as ${scope}, so an admin of ${kind === "organization" ? "that organization" : "the workspace"} must connect the provider; the creator's personal connection is not used.`;
+}
+
+async function assertLlmCredentialsUsable(input: {
+  engine: AgentEngine;
+  apiKey: string | undefined;
+  ownerEmail: string;
+  orgId?: string;
+}): Promise<void> {
+  let usable: boolean;
+  try {
+    usable = await isResolvedEngineUsableForRequest(input.engine, {
+      apiKey: input.apiKey,
+      credentialIdentity: { userEmail: input.ownerEmail, orgId: input.orgId },
+    });
+  } catch (error) {
+    if (
+      error instanceof CredentialStoreUnavailableError ||
+      error instanceof BuilderCredentialLookupError
+    ) {
+      // An unreadable credential store is not an absent credential: this is
+      // retried, never recorded as missing_credentials.
+      throw new BackgroundAutomationRunError(
+        "The credential store could not be read, so the LLM credential could not be checked.",
+        CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
+      );
+    }
+    throw error;
+  }
+  if (!usable) {
+    throw new BackgroundAutomationRunError(
+      missingCredentialsMessage(input.ownerEmail, input.orgId),
+      LLM_MISSING_CREDENTIALS_ERROR_CODE,
+    );
+  }
+}
+
+/**
+ * The cause a failed run recorded for itself. Without this, a run that ended
+ * on `missing_credentials` surfaced as the generic "ended with status:
+ * errored" and the owner never learned why.
+ */
+export function backgroundRunTerminalError(run: {
+  events?: readonly {
+    event: {
+      type: string;
+      error?: string;
+      details?: string;
+      errorCode?: string;
+    };
+  }[];
+}): { message: string; errorCode?: string } | null {
+  const events = run.events ?? [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i].event;
+    if (event.type === "missing_api_key") {
+      return {
+        message: LLM_MISSING_CREDENTIALS_MESSAGE,
+        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+      };
+    }
+    if (event.type === "error") {
+      const message = (event.error || event.details || "").trim();
+      return message ? { message, errorCode: event.errorCode } : null;
+    }
+    if (event.type === "done") return null;
+  }
+  return null;
+}
+
+/**
+ * Organization and shared jobs run as a scope, which has no inbox. Their
+ * creator is told only while still a member of that scope (the alert carries
+ * the automation's real error text); otherwise an org owner or admin is.
+ */
+async function notificationEmailFor(
+  automationName: string,
+  ownerEmail: string,
+  createdBy: string | undefined,
+  orgId: string | undefined,
+): Promise<string | undefined> {
+  const owner = ownerEmail.trim();
+  if (owner.includes("@") && automationOwnerKind(owner) === "user") {
+    return owner;
+  }
+  const creator = createdBy?.trim();
+  if (
+    creator?.includes("@") &&
+    automationOwnerKind(creator) === "user" &&
+    (await validateAutomationRunIdentity(creator, orgId)).ok
+  ) {
+    return creator;
+  }
+  const admin = orgId ? await orgAdminEmail(orgId) : undefined;
+  if (!admin) {
+    console.error(
+      `[automations] automation_alert_no_recipient: "${automationName}" runs as ${owner} and has no member to alert (creator "${creator ?? "none"}" is not a current member${orgId ? `, org "${orgId}" has no owner or admin` : ""}).`,
+    );
+  }
+  return admin;
+}
+
+async function orgAdminEmail(orgId: string): Promise<string | undefined> {
+  const rows = await queryOrgMembers({
+    sql: `SELECT email FROM org_members
+          WHERE org_id = ? AND role IN ('owner', 'admin')
+            AND federation_removal_pending_at IS NULL
+          ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, email
+          LIMIT 1`,
+    args: [orgId],
+  });
+  if (rows === null) {
+    console.error(
+      `[automations] automation_alert_no_recipient: could not read the owners of org "${orgId}".`,
+    );
+    return undefined;
+  }
+  const email = rows[0]?.email;
+  return typeof email === "string" && email ? email : undefined;
 }
 
 function createRunId(prefix: string): string {
@@ -323,9 +502,7 @@ export async function runBackgroundAutomation(
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation } = options;
-  // Bookkeeping, so it must not gate the work it describes: a history table
-  // that cannot be written should cost us the record, not the automation.
-  // Everything downstream tolerates a null id by skipping its own write.
+  assertHardDeadline(options.hardDeadlineAt);
   let historyId: string | null = null;
   if (options.historyId) {
     historyId = options.historyId;
@@ -343,6 +520,12 @@ export async function runBackgroundAutomation(
         scope: options.orgId ? "organization" : "personal",
         orgId: options.orgId ?? null,
         appId: deps.appId,
+        notificationEmail: await notificationEmailFor(
+          automation.name,
+          options.ownerEmail,
+          automation.meta.createdBy,
+          options.orgId,
+        ),
       });
     } catch (err) {
       console.error(
@@ -353,9 +536,7 @@ export async function runBackgroundAutomation(
   }
 
   let result: BackgroundAutomationRunResult;
-  // Populated as soon as the run id exists, so a failure that never returns a
-  // result can still be joined to its LLM trace (`aiTraceId` -> $ai_trace_id).
-  const runIdRef: { current: string | null } = { current: null };
+  const runIdRef: AutomationRunRef = { current: null };
   try {
     result = await executeBackgroundAutomation(
       options,
@@ -364,48 +545,62 @@ export async function runBackgroundAutomation(
       runIdRef,
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const errorCode =
-      err instanceof BackgroundAutomationRunError
-        ? err.errorCode
-        : "background_automation_failed";
-    // Both callers (recurring-jobs scheduler, trigger dispatcher) record this
-    // onto the automation's own metadata and console.error it, and neither
-    // reports it. A failure visible only in a resource field and stdout is not
-    // a failure anyone sees: the run-level no-progress cutoff killed
-    // automations across two releases without ever raising an issue.
+    const failure = classifyAutomationFailure(err);
+    // Same transition the scheduler persists, so the run that pauses the
+    // automation is the one that tells its owner.
+    const transition = applyAutomationFailure(
+      automation.meta,
+      failure,
+      new Date(),
+      { countTowardPause: !options.manual, eventId: options.eventId },
+    );
     captureError(err, {
       tags: {
         area: "background-automation",
         automation: automation.name,
         scope: options.orgId ? "organization" : "personal",
+        errorCode: failure.code,
+        failureKind: failure.precondition ? "precondition" : "runtime",
+        ownerKind: automationOwnerKind(options.ownerEmail),
       },
       extra: {
         automationPath: automation.resource.path,
+        automationName: automation.name,
         appId: deps.appId,
         historyId,
+        errorCode: failure.code,
+        consecutiveFailures: transition.consecutiveFailures,
+        paused: transition.pause,
       },
       ...(runIdRef.current ? { aiTraceId: runIdRef.current } : {}),
+      failure: {
+        automationName: automation.name,
+        // Outside any request, so the boundary cannot read the scope itself.
+        userScope: options.orgId ? "org" : "personal",
+        ...(runIdRef.threadId ? { threadId: runIdRef.threadId } : {}),
+      },
     });
     await recordRunOutcome(
       historyId,
       "error",
-      `${message}. No delivery was confirmed.`,
-      errorCode,
+      transition.pause
+        ? pausedMessage(
+            failure.code,
+            transition.consecutiveFailures,
+            failure.message,
+          )
+        : withDeliveryNote(failure.message),
+      failure.code,
+      // A precondition failure repeats identically until fixed, so only the
+      // run that pauses the automation emails its owner.
+      !(failure.precondition && !transition.pause),
     );
     throw err;
   }
-  // Outside the try: history is bookkeeping about the run, so a failure to
-  // write it must not turn a completed automation into a reported failure.
   await recordRunOutcome(historyId, "success");
   return result;
 }
 
-/**
- * Link the run to its agent thread. Bookkeeping again: the automation is
- * already executing by this point, so a failed write costs the cross-reference
- * in the history view, not the run.
- */
 async function recordRunThread(
   historyId: string | null,
   threadId: string,
@@ -444,18 +639,6 @@ function backgroundAutomationPersistFailure(input: {
   };
 }
 
-/**
- * Chat opens `/chat/:threadId` from `thread_data`, not `agent_run_events`.
- * Persist before the cut-off/status reject so a failed run still has a
- * visible trace. Keep the scheduler title — `extractThreadMeta` would
- * otherwise replace `Job: …` with the prompt excerpt.
- *
- * Cut-off and hard-abort turns have no terminal error event of their own.
- * `suppressInternalContinuation` also drops `auto_continue`, so persist
- * would otherwise store a completed assistant message. Append a
- * non-recoverable error and skip that suppress so Open thread shows the
- * incomplete state.
- */
 async function persistBackgroundAutomationTurn(input: {
   threadId: string;
   threadTitle: string;
@@ -532,10 +715,17 @@ async function recordRunOutcome(
   status: "success" | "error",
   error?: string,
   errorCode?: string,
+  notify = true,
 ): Promise<void> {
   if (!historyId) return;
   try {
-    await finishAutomationRun(historyId, status, error, errorCode);
+    if (notify) {
+      await finishAutomationRun(historyId, status, error, errorCode);
+    } else {
+      await finishAutomationRun(historyId, status, error, errorCode, {
+        notify: false,
+      });
+    }
   } catch (err) {
     console.error(
       `[automations] Could not record run ${historyId} as ${status}:`,
@@ -544,11 +734,79 @@ async function recordRunOutcome(
   }
 }
 
+/**
+ * Everything below runs before any thread or `agent_runs` row exists, so an
+ * automation that cannot run fails here, once, instead of leaving a "Job:"
+ * chat thread per scheduler tick.
+ */
+async function assertDeliveryTargetSupported(
+  automation: BackgroundAutomationContext,
+): Promise<void> {
+  const { deliveryPlatform, deliveryDestination } = automation.meta;
+  if (!deliveryPlatform || !deliveryDestination) return;
+  const { getDefaultAdapter } =
+    await import("../integrations/adapters/index.js");
+  if (!getDefaultAdapter(deliveryPlatform)?.sendMessageToTarget) {
+    throw new BackgroundAutomationRunError(
+      `Automation delivery is not supported for ${deliveryPlatform}`,
+      CONFIG_INVALID_ERROR_CODE,
+    );
+  }
+}
+
+async function resolveUsableBackgroundEngine(
+  identity: { ownerEmail: string; orgId?: string },
+  deps: BackgroundAutomationDeps,
+  assertDeadline: () => void,
+): Promise<AgentEngine> {
+  const { ownerEmail, orgId } = identity;
+  assertDeadline();
+  const ownerApiKey = await resolveOwnerEngineApiKey({ ownerEmail });
+  assertDeadline();
+  const apiKey = ownerApiKey.apiKey ?? deps.apiKey;
+  const apiKeyProvenance = ownerApiKey.apiKey
+    ? ownerApiKey.credentialProvenance
+    : deps.apiKey
+      ? { scope: "deployment" as const }
+      : undefined;
+  const engine =
+    deps.engine ??
+    (await resolveEngine({
+      apiKey,
+      apiKeyEnvVar: ownerApiKey.apiKey ? ownerApiKey.apiKeyEnvVar : undefined,
+      apiKeyProvenance,
+      appId: deps.appId,
+      credentialIdentity: { userEmail: ownerEmail, orgId },
+    }));
+  await assertLlmCredentialsUsable({ engine, apiKey, ownerEmail, orgId });
+  return engine;
+}
+
+/**
+ * Whether the automation's run identity has a usable LLM credential right now,
+ * without starting a run. The scheduler asks this to resume an automation it
+ * paused for `missing_credentials` as soon as the credential exists.
+ */
+export async function checkBackgroundAutomationCredentials(
+  identity: { ownerEmail: string; orgId?: string },
+  deps: BackgroundAutomationDeps,
+): Promise<{ ok: true } | { ok: false; failure: AutomationFailure }> {
+  try {
+    await runWithRequestContext(
+      { userEmail: identity.ownerEmail, orgId: identity.orgId },
+      () => resolveUsableBackgroundEngine(identity, deps, () => undefined),
+    );
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, failure: classifyAutomationFailure(error) };
+  }
+}
+
 async function executeBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
   historyId: string | null,
-  runIdRef?: { current: string | null },
+  runIdRef?: AutomationRunRef,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation, ownerEmail, orgId, prompt, threadTitle, usageLabel } =
     options;
@@ -560,7 +818,9 @@ async function executeBackgroundAutomation(
       orgId,
     },
     async () => {
+      assertHardDeadline(options.hardDeadlineAt);
       const baseActions = await deps.getActions(automation);
+      assertHardDeadline(options.hardDeadlineAt);
       assertRequestedMcpToolsAvailable(automation, baseActions);
 
       const configuredInitialTools = deps.getInitialToolNames?.(automation);
@@ -576,56 +836,40 @@ async function executeBackgroundAutomation(
       const availableTools = actionsToEngineTools(actions);
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
-      const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-      // The run manager invokes its detached callback after the scheduler's
-      // setup stack has yielded, so the engine's credentials must be captured
-      // now, while the owner/org identity is explicit. Passing
-      // `credentialIdentity` is what makes resolveEngine capture them, on the
-      // same gateway lane the interactive path uses — a Builder-credits site has
-      // no per-user connection to find, so resolving that lane by hand here once
-      // left every scheduled automation dead while chat still worked.
-      const engine =
-        deps.engine ??
-        (await resolveEngine({
-          apiKey: userApiKey ?? deps.apiKey,
-          appId: deps.appId,
-          credentialIdentity: { userEmail: ownerEmail, orgId },
-        }));
+      assertHardDeadline(options.hardDeadlineAt);
+      await assertDeliveryTargetSupported(automation);
+      const engine = await resolveUsableBackgroundEngine(
+        { ownerEmail, orgId },
+        deps,
+        () => assertHardDeadline(options.hardDeadlineAt),
+      );
+      assertHardDeadline(options.hardDeadlineAt);
       const modelCandidate =
         automation.meta.model ??
         deps.model ??
         (await getStoredModelForEngine(engine, { appId: deps.appId })) ??
         engine.defaultModel;
       const model = normalizeModelForEngine(engine, modelCandidate);
+      assertHardDeadline(options.hardDeadlineAt);
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
+      assertHardDeadline(options.hardDeadlineAt);
       const thread = await createThread(ownerEmail, {
         title: threadTitle,
         orgId: orgId ?? null,
       });
+      assertHardDeadline(options.hardDeadlineAt);
       const runId = createRunId(options.runIdPrefix);
-      if (runIdRef) runIdRef.current = runId;
+      if (runIdRef) {
+        runIdRef.current = runId;
+        runIdRef.threadId = thread.id;
+      }
       await recordRunThread(historyId, thread.id, runId);
+      assertHardDeadline(options.hardDeadlineAt);
 
-      // Scheduled work is background work: it has no synchronous serverless
-      // caller waiting on it, so it must not inherit the interactive clamp
-      // (40s soft timeout, a 30s no-progress backstop at 0.75x that, and 6
-      // continuations). A dashboard render or digest legitimately spends
-      // minutes across many tool calls, and dies the first time any gap
-      // between two of them exceeds 30s — recorded as `no_progress` after
-      // several minutes of real work, because the backstop is suspended
-      // while a tool is in flight but not between tools.
-      //
-      // Hardcoded rather than `isInBackgroundFunctionRuntime()` (what
-      // webhook-handler.ts uses): a webhook can arrive on either runtime, but
-      // a scheduler tick never serves a synchronous request, so the
-      // interactive clamp never applies to it.
-      //
-      // Derived from this runner's OWN hard abort, not from the durable-chat
-      // background ceiling: that ceiling is 13 minutes and this process is
-      // killed at 10, so taking it left the recoverable soft-timeout boundary
-      // as dead code and the terminal no-progress backstop as the only
-      // boundary an automation could reach.
-      const hardTimeoutMs = resolveBackgroundRunHardTimeoutMs();
+      const maxHardTimeoutMs = Math.min(
+        options.hardTimeoutMs ?? Number.POSITIVE_INFINITY,
+        resolveBackgroundRunHardTimeoutMs(),
+      );
       const softTimeoutMs = resolveBackgroundAutomationSoftTimeoutMs();
 
       const usageRef: {
@@ -635,16 +879,7 @@ async function executeBackgroundAutomation(
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
       let hardTimedOut = false;
 
-      // This runner executes in-process, synchronously — there is no HTTP
-      // self-dispatch to a separate worker. Self-claim the row into
-      // 'background-processing' right away, exactly like a genuine HTTP
-      // background worker does immediately after its own insert (see
-      // production-agent.ts's `claimBackgroundWorkerRunEarly`). Without this,
-      // the row sits at dispatch_mode='background' for its whole life with no
-      // worker ever claiming it, which is indistinguishable from a lost HTTP
-      // handoff to the unclaimed-background-run sweep — it gets reaped as
-      // "background_worker_never_started" out from under a still-executing
-      // job the moment any single tool call runs past the 25s grace window.
+      assertHardDeadline(options.hardDeadlineAt);
       await insertRun(runId, thread.id, undefined, {
         dispatchMode: "background",
       });
@@ -654,6 +889,12 @@ async function executeBackgroundAutomation(
           `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
         );
       }
+      const hardTimeoutMs = Math.min(
+        maxHardTimeoutMs,
+        options.hardDeadlineAt === undefined
+          ? Number.POSITIVE_INFINITY
+          : Math.max(1, options.hardDeadlineAt - Date.now()),
+      );
 
       await new Promise<void>((resolve, reject) => {
         const activeRun = startRun(
@@ -688,19 +929,8 @@ async function executeBackgroundAutomation(
                 model,
                 automation.meta.reasoningEffort,
               ),
-              // Same model-aware ceiling the interactive paths pass (see
-              // agent-teams.ts and webhook-handler.ts). Without it a scheduled
-              // run silently inherits the flat per-engine default — a LOWER
-              // budget than chat, on exactly the runs that produce the largest
-              // single tool call (a digest, a dashboard, a batch insert), and
-              // the truncation surfaces as an unexplained invalid-arguments
-              // retry loop rather than as a budget problem.
               maxOutputTokens: resolveMainChatMaxOutputTokens(model),
             };
-            // Same adapter A2A uses: bridge this runner's multi-argument shape
-            // to the single-argument `runAgentLoop` `instrumentAgentLoop`
-            // expects. `control` is what lets a chunk boundary be recovered
-            // here instead of ending the turn.
             const execute = (o: typeof loopOpts = loopOpts) =>
               runAgentLoopDirectWithSoftTimeout(
                 o,
@@ -721,20 +951,13 @@ async function executeBackgroundAutomation(
                   loopOpts,
                   runId,
                   threadId: thread.id,
-                  // A scheduled run is NOT anonymous. Passing the owner is what
-                  // makes it visible to per-user observability reads.
                   userId: ownerEmail,
                   config,
-                  // The trace list column is a name, so it has to say WHICH
-                  // automation ran; a constant here made every scheduled run
-                  // in LLM analytics indistinguishable from every other one.
                   spanName: `background_automation_run:${automation.name}`,
                   metadata: {
                     automation: automation.name,
+                    automationId: automation.resource.id,
                     trigger: "background_automation",
-                    // `recurring-job:` / `manual-automation:` / `automation:`
-                    // — what actually started this run, which the span name
-                    // alone does not say.
                     label: usageLabel,
                     scope: orgId ? "organization" : "personal",
                   },
@@ -742,9 +965,6 @@ async function executeBackgroundAutomation(
                 return;
               }
             } catch (error) {
-              // Match A2A and interactive chat: a setup failure falls through
-              // to an uninstrumented run, but a failure from INSIDE the
-              // instrumented loop is the real run failure and must rethrow.
               if (instrumented) throw error;
             }
             usageRef.current = await execute();
@@ -771,8 +991,6 @@ async function executeBackgroundAutomation(
               reject(err instanceof Error ? err : new Error(String(err)));
               throw err;
             }
-            // Hard timeout owns the runner reject so a serverless return
-            // waits for this persist via `activeRun.finalized`.
             if (hardTimedOut) return;
             if (persistFailure) {
               reject(
@@ -784,10 +1002,12 @@ async function executeBackgroundAutomation(
               return;
             }
             if (run.status !== "completed") {
+              const cause = backgroundRunTerminalError(run);
               reject(
                 new BackgroundAutomationRunError(
-                  `Background automation ended with status: ${run.status}`,
-                  `background_automation_${run.status}`,
+                  cause?.message ??
+                    `Background automation ended with status: ${run.status} and recorded no error detail`,
+                  cause?.errorCode ?? `background_automation_${run.status}`,
                 ),
               );
               return;
@@ -800,13 +1020,7 @@ async function executeBackgroundAutomation(
           {
             softTimeoutMs,
             backgroundFunction: true,
-            // This runner owns continuation in-process: there is no HTTP body
-            // to re-POST and no `chainServerDrivenContinuation` behind it, so a
-            // checkpoint must end the CHUNK and let the loop above recover it.
             recoverChunkBoundaries: true,
-            // Matches the `dispatch_mode` this runner already writes onto the
-            // run row at insert. Without it the terminal and boundary analytics
-            // events reported every scheduled run as foreground.
             dispatchMode: "background",
             noProgressTimeoutMs: options.noProgressTimeoutMs,
             backgroundNoProgressTimeoutMs:
@@ -821,10 +1035,6 @@ async function executeBackgroundAutomation(
           hardAbortTimer = null;
           if (activeRun.status !== "running") return;
           hardTimedOut = true;
-          // `abortRun`, not `activeRun.abort.abort`: the controller alone
-          // carries no reason the run manager can see, so finalization fell
-          // through to `aborted:user` and a hard timeout was recorded as a
-          // person pressing Stop.
           abortRun(runId, "background_automation_hard_timeout");
           const timeoutError = new BackgroundAutomationRunError(
             `Background automation timed out after ${Math.round(hardTimeoutMs / 60_000)} minutes`,
@@ -883,8 +1093,9 @@ async function executeBackgroundAutomation(
           await import("../integrations/adapters/index.js");
         const adapter = getDefaultAdapter(automation.meta.deliveryPlatform);
         if (!adapter?.sendMessageToTarget) {
-          throw new Error(
+          throw new BackgroundAutomationRunError(
             `Automation delivery is not supported for ${automation.meta.deliveryPlatform}`,
+            CONFIG_INVALID_ERROR_CODE,
           );
         }
         await adapter.sendMessageToTarget(

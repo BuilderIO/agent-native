@@ -10,17 +10,6 @@ import {
 
 const MAX_PENDING_SCOPED_TAB_STATES = 100;
 
-/**
- * Hook that wraps sendToAgentChat with a loading state.
- *
- * Returns [isGenerating, send, stopReason] where:
- * - isGenerating: true after send() is called, false when the
- *   agentNative.chatRunning event reports that the run has stopped
- * - send: wrapper around sendToAgentChat that sets isGenerating to true
- * - stopReason: "stopped" when the user explicitly stopped the run
- * - observedRun: true once the scoped tab reports a run; resets when its ID changes
- * - tabId scope: observe only that tab; null waits until its identity is known
- */
 export function useAgentChatGenerating(options?: {
   tabId?: string | null;
 }): [boolean, (opts: AgentChatMessage) => string, "stopped" | null, boolean] {
@@ -77,10 +66,6 @@ export function useAgentChatGenerating(options?: {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (typeof detail?.isRunning !== "boolean") return;
-      // Only honor events for the run this hook started. Events carrying a
-      // different tabId belong to another chat surface (sidebar, other
-      // composer, automation) and must not flip our state. Once a run has a
-      // tab identity, an unscoped event is just as unrelated as another tab.
       const eventTabId = typeof detail.tabId === "string" ? detail.tabId : null;
       const nextState = {
         isRunning: detail.isRunning,

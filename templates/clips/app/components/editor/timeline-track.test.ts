@@ -24,7 +24,6 @@ const DURATION = 10_000;
 const boundariesOf = (edits: EditsJson) =>
   trackBoundaries(buildTimelinePieces(DURATION, edits));
 
-/** Press a boundary and drag it to `toMs`, the way the component does. */
 function drag(
   edits: EditsJson,
   atMs: number,
@@ -173,8 +172,6 @@ describe("dragging the edge of a gap", () => {
   });
 
   it("puts the whole gap back rather than eating the section beyond it", () => {
-    // The pointer went well past the far edge; it stops there, which closes
-    // the gap — the section on the other side is never touched.
     expect(getCuts(drag(base, 6_000, "clip-start", 2_000))).toEqual([]);
   });
 
@@ -197,7 +194,6 @@ describe("dragging the edge of a gap", () => {
 });
 
 describe("a section deleted between two cuts", () => {
-  // Two splits, then Delete on the middle section: the classic edit.
   const twoSplits = addSplitAt(
     addSplitAt(DEFAULT_EDITS, 3_000, "split-a"),
     6_000,

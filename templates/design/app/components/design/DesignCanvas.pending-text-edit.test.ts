@@ -30,8 +30,6 @@ describe("routePendingTextEditKey", () => {
       action: "buffer",
       char: "!",
     });
-    // Alt-composed glyphs (e.g. Option+e on macOS) still arrive as a single
-    // printable key value and belong in the text, not in host shortcuts.
     expect(routePendingTextEditKey({ key: "é", altKey: true })).toEqual({
       action: "buffer",
       char: "é",
@@ -88,9 +86,6 @@ describe("routePendingTextEditKey", () => {
   });
 
   it("keeps the stand-down timeout aligned with the bridge retry window", () => {
-    // Bridge begin-text-edit retry window is ~2s; the host buffer must
-    // outlive it (plus round-trip slack) or keys leak to shortcuts right at
-    // the end of a slow activation.
     expect(PENDING_TEXT_EDIT_TIMEOUT_MS).toBeGreaterThanOrEqual(2000);
     expect(PENDING_TEXT_EDIT_TIMEOUT_MS).toBeLessThanOrEqual(5000);
   });

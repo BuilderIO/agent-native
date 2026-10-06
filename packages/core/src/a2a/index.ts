@@ -1,4 +1,3 @@
-// Server (H3/Nitro)
 export { mountA2A, verifyA2AToken } from "./server.js";
 export type { A2ATokenPayload } from "./server.js";
 export { generateAgentCard } from "./agent-card.js";
@@ -22,7 +21,6 @@ export {
   parseA2AAgentActivityPart,
 } from "./activity.js";
 
-// Client
 export {
   A2AClient,
   A2AJsonRpcResponseError,
@@ -32,6 +30,8 @@ export {
   callAction,
   callAgent,
   clearA2ACardCache,
+  getGlobalA2ASecret,
+  signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";
 export type { A2AProtocolErrorCode } from "./client.js";
@@ -47,6 +47,7 @@ export type {
 } from "./remote-agent-auth.js";
 export { canonicalA2AAudience } from "./audience.js";
 export { resolveA2ACallerAuth } from "./caller-auth.js";
+export { readPeerComposerSource } from "./composer-source.js";
 export type { A2ACallerAuth } from "./caller-auth.js";
 export {
   ANTHROPIC_MANAGED_AGENTS_BETA_HEADER,
@@ -74,7 +75,6 @@ export {
   resolveAgentInvocationTarget,
 } from "./invoke.js";
 
-// Types
 export type {
   A2AConfig,
   A2AHandler,

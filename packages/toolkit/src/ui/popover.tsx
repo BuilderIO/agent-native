@@ -12,8 +12,6 @@ const PopoverAnchor = PopoverPrimitive.Anchor;
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
-    // When false, renders inline without a portal — useful inside overflow-hidden
-    // containers where a portalled overlay would escape the clip boundary.
     portalled?: boolean;
     container?: React.ComponentPropsWithoutRef<
       typeof PopoverPrimitive.Portal

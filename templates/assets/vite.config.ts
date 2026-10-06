@@ -12,8 +12,6 @@ export default defineConfig({
     ...reactRouterPlugins(),
     ...agentNativePlugins({
       port: 8100,
-      // shiki only runs in AssistantChat's useEffect — keep it out of the
-      // CF Pages Functions bundle (25 MiB limit).
       ssrStubs: ["shiki"],
     }),
   ],

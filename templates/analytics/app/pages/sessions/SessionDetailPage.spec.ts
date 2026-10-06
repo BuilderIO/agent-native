@@ -6,12 +6,14 @@ import {
   buildIdleSkipRanges,
   buildReplayMarkers,
   buildReplayViewportTimeline,
+  collapsePageChangeMarkers,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
   REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
+  replayActionName,
   replayAvailabilityErrorKey,
   replayInitialViewportDimensions,
   replayPayloadEvents,
@@ -168,8 +170,6 @@ describe("session replay event normalization", () => {
     const serializedBeforeNormalization = JSON.stringify(events);
     const normalized = normalizeReplayEvents(events);
     expect(normalized).toEqual(events);
-    // Structural tripwire: playback normalization may filter and stable-sort,
-    // but it must never rewrite a byte of valid rrweb event data.
     expect(JSON.stringify(normalized)).toBe(serializedBeforeNormalization);
     expect(JSON.stringify(events)).toBe(serializedBeforeNormalization);
     expect(normalized[0]).toBe(events[0]);
@@ -228,12 +228,6 @@ describe("session replay event normalization", () => {
   });
 
   it("keeps an initial malformed-looking Meta viewport exactly as recorded", () => {
-    // Regression tripwire: this shape used to be misidentified as an
-    // "impossible" legacy recording and rewritten to 1,397x873. There was
-    // never a stored recording with corrupt geometry — the 2026-07 ultra-wide
-    // replay bugs were caused by demo mode's view-time fetch redaction (see
-    // packages/core/src/demo/fetch-interceptor.ts). Player geometry must stay
-    // fully raw, no matter how wide or unusual the aspect ratio looks.
     const events = [
       { type: 4, timestamp: 1000, data: { width: 7535, height: 873 } },
       { type: 2, timestamp: 1010, data: { node: { type: 0 } } },
@@ -246,10 +240,6 @@ describe("session replay event normalization", () => {
   });
 
   it("never clamps or rewrites raw display dimensions, only fills in missing ones", () => {
-    // Regression tripwire against reintroducing a viewport "recovery"
-    // heuristic. 3189x885 was the exact shape a deleted `clampReplayDisplayDimensions`
-    // used to rewrite to 1416x885; it must now pass through untouched, same
-    // as every other real or unusual aspect ratio.
     expect(
       resolveReplayDisplayDimensions({ width: 3189, height: 885 }),
     ).toEqual({ width: 3189, height: 885 });
@@ -262,7 +252,6 @@ describe("session replay event normalization", () => {
     expect(
       resolveReplayDisplayDimensions({ width: 1440, height: 900 }),
     ).toEqual({ width: 1440, height: 900 });
-    // Only missing/invalid dimensions fall back to the default player size.
     expect(resolveReplayDisplayDimensions(null)).toEqual({
       width: 1024,
       height: 640,
@@ -296,7 +285,6 @@ describe("session replay event normalization", () => {
         },
       ]),
     ).toEqual({ width: 1280, height: 800 });
-    // Raw Meta dimensions are kept as-is for CSS fit-to-stage only.
     expect(
       replayViewportDimensions([
         { type: 4, timestamp: 1000, data: { width: 4800, height: 900 } },
@@ -509,6 +497,288 @@ describe("session replay timeline markers", () => {
       "click",
     ]);
     expect(filterReplayMarkers(markers, "missing")).toEqual([]);
+  });
+});
+
+describe("session replay app event markers", () => {
+  const events = [
+    {
+      type: 4,
+      timestamp: 1_000,
+      data: { width: 1280, height: 720, href: "https://clips.example.test/" },
+    },
+    {
+      type: 5,
+      timestamp: 2_000,
+      data: {
+        tag: "agent-native.event",
+        payload: { name: "recording_started" },
+      },
+    },
+    {
+      type: 5,
+      timestamp: 3_000,
+      data: {
+        tag: "agent-native.network",
+        payload: {
+          api: "fetch",
+          method: "POST",
+          url: "https://clips.example.test/_agent-native/actions/create-clip",
+          status: 500,
+          ok: false,
+        },
+      },
+    },
+  ];
+
+  it("hides app events and keeps failed actions as network errors with the Lab off", () => {
+    const markers = buildReplayMarkers(events);
+    expect(markers.map((marker) => [marker.kind, marker.label])).toEqual([
+      ["navigation", "Navigate"],
+      ["custom", "Network error"],
+    ]);
+  });
+
+  it("shows named app events and failed actions with the Lab on", () => {
+    const markers = buildReplayMarkers(events, { appEvents: true });
+    expect(
+      markers.map((marker) => ({
+        kind: marker.kind,
+        label: marker.label,
+        detail: marker.detail,
+        severity: marker.severity,
+        offsetMs: marker.offsetMs,
+      })),
+    ).toEqual([
+      expect.objectContaining({ kind: "navigation", offsetMs: 0 }),
+      {
+        kind: "event",
+        label: "recording_started",
+        detail: undefined,
+        severity: "info",
+        offsetMs: 1_000,
+      },
+      {
+        kind: "event",
+        label: "Action failed",
+        detail: "create-clip · 500",
+        severity: "error",
+        offsetMs: 2_000,
+      },
+    ]);
+  });
+
+  describe("performance markers", () => {
+    const performanceEvents = [
+      events[0],
+      {
+        type: 5,
+        timestamp: 2_000,
+        data: {
+          tag: "agent-native.vitals",
+          payload: {
+            route: "/r/:id",
+            navigationType: "load",
+            lcpMs: 4_200,
+            cls: 0.02,
+            ttfbMs: 310,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_000,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            method: "POST",
+            duration_ms: 2_400,
+            status_code: 200,
+            outcome: "success",
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_200,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "save-clip",
+            method: "POST",
+            duration_ms: 1_200,
+            status_code: 500,
+            outcome: "http-error",
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_500,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            duration_ms: 999,
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_600,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            duration_ms: 9_000,
+            page_hidden: true,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_700,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            duration_ms: 5_000,
+            outcome: "cancelled",
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        // A network event stops timing at the headers, so it never marks a
+        // slow request; the slow-request event carries the counted timing.
+        type: 5,
+        timestamp: 3_800,
+        data: {
+          tag: "agent-native.network",
+          payload: {
+            api: "fetch",
+            method: "POST",
+            url: "https://clips.example.test/_agent-native/actions/list-clips",
+            status: 200,
+            ok: true,
+            durationMs: 2_400,
+          },
+        },
+      },
+    ];
+
+    it("leaves the timeline unchanged with the Lab off", () => {
+      expect(
+        buildReplayMarkers(performanceEvents).map((marker) => marker.kind),
+      ).toEqual(["navigation"]);
+    });
+
+    it("marks page vitals and the slow requests the row hint counts", () => {
+      const markers = buildReplayMarkers(performanceEvents, {
+        appEvents: true,
+        performance: { pageVitals: "Page vitals", slowRequest: "Slow request" },
+      });
+      expect(
+        markers.map(({ kind, label, detail, severity, offsetMs }) => ({
+          kind,
+          label,
+          detail,
+          severity,
+          offsetMs,
+        })),
+      ).toEqual([
+        expect.objectContaining({ kind: "navigation" }),
+        {
+          kind: "event",
+          label: "Page vitals",
+          detail: "LCP 4.2 s · CLS 0.02 · TTFB 310 ms",
+          severity: "warn",
+          offsetMs: 1_000,
+        },
+        {
+          kind: "event",
+          label: "Slow request",
+          detail: "list-clips · 2.4 s",
+          severity: "warn",
+          offsetMs: 2_000,
+        },
+        {
+          kind: "event",
+          label: "Slow request",
+          detail: "save-clip · 1.2 s",
+          severity: "warn",
+          offsetMs: 2_200,
+        },
+      ]);
+    });
+  });
+
+  it("reads action names from Agent-Native action routes only", () => {
+    expect(
+      replayActionName("https://x.test/_agent-native/actions/list-clips?x=1"),
+    ).toBe("list-clips");
+    expect(replayActionName("/_agent-native/actions/clips%3Async")).toBe(
+      "clips:sync",
+    );
+    expect(replayActionName("https://x.test/api/clips")).toBeNull();
+    expect(replayActionName(undefined)).toBeNull();
+  });
+
+  it("collapses runs of page changes until an app event or input", () => {
+    const markers = buildReplayMarkers(
+      [
+        {
+          type: 4,
+          timestamp: 1_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/a" },
+        },
+        {
+          type: 3,
+          timestamp: 1_500,
+          data: { source: 2, type: 2, id: 7, x: 1, y: 1 },
+        },
+        {
+          type: 4,
+          timestamp: 2_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/b" },
+        },
+        {
+          type: 4,
+          timestamp: 3_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/c" },
+        },
+        {
+          type: 5,
+          timestamp: 4_000,
+          data: { tag: "agent-native.event", payload: { name: "clip_viewed" } },
+        },
+        {
+          type: 4,
+          timestamp: 5_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/d" },
+        },
+      ],
+      { appEvents: true },
+    );
+
+    const collapsed = collapsePageChangeMarkers(markers);
+    expect(
+      collapsed.map((marker) => [
+        marker.kind,
+        marker.offsetMs,
+        marker.collapsedCount ?? 1,
+      ]),
+    ).toEqual([
+      ["navigation", 0, 3],
+      ["click", 500, 1],
+      ["event", 3_000, 1],
+      ["navigation", 4_000, 1],
+    ]);
+    expect(collapsed[0].detail).toBe(markers[3].detail);
   });
 });
 

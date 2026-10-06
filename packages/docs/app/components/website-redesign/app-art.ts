@@ -1,15 +1,8 @@
-// Final marketing art per app, keyed by catalog slug, shared by the homepage
-// carousel and the /apps grid so the two cannot drift. The carousel lists a
-// subset of these slugs; the extra entries only surface on /apps.
 export interface AppArt {
-  // Both variants or neither: a dark screenshot shown in light mode reads
-  // worse than no screenshot at all, so a card without both falls back.
   imageDark: string;
   imageLight: string;
 }
 
-// A slug absent from this map has no final art yet, which the cards render
-// differently from having art — no placeholder URL stands in for "missing".
 export const APP_ART: Record<string, AppArt> = {
   analytics: {
     imageDark:

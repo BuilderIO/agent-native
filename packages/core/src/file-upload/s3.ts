@@ -1,12 +1,7 @@
-/**
- * Framework-owned S3-compatible object storage provider.
- *
- * The onboarding form writes these keys to scoped secrets. A public base URL
- * is required because chat attachments need stable URLs that remain usable
- * after the request and across later turns in the thread.
- */
-
-import { resolveSecret } from "../server/credential-provider.js";
+import {
+  prefetchSecrets,
+  resolveSecret,
+} from "../server/credential-provider.js";
 import {
   listFileUploadProviders,
   registerFileUploadProvider,
@@ -92,7 +87,23 @@ async function resolveStorageSecret(
   return primaryValue ?? cleanValue(await resolveSecret(fallback));
 }
 
+const STORAGE_SECRET_KEYS = [
+  "S3_BUCKET",
+  "R2_BUCKET",
+  "S3_ACCESS_KEY_ID",
+  "R2_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+  "R2_SECRET_ACCESS_KEY",
+  "S3_ENDPOINT",
+  "R2_ENDPOINT",
+  "S3_REGION",
+  "R2_REGION",
+  "S3_PUBLIC_BASE_URL",
+  "R2_PUBLIC_BASE_URL",
+] as const;
+
 async function readRequestConfig(): Promise<S3Config | null> {
+  await prefetchSecrets(STORAGE_SECRET_KEYS);
   const scopedConfig = buildConfig({
     bucket: await resolveStorageSecret("S3_BUCKET", "R2_BUCKET"),
     accessKeyId: await resolveStorageSecret(
@@ -353,15 +364,6 @@ export const s3FileUploadProvider: FileUploadProvider = {
   },
 };
 
-/**
- * Put the built-in provider in the `s3` slot unless something already holds it.
- *
- * An app may register its own implementation under the same conventional id —
- * the plugin comment in `core-routes-plugin.ts` says so — and that explicit
- * registration has to survive every later bootstrap that reaches this code, in
- * whatever order they run. Callers that want to *replace* the slot call
- * `registerFileUploadProvider` directly.
- */
 export function ensureS3FileUploadProvider(): void {
   if (
     listFileUploadProviders().some(

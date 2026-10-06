@@ -1,37 +1,168 @@
 {
   "exports": {
     ".": ["dist/index.d.ts", "dist/index.js"],
+    "./app/agentkit": [
+      "dist/app/agentkit/index.d.ts",
+      "dist/app/agentkit/index.js"
+    ],
+    "./app/chat": ["dist/app/chat/index.d.ts", "dist/app/chat/index.js"],
+    "./app/org": ["dist/app/org/index.d.ts", "dist/app/org/index.js"],
+    "./app/settings": [
+      "dist/app/settings/index.d.ts",
+      "dist/app/settings/index.js"
+    ],
+    "./app/agent-page": [
+      "dist/app/agent-page/index.d.ts",
+      "dist/app/agent-page/index.js"
+    ],
+    "./app/*.css": ["dist/app/*.css"],
+    "./app/*": ["dist/app/*.d.ts", "dist/app/*.js"],
     "./app-shell": ["dist/app-shell/index.d.ts", "dist/app-shell/index.js"],
     "./app-shell/*": ["dist/app-shell/*.d.ts", "dist/app-shell/*.js"],
+    "./app-shell/prompt-home.css": ["dist/app-shell/prompt-home.css"],
+    "./agentkit": ["dist/agentkit.d.ts", "dist/agentkit.js"],
     "./collab-ui": ["dist/collab-ui/index.d.ts", "dist/collab-ui/index.js"],
     "./collab-ui/*": ["dist/collab-ui/*.d.ts", "dist/collab-ui/*.js"],
+    "./dashboard": ["dist/dashboard/index.d.ts", "dist/dashboard/index.js"],
+    "./dashboard/*": ["dist/dashboard/*.d.ts", "dist/dashboard/*.js"],
+    "./data-grid": ["dist/data-grid/index.d.ts", "dist/data-grid/index.js"],
+    "./data-grid/*": ["dist/data-grid/*.d.ts", "dist/data-grid/*.js"],
     "./chat-history": [
       "dist/chat-history/index.d.ts",
       "dist/chat-history/index.js"
     ],
-    "./chat-history.css": ["dist/chat-history.css"],
     "./chat-history/*": ["dist/chat-history/*.d.ts", "dist/chat-history/*.js"],
+    "./canvas-annotations": [
+      "dist/canvas-annotations/index.d.ts",
+      "dist/canvas-annotations/index.js"
+    ],
+    "./canvas-annotations/*": [
+      "dist/canvas-annotations/*.d.ts",
+      "dist/canvas-annotations/*.js"
+    ],
+    "./canvas-interactions": [
+      "dist/canvas-interactions/index.d.ts",
+      "dist/canvas-interactions/index.js"
+    ],
+    "./canvas-interactions/*": [
+      "dist/canvas-interactions/*.d.ts",
+      "dist/canvas-interactions/*.js"
+    ],
+    "./clipboard": ["dist/clipboard.d.ts", "dist/clipboard.js"],
+    "./composer": ["dist/composer/index.d.ts", "dist/composer/index.js"],
+    "./composer/*": ["dist/composer/*.d.ts", "dist/composer/*.js"],
+    "./conformance": [
+      "dist/conformance/index.d.ts",
+      "dist/conformance/index.js"
+    ],
+    "./conformance/*": ["dist/conformance/*.d.ts", "dist/conformance/*.js"],
     "./context-ui": ["dist/context-ui/index.d.ts", "dist/context-ui/index.js"],
     "./design-tweaks": [
       "dist/design-tweaks/index.d.ts",
       "dist/design-tweaks/index.js"
     ],
-    "./data-grid": ["dist/data-grid/index.d.ts", "dist/data-grid/index.js"],
-    "./data-grid/*": ["dist/data-grid/*.d.ts", "dist/data-grid/*.js"],
+    "./design-system": [
+      "dist/design-system/index.d.ts",
+      "dist/design-system/index.js"
+    ],
+    "./design-system/*": [
+      "dist/design-system/*.d.ts",
+      "dist/design-system/*.js"
+    ],
     "./editor": ["dist/editor/index.d.ts", "dist/editor/index.js"],
-    "./editor.css": ["dist/editor.css"],
     "./editor/*": ["dist/editor/*.d.ts", "dist/editor/*.js"],
     "./hooks": ["dist/hooks/index.d.ts", "dist/hooks/index.js"],
+    "./icons": [
+      "dist/icons/index.d.ts",
+      "dist/icons/index.js",
+      "dist/icons/server.js"
+    ],
     "./hooks/*": ["dist/hooks/*.d.ts", "dist/hooks/*.js"],
-    "./migration-manifest.json": ["migration-manifest.json"],
     "./onboarding": ["dist/onboarding/index.d.ts", "dist/onboarding/index.js"],
     "./onboarding/*": ["dist/onboarding/*.d.ts", "dist/onboarding/*.js"],
     "./provider": ["dist/provider.d.ts", "dist/provider.js"],
     "./sharing": ["dist/sharing/index.d.ts", "dist/sharing/index.js"],
     "./sharing/*": ["dist/sharing/*.d.ts", "dist/sharing/*.js"],
-    "./styles.css": ["dist/styles.css"],
     "./ui": ["dist/ui/index.d.ts", "dist/ui/index.js"],
     "./ui/*": ["dist/ui/*.d.ts", "dist/ui/*.js"],
-    "./utils": ["dist/utils.d.ts", "dist/utils.js"]
+    "./utils": ["dist/utils.d.ts", "dist/utils.js"],
+    "./streaming-text-smoothing": [
+      "dist/streaming-text-smoothing.d.ts",
+      "dist/streaming-text-smoothing.js"
+    ],
+    "./markdown-block-split": [
+      "dist/markdown-block-split.d.ts",
+      "dist/markdown-block-split.js"
+    ],
+    "./agent-native.eject.json": ["agent-native.eject.json"],
+    "./migration-manifest.json": ["migration-manifest.json"],
+    "./styles.css": ["dist/styles.css"],
+    "./chat-history.css": ["dist/chat-history.css"],
+    "./editor.css": ["dist/editor.css"],
+    "./app/auth": ["dist/app/auth/index.d.ts", "dist/app/auth/index.js"],
+    "./app/blocks": ["dist/app/blocks/index.d.ts", "dist/app/blocks/index.js"],
+    "./app/changelog": [
+      "dist/app/changelog/index.d.ts",
+      "dist/app/changelog/index.js"
+    ],
+    "./app/context-xray": [
+      "dist/app/context-xray/index.d.ts",
+      "dist/app/context-xray/index.js"
+    ],
+    "./app/db-admin": [
+      "dist/app/db-admin/index.d.ts",
+      "dist/app/db-admin/index.js"
+    ],
+    "./app/extensions": [
+      "dist/app/extensions/index.d.ts",
+      "dist/app/extensions/index.js"
+    ],
+    "./app/feature-flags": [
+      "dist/app/feature-flags/index.d.ts",
+      "dist/app/feature-flags/index.js"
+    ],
+    "./app/feedback": [
+      "dist/app/feedback/index.d.ts",
+      "dist/app/feedback/index.js"
+    ],
+    "./app/integrations": [
+      "dist/app/integrations/index.d.ts",
+      "dist/app/integrations/index.js"
+    ],
+    "./app/labs": ["dist/app/labs/index.d.ts", "dist/app/labs/index.js"],
+    "./app/observability": [
+      "dist/app/observability/index.d.ts",
+      "dist/app/observability/index.js"
+    ],
+    "./app/onboarding": [
+      "dist/app/onboarding/index.d.ts",
+      "dist/app/onboarding/index.js"
+    ],
+    "./app/progress": [
+      "dist/app/progress/index.d.ts",
+      "dist/app/progress/index.js"
+    ],
+    "./app/resources": [
+      "dist/app/resources/index.d.ts",
+      "dist/app/resources/index.js"
+    ],
+    "./app/review": ["dist/app/review/index.d.ts", "dist/app/review/index.js"],
+    "./app/setup-connections": [
+      "dist/app/setup-connections/index.d.ts",
+      "dist/app/setup-connections/index.js"
+    ],
+    "./app/shared": ["dist/app/shared/index.d.ts", "dist/app/shared/index.js"],
+    "./app/sharing": [
+      "dist/app/sharing/index.d.ts",
+      "dist/app/sharing/index.js"
+    ],
+    "./app/terminal": [
+      "dist/app/terminal/index.d.ts",
+      "dist/app/terminal/index.js"
+    ],
+    "./app/transcription": [
+      "dist/app/transcription/index.d.ts",
+      "dist/app/transcription/index.js"
+    ]
   }
 }

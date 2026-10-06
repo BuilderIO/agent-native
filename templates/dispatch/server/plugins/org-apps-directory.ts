@@ -48,6 +48,10 @@
  */
 
 import {
+  canonicalA2AAudience,
+  getGlobalA2ASecret,
+} from "@agent-native/core/a2a";
+import {
   getA2ASecretByDomain,
   getOrgDomain,
   isSoleOrgDomain,
@@ -55,7 +59,12 @@ import {
 } from "@agent-native/core/org";
 import { getH3App, runWithRequestContext } from "@agent-native/core/server";
 import { discoverOrgDirectoryAgents } from "@agent-native/core/server/agent-discovery";
-import { defineEventHandler, getMethod, getRequestHeader } from "h3";
+import {
+  defineEventHandler,
+  getMethod,
+  getRequestHeader,
+  getRequestURL,
+} from "h3";
 import type { H3Event } from "h3";
 
 import {
@@ -95,7 +104,6 @@ export const orgAppsHandler = defineEventHandler(
       return jsonResponse({ error: "method_not_allowed" }, 405);
     }
 
-    // ---- A2A peer auth (reuses core's A2A verification recipe) ----------
     const token = extractBearerToken(getRequestHeader(event, "authorization"));
     if (!token) {
       return jsonResponse(
@@ -111,10 +119,11 @@ export const orgAppsHandler = defineEventHandler(
 
     const verified = await verifyA2ABearerToken({
       token,
+      expectedAudience: canonicalA2AAudience(getRequestURL(event).toString()),
       resolveOrgSecretByDomain: (domain) => getA2ASecretByDomain(domain),
       resolveSoleOrgGlobalSecretByDomain: async (domain) => {
         if (!(await isSoleOrgDomain(domain))) return null;
-        return process.env.A2A_SECRET?.trim() || null;
+        return getGlobalA2ASecret() || null;
       },
     });
     if (!verified) {
@@ -138,8 +147,6 @@ export const orgAppsHandler = defineEventHandler(
       localOrg = null;
     }
     if (!localOrg) {
-      // Either the domain is unknown here, or it belongs to a different org
-      // than this Dispatch serves — do not disclose anything cross-org.
       return jsonResponse(
         {
           error: "forbidden",
@@ -150,10 +157,6 @@ export const orgAppsHandler = defineEventHandler(
       );
     }
 
-    // ---- Build the directory from Dispatch's existing registry ---------
-    // Scope discovery to the verified caller's org/user so org-tracked
-    // custom/remote agents resolve correctly (discoverAgents reads request
-    // context). No DB writes; this is strictly read-only.
     const includeDirectoryApp =
       getRequestHeader(event, "x-agent-native-include-directory-app") === "1";
     const preferLocalUrls =
@@ -166,34 +169,31 @@ export const orgAppsHandler = defineEventHandler(
     let apps: DiscoveredAppLike[];
     try {
       apps = await directoryCache.get(cacheKey, async () =>
-        runWithRequestContext(
-          { userEmail: verified.email, orgId: localOrg.orgId },
-          async () => {
-            const startedAt = Date.now();
-            const discovered = await discoverOrgDirectoryAgents(
-              includeDirectoryApp ? undefined : SELF_APP_ID,
-              { preferLocalUrls },
-            );
-            const durationMs = Date.now() - startedAt;
-            if (discovered.status === "unavailable") {
-              console.error("[org-apps-directory] discovery unavailable", {
-                stage: discovered.reason,
-                durationMs,
-              });
-              throw new DirectoryDiscoveryUnavailable(discovered.reason);
-            }
-            console.info("[org-apps-directory] discovery complete", {
+        runWithRequestContext({ orgId: localOrg.orgId }, async () => {
+          const startedAt = Date.now();
+          const discovered = await discoverOrgDirectoryAgents(
+            includeDirectoryApp ? undefined : SELF_APP_ID,
+            { preferLocalUrls },
+          );
+          const durationMs = Date.now() - startedAt;
+          if (discovered.status === "unavailable") {
+            console.error("[org-apps-directory] discovery unavailable", {
+              stage: discovered.reason,
               durationMs,
-              appCount: discovered.agents.length,
             });
-            return discovered.agents.map((agent) => ({
-              id: agent.id,
-              name: agent.name,
-              description: agent.description,
-              url: agent.url,
-            }));
-          },
-        ),
+            throw new DirectoryDiscoveryUnavailable(discovered.reason);
+          }
+          console.info("[org-apps-directory] discovery complete", {
+            durationMs,
+            appCount: discovered.agents.length,
+          });
+          return discovered.agents.map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            description: agent.description,
+            url: agent.url,
+          }));
+        }),
       );
     } catch (error) {
       const reason =
@@ -220,8 +220,6 @@ export const orgAppsHandler = defineEventHandler(
       selfId: includeDirectoryApp ? undefined : SELF_APP_ID,
     });
 
-    // Short, cacheable, read-only. Private (per-org) so shared caches must
-    // not store it; a small max-age lets the caller poll cheaply.
     return jsonResponse(body, 200, {
       "Cache-Control": "private, max-age=60",
     });
@@ -232,11 +230,6 @@ export function _resetOrgAppsDirectoryCache(): void {
   directoryCache.clear();
 }
 
-/**
- * Dispatch org-app-directory plugin. The primary Dispatch auth plugin owns
- * the exact public-path registration so this handler can perform its own JWT
- * and same-org checks without racing a second auth initializer.
- */
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(ORG_APPS_PATH, orgAppsHandler);
 };

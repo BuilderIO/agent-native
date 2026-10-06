@@ -1,38 +1,14 @@
-/**
- * Shared, dependency-free changelog parsing + serialization.
- *
- * Used by BOTH:
- *   - the browser bundle (rendering an app's CHANGELOG.md in the command
- *     menu / settings "What's new" surface), and
- *   - the `agent-native changelog` CLI (rolling pending entry files up into
- *     CHANGELOG.md).
- *
- * Keep this file isomorphic: no Node, no browser, no third-party deps. The
- * markdown shape is the conventional "Keep a Changelog" layout — a top-level
- * `# Changelog` heading followed by one `## <release>` section per release.
- */
-
-/** A single released section of a CHANGELOG.md file. */
 export interface ChangelogEntry {
-  /** Stable id derived from the heading — used for "unseen" tracking. */
   id: string;
-  /** Raw heading text, e.g. `2026-06-23` or `v1.2.0 — 2026-06-23`. */
   title: string;
-  /** ISO date (YYYY-MM-DD) extracted from the heading, if present. */
   date?: string;
-  /** Version label extracted from the heading, if present. */
   version?: string;
-  /** Markdown body beneath the heading (until the next `## ` section). */
   body: string;
 }
 
-/** A folder-backed entry authored as a `changelog/<file>.md` file. */
 export interface PendingChangelogEntry {
-  /** Category — `added`, `improved`, `fixed`, `changed`, etc. */
   type: ChangelogChangeType;
-  /** ISO date the entry was authored (YYYY-MM-DD). */
   date?: string;
-  /** User-facing description (markdown, single bullet). */
   text: string;
 }
 
@@ -52,10 +28,6 @@ export const CHANGELOG_ARCHIVE_NOTE =
 const LEGACY_CHANGELOG_ARCHIVE_NOTE =
   'Older updates live in [the changelog folder](./changelog/) and are included in the in-app "What\'s new" view.';
 
-/**
- * Order changes are grouped under a release heading. Anything not listed here
- * falls back to the "changed" group, then renders in insertion order.
- */
 export const CHANGELOG_GROUP_ORDER: ChangelogChangeType[] = [
   "added",
   "improved",
@@ -80,7 +52,6 @@ function cleanChangelogBody(value: string): string {
   return value.trim();
 }
 
-/** Lowercase, hyphenate, and strip to a URL/id-safe slug. */
 export function changelogSlug(value: string): string {
   return value
     .toLowerCase()
@@ -94,7 +65,6 @@ function normalizeType(raw: string | undefined): ChangelogChangeType {
   if ((CHANGELOG_GROUP_ORDER as string[]).includes(value)) {
     return value as ChangelogChangeType;
   }
-  // Friendly aliases.
   if (value === "feature" || value === "new" || value === "add") return "added";
   if (value === "improvement" || value === "enhancement" || value === "perf") {
     return "improved";
@@ -104,12 +74,6 @@ function normalizeType(raw: string | undefined): ChangelogChangeType {
   return "changed";
 }
 
-/**
- * Parse a CHANGELOG.md document into structured release entries.
- *
- * Tolerant by design: an empty or malformed file yields an empty list rather
- * than throwing, so a missing/partial changelog never breaks the UI.
- */
 export function parseChangelog(markdown: string): ChangelogEntry[] {
   if (!markdown || typeof markdown !== "string") return [];
 
@@ -125,7 +89,6 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
     const title = currentTitle.trim();
     const date = title.match(ISO_DATE)?.[1];
     const version = title.match(/v?\d+\.\d+(?:\.\d+)?/)?.[0];
-    // Build a stable, unique id from the heading.
     let base = changelogSlug(title) || "entry";
     let id = base;
     let n = 2;
@@ -143,14 +106,12 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
   };
 
   for (const line of lines) {
-    // `## ` (but not `### `) starts a new release section.
     const match = /^##\s+(?!#)(.+?)\s*$/.exec(line);
     if (match) {
       flush();
       currentTitle = stripBrackets(match[1]);
       continue;
     }
-    // Skip the top-level `# Changelog` title and anything before the first `##`.
     if (currentTitle === null) continue;
     bodyLines.push(line);
   }
@@ -159,17 +120,10 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
   return entries;
 }
 
-/** `## [1.2.0]` → `1.2.0`; leaves un-bracketed headings untouched. */
 function stripBrackets(title: string): string {
   return title.replace(/^\[(.+?)\]\s*/, "$1 ").trim();
 }
 
-/**
- * Parse a pending `changelog/<file>.md` entry: optional `---` frontmatter
- * (`type:` / `date:`) followed by the markdown description body. Callers that
- * know the entry filename can provide its date as a fallback for hand-written
- * entries that omit `date:`.
- */
 export function parsePendingEntry(
   content: string,
   fallbackDate?: string,
@@ -198,18 +152,13 @@ export function parsePendingEntry(
   };
 }
 
-/**
- * Render a set of pending entries as a single dated release section (the body
- * that goes beneath a `## <date>` heading). Groups bullets by type.
- */
 export function renderReleaseBody(entries: PendingChangelogEntry[]): string {
   const groups = new Map<ChangelogChangeType, string[]>();
   for (const entry of entries) {
     const text = cleanChangelogBody(entry.text);
     if (!text) continue;
     const bullet = text.includes("\n")
-      ? // Preserve multi-line bodies, indenting continuation lines.
-        text
+      ? text
           .split(/\r?\n/)
           .map((l, i) => (i === 0 ? `- ${l}` : `  ${l}`))
           .join("\n")
@@ -232,11 +181,6 @@ const CHANGELOG_HEADER =
   "# Changelog\n\n" +
   "All notable user-facing changes to this app are documented here.\n";
 
-/**
- * Roll a batch of pending entries into an existing CHANGELOG.md document,
- * prepending a new `## <date>` section above the most recent release. Returns
- * the full updated document. Pure — the CLI handles file IO and deletion.
- */
 export function rollupChangelog(
   existing: string,
   pending: PendingChangelogEntry[],
@@ -248,8 +192,6 @@ export function rollupChangelog(
   const section = `## ${releaseDate}\n\n${body}\n`;
 
   const doc = (existing || CHANGELOG_HEADER).replace(/\s+$/, "");
-  // Insert the new section immediately before the first existing `## ` release
-  // so the header/intro stays on top and releases stay newest-first.
   const firstRelease = doc.search(/^##\s+(?!#)/m);
   if (firstRelease === -1) {
     return `${doc}\n\n${section}\n`;
@@ -575,12 +517,6 @@ function mergeChangelogBodies(
   );
 }
 
-/**
- * Render an app-facing changelog that includes both released CHANGELOG.md
- * sections and adjacent folder-backed `changelog/*.md` entries. This is pure
- * and non-destructive, so build/dev bundles can show current product notes
- * without moving or deleting the conflict-free entry files.
- */
 export function mergePendingChangelog(
   existing: string,
   pending: PendingChangelogEntry[],
@@ -667,11 +603,6 @@ export function mergePendingChangelog(
     .join("\n\n")}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
 }
 
-/**
- * Keep a bounded, human-readable release window in `CHANGELOG.md` while the
- * dated `changelog/*.md` files remain the complete source for app history.
- * The Vite raw-import path can still expand the full folder-backed history.
- */
 export function compactChangelog(
   existing: string,
   folderEntries: PendingChangelogEntry[],

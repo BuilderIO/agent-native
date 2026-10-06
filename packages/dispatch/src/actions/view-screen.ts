@@ -1,14 +1,6 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads and returns the current navigation state from application state.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import type { ActionEntry } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
@@ -33,19 +25,31 @@ import {
   listWorkspaceResourcesForApp,
 } from "../server/lib/workspace-resources-store.js";
 import { CHAT_FIRST_PANE_STATE_KEY } from "../shared/chat-first-pane.js";
+import getDreamSettings from "./get-dream-settings.js";
+import getDream from "./get-dream.js";
+import listConnectedAgents from "./list-connected-agents.js";
+import listDreamCandidates from "./list-dream-candidates.js";
+import listDreams from "./list-dreams.js";
+import listMcpAppAccess from "./list-mcp-app-access.js";
+
+const localDispatchActions: Record<string, ActionEntry> = {
+  "list-connected-agents": listConnectedAgents,
+  "list-mcp-app-access": listMcpAppAccess,
+  "list-dream-candidates": listDreamCandidates,
+  "list-dreams": listDreams,
+  "get-dream-settings": getDreamSettings,
+  "get-dream": getDream,
+};
 
 async function runLocalDispatchAction(
   name: string,
   args: Record<string, unknown>,
 ) {
-  const modulePath = `./${name}.js`;
-  const module = (await import(/* @vite-ignore */ modulePath)) as {
-    default?: {
-      run: (args: Record<string, unknown>) => unknown;
-    };
-  };
-  if (!module.default) throw new Error(`Dispatch action not found: ${name}`);
-  return module.default.run(stripUndefined(args));
+  if (!Object.prototype.hasOwnProperty.call(localDispatchActions, name)) {
+    throw new Error(`Dispatch action not found: ${name}`);
+  }
+  const action = localDispatchActions[name];
+  return action.run(stripUndefined(args));
 }
 
 function stripUndefined(args: Record<string, unknown>) {
@@ -68,19 +72,11 @@ function threadDebugFailureStatus(
     : "all";
 }
 
-/**
- * The workspace app Dispatch has embedded, or `null` when none is open. A
- * surface that is showing an app whose identity could not be read reports
- * `status: "unknown"` — never a plausible-looking id and never silence, so the
- * agent can tell "no app open" from "an app is open and I cannot name it".
- */
 type EmbeddedApp =
   | {
       status: "open";
       id: string;
-      /** Path inside the embedded app, not the Dispatch route. */
       path: string;
-      /** Named screen the pane was opened at, when it carries one instead of a path. */
       view?: string;
       source: "route" | "chat-first-pane";
     }
@@ -112,8 +108,6 @@ async function resolveEmbeddedApp(
     };
   }
 
-  // Chat-first mode keeps the route on /chat and opens the app as a surface
-  // tab, so the pane state is the only place the open app is named.
   if (navigation?.view !== "chat") return null;
   const pane = await readAppState(CHAT_FIRST_PANE_STATE_KEY);
   if (pane === null) return null;
@@ -352,6 +346,9 @@ export default defineAction({
           screen.threadDebugSelection = {
             source: detail.source,
             thread: detail.thread,
+            ...(typeof nav.threadDebugItem === "string"
+              ? { selectedItem: nav.threadDebugItem }
+              : {}),
             messageCount: detail.messages.length,
             runCount: detail.runs.length,
             debug: detail.debug,

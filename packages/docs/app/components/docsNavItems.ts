@@ -182,9 +182,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
   {
     id: "apps",
     titleKey: "templatesSection",
-    // Do not add new templates here directly. The public-facing template list
-    // is the strict allow-list in `packages/shared-app-config/templates.ts`
-    // (entries with `hidden: false`). The CI guard enforces this.
     items: [
       {
         id: "cloneable-saas",
@@ -1114,9 +1111,6 @@ function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
 
 const SHOW_DRAFTS = import.meta.env.VITE_SHOW_DRAFTS === "true";
 
-// Keep Toolkit directly after deployment, and the public template catalog
-// after the framework guidance so readers encounter architecture and reusable
-// primitives before app examples.
 const NAV_SECTION_CONFIG_IN_DISPLAY_ORDER = (() => {
   const appsSection = NAV_SECTION_CONFIG.find(
     (section) => section.id === "apps",
@@ -1170,17 +1164,10 @@ export function getDocsNavSections(
   })).filter((section) => section.items.length > 0);
 }
 
-// Flat list for prev/next navigation and current-item lookups. Nested
-// children (e.g. the plan docs under the Plans group, or the Toolkit
-// "Feature Kits" / "App Chrome" groups) are flattened in place where their
-// parent sits; chevron-only group headers (no `to`) are skipped so reading
-// order stays intuitive and prev/next only lands on real pages.
 function flattenItems(items: NavItem[]): NavItem[] {
   return items.flatMap((item) =>
     item.children
-      ? // A group header has no `to`; keep only real pages in the flat
-        // prev/next list so navigation never targets a non-page.
-        [...(item.to ? [item] : []), ...flattenItems(item.children)]
+      ? [...(item.to ? [item] : []), ...flattenItems(item.children)]
       : [item],
   );
 }

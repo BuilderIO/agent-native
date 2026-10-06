@@ -1,23 +1,64 @@
-// R83 — safe fetch-response parsing for file upload flows.
-//
-// A failed upload can come back as a non-JSON body (an upstream proxy or
-// platform crash page, a plaintext "Internal Error", etc.). Calling
-// `response.json()` unconditionally on a body like that throws a raw
-// `SyntaxError` ("Unexpected token 'I', "Internal E"... is not valid JSON"),
-// which then surfaces verbatim in an import/upload toast instead of a clean
-// message. Route every parse through this helper so a non-JSON body always
-// degrades to a readable message instead of leaking a raw parser error.
-
 export interface UploadResponseEnvelope {
   error?: string;
+  errorCode?: string;
   [key: string]: unknown;
 }
 
-/** Minimal shape `parseUploadResponse` needs — a subset of the real `Response`. */
 export interface JsonParsableResponse {
   ok: boolean;
   status: number;
   text(): Promise<string>;
+}
+
+/**
+ * The upload or import service answered with something that is not its own
+ * JSON: a gateway timeout, a platform error page, a captive portal. The body
+ * says nothing the user can act on, so it is never shown; the code is what the
+ * UI branches on, and the remedy is to retry.
+ */
+export const UPLOAD_SERVICE_UNAVAILABLE_CODE = "upload_service_unavailable";
+
+const GATEWAY_STATUSES: ReadonlySet<number> = new Set([408, 502, 503, 504]);
+
+export function isUploadGatewayStatus(status: number): boolean {
+  return GATEWAY_STATUSES.has(status);
+}
+
+/**
+ * True when `text` carries a document rather than a sentence. Also applied to
+ * error messages, because the action client builds one from the first 200
+ * characters of whatever body it received.
+ */
+export function looksLikeMarkup(text: string): boolean {
+  return /<(?:!doctype|html|head|body|\?xml)\b/i.test(text);
+}
+
+export function uploadServiceUnavailableError(status: number): Error {
+  return Object.assign(new Error("The upload service is unavailable"), {
+    code: UPLOAD_SERVICE_UNAVAILABLE_CODE,
+    status,
+  });
+}
+
+/**
+ * The error for a non-OK import response whose body was already parsed into an
+ * envelope. The typed code, status and details travel on the error so callers
+ * branch on them instead of the message.
+ */
+export function promptImportResponseError(
+  status: number,
+  body: { error?: string; errorCode?: string; details?: unknown },
+  fallbackMessage: string,
+): Error {
+  return Object.assign(new Error(body.error || fallbackMessage), {
+    status,
+    ...(typeof body.errorCode === "string"
+      ? { errorCode: body.errorCode }
+      : {}),
+    ...(body.details && typeof body.details === "object"
+      ? { details: body.details }
+      : {}),
+  });
 }
 
 const MAX_TOAST_BODY_CHARS = 160;
@@ -28,29 +69,24 @@ function truncateForToast(value: string): string {
   return `${trimmed.slice(0, MAX_TOAST_BODY_CHARS)}…`;
 }
 
-/**
- * Parses a fetch `Response` as JSON only when it is actually JSON, and
- * always resolves rather than throwing a parse error for a failure
- * response — the fallback branch folds an unparsable failure body into the
- * same `{ error }` shape a well-behaved server route would have sent,
- * truncating an overlong body so a raw HTML/proxy error page doesn't blow up
- * the toast description.
- *
- * Success responses are still expected to be real JSON: a genuinely broken
- * 200 throws the underlying SyntaxError rather than silently returning `{}`,
- * so that failure mode stays loud instead of masquerading as an empty
- * successful import.
- */
 export async function parseUploadResponse<
   T extends UploadResponseEnvelope = UploadResponseEnvelope,
 >(response: JsonParsableResponse, fallbackErrorMessage: string): Promise<T> {
   const raw = await response.text();
   const looksJson = /^\s*[{[]/.test(raw);
   if (!looksJson) {
+    const markup = looksLikeMarkup(raw);
     if (response.ok) {
+      if (markup) throw uploadServiceUnavailableError(response.status);
       throw new SyntaxError(
         `Expected a JSON response but received: ${truncateForToast(raw)}`,
       );
+    }
+    if (markup || isUploadGatewayStatus(response.status)) {
+      return {
+        error: fallbackErrorMessage,
+        errorCode: UPLOAD_SERVICE_UNAVAILABLE_CODE,
+      } as T;
     }
     return {
       error: raw.trim()

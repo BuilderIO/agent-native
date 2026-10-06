@@ -4,15 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * Exiting inline edit used to flush `onUpdateSlide` (and mutate the edited
- * DOM node) from inside a `setEditingEl` updater. Updaters run in the render
- * phase, so the flush updated DeckProvider while SlideEditor was rendering:
- * "Cannot update a component (DeckProvider) while rendering a different
- * component (SlideEditor)". `editingElRef` exists so exit paths can read the
- * edited element outside render; these assertions are what stop the updater
- * shape from coming back.
- */
 const source = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "SlideEditor.tsx"),
   "utf8",
@@ -139,12 +130,48 @@ describe("SlideEditor render-phase safety", () => {
     const domAt = serializeBody.indexOf("stripBuilderIds(clone.innerHTML)");
 
     expect(mergeAt).toBeGreaterThan(-1);
-    // The DOM is stored only for Markdown roots, which have no source map.
     expect(
       serializeBody.slice(serializeBody.lastIndexOf("if (", domAt), domAt),
     ).toContain('hasAttribute("data-slide-autofit-root")');
+    const markdownBranchStart = serializeBody.indexOf(
+      'if (slideContent.hasAttribute("data-slide-autofit-root"))',
+    );
+    const markdownBranchEnd = serializeBody.indexOf(
+      "return stripBuilderIds(clone.innerHTML)",
+      markdownBranchStart,
+    );
+    expect(
+      serializeBody.slice(markdownBranchStart, markdownBranchEnd),
+    ).toContain("prepareSerializationRoot(clone)");
     expect(serializeBody).toContain("return null;");
     expect(source).toContain("stampSource\n");
+  });
+
+  it("restores crop preview styles before saving the committed crop", () => {
+    const finishStart = source.indexOf("const finishImageCrop = useCallback");
+    const finishEnd = source.indexOf("const onCropKeyDown", finishStart);
+    const finishBody = source.slice(finishStart, finishEnd);
+
+    expect(finishBody.indexOf("crop.restorePreviewStyles();")).toBeLessThan(
+      finishBody.indexOf("writeImageCropPercentGeometry"),
+    );
+    expect(finishBody.indexOf("const cropChanged =")).toBeLessThan(
+      finishBody.indexOf("crop.restorePreviewStyles();"),
+    );
+    expect(finishBody.indexOf("crop.restorePreviewStyles();")).toBeLessThan(
+      finishBody.indexOf("readCurrentSlideContentHtmlRef.current()"),
+    );
+  });
+
+  it("keeps crop handles outside the original image mask visible", () => {
+    const previewStart = source.indexOf("const previewStyles = (");
+    const previewEnd = source.indexOf("const activeCrop:", previewStart);
+    const previewSetup = source.slice(previewStart, previewEnd);
+
+    expect(previewSetup).toContain('[frame, "clip-path"]');
+    expect(previewSetup).toContain('[frame, "border-radius"]');
+    expect(previewSetup).toContain('frame.style.clipPath = "none";');
+    expect(previewSetup).toContain('frame.style.borderRadius = "0";');
   });
 
   it("writes nothing for a click in and out", () => {
@@ -152,9 +179,6 @@ describe("SlideEditor render-phase safety", () => {
     const enterEnd = source.indexOf("// Exit edit mode", enterStart);
     const enterBody = source.slice(enterStart, enterEnd);
 
-    // The baseline is what the canvas saves before the session touches the
-    // element, so an untouched edit merges back to it exactly and a
-    // just-placed box is part of it.
     expect(enterBody).not.toContain("captureInlineEditDraft(");
     const baselineAt = enterBody.indexOf(
       "const entryContent = readCurrentSlideContentHtml();",
@@ -164,7 +188,6 @@ describe("SlideEditor render-phase safety", () => {
       baselineAt,
     );
 
-    // A no-op exit calls onUpdateSlide only through the changed-content gate.
     const exitStart = source.indexOf("const exitInlineEdit = useCallback");
     const exitEnd = source.indexOf("const commitInlineEditForAgent", exitStart);
     const exitBody = source.slice(exitStart, exitEnd);
@@ -176,7 +199,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(writes).toHaveLength(1);
     expect(writes[0].index).toBeGreaterThan(gateAt);
 
-    // A typed-and-deleted draft is the entry content, not a new write.
     const captureStart = source.indexOf("const captureInlineEditDraft");
     const captureEnd = source.indexOf(
       "const scheduleInlineEditDraftCapture",
@@ -191,7 +213,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(source).toContain(
       "if (textSessionRef.current) exitInlineEditRef.current();",
     );
-    // Drafts are written mid-session, so they bypass the committing wrapper.
     const persistStart = source.indexOf("const persistInlineEditDraft");
     const persistEnd = source.indexOf(
       "const captureInlineEditDraft",
@@ -242,7 +263,7 @@ describe("SlideEditor render-phase safety", () => {
     const enterBody = source.slice(enterStart, enterEnd);
     expect(enterBody).toContain("findEnclosingList(block, slideContent)");
     expect(enterBody).toMatch(
-      /const el =\s+list &&\s+isRichTextBlock\(list\) &&\s+!holdsPaintedTextBox\(list, slideContent\)\s+\? list\s+: block;/,
+      /const el =\s+list &&\s+\(isRichTextBlock\(list\) \|\| bulletRowCount\(list\) >= 2\) &&\s+!holdsPaintedTextBox\(list, slideContent\)\s+\? list\s+: block;/,
     );
   });
 
@@ -300,8 +321,9 @@ describe("SlideEditor render-phase safety", () => {
       'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
+    expect(doubleClickBody).toContain("showImageOverlay(imagePlaceholder);");
     expect(doubleClickBody.indexOf("const resolvedTarget")).toBeLessThan(
       doubleClickBody.indexOf("const imageTarget"),
     );
@@ -324,7 +346,7 @@ describe("SlideEditor render-phase safety", () => {
     expect(helperBody).toContain("return underlying ?? target;");
   });
 
-  it("preserves wrapped images for double-click overlays", () => {
+  it("enters crop mode for wrapped images on double-click", () => {
     const doubleClickStart = source.indexOf("const handleSlideDoubleClick");
     const doubleClickEnd = source.indexOf(
       "const slideElementSelected =",
@@ -339,7 +361,7 @@ describe("SlideEditor render-phase safety", () => {
       'resolvedTarget.querySelector<HTMLElement>("img")',
     );
     expect(doubleClickBody).toContain(
-      "showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);",
+      "startImageCrop(imageTarget as HTMLImageElement);",
     );
   });
 
@@ -393,9 +415,6 @@ describe("SlideEditor render-phase safety", () => {
     expect(arrangeBody).toContain("resolveSlidePositioningLayer(element)");
     expect(source).toContain("persistSlideObjectZOrderFromDom(source");
     expect(source).toContain("function isZIndexedSlideLayer");
-    // Arrange means stacking order. Reordering the DOM here moved the layer
-    // down the `.fmd-slide` flex column instead of changing what it paints
-    // over, which is what made send-to-front look like it did nothing.
     expect(source).not.toContain("function reorderSlideLayerInParent");
     expect(source).not.toContain("function arrangeFlowSlideLayerInParent");
   });
@@ -488,6 +507,43 @@ describe("SlideEditor render-phase safety", () => {
       "if (ids.size > 0 && editingElRef.current) exitInlineEdit();",
     );
     expect(source).toContain("window.getSelection()?.removeAllRanges();");
+  });
+
+  it("gives inline text editing priority over comment-highlight clicks", () => {
+    const pointerStart = source.indexOf("const handleSlidePointerDown");
+    const pointerEnd = source.indexOf(
+      "// Keep these listeners stable while React re-renders the marquee overlay.",
+      pointerStart,
+    );
+    const pointerBody = source.slice(pointerStart, pointerEnd);
+    expect(pointerBody.indexOf("const targetIsEditingBlock")).toBeLessThan(
+      pointerBody.indexOf("slideCommentThreadAtPoint("),
+    );
+    expect(pointerBody).toContain(
+      "if (!editingEl && !pinMode && !drawMode && !additive)",
+    );
+
+    const clickStart = source.indexOf("const handleSlideClick");
+    const clickEnd = source.indexOf(
+      "const handleCanvasBackgroundPointerDown",
+      clickStart,
+    );
+    const clickBody = source.slice(clickStart, clickEnd);
+    expect(
+      clickBody.indexOf("if (editingEl?.contains(e.target as Node))"),
+    ).toBeLessThan(clickBody.indexOf("commentPress &&"));
+  });
+
+  it("keeps group dragging available with additive modifiers", () => {
+    const pointerStart = source.indexOf(
+      "// Pointer-down on a member of the current multi-selection",
+    );
+    const selectedStart = source.indexOf("const selected =", pointerStart);
+    const groupDragPath = source.slice(pointerStart, selectedStart);
+
+    expect(groupDragPath).toContain("if (multiSelection.size > 0)");
+    expect(groupDragPath).toContain("if (id && multiSelection.has(id))");
+    expect(groupDragPath).not.toContain("!targetIsEditableText");
   });
 
   it("does not let selection rerenders clear a newly selected object set", () => {

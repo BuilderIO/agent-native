@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
+import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
 import type { PendingTask } from "./pending-tasks-store.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -16,10 +17,8 @@ const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
-// The integration run goes through the resume wrapper. Delegate to the loop
-// mock so every assertion below still reads the options the loop was called
-// with.
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
+const filterInitialEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getConfiguredEngineNameForRequestMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
@@ -113,13 +112,6 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
-// `filterInitialEngineTools`'s own filtering semantics are covered directly
-// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
-// rather than via `vi.importActual` on the real module, which would pull in
-// production-agent.ts's full module graph (e.g. its module-scope
-// `registerBuiltinEngines()` call) and conflict with the narrower engine
-// mock below. This only needs to prove webhook-handler.ts WIRES the filter
-// with the right inputs, not re-prove the filter's own correctness.
 function fakeFilterInitialEngineTools(
   tools: Array<{ name: string }>,
   initialToolNames?: string[],
@@ -143,10 +135,11 @@ vi.mock("../agent/production-agent.js", () => ({
   resolveOwnerEngineApiKey: resolveOwnerEngineApiKeyMock,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
-  filterInitialEngineTools: fakeFilterInitialEngineTools,
+  filterInitialEngineTools: filterInitialEngineToolsMock,
 }));
 
 vi.mock("../agent/engine/index.js", () => ({
+  registerBuiltinEngines: vi.fn(),
   getConfiguredEngineNameForRequest: getConfiguredEngineNameForRequestMock,
   getStoredModelForEngine: getStoredModelForEngineMock,
   normalizeModelForEngine: (
@@ -193,7 +186,10 @@ vi.mock("../usage/store.js", () => ({
   recordUsage: vi.fn(),
 }));
 
-vi.mock("../agent/run-manager.js", () => ({
+vi.mock("../agent/run-manager.js", async () => ({
+  ...(await vi.importActual<typeof import("../agent/run-manager.js")>(
+    "../agent/run-manager.js",
+  )),
   startRun: startRunMock.mockImplementation(
     (runId, threadId, runFn, onComplete) => {
       const events: any[] = [];
@@ -357,6 +353,9 @@ describe("integration webhook handler engine resolution", () => {
     readDeployCredentialEnvMock.mockReturnValue(undefined);
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
     actionsToEngineToolsMock.mockReturnValue([]);
+    filterInitialEngineToolsMock.mockImplementation(
+      fakeFilterInitialEngineTools,
+    );
     listIntegrationUsageBudgetsMock.mockResolvedValue([]);
     reserveIntegrationUsageBudgetMock.mockResolvedValue({
       allowed: true,
@@ -394,11 +393,6 @@ describe("integration webhook handler engine resolution", () => {
     }
   });
 
-  // CI runs this suite with a much longer transform/import phase than local
-  // (~28s vs ~7s observed on 2026-05-11), which left the per-test 5s budget
-  // too tight for the full processIntegrationTask pipeline. Bumping these two
-  // mock-heavy run-loop tests to 15s avoids flake without masking real perf
-  // regressions: the test bodies still finish in well under a second locally.
   it(
     "releases reserved budgets when thread setup fails",
     { timeout: 15_000 },
@@ -468,12 +462,6 @@ describe("integration webhook handler engine resolution", () => {
         principalType: "service",
       });
 
-      // objectContaining, not an exact match: `runOptions` is handed to
-      // startRun by reference and deliberately mutated afterwards (model and
-      // engineName are filled in inside the run callback so run-manager's
-      // terminal event can read them in its `.finally()`), and it also carries
-      // attemptCount. This assertion is about which soft-timeout ceiling was
-      // chosen, so it pins those two fields and stays agnostic to the rest.
       expect(startRunMock).toHaveBeenLastCalledWith(
         expect.any(String),
         expect.any(String),
@@ -3376,11 +3364,101 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
+  it("discovers and invokes a deferred app action during a messaging turn", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const actual = await vi.importActual<
+      typeof import("../agent/production-agent.js")
+    >("../agent/production-agent.js");
+    actionsToEngineToolsMock.mockImplementation(actual.actionsToEngineTools);
+    filterInitialEngineToolsMock.mockImplementation(
+      actual.filterInitialEngineTools,
+    );
+    runAgentLoopMock.mockImplementationOnce(actual.runAgentLoop);
+    const deferredRun = vi.fn(async () => "deferred result");
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        if (seenTools.length <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: `call-${seenTools.length}`,
+                name:
+                  seenTools.length === 1 ? "tool-search" : "deferred-action",
+                input: seenTools.length === 1 ? { query: "deferred" } : {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The deferred action completed." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    resolveEngineMock.mockResolvedValueOnce(engine);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const action = {
+      tool: {
+        description: "App action",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      run: async () => "ok",
+    };
+    await processIntegrationTask(pendingTask({ id: "task-deferred-action" }), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      engine,
+      actions: {
+        starter: action,
+        "deferred-action": {
+          ...action,
+          tool: { ...action.tool, description: "Deferred app action" },
+          run: deferredRun,
+        },
+        "call-agent": action,
+      },
+      initialToolNames: ["starter"],
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    await runAgentLoopMock.mock.results[0].value;
+    expect(seenTools).toHaveLength(3);
+    expect(seenTools[0]).toEqual(
+      expect.arrayContaining(["starter", "tool-search", "call-agent"]),
+    );
+    expect(seenTools[0]).not.toContain("deferred-action");
+    expect(seenTools[1]).toContain("deferred-action");
+    expect(deferredRun).toHaveBeenCalledOnce();
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "The deferred action completed." }),
+      expect.any(Object),
+      expect.any(Object),
+    );
+  });
+
   it("defers framework-added tools behind tool-search on the first engine request while keeping template actions and initial defaults", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    // Only this test needs a real-shaped action->tool conversion — every
-    // other test in this file relies on the `[]` stub set in `beforeEach`
-    // and doesn't inspect `tools`/`availableTools`.
     actionsToEngineToolsMock.mockImplementation(
       (actionsMap: Record<string, { tool: { description: string } }>) =>
         Object.keys(actionsMap).map((name) => ({
@@ -3410,8 +3488,6 @@ describe("integration webhook handler engine resolution", () => {
         "call-agent": noopTool("Delegate to another A2A agent"),
         "list-integration-memory": noopTool("List integration memory"),
       },
-      // Mirrors what `createIntegrationsPlugin` passes: the app's own
-      // action names, not the framework additions merged into `actions`.
       initialToolNames: ["template-action"],
       apiKey: "test-key",
       ownerEmail: "dispatch+qa@integration.local",
@@ -3428,22 +3504,15 @@ describe("integration webhook handler engine resolution", () => {
       .map((tool: { name: string }) => tool.name)
       .sort();
 
-    // Deferred framework additions never reach the first request...
     expect(firstRequestToolNames).not.toContain("call-agent");
     expect(firstRequestToolNames).not.toContain("list-integration-memory");
-    // ...but the template action, and tool-search itself, do.
     expect(firstRequestToolNames).toEqual(["template-action", "tool-search"]);
-    // ...while the full registry (used for mid-run tool-search expansion)
-    // still contains everything, so the model can discover and call the
-    // deferred tools after a tool-search hit.
     expect(availableToolNames).toEqual([
       "call-agent",
       "list-integration-memory",
       "template-action",
       "tool-search",
     ]);
-    // The executable registry passed through for real tool dispatch must
-    // also include tool-search so a model-issued call to it can run.
     expect(Object.keys(call.actions).sort()).toEqual([
       "call-agent",
       "list-integration-memory",

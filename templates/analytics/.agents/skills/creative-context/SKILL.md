@@ -6,6 +6,7 @@ description: >-
   or refining a dashboard, or when the user references saved or approved
   context.
 scope: both
+requires-lab: creative-context.library
 metadata:
   internal: true
 ---

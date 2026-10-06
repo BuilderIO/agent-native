@@ -270,7 +270,6 @@ describe("end to end", () => {
       "# Actions\nroot copy\n",
     );
 
-    // Pristine generated app (what `agent-native create` produced).
     write(
       baseline,
       "package.json",
@@ -293,7 +292,6 @@ describe("end to end", () => {
       'configureTracking({ app: "my-notes" });\n',
     );
 
-    // The user's app, with real edits on top of the baseline.
     fs.cpSync(baseline, app, { recursive: true });
     write(
       app,
@@ -383,10 +381,6 @@ describe("end to end", () => {
     assert.match(stderr, /agent-native"\.scaffold\.template/);
   });
 
-  // `os.tmpdir()` is a symlink on macOS (/var → /private/var), the same shape
-  // as a symlinked home or work dir. Computing the ref name from a non-realpath
-  // app dir yields a ref that never resolves, and the script then degrades to
-  // overwrite mode instead of merging — silently reverting upstream work.
   it("finds a baseline ref written by template-baseline on a symlinked path", () => {
     const root = tmpDir("contribute-ref-");
     const framework = path.join(root, "framework");

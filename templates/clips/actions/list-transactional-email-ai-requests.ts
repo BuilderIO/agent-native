@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, gte, inArray, ne, or } from "drizzle-orm";
+import { and, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -19,6 +19,9 @@ const MAX_CLAIMS = 10;
 const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 600;
 export const MAX_TRANSCRIPT_EXCERPT_LENGTH = 1_200;
+// boundedText collapses whitespace before slicing, so the SQL prefix must be
+// far longer than the excerpt or whitespace-heavy transcripts come back short.
+const TRANSCRIPT_FETCH_LENGTH = 20_000;
 
 export type TransactionalEmailContextPacket = {
   recordingId: string;
@@ -78,9 +81,6 @@ async function claimantMayClaim(
   if (normalizeEmail(job.requestedBy) !== claimantEmail) return false;
 
   const db = getDb();
-  // Resolve private/public/share access through one projected query. Org-visible
-  // rows use the authoritative by-ID resolver below so owner, membership,
-  // explicit-share, and federation semantics stay identical.
   const [accessibleCandidates, directShares, countedViews] = await Promise.all([
     db
       .select({
@@ -186,7 +186,9 @@ async function loadContextPackets(
     db
       .select({
         recordingId: schema.recordingTranscripts.recordingId,
-        fullText: schema.recordingTranscripts.fullText,
+        fullText: sql<
+          string | null
+        >`left(${schema.recordingTranscripts.fullText}, ${TRANSCRIPT_FETCH_LENGTH})`,
       })
       .from(schema.recordingTranscripts)
       .where(
@@ -266,12 +268,13 @@ export async function claimTransactionalEmailAiRequests(
 ): Promise<{ requests: ClaimedTransactionalEmailAiRequest[] }> {
   const claimant = normalizeEmail(claimantEmail);
   const claimLimit = Math.min(Math.max(limit, 1), MAX_CLAIMS);
-  const config = await transactionalEmailStore.readConfig();
+  const [config, claimCandidates] = await Promise.all([
+    transactionalEmailStore.readConfig(),
+    transactionalEmailStore.listAiClaimCandidates(claimant),
+  ]);
   if (!config) return { requests: [] };
   const staleBefore = new Date(Date.now() - AI_DISPATCH_STALE_MS);
-  const candidates = (
-    await transactionalEmailStore.listJobs(["awaiting_ai", "ai_dispatched"])
-  ).filter(
+  const candidates = claimCandidates.filter(
     (job) =>
       isAiBackedType(job.type) &&
       (job.state === "awaiting_ai" ||

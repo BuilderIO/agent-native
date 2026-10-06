@@ -11,7 +11,6 @@ import type { AnalyticsScope } from "./first-party-analytics.js";
 
 const DELIVERY_TABLE = "analytics_bigquery_delivery_queue";
 const DELIVERY_BATCH_SIZE = 2_000;
-// Minute triggers may overlap safely because claims use SKIP LOCKED.
 const MAX_DELIVERY_BATCHES_PER_SWEEP = 30;
 const DELIVERY_LEASE_MS = 5 * 60 * 1000;
 const DELIVERY_LEASE_RENEW_INTERVAL_MS = 60 * 1000;

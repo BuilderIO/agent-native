@@ -89,13 +89,10 @@ describe("buildShellScreens", () => {
   });
 
   it("returns nothing for no routes rather than throwing", () => {
-    // The host may send design:init before it has resolved any routes.
     expect(build([])).toEqual({ screens: [], placedFrames: [] });
   });
 
   it("keeps every frame on the preview origin", () => {
-    // `//host` loses its slashes to the strip, but `/\\host` survives it and
-    // resolves protocol-relative — that one placed a frame on another origin.
     const { screens } = buildShellScreens({
       previewOrigin: "https://preview.test",
       paths: ["/", "//evil.test", "/\\\\evil.test", "/about"],
@@ -109,8 +106,6 @@ describe("buildShellScreens", () => {
   });
 
   it("resolves routes against the origin, not a previewed route", () => {
-    // Builder sends `interactiveFrameUrl`, which carries whatever route the
-    // user is on; nesting under it produced `/app.html/about`.
     const { screens } = buildShellScreens({
       previewOrigin: "https://preview.test",
       paths: ["/about"],

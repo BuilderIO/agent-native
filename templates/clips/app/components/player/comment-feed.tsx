@@ -16,7 +16,6 @@ export interface CommentSubmissionWidgetProps {
   onSubmit: () => void;
 }
 
-/** The shared Figma-sized comment submission surface used by comment feeds. */
 export function CommentSubmissionWidget({
   draft,
   onDraftChange,

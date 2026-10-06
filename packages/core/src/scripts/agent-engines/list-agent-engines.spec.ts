@@ -2,6 +2,14 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 
 describe("list-agent-engines", () => {
   let readAppSecrets: ReturnType<typeof vi.fn>;
+  let readAppSecret: ReturnType<typeof vi.fn>;
+  let userSettings: Map<string, Record<string, unknown>>;
+  let orgSettings: Map<string, Record<string, unknown>>;
+  let defaultSetting: {
+    value: Record<string, unknown> | null;
+    source: string;
+  };
+  let defaultAuthority: { allowed: boolean };
 
   beforeEach(() => {
     vi.resetModules();
@@ -14,8 +22,16 @@ describe("list-agent-engines", () => {
     delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     delete process.env.BUILDER_PRIVATE_KEY;
     delete process.env.BUILDER_PUBLIC_KEY;
+    userSettings = new Map();
+    orgSettings = new Map();
     vi.doMock("../../settings/index.js", () => ({
       getSetting: vi.fn().mockResolvedValue(null),
+      getUserSetting: vi.fn(
+        async (_email: string, key: string) => userSettings.get(key) ?? null,
+      ),
+      getOrgSetting: vi.fn(
+        async (_orgId: string, key: string) => orgSettings.get(key) ?? null,
+      ),
     }));
     vi.doMock("../../oauth-tokens/store.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../../oauth-tokens/store.js")>()),
@@ -24,9 +40,16 @@ describe("list-agent-engines", () => {
     vi.doMock("../../agent/app-model-defaults.js", () => ({
       getAgentAppModelDefaultForCurrentRequest: vi.fn().mockResolvedValue(null),
     }));
+    defaultSetting = { value: null, source: "none" };
+    defaultAuthority = { allowed: true };
+    vi.doMock("../../agent/default-agent-engine.js", () => ({
+      readDefaultAgentEngineSettingDetailed: vi.fn(async () => defaultSetting),
+      resolveDefaultAgentEngineAuthority: vi.fn(async () => defaultAuthority),
+    }));
     readAppSecrets = vi.fn().mockResolvedValue(new Map());
+    readAppSecret = vi.fn().mockResolvedValue(null);
     vi.doMock("../../secrets/storage.js", () => ({
-      readAppSecret: vi.fn().mockResolvedValue(null),
+      readAppSecret: (...args: unknown[]) => readAppSecret(...args),
       readAppSecrets,
     }));
   });
@@ -72,6 +95,110 @@ describe("list-agent-engines", () => {
     ).toBe(true);
   });
 
+  it("flags an engine whose saved key its provider rejected", async () => {
+    const savedKey = "sk-ant-fake-placeholder";
+    readAppSecret.mockImplementation(
+      async (ref: { key: string; scope: string }) =>
+        ref.key === "ANTHROPIC_API_KEY" && ref.scope === "user"
+          ? { value: savedKey }
+          : null,
+    );
+    const { providerCredentialFingerprint } =
+      await import("../../server/credential-provider.js");
+    const fingerprint = providerCredentialFingerprint(
+      "ANTHROPIC_API_KEY",
+      savedKey,
+    );
+    const marker = {
+      fingerprint,
+      key: "ANTHROPIC_API_KEY",
+      status: 401,
+      strikes: 1,
+      // Past the retry window: the engine may retry, Settings still flags it.
+      at: Date.now() - 60 * 60 * 1000,
+    };
+    vi.doMock("../../settings/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../settings/store.js")>()),
+      getSetting: vi.fn(async (key: string) =>
+        key === `provider-auth-failure:${fingerprint}` ? marker : null,
+      ),
+      getSettings: vi.fn(
+        async (keys: string[]) =>
+          new Map(
+            keys.map((key) => [
+              key,
+              key === `provider-auth-failure:${fingerprint}` ? marker : null,
+            ]),
+          ),
+      ),
+    }));
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(
+      await runWithRequestContext(
+        { userEmail: "rejected@example.com", orgId: "org-rejected" },
+        () => run(),
+      ),
+    );
+    const byName = (name: string) =>
+      result.engines.find((engine: any) => engine.name === name);
+
+    expect(byName("anthropic")).toMatchObject({
+      credentialRejected: true,
+      credentialRejectedAt: marker.at,
+    });
+    expect(byName("ai-sdk:openai")?.credentialRejected).toBe(false);
+    expect(byName("builder")?.credentialRejected).toBe(false);
+  });
+
+  it("offers only the checked models, at the scope of the key in effect", async () => {
+    readAppSecret.mockImplementation(
+      async (ref: { key: string; scope: string }) =>
+        ref.key === "ANTHROPIC_API_KEY" && ref.scope === "user"
+          ? { value: "sk-ant-fake-placeholder" }
+          : null,
+    );
+    userSettings.set("agent-provider-models:anthropic", {
+      models: ["claude-opus-5-5"],
+    });
+    orgSettings.set("agent-provider-models:openai", { models: ["gpt-6-sol"] });
+    const { getAgentEngineEntry } = await import("../../agent/engine/index.js");
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(
+      await runWithRequestContext(
+        { userEmail: "member@example.com", orgId: "org-models" },
+        () => run(),
+      ),
+    );
+    const byName = (name: string) =>
+      result.engines.find((engine: any) => engine.name === name);
+
+    expect(byName("anthropic")).toMatchObject({
+      supportedModels: ["claude-opus-5-5"],
+      recommendedModels: getAgentEngineEntry("anthropic")?.supportedModels,
+      modelSelection: { state: "selected", scope: "user" },
+    });
+    // No organization OpenAI key is saved, but its models still belong to the
+    // organization, which is where an admin's key would go.
+    expect(byName("ai-sdk:openai")).toMatchObject({
+      supportedModels: ["gpt-6-sol"],
+      modelSelection: { state: "selected", scope: "org" },
+    });
+    expect(byName("ai-sdk:google")?.modelSelection).toEqual({
+      state: "default",
+      scope: "org",
+    });
+    expect(result.current).toEqual({
+      engine: "anthropic",
+      model: "claude-opus-5-5",
+    });
+  });
+
   it("does not report AGENT_ENGINE as current when its optional package is missing", async () => {
     process.env.AGENT_ENGINE = "ai-sdk:missing-provider";
     const { registerAgentEngine } = await import("../../agent/engine/index.js");
@@ -110,6 +237,25 @@ describe("list-agent-engines", () => {
       model: getAgentEngineEntry("anthropic")?.defaultModel,
     });
     expect(result.current.model).toMatch(/^claude-/);
+  });
+
+  it("reports the org default and whether the caller can change it", async () => {
+    defaultSetting = {
+      value: { engine: "ai-sdk:openrouter", model: "vendor/custom-model" },
+      source: "org",
+    };
+    defaultAuthority = { allowed: false };
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test-example");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(await run());
+
+    expect(result.current).toEqual({
+      engine: "ai-sdk:openrouter",
+      model: "vendor/custom-model",
+    });
+    expect(result.canUpdateDefault).toBe(false);
+    expect(result.defaultSource).toBe("org");
   });
 
   it("reports that OpenRouter preserves custom model IDs", async () => {

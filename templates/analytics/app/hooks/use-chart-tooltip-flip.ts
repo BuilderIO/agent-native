@@ -3,13 +3,6 @@ import { useEffect, useRef } from "react";
 const VIEWPORT_GUTTER_PADDING = 12;
 const FLIP_CURSOR_OFFSET = 24;
 
-/**
- * Recharts tooltips can extend past the chart's right edge and get clipped by
- * the agent sidebar. Attach the returned ref to the tooltip content's outer
- * div; while the tooltip is mounted we observe the recharts wrapper's
- * `transform` (cursor moves) and translate the content left when its right
- * edge would land inside `.agent-sidebar-panel`.
- */
 export function useChartTooltipFlip<T extends HTMLElement>(active = true) {
   const ref = useRef<T | null>(null);
 

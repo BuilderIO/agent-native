@@ -93,8 +93,6 @@ export function registerSlideImageUploadProvenance(
     previous.editedSourceStamp !== provenance.editedSourceStamp ||
     previous.editedNodeMarkup !== provenance.editedNodeMarkup
   ) {
-    // Identical results with identical snapshots are interchangeable; ambiguous
-    // same-content writes fail closed instead of borrowing another upload's snapshot.
     contentSnapshots.set(content, null);
   }
 }
@@ -109,7 +107,6 @@ export function takeSlideImageUploadProvenance(
   return provenance;
 }
 
-/** Drops a snapshot no render will take: its upload failed, was cancelled, or is done. */
 export function discardSlideImageUploadProvenance(
   slideId: string,
   content: string,
@@ -119,7 +116,6 @@ export function discardSlideImageUploadProvenance(
   if (contentSnapshots?.size === 0) pendingSlideImageUploads.delete(slideId);
 }
 
-/** Snapshot the edited source node when an image upload operation begins. */
 export function captureSlideImageUploadProvenance(
   root: HTMLElement,
   sourceSnapshotHtml = root.innerHTML,
@@ -200,8 +196,6 @@ function parsePlaceholderTarget(src: string): PlaceholderTarget | null {
 }
 
 function parseFragment(html: string): Document {
-  // Opening in <body> keeps a slide's leading <style> (and <link>, comments)
-  // in the body instead of <head>, where serializing the body would drop it.
   return new DOMParser().parseFromString(`<body>${html}`, "text/html");
 }
 
@@ -220,7 +214,6 @@ function findImageWithSource(
   );
 }
 
-/** The markup outside images and an explicitly matched edited node. */
 function imageStructure(doc: Document, ignoredSourceStamp?: string): string {
   const body = doc.body.cloneNode(true) as HTMLElement;
   if (ignoredSourceStamp) {
@@ -323,7 +316,6 @@ function updateImageAttributesInPlace(
   }
 }
 
-/** Update image attributes in place while preserving live drag/resize styles. */
 export function swapImageSourcesInPlace(
   root: HTMLElement,
   previousContent: string,
@@ -355,16 +347,6 @@ export function swapImageSourcesInPlace(
   return true;
 }
 
-/**
- * For a root whose text is being edited, where nothing else may be replaced:
- * applies the image attribute changes between two renders to the live
- * images, matched by order. Each live image keeps its source stamp, so the
- * edit still merges into the source it started from and carries the new
- * image as one of its changes. False unless images changed and nothing else
- * did, either since the previous render or since one of the edit's own
- * drafts (`edit`, stored forms), which an upload built on that draft carries
- * and the live edit is newer than.
- */
 export function updateLiveImagesUnderEdit(
   root: HTMLElement,
   previousContent: string,
@@ -422,7 +404,6 @@ export function updateLiveImagesUnderEdit(
   return true;
 }
 
-/** Resolve after a hosted image is decoded, keeping the old preview visible. */
 export function prefetchImage(src: string): Promise<boolean> {
   if (typeof Image === "undefined") return Promise.resolve(true);
 
@@ -1215,7 +1196,6 @@ export function updateImageFitInSlideHtml(
   return content;
 }
 
-/** Replace one optimistic preview, or remove it when its upload failed. */
 export function replaceOptimisticImagePreview(
   content: string,
   previewSrc: string,
@@ -1243,7 +1223,6 @@ export function replaceOptimisticImagePreview(
   return serializeFragment(doc);
 }
 
-/** Keep edits made to a temporary image while its blob URL is stripped. */
 export function captureOptimisticImagePreview(
   content: string,
   preview: OptimisticImagePreview,
@@ -1326,12 +1305,6 @@ export function insertImageIntoSlideHtml(
     return serializeFragment(doc);
   }
 
-  // No placeholder to slot into: .fmd-slide is a flex column, so a plain
-  // appended <img> becomes a flex item that competes for space with (and
-  // visually squishes) the slide's existing content. Position it as a
-  // full-bleed background layer behind the existing content instead, which
-  // matches how the agent already inserts generated images onto slides that
-  // have none.
   const img = doc.createElement("img");
   img.setAttribute("src", newSrc);
   img.setAttribute("alt", cleanAlt(options.alt));
@@ -1358,7 +1331,6 @@ export function insertImageIntoSlideHtml(
   return serializeFragment(doc);
 }
 
-/** Insert a desktop drop as a durable, independently movable canvas object. */
 export function insertDroppedImageIntoSlideHtml(
   content: string,
   newSrc: string,
@@ -1403,9 +1375,6 @@ export function insertDroppedImageIntoSlideHtml(
     }
     slideRoot.appendChild(img);
   } else {
-    // Markdown-backed slides keep their source text. Appending a raw image tag
-    // lets ReactMarkdown preserve the text while the slide canvas supplies the
-    // positioned containing block at render time.
     doc.body.append(doc.createTextNode("\n\n"), img);
   }
 

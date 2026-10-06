@@ -1,9 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import {
-  AppProviders,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client/hooks";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import {
   getLocaleInitScript,
   type LocaleCode,
@@ -11,16 +8,13 @@ import {
   type LocalizationPreference,
   useT,
 } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
-import {
-  ErrorReportActions,
-  RouteTransitionIndicator,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
+import { RouteTransitionIndicator } from "@agent-native/toolkit/app/shared";
 import {
   IconDeviceDesktop,
   IconHierarchy2,
@@ -55,19 +49,24 @@ import type {
   ShouldRevalidateFunctionArgs,
 } from "react-router";
 
-// Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
 import { Toaster as Sonner } from "@/components/ui/sonner";
-// shadcn useToast-based toaster — separate from sonner, must stay inline.
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
+import { ContentStartupShell } from "./components/layout/ContentStartupShell";
+import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/sidebar-preferences";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
+import { startPageOpenDocumentReads } from "./hooks/use-documents";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
+import { isPersonalLanding } from "./lib/content-landing";
+import { readLastLocationHintForAnyAccount } from "./lib/last-location-hint";
+import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
+import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
 import stylesheet from "./global.css?url";
 import katexStylesheet from "katex/dist/katex.min.css?url";
@@ -114,12 +113,20 @@ export function shouldRevalidate({
   return formMethod ? defaultShouldRevalidate : false;
 }
 
-// Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
+
+// The startup shell draws before the i18n provider exists, so it reads its
+// copy straight from the locale messages the loader sent.
+function rootMessage(messages: LocaleMessages, key: string): string | null {
+  const root = messages.root;
+  if (!root || typeof root !== "object") return null;
+  const value = (root as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : null;
+}
 
 const LazyAgentSidebar = lazy(async () => {
   const { AgentSidebar } =
-    await import("@agent-native/core/client/AgentSidebar");
+    await import("@agent-native/toolkit/app/chat/AgentSidebar");
   return { default: AgentSidebar };
 });
 
@@ -204,6 +211,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-locale-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
+        />
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html:
+              CONTENT_STARTUP_SIDEBAR_SCRIPT +
+              CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT +
+              CONTENT_STARTUP_PAGE_HINTS_SCRIPT,
+          }}
         />
         <meta name="theme-color" content="#10B981" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -379,6 +395,20 @@ export default function Root() {
   const commandTrigger = useRef<HTMLElement | null>(null);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
+  useEffect(() => {
+    // A load of /home reads its likely page alongside the session check
+    // rather than after the app mounts behind it.
+    if (!isPersonalLanding(location)) return;
+    const documentId = readLastLocationHintForAnyAccount();
+    if (!documentId) return;
+    const search = new URLSearchParams(location.search);
+    startPageOpenDocumentReads(queryClient, documentId, {
+      databaseId: search.get("databaseId"),
+      databaseDocumentId: search.get("databaseDocumentId"),
+    });
+    // Only the load itself; navigating to /home later mounts it directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useCommandMenuShortcut(
     useCallback(() => {
       commandTrigger.current =
@@ -414,24 +444,16 @@ export default function Root() {
     target.focus();
   }, []);
 
-  // Public document paths (/p/*) SSR real content without the ClientOnly gate
-  // so crawlers and unauthenticated visitors receive full markup on first visit.
   const isPublicPath = location.pathname.startsWith("/p/");
-  const isMarketingHome = location.pathname === "/";
 
-  // Content's 3-way theme cycle (system/light/dark) animates the transition;
-  // pass disableThemeTransitions={false} to restore that behaviour.
-  // The styled Sonner is passed via `toaster` so only one sonner instance
-  // renders; the shadcn useToast-based <Toaster /> stays inline because it is
-  // a different toasting system.
   const contentToaster = <Sonner closeButton position="bottom-left" />;
 
-  if (isPublicPath || isMarketingHome) {
+  if (isPublicPath) {
     return (
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}
-          isPublicPath={isPublicPath || isMarketingHome}
+          isPublicPath={isPublicPath}
           disableThemeTransitions={false}
           toaster={contentToaster}
           i18n={{
@@ -459,6 +481,16 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        clientOnlyFallback={
+          <ContentStartupShell
+            pathname={location.pathname}
+            label={
+              rootMessage(loaderData.messages, "loadingContent") ??
+              rootMessage(i18nCatalog.messages, "loadingContent") ??
+              ""
+            }
+          />
+        }
         disableThemeTransitions={false}
         toaster={contentToaster}
         i18n={{
@@ -516,13 +548,6 @@ function ContentErrorBoundaryBody() {
         >
           Go to page list
         </a>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
-        >
-          Reload
-        </button>
         <ErrorReportActions
           appName="Content"
           title={title}

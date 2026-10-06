@@ -15,8 +15,10 @@ workspace core or the app that needs it; do not copy it into every app.
 ## Framework Docs Lookup
 
 Version-matched Agent-Native docs ship with `@agent-native/core` in
-`node_modules/@agent-native/core/docs`. A source-only corpus of first-party
-template patterns ships in `node_modules/@agent-native/core/corpus`.
+`node_modules/@agent-native/core/docs`. First-party template source is available
+in the optional `node_modules/@agent-native/core-corpus/corpus` package. If
+source-search reports it is unavailable, install the matching version with
+`pnpm add -D @agent-native/core-corpus@<installed-core-version>`.
 
 - From an app directory, use `pnpm action docs-search --query "<topic>"`,
   `pnpm action docs-search --slug <slug>`, or `pnpm action docs-search --list`.
@@ -24,7 +26,7 @@ template patterns ships in `node_modules/@agent-native/core/corpus`.
   `pnpm action source-search --path <path>` when source examples matter.
 - From the workspace root, read `node_modules/@agent-native/core/docs/AGENTS.md`
   and search `node_modules/@agent-native/core/docs/content/` directly with `rg`.
-  Search `node_modules/@agent-native/core/corpus/` for template source examples
+  Search `node_modules/@agent-native/core-corpus/corpus/` for template source examples
   and `node_modules/@agent-native/core/dist/` for framework internals.
 - For advanced workspace features, start with `workspace`, `multi-app-workspace`,
   `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,

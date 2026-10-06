@@ -164,7 +164,6 @@ export async function claimSetupIntent(
     })
     .onConflictDoNothing()
     .returning({ id: table.id });
-  // The unique claim serializes identical requests across hosted workers, including creation before a database exists.
   const [claim] = await tx
     .update(table)
     .set({ payloadDigest: sql`${table.payloadDigest}` })

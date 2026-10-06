@@ -1,24 +1,3 @@
-/**
- * On a serverless host, holding the `/_agent-native/events` SSE invocation
- * open manufactures a fresh cold container per connection: the platform
- * kills the invocation at its own ceiling (there is no request-scoped time
- * limit on it), that resets the execution environment, and `EventSource`
- * reconnects immediately. See the `real-time-sync` skill and
- * `packages/core/src/client/use-db-sync.ts` (`localSseRefused`) for the
- * client half of this fix.
- *
- * The 204 short-circuit is gated on BOTH the runtime and the request: a
- * production serverless runtime (`isProductionServerlessFunctionRuntime()`,
- * which excludes `netlify dev`'s NETLIFY_LOCAL) AND the `poll_live=1` query
- * param that only a client new enough to fall back to poll-live sends — see
- * `resolveSseUrl` in use-db-sync.ts. A request without the param keeps
- * streaming, so a tab already running an older bundle is unaffected until it
- * reloads.
- *
- * This exercises the real mount through the request boundary (same pattern
- * as `framework-route-prefix.integration.spec.ts`) so the assertion is what
- * a client actually receives, not just which function got called.
- */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,9 +8,6 @@ import { closeDbExec } from "../db/client.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
 import { createCoreRoutesPlugin } from "./core-routes-plugin.js";
 
-// isProductionServerlessFunctionRuntime() checks every one of these (plus
-// NODE_ENV/NETLIFY_LOCAL below); clearing them all between tests keeps a
-// leaked var from one test from deciding another's runtime.
 const SERVERLESS_ENV_KEYS = [
   "NETLIFY",
   "NETLIFY_FUNCTION_NAME",
@@ -136,8 +112,6 @@ describe("SSE mount on a serverless runtime", () => {
 
     const { status, contentType, body } = await dispatchEvents(nitroApp);
 
-    // Unauthenticated on the real streaming path, so 401 rather than a
-    // stream — the point is it did NOT take the 204 shortcut.
     expect(status).toBe(401);
     expect(contentType).not.toBe("text/event-stream");
 
@@ -165,15 +139,11 @@ describe("SSE mount on a serverless runtime", () => {
   });
 
   it("keeps streaming on a long-lived (non-serverless) host", async () => {
-    // No serverless env var set — the default for local dev and a plain
-    // Node host.
     const nitroApp = createNitroApp();
     createCoreRoutesPlugin()(nitroApp);
 
     const { status, contentType, body } = await dispatchEvents(nitroApp);
 
-    // Unauthenticated on the real streaming path, so 401 rather than a
-    // stream — the point is it did NOT take the 204 shortcut.
     expect(status).toBe(401);
     expect(contentType).not.toBe("text/event-stream");
 

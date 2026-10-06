@@ -99,6 +99,11 @@ A create/update result is read by more than the caller. These keys are well-know
 - `message`/`summary` — the one-line status external callers read; everything else stays in the structured result.
 - `designSystem` — when a record can link a brand or design system, expose it as `designSystem: AgentDesignSystemContext | null` via `loadAgentDesignSystemContext(id, getDesignSystemAction)` from core's shared `design-system-agent-context`. Reads get the bounded summary (`scope: "summary"`, with a `next` line naming the full read); only the create action and `get-design-system` itself pass `{ full: true }`. `status: "unavailable"` is not `null`: keep the id and the message. Print it in text results with `formatAgentDesignSystemContext`; do not name the field anything else.
 
+For actions that attach a `chatUI` renderer, use `chatUI.projectResult` to return
+only the small structured fields the renderer needs. `chatUI.when` is evaluated
+against the full successful result first; the projection is used live and saved
+for interrupted-run recovery.
+
 An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. The full external contract (link builders, `mcpApp`, `publicAgent`, payload limits, the author rule) is the `external-agents` skill.
 
 Reach for `outputSchema` (validate the return), `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.

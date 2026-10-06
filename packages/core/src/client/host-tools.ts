@@ -53,10 +53,6 @@ export interface RunAgentNativeHostWebMcpToolInput {
 }
 
 export interface SendAgentNativeHostCommandToolInput {
-  /**
-   * Built-in or custom host command. Defaults to refreshData so callers can
-   * use this tool as a simple host refresh primitive.
-   */
   command?: BuiltInAgentNativeHostCommand | (string & {});
   payload?: unknown;
 }

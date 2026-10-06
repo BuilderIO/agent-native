@@ -2,14 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
 const mockValues = vi.hoisted(() => vi.fn());
+const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
+const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: mockUploadFile,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  runWithRequestContext: async (_context: unknown, callback: () => unknown) =>
-    callback(),
+  getRequestOrgId: () => mockGetRequestOrgId(),
+  runWithRequestContext: (...args: unknown[]) =>
+    mockRunWithRequestContext(...args),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -30,6 +33,12 @@ beforeEach(() => {
   });
   mockValues.mockReset();
   mockValues.mockResolvedValue(undefined);
+  mockGetRequestOrgId.mockReset();
+  mockGetRequestOrgId.mockReturnValue(undefined);
+  mockRunWithRequestContext.mockReset();
+  mockRunWithRequestContext.mockImplementation(
+    async (_context: unknown, callback: () => unknown) => callback(),
+  );
 });
 
 describe("uploadedAssetUrl", () => {
@@ -181,6 +190,23 @@ describe("uploaded asset validation", () => {
         mimeType: "image/svg+xml",
         ownerEmail: "owner@example.com",
       }),
+    );
+  });
+
+  it("keeps the active organization while creating the public asset", async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" />');
+    mockGetRequestOrgId.mockReturnValue("active-org");
+
+    await uploadImageAsset({
+      email: "owner@example.com",
+      originalName: "logo.svg",
+      data: svg,
+      type: "image/svg+xml",
+    });
+
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "active-org" },
+      expect.any(Function),
     );
   });
 });

@@ -25,6 +25,14 @@ const singularDuplicateActionSource = readFileSync(
   new URL("../../actions/duplicate-database-item.ts", import.meta.url),
   "utf8",
 );
+const patchBatchActionSource = readFileSync(
+  new URL("../../actions/patch-database-items.ts", import.meta.url),
+  "utf8",
+);
+const singularUpdateActionSource = readFileSync(
+  new URL("../../actions/update-database-item.ts", import.meta.url),
+  "utf8",
+);
 const batchSchemaSource = readFileSync(
   new URL("../../actions/_database-row-batch.ts", import.meta.url),
   "utf8",
@@ -67,5 +75,11 @@ describe("database row batch reliability", () => {
       "For two or more rows, use duplicate-database-items once instead of looping this action",
     );
     expect(batchSchemaSource).toContain("Native JSON array");
+    expect(patchBatchActionSource).toContain(
+      "Apply a different sparse patch to each of up to",
+    );
+    expect(singularUpdateActionSource).toContain(
+      "use patch-database-items once instead of looping this action",
+    );
   });
 });

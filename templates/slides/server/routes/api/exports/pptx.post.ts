@@ -45,8 +45,6 @@ export default defineEventHandler(async (event) => {
         }),
     );
 
-    // Immediate exports stream in this request; durable URLs require optional
-    // blob storage and are intentionally a separate future capability.
     const bytes = new Uint8Array(result.buffer);
     const responseBody = bytes.buffer.slice(
       bytes.byteOffset,
@@ -64,9 +62,6 @@ export default defineEventHandler(async (event) => {
       },
     });
   } catch (error) {
-    // The action raises caller-correctable failures through `fail()`, so take
-    // the status and the stable code from the contract instead of sniffing the
-    // message. Clients get the same `errorCode` the action transport returns.
     if (isActionContractError(error)) {
       setResponseStatus(event, error.statusCode);
       return {
@@ -78,7 +73,6 @@ export default defineEventHandler(async (event) => {
       error instanceof Error
         ? error.message
         : "Something went wrong exporting as PPTX.";
-    // Keep the prefix check as fallback for any remaining untyped producers.
     setResponseStatus(event, message.startsWith("Deck not found") ? 404 : 500);
     return {
       error: message,

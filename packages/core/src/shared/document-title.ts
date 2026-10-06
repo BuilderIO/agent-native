@@ -1,10 +1,5 @@
 const STRUCTURED_TITLE_START = /^[[{]/;
 
-/**
- * Browser titles must be human-readable strings. React Router stringifies a
- * structured `title` value, which otherwise leaks the whole payload into the
- * browser tab.
- */
 export function isHumanReadableDocumentTitle(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const title = value.trim();

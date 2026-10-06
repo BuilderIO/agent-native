@@ -3,9 +3,19 @@ import {
   getBuilderEmbeddingsBaseUrl,
   prefetchSecrets,
   resolveBuilderGatewayAuth,
-  resolveSecretDetailed,
   type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
+import {
+  GEMINI_API_KEY,
+  resolveSecretWithAliasesDetailed,
+  secretKeyNames,
+} from "../server/secret-key-aliases.js";
+import {
+  SERVICE_PROVIDERS_SETTING_KEY,
+  SERVICE_PROVIDER_OPTIONS,
+  readServiceProviderChoice,
+  type ServiceProviderId,
+} from "../server/service-providers.js";
 
 export type EmbeddingInputPurpose = "query" | "document";
 export interface EmbeddingImageInput {
@@ -387,7 +397,7 @@ export function createBuilderEmbeddingFamily(
 const EMBEDDING_CREDENTIALS = [
   {
     provider: "gemini",
-    key: "GEMINI_API_KEY",
+    key: GEMINI_API_KEY,
     create: createGeminiEmbeddingFamily,
   },
   {
@@ -404,19 +414,26 @@ const EMBEDDING_CREDENTIALS = [
 
 export interface EmbeddingFamilyAvailability {
   families: EmbeddingFamily[];
+  /**
+   * Providers whose credentials could not be read. `service-providers` means
+   * the organization's Embeddings choice could not be read, so no family can
+   * be picked safely.
+   */
   unavailableProviders: string[];
+  /** The organization's Embeddings choice, or null when unset or outside an organization. */
+  preferredProvider: ServiceProviderId<"embeddings"> | null;
 }
 
 export async function readEmbeddingFamilyAvailability(): Promise<EmbeddingFamilyAvailability> {
-  await prefetchSecrets(EMBEDDING_CREDENTIALS.map(({ key }) => key)).catch(
-    () => undefined,
-  );
+  await prefetchSecrets(
+    EMBEDDING_CREDENTIALS.flatMap(({ key }) => secretKeyNames(key)),
+  ).catch(() => undefined);
   const resolved = await Promise.all(
     EMBEDDING_CREDENTIALS.map(async (credential) => {
       try {
         return {
           credential,
-          detail: await resolveSecretDetailed(credential.key),
+          detail: await resolveSecretWithAliasesDetailed(credential.key),
         };
       } catch {
         return {
@@ -440,10 +457,17 @@ export async function readEmbeddingFamilyAvailability(): Promise<EmbeddingFamily
   } catch {
     unavailableProviders.push("builder");
   }
+  let preferredProvider: ServiceProviderId<"embeddings"> | null = null;
+  try {
+    preferredProvider = await readServiceProviderChoice("embeddings");
+  } catch {
+    unavailableProviders.push(SERVICE_PROVIDERS_SETTING_KEY);
+  }
 
   return {
     families: [...directFamilies, ...(builderFamily ? [builderFamily] : [])],
     unavailableProviders,
+    preferredProvider,
   };
 }
 
@@ -456,8 +480,47 @@ export async function availableEmbeddingFamilies(): Promise<EmbeddingFamily[]> {
   }
   return availability.families;
 }
+/**
+ * The family to index and search with. The organization's choice wins, and a
+ * choice whose provider isn't available returns null rather than another
+ * family: vectors from a different provider don't match its index. Without a
+ * choice, a single family is used as is, and several are picked in the order
+ * Builder.io, Gemini, Cohere, Voyage. Families from other providers are never
+ * picked among, only used when they are the only one.
+ */
 export function defaultEmbeddingFamily(
   families: readonly EmbeddingFamily[],
+  preferredProvider?: string | null,
 ): EmbeddingFamily | null {
-  return families.length === 1 ? (families[0] ?? null) : null;
+  if (preferredProvider) {
+    return (
+      families.find((family) => family.provider === preferredProvider) ?? null
+    );
+  }
+  if (families.length === 1) return families[0] ?? null;
+  for (const provider of SERVICE_PROVIDER_OPTIONS.embeddings) {
+    const family = families.find(
+      (candidate) => candidate.provider === provider,
+    );
+    if (family) return family;
+  }
+  return null;
+}
+
+/**
+ * {@link defaultEmbeddingFamily} for the current request's credentials and
+ * organization. Throws when a credential or the organization's choice could
+ * not be read, like {@link availableEmbeddingFamilies}.
+ */
+export async function resolveDefaultEmbeddingFamily(): Promise<EmbeddingFamily | null> {
+  const availability = await readEmbeddingFamilyAvailability();
+  if (availability.unavailableProviders.length) {
+    throw new Error(
+      `Embedding credential lookup is temporarily unavailable for: ${availability.unavailableProviders.join(", ")}.`,
+    );
+  }
+  return defaultEmbeddingFamily(
+    availability.families,
+    availability.preferredProvider,
+  );
 }

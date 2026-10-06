@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "इंटीग्रेशन" } },
   creativeContext: {
     title: "लाइब्रेरी",
     description:
@@ -163,14 +164,16 @@ export default {
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
     openAgentSettings: "एजेंट प्रबंधित करें",
-    languageTitle: "भाषा",
-    languageDescription: "Design की interface भाषा चुनें।",
-    languageLabel: "इंटरफ़ेस भाषा",
-    labs: "Labs",
-    labsIntro:
-      "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
     labTweaks: "डिज़ाइन ट्वीक",
     labTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
+    labFullAppBuilding: "पूरे ऐप बनाएँ",
+    labFullAppBuildingDescription:
+      "Builder से अपने डिज़ाइन के आधार पर काम करने वाले ऐप बनाने की कोशिश करें।",
+    labDesignReviewTools: "डिज़ाइन समीक्षा टूल",
+    labDesignReviewToolsDescription:
+      "अपने डिज़ाइन में सुगम्यता संबंधी समस्याएँ जाँचें और दृश्य बदलावों की तुलना करें।",
+    mcpAbout:
+      "Design को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Design में काम कर सकता है: डिज़ाइन बनाना और उन्हें संपादित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
   pages: {
     presentEmpty: "प्रस्तुत करने के लिए कोई सामग्री नहीं",
@@ -179,8 +182,17 @@ export default {
     notFoundDescription: "आप जिस पृष्ठ को ढूँढ रहे हैं वह मौजूद नहीं है।",
     notFoundSignIn: "साइन इन करें",
     notFoundBackToDesigns: "डिज़ाइन पर वापस जाएँ",
-    teamCreateOrgDescription:
-      "डिज़ाइन को अपने सहयोगियों के साथ साझा करने के लिए टीम सेट करें।",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "फ़ाइलें अपलोड करने के लिए स्टोरेज कनेक्ट करें",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
+    },
+    common: { retry: "फिर से प्रयास करें" },
   },
   chat: {
     emptyState: "बनाने के लिए design का वर्णन करें",
@@ -200,7 +212,7 @@ export default {
       tokenLabel: "Figma एक्सेस टोकन",
       tokenPlaceholder: "Figma access token paste करें",
       connecting: "कनेक्ट हो रहा है…",
-      connect: "कनेक्ट करें",
+      connect: "Figma कनेक्ट करें",
       getToken: "Token पाएँ",
       importFrame: "Frame import करें",
       chooseFrame: "Frame चुनें",
@@ -211,6 +223,7 @@ export default {
     },
   },
   common: {
+    loading: "लोड हो रहा है...",
     genericError: "कुछ गलत हो गया",
   },
   editPanel: {
@@ -308,6 +321,8 @@ export default {
       bottomLeft: "नीचे बायां",
       bottomRight: "नीचे दायां",
       blend: "मिश्रण",
+      blendMode: "ब्लेंड मोड",
+      removeBlendMode: "ब्लेंड मोड हटाएं",
       border: "बॉर्डर",
       outline: "आउटलाइन",
       inside: "अंदर",
@@ -1238,6 +1253,7 @@ export default {
       verifying: "Source और runtime सत्यापित हो रहे हैं…",
       retryWithAgent: "Source verification फिर करें",
       copyPrompt: "Prompt अपने agent को कॉपी करें",
+      copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
       copyFullPrompt: "पूरा प्रॉम्प्ट कॉपी करें",
       abortPreview: "Preview रोकें और interact करें",
       agentMessage: "लंबित visual style edits को source पर लागू करें।",
@@ -1336,6 +1352,16 @@ export default {
       pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
       pngSaveError: "PNG सहेजा नहीं जा सका",
       pngExportError: "PNG निर्यात नहीं किया जा सका",
+      exportTooLarge:
+        "निर्यात बहुत बड़ा है। अनुरोध की सीमा 5 MB है; एम्बेड किए गए संसाधन या रास्टर आयाम कम करके फिर कोशिश करें।",
+      exportResourcesUnavailable:
+        "एक या अधिक छवियाँ, फ़ॉन्ट या स्टाइलशीट उपलब्ध न होने के कारण निर्यात सही ढंग से रेंडर नहीं हो सका। इन संसाधनों की जाँच करके फिर कोशिश करें।",
+      exportTimedOut:
+        "निर्यात का समय समाप्त हो गया। फिर कोशिश करें या डिज़ाइन का आकार कम करें।",
+      exportBusy:
+        "एक अन्य निर्यात अभी रेंडर हो रहा है। थोड़ा इंतज़ार करें और फिर कोशिश करें।",
+      exportChromiumUnavailable:
+        "रेंडरर शुरू न हो पाने के कारण निर्यात उपलब्ध नहीं है। बाद में फिर कोशिश करें।",
       pdfExportError: "PDF निर्यात नहीं किया जा सका",
       pdfDownloaded: "PDF डाउनलोड किया गया",
       pdfAllScreensDownloaded: "PDF डाउनलोड किया गया (सभी स्क्रीन)",
@@ -1392,6 +1418,7 @@ export default {
         "यह लेयर सोर्स में नहीं मिली। ऐप लोड होने के बाद फिर से कोशिश करें, या एजेंट से यह बदलाव करने को कहें।",
       reactSourceAnchorsUnavailable:
         "यह ऐप एडिटर को सोर्स लोकेशन नहीं देता, इसलिए इस लेयर को किसी लाइन से नहीं जोड़ा जा सकता। यह बदलाव एजेंट से कराएँ।",
+      sourceLocationSnapshotFailed: "इस पूर्वावलोकन के स्रोत स्थान जाँचे नहीं जा सके।",
       screenSourceUpdated: "स्क्रीन स्रोत अपडेट किया गया",
       screenSourceUpdateFailed: "स्क्रीन स्रोत अपडेट नहीं किया जा सका",
       vectorEditUnsupported: "इस आकार या रूपांतरण के लिए वेक्टर संपादन उपलब्ध नहीं है।",
@@ -1448,6 +1475,13 @@ export default {
         "कई कोशिशों के बाद भी लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की।",
       connectionNotConfirmed:
         "लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की। क्या लोकल डेवलपमेंट सर्वर अभी भी चल रहा है?",
+      permissionPromptTitle: "अपनी लोकल स्क्रीन कनेक्ट करें",
+      permissionPromptDescription:
+        "लाइव एडिटिंग चालू करने के लिए Chrome के प्रॉम्प्ट में “अनुमति दें” चुनें।",
+      permissionPromptNoPrompt: "Chrome का प्रॉम्प्ट नहीं दिख रहा?",
+      permissionPromptSettingsInstructions:
+        "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर लोकल नेटवर्क को ‘अनुमति दें’ पर सेट करें।",
+      permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {
@@ -1633,7 +1667,65 @@ export default {
       "इस व्यू से बाहर निकलने पर {{count}} नहीं भेजे गए कमेंट ड्राफ़्ट हटा दिए गए।",
     staleAnchorDetail: "मूल एलिमेंट अब कैनवास पर नहीं मिला।",
   },
+  homeContext: {
+    websiteReference: "वेबसाइट जोड़ें",
+    websiteUrlLabel: "वेबसाइट URL",
+    websiteUrl: "वेबसाइट का URL पेस्ट करें",
+    figmaUrlLabel: "Figma लिंक",
+    invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
+    tooMany: "अधिकतम 20 संदर्भ चुनें।",
+    invalidWebsiteUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
+    createSystem: "डिज़ाइन सिस्टम बनाएँ",
+    noSystems:
+      "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
+    searchSystems: "डिज़ाइन सिस्टम खोजें…",
+    searchFrames: "Figma फ़्रेम खोजें…",
+    searchDesigns: "डिज़ाइन खोजें…",
+    searchPresentations: "प्रस्तुतियाँ खोजें…",
+    searchDesign: "डिज़ाइन खोजें…",
+    useDesignSystem: "डिज़ाइन सिस्टम का उपयोग करें",
+    notReady:
+      "प्रॉम्प्ट अभी भेजने के लिए तैयार नहीं है। चुना गया संदर्भ और कनेक्शन जाँचें, फिर प्रयास करें।",
+    search: "संदर्भ खोजें…",
+    figmaUrl: "Figma लिंक पेस्ट करें",
+    browse: "फ़्रेम देखें",
+    loadFailed: "यह संदर्भ लोड नहीं हो सका।",
+    retry: "फिर प्रयास करें",
+    empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
+    none: "कोई नहीं",
+    design: "डिज़ाइन",
+    slides: "स्लाइड",
+    referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
+    figmaReference: "Figma जोड़ें",
+    referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
+    quickSaas: "SaaS लैंडिंग पेज बनाएँ",
+    quickDashboard: "डैशबोर्ड बनाएँ",
+    quickDeck: "स्लाइड प्रस्तुति बनाएँ",
+    deckPrompt:
+      "शीर्षक स्लाइड, स्पष्ट कथा, दृश्य डेटा और संक्षिप्त अंतिम स्लाइड के साथ एक आकर्षक प्रस्तुति बनाएँ।",
+  },
   home: {
+    suggestedPrompts: "सुझाए गए प्रॉम्प्ट",
+    import: "आयात करें",
+    importOptions: "आयात विकल्प",
+    figmaLink: "Figma लिंक",
+    importFromFigma: "Figma से आयात करें",
+    figmaFile: "Figma फ़ाइल (.fig)",
+    openImport: "आयात खोलें",
+    importSelectedFile: "चुनी गई फ़ाइल आयात करें",
+    starterSaasPrompt:
+      "डार्क थीम, मुख्य परिचय खंड, तीन फ़ीचर कार्ड और अंत में कार्रवाई के आह्वान वाला एक आधुनिक SaaS लैंडिंग पेज।",
+    starterDashboardPrompt:
+      "साइडबार नेविगेशन, चार प्रमुख संकेतक कार्ड, एक चार्ट और हाल की गतिविधियों की तालिका वाला एक साफ़-सुथरा विश्लेषण डैशबोर्ड।",
+    starterMobilePrompt:
+      "फ़ोन फ़्रेम में दिखाया गया एक मोबाइल ऐप प्रोटोटाइप, जिसमें नीचे टैब बार और होम स्क्रीन पर तीन सूची कार्ड हों।",
+    starterPricingPrompt:
+      "मासिक/वार्षिक टॉगल, फ़ीचर चेकलिस्ट और हाइलाइट की गई अनुशंसित योजना वाला तीन-स्तरीय मूल्य पृष्ठ।",
+    designPromptTitle: "आइए अपना पहला डिज़ाइन बनाएं",
+    recent: "हाल के",
+    browseAllTemplates: "सभी ब्राउज़ करें",
+    connectBuilderIo: "Builder.io इस्तेमाल करें",
+    connectingBuilder: "Builder.io सेट अप हो रहा है…",
     pageTitle: "Designs",
     searchPlaceholder: "डिज़ाइन खोजें...",
     newDesign: "नया Design",
@@ -1643,6 +1735,9 @@ export default {
     allAuthors: "सभी लेखक",
     me: "मैं",
     designFilter: "डिज़ाइन फ़िल्टर",
+    ownedByAnyone: "किसी के भी स्वामित्व वाले",
+    ownedByMe: "मेरे स्वामित्व वाले",
+    sharedWithMe: "मेरे साथ साझा",
     mine: "मेरे",
     all: "सभी",
     showMineDesigns: "मेरे डिज़ाइन दिखाएं",
@@ -1676,6 +1771,7 @@ export default {
     pickStartingPoint: "एक प्रारंभिक बिंदु चुनें या अपना स्वयं का संकेत लिखें।",
     searchNoResultsTitle: "इस खोज से मेल खाने वाला कोई डिज़ाइन नहीं है",
     searchNoResultsDescription: "कोई दूसरी खोज आज़माएँ।",
+    noDesignsMatchFilter: "वर्तमान फ़िल्टर से कोई डिज़ाइन मेल नहीं खाता।",
     starterSaas: "सास लैंडिंग पृष्ठ",
     starterDashboard: "डैशबोर्ड",
     starterPricing: "मूल्य निर्धारण पृष्ठ",
@@ -1699,6 +1795,8 @@ export default {
     layoutLabel: "Screen layout save करने के लिए ready",
   },
   templatesPage: {
+    previewEmpty: "इस टेम्पलेट में पूर्वावलोकन के लिए कोई स्क्रीन नहीं है।",
+    loading: "टेम्पलेट लोड हो रहे हैं",
     title: "टेम्पलेट",
     description:
       "सही आकार और डिफ़ॉल्ट से शुरू करें, फिर अनलॉक सामग्री को प्रॉम्प्ट से बदलें।",
@@ -1725,7 +1823,7 @@ export default {
     deleteTitle: "टेम्पलेट हटाएँ?",
     deleteDescription:
       "यह {{title}} को स्थायी रूप से हटाता है। पहले से बने डिज़ाइन प्रभावित नहीं होंगे।",
-    templateActions: "टेम्पलेट कार्रवाइयाँ",
+    templateActions: "{{title}} के लिए कार्रवाइयाँ",
     lockedCount: "{{count}} लॉक",
     categories: {
       ad: "विज्ञापन",

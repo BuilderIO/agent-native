@@ -12,6 +12,7 @@ export type RecordingFailureCode =
   | "chunk_html_error"
   | "upload_aborted"
   | "upload_interrupted"
+  | "recording_interrupted"
   | "upload_timed_out"
   | "loom_import_failed"
   | "user_cancelled"
@@ -28,6 +29,7 @@ const recordingFailureCodes = new Set<RecordingFailureCode>([
   "chunk_html_error",
   "upload_aborted",
   "upload_interrupted",
+  "recording_interrupted",
   "upload_timed_out",
   "loom_import_failed",
   "user_cancelled",
@@ -67,7 +69,6 @@ export function normalizeRecordingPlatform(value: unknown): RecordingPlatform {
     : "unknown";
 }
 
-// Canonical identity comes from the verified request context, never the email.
 export function recordingTrackingSource(userId: string) {
   const authUserId = getRequestContext()?.authUserId;
   return { userId, ...(authUserId ? { authUserId } : {}) };

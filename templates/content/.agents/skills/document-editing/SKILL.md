@@ -126,6 +126,18 @@ do not call `edit-document` or `update-document`. Read the current Page with
 `replace` Markdown (omit `replace` to propose deleting the text). `find` must
 match the page's current text exactly once. Content builds the tracked change
 and anchor server-side; the page stays unchanged until a reviewer accepts.
+The action separates disjoint punctuation and word changes into independent
+review edits. Its result gives the first `suggestionId`, all `suggestionIds`,
+and a `proposalId`. To add another
+find/replace call to that proposal, pass its `proposalId`, the same `summary`,
+and a fresh `idempotencyKey`. Retry the same call with its original key.
+An unchanged replacement creates no suggestion and reports an error.
+Inside tables, callouts, toggles, and columns, suggest text: edit a cell, or
+edit or add a paragraph in a callout, toggle, or column. Keep each `find`
+within one cell or one frame, and make one call per cell. A `find`/`replace`
+that changes text on both sides of a cell or frame edge, adds or removes
+table rows or cells or a column, or changes a callout's icon, a toggle's
+title, or an image, fails with `suggestion_structure_unsupported`.
 
 Use `suggest-document-edit` for every suggested body edit. The generic
 `create-resource-suggestion` action remains for advanced proposals that build
@@ -137,11 +149,17 @@ complete current and proposed Markdown in `before.markdown` and
 
 Use `list-resource-suggestions` to inspect pending and historical proposals.
 Only accept or reject when the user has asked for that decision and the caller
-has editor authority; call `decide-resource-suggestion` with a fresh
-idempotency key and the suggestion's `baseRevision` as `observedBase`. A stale
-result means canonical Content was not overwritten. Suggested edits are
-unavailable for local-file, source-owned, externally linked, collection-item, or
-trashed Pages in this release.
+has editor authority. A suggestion's author may instead withdraw their own
+pending suggestion with comment access (`decision: "withdrawn"`); withdrawn
+suggestions leave the Page unchanged and drop out of review. Call
+`decide-resource-suggestion` with a fresh idempotency key and the suggestion's
+`baseRevision` as `observedBase`. An accept that fails with `suggestion_stale`
+didn't land because the text around it changed; the Page is unchanged and the
+suggestion stays pending, so tell the user which suggestion it was instead of
+counting it as accepted. Suggested edits are
+unavailable for local-file, source-owned, externally linked, or trashed Pages,
+Collection Pages, Pages with inline databases, and collection-item Pages without
+an accessible primary Blocks field.
 
 ```bash
 pnpm action suggest-document-edit --id abc123 \
@@ -197,6 +215,8 @@ pnpm action update-comment --id c123 --resolved false
 ```
 
 `--authorName` sets the comment's display name; it defaults to a name derived from the author's email.
+
+A new comment emails the document owner, earlier authors in the thread, and anyone mentioned, unless they turned those emails off. The current user's own switch is `get-content-notification-prefs` and `update-content-notification-prefs --emailNotifications=false`, the same one Settings shows on Notifications. Share invites always send.
 
 ### refresh-list
 

@@ -3,12 +3,21 @@ import { createHash, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
 import {
+  FREE_EMAIL_PROVIDER_DOMAINS,
+  organizations,
+  isFreeEmailProvider,
+} from "@agent-native/core/org";
+import {
   deletePrivateBlob,
   putPrivateBlob,
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { recordChange, runWithRequestContext } from "@agent-native/core/server";
+import {
+  isTestIdentity,
+  recordChange,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,
@@ -25,10 +34,22 @@ import {
   isNull,
   lt,
   lte,
+  not,
   or,
   sql,
 } from "drizzle-orm";
 
+import {
+  isSessionFrictionSort,
+  type SessionFriction,
+  type SessionFrictionSignal,
+  type SessionFrictionSort,
+} from "../../shared/session-friction.js";
+import type {
+  SessionPerformanceSummary,
+  SessionRecordingPerformance,
+  SlowSessionFilter,
+} from "../../shared/session-performance.js";
 import {
   isFailedSessionReplayNetworkStatus,
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
@@ -39,6 +60,26 @@ import {
   resolveAnalyticsEventDimensions,
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
+import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
+import { parseIngestBody } from "./request-errors.js";
+import {
+  pruneSessionEventIndex,
+  sessionEventFilterConditions,
+} from "./session-event-index.js";
+import {
+  finalizeReplayFriction,
+  getSessionFrictionCoverageStart,
+  pruneSessionFriction,
+  recordReplayFriction,
+  sessionFrictionFilterConditions,
+  sessionFrictionSortOrder,
+} from "./session-friction.js";
+import {
+  getPerformanceCoverageStart,
+  getSessionPerformanceSummaries,
+  prunePerformanceAggregates,
+  slowSessionConditions,
+} from "./session-performance.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -85,9 +126,32 @@ export interface SessionReplayListFilters {
   to?: string;
   minDurationMs?: number;
   hasErrors?: boolean;
+  hasNetworkErrors?: boolean;
   hasRageClicks?: boolean;
+  hideEmpty?: boolean;
+  hideInternal?: boolean;
+  visitorType?: "internal" | "work" | "personal";
+  emailDomain?: string;
+  sort?:
+    | "newest"
+    | "longest"
+    | "errors"
+    | "events"
+    | "rage"
+    | SessionFrictionSort;
+  offset?: number;
   status?: "active" | "completed";
   limit?: number;
+  /** Sessions that tracked every one of these events. */
+  didEvents?: string[];
+  /** Sessions that tracked none of these events. */
+  didNotEvents?: string[];
+  /** Sessions with a poor Web Vital, a slow request, or either. */
+  slow?: SlowSessionFilter;
+  /** Attach each recording's performance summary and coverage start. */
+  includePerformance?: boolean;
+  /** Measured sessions that showed every one of these friction signals. */
+  frictionSignals?: SessionFrictionSignal[];
 }
 
 export interface SessionReplayEventReadOptions {
@@ -170,6 +234,10 @@ export interface SessionRecordingSummary {
   role?: SessionReplayAccessRole;
   canEdit?: boolean;
   canManage?: boolean;
+  /** Present when requested; null when the session was never measured. */
+  performance?: SessionPerformanceSummary | null;
+  /** Present only when the Sessions triage Lab asked for it. */
+  friction?: SessionFriction;
 }
 
 export interface AgentSessionRecordingSummary {
@@ -259,10 +327,6 @@ const DEFAULT_REPLAY_RETENTION_DAYS = 30;
 const DEFAULT_ABANDONED_REPLAY_MINUTES = 30;
 const DEFAULT_REPLAY_MAX_BYTES_PER_DAY = 100 * 1024 * 1024;
 const DEFAULT_REPLAY_MAX_REQUESTS_PER_MINUTE = 120;
-/** New recordings are admitted only below this share of the daily byte cap;
- * the rest is reserved for recordings already in progress. A 429 is terminal
- * for the recorder, so without the reserve a saturated key cuts admitted
- * recordings off after their first chunk and stores empty stubs. */
 const REPLAY_NEW_RECORDING_ADMISSION_RATIO = 0.85;
 const RETENTION_DELETE_BATCH_SIZE = 500;
 const REPLAY_PRIVATE_BLOB_REF_KIND = "agent-native.session-replay.private-blob";
@@ -281,11 +345,6 @@ function replayError(
   );
 }
 
-/** Seconds a client should wait before retrying an over-quota ingest.
- *
- * The recorder cannot tell the per-minute rate limit apart from the rolling
- * daily byte quota by status alone, and it reacts very differently to the two:
- * a minute is worth pausing for, a day is not. Always say which one this is. */
 const REPLAY_RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 const REPLAY_BYTE_QUOTA_RETRY_AFTER_SECONDS = 24 * 60 * 60;
 
@@ -861,13 +920,6 @@ function sameRageClickTarget(
   );
 }
 
-/**
- * Rage-click counter over rrweb click events: `RAGE_CLICK_MIN_CLICKS` clicks on
- * the same target (or within a small radius) with no more than
- * `RAGE_CLICK_WINDOW_MS` between consecutive clicks counts as one rage click.
- * Chunks arrive in separate ingest requests and are merged with `max`, so this
- * is a per-batch lower bound, not a session total.
- */
 function countRageClicks(events: unknown[]): number {
   let rageClicks = 0;
   let cluster: ReplayClickPoint | null = null;
@@ -926,8 +978,6 @@ function deriveReplaySignals({
 
     const tagged = replayDiagnosticsTag(event);
     if (tagged) {
-      // Tagged diagnostics are the real signal; never let the substring
-      // heuristic below double-count these same events.
       hasTaggedDiagnostics = true;
       if (tagged.tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
         if (replayString(tagged.payload.level) === "error") {
@@ -954,9 +1004,6 @@ function deriveReplaySignals({
     }
   }
 
-  // The substring heuristic predates tagged console/network capture. Once any
-  // tagged diagnostics event is present the recorder is diagnostics-aware, so
-  // the tagged counts are authoritative and the heuristic stays off.
   const detectedErrors = hasTaggedDiagnostics
     ? taggedConsoleErrors
     : heuristicErrors;
@@ -993,8 +1040,7 @@ function deriveReplaySignals({
 export function parseSessionReplayIngestPayload(
   raw: unknown,
 ): ParsedSessionReplayIngest {
-  const body =
-    typeof raw === "string" && raw.trim() ? JSON.parse(raw) : replayRecord(raw);
+  const body = replayRecord(parseIngestBody(raw));
   const publicKey =
     replayString(body.publicKey) ||
     replayString(body.writeKey) ||
@@ -1022,6 +1068,15 @@ export function parseSessionReplayIngestPayload(
     replayString(body.recording_id) ||
     replayString(body.replayId) ||
     sessionId;
+  if (
+    sessionId.length > MAX_SESSION_ID_LENGTH ||
+    clientRecordingId.length > MAX_SESSION_ID_LENGTH
+  ) {
+    throw replayError(
+      `Replay session and recording ids must be at most ${MAX_SESSION_ID_LENGTH} characters`,
+      400,
+    );
+  }
   const metadata = replayRecord(body.metadata);
   assertReplayMetadataCap(metadata);
 
@@ -1066,10 +1121,14 @@ export function parseSessionReplayIngestPayload(
     : null;
   const durationMs =
     replayInteger(body.durationMs ?? body.duration_ms) ?? computedDuration;
+  // The recorder sends an end time with every upload, so an explicit status
+  // wins; an end time alone marks only an upload that names no status.
   const status =
-    body.status === "completed" || body.completed === true || endedAt
+    body.status === "completed" || body.completed === true
       ? "completed"
-      : "active";
+      : body.status === "active" || !endedAt
+        ? "active"
+        : "completed";
   const userEmail =
     replayEmail(body.userEmail ?? body.user_email) ||
     replayEmail(properties.userEmail ?? properties.user_email) ||
@@ -1121,12 +1180,9 @@ export interface SessionReplayIngestContext {
   origin?: string | null;
   requestBytes?: number | null;
   now?: Date;
-  /** True when no `session_recordings` row exists yet for this chunk. */
   isNewRecording?: boolean;
 }
 
-/** Daily byte check. A new recording is held to the lower admission ceiling;
- * see REPLAY_NEW_RECORDING_ADMISSION_RATIO. */
 export async function assertReplayDailyByteBudget(
   key: { id: string; replayMaxBytesPerDay?: number | null },
   context: SessionReplayIngestContext,
@@ -1319,9 +1375,6 @@ function rowToSessionRecordingSummary(
 }
 
 function hasVisibleSessionRecordingIdentity(row: any): boolean {
-  // /sessions intentionally lists signed-in, email-backed recordings only (see
-  // analytics CLAUDE.md + the "rejects anonymous recordings" spec). Keep this in
-  // sync with replayVisibleIdentityCondition().
   return Boolean(replayEmail(row.userId) || replayEmail(row.userKey));
 }
 
@@ -1384,8 +1437,6 @@ function replayTextContains(column: unknown, query: string) {
 }
 
 function replayVisibleIdentityCondition() {
-  // Email-backed identity only — /sessions lists signed-in recordings (see
-  // analytics CLAUDE.md). Mirror of hasVisibleSessionRecordingIdentity().
   return or(
     replayTextContains(schema.sessionRecordings.userId, "@"),
     replayTextContains(schema.sessionRecordings.userKey, "@"),
@@ -1418,20 +1469,28 @@ function replayListSearchCondition(query: string | undefined) {
   );
 }
 
+export type SessionReplayIngestResult =
+  | { skipped: "test-identity"; acceptedChunks: 0 }
+  | {
+      recordingId: string;
+      sessionId: string;
+      acceptedChunks: number;
+      duplicateChunks: number;
+      chunkCount: number;
+      eventCount: number;
+      totalBytes: number;
+    };
+
 export async function recordSessionReplayChunks(
   input: ParsedSessionReplayIngest,
   context: SessionReplayIngestContext = {},
-): Promise<{
-  recordingId: string;
-  sessionId: string;
-  acceptedChunks: number;
-  duplicateChunks: number;
-  chunkCount: number;
-  eventCount: number;
-  totalBytes: number;
-}> {
+): Promise<SessionReplayIngestResult> {
   const key = await resolveReplayPublicKey(input.publicKey);
   await assertReplayKeyBudget(key, context);
+  // Test identities run every flow but never land in replay metrics.
+  if (isTestIdentity(input.userId)) {
+    return { skipped: "test-identity", acceptedChunks: 0 };
+  }
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
   const clampedInput = clampReplayIngestTiming(input, ingestedAt);
@@ -1450,7 +1509,6 @@ export async function recordSessionReplayChunks(
     )
     .limit(1);
 
-  // Before the insert below: a rejected new recording must not leave a row.
   if (!recording) {
     await assertReplayDailyByteBudget(key, {
       ...context,
@@ -1490,11 +1548,6 @@ export async function recordSessionReplayChunks(
         lastIngestedAt: ingestedAt,
         ownerEmail: key.ownerEmail,
         orgId: key.orgId,
-        // Session replay is an org-analytics surface: a recording captured under
-        // an org-scoped analytics key must be visible to everyone in that org
-        // (via accessFilter's "org" branch), not only the key owner. Without an
-        // org we fall back to owner-private. This is what makes /sessions show
-        // recordings to teammates instead of only the single key owner.
         visibility: key.orgId ? "org" : "private",
       })
       .onConflictDoNothing();
@@ -1539,8 +1592,6 @@ export async function recordSessionReplayChunks(
 
   const ingestId = replayId("sri");
   try {
-    // Reserve before the slow blob upload: the budget check sums this table, so
-    // concurrent admissions only see each other's bytes once this row exists.
     await db.insert(schema.sessionReplayIngests).values({
       id: ingestId,
       publicKeyId: key.id,
@@ -1572,13 +1623,6 @@ export async function recordSessionReplayChunks(
           413,
         );
       }
-      // Replay ingest is anonymous + cross-origin (no session), so blob storage
-      // would otherwise have no request context and `resolveBuilderPrivateKey()`
-      // (and any S3 provider's scoped-secret lookup) would resolve nothing —
-      // every chunk upload then 503s and recordings persist as empty shells.
-      // Run the upload in the public key owner's user/org scope so the org's
-      // connected Builder (or S3) credential in `app_secrets` resolves. Mirrors
-      // the resources upload precedent (core resources/handlers.ts).
       const chunk = await runWithRequestContext(
         { userEmail: key.ownerEmail, orgId: key.orgId ?? undefined },
         () =>
@@ -1620,8 +1664,6 @@ export async function recordSessionReplayChunks(
       .delete(schema.sessionReplayIngests)
       .where(eq(schema.sessionReplayIngests.id, ingestId))
       .catch((releaseError: unknown) => {
-        // The ingest error below is what the client needs; a leaked
-        // reservation only over-counts the key's budget, so surface it here.
         console.error(
           "[session-replay] failed to release replay usage reservation",
           { ingestId, publicKeyId: key.id, error: releaseError },
@@ -1670,6 +1712,16 @@ export async function recordSessionReplayChunks(
     parseRecordingMetadata(recording),
     clampedInput.metadata,
   );
+  const errorCount = Math.max(
+    Number(recording.errorCount ?? 0),
+    clampedInput.errorCount,
+  );
+  const rageClickCount = Math.max(
+    Number(recording.rageClickCount ?? 0),
+    clampedInput.rageClickCount,
+  );
+  const recordingEnded =
+    clampedInput.status === "completed" || recording.status === "completed";
 
   await db
     .update(schema.sessionRecordings)
@@ -1688,18 +1740,12 @@ export async function recordSessionReplayChunks(
         Number(recording.pageCount ?? 0),
         clampedInput.pageCount,
       ),
-      errorCount: Math.max(
-        Number(recording.errorCount ?? 0),
-        clampedInput.errorCount,
-      ),
+      errorCount,
       networkErrorCount: Math.max(
         Number(recording.networkErrorCount ?? 0),
         clampedInput.networkErrorCount,
       ),
-      rageClickCount: Math.max(
-        Number(recording.rageClickCount ?? 0),
-        clampedInput.rageClickCount,
-      ),
+      rageClickCount,
       privacyMode:
         clampedInput.privacyMode !== "unknown"
           ? clampedInput.privacyMode
@@ -1711,15 +1757,28 @@ export async function recordSessionReplayChunks(
       referrer: clampedInput.referrer ?? recording.referrer ?? null,
       app: clampedInput.app ?? recording.app ?? null,
       template: clampedInput.template ?? recording.template ?? null,
-      status:
-        clampedInput.status === "completed" || recording.status === "completed"
-          ? "completed"
-          : "active",
+      status: recordingEnded ? "completed" : "active",
       metadata: JSON.stringify(metadata),
       updatedAt: ingestedAt,
       lastIngestedAt: ingestedAt,
     })
     .where(eq(schema.sessionRecordings.id, recording.id));
+
+  const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
+  await recordReplayFriction({
+    recordingId: recording.id,
+    sessionId: clampedInput.sessionId,
+    ownerEmail: key.ownerEmail,
+    orgId: key.orgId,
+    priorChunkCount: existingChunks.length,
+    newChunks: clampedInput.chunks
+      .filter((chunk) => insertedSeqs.has(chunk.seq))
+      .map((chunk) => ({ seq: chunk.seq, inlineData: chunk.inlineData })),
+    errorCount,
+    rageClickCount,
+    recordingEnded,
+    ingestedAt,
+  });
 
   await touchPublicKeyLastUsedAt(key.id, ingestedAt);
 
@@ -1745,6 +1804,22 @@ export async function listSessionRecordings(
   scope: SessionReplayScope,
   filters: SessionReplayListFilters = {},
 ): Promise<SessionRecordingSummary[]> {
+  if (
+    filters.hideEmpty ||
+    filters.hasNetworkErrors ||
+    filters.hideInternal ||
+    filters.visitorType ||
+    filters.emailDomain ||
+    filters.sort ||
+    filters.offset ||
+    filters.didEvents?.length ||
+    filters.didNotEvents?.length ||
+    filters.frictionSignals?.length ||
+    filters.slow ||
+    filters.includePerformance
+  ) {
+    return (await listSessionRecordingsPage(scope, filters)).recordings;
+  }
   const db = getDb() as any;
   const limit = Math.min(
     MAX_SESSION_RECORDINGS_LIMIT,
@@ -1812,6 +1887,315 @@ export async function listSessionRecordings(
     .orderBy(desc(schema.sessionRecordings.startedAt))
     .limit(limit);
   return rows.map((row: any) => rowToSessionRecordingSummary(row));
+}
+
+export interface SessionRecordingPage {
+  recordings: SessionRecordingSummary[];
+  total: number;
+  appCounts: Array<{ app: string; count: number }>;
+  /**
+   * Present when a friction filter or sort applied: when friction coverage
+   * began for the viewer's own tenants, or null when part of the range has
+   * no coverage at all. Sessions that started earlier never match a
+   * friction filter.
+   */
+  frictionCoverageStartedAt?: string | null;
+  /**
+   * With a slow filter or performance summaries: when the viewer's
+   * performance aggregates began, or null when they have not.
+   */
+  performanceCoverageStartedAt?: string | null;
+}
+
+const personalEmailDomains = [...FREE_EMAIL_PROVIDER_DOMAINS];
+
+async function sessionInternalDomains(
+  scope: SessionReplayScope,
+): Promise<string[]> {
+  if (!scope.orgId) return [];
+  const db = getDb() as any;
+  const [org] = await db
+    .select({
+      allowedDomain: organizations.allowedDomain,
+      createdBy: organizations.createdBy,
+    })
+    .from(organizations)
+    .where(eq(organizations.id, scope.orgId))
+    .limit(1);
+  const allowedDomain = org?.allowedDomain?.trim().toLowerCase();
+  if (allowedDomain && !isFreeEmailProvider(allowedDomain))
+    return [allowedDomain];
+  const creatorDomain = org?.createdBy?.split("@")[1]?.trim().toLowerCase();
+  return creatorDomain && !isFreeEmailProvider(creatorDomain)
+    ? [creatorDomain]
+    : [];
+}
+
+function sessionVisitorDomain() {
+  const userId = schema.sessionRecordings.userId;
+  const userKey = schema.sessionRecordings.userKey;
+  return sql<string>`lower(split_part(case when ${userId} like '%@%' then ${userId} else ${userKey} end, '@', 2))`;
+}
+
+async function sessionRecordingPerformance(
+  scope: SessionReplayScope,
+  recordings: SessionRecordingSummary[],
+  options: { summaries: boolean },
+): Promise<{ coverageStartedAt: string | null }> {
+  const [coverageStartedAt, summaries] = await Promise.all([
+    getPerformanceCoverageStart(scope),
+    options.summaries
+      ? getSessionPerformanceSummaries(scope, recordings)
+      : Promise.resolve(null),
+  ]);
+  if (summaries) {
+    for (const recording of recordings) {
+      recording.performance = summaries.get(recording.id) ?? null;
+    }
+  }
+  return { coverageStartedAt };
+}
+
+/**
+ * Performance summaries for recordings the viewer can read, such as the rows
+ * of one list page, so speed hints load beside the list instead of in it.
+ */
+export async function getSessionRecordingPerformance(
+  scope: SessionReplayScope,
+  recordingIds: readonly string[],
+): Promise<SessionRecordingPerformance> {
+  const ids = [...new Set(recordingIds)];
+  const db = getDb() as any;
+  const r = schema.sessionRecordings;
+  const [recordings, coverageStartedAt] = await Promise.all([
+    ids.length
+      ? db
+          .select({
+            id: r.id,
+            sessionId: r.sessionId,
+            ownerEmail: r.ownerEmail,
+            orgId: r.orgId,
+          })
+          .from(r)
+          .where(
+            and(
+              accessFilter(r, schema.sessionRecordingShares, {
+                userEmail: scope.userEmail,
+                orgId: scope.orgId ?? undefined,
+              }),
+              inArray(r.id, ids),
+            ),
+          )
+          .limit(ids.length)
+      : Promise.resolve([]),
+    getPerformanceCoverageStart(scope),
+  ]);
+  const summaries = await getSessionPerformanceSummaries(scope, recordings);
+  return {
+    performance: Object.fromEntries(
+      recordings.map((recording: { id: string }) => [
+        recording.id,
+        summaries.get(recording.id) ?? null,
+      ]),
+    ),
+    coverageStartedAt,
+  };
+}
+
+export async function listSessionRecordingsPage(
+  scope: SessionReplayScope,
+  filters: SessionReplayListFilters = {},
+): Promise<SessionRecordingPage> {
+  const offset = filters.offset ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0) {
+    throw replayError(
+      "Session recording offset must be a non-negative safe integer",
+      400,
+    );
+  }
+  const db = getDb() as any;
+  const internalDomains = await sessionInternalDomains(scope);
+  const visitorDomain = sessionVisitorDomain();
+  const conditions: any[] = [
+    accessFilter(schema.sessionRecordings, schema.sessionRecordingShares, {
+      userEmail: scope.userEmail,
+      orgId: scope.orgId ?? undefined,
+    }),
+    replayVisibleIdentityCondition(),
+    replayPlayableEventsCondition(),
+  ];
+  if (filters.template)
+    conditions.push(eq(schema.sessionRecordings.template, filters.template));
+  if (filters.sessionId)
+    conditions.push(eq(schema.sessionRecordings.sessionId, filters.sessionId));
+  if (filters.userId)
+    conditions.push(
+      or(
+        eq(schema.sessionRecordings.userId, filters.userId),
+        eq(schema.sessionRecordings.userKey, filters.userId),
+      ),
+    );
+  if (filters.anonymousId)
+    conditions.push(
+      eq(schema.sessionRecordings.anonymousId, filters.anonymousId),
+    );
+  if (filters.path)
+    conditions.push(eq(schema.sessionRecordings.path, filters.path));
+  if (filters.from)
+    conditions.push(gte(schema.sessionRecordings.startedAt, filters.from));
+  if (filters.to)
+    conditions.push(lte(schema.sessionRecordings.startedAt, filters.to));
+  if (filters.minDurationMs !== undefined)
+    conditions.push(
+      gte(schema.sessionRecordings.durationMs, filters.minDurationMs),
+    );
+  if (filters.hideEmpty)
+    conditions.push(
+      or(
+        isNull(schema.sessionRecordings.durationMs),
+        gte(schema.sessionRecordings.durationMs, 1),
+      ),
+    );
+  if (filters.hasErrors)
+    conditions.push(gte(schema.sessionRecordings.errorCount, 1));
+  if (filters.hasNetworkErrors)
+    conditions.push(gte(schema.sessionRecordings.networkErrorCount, 1));
+  if (filters.hasRageClicks)
+    conditions.push(gte(schema.sessionRecordings.rageClickCount, 1));
+  if (filters.status)
+    conditions.push(eq(schema.sessionRecordings.status, filters.status));
+  if (filters.emailDomain)
+    conditions.push(
+      eq(
+        visitorDomain,
+        filters.emailDomain.trim().replace(/^@/, "").toLowerCase(),
+      ),
+    );
+  if (filters.hideInternal && internalDomains.length)
+    conditions.push(not(inArray(visitorDomain, internalDomains)));
+  if (filters.visitorType === "internal") {
+    conditions.push(
+      internalDomains.length
+        ? inArray(visitorDomain, internalDomains)
+        : sql`false`,
+    );
+  } else if (filters.visitorType === "personal") {
+    conditions.push(inArray(visitorDomain, personalEmailDomains));
+  } else if (filters.visitorType === "work") {
+    conditions.push(
+      not(
+        inArray(visitorDomain, [
+          ...new Set([...internalDomains, ...personalEmailDomains]),
+        ]),
+      ),
+    );
+  }
+  const search = replayListSearchCondition(filters.query);
+  if (search) conditions.push(search);
+  conditions.push(
+    ...(await sessionEventFilterConditions(scope, {
+      didEvents: filters.didEvents,
+      didNotEvents: filters.didNotEvents,
+    })),
+    ...(await slowSessionConditions(scope, filters.slow)),
+    ...(await sessionFrictionFilterConditions(scope, filters.frictionSignals)),
+  );
+  const appConditions = [...conditions];
+  if (filters.app)
+    conditions.push(eq(schema.sessionRecordings.app, filters.app));
+  const sort = filters.sort ?? "newest";
+  const frictionApplied =
+    Boolean(filters.frictionSignals?.length) || isSessionFrictionSort(sort);
+  // Before the friction migration nothing is measured, so friction sorts
+  // fall back to newest rather than fail.
+  const sortOrder = isSessionFrictionSort(sort)
+    ? ((await sessionFrictionSortOrder(scope, sort)) ??
+      desc(schema.sessionRecordings.startedAt))
+    : sort === "longest"
+      ? sql`${schema.sessionRecordings.durationMs} desc nulls last`
+      : desc(
+          {
+            newest: schema.sessionRecordings.startedAt,
+            errors: schema.sessionRecordings.errorCount,
+            events: schema.sessionRecordings.eventCount,
+            rage: schema.sessionRecordings.rageClickCount,
+          }[sort],
+        );
+  const [totalRows, appRows, frictionCoverageStartedAt] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.sessionRecordings)
+      .where(and(...conditions)),
+    db
+      .select({
+        app: schema.sessionRecordings.app,
+        count: sql<number>`count(*)`,
+      })
+      .from(schema.sessionRecordings)
+      .where(and(...appConditions))
+      .groupBy(schema.sessionRecordings.app)
+      .orderBy(desc(sql`count(*)`)),
+    frictionApplied
+      ? getSessionFrictionCoverageStart(scope, {
+          from: filters.from,
+          to: filters.to,
+        })
+      : undefined,
+  ]);
+  if (totalRows.length !== 1) {
+    throw new Error("Session recording total query returned no count");
+  }
+  const count = totalRows[0].count;
+  const total =
+    typeof count === "number" ||
+    (typeof count === "string" && /^\d+$/.test(count))
+      ? Number(count)
+      : NaN;
+  if (!Number.isSafeInteger(total) || total < 0) {
+    throw new Error("Session recording total query returned an invalid count");
+  }
+  const rows =
+    offset < total
+      ? await db
+          .select()
+          .from(schema.sessionRecordings)
+          .where(and(...conditions))
+          .orderBy(
+            sortOrder,
+            desc(schema.sessionRecordings.startedAt),
+            desc(schema.sessionRecordings.id),
+          )
+          .limit(
+            Math.min(
+              MAX_SESSION_RECORDINGS_LIMIT,
+              Math.max(1, filters.limit ?? DEFAULT_SESSION_RECORDINGS_LIMIT),
+            ),
+          )
+          .offset(offset)
+      : [];
+  const recordings: SessionRecordingSummary[] = rows.map((row: any) =>
+    rowToSessionRecordingSummary(row),
+  );
+  const performance =
+    filters.slow || filters.includePerformance
+      ? await sessionRecordingPerformance(scope, recordings, {
+          summaries: filters.includePerformance === true,
+        })
+      : null;
+  return {
+    recordings,
+    total,
+    ...(performance
+      ? { performanceCoverageStartedAt: performance.coverageStartedAt }
+      : {}),
+    appCounts: appRows
+      .filter((row: { app: string | null }) => row.app)
+      .map((row: { app: string; count: number }) => ({
+        app: row.app,
+        count: Number(row.count),
+      })),
+    ...(frictionApplied ? { frictionCoverageStartedAt } : {}),
+  };
 }
 
 export async function getSessionReplaySummary(
@@ -1893,10 +2277,8 @@ export async function resolveSessionReplayLink(
 
 export async function getSessionReplayTokenizedSummary(
   recordingId: string,
-  viewerEmail: string,
+  _viewerEmail?: string,
 ): Promise<SessionRecordingSummary> {
-  // Tokenized reads often run without an authenticated request session. The
-  // viewer identity is still required by the signed, recording-scoped grant.
   const db = getDb() as any;
   // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
   const [row] = await db
@@ -1954,7 +2336,7 @@ export async function getSessionReplayManifest(
 
 export async function getSessionReplayTokenizedManifest(
   recordingId: string,
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   chunks: Array<{
@@ -2024,7 +2406,6 @@ export async function readSessionReplayChunkBytes(
   recording: SessionRecordingSummary;
   seq: number;
   checksum: string;
-  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
   json: string;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
@@ -2034,12 +2415,11 @@ export async function readSessionReplayChunkBytes(
 export async function readSessionReplayTokenizedChunkBytes(
   recordingId: string,
   seq: number,
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   seq: number;
   checksum: string;
-  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
   json: string;
 }> {
   const recording = await getSessionReplayTokenizedSummary(
@@ -2060,7 +2440,6 @@ async function readSessionReplayChunkBytesForRecording(
   recording: SessionRecordingSummary;
   seq: number;
   checksum: string;
-  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
   json: string;
 }> {
   const db = getDb() as any;
@@ -2077,12 +2456,6 @@ async function readSessionReplayChunkBytesForRecording(
     .limit(1);
   if (!row) throw replayError("Session replay chunk not found", 404);
 
-  // Return decompressed JSON and let normal Accept-Encoding negotiation handle
-  // wire compression. We intentionally do NOT hand back a pre-gzipped body with
-  // a manual `Content-Encoding: gzip` header: serverless hosts (Netlify) mangle
-  // binary function bodies and re-negotiate compression, which corrupted replay
-  // chunk downloads in production and left the player blank. Storing gzip at
-  // rest is unchanged — we just gunzip before serving.
   if (row.storageKind === "blob" && row.storageRef) {
     const ref = decodeReplayBlobRef(row.storageRef);
     if (!ref)
@@ -2290,7 +2663,7 @@ export async function readSessionReplayChunkBatch(
 export async function readSessionReplayTokenizedChunkBatch(
   recordingId: string,
   seqs: number[],
-  viewerEmail: string,
+  viewerEmail?: string,
 ): Promise<SessionReplayChunkBatchResult> {
   const recording = await getSessionReplayTokenizedSummary(
     recordingId,
@@ -2323,7 +2696,7 @@ export async function getSessionReplayEvents(
 
 export async function getSessionReplayTokenizedEvents(
   recordingId: string,
-  viewerEmail: string,
+  viewerEmail?: string,
   options: SessionReplayEventReadOptions = {},
 ): Promise<{
   recording: AgentSessionRecordingSummary;
@@ -2469,6 +2842,26 @@ export async function finalizeAbandonedSessionRecordings(
 
   let finalized = 0;
   for (const row of rows) {
+    try {
+      await finalizeReplayFriction(
+        {
+          id: row.id,
+          sessionId: row.sessionId,
+          ownerEmail: row.ownerEmail,
+          orgId: row.orgId ?? null,
+          chunkCount: Number(row.chunkCount ?? 0),
+          errorCount: Number(row.errorCount ?? 0),
+          rageClickCount: Number(row.rageClickCount ?? 0),
+        },
+        now.toISOString(),
+      );
+    } catch (error) {
+      console.warn(
+        "[session-replay] Replay friction finalize failed; the recording stays active until the next sweep:",
+        error,
+      );
+      continue;
+    }
     const endedAt = row.lastIngestedAt ?? row.updatedAt ?? row.startedAt;
     const started = Date.parse(row.startedAt);
     const ended = Date.parse(endedAt);
@@ -2571,6 +2964,21 @@ export async function runSessionReplayRetentionSweep(
 }> {
   const finalized = await finalizeAbandonedSessionRecordings(now);
   const expired = await expireOldSessionRecordings(now);
+  try {
+    await pruneSessionEventIndex(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Session event index pruning failed:", err);
+  }
+  try {
+    await pruneSessionFriction(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Session friction pruning failed:", err);
+  }
+  try {
+    await prunePerformanceAggregates(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Performance aggregate pruning failed:", err);
+  }
   return {
     finalized: finalized.finalized,
     expired: expired.expired,

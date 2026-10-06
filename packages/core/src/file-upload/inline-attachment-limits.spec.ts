@@ -18,15 +18,12 @@ function imageAtt(base64Chars: number, contentType = "image/jpeg") {
 }
 
 describe("inline attachment limits", () => {
-  // These are different provider fields with different ceilings. Collapsing
-  // them is the defect: the file_url cap made an ordinary photo unreadable.
   it("keeps the image ceiling well above the file ceiling", () => {
     expect(MAX_INLINE_IMAGE_BASE64_CHARS).toBeGreaterThan(
       MAX_INLINE_FILE_BASE64_CHARS,
     );
   });
 
-  // Anthropic rejects image.source.base64 over 5,242,880 chars.
   it("stays under the strictest provider image ceiling", () => {
     expect(MAX_INLINE_IMAGE_BASE64_CHARS).toBeLessThanOrEqual(5_242_880);
   });
@@ -67,9 +64,6 @@ describe("classifyInlineAttachment", () => {
     });
   });
 
-  // translate-anthropic renders every non-PDF file part as a bare
-  // "[Attached file: name (type)]" placeholder, so calling a DOCX readable
-  // invites the model to invent its contents.
   it("does not call a generic binary readable just because it is small", () => {
     expect(
       classifyInlineAttachment({
@@ -91,8 +85,6 @@ describe("classifyInlineAttachment", () => {
         data: "data:application/pdf;base64,JVBERi0x",
       }),
     ).toBeNull();
-    // Spreadsheets are readable because preUploadAttachments injects a parsed
-    // text preview of the cells alongside the attachment.
     expect(
       classifyInlineAttachment({
         type: "file",

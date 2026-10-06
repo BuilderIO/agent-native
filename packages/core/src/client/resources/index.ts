@@ -1,6 +1,3 @@
-export { ResourcesPanel, type ResourcesPanelProps } from "./ResourcesPanel.js";
-export { ResourceTree, type ResourceTreeProps } from "./ResourceTree.js";
-export { ResourceEditor, type ResourceEditorProps } from "./ResourceEditor.js";
 export { useUploadResource } from "../uploads/use-upload-resource.js";
 export * from "./use-resources.js";
 export * from "./use-builtin-capabilities.js";
@@ -15,27 +12,9 @@ export {
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 export {
-  McpIntegrationDialog,
-  type McpIntegrationDialogProps,
-} from "./McpIntegrationDialog.js";
-export { McpIntegrationLogo } from "./McpIntegrationLogo.js";
-export {
-  McpAccessSettings,
-  type McpAccessSettingsProps,
-} from "./McpAccessSettings.js";
-export {
-  findMcpConnectionSuggestionIntegration,
-  McpConnectionSuggestion,
-  type McpConnectionSuggestionProps,
-  type McpConnectionSuggestionVariant,
-} from "./McpConnectionSuggestion.js";
-export {
-  McpAgentKitConnectionRequestCard,
-  McpAgentKitConnectionResume,
-  type McpAgentKitConnectionRequestCardProps,
-  type McpAgentKitConnectionResumeProps,
-  type McpAgentKitConnectionTarget,
-} from "./McpAgentKitConnectionRequest.js";
+  resolveAgentProviderLogo,
+  type AgentProviderLogo,
+} from "./agent-provider-logo.js";
 export {
   McpServersApiProvider,
   useMcpServersApi,

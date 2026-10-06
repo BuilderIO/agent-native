@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Re-import fresh per test so the module-level version cache does not leak
-// between cases (the SHA suffix is computed at call time, but the npm version
-// is cached on first read).
 async function freshModule() {
   vi.resetModules();
   return import("./builder-gateway-headers.js");
@@ -25,7 +22,6 @@ describe("builder gateway headers", () => {
 
     const version = getBuilderGatewayClientVersion();
     expect(version).toBe(getAgentNativeCorePackageVersion());
-    // No "+sha" suffix when there is no SHA.
     expect(version).not.toContain("+");
   });
 

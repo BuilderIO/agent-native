@@ -101,7 +101,7 @@ export function FieldListRow({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             aria-label={t("fields.deleteFieldAriaLabel", {
               title: item.title,
             })}
@@ -110,7 +110,7 @@ export function FieldListRow({
               event.stopPropagation();
               onRequestDelete();
             }}
-            className="relative z-10 size-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            className="relative z-10 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           >
             <IconTrash />
           </Button>

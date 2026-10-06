@@ -1,8 +1,3 @@
-/**
- * Framework-shipped dev-overlay panels. Loaded as a side-effect import from
- * `DevOverlay.tsx` so any app that mounts the overlay gets these for free.
- */
-
 import { registerDevPanel } from "./registry.js";
 
 let registered = false;
@@ -26,8 +21,6 @@ function registerBuiltins() {
         type: "boolean",
         default: false,
         onChange: (enabled) => {
-          // The OnboardingPanel lives inside the agent sidebar — opening it
-          // here makes the toggle actually visible when the user flips it on.
           if (enabled && typeof window !== "undefined") {
             window.dispatchEvent(new Event("agent-panel:open"));
           }

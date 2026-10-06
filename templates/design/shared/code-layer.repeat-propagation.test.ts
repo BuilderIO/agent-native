@@ -6,7 +6,6 @@ import {
   ensureCodeLayerNodeIdsInHtml,
 } from "./code-layer";
 
-/** Design 2's todo list: a repeat body plus a static sibling row. */
 const TODO_LIST = `<body>
   <ul data-agent-native-node-id="an-list">
     <template x-for="todo in todos" :key="todo.text">

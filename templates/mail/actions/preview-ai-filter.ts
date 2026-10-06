@@ -5,6 +5,7 @@ import {
   aiFilterPreviewMatchSchema,
   aiFilterPreviewRuleSchema,
 } from "@shared/ai-filter.js";
+import { aiPriorityEmailKey } from "@shared/ai-priority.js";
 import { z } from "zod";
 
 import { getAiFilterState } from "../server/lib/ai-filter.js";
@@ -52,7 +53,9 @@ export default defineAction({
         ...email,
         matches: z
           .array(aiFilterPreviewMatchSchema)
-          .parse(matches.get(email.id) ?? []),
+          .parse(
+            matches.get(aiPriorityEmailKey(email.accountEmail, email.id)) ?? [],
+          ),
       })),
     };
   },

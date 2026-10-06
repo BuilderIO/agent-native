@@ -26,8 +26,7 @@ Design 是[調度](/docs/template-dispatch)工作區中眾多應用程式之一�
 ### 各自部署：一個手動步驟
 
 如果 Design 和調度是兩個各自獨立建立的 Agent-Native 專案，它們就不會共用
-密鑰，也還無法互相呼叫。連接它們需要在雙方各執行一個手動步驟：透過**
-設定 → 已連接的代理**、Agent 頁面的**連線**分頁，或**調度 → 代理 →
+密鑰，也還無法互相呼叫。連接它們需要在雙方各執行一個手動步驟：透過**Settings → Agent → Sub-agents**（Connect agent），或**調度 → 代理 →
 新增外部代理**，加入一個帶有共用密鑰的 `remote-agents/<id>.json` 資
 源。完整操作步驟請參閱 [A2A 協議](/docs/a2a-protocol)。
 

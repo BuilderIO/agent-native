@@ -2,8 +2,8 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
-import { isQaTestEmail } from "@agent-native/core/shared";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { isTestIdentityEmail } from "@agent-native/core/shared";
 import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
 import {
   useCallback,
@@ -24,13 +24,10 @@ import { AccountGateHeader } from "./account-gate-header";
 export interface CreateAccountDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Same-origin viewer path to restore after the account is created. */
   returnTo: string;
-  /** The action that brought an anonymous viewer into the account flow. */
   intent?: AccountGateIntent;
-  /** Fired when the viewer chooses the returning-user path. */
+  portalContainer?: HTMLElement | null;
   onSignIn?: () => void;
-  /** Refresh the viewer after the auth flow establishes a session. */
   onAuthenticated: () => void;
 }
 
@@ -45,7 +42,7 @@ function trackAccountAuthEvent(
   properties: Record<string, unknown>,
   email: string,
 ): void {
-  if (isQaTestEmail(email)) return;
+  if (isTestIdentityEmail(email)) return;
   trackEvent(name, properties);
 }
 
@@ -118,16 +115,12 @@ function createOAuthVerifier(): string {
   );
 }
 
-/**
- * Public-share account gating composes the framework's shared auth pattern:
- * magic-link first, the standard Google entry point, and email/password as a
- * fallback. Clips owns only the intent copy and continuation callback.
- */
 export function AccountGateDialog({
   open,
   onOpenChange,
   returnTo,
   intent = "continue",
+  portalContainer,
   onSignIn,
   onAuthenticated,
 }: AccountGateDialogProps) {
@@ -427,6 +420,7 @@ export function AccountGateDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        container={portalContainer}
         className="w-[calc(100%-2rem)] max-h-[min(90vh,44rem)] gap-0 overflow-y-auto p-0 sm:max-w-md"
         data-auth-pattern="native"
         data-account-gate-intent={intent}

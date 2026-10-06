@@ -2,6 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -250,7 +251,9 @@ export default function SetupRoute() {
               grant it to CRM from shared settings.
             </p>
             <Button asChild variant="outline" className="mt-4">
-              <Link to="/settings/connections">Open shared connections</Link>
+              <Link to={buildSettingsRoute("integrations")}>
+                Open shared connections
+              </Link>
             </Button>
             <p className="mt-3 text-xs text-muted-foreground">
               Using a Salesforce sandbox?{" "}

@@ -65,8 +65,6 @@ export const uploadFormFile = defineEventHandler(async (event: H3Event) => {
   try {
     settings = parseStoredFormSettings(form.settings);
     fields = JSON.parse(form.fields);
-    // An upload never executes a validation pattern, so an unsafe one stored
-    // on some other field is no reason to refuse the file.
     assertValidFields(fields, { patternSafety: false });
   } catch {
     return invalidFormResponse(event);
@@ -174,7 +172,7 @@ export const uploadFormFile = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 503);
     return {
       error:
-        "File storage is not configured. Connect Builder.io or register a file upload provider before accepting files.",
+        "File storage is not configured. Use Builder.io or register a file upload provider before accepting files.",
       storageSetupRequired: true,
     };
   }

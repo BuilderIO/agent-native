@@ -643,6 +643,20 @@ export default createIntegrationsPlugin({
 });
 ```
 
+`createIntegrationsPlugin()` 接受可选的 `IntegrationsPluginOptions` 对象。其 `initialToolNames?: readonly string[]` 选项指定首次模型请求发送哪些本地 action 的 schema。省略时，所有本地 action 都保留在初始集合中。传入的数组会被复制，不会修改调用方的数组。
+
+显式传入空列表会延迟加载本地 action，直到 `tool-search` 发现它们。框架必需的工具仍会在开始时提供。如果部署没有 A2A 对等方，以下配置还会禁用跨应用委派：
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+同一组初始工具适用于 webhook 处理、排队任务和 Google Docs 轮询。完整的 action 注册表仍可搜索。`callAgent: false` 会独立地禁用内置 `call-agent` action 的注册，即使它出现在 `initialToolNames` 中。
+
 哪些平台处于活动状态取决于设置的环境变量。该插件为 `/_agent-native/integrations/` 下的每一个注册 webhook 路由。
 
 ### Webhook URLs {#webhook-urls}

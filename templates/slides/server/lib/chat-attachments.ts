@@ -3,6 +3,11 @@ import path from "path";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readBoundedResponseBytes } from "@agent-native/core/ingestion";
 import {
+  ATTACHMENT_REF_MAX_CHARS,
+  describeAttachmentFailure,
+  isAttachmentError,
+} from "@agent-native/core/private-blob";
+import {
   getRequestRunContext,
   type AgentChatAttachment,
 } from "@agent-native/core/server";
@@ -29,7 +34,6 @@ function boundedString(value: unknown, maxLength: number): string | null {
     : null;
 }
 
-/** Keep the original deck brief and file handles in every scoped follow-up. */
 export function buildSlidesDeckGenerationContext(
   value: unknown,
 ): string | null {
@@ -42,7 +46,7 @@ export function buildSlidesDeckGenerationContext(
         .flatMap((file) => {
           if (!isRecord(file)) return [];
           const name = boundedString(file.originalName, 160) ?? "reference";
-          const path = boundedString(file.path, 2_000);
+          const path = boundedString(file.path, ATTACHMENT_REF_MAX_CHARS);
           const url = boundedString(file.url, 2_000);
           if (!path && !url) return [];
           const locations = [
@@ -171,6 +175,13 @@ async function downloadHostedReferenceFile(
   };
 }
 
+function describeSaveFailure(error: unknown, fallback: string): string {
+  if (isAttachmentError(error)) {
+    return describeAttachmentFailure(error.failure, "save").message;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
 function attachmentDataUrl(attachment: AgentChatAttachment): string | null {
   if (typeof attachment.data !== "string") return null;
   if (
@@ -202,9 +213,6 @@ export async function prepareSlidesChatAttachments(args: {
     path: string;
     url?: string;
     type: string;
-    // Unset (not 0) for an attachment we never downloaded — an already-hosted
-    // URL-only attachment has no known byte size, and "0" would misreport it
-    // as an empty file instead of an unmeasured one.
     size?: number;
   }> = [];
   const failed: Array<{ name: string; reason: string }> = [];
@@ -217,13 +225,6 @@ export async function prepareSlidesChatAttachments(args: {
     if (!attachment) continue;
     const ext = path.extname(attachment.name).toLowerCase();
 
-    // An attachment can arrive already durably hosted — a plain `url` with no
-    // inline `data` (e.g. `referenceImagePaths`/image content parts wrap an
-    // uploaded file as `{ type: "image", url }`, per
-    // packages/core/src/client/agent-chat-adapter.ts). There are no bytes to
-    // save, but the file IS attached; skipping it here because only `data`
-    // was ever recognized as "attached" is what silently drops it and leaves
-    // the agent with no signal it exists.
     if (
       typeof attachment.data !== "string" &&
       typeof attachment.url === "string"
@@ -280,10 +281,7 @@ export async function prepareSlidesChatAttachments(args: {
           } catch (error) {
             failed.push({
               name: attachment.name,
-              reason:
-                error instanceof Error
-                  ? error.message
-                  : "download or upload failed",
+              reason: describeSaveFailure(error, "download or upload failed"),
             });
           }
         }
@@ -318,7 +316,7 @@ export async function prepareSlidesChatAttachments(args: {
     } catch (error) {
       failed.push({
         name: attachment.name,
-        reason: error instanceof Error ? error.message : "upload failed",
+        reason: describeSaveFailure(error, "upload failed"),
       });
     }
   }
@@ -340,11 +338,6 @@ export async function prepareSlidesChatAttachments(args: {
   const failureList = failed
     .map((file) => `- ${file.name}: ${file.reason}`)
     .join("\n");
-  // saveUploadedReferenceFile() saves the file either way but swallows the
-  // public-URL upload failure (missing/misbehaving file-upload provider) so
-  // the private path is never blocked. Without this callout the agent has no
-  // signal that embedding is impossible and silently drops the image from
-  // the deck instead of telling the user why.
   const unembeddableImages = uploaded.filter(
     (file) => !file.url && file.type.startsWith("image/"),
   );
@@ -359,13 +352,14 @@ export async function prepareSlidesChatAttachments(args: {
           fileList,
           "",
           "File handling rules:",
+          "- Pass `filePath` exactly as listed above, or use the attachment's file name. Never shorten, edit, or re-type the path.",
           '- Attachments are reference context by default. When the user explicitly asks to import or convert an attached PDF or PPTX into the current or visible deck, call `view-screen` when the deckId is not already known, then call `import-file` with `{ filePath: "<path>", format: "pdf" or "pptx", deckId: "<deckId>", importIntoDeck: true }`. Verify the result reports `imported: true` and a positive `slideCount`; do not use extraction-only mode or recreate the imported pages with `add-slide`.',
           "- An attachment alone never imports. Use `import-pptx` with `deckId` only for an explicit whole-deck replacement because it replaces all slides.",
           "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
           '- PPTX files: for an explicit whole-deck replacement, call `import-pptx --filePath "<path>" --deckId <deckId>` because it replaces all slides. For deck-wide improvement or append/import requests, use `import-file` with `format: "pptx"`, `deckId`, and `importIntoDeck: true`, then patch the imported slides. Use `update-slide` only for a targeted one-slide edit. Do not rebuild the source deck with add-slide.',
           '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned extracted text as source material before creating editable slides. For a visual PDF that the user wants preserved, beautified, or restyled from its original layout, pass `--importIntoDeck true` first: a PDF exported from this app restores its original editable slides, and any other PDF is rebuilt into positioned text boxes and images. Keep what the import produced and style around it rather than retyping it; source text is persisted in slide notes for inspection.',
           '- Figma `.fig` files: call `import-file --filePath "<path>" --format fig` to start Builder design-system indexing. Do not create a local design system directly from the upload.',
-          "- For deck-generation requests, start mutating promptly: create or update the first slide as soon as source material is extracted, then continue slide-by-slide with add-slide/update-slide.",
+          "- For short, fully planned deck-generation requests, pass all slides to one create-deck call after extracting source material. For long or live in-app generation, start mutating promptly and add slides sequentially as they are authored.",
           '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
           "- Do not say no PDF/PPTX/DOCX/FIG/image was attached when a matching saved path is listed here.",
         ].join("\n")
@@ -374,7 +368,7 @@ export async function prepareSlidesChatAttachments(args: {
       ? [
           "The following attached image(s) have NO embeddable URL — the file-upload provider that hosts public image URLs failed or is not configured, so they were only saved to private import storage and CANNOT be embedded as `<img>` in slide HTML:",
           unembeddableImageList,
-          "Do not silently skip these images. Tell the user the image(s) could not be added to the deck because no public file-upload provider is available, and that connecting Builder.io (or another file provider) in Settings will enable embedding.",
+          "Do not silently skip these images. Tell the user the image(s) could not be added to the deck because no public object storage is available. They can use Builder.io (free) or configure their own S3-compatible storage keys in Settings → File uploads to enable embedding.",
         ].join("\n")
       : "",
     failed.length > 0
@@ -403,10 +397,6 @@ function stripForwardedAttachmentData(
   saved: { path: string; url?: string },
 ): AgentChatAttachment {
   const next = { ...attachment };
-  // Keep visual data for the current model turn so uploaded screenshots remain
-  // available for vision analysis. Keep non-visual bytes until core's shared
-  // pre-upload boundary has created the durable public object-storage URL;
-  // `slidesUploadPath` is a private import handle, not a chat attachment URL.
   const inlineImage = isVisualAttachment(attachment)
     ? decodeDataUrl(attachment.data)
     : null;

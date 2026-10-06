@@ -3,11 +3,138 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-05
+
+### Improved
+
+- Collection pages keep selected rows visible through failed refreshes, and review space stays in place while comments refresh.
+
+### Fixed
+
+- Collection view context now survives quick page changes when the saved summary fits.
+- Exact saved-view links keep the collection retry available when rows fail to load
+- Expanding a Files folder now shares one navigation read across open branches, and legacy owner shares retain their row controls.
+- Files navigation retries temporary failures consistently
+- Shared page owners keep edit and manage controls in Files, and newly opened folders populate faster.
+- Tagging an AI in a comment works again instead of failing right away with "AI request failed".
+- The home loading shell keeps the layout of your last opened page.
+- Typing `>` and a space, or inserting a toggle or callout, no longer freezes and crashes the page on a Mac.
+
+## 2026-10-03
+
+### Fixed
+
+- A malformed Lab preference no longer blocks unrelated editor commands.
+
+## 2026-10-02
+
+### Improved
+
+- After a refresh, the Files sidebar shows the open page's folders in one load instead of one level at a time
+- Builder.io setup instructions now use consistent action language across editor workflows.
+- Large collections open faster
+- Pages with open comments and collections with sorted or filtered views no longer jump while they load
+
+### Fixed
+
+- A page link you can't open now says so, with the account you're signed in as, instead of opening another page. People who can open a private share link no longer see "This document is private" first.
+- Comment edits and deletions now refresh collaborators with the document open.
+- Pages stay inside the window at every width: long inline code and links wrap, and wide tables scroll inside their own frame instead of crushing their columns
+- Suggest edits works on pages written by agents, including pages with Markdown tables, instead of refusing to start or rejecting each edit; suggestions inside a table cell are still not supported
+- While you suggest edits, tables and other blocks that suggestions don't support yet are read-only, and an agent that tries to suggest a change inside one gets a clear message instead of "Internal server error".
+
+## 2026-10-01
+
+### Improved
+
+- Home opens the page you were last on sooner
+- Pages and the sidebar load in place instead of jumping around
+
+### Fixed
+
+- Fixed Content's ChatGPT connector guidance so it refers only to available actions.
+- Accepting or rejecting suggested edits keeps desktop comments in place without opening an extra panel.
+- Suggested edits stay visible across paragraphs, and Suggesting opens without false formatting warnings.
+- Suggestion retries keep desktop comments open and failed decisions restore each draft change only once.
+- Suggested edits replace whole words on pages with bold, italic, code, or links, so a changed date reads as one word instead of scattered letters
+- Accepted suggestions stay visible once after another person edits the page, and reviewing your amended suggestion no longer shows a false conflict.
+- The editor no longer shifts focus to another document when you switch away from suggested edits.
+
+## 2026-09-30
+
+### Added
+
+- Connect ChatGPT to draft documents and organize workspace records in Content.
+
+### Improved
+
+- Search stays fast in large workspaces and finds parts of code names and links, plus Japanese, Chinese, and Korean text.
+
+### Fixed
+
+- Pending suggested edits keep their highlights when nearby edits are accepted
+- Recent page icons update immediately when changed or removed
+- Suggestion review controls remain reachable beside long author names.
+- Chat stays ready for your next draft while a message is being sent.
+- Page edits and comments save reliably
+
+### Changed
+
+- Search matches page text from the start of each word. Titles and descriptions still match anywhere.
+
+## 2026-09-29
+
+### Added
+
+- Connected agents can give up to 250 collection rows different values, such as a new rank for each row, in one atomic call.
+
+### Improved
+
+- Content search ranks similar titles faster.
+- Content block prompts stay editable while AI setup completes.
+- Related pages can be loaded past the first 25 results
+
+### Fixed
+
+- Suggested edits work on pages created through MCP that have blank lines between paragraphs or a dollar sign
+- Chat prompts clear immediately while the assistant thinks.
+- Duplicated rows and restored document versions keep collaborators' uploaded icons.
+- Text typed just before leaving a page and coming back is no longer lost or reported as a failed save
+- Inline prompts no longer show temporary status rows.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+
+## 2026-09-28
+
+### Added
+
+- Link rows across collections with relation properties
+
+## 2026-09-26
+
+### Improved
+
+- Command search now shows matching titles instantly from documents already loaded in the sidebar, filling in richer results as the server responds.
+
+### Fixed
+
+- An empty Recent list now loads without an error after first run.
+
 ## 2026-09-25
 
 ### Added
 
+- Ask the agent to turn comment, reply, and mention emails on or off.
 - Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Improved
+
+- Suggested edits now highlight only the changed words and punctuation. Related edits appear together, with controls to review each edit or the whole proposal.
+
+## 2026-09-24
+
+### Fixed
+
+- Suggest edits on pages inside collections, with the same review flow as other pages.
 
 ## 2026-09-23
 
@@ -21,6 +148,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Edits to different parts of a page from multiple tabs save together without asking you to choose a version.
 - Tables inserted in the visual editor now let you resize columns.
 - Markdown tables with aligned columns now open as editable tables in pages, keeping column alignment and all cell content.
 - The Trash view no longer highlights a document that is not in Trash.
@@ -41,6 +169,12 @@ time from the command menu (Cmd+K → "What's new").
 
 - Search now ranks exact and partial title matches above incidental matches in document bodies.
 
+## 2026-09-18
+
+### Improved
+
+- Mention a connected AI model in a comment, choose how it should respond, and keep the work in that thread.
+
 ## 2026-09-16
 
 ### Fixed
@@ -54,6 +188,10 @@ time from the command menu (Cmd+K → "What's new").
 - Google sign-in and Notion connections now open reliably in embedded browsers
 
 ## 2026-09-14
+
+### Added
+
+- Ask AI conversations now stay with the comment that started them, with inline progress, replies, recovery, and an explicit option to open the full conversation.
 
 ### Improved
 

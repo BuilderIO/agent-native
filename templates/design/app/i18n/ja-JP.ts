@@ -1,4 +1,5 @@
 export default {
+  composer: { menu: { integrations: "連携" } },
   creativeContext: {
     title: "ライブラリ",
     description:
@@ -169,14 +170,16 @@ export default {
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
     openAgentSettings: "エージェントを管理",
-    languageTitle: "言語",
-    languageDescription: "Design のインターフェース言語を選択します。",
-    languageLabel: "インターフェース言語",
-    labs: "Labs",
-    labsIntro:
-      "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labTweaks: "デザインの調整",
     labTweaksDescription: "AI によるデザイン調整をお試しください。",
+    labFullAppBuilding: "アプリ全体の構築",
+    labFullAppBuildingDescription:
+      "Builder を使って、デザインから動作するアプリを構築してみましょう。",
+    labDesignReviewTools: "デザインレビュー ツール",
+    labDesignReviewToolsDescription:
+      "デザインのアクセシビリティ上の問題を確認し、視覚的な変更を比較します。",
+    mcpAbout:
+      "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
   pages: {
     presentEmpty: "プレゼンするコンテンツがありません",
@@ -185,8 +188,17 @@ export default {
     notFoundDescription: "お探しのページは存在しません。",
     notFoundSignIn: "ログイン",
     notFoundBackToDesigns: "デザインに戻る",
-    teamCreateOrgDescription:
-      "同僚とデザインを共有するためのチームを設定します。",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "ファイルをアップロードするストレージを接続",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
+    },
+    common: { retry: "再試行" },
   },
   chat: {
     emptyState: "作成したいデザインを説明してください",
@@ -206,7 +218,7 @@ export default {
       tokenLabel: "Figma アクセストークン",
       tokenPlaceholder: "Figma アクセストークンを貼り付け",
       connecting: "接続中…",
-      connect: "接続",
+      connect: "Figmaに接続",
       getToken: "トークンを取得",
       importFrame: "フレームをインポート",
       chooseFrame: "フレームを選択",
@@ -217,6 +229,7 @@ export default {
     },
   },
   common: {
+    loading: "読み込み中...",
     genericError: "何か問題が発生しました",
   },
   editPanel: {
@@ -314,6 +327,8 @@ export default {
       bottomLeft: "左下",
       bottomRight: "右下",
       blend: "ブレンド",
+      blendMode: "描画モード",
+      removeBlendMode: "描画モードを削除",
       border: "境界線",
       outline: "アウトライン",
       inside: "内側",
@@ -1256,6 +1271,7 @@ export default {
       verifying: "ソースとランタイムを検証中…",
       retryWithAgent: "ソース検証を再試行",
       copyPrompt: "エージェントにプロンプトをコピー",
+      copyAgentPrompt: "エージェントプロンプトをコピー",
       copyFullPrompt: "完全なプロンプトをコピー",
       abortPreview: "プレビューを中止して操作",
       agentMessage:
@@ -1360,6 +1376,16 @@ export default {
         "読み取り専用プレビューでは PNG キャプチャを利用できません",
       pngSaveError: "PNG を保存できませんでした",
       pngExportError: "PNG をエクスポートできませんでした",
+      exportTooLarge:
+        "エクスポートが大きすぎます。リクエストの上限は 5 MB です。埋め込みリソースかラスター寸法を小さくして、もう一度お試しください。",
+      exportResourcesUnavailable:
+        "画像、フォント、スタイルシートのいずれかを利用できないため、正確にレンダリングできませんでした。リソースを確認して、もう一度お試しください。",
+      exportTimedOut:
+        "エクスポートがタイムアウトしました。もう一度試すか、デザインのサイズを小さくしてください。",
+      exportBusy:
+        "別のエクスポートをレンダリング中です。少し待ってからもう一度お試しください。",
+      exportChromiumUnavailable:
+        "レンダラーを起動できないため、エクスポートを利用できません。しばらくしてからもう一度お試しください。",
       pdfExportError: "PDF をエクスポートできませんでした",
       pdfDownloaded: "PDF をダウンロードしました",
       pdfAllScreensDownloaded: "PDFがダウンロードされました（すべての画面）",
@@ -1420,6 +1446,8 @@ export default {
         "このレイヤーのソースが見つかりません。アプリの読み込みが完了してから再度お試しいただくか、エージェントに変更を依頼してください。",
       reactSourceAnchorsUnavailable:
         "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
+      sourceLocationSnapshotFailed:
+        "このプレビューのソース位置を確認できませんでした。",
       screenSourceUpdated: "画面ソースを更新しました",
       screenSourceUpdateFailed: "画面ソースを更新できませんでした",
       vectorEditUnsupported:
@@ -1477,6 +1505,13 @@ export default {
         "数回試行しましたが、ライブエディターブリッジから確認応答がありませんでした。",
       connectionNotConfirmed:
         "ライブエディターブリッジが接続を確認できませんでした。ローカル開発サーバーはまだ実行中ですか？",
+      permissionPromptTitle: "ローカル画面を接続",
+      permissionPromptDescription:
+        "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
+      permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
+      permissionPromptSettingsInstructions:
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、ローカル ネットワークを「許可」に設定します。",
+      permissionPromptRetry: "接続を再試行",
     },
   },
   multiScreenCanvas: {
@@ -1662,7 +1697,66 @@ export default {
       "このビューを離れたため、未送信のコメント下書き {{count}} 件が破棄されました。",
     staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
   },
+  homeContext: {
+    websiteReference: "ウェブサイトを追加",
+    websiteUrlLabel: "ウェブサイトのURL",
+    websiteUrl: "ウェブサイトのURLを貼り付け",
+    figmaUrlLabel: "Figmaリンク",
+    invalidFigmaUrl:
+      "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
+    tooMany: "参照は20件まで選択できます。",
+    invalidWebsiteUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
+    createSystem: "デザインシステムを作成",
+    noSystems:
+      "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
+    searchSystems: "デザインシステムを検索…",
+    searchFrames: "Figmaフレームを検索…",
+    searchDesigns: "デザインを検索…",
+    searchPresentations: "プレゼンテーションを検索…",
+    searchDesign: "デザインを検索…",
+    useDesignSystem: "デザインシステムを使用",
+    notReady:
+      "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
+    search: "コンテキストを検索…",
+    figmaUrl: "Figmaリンクを貼り付け",
+    browse: "フレームを参照",
+    loadFailed: "この参照を読み込めませんでした。",
+    retry: "再試行",
+    empty: "一致する参照がありません。",
+    none: "なし",
+    design: "デザイン",
+    slides: "スライド",
+    referenceDesign: "デザインを参照",
+    figmaReference: "Figmaを追加",
+    referenceDeck: "プレゼンテーションを参照",
+    quickSaas: "SaaS ランディングページを作成",
+    quickDashboard: "ダッシュボードを作成",
+    quickDeck: "スライドを作成",
+    deckPrompt:
+      "タイトルスライド、明確なストーリー、視覚化されたデータ、簡潔な締めのスライドを含む洗練されたプレゼンテーションを作成してください。",
+  },
   home: {
+    suggestedPrompts: "おすすめのプロンプト",
+    import: "インポート",
+    importOptions: "インポートオプション",
+    figmaLink: "Figmaリンク",
+    importFromFigma: "Figma からインポート",
+    figmaFile: "Figma ファイル (.fig)",
+    openImport: "インポートを開く",
+    importSelectedFile: "選択したファイルをインポート",
+    starterSaasPrompt:
+      "ダークテーマのモダンなSaaSランディングページ。ヒーローセクション、3枚の機能カード、最後の行動喚起セクションを配置してください。",
+    starterDashboardPrompt:
+      "サイドナビゲーション、4枚の主要指標カード、グラフ、最近のアクティビティの表を備えた、すっきりとした分析ダッシュボード。",
+    starterMobilePrompt:
+      "スマートフォンのフレーム内に表示するモバイルアプリのプロトタイプ。下部にタブバーを配置し、ホーム画面には3枚のリストカードを表示してください。",
+    starterPricingPrompt:
+      "月払い・年払いの切り替え、機能チェックリスト、おすすめプランの強調表示を備えた3段階の料金ページ。",
+    designPromptTitle: "最初のデザインを作りましょう",
+    recent: "最近",
+    browseAllTemplates: "すべて見る",
+    connectBuilderIo: "Builder.io を使う",
+    connectingBuilder: "Builder.io を設定中…",
     pageTitle: "Design",
     searchPlaceholder: "デザインを検索...",
     newDesign: "新しいDesign",
@@ -1672,6 +1766,9 @@ export default {
     allAuthors: "すべての作成者",
     me: "自分",
     designFilter: "デザインのフィルター",
+    ownedByAnyone: "所有者を問わない",
+    ownedByMe: "自分が所有",
+    sharedWithMe: "自分と共有",
     mine: "自分のデザイン",
     all: "すべて",
     showMineDesigns: "自分のデザインを表示",
@@ -1705,6 +1802,7 @@ export default {
     pickStartingPoint: "開始点を選択するか、独自のプロンプトを作成します。",
     searchNoResultsTitle: "この検索に一致するデザインはありません",
     searchNoResultsDescription: "別の検索をお試しください。",
+    noDesignsMatchFilter: "現在のフィルターに一致するデザインはありません。",
     starterSaas: "SaaS ランディング ページ",
     starterDashboard: "ダッシュボード",
     starterPricing: "価格ページ",
@@ -1728,6 +1826,8 @@ export default {
     layoutLabel: "保存できる画面レイアウト",
   },
   templatesPage: {
+    previewEmpty: "このテンプレートにはプレビューできる画面がありません。",
+    loading: "テンプレートを読み込み中",
     title: "テンプレート",
     description:
       "適切な寸法と既定値から始め、ロックされていない内容をプロンプトで調整します。",
@@ -1756,7 +1856,7 @@ export default {
     deleteTitle: "テンプレートを削除しますか？",
     deleteDescription:
       "{{title}} を完全に削除します。すでに作成済みのデザインには影響しません。",
-    templateActions: "テンプレート操作",
+    templateActions: "{{title}} の操作",
     lockedCount: "{{count}} 個をロック",
     categories: {
       ad: "広告",

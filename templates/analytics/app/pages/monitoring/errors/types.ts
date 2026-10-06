@@ -1,8 +1,3 @@
-/**
- * Client-side mirrors of the error-capture server types
- * (`server/lib/error-capture.ts`). Kept as plain structural types so the panel
- * stays decoupled from the server module.
- */
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
 
 export type IssueStatus = "unresolved" | "resolved" | "ignored";

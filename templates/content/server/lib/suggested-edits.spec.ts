@@ -106,7 +106,12 @@ describe("Content document suggestion adapter", () => {
         ctx: { suggestionAccess: access },
       }),
     ).resolves.toEqual([operation]);
-    expect(exclusions).toHaveBeenCalledOnce();
+    expect(exclusions).toHaveBeenCalledTimes(3);
+    expect(exclusions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("content_database_items"),
+      }),
+    );
   });
 
   it("accepts an editor-normalized proposal against its exact raw Page revision", async () => {
@@ -173,7 +178,7 @@ describe("Content document suggestion adapter", () => {
         },
       }),
     ).resolves.toEqual([operation]);
-    expect(tx.execute).toHaveBeenCalledTimes(2);
+    expect(tx.execute).toHaveBeenCalledTimes(4);
     expect(exclusions).not.toHaveBeenCalled();
   });
 
@@ -219,7 +224,10 @@ describe("Content document suggestion adapter", () => {
           },
         },
       }),
-    ).rejects.toThrow("inline databases cannot receive suggestions yet");
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "suggestion_body_unavailable",
+    });
   });
 
   it("rejects unsupported after-state before mutating canonical or collaborative content", async () => {
@@ -291,7 +299,10 @@ describe("Content document suggestion adapter", () => {
         transaction: tx,
         coordination,
       }),
-    ).rejects.toThrow("cannot add or change unsupported structures");
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "suggestion_structure_unsupported",
+    });
     expect(lockPrimaryBlocksFields).not.toHaveBeenCalled();
     expect(persistBlocksFieldIdentity).not.toHaveBeenCalled();
     expect(coordination.ydoc.persist).not.toHaveBeenCalled();
@@ -457,7 +468,10 @@ describe("Content document suggestion adapter", () => {
             },
           },
         }),
-      ).rejects.toThrow("cannot add or change unsupported structures");
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: "suggestion_structure_unsupported",
+      });
     },
   );
 
@@ -536,7 +550,10 @@ describe("Content document suggestion adapter", () => {
           },
         },
       }),
-    ).rejects.toThrow("cannot add or change unsupported structures");
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "suggestion_structure_unsupported",
+    });
   });
 
   it("does not publish a duplicate accepted retry without a persisted event", () => {
@@ -609,7 +626,7 @@ describe("Content document suggestion adapter", () => {
       coordination,
     });
     expect(
-      writes.some((sql) => sql.startsWith("INSERT INTO document_versions")),
+      writes.some((sql) => /^insert into "?document_versions"?/i.test(sql)),
     ).toBe(true);
     expect(
       writes.some((sql) =>
@@ -765,7 +782,10 @@ describe("Content document suggestion adapter", () => {
         coordination,
       }),
     ).rejects.toMatchObject({ name: "SuggestionStaleError" });
-    expect(tx.execute).toHaveBeenCalledTimes(2);
+    const statements = tx.execute.mock.calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    expect(statements.filter((sql) => !/^\s*SELECT\b/i.test(sql))).toEqual([]);
   });
 });
 

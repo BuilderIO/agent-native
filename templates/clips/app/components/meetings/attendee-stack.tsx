@@ -1,10 +1,3 @@
-/**
- * <AttendeeStack /> — overlapping avatar stack for meeting participants.
- *
- * Granola-style: up to 4 avatars (-space-x), then "+N" pill. Each avatar
- * gets a shadcn Tooltip showing name/email. Used on both list cards and
- * detail headers.
- */
 import { ClipsAvatar } from "@/components/clips-avatar";
 import {
   Tooltip,

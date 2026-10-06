@@ -56,13 +56,9 @@ export type PlanCommentAnchor = {
   blockType?: string;
   ambiguous?: boolean;
   markerSeq?: number;
-  /** Stable wireframe/design node id (addressable by wireframe/design patch ops). */
   targetNodeId?: string;
-  /** Human-readable path of ancestor wireframe nodes, e.g. `card > list > listItem "Acme Inc"`. */
   targetNodePath?: string;
-  /** Board world width in px (for canvas comments). */
   canvasWidth?: number;
-  /** Board world height in px (for canvas comments). */
   canvasHeight?: number;
 };
 
@@ -212,8 +208,6 @@ export function formatPlanCommentAnchorForAgent(
 
   if (prefix) return prefix.replace(/: $/, "");
 
-  // Enriched pinned fallback: document-level coordinates are better than a
-  // bare "Pinned to plan" — they at least localize the pin on the page.
   if (anchor.x !== undefined && anchor.y !== undefined) {
     return `Pinned at ${Math.round(anchor.x)}% across / ${Math.round(anchor.y)}% down of the full plan document`;
   }

@@ -22,7 +22,6 @@ describe("run stream ownership", () => {
     const other = createRunStreamToken("other");
 
     expect(claimRunStream(THREAD, RUN, reconnect)).toBe(true);
-    // The second reader is the one that used to render a duplicate turn.
     expect(claimRunStream(THREAD, RUN, other)).toBe(false);
     expect(ownsRunStream(THREAD, RUN, reconnect)).toBe(true);
     expect(ownsRunStream(THREAD, RUN, other)).toBe(false);
@@ -49,8 +48,6 @@ describe("run stream ownership", () => {
     claimRunStream(THREAD, RUN, reconnect);
 
     expect(preemptRunStream(THREAD, RUN, adapter)).toBe(true);
-    // The displaced reader must observe the loss without waiting for a poll —
-    // this is what stops it writing a second copy of the turn into the UI.
     expect(ownsRunStream(THREAD, RUN, reconnect)).toBe(false);
     expect(ownsRunStream(THREAD, RUN, adapter)).toBe(true);
   });
@@ -67,8 +64,6 @@ describe("run stream ownership", () => {
     claimRunStream(THREAD, RUN, reconnect);
     preemptRunStream(THREAD, RUN, adapter);
 
-    // A late unmount of the displaced reader must not free the successor's
-    // claim, or a third reader could attach beside the adapter.
     releaseRunStream(THREAD, RUN, reconnect);
     expect(ownsRunStream(THREAD, RUN, adapter)).toBe(true);
     expect(claimRunStream(THREAD, RUN, reconnect)).toBe(false);
@@ -84,8 +79,6 @@ describe("run stream ownership", () => {
     expect(ownsRunStream(THREAD, "run-a", reconnect, turn)).toBe(false);
     expect(ownsRunStream(THREAD, "run-b", adapter, turn)).toBe(true);
 
-    // The old reader's late cleanup must not release the successor run's
-    // logical-turn claim.
     releaseRunStream(THREAD, "run-a", reconnect, turn);
     expect(claimRunStream(THREAD, "run-c", reconnect, turn)).toBe(false);
   });

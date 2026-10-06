@@ -129,12 +129,16 @@ export function createQaEmail(app: string, environment: string): string {
 export async function waitForVerificationEmail(
   email: string,
   receivedAfter: number,
+  excludedMessageIds: ReadonlySet<string> = new Set(),
 ): Promise<MailosaurMessage> {
   const deadline = Date.now() + EMAIL_WAIT_TIMEOUT_MS;
   while (Date.now() <= deadline) {
     const summaries = await listMessages(receivedAfter);
     const summary = summaries.find(
-      (message) => messageIsForEmail(message, email) && isAuthMessage(message),
+      (message) =>
+        !excludedMessageIds.has(message.id) &&
+        messageIsForEmail(message, email) &&
+        isAuthMessage(message),
     );
     if (summary) {
       return getJson<MailosaurMessage>(

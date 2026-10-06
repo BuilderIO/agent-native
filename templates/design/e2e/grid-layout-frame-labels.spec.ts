@@ -8,12 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { designFrame, gotoEditor } from "./helpers";
 
-/**
- * Grid parity: picking the Grid flow must reflow the frame's children into
- * cells (they are drawn absolutely positioned, so container styles alone
- * render no layout). Name labels belong to top-level canvas objects only, so a
- * screen document renders none of them however its frames are nested.
- */
 const GRID_FRAME_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -71,8 +65,6 @@ test.describe("grid layout and frame labels", () => {
       .toBeGreaterThanOrEqual(2);
   });
 
-  // "Has no frame ancestor" is not "is top level": a frame nested in ordinary
-  // wrappers inside a screen satisfied the former and drew a canvas label.
   test("frames inside a screen render no name labels", async ({
     page,
     request,
@@ -81,8 +73,6 @@ test.describe("grid layout and frame labels", () => {
     designId = await createGridFrameDesign(request, baseURL, "E2E Frame Label");
     await gotoEditor(page, designId);
 
-    // Anchoring on the frame itself first: a bare count-of-zero would also
-    // pass against an iframe that had not rendered yet.
     await expect(
       designFrame(page).locator('[data-agent-native-node-id="gf-frame"]'),
     ).toBeVisible();
@@ -93,7 +83,6 @@ test.describe("grid layout and frame labels", () => {
   });
 });
 
-/** Open tag of one node, where its inline style lives. */
 function openTagOf(html: string, nodeId: string): string {
   const index = html.indexOf(`data-agent-native-node-id="${nodeId}"`);
   if (index < 0) throw new Error(`node ${nodeId} not found`);

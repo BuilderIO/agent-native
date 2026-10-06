@@ -19,15 +19,11 @@ import {
 
 import { cn } from "@/lib/utils";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 export type GradientKind = "linear" | "radial" | "angular" | "diamond";
 
 export interface GradientStopValue {
   id: string;
-  /** Any CSS color string. */
   color: string;
-  /** 0–100 along the gradient axis. */
   position: number;
 }
 
@@ -35,7 +31,6 @@ export interface GradientValue {
   kind: GradientKind;
   opacity?: number;
   interpolation?: string;
-  /** Angle in degrees — used by linear and angular (conic) gradients. */
   angle: number;
   stops: GradientStopValue[];
 }
@@ -68,19 +63,8 @@ export interface GradientValue {
  *     scope).
  */
 export interface GradientEditSessionTarget {
-  /** Id of the draft primitive or screen/frame the gradient applies to. */
   frameOrDraftId: string;
-  /** The live CSS gradient string, e.g. what `gradientToCss` produces. */
   cssValue: string;
-  /**
-   * Called by the canvas overlay when the user drags an on-canvas handle.
-   * `nextCss` is a full replacement gradient CSS string (round-trippable
-   * through `parseGradientCss`). `phase` mirrors the gesture-coalescing
-   * convention used elsewhere in this popover (see `onChangeComplete` on
-   * `DesignColorPickerProps`): "preview" fires on every drag tick for live
-   * feedback, "commit" fires once on pointerup with the final value so undo
-   * history only gets one entry per drag.
-   */
   onChange: (nextCss: string, meta?: { phase: "preview" | "commit" }) => void;
 }
 
@@ -94,13 +78,10 @@ const CHECKERBOARD_IMAGE = `conic-gradient(${CHECKER_A} 25%, ${CHECKER_B} 0 50%,
 const CHECKER_SIZE = "8px 8px";
 const CHECKER_POS = "0 0";
 
-// ─── CSS serialization ─────────────────────────────────────────────────────────
-
 function sortedStops(stops: GradientStopValue[]): GradientStopValue[] {
   return [...stops].sort((a, b) => a.position - b.position);
 }
 
-/** Build a valid CSS gradient string for the given gradient value. */
 export function gradientToCss(value: GradientValue): string {
   const interpolation =
     value.interpolation ??
@@ -122,8 +103,6 @@ export function gradientToCss(value: GradientValue): string {
     case "radial":
       return `radial-gradient(circle at center${colorSpace}, ${stops})`;
     case "diamond":
-      // CSS has no diamond gradient; a radial gradient with closest-side on a
-      // non-circular ellipse reads as the diamond falloff the design editor shows.
       return `radial-gradient(ellipse closest-side at center${colorSpace}, ${stops})`;
     case "angular":
       return `conic-gradient(from ${round(value.angle)}deg at center${colorSpace}, ${stops})`;
@@ -132,7 +111,6 @@ export function gradientToCss(value: GradientValue): string {
   }
 }
 
-/** A flat left-to-right preview of the stops, independent of kind/angle. */
 function stopsBarCss(stops: GradientStopValue[]): string {
   const ordered = sortedStops(stops)
     .map((stop) => `${normalizeColor(stop.color)} ${round(stop.position)}%`)
@@ -153,11 +131,6 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-/**
- * Parses a stop-position draft string into a finite 0–100 number, or `null`
- * when the draft is invalid/empty and the field should revert instead of
- * committing (mirrors `parseNumericDraft` in DesignColorPicker.tsx).
- */
 export function parseStopPositionDraft(draft: string): number | null {
   const trimmed = draft.trim();
   if (trimmed === "") return null;
@@ -165,14 +138,6 @@ export function parseStopPositionDraft(draft: string): number | null {
   return Number.isFinite(parsed) ? clamp(parsed, 0, 100) : null;
 }
 
-/**
- * Picks which remaining stop should become selected after deleting one.
- * Returns the id of the stop whose position is closest to the removed
- * stop's position (ties broken by whichever appears first in `stops`),
- * rather than always jumping to the leftmost stop — deleting a stop near
- * the right edge of the ramp should keep selection nearby, not teleport
- * the user's focus across the gradient.
- */
 export function nearestStopId(
   stops: GradientStopValue[],
   removedPosition: number | undefined,
@@ -190,8 +155,6 @@ export function nearestStopId(
   }
   return best?.id ?? null;
 }
-
-// ─── Default / parse helpers ───────────────────────────────────────────────────
 
 let stopCounter = 0;
 function nextStopId(): string {
@@ -223,7 +186,6 @@ export function defaultGradient(
 
 const GRADIENT_FN_RE = /^(linear|radial|conic)-gradient\s*\(([\s\S]*)\)\s*$/i;
 const ANGLE_RE = /(-?\d+(?:\.\d+)?)deg/;
-// Split top-level commas (ignore commas inside rgb()/hsl() parens).
 function splitTopLevel(input: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -242,7 +204,6 @@ function splitTopLevel(input: string): string[] {
   return parts;
 }
 
-/** Best-effort parse of a CSS gradient string back into a GradientValue. */
 export function parseGradientCss(
   value: string,
   fallbackKind: GradientKind = "linear",
@@ -256,7 +217,6 @@ export function parseGradientCss(
   if (segments.length === 0) return null;
 
   let kind: GradientKind = fallbackKind;
-  // An angle-less linear-gradient runs "to bottom"; Chrome omits that default when serializing.
   let angle = fn === "linear" ? 180 : 90;
   let stopStart = 0;
 
@@ -322,17 +282,13 @@ export function parseGradientCss(
   };
 }
 
-// ─── AngleDial ────────────────────────────────────────────────────────────────
-
 interface AngleDialProps {
   angle: number;
   onChange: (angle: number) => void;
-  /** Fires once when a drag gesture ends (pointerup/pointercancel) — see GradientEditorProps.onCommit. */
   onCommit?: () => void;
   disabled?: boolean;
 }
 
-/** design-editor circular dial for rotating gradient angle. */
 function AngleDial({
   angle,
   onChange,
@@ -348,7 +304,6 @@ function AngleDial({
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
     const rad = Math.atan2(clientY - cy, clientX - cx);
-    // atan2 gives angle from east; the design editor's 0° is north (up), clockwise.
     let deg = (rad * 180) / Math.PI + 90;
     if (deg < 0) deg += 360;
     if (deg >= 360) deg -= 360;
@@ -377,7 +332,6 @@ function AngleDial({
   };
 
   const dotAngle = ((angle - 90) * Math.PI) / 180;
-  // Dot placed at ~65% radius from center.
   const r = 7;
   const dotX = 50 + r * Math.cos(dotAngle);
   const dotY = 50 + r * Math.sin(dotAngle);
@@ -442,22 +396,9 @@ function AngleDial({
   );
 }
 
-// ─── Component ─────────────────────────────────────────────────────────────────
-
 export interface GradientEditorProps {
   value: GradientValue;
   onChange: (value: GradientValue) => void;
-  /**
-   * Fires once per discrete edit or drag gesture — mirrors the
-   * `onChangeComplete` convention used by `DesignColorPickerProps` (see the
-   * doc comment there): `onChange` alone fires on every stop-drag/angle-drag
-   * pointermove tick (cheap live preview), while `onCommit` fires exactly
-   * once (stop added, stop removed, stop-drag pointerup, angle-drag
-   * pointerup, or a position/angle field committed via blur/Enter) so a
-   * caller that persists through history only records one entry per gesture
-   * instead of one per tick. Optional so existing callers that only wired
-   * `onChange` keep their current every-tick-is-final behavior.
-   */
   onCommit?: () => void;
   selectedStopId: string;
   onSelectStop: (id: string) => void;
@@ -465,14 +406,12 @@ export interface GradientEditorProps {
   className?: string;
 }
 
-// Stop handle dimensions — the design editor uses ~12px handles with white ring.
-const STOP_SIZE = 12; // px, the colored circle diameter
-const STOP_RING = 2; // px, white border thickness
-const STOP_OUTER = STOP_SIZE + STOP_RING * 2; // 16px total outer
-const BAR_HEIGHT = 16; // px — the gradient preview bar
-// Handles sit below the bar with a 2px notch gap.
-const HANDLE_AREA = STOP_OUTER + 4; // px — vertical space for handles below bar
-const WRAPPER_HEIGHT = BAR_HEIGHT + HANDLE_AREA; // total component height
+const STOP_SIZE = 12;
+const STOP_RING = 2;
+const STOP_OUTER = STOP_SIZE + STOP_RING * 2;
+const BAR_HEIGHT = 16;
+const HANDLE_AREA = STOP_OUTER + 4;
+const WRAPPER_HEIGHT = BAR_HEIGHT + HANDLE_AREA;
 
 export function GradientEditor({
   value,
@@ -485,11 +424,7 @@ export function GradientEditor({
 }: GradientEditorProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const draggingStopRef = useRef<string | null>(null);
-  // Set once a stop-drag actually moves the pointer (vs a plain click that
-  // only selects the stop) — endStopDrag uses this to skip firing onCommit
-  // for a no-op "select" click where nothing actually changed.
   const stopDragMovedRef = useRef(false);
-  // Track whether a pointerdown on the bar started a drag (vs click-to-add).
   const barClickRef = useRef<{ moved: boolean; startX: number } | null>(null);
 
   const [angleInput, setAngleInput] = useState<string | null>(null);
@@ -509,14 +444,6 @@ export function GradientEditor({
     });
   };
 
-  // Bar background click → add a new stop (only if no significant drag movement).
-  // setPointerCapture pins all subsequent pointermove/pointerup events to the
-  // bar element regardless of where the cursor physically ends up — without
-  // it, a fast drag that leaves the bar's bounding box before the next
-  // pointermove fires stops delivering events to this handler (hit-testing
-  // sends them to whatever's now under the cursor instead), so the movement
-  // never gets flagged and the eventual pointerup elsewhere is misread as a
-  // stationary click that adds a spurious stop.
   const handleBarPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled) return;
     barClickRef.current = { moved: false, startX: event.clientX };
@@ -534,7 +461,6 @@ export function GradientEditor({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    // Only add if the pointer didn't move significantly (not a drag).
     if (!barClickRef.current || barClickRef.current.moved) {
       barClickRef.current = null;
       return;
@@ -542,7 +468,6 @@ export function GradientEditor({
     barClickRef.current = null;
     const position = positionFromPointer(event.clientX);
     const ordered = sortedStops(value.stops);
-    // Interpolate the color from the adjacent stops for a natural insert.
     const before = [...ordered].reverse().find((s) => s.position <= position);
     const after = ordered.find((s) => s.position > position);
     let newColor: string;
@@ -628,8 +553,6 @@ export function GradientEditor({
   const showAngle = value.kind === "linear" || value.kind === "angular";
   const selectedStop = value.stops.find((s) => s.id === selectedStopId);
 
-  // Stop-position draft: buffered so typing doesn't commit (and dirty the
-  // history) on every keystroke. Commits on blur/Enter; Escape reverts.
   const [positionDraft, setPositionDraft] = useState<string>(() =>
     String(Math.round(selectedStop?.position ?? 0)),
   );
@@ -704,12 +627,9 @@ export function GradientEditor({
         {value.stops.map((stop) => {
           const isSelected = stop.id === selectedStopId;
           const parsed = parseCssColor(stop.color);
-          // Opaque version for the handle swatch.
           const solidColor = parsed
             ? rgbaToCss({ ...parsed, a: 1 })
             : stop.color;
-          // Position the handle horizontally along the bar width.
-          // Handles sit 2px below the bar's bottom edge.
           const topOffset = BAR_HEIGHT + 2;
 
           return (
@@ -733,10 +653,6 @@ export function GradientEditor({
               }}
               onKeyDown={(e) => {
                 if (disabled) return;
-                // Figma parity: Delete/Backspace removes the focused stop,
-                // and Left/Right nudges its position (Shift for a bigger
-                // step) — mirrors the numeric position field's arrow-key
-                // behavior but works directly on the handle too.
                 if (e.key === "Delete" || e.key === "Backspace") {
                   e.preventDefault();
                   removeStop(stop.id);
@@ -754,11 +670,9 @@ export function GradientEditor({
                 }
               }}
               className={cn(
-                // Base: round handle with white border ring + outer accent ring
                 "absolute cursor-grab active:cursor-grabbing",
                 "rounded-full border-[2px] border-white",
                 "focus-visible:outline-none",
-                // Selected: accent-colored outer ring (the same way's blue ring)
                 isSelected
                   ? "shadow-[0_0_0_1.5px_var(--primary),0_1px_3px_rgba(0,0,0,0.35)]"
                   : "shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_3px_rgba(0,0,0,0.25)]",
@@ -768,7 +682,6 @@ export function GradientEditor({
                 height: STOP_OUTER,
                 left: `${stop.position}%`,
                 top: topOffset,
-                // Center horizontally on the position %.
                 transform: "translateX(-50%)",
                 backgroundColor: solidColor,
               }}
@@ -848,12 +761,6 @@ export function GradientEditor({
                   }
                 }}
                 onBlur={() => {
-                  // `angleInput` is only non-null once the user has actually
-                  // typed into this field (see onChange below) — mirrors the
-                  // sibling stop-position field's commitPositionDraft, which
-                  // only commits on an actual edit rather than unconditionally
-                  // on every blur (tabbing through/refocusing without typing
-                  // must not re-fire the commit).
                   const changed = angleInput !== null;
                   setAngleInput(null);
                   if (changed) onCommit?.();
@@ -888,7 +795,6 @@ export function GradientEditor({
   );
 }
 
-// Re-export the keep-stable counter reset for tests if ever needed.
 export function __resetStopCounterForTest(): void {
   stopCounter = 0;
 }

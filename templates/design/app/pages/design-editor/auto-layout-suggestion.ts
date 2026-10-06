@@ -100,12 +100,6 @@ function relativeVariance(values: readonly number[]): number {
   );
 }
 
-/**
- * Infer a reversible flex layout from measured, direct-child geometry.
- * This intentionally refuses grid-like/overlapping arrangements instead of
- * silently flattening a design that a one-dimensional flex layout cannot
- * faithfully reproduce.
- */
 export function inferAutoLayoutSuggestion(args: {
   container: AlignableRect;
   children: readonly SuggestionRect[];
@@ -243,7 +237,6 @@ export type ApplyAutoLayoutSuggestionResult =
   | { status: "applied"; content: string }
   | { status: "conflict" | "failed"; content: string; message?: string };
 
-/** Apply the reviewed proposal atomically from the caller's perspective. */
 export function applyAutoLayoutSuggestion(
   content: string,
   suggestion: AutoLayoutSuggestion,

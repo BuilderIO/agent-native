@@ -5,10 +5,6 @@ interface GetLaunchDarklyFlagsResult {
   flags?: Record<string, unknown>;
 }
 
-// Reads through the `get-launchdarkly-flags` action rather than a
-// LaunchDarkly client-side SDK, so no LaunchDarkly key ever reaches the
-// browser. Requires a real session — gating on it avoids firing a request
-// that 401s for every signed-out visitor.
 export function useLaunchDarklyFlag(
   key: string,
   defaultValue = false,
@@ -19,9 +15,6 @@ export function useLaunchDarklyFlag(
     { keys: [key], defaultValue } as never,
     { enabled: status === "authenticated" },
   );
-  // Disabling the query on logout stops new requests but React Query keeps
-  // the last successful result cached, so a signed-out read must ignore it
-  // rather than surface the previous user's evaluated flag.
   if (status !== "authenticated") return defaultValue;
   const value = query.data?.flags?.[key];
   return typeof value === "boolean" ? value : defaultValue;

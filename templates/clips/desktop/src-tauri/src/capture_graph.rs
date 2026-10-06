@@ -1,8 +1,3 @@
-//! A local coordinator for capture demand.
-//!
-//! This module intentionally does not start a screen, audio, or camera producer.
-//! It is the small piece of shared state those producers will eventually obey: a
-//! single monotonic graph clock, ref-counted source demand, and auditable leases.
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::Serialize;
@@ -11,7 +6,6 @@ use std::fmt;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// The largest interval a caller may explicitly request from a prior buffer.
 pub(crate) const MAX_RETROSPECTIVE_EXTENSION: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -156,8 +150,6 @@ struct Lease {
     retrospective_extension: Option<Duration>,
 }
 
-/// In-memory source-demand graph. `Instant` is authoritative; wall clock values
-/// are produced only at the serializable boundary.
 #[derive(Debug)]
 pub(crate) struct CaptureGraph {
     clock_started_at: Instant,
@@ -171,9 +163,6 @@ pub(crate) struct CaptureGraph {
     next_pin_id: u64,
 }
 
-/// Tauri-managed holder. No command consumes this yet; keeping it managed makes
-/// later producer integration share one coordinator rather than inventing a
-/// second clock in each subsystem.
 pub(crate) struct CaptureGraphState(pub Mutex<CaptureGraph>);
 
 impl Default for CaptureGraphState {
@@ -187,9 +176,6 @@ impl CaptureGraph {
         Self::new_at(Instant::now(), Utc::now())
     }
 
-    /// Stable identity for this in-memory monotonic clock. Persisted media may
-    /// compare elapsed offsets only when this identity also matches; elapsed
-    /// milliseconds restart from zero whenever the desktop app relaunches.
     pub(crate) fn epoch_id(&self) -> String {
         format_rfc3339_millis(self.epoch_started_at)
     }
@@ -208,8 +194,6 @@ impl CaptureGraph {
         }
     }
 
-    /// Starts demand at `now`, never before it. Countdown handling belongs to a
-    /// caller: it must invoke this only when the countdown has completed.
     pub(crate) fn start_consumer(
         &mut self,
         consumer: CaptureConsumer,
@@ -259,8 +243,6 @@ impl CaptureGraph {
         Ok(snapshot)
     }
 
-    /// Explicitly asks to include bounded buffered history. Starting a lease
-    /// never calls this implicitly; actual producer coverage remains separate.
     pub(crate) fn extend_retrospectively(
         &mut self,
         lease_id: &str,
@@ -282,8 +264,6 @@ impl CaptureGraph {
                     lease_id.to_owned(),
                 ));
             }
-            // Clamp at the graph epoch: a lease may not request time before its
-            // only reliable clock anchor.
             let available = lease.started_at.duration_since(self.clock_started_at);
             lease.retrospective_extension = Some(duration.min(available));
         }
@@ -294,10 +274,6 @@ impl CaptureGraph {
         self.open_lease_snapshot(lease, lease.started_at)
     }
 
-    /// Explicitly extends a lease back to an absolute requested instant, such
-    /// as a meeting's recorded start. Unlike `extend_retrospectively`, this is
-    /// not subject to the short Rewind duration cap; it is clamped only to the
-    /// graph clock because the coordinator cannot describe coverage before it.
     pub(crate) fn extend_retrospectively_to_start(
         &mut self,
         lease_id: &str,
@@ -331,8 +307,6 @@ impl CaptureGraph {
         self.end_consumer_at(lease_id, Instant::now())
     }
 
-    /// Ends a lease and returns its closed interval. This is the sole path that
-    /// releases its ref-counted producer demand.
     pub(crate) fn end_consumer_at(
         &mut self,
         lease_id: &str,
@@ -400,9 +374,6 @@ impl CaptureGraph {
         Ok(pin)
     }
 
-    /// Pins an already-serialized graph interval without reconstructing it
-    /// through wall-clock time. This is the normal bridge from a closed
-    /// consumer lease to retention-aware media materialization.
     pub(crate) fn pin_interval(
         &mut self,
         interval: &CaptureInterval,
@@ -419,9 +390,6 @@ impl CaptureGraph {
         self.pin_interval_at(started_at, ended_at, label)
     }
 
-    /// Releases a retention pin after its bounded artifact has been copied to
-    /// durable pending storage. Releasing an unknown pin is deliberately a
-    /// no-op so cancellation and error cleanup can be idempotent.
     pub(crate) fn release_pin(&mut self, pin_id: &str) -> bool {
         let before = self.pins.len();
         self.pins.retain(|pin| pin.id != pin_id);

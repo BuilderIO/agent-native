@@ -5,24 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { createSharedEditorExtensions } from "./extensions.js";
 
-/**
- * GFM image round-trip for the SHARED block-level image node.
- *
- * Plans turn on `features.image` and rely on the image serializing to standard
- * markdown image syntax (`![alt](src)`) so plan blocks stay source-syncable and
- * byte-stable. The shared image node is built on `@tiptap/extension-image` (a
- * node named `image`), so tiptap-markdown serializes it through its built-in
- * `defaultMarkdownSerializer.nodes.image` fallback — NO custom `<img width>`
- * HTML override (that would break the GFM `html:false` contract).
- *
- * This mounts an `Editor` from the same `createSharedEditorExtensions` factory
- * the editor component uses, with `features.image: true` (the plan config), and
- * pins:
- *   - markdown `![alt](src)` parses to an `image` node and re-serializes
- *     byte-identically, and
- *   - a programmatically inserted image node serializes to `![alt](src)`.
- */
-
 function buildEditor(content: string): Editor {
   return new Editor({
     element: document.createElement("div"),
@@ -64,9 +46,6 @@ describe("shared image block — GFM markdown round-trip", () => {
   });
 
   it("round-trips an image embedded mid-body with a following paragraph (byte-stable)", () => {
-    // The shared node's block-aware markdown serializer calls `closeBlock`, so
-    // an image immediately followed by a paragraph keeps its blank-line
-    // separator — byte-stable, unlike tiptap-markdown's inline default.
     const body = [
       "# Title",
       "",

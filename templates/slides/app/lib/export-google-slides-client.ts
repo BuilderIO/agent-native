@@ -47,12 +47,6 @@ async function googleDriveIsConnected(): Promise<boolean> {
   return payload.connected === true;
 }
 
-/**
- * Renders the deck through the vector-capable server exporter — the only path
- * that emits the source file's shapes as real `custGeom` geometry. Its
- * positioned-object guard is rethrown verbatim so the caller can show it
- * instead of quietly handing Google the rasterized browser export.
- */
 export async function fetchDeckPptxFromServer(
   deckId: string,
   fallbackError: string,
@@ -88,22 +82,10 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-/**
- * Creates a native Google Slides deck in the user's Drive when their Google
- * account is connected. A missing connection is returned to the caller so the
- * export action can launch OAuth; other Drive failures still fall back to a
- * manual PPTX import with the reason reported rather than swallowed.
- */
 export async function exportDeckToGoogleSlides(
   deckTitle: string,
   slides: GoogleSlidesExportSlide[],
   aspectRatio?: AspectRatio,
-  /**
-   * Overrides the browser exporter. Source-imported decks pass
-   * `fetchDeckPptxFromServer`: dom-to-pptx ships no custGeom support, so the
-   * browser build would upload PNG rasterizations of the very shapes Google
-   * Slides can otherwise keep editable.
-   */
   buildPptx?: () => Promise<DeckPptxFile>,
 ): Promise<GoogleSlidesExportResult> {
   if (!(await googleDriveIsConnected())) {

@@ -90,6 +90,21 @@ describe("buildSlidesDeckGenerationContext", () => {
     expect(context).toContain("Re-open visual references before editing");
   });
 
+  it("never truncates an uploaded file reference in follow-up context", () => {
+    // A reference is opaque: cutting it makes every later import fail as an
+    // "invalid reference". Refs minted before the compact format were 2,653
+    // characters, past the 2,000-character cap that used to apply to paths.
+    const reference = `slides-upload:v1:${"a1b2c3d4".repeat(330)}`;
+    expect(reference.length).toBeGreaterThan(2_000);
+
+    const context = buildSlidesDeckGenerationContext({
+      originalPrompt: "Restyle the attached deck",
+      files: [{ originalName: "deck.pdf", path: reference }],
+    });
+
+    expect(context?.includes(`path: ${reference})`)).toBe(true);
+  });
+
   it("does not manufacture continuation context without an original brief", () => {
     expect(buildSlidesDeckGenerationContext({ files: [] })).toBeNull();
   });
@@ -472,10 +487,6 @@ describe("prepareSlidesChatAttachments", () => {
   });
 
   it("surfaces an already-hosted, url-only image instead of silently dropping it", async () => {
-    // No inline `data` — this is the shape a pre-uploaded image takes once
-    // `referenceImagePaths` merges into `images` and the framework wraps it
-    // as an image content part with a plain URL
-    // (packages/core/src/client/agent-chat-adapter.ts extractAttachmentsFromMessage).
     const result = await prepareSlidesChatAttachments({
       ownerEmail: "adam@builder.io",
       message: "add this image",

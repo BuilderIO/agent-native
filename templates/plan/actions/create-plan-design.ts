@@ -107,10 +107,6 @@ const designContextRecordSchema = z.record(z.string(), z.unknown()).refine(
 const CONTENT_DESCRIPTION =
   "Full structured content when the caller has already authored the design/prototype. This is a complete replacement: do not pass screens or transitions alongside it, or screen CSS and other content will be rejected as conflicting input. Prefer screens/transitions for normal /plan-design creation.";
 
-// Named (and un-refined) so `agentInputSchema` below can `.extend()` it with
-// a compact `content` field instead of duplicating every other key. The
-// `.refine()` (brief/goal requirement) only applies to the real runtime
-// `schema` further down.
 const createPlanDesignSchema = z.object({
   title: z.string().optional().describe("Short design plan title"),
   brief: z
@@ -187,9 +183,6 @@ export default defineAction({
     .refine((args) => Boolean(args.brief || args.goal), {
       message: "Either brief or goal is required.",
     }),
-  // ADVERTISED-ONLY: same top-level shape, but `content` swaps the deep
-  // per-block-type union for a compact `type`-enum stand-in. Runtime
-  // validation always runs the full schema above — see the `actions` skill.
   agentInputSchema: createPlanDesignSchema.extend({
     content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
   }),

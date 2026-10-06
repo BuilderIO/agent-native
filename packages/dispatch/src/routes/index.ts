@@ -1,34 +1,5 @@
 import { type RouteConfig, route, index } from "@react-router/dev/routes";
 
-/**
- * Dispatch's routes as a programmatic `RouteConfig[]`. Splat into the
- * consumer's `app/routes.ts`:
- *
- * ```ts
- * import { type RouteConfig } from "@react-router/dev/routes";
- * import { dispatchRoutes } from "@agent-native/dispatch/routes";
- *
- * export default [
- *   ...localRoutes,    // consumer's own routes win on collision
- *   ...dispatchRoutes, // dispatch fills in everything else
- * ] satisfies RouteConfig;
- * ```
- *
- * Route precedence: React Router 7 matches in declaration order, so
- * placing `dispatchRoutes` LAST means consumer-defined routes with the
- * same path take precedence. To override a single dispatch route, define
- * it in your local routes; to keep it, omit it.
- *
- * The `file` paths below resolve relative to this file at runtime — they
- * point into `packages/dispatch/dist/routes/pages/*.js` after build.
- *
- * Naming maps the original flatRoutes file conventions:
- *   `_index.tsx`        → `index(...)`
- *   `<name>.tsx`        → `route("<name>", ...)`
- *   `<a>.$<param>.tsx`  → `route("<a>/:<param>", ...)`
- *   `<a>._index.tsx`    → flattened as `route("<a>", ...)` (workspace
- *      versions are bare and don't wrap a parent layout)
- */
 export const dispatchRoutes: RouteConfig = [
   index("./pages/_index.js"),
   route("browser-connect", "./pages/browser-connect.js"),
@@ -87,9 +58,5 @@ export const dispatchRoutes: RouteConfig = [
   route("extensions", "./pages/extensions._index.js"),
   route("extensions/:id", "./pages/extensions.$id.js"),
   route("extensions/:id/:slug", "./pages/extensions.$id.js"),
-  // Catch-all for /:appId — bounces /dispatch/<appId> to /<appId> when the
-  // segment names a workspace app sibling (e.g. Builder.io routing a "go to
-  // /todo" call through Dispatch's mount). Declared last so React Router 7's
-  // specificity ranking still matches explicit static routes above first.
   route(":appId", "./pages/$appId.js"),
 ];

@@ -18,6 +18,7 @@ import {
   BuilderLaunchLink,
   BuilderWaitlistContent,
 } from "./BuilderWaitlistPopover";
+import { installAppLinkAttribution } from "./marketing-attribution";
 import { TemplateLandingActions } from "./template-landing/TemplateLandingActions";
 import { templates } from "./TemplateCard";
 
@@ -113,10 +114,13 @@ describe("docs popover controls", () => {
         utm_campaign: "launch",
       }),
     );
+    // The site root installs this for every app link.
+    const uninstall = installAppLinkAttribution();
     renderWithProviders(<TemplateLandingActions template={templates[0]} />);
 
     const demoLink = screen.getByRole("link", { name: "Try Clips free" });
     fireEvent.click(demoLink);
+    uninstall();
 
     const url = new URL(demoLink.getAttribute("href") ?? "");
     expect(url.searchParams.get("utm_source")).toBe("newsletter");

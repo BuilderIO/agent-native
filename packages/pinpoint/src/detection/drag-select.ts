@@ -5,15 +5,10 @@
 // Collect elements within selection rectangle via bounding rect comparison.
 
 export interface DragSelectOptions {
-  /** Minimum coverage threshold (0-1) for an element to be considered selected */
   coverageThreshold?: number;
-  /** Called when drag starts */
   onDragStart?: (rect: DOMRect) => void;
-  /** Called during drag with the current selection rectangle */
   onDragMove?: (rect: DOMRect) => void;
-  /** Called when drag ends with selected elements */
   onDragEnd?: (elements: Element[]) => void;
-  /** Elements to ignore */
   ignoreSelector?: string;
 }
 
@@ -40,7 +35,6 @@ export class DragSelect {
 
     this.handleMouseDown = (e: MouseEvent) => {
       if (!this.active || e.button !== 0) return;
-      // Only start drag if holding Shift (to distinguish from single click)
       if (!e.shiftKey) return;
 
       e.preventDefault();
@@ -68,7 +62,6 @@ export class DragSelect {
       this.dragging = false;
       const selectionRect = this.buildRect(e.clientX, e.clientY);
 
-      // Skip tiny drags (accidental)
       if (selectionRect.width < 5 && selectionRect.height < 5) return;
 
       const selected = this.getElementsInRect(selectionRect);
@@ -89,7 +82,6 @@ export class DragSelect {
     const threshold = this.options.coverageThreshold!;
     const elements: Element[] = [];
 
-    // Walk all visible elements
     const walker = document.createTreeWalker(
       document.body,
       NodeFilter.SHOW_ELEMENT,
@@ -112,10 +104,8 @@ export class DragSelect {
       const el = node as Element;
       const rect = el.getBoundingClientRect();
 
-      // Skip invisible elements
       if (rect.width === 0 || rect.height === 0) continue;
 
-      // Calculate overlap
       const overlapX = Math.max(
         0,
         Math.min(rect.right, selectionRect.x + selectionRect.width) -
@@ -131,7 +121,6 @@ export class DragSelect {
       const coverage = overlapArea / elementArea;
 
       if (coverage >= threshold) {
-        // Only add leaf-ish elements (avoid selecting huge containers)
         if (el.children.length === 0 || rect.width < 400) {
           elements.push(el);
         }

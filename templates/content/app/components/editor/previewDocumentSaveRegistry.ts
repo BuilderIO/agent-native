@@ -40,9 +40,6 @@ import type { PreviewDocumentSaveController } from "./previewDocumentSaveControl
 interface Entry {
   controller: PreviewDocumentSaveController;
   refCount: number;
-  // Set while a flush-then-evict is pending after refCount hit 0. If a reopen
-  // re-acquires before the flush settles, we clear this so the entry is NOT
-  // evicted out from under the live instance.
   evicting: boolean;
 }
 
@@ -59,11 +56,6 @@ function controllerIsDirty(controller: PreviewDocumentSaveController): boolean {
   return !payloadsEqual(controller.pending, controller.lastSaved);
 }
 
-/**
- * Acquire the controller for `documentId`, creating it once via `factory`.
- * Increments the ref-count and cancels any in-progress eviction so a reopen
- * reuses the live instance rather than racing a fresh one.
- */
 export function acquirePreviewDocumentSaveController(
   documentId: string,
   factory: () => PreviewDocumentSaveController,
@@ -76,29 +68,16 @@ export function acquirePreviewDocumentSaveController(
   }
   refreshAdapter?.(entry.controller);
   entry.refCount += 1;
-  // A reopen before a pending eviction settled: keep the instance alive.
   entry.evicting = false;
   return entry.controller;
 }
 
-/**
- * Return the EXISTING controller for `documentId`, or undefined if none is
- * registered. Does NOT create an entry and does NOT change the ref-count.
- */
 export function peekPreviewDocumentSaveController(
   documentId: string,
 ): PreviewDocumentSaveController | undefined {
   return registry.get(documentId)?.controller;
 }
 
-/**
- * Release one reference to the controller for `documentId`. When the last
- * reference is released we flush-then-evict: flush the latest dirty payload so a
- * debounce that hadn't fired is not dropped (dispatched synchronously, bound to
- * THIS doc id), then remove the entry ONLY if it is still unreferenced after the
- * flush settles (a reopen during the flush re-acquires the same instance and
- * cancels the eviction).
- */
 export function releasePreviewDocumentSaveController(documentId: string): void {
   const entry = registry.get(documentId);
   if (!entry) return;
@@ -108,8 +87,6 @@ export function releasePreviewDocumentSaveController(documentId: string): void {
   entry.evicting = true;
   const settle = () => {
     const current = registry.get(documentId);
-    // Evict only if it is the SAME entry, still unreferenced, and still marked
-    // for eviction (a reopen would have flipped `evicting` off / refCount up).
     if (current === entry && current.refCount === 0 && current.evicting) {
       if (controllerIsDirty(current.controller)) {
         current.evicting = false;
@@ -118,17 +95,13 @@ export function releasePreviewDocumentSaveController(documentId: string): void {
       registry.delete(documentId);
     }
   };
-  // flush() dispatches the final save synchronously (so it lands before any
-  // teardown/navigation) and resolves once it has settled, before we drop state.
   Promise.resolve(entry.controller.flush()).then(settle, settle);
 }
 
-/** Test-only: how many controllers the registry currently holds. */
 export function activePreviewControllerCount(): number {
   return registry.size;
 }
 
-/** Test-only: reset the registry between tests. */
 export function __resetPreviewDocumentSaveRegistry(): void {
   registry.clear();
 }

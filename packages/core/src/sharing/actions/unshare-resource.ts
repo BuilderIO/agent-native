@@ -5,6 +5,7 @@ import { defineAction } from "../../action.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { assertAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import { resourceSharingChange } from "./change-result.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
@@ -32,7 +33,6 @@ function principalIdMatches(
 export default defineAction({
   description:
     "Revoke a previously granted share. Owner or admin role required.",
-  // (audit H5) Mirror share-resource: refuse from the tools iframe bridge.
   toolCallable: false,
   schema: z.object({
     resourceType: z.string(),
@@ -42,7 +42,11 @@ export default defineAction({
   }),
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
-    await assertAccess(args.resourceType, args.resourceId, "admin");
+    const access = await assertAccess(
+      args.resourceType,
+      args.resourceId,
+      "admin",
+    );
     const beforeExtensionTargets = await getExtensionShareChangeTargets(
       args.resourceType,
       args.resourceId,
@@ -52,7 +56,7 @@ export default defineAction({
       args.principalType,
       args.principalId,
     );
-    await db
+    const [deleted] = await db
       .delete(reg.sharesTable)
       .where(
         and(
@@ -60,13 +64,26 @@ export default defineAction({
           eq(reg.sharesTable.principalType, args.principalType),
           principalIdMatches(reg.sharesTable, args.principalType, principalId),
         ),
-      );
+      )
+      .returning({ id: reg.sharesTable.id });
     invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(
       args.resourceType,
       args.resourceId,
       beforeExtensionTargets,
     );
-    return { ok: true };
+    return {
+      ok: true,
+      ...(deleted
+        ? {
+            change: resourceSharingChange(
+              reg,
+              access.resource,
+              "deleted",
+              `${args.principalType}:${principalId}`,
+            ).change,
+          }
+        : {}),
+    };
   },
 });

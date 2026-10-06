@@ -109,7 +109,6 @@ export function captureHistorySelectionFromOwners<
   );
 }
 
-/** Historical bytes are unchanged; only their owning file's namespace moves. */
 export function remapHistorySelection<T extends GeometryHistorySelection>(
   selection: T,
   fileIds: ReadonlyMap<string, string>,
@@ -174,7 +173,6 @@ export function remapHistorySelection<T extends GeometryHistorySelection>(
   );
 }
 
-/** Only identity-preserving, known source transforms may bridge different bytes. */
 function replayNodeIds(
   content: string,
   actual: string,
@@ -251,7 +249,6 @@ export function resolveHistorySelection(
         ))
           ids.set(before, after);
       } catch {
-        // The content replay still applies; an unprovable selection must not target a sibling.
         continue;
       }
     }

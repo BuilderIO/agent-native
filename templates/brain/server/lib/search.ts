@@ -13,7 +13,10 @@ import type { BrainEvidence } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
 import { parseJson, safeCitationUrl } from "./brain.js";
-import { hybridSearchArtifacts } from "./hybrid-search.js";
+import {
+  hybridSearchArtifacts,
+  type SearchLaneStatuses,
+} from "./hybrid-search.js";
 
 export type UniversalSearchType = "knowledge" | "capture" | "source";
 
@@ -45,6 +48,9 @@ export interface UniversalSearchResult {
   score: number;
   reasons?: string[];
   lane?: "lexical" | "semantic" | "hybrid" | "like";
+  capturedAt?: string | null;
+  location?: string | null;
+  content?: string | null;
 }
 
 export type FederatedDelegationTarget = "analytics" | "mail" | "dispatch";
@@ -100,6 +106,7 @@ const BRAIN_SOURCE_PROVIDERS = [
   "slack",
   "granola",
   "github",
+  "zoom",
 ] as const;
 
 const SOURCE_PROVIDER_LABELS: Record<string, string> = {
@@ -109,6 +116,7 @@ const SOURCE_PROVIDER_LABELS: Record<string, string> = {
   slack: "Slack",
   granola: "Granola",
   github: "GitHub",
+  zoom: "Zoom",
 };
 
 const FEDERATED_DELEGATION_TARGETS: Array<{
@@ -366,6 +374,29 @@ function firstCitation(evidenceJson: string) {
   );
 }
 
+const CAPTURE_CONTENT_LIMIT = 4000;
+
+function captureMetadata(metadataJson: string | null): Record<string, unknown> {
+  const parsed = parseJson<unknown>(metadataJson, {});
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
+function captureLocation(metadata: Record<string, unknown>): string | null {
+  if (typeof metadata.channelName === "string") {
+    return "#" + redactSensitiveText(metadata.channelName);
+  }
+  if (typeof metadata.meetingTopic === "string") {
+    return redactSensitiveText(metadata.meetingTopic);
+  }
+  return null;
+}
+
+function captureContent(content: string): string {
+  return redactSensitiveText(content).slice(0, CAPTURE_CONTENT_LIMIT);
+}
+
 async function accessibleSourceMap(sourceIds: Array<string | null>) {
   const ids = Array.from(
     new Set(sourceIds.filter((id): id is string => Boolean(id))),
@@ -528,7 +559,7 @@ async function searchCaptureResults(
   return rows.flatMap((row) => {
     const source = sources.get(row.sourceId);
     if (!source) return [];
-    const metadata = parseJson<Record<string, unknown>>(row.metadataJson, {});
+    const metadata = captureMetadata(row.metadataJson);
     const sourceUrl = sourceUrlFromMetadata(metadata);
     const snippet = redactSensitiveText(buildSnippet(row.content, terms));
     return [
@@ -562,6 +593,9 @@ async function searchCaptureResults(
             },
             terms,
           ) + 2,
+        capturedAt: row.capturedAt,
+        location: captureLocation(metadata),
+        content: captureContent(row.content),
       },
     ];
   });
@@ -622,7 +656,46 @@ async function searchSourceResults(
   });
 }
 
-export async function searchEverythingRows(args: {
+async function semanticCaptureDetails(
+  artifacts: Array<{ captureId: string; audienceId: string }>,
+  accessibleSourceIds: string[],
+): Promise<Map<string, { content: string; metadataJson: string | null }>> {
+  const captureIds = Array.from(
+    new Set(artifacts.map((artifact) => artifact.captureId)),
+  );
+  if (!captureIds.length || !accessibleSourceIds.length) return new Map();
+  const audienceIds = Array.from(
+    new Set(artifacts.map((artifact) => artifact.audienceId)),
+  );
+  const rows = await getDb()
+    .select({
+      id: schema.brainRawCaptures.id,
+      content: schema.brainRawCaptures.content,
+      metadataJson: schema.brainRawCaptures.metadataJson,
+    })
+    .from(schema.brainRawCaptures)
+    .where(
+      and(
+        inArray(schema.brainRawCaptures.id, captureIds),
+        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        inArray(schema.brainRawCaptures.sourceId, accessibleSourceIds),
+        sql`exists (
+          select 1 from ${schema.brainCaptureAudiences}
+          where ${schema.brainCaptureAudiences.captureId} = ${schema.brainRawCaptures.id}
+            and ${inArray(schema.brainCaptureAudiences.audienceId, audienceIds)}
+        )`,
+      ),
+    );
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
+export async function searchEverythingRows(
+  args: Parameters<typeof searchEverythingWithLanes>[0],
+): Promise<UniversalSearchResult[]> {
+  return (await searchEverythingWithLanes(args)).rows;
+}
+
+export async function searchEverythingWithLanes(args: {
   query: string;
   type?: UniversalSearchType | "all";
   provider?: string;
@@ -630,9 +703,13 @@ export async function searchEverythingRows(args: {
   projectId?: string;
   status?: string;
   limit?: number;
-}): Promise<UniversalSearchResult[]> {
+}): Promise<{ rows: UniversalSearchResult[]; lanes: SearchLaneStatuses }> {
+  const lanes: SearchLaneStatuses = {
+    fts: { status: "ok" },
+    semantic: { status: "ok" },
+  };
   const terms = normalizeSearchTerms(args.query);
-  if (!terms.length) return [];
+  if (!terms.length) return { rows: [], lanes };
   const projectSourceIds = args.projectId
     ? (
         await getDb()
@@ -650,7 +727,7 @@ export async function searchEverythingRows(args: {
           )
       ).map((row) => row.sourceId)
     : undefined;
-  if (projectSourceIds && !projectSourceIds.length) return [];
+  if (projectSourceIds && !projectSourceIds.length) return { rows: [], lanes };
   const projectSourceSet = projectSourceIds
     ? new Set(projectSourceIds)
     : undefined;
@@ -678,13 +755,22 @@ export async function searchEverythingRows(args: {
         projectId: args.projectId,
         limit: perTypeLimit,
       })
-        .then(async (artifacts) => {
+        .then(async ({ results: artifacts, lanes: hybridLanes }) => {
+          lanes.fts = hybridLanes.fts;
+          lanes.semantic = hybridLanes.semantic;
           const sources = await accessibleSourceMap(
             artifacts.map((artifact) => artifact.sourceId),
           );
+          const details = await semanticCaptureDetails(
+            artifacts.filter((artifact) => sources.has(artifact.sourceId)),
+            Array.from(sources.keys()),
+          );
           return artifacts.flatMap((artifact) => {
             const source = sources.get(artifact.sourceId);
-            if (!source) return [];
+            const detail = details.get(artifact.captureId);
+            if (!source || !detail) return [];
+            const metadata = captureMetadata(detail.metadataJson);
+            const sourceUrl = sourceUrlFromMetadata(metadata);
             const snippet = redactSensitiveText(
               buildSnippet(artifact.text, terms),
             );
@@ -698,25 +784,32 @@ export async function searchEverythingRows(args: {
                 status: "indexed",
                 provider: source.provider,
                 source: serializeSourceInfo(source),
-                sourceUrl: null,
+                sourceUrl,
                 citation: {
                   captureId: artifact.captureId,
                   captureTitle: redactSensitiveText(artifact.title),
                   quote: null,
                   preview: snippet,
                   verbatim: false,
-                  sourceUrl: null,
+                  sourceUrl,
                 },
                 confidence: null,
                 updatedAt: artifact.capturedAt,
                 score: artifact.score * 100,
                 reasons: artifact.reasons,
                 lane: artifact.lane,
+                capturedAt: artifact.capturedAt,
+                location: captureLocation(metadata),
+                content: captureContent(detail.content),
               },
             ];
           });
         })
-        .catch(() => []),
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : "unknown";
+          lanes.semantic = { status: "failed", error: message.slice(0, 200) };
+          return [];
+        }),
     );
   }
   const provider = args.provider?.toLowerCase();
@@ -749,7 +842,7 @@ export async function searchEverythingRows(args: {
     const current = deduped.get(key);
     if (!current || result.score > current.score) deduped.set(key, result);
   }
-  return Array.from(deduped.values()).slice(0, limit);
+  return { rows: Array.from(deduped.values()).slice(0, limit), lanes };
 }
 
 async function readBrainSourceProviderCoverage(): Promise<

@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+
 import type {
   CrmAccessScope,
   CrmAdapter,
@@ -109,8 +111,9 @@ export async function loadVerifiedReadThroughRecord(input: {
   );
   const storedScope = parseCrmAccessScope(input.context.accessScopeJson);
   if (!scopesAreCompatible(storedScope, currentScope)) {
-    throw new Error(
+    fail(
       "CRM provider access changed; the local record is withheld until it is refreshed.",
+      { errorCode: "crm_record_withheld", statusCode: 403 },
     );
   }
   const remote = await input.adapter.getRecord({
@@ -125,8 +128,9 @@ export async function loadVerifiedReadThroughRecord(input: {
     fields: readThroughFieldNames(input.context.fieldPolicies),
   });
   if (!remote || !scopesAreCompatible(storedScope, remote.accessScope)) {
-    throw new Error(
+    fail(
       "CRM provider access changed or the record is unavailable; the local record is withheld until it is refreshed.",
+      { errorCode: "crm_record_withheld", statusCode: 403 },
     );
   }
   const relationshipPage = await input.adapter.listRelationships({

@@ -51,8 +51,6 @@ function routerPath(path: string): string {
   const basePath = appBasePath();
   if (!basePath) return path;
   let result = path;
-  // React Router is already scoped to the app basename. Strip mounted URLs so
-  // navigate() receives router-local paths and does not duplicate the prefix.
   for (let i = 0; i < 4; i += 1) {
     if (result === basePath) return "/";
     if (result.startsWith(`${basePath}/`)) {
@@ -115,13 +113,6 @@ export function useNavigationState() {
     getCommandPath: (cmd) => {
       return formsNavigateCommandPath(cmd);
     },
-    // The agent fires navigate commands mid-response, while chat tokens are
-    // still streaming. React Router wraps navigate() in React.startTransition
-    // by default, and the high-frequency streaming re-renders starve that
-    // transition — so the URL would not change until the stream finished (and
-    // sometimes not at all). Keep command navigation plain and synchronous:
-    // route correctness matters more than the chat morph here, and view
-    // transitions can leave the old home chat visible while the new route loads.
     navigateOptions: { flushSync: true, replace: true },
     onNavigate: (_command, path) => {
       void prewarmFormsRoutePath(path);

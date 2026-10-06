@@ -71,8 +71,6 @@ describe("public-viewer stays anonymous & disjoint from the guest identity", () 
       eventForPlan("pub1"),
     );
     expect(viewerOwner).toMatch(/^public-[0-9a-f-]{36}@agent-native\.local$/);
-    // It is NOT a guest identity, so claiming an account never collapses the
-    // anonymous reviewer link into the author's now-real account.
     expect(isGuestAuthorIdentity(viewerOwner!)).toBe(false);
   });
 
@@ -90,7 +88,6 @@ describe("public-viewer stays anonymous & disjoint from the guest identity", () 
     expect(guestEmail).toBe(
       "guest-abcdef12-3456-7890-abcd-ef1234567890@agent-native.guest",
     );
-    // The public viewer id is freshly minted and unrelated to the guest uuid.
     expect(viewerOwner).not.toContain("abcdef12-3456-7890-abcd-ef1234567890");
     expect(viewerOwner).toMatch(/^public-/);
   });

@@ -143,8 +143,6 @@ export function runApplyFileContentUpdate(
   } = {},
 ): ApplyFileContentUpdateResult {
   if (!canEditDesignRef.current) return { status: "refused" };
-  // Raw whole-document snapshots cannot be safely replayed after a shader
-  // round trip: the callback may belong to a different active Screen by then.
   if (isShaderWriteInFlight(fileId) && !options.shaderWriteCompletion) {
     toast.error(t("designEditor.toasts.saveConflict"), {
       id: `design-source-shader-conflict:${fileId}`,
@@ -224,8 +222,6 @@ export function runApplyFileContentUpdate(
       ),
     };
   });
-  // Overview presence owns a live document only for the selected Screen.
-  // A lagging document must receive the server delta before authoring edits.
   const { writeLiveDoc, syncCollab } = resolveScreenCollabSyncTarget({
     fileId,
     overviewPresenceFileId,

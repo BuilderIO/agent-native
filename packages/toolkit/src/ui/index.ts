@@ -23,6 +23,7 @@ export * from "./empty.js";
 export * from "./filter-trigger.js";
 export * from "./form.js";
 export * from "./hover-card.js";
+export * from "./input-group.js";
 export * from "./input-otp.js";
 export * from "./input.js";
 export * from "./item.js";

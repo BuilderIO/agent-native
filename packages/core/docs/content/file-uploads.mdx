@@ -137,6 +137,8 @@ The framework already ships a built-in provider for S3-compatible storage
 variables or through the sidebar onboarding checklist. No code is required.
 See [Onboarding](/docs/onboarding).
 
+Settings, the onboarding checklist, and Clips' Video storage all show the same storage form. It saves the `S3_*` values as workspace secrets, and only organization owners and admins can save or clear them. The Public URL is required unless the registered `s3` provider sets `publicBaseUrlOptional: true` (Clips does, because it reads recordings back through signed requests). **Clear credentials** asks first, then deletes every saved storage key. Existing files stay in the bucket. The agent does the same through the `get-file-storage` and `manage-file-storage` actions.
+
 Register a custom provider only for a different kind of backend. This
 example uploads through a generic HTTP API using `fetch()`:
 

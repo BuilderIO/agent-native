@@ -19,7 +19,7 @@ description: "에이전트 추적, 평가, 피드백, A/B 실험 및 내장 대�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "에이전트가 이 고정 입력에 대해 올바른 작업을 수행합니까?" | 활성, 결정적, CI/배포 게이트      | 품질        |
 | **[Observational Memory](/docs/observational-memory)** | "이 긴 스레드가 저렴하고 창 안에 남아 있습니까?"           | 긴 스레드의 배경 압축             | 비용 / 상황 |
 
-관찰 가능성과 CI 평가 게이트는 둘 다 _품질_ 점수를 매기지만 반대쪽 끝, 즉 실제 트래픽의 수동적 사후 점수와 고정 입력에 대한 활성 통과/실패 확인의 점수를 매깁니다. 관찰 기억은 품질과 관련이 없습니다. 토큰 비용과 컨텍스트 창 압박에 관한 것입니다.
+관찰 가능성과 CI 평가 게이트는 둘 다 _품질_ 점수를 매기지만 반대쪽 끝, 즉 실제 트래픽의 수동적 사후 점수와 고정 입력에 대한 활성 통과/실패 확인의 점수를 매깁니다. 관찰 기억은 품질과 관련이 없습니다. 토큰 비용과 컨텍스트 창 압박에 관한 것입니다. 완료된 프로덕션 트레이스를 `*.eval.ts` 케이스로 승격하세요(대시보드 **Promote to eval**, `promote-trace-eval`, 또는 `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). [프로덕션 트레이스에서](/docs/evals#from-trace)를 보세요.
 
 ## 자동으로 캡처되는 내용 {#captured}
 
@@ -94,7 +94,7 @@ description: "에이전트 추적, 평가, 피드백, A/B 실험 및 내장 대�
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -121,7 +121,7 @@ export default function ObservabilityPage() {
 
 대화 탭에는 기록된 실행이 표시됩니다. 실행을 선택해 스팬을 확인하고, 스팬을 펼쳐 캡처된 도구 입력, 출력, 오류 및 메타데이터를 볼 수 있습니다. **전체 대화 열기**를 선택하면 연결된 채팅 스레드로 이동합니다.
 
-도구 인수와 결과는 기본적으로 캡처되지 않습니다. 저장하려면 `observability` 설정에서 `captureToolArgs`와 `captureToolResults`를 활성화하세요. 민감한 필드와 도구 오류 메시지는 저장 전에 마스킹됩니다.
+도구 인수, 결과, 전체 오류 본문은 기본적으로 캡처되지 않습니다. `observability` 설정에서 인수를 저장하려면 `captureToolArgs`를, 결과와 전체 오류 본문을 저장하려면 `captureToolResults`를 활성화하세요. 민감한 필드는 저장 전에 마스킹됩니다. 실패한 도구는 `captureToolResults`가 꺼져 있어도 실패를 진단할 수 있도록, 자격 증명, 이메일 주소, 긴 불투명 ID를 마스킹한 오류의 첫 줄을 길이를 제한해 항상 보관합니다.
 
 ### 사람 검토 {#review}
 
@@ -288,7 +288,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+콘텐츠는 **기본적으로 마스킹됩니다**. 토큰 수, 비용, 타이밍이 저장되며, 실패한 도구의 경우 자격 증명, 이메일 주소, 긴 불투명 ID를 마스킹한 오류의 첫 줄(길이 제한)도 저장됩니다. 프롬프트, 도구 입력, 도구 결과, 전체 오류 본문은 `capturePrompts`, `captureToolArgs`, `captureToolResults`를 켜지 않는 한 저장되지 않습니다. 디버깅에 프롬프트나 인수 내용이 필요할 때만 켜세요.
 
 </Callout>
 
@@ -296,23 +296,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 `/_agent-native/observability/`에 모두 자동 마운트됨:
 
-| 방법 | 경로                       | 목적                       |
-| ---- | -------------------------- | -------------------------- |
-| GET  | `/`                        | 개요 통계                  |
-| GET  | `/traces`                  | 추적 요약 나열             |
-| GET  | `/traces/:runId`           | 추적 세부정보(요약 + 범위) |
-| GET  | `/traces/:runId/evals`     | 실행 평가                  |
-| POST | `/feedback`                | 의견 제출                  |
-| GET  | `/feedback`                | 피드백 나열                |
-| GET  | `/feedback/stats`          | 피드백 집계                |
-| GET  | `/satisfaction`            | 만족도 점수                |
-| GET  | `/evals/stats`             | 평가 통계                  |
-| POST | `/experiments`             | 실험 만들기                |
-| GET  | `/experiments`             | 실험 나열                  |
-| GET  | `/experiments/:id`         | 실험 세부정보 가져오기     |
-| PUT  | `/experiments/:id`         | 실험 업데이트              |
-| POST | `/experiments/:id/results` | 계산 결과                  |
-| GET  | `/experiments/:id/results` | 결과 얻기                  |
+| 방법 | 경로                       | 목적                         |
+| ---- | -------------------------- | ---------------------------- |
+| GET  | `/`                        | 개요 통계                    |
+| GET  | `/traces`                  | 추적 요약 나열               |
+| GET  | `/traces/:runId`           | 추적 세부정보(요약 + 범위)   |
+| GET  | `/traces/:runId/evals`     | 실행 평가                    |
+| POST | `/traces/:runId/promote`   | 완료된 실행을 CI eval로 승격 |
+| POST | `/feedback`                | 의견 제출                    |
+| GET  | `/feedback`                | 피드백 나열                  |
+| GET  | `/feedback/stats`          | 피드백 집계                  |
+| GET  | `/satisfaction`            | 만족도 점수                  |
+| GET  | `/evals/stats`             | 평가 통계                    |
+| POST | `/experiments`             | 실험 만들기                  |
+| GET  | `/experiments`             | 실험 나열                    |
+| GET  | `/experiments/:id`         | 실험 세부정보 가져오기       |
+| PUT  | `/experiments/:id`         | 실험 업데이트                |
+| POST | `/experiments/:id/results` | 계산 결과                    |
+| GET  | `/experiments/:id/results` | 결과 얻기                    |
 
 모든 엔드포인트는 `?since=N`(ms 타임스탬프) 및 `?limit=N` 쿼리 매개변수를 지원합니다.
 
@@ -335,13 +336,28 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 에이전트 루프는 세 가지 범위 종류를 내보냅니다.
 
-| 스팬        | 언제                  | 속성                                                              |
-| ----------- | --------------------- | ----------------------------------------------------------------- |
-| `agent.run` | 에이전트 실행당 한 번 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | 액션 호출당 한 번     | `tool.name` 및 성공/오류 상태                                     |
-| `llm.call`  | 모델 호출당           | 타이밍 + 정상/오류 상태                                           |
+| 스팬                  | 언제                  | 속성                                                                                                      |
+| --------------------- | --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | 에이전트 실행당 한 번 | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | 액션 호출당 한 번     | `gen_ai.tool.name` 및 성공/오류 상태                                                                      |
+| `chat {model}`        | 모델 호출당           | `gen_ai.provider.name`, 타이밍 + 정상/오류 상태                                                           |
 
 스팬은 OK/ERROR 상태로 완료되고 실패 시 오류 메시지를 기록합니다. 0/감시 속성 값은 정리되어 범위가 노이즈로 인해 복잡해지지 않습니다. 이 OTel 레이어는 위의 대시보드를 구동하는 내부 `agent_trace_spans`/`agent_trace_summaries` 테이블에 순전히 추가됩니다. 둘 다 동일한 실행 이벤트에서 생성됩니다.
+
+### 메트릭 {#otel-metrics}
+
+호스트가 `@agent-native/core/server`의 `registerObservabilityProvider()`로 미터 프로바이더를 등록하면 Core는 메트릭도 기록합니다. 메트릭은 샘플링 없이 모든 요청과 실행에 대해 기록됩니다.
+
+| 계측기                                  | 속성                                                                                         |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+메트릭에서 `gen_ai.tool.name`은 프레임워크 액션 이름 또는 `other`이며, `gen_ai.request.model`은 엔진이 지원 모델로 등록한 경우에만 모델 ID이고 그렇지 않으면 `_OTHER`입니다. 따라서 앱에서 정의한 도구나 호출자가 지정한 모델 ID가 시리즈를 무한정 늘릴 수 없으며, 스팬에는 정확한 값이 남습니다.
 
 ## 오류 보고(Sentry) {#sentry}
 

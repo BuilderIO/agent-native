@@ -9,7 +9,13 @@ export default defineAction({
     "component styles, CSS variables, logo references, and reusable Brand Kit data. " +
     "Uses a static SSRF-safe fallback only when a browser is unavailable.",
   schema: z.object({
-    url: z.string().describe("Website URL to analyze"),
+    url: z
+      .string()
+      .url()
+      .refine((value) => /^https?:\/\//i.test(value), {
+        message: "Website URL must use http or https.",
+      })
+      .describe("Website URL to analyze"),
   }),
   readOnly: true,
   http: { method: "GET" },

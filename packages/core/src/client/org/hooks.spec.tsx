@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 
+import type { OrgInfo } from "@agent-native/core/org/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { OrgInfo } from "../../org/types.js";
 import { useOrg, useOrgMembers } from "./hooks.js";
 
 const org: OrgInfo = {

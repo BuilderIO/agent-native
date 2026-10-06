@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { orgAdminAudit } from "../../audit/org-admin.js";
 import { requireOrgMember } from "../actions.js";
 import {
   getAppPermissionOverrides,
@@ -17,18 +18,14 @@ export default defineAction({
     roles: z.array(z.string()).max(50).optional(),
     reset: z.boolean().default(false),
   }),
-  audit: {
-    target: (args, _result, meta) => ({
-      type: "app-permission-roles",
-      id: `${args.appId}:${args.permission}`,
-      ownerEmail: meta.userEmail,
-      visibility: "org",
-    }),
+  audit: orgAdminAudit({
+    targetType: "app-permission-roles",
+    targetId: (args) => `${args.appId}:${args.permission}`,
     summary: (args, result) => {
       const change = result as { previousRoles?: string[]; roles?: string[] };
       return `${args.reset ? "Reset" : "Updated"} ${args.appId} permission ${args.permission}: [${(change.previousRoles ?? []).join(", ")}] -> [${(change.roles ?? []).join(", ")}]`;
     },
-  },
+  }),
   run: async ({ appId, permission, roles, reset }, ctx) => {
     const caller = await requireOrgMember(ctx, true);
     const descriptor = getRegisteredAppRoles(appId);

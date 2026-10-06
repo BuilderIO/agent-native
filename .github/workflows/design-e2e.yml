@@ -1,24 +1,26 @@
 name: Design E2E (browser)
 
-# Post-merge only: a red canvas suite must not block an unrelated merge, and
-# this does not gate the beta deploy. Sharded because the suite is workers:1,
-# and shard granularity is per FILE, so a single fat spec sets the floor.
-# Known-broken tests carry test.fixme() with the symptom, so a red run here
-# means something that was passing broke.
-
 on:
-  push:
-    branches: [main]
+  pull_request:
     paths:
-      - "templates/design/**"
-      - "packages/core/**"
-      - "packages/toolkit/**"
-      - "packages/creative-context/**"
+      - ".github/actions/setup-pnpm/**"
       - ".github/workflows/design-e2e.yml"
-  workflow_dispatch:
+      - "package.json"
+      - "packages/agentkit/**"
+      - "packages/core/**"
+      - "packages/creative-context/**"
+      - "packages/recap-cli/**"
+      - "packages/toolkit/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
+      - "templates/design/**"
+  schedule:
+    - cron: "37 9 * * *"
+  workflow_dispatch: {}
 
 concurrency:
-  group: design-e2e
+  group: design-e2e-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -26,16 +28,18 @@ permissions:
 
 jobs:
   e2e:
-    name: Shard ${{ matrix.shard }}/8
+    name: ${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Export pixel fidelity' || format('Shard {0}/8', matrix.shard) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Reserve time after the shard timeout for setup and report upload.
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    # One PGlite instance does not survive a ~15-minute workers:1 shard: it
-    # starts raising `stack depth limit exceeded` and never recovers, so every
-    # later query — session lookup included — fails and the shard 401s out.
+        shard: ${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8]') }}
+        # Heap, blanked screens and the live-editor pool on a production build;
+        # the gates and their reasons are in templates/design/scripts/runtime-budget.json.
+        include:
+          - shard: runtime-budget
     services:
       postgres:
         image: postgres:17-alpine
@@ -80,19 +84,89 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Run shard
+      - name: Allow the downloaded Chromium sandbox
+        run: |
+          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
+            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
+            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
+          fi
+
+      - name: Migrate the isolated test database
         working-directory: templates/design
+        env:
+          APP_NAME: design
+          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          DESIGN_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+        run: pnpm migrate:production
+
+      - name: Run shard
+        id: run-shard
+        if: matrix.shard != 'runtime-budget'
+        working-directory: templates/design
+        timeout-minutes: 37
         env:
           E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
         run: |
           mkdir -p .react-router/types
-          pnpm exec playwright test --shard=${{ matrix.shard }}/8
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            pnpm exec playwright test e2e/url-export-font-fidelity.spec.ts e2e/single-screen-pdf-fidelity.spec.ts e2e/imported-html-export-fidelity.spec.ts
+          else
+            pnpm exec playwright test --shard=${{ matrix.shard }}/8
+          fi
+
+      - name: Build Design for production
+        if: matrix.shard == 'runtime-budget'
+        working-directory: templates/design
+        timeout-minutes: 20
+        run: pnpm build
+
+      - name: Measure the runtime budget
+        if: matrix.shard == 'runtime-budget'
+        working-directory: templates/design
+        timeout-minutes: 25
+        env:
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          AUTH_DISABLED: "1"
+          # Undoing a duplicate checkpoints the screen, which needs blob storage.
+          AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS: "1"
+          # guard:allow-secret-literal — local ephemeral CI server only.
+          BETTER_AUTH_SECRET: design-runtime-budget-test-secret
+          PORT: "9444"
+          APP_URL: http://127.0.0.1:9444
+        run: |
+          mkdir -p "$RUNNER_TEMP/runtime-budget"
+          nohup pnpm start > "$RUNNER_TEMP/design-server.log" 2>&1 &
+          for _ in $(seq 1 120); do
+            curl -sf -o /dev/null "$APP_URL/_agent-native/ping" && break
+            sleep 1
+          done
+          if ! curl -sf -o /dev/null "$APP_URL/_agent-native/ping"; then
+            echo "::error::Design did not answer on $APP_URL"
+            tail -50 "$RUNNER_TEMP/design-server.log"
+            exit 1
+          fi
+          pnpm perf:runtime-budget --base-url "$APP_URL" \
+            --out "$RUNNER_TEMP/runtime-budget/result.json" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload runtime budget measurements
+        if: ${{ !cancelled() && matrix.shard == 'runtime-budget' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: design-runtime-budget
+          path: |
+            ${{ runner.temp }}/runtime-budget
+            ${{ runner.temp }}/design-server.log
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Upload report on failure
-        if: ${{ failure() }}
+        if: ${{ !cancelled() && matrix.shard != 'runtime-budget' && steps.run-shard.outcome != 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: design-e2e-report-${{ matrix.shard }}
           path: templates/design/test-results
           retention-days: 7
-          if-no-files-found: ignore
+          if-no-files-found: warn

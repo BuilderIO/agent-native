@@ -46,9 +46,6 @@ export default defineAction({
       settingsSection?: string;
     } | null;
     const url = await readAppStateForCurrentTab("__url__");
-    // The route hook publishes the visited path with its search string, and for
-    // the list/board surfaces the search params ARE the selection. Reading them
-    // back here beats maintaining a second copy of that state.
     const parsed = parseCrmNavigationSelection(
       navigation?.path ?? (typeof url === "string" ? url : null),
     );
@@ -74,7 +71,6 @@ export default defineAction({
       case "records":
         screen.records = await queryCrmRecords(
           {
-            // /records defaults to the accounts tab when the URL names no kind.
             kind:
               navigation.view === "records"
                 ? (selection.kind ?? "account")
@@ -100,8 +96,6 @@ export default defineAction({
             { actorEmail },
           );
         } else if (selection.listId) {
-          // null distinguishes "a list is selected but not visible to you"
-          // from "no list is selected", which `selection.listId` still shows.
           screen.activeList = await visibleList(selection.listId);
         }
         break;
@@ -151,15 +145,9 @@ export default defineAction({
 
 interface ResolvedSelection extends CrmNavigationSelection {
   recordId?: string;
-  /** False when the UI published no path, so an absent field is unknown. */
   pathReadable: boolean;
 }
 
-/**
- * The fields the route hook publishes explicitly win; the rest come from the
- * visited path. `pathReadable` keeps "nothing selected" distinguishable from
- * "the UI never told us what is selected".
- */
 function resolveSelection(
   navigation: {
     recordId?: string;

@@ -1,19 +1,4 @@
 import { eq } from "drizzle-orm";
-/**
- * Server-side helper for completing video conferencing OAuth callbacks.
- *
- * Templates mount this under `/_agent-native/oauth/<kind>/callback.get.ts`
- * and forward the h3 event. The helper:
- *   1. Looks up the video provider by kind
- *   2. Allocates a `scheduling_credentials` row (so `credentialId` is stable)
- *   3. Calls the provider's `completeOAuth` (tokens get persisted via the
- *      provider's `updateTokens` callback, typically against core's
- *      `oauth_tokens` table, keyed by `credentialId`)
- *   4. Updates the credential row with display metadata
- *
- * It is intentionally agnostic to the consumer's auth/session plumbing —
- * pass in `userEmail` explicitly.
- */
 import { nanoid } from "nanoid";
 
 import { getSchedulingContext } from "./context.js";
@@ -27,10 +12,6 @@ export interface CompleteVideoOAuthResult {
   displayName?: string;
 }
 
-/**
- * Complete a video-provider OAuth callback. Throws on any failure so the
- * caller can decide how to render the error (HTML page, JSON, redirect).
- */
 export async function completeVideoOAuth(opts: {
   kind: string;
   userEmail: string;
@@ -50,8 +31,6 @@ export async function completeVideoOAuth(opts: {
   const now = new Date().toISOString();
   const credentialId = nanoid();
 
-  // Insert row up-front so `updateTokens(credentialId, ...)` inside
-  // completeOAuth has a stable key to write against.
   await getDb().insert(schema.schedulingCredentials).values({
     id: credentialId,
     type: kind,
@@ -73,14 +52,12 @@ export async function completeVideoOAuth(opts: {
       redirectUri,
     });
   } catch (err) {
-    // Roll back the credentials row on failure.
     await getDb()
       .delete(schema.schedulingCredentials)
       .where(eq(schema.schedulingCredentials.id, credentialId));
     throw err;
   }
 
-  // Update the credential row with external identity metadata.
   await getDb()
     .update(schema.schedulingCredentials)
     .set({

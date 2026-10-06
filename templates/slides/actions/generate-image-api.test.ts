@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { hashSlideContent } from "../shared/slide-fit.js";
+
 const {
   mockDelegateImageGenerationToAssets,
   mockExtractAssetUrl,
@@ -72,7 +74,11 @@ describe("generate-image-api", () => {
   });
 
   function deckWithSlide(content: string) {
-    return { slides: [{ id: "slide-1", content }] };
+    return {
+      slides: [
+        { id: "slide-1", content, contentHash: hashSlideContent(content) },
+      ],
+    };
   }
 
   it("forwards referenceImageUrls to Assets delegation", async () => {
@@ -183,17 +189,15 @@ describe("generate-image-api", () => {
   });
 
   it("inserts and verifies an Assets image when requested", async () => {
+    const sourceContent =
+      '<div class="fmd-slide"><div class="fmd-img-placeholder">Hero</div></div>';
     mockDelegateImageGenerationToAssets.mockResolvedValue({
       status: "delegated",
       reply: "previewUrl: https://cdn.example.com/generated.png",
       target: "https://assets.example.com",
     });
     mockGetDeckRun
-      .mockResolvedValueOnce(
-        deckWithSlide(
-          '<div class="fmd-slide"><div class="fmd-img-placeholder">Hero</div></div>',
-        ),
-      )
+      .mockResolvedValueOnce(deckWithSlide(sourceContent))
       .mockResolvedValueOnce(
         deckWithSlide(
           '<div class="fmd-slide"><img src="https://cdn.example.com/generated.png"></div>',
@@ -213,6 +217,7 @@ describe("generate-image-api", () => {
         deckId: "deck-1",
         slideId: "slide-1",
         preserveSource: true,
+        baseContentHash: hashSlideContent(sourceContent),
         fullContent: expect.stringContaining(
           'src="https://cdn.example.com/generated.png"',
         ),

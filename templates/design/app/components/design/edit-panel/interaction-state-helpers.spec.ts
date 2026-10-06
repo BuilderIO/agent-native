@@ -50,13 +50,6 @@ describe("authoredStyleValue", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveInteractionStateValue — fallback-to-base, precedence, and property
-// name normalization (stored state declarations are always kebab-case per
-// shared/interaction-states.ts's normalizeCssPropertyName, so this must
-// resolve a camelCase caller property to its kebab-case stored key).
-// ---------------------------------------------------------------------------
-
 describe("resolveInteractionStateValue", () => {
   it("returns the base value when no state is active (stateStyles undefined)", () => {
     expect(resolveInteractionStateValue(undefined, "color", "black")).toBe(
@@ -102,14 +95,10 @@ describe("resolveInteractionStateValue", () => {
   it("does not leak a base-state edit into an existing override, or vice versa (independent objects)", () => {
     const base = { color: "black" };
     const hoverOverride = { ...base, color: "white" };
-    // Editing the base object after deriving the hover override must not
-    // change the already-resolved hover value (proves no shared reference).
     base.color = "green";
     expect(
       resolveInteractionStateValue(hoverOverride, "color", base.color),
     ).toBe("white");
-    // And the reverse: mutating the override object must not retroactively
-    // change what the base value was captured as.
     hoverOverride.color = "purple";
     expect(base.color).toBe("green");
   });
@@ -165,8 +154,6 @@ describe("elementWithInteractionStateStyles", () => {
     expect(projected.computedStyles.borderColor).toBe("blue");
     expect(projected.computedStyles.boxShadow).toContain("0 4px 8px");
     expect(projected.computedStyles.fontSize).toBe("18px");
-    // The runtime bounds remain the base element's real current geometry;
-    // geometry-backed controls prefer the projected CSS dimensions above.
     expect(projected.boundingRect).toEqual(base.boundingRect);
   });
 
@@ -188,10 +175,6 @@ describe("elementWithInteractionStateStyles", () => {
   });
 });
 
-// A sizing commit writes `width: fit-content`, but the inspector reads the
-// authored value. Patching only `computedStyles` left the two views of the same
-// property disagreeing, so the control reported Fixed on an element that had
-// just been set to Hug and really was hugging on canvas.
 describe("patchAuthoredInlineStyles", () => {
   it("carries a committed authored size onto the snapshot", () => {
     expect(

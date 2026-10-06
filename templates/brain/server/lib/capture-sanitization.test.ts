@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_BRAIN_SETTINGS } from "../../shared/types.js";
 import {
+  BrainClassifierUnavailableError,
   buildSanitizerSystemPrompt,
   sanitizeCaptureForStorage,
 } from "./capture-sanitization.js";
+import { jevSensitivityDecision } from "./jev-classifier.js";
+import { BRAIN_SENSITIVITY_CATEGORIES } from "./search-index-contracts.js";
 import {
   deterministicQuarantineDecision,
   fallbackSensitivityDecision,
@@ -251,55 +254,146 @@ describe("capture sanitization", () => {
     });
   });
 
-  it("preserves a Jev failure when the approved-model fallback succeeds", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("VITEST", "");
+  it.each([
+    [{ configured: true, failureReason: "jev-timeout" }, "jev-timeout"],
+    [
+      { configured: false, failureReason: "jev-credential-unavailable" },
+      "jev-credential-unavailable",
+    ],
+  ])(
+    "refuses to store a capture Jev could not judge (%o)",
+    async (outcome, reason) => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("VITEST", "");
+      mocks.classifyWithJev.mockResolvedValueOnce(outcome);
+
+      const pending = sanitizeCaptureForStorage({
+        ...baseInput,
+        settings: {
+          ...DEFAULT_BRAIN_SETTINGS,
+          privacyClassifierModel: "classifier-model",
+          privacyClassifierEngine: "classifier-engine",
+        },
+        content: "Decision: ship the search index next Tuesday.",
+      });
+
+      await expect(pending).rejects.toBeInstanceOf(
+        BrainClassifierUnavailableError,
+      );
+      await expect(pending).rejects.toMatchObject({ reason });
+      expect(mocks.resolveEngine).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["jev-timeout", "timed out after 3 attempts", 600_000],
+    ["jev-http-503", "returned HTTP 503 after 3 attempts", 600_000],
+    ["jev-credential-unavailable", "no Builder connection", null],
+    ["jev-credential-lookup-failed", "lookup failed", 600_000],
+    ["jev-http-401", "rejected the source owner", null],
+  ])(
+    "explains a %s failure in plain language",
+    (reason, phrase, retryAfterMs) => {
+      const error = new BrainClassifierUnavailableError(reason);
+
+      expect(error.message).toContain(phrase);
+      expect(error.message).toContain("nothing was skipped");
+      expect(error.message).not.toContain(reason);
+      expect(error.message).not.toContain("hourly");
+      expect(error.retryAfterMs).toBe(retryAfterMs);
+    },
+  );
+
+  it("stores a routine Slack message verbatim when Jev allows it", async () => {
+    const content = "lunch at noon, see you there";
     mocks.classifyWithJev.mockResolvedValueOnce({
       configured: true,
-      authSource: "builder-gateway",
-      failureReason: "jev-http-503",
-    });
-    mocks.resolveEngine.mockResolvedValueOnce({
-      stream: vi.fn(async function* () {
-        yield {
-          type: "assistant-content",
-          parts: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                disposition: "allowed",
-                categories: [],
-                safeContent: "Decision: ship the search index next Tuesday.",
-                safeSegments: [],
-              }),
-            },
-          ],
-        };
-      }),
+      authSource: "stored-key",
+      decision: jevSensitivityDecision(
+        Object.fromEntries(
+          BRAIN_SENSITIVITY_CATEGORIES.map((category) => [category, 0.3]),
+        ),
+        {
+          judgedContent: content,
+          capturedAt: baseInput.capturedAt,
+          truncated: false,
+        },
+      ),
     });
 
     const result = await sanitizeCaptureForStorage({
       ...baseInput,
-      settings: {
-        ...DEFAULT_BRAIN_SETTINGS,
-        privacyClassifierModel: "classifier-model",
-        privacyClassifierEngine: "classifier-engine",
-      },
-      content: "Decision: ship the search index next Tuesday.",
+      kind: "message",
+      title: "#general",
+      source: { ...baseInput.source, title: "Slack", provider: "slack" },
+      content,
     });
 
     expect(result.decision).toMatchObject({
-      classifier: "approved-model",
+      classifier: "jev",
       disposition: "allowed",
     });
-    expect(result.classifierFailureReason).toBe("jev-http-503");
-    expect(
-      result.metadata.captureSanitization as Record<string, unknown>,
-    ).toMatchObject({
-      method: "approved-model",
-      jevAuthSource: "builder-gateway",
-      fallbackReason: "jev-http-503",
+    expect(result.content).toBe(content);
+    expect(result.title).toBe("#general");
+    expect(result.content).not.toContain("No company-relevant content");
+  });
+
+  it("lets Jev judge a routine message that contains an HR keyword", async () => {
+    const content =
+      "We're investigating the checkout outage from this morning.";
+    mocks.classifyWithJev.mockResolvedValueOnce({
+      configured: true,
+      authSource: "stored-key",
+      decision: jevSensitivityDecision(
+        Object.fromEntries(
+          BRAIN_SENSITIVITY_CATEGORIES.map((category) => [category, 0.1]),
+        ),
+        {
+          judgedContent: content,
+          capturedAt: baseInput.capturedAt,
+          truncated: false,
+        },
+      ),
     });
+
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      kind: "message",
+      title: "#eng",
+      source: { ...baseInput.source, title: "Slack", provider: "slack" },
+      content,
+    });
+
+    expect(mocks.classifyWithJev).toHaveBeenCalledOnce();
+    expect(result.decision).toMatchObject({
+      classifier: "jev",
+      disposition: "allowed",
+    });
+    expect(result.content).toBe(content);
+  });
+
+  it("still suppresses credentials before Jev sees the capture", async () => {
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      content: "Deploy notes. password: not-a-real-secret",
+    });
+
+    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
+    expect(result.decision?.disposition).toBe("suppressed");
+    expect(result.decision?.categories).toEqual(["secret-credential"]);
+    expect(result.content).not.toContain("not-a-real-secret");
+  });
+
+  it("keeps the full keyword screen when the model classifier is selected", async () => {
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      settings: { ...DEFAULT_BRAIN_SETTINGS, privacyClassifier: "model" },
+      content: "We're investigating the checkout outage from this morning.",
+    });
+
+    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
+    expect(result.decision?.disposition).toBe("suppressed");
+    expect(result.decision?.categories).toEqual(["investigation"]);
   });
 
   it.each([
@@ -348,6 +442,7 @@ describe("capture sanitization", () => {
         title: "Granola",
         provider: "granola",
       },
+      sourceConfig: { sanitizeBeforeStorage: true },
       settings: {
         ...DEFAULT_BRAIN_SETTINGS,
         privacyClassifierModel: "classifier-model",

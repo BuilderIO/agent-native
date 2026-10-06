@@ -1,9 +1,3 @@
-/**
- * Client entry for the framework onboarding system.
- *
- * Subpath: `@agent-native/core/client/onboarding`
- */
-
 export { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
 export { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
 export {
@@ -11,10 +5,6 @@ export {
   fetchFirstRunOnboardingStatus,
   FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
 } from "./first-run-status.js";
-export {
-  FirstRunOnboardingStartupGate,
-  useFirstRunOnboardingGateOwnsSurface,
-} from "./first-run-startup-gate.js";
 export {
   useOnboardingPreviewMode,
   useOnboardingPreviewStep,
@@ -27,10 +17,6 @@ export {
   isOnboardingPreviewQuery,
 } from "./use-preview-mode.js";
 export type { OnboardingPreviewStep } from "./use-preview-mode.js";
-export { OnboardingPanel } from "./OnboardingPanel.js";
-export { OnboardingBanner } from "./OnboardingBanner.js";
-export { SetupButton } from "./SetupButton.js";
-export { FirstRunOnboarding } from "./FirstRunOnboarding.js";
 export {
   listFirstRunOnboardingExtensions,
   registerFirstRunOnboardingExtension,

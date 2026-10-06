@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, ne } from "drizzle-orm";
@@ -17,10 +17,6 @@ import {
   upsertVariantSlot,
 } from "./variant-slots.js";
 
-// Must stay comfortably above the managed generation budget: the default 300s
-// request window plus up to ~4 minutes of idempotent in-flight polling. Otherwise
-// a slow but healthy run can get prematurely declared "interrupted" before the
-// finished image lands and flips it back to ready.
 const STALE_IMAGE_RUN_MS = 10 * 60 * 1000;
 const INTERRUPTED_IMAGE_RUN_ERROR =
   "Image generation was interrupted before a preview was created. Start a new generation to retry.";
@@ -174,7 +170,6 @@ export default defineAction({
         Number.isFinite(timestamp) &&
         Date.now() - timestamp >= STALE_IMAGE_RUN_MS
       ) {
-        // Legacy slots have no owner field, but their app state is request-scoped.
         await assertCanDraftAuthoredBy(
           state.libraryId,
           slot.ownerEmail ?? ctx?.userEmail,
@@ -196,17 +191,16 @@ export default defineAction({
           };
         }
       }
-      throw new Error("Generation run not found.");
+      fail("Generation run not found.", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
     }
-    // Reconciling mutates the run row (status, error, outputs), so a
-    // below-editor caller may only refresh a run they started.
     const draftAccess = await assertCanDraftAuthoredBy(
       run.libraryId,
       run.ownerEmail,
       "A generation run",
     );
-    // Reconciliation is where an async candidate finally becomes readable, so
-    // it is the last place the caller can learn it still needs an editor.
     const approval = draftAccess.canApprove
       ? {}
       : { draftPendingApproval: true };

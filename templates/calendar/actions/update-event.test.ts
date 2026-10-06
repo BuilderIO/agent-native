@@ -131,8 +131,44 @@ describe("update-event working locations", () => {
       replacedId: "google-event-1",
       accountEmail: "secondary@example.com",
       updated: ["accountEmail"],
+      change: {
+        verb: "updated",
+        kind: "calendar-event",
+        title: "Team meeting",
+      },
     });
+    expect(
+      new URL(result.change.url, "https://calendar.test").searchParams.get(
+        "eventId",
+      ),
+    ).toBe("google-moved-event");
     expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("returns a compact event change without exposing private fields", async () => {
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        action.run({
+          id: "google-event-1",
+          title: "Renamed meeting",
+          description: "Sensitive agenda",
+          attendees: "guest@example.com",
+        }),
+    );
+
+    expect(result.change).toMatchObject({
+      verb: "updated",
+      kind: "calendar-event",
+      title: "Renamed meeting",
+    });
+    expect(
+      new URL(result.change.url, "https://calendar.test").searchParams.get(
+        "eventId",
+      ),
+    ).toBe("google-event-1");
+    expect(JSON.stringify(result.change)).not.toContain("Sensitive agenda");
+    expect(JSON.stringify(result.change)).not.toContain("guest@example.com");
   });
 
   it("rejects moving an event when the current user is not its organizer", async () => {
@@ -693,8 +729,6 @@ describe("update-event approval gate", () => {
     const gate = action.needsApproval;
     if (typeof gate !== "function") throw new Error("expected a predicate");
 
-    // run() leaves sendUpdates at Google's "all" default once addAttendees
-    // names anyone, in either raw shape the schema accepts.
     expect(
       await gate({
         id: "google-a",
@@ -707,7 +741,6 @@ describe("update-event approval gate", () => {
         addAttendees: "guest@example.com",
       } as never),
     ).toBe(true);
-    // An explicit sendUpdates wins over that default, so nothing is mailed.
     expect(
       await gate({
         id: "google-a",
@@ -715,14 +748,12 @@ describe("update-event approval gate", () => {
         sendUpdates: "none",
       } as never),
     ).toBe(false);
-    // Nobody named, nothing sent.
     expect(await gate({ id: "google-a", addAttendees: [] } as never)).toBe(
       false,
     );
     expect(await gate({ id: "google-a", addAttendees: "  " } as never)).toBe(
       false,
     );
-    // Replacing the list does not reach the sendUpdates default.
     expect(
       await gate({
         id: "google-a",
@@ -735,8 +766,6 @@ describe("update-event approval gate", () => {
     const gate = action.needsApproval;
     if (typeof gate !== "function") throw new Error("expected a predicate");
 
-    // An entry with no address is dropped before run() counts attendees, so it
-    // invites nobody and must not cost an approval.
     expect(
       await gate({ id: "google-a", addAttendees: "not-an-address" } as never),
     ).toBe(false);
@@ -746,7 +775,6 @@ describe("update-event approval gate", () => {
         addAttendees: [{ email: "not-an-address" }],
       } as never),
     ).toBe(false);
-    // One real address among unreachable ones still invites that person.
     expect(
       await gate({
         id: "google-a",

@@ -9,7 +9,6 @@ export type DesignSaveActionName =
 export interface DesignSaveOutboxEntry {
   key: string;
   designId: string;
-  /** Prevents a later signed-in user on the same browser from replaying it. */
   actorScope: string;
   actionName: DesignSaveActionName;
   resourceId: string;
@@ -29,36 +28,13 @@ export interface DesignSaveOutboxStorage {
 export interface DrainDesignSaveOutboxResult {
   saved: DesignSaveOutboxEntry[];
   failed: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
-  /**
-   * Entries dropped because retrying can never succeed — the target file no
-   * longer exists (deleted or never created). Retained-and-retried forever they
-   * turn one orphaned screen into a 500 storm that jams every save; dropping
-   * them self-heals stale outbox residue. Separate from `failed`, which is for
-   * transient/conflict errors that SHOULD be retried.
-   */
   dropped: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
-  /**
-   * Entries dropped because the server moved past their base version (a 409
-   * conflict). Distinct from `dropped`: the file still exists and nothing was
-   * lost to deletion, so the editor should rebase from the server rather than
-   * warn "changes discarded". Kept separate so a normal concurrent edit is
-   * never presented as a deleted file.
-   */
   rebased: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
 }
 
-/**
- * A save failure that can never succeed on retry: the server reports the target
- * file is gone (HTTP 404, or a "File not found" message from update-file's
- * missing-row guard). Distinct from 409 conflicts and network errors, which are
- * transient and must stay queued.
- */
 export function isTerminalSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { status?: unknown; message?: unknown };
-  // Terminal only when an explicit 404 ALSO names a missing file. A bare 404 can
-  // be a transient route-not-found (e.g. a cold-start action route), so both
-  // signals are required — dropping an edit is unrecoverable, a retry is not.
   return (
     candidate.status === 404 &&
     typeof candidate.message === "string" &&
@@ -66,14 +42,6 @@ export function isTerminalSaveError(error: unknown): boolean {
   );
 }
 
-/**
- * The server's update-file version conflict ("File changed since it was read…").
- * Its frozen expectedVersionHash can never match on retry, so drop-and-rebase
- * rather than loop forever. Matched by MESSAGE, not bare status 409, on purpose:
- * the apply-tweaks no-base-version synthetic is intentionally retained by
- * drainEntries, while a missing update-file content hash is rebased before its
- * action is invoked. The client-build-mismatch 409 is a reload-then-retry.
- */
 export function isConflictSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { code?: unknown; message?: unknown };
@@ -90,10 +58,6 @@ const ENTRY_STORE = "entries";
 const DESIGN_ID_INDEX = "by-design-id";
 const UPDATED_AT_INDEX = "by-updated-at";
 
-/**
- * Failed/conflicted writes remain available for a month, but abandoned
- * browser-tab sessions must not retain full HTML documents forever.
- */
 export const DESIGN_SAVE_OUTBOX_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 let databasePromise: Promise<IDBDatabase> | null = null;
@@ -360,9 +324,6 @@ export async function discardDesignSaveOutboxEntry(
   );
 }
 
-/** A save requires an explicit acknowledgement. A supplied hash must match
- * the requested content, including idempotent no-ops; a higher revision from
- * the same source may acknowledge different content that must stay queued. */
 export function updateFileResultPersistedContent(
   actionResult: unknown,
   expectedContent: string,
@@ -449,9 +410,6 @@ async function drainEntries(
       result.saved.push(entry);
     } catch (error) {
       if (isTerminalSaveError(error)) {
-        // The target file is gone (deleted/never created) — retrying can never
-        // succeed. Drop the entry so one orphaned screen can't loop update-file
-        // 500s forever and jam every save. Logged, never silently swallowed.
         await storage.deleteIfRevision(entry);
         result.dropped.push({ entry, error });
         if (typeof console !== "undefined") {
@@ -460,10 +418,6 @@ async function drainEntries(
           );
         }
       } else if (isConflictSaveError(error)) {
-        // Base version superseded — retry is futile and replaying the stale
-        // snapshot would clobber newer content. Drop into `rebased` (NOT
-        // `dropped`) so the editor rebases from the server instead of warning
-        // that the file was discarded/deleted.
         await storage.deleteIfRevision(entry);
         result.rebased.push({ entry, error });
         if (typeof console !== "undefined") {

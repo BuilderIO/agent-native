@@ -64,47 +64,22 @@ import { and, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import finalizeMeeting from "../../actions/finalize-meeting.js";
 import { getDb, schema } from "../db/index.js";
 
-const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 min
-const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 60 min of zero transcript activity
-// Scheduled meetings: eligible for time-bound closure this long past
-// scheduledEnd (still gated on TIME_BOUND_INACTIVITY_MS below).
-const SCHEDULED_END_GRACE_MS = 20 * 60 * 1000; // 20 min
-// Ad-hoc meetings (no scheduledEnd) have no calendar time bound, so cap the
-// session length outright (also gated on TIME_BOUND_INACTIVITY_MS below).
-const ADHOC_MAX_SESSION_MS = 4 * 60 * 60 * 1000; // 4 hours
-// Predicate 2's activity gate — short on purpose. A meeting still genuinely
-// live and overrunning its slot keeps flushing transcript activity far more
-// often than this, so requiring silence this recent (rather than reusing the
-// 60-min STALE_THRESHOLD_MS) is what stops predicate 2 from truncating a real
-// overrunning call. Long enough to not fire on a single flush cycle's jitter.
-const TIME_BOUND_INACTIVITY_MS = 5 * 60 * 1000; // 5 min
-// Predicate 3 — unconditional, no activity check. Anchors on scheduledEnd for
-// scheduled meetings, actualStart for ad-hoc.
-const ADHOC_HARD_CAP_MS = 12 * 60 * 60 * 1000; // 12 hours
-// A finalize claim with no update in this long is presumed crashed, not merely
-// a slow Gemini call. Mirrors finalize-meeting.ts's force-takeover window.
-const PENDING_STALE_MS = 2 * 60 * 1000; // 2 min
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const STALE_THRESHOLD_MS = 60 * 60 * 1000;
+const SCHEDULED_END_GRACE_MS = 20 * 60 * 1000;
+const ADHOC_MAX_SESSION_MS = 4 * 60 * 60 * 1000;
+const TIME_BOUND_INACTIVITY_MS = 5 * 60 * 1000;
+const ADHOC_HARD_CAP_MS = 12 * 60 * 60 * 1000;
+const PENDING_STALE_MS = 2 * 60 * 1000;
 let skippingLogged = false;
 let running = false;
 
-/**
- * Close out a single stranded-live meeting row: stamp actualEnd, set
- * transcriptStatus based on transcript presence, and flip a still-uploading
- * linked recording to ready. Shared by the sweeper and by delete-meeting
- * (trashing a live meeting should stop it the same way).
- */
 export async function closeOutStaleMeeting(args: {
   meetingId: string;
   recordingId: string | null;
   ownerEmail: string;
   orgId: string | null;
-  /** Estimated end timestamp — pass the transcript's last updatedAt when
-   * available so actualEnd reflects when activity actually stopped, not
-   * "now" (which could be hours after the crash). */
   endedAtIso?: string;
-  /** Which predicate closed this meeting, e.g. "sweeper:no-activity". Omit
-   * to leave end_reason untouched (delete-meeting's reuse of this helper
-   * isn't a sweeper predicate, so it has no reason to stamp). */
   endReason?: string;
 }): Promise<{ hasTranscript: boolean }> {
   const db = getDb();
@@ -130,12 +105,6 @@ export async function closeOutStaleMeeting(args: {
         isNull(schema.meetings.orgId),
       );
 
-  // First writer wins, in SQL: a stop that lands between the candidate query
-  // and this update (desktop detector, manual click, delete-meeting reusing
-  // this helper) keeps its end time, and the cause rides that same actual_end
-  // transition so this closer cannot claim an end it did not perform.
-  // transcriptStatus stays a plain write: live rows start as "pending", so it
-  // cannot double as a finalizer claim here.
   await db
     .update(schema.meetings)
     .set({
@@ -281,9 +250,6 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
             Boolean(lastActivityIso) &&
             lastActivityIso <= timeBoundInactiveBefore;
 
-          // Predicate 2 (time-bound + short inactivity) and predicate 3 (hard
-          // cap, unconditional) share an anchor: scheduledEnd when set,
-          // otherwise actualStart for ad-hoc meetings.
           let timeBoundStale = false;
           let hardCapStale = false;
           const anchor = meeting.scheduledEnd ?? meeting.actualStart;
@@ -354,14 +320,12 @@ export async function runStaleMeetingSweepOnce(): Promise<void> {
         }
       }
     } catch (err: any) {
-      // Best-effort — must never crash the host process.
       console.warn(`[stale-meeting-sweeper] tick failed:`, err?.message ?? err);
     }
 
     try {
       await sweepStalePendingFinalizes(db);
     } catch (err: any) {
-      // Best-effort — must never crash the host process.
       console.warn(
         `[stale-meeting-sweeper] pending-finalize sweep failed:`,
         err?.message ?? err,

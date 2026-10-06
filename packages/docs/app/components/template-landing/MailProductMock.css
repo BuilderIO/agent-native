@@ -18,6 +18,33 @@
   font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
+.mm-mobile-toast {
+  display: none;
+}
+
+.mm-focus-labels .mm-agent {
+  display: none;
+}
+
+@container (max-width: 520px) {
+  .mm-focus-jev .mm-agent {
+    display: none;
+  }
+
+  .mm-focus-jev .mm-tab:not(.is-active),
+  .mm-focus-jev .mm-tab-settings,
+  .mm-focus-jev .mm-refresh-toggle,
+  .mm-focus-jev .mm-compose,
+  .mm-focus-jev .mm-account-stack,
+  .mm-focus-jev .mm-topbar-spacer {
+    display: none;
+  }
+
+  .mm-focus-jev .mm-tabs {
+    flex: 1;
+  }
+}
+
 .mail-product-art *,
 .mail-product-art *::before,
 .mail-product-art *::after {
@@ -26,10 +53,12 @@
 
 .mm-app {
   display: flex;
-  width: 100%;
-  height: 100%;
+  width: 111.112%;
+  height: 111.112%;
   min-width: 0;
   min-height: 0;
+  transform: scale(0.9);
+  transform-origin: top left;
   background: var(--mm-bg);
 }
 
@@ -468,50 +497,6 @@
   flex: 1;
 }
 
-.mm-nav-rail {
-  display: flex;
-  width: 56px;
-  min-width: 56px;
-  flex: 0 0 56px;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  border-right: 1px solid var(--mm-border);
-  background: hsl(0 0% 14%);
-  padding: 9px 0;
-}
-
-.mm-rail-brand,
-.mm-rail-item {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  flex: none;
-  place-items: center;
-  border-radius: 6px;
-  color: var(--mm-muted);
-}
-
-.mm-rail-brand {
-  height: 38px;
-  margin-bottom: 6px;
-  color: var(--mm-fg);
-}
-
-.mm-rail-brand svg {
-  width: 27px;
-  height: 16px;
-}
-
-.mm-rail-item.is-active {
-  color: var(--mm-primary);
-  background: hsl(0 0% 75% / 0.12);
-}
-
-.mm-rail-spacer {
-  flex: 1;
-}
-
 .mm-inbox {
   display: flex;
   min-width: 0;
@@ -543,13 +528,13 @@
 .mm-thread-row {
   display: flex;
   min-width: 0;
-  height: 38px;
+  height: 32px;
   flex: none;
   align-items: center;
   border-bottom: 1px solid hsl(0 0% 22%);
-  padding: 0 8px;
+  padding: 0 6px;
   color: var(--mm-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .mm-thread-row.is-focused {
@@ -562,9 +547,9 @@
 
 .mm-row-unread {
   display: grid;
-  width: 18px;
+  width: 16px;
   height: 100%;
-  flex: 0 0 18px;
+  flex: 0 0 16px;
   place-items: center;
 }
 
@@ -576,12 +561,12 @@
 }
 
 .mm-sender {
-  width: clamp(85px, 20%, 160px);
-  flex: 0 0 clamp(85px, 20%, 160px);
+  width: clamp(85px, 18%, 148px);
+  flex: 0 0 clamp(85px, 18%, 148px);
   overflow: hidden;
-  margin-right: 8px;
+  margin-right: 6px;
   color: hsl(0 0% 81%);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 450;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -595,16 +580,16 @@
 
 .mm-label-chip {
   max-width: 120px;
-  height: 18px;
+  height: 16px;
   flex: none;
   overflow: hidden;
   border-radius: 3px;
-  margin-right: 6px;
+  margin-right: 4px;
   background: hsl(0 0% 23%);
   padding: 1px 6px;
   color: hsl(0 0% 77%);
-  font-size: 10px;
-  line-height: 16px;
+  font-size: 9px;
+  line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -639,12 +624,22 @@
   color: hsl(0 71% 76%);
 }
 
+.mm-label-chip--important {
+  background: hsl(42 76% 37% / 0.28);
+  color: hsl(42 91% 76%);
+}
+
+.mm-label-chip--product {
+  background: hsl(217 67% 38% / 0.31);
+  color: hsl(217 81% 77%);
+}
+
 .mm-subject-line {
   display: flex;
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
-  gap: 4px;
+  gap: 3px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -654,7 +649,7 @@
   flex: 0 1 auto;
   overflow: hidden;
   color: hsl(0 0% 85%);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -678,18 +673,18 @@
 .mm-row-action-rail {
   position: relative;
   display: flex;
-  width: clamp(74px, 12%, 128px);
+  width: clamp(78px, 10%, 104px);
   height: 100%;
-  flex: 0 0 clamp(74px, 12%, 128px);
+  flex: 0 0 clamp(78px, 10%, 104px);
   align-items: center;
   justify-content: flex-end;
-  margin-left: 12px;
+  margin-left: 6px;
 }
 
 .mm-thread-row time {
   overflow: hidden;
   color: var(--mm-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   text-align: right;
   text-overflow: ellipsis;
@@ -714,31 +709,6 @@
 .mm-priority-mark {
   flex: none;
   color: hsl(42 82% 65%);
-}
-
-.mm-automation-notice {
-  display: flex;
-  min-height: 29px;
-  align-items: center;
-  gap: 5px;
-  border-bottom: 1px solid var(--mm-border);
-  background: hsl(151 45% 35% / 0.14);
-  padding: 0 8px;
-  color: hsl(151 51% 69%);
-  font-size: 7px;
-}
-
-.mm-automation-notice span {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mm-automation-notice time {
-  flex: none;
-  font-size: 6px;
 }
 
 @container (max-width: 710px) {
@@ -847,12 +817,73 @@
   }
 
   .mm-row-action-rail {
-    width: 64px;
-    flex-basis: 64px;
+    width: 74px;
+    flex-basis: 74px;
     margin-left: 5px;
   }
 
   .mm-priority-mark {
     display: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .mail-product-art.mm-focus-jev {
+    position: relative;
+    height: 304px;
+  }
+
+  .mm-mobile-toast {
+    display: block;
+    position: absolute;
+    bottom: 8px;
+    inset-inline-start: 8px;
+    max-width: calc(100% - 16px);
+    border: 1px solid var(--mm-border);
+    border-radius: 8px;
+    background: var(--mm-card);
+    padding: 8px 10px;
+    color: var(--mm-fg);
+    font-size: 10px;
+    line-height: 1.3;
+  }
+
+  .mail-product-art.mm-focus-labels {
+    height: 256px;
+  }
+
+  .mail-product-art.mm-focus-automations {
+    height: 152px;
+  }
+
+  .mail-product-art .mm-agent {
+    display: none;
+  }
+
+  .mm-focus-jev .mm-thread-row:nth-child(n + 7),
+  .mm-focus-labels .mm-thread-row:nth-child(n + 7) {
+    display: none;
+  }
+
+  .mm-focus-jev .mm-label-chip,
+  .mm-focus-labels .mm-label-chip {
+    display: block;
+    max-width: 68px;
+  }
+
+  .mm-focus-labels .mm-row-actions,
+  .mm-focus-jev .mm-row-actions {
+    display: none;
+  }
+
+  .mm-focus-labels .mm-thread-row.is-hovered time,
+  .mm-focus-jev .mm-thread-row.is-hovered time {
+    visibility: visible;
+  }
+
+  .mm-row-action-rail {
+    width: auto;
+    min-width: 42px;
+    flex-basis: auto;
   }
 }

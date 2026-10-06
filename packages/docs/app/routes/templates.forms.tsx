@@ -1,9 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { FormsProductMock } from "../components/template-landing/FormsProductMock";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -49,9 +47,6 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "forms")!;
 
-// Same no-imagery pattern Slides uses: plain ContentCards, no `image`/
-// `imageLabel`, so this section reads as one system with the key-features
-// grid below it instead of leaving placeholder boxes.
 const USE_CASES = [
   {
     id: "customer-feedback",
@@ -118,11 +113,6 @@ const FAQ_ITEMS = [
   },
 ] as const;
 
-// TemplateHero assumes an ancestor centers it at max-w-site with zero extra
-// gutter — TemplateLandingShell used to be that ancestor. Every PageSection
-// below draws its grid lines flush to that same max-w-site edge, so this
-// wrapper must match exactly (no px-* here) or the hero's border-x box ends
-// up narrower than the rest of the page.
 const HERO_WRAPPER_CLASS =
   "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
 
@@ -157,8 +147,7 @@ export default function FormsTemplate() {
               rel="noopener noreferrer"
               className="primary-button"
               style={{ gap: "4px" }}
-              onClick={(event) => {
-                applyFirstTouchAttributionToLink(event.currentTarget);
+              onClick={() => {
                 trackEvent("create form", {
                   template: template.slug,
                   location: "landing_page_hero",
@@ -315,14 +304,8 @@ export default function FormsTemplate() {
             href={firstPartyAppUrl("https://forms.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            // The shared cta variant renders at 14px in sentence case, but
-            // the hero's .primary-button (uppercase 12px mono, via the
-            // .template-detail-page CSS rule) only applies inside the hero
-            // wrapper. Match it explicitly here so both CTAs on the page
-            // read as the same button style.
             style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
-            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
+            onClick={() => {
               trackEvent("create form", {
                 template: template.slug,
                 location: "landing_page_final_cta",

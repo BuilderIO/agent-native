@@ -47,14 +47,7 @@ const clientState = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core/client/chat-first", () => ({
-  CHAT_FIRST_DEFAULT_APP_IDS: [
-    "content",
-    "design",
-    "mail",
-    "calendar",
-    "clips",
-  ],
+vi.mock("@agent-native/toolkit/app/chat/chat-first/app-pane", () => ({
   ChatFirstAppPane: ({
     app,
     embedUrl,
@@ -88,7 +81,14 @@ vi.mock("@agent-native/core/client/chat-first", () => ({
         : null}
     </div>
   ),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/chat-first-copy", () => ({
   defaultChatFirstCopy: (key: string) => key,
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
+  AgentSidebar: () => null,
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
@@ -249,37 +249,33 @@ describe("WorkspaceAppKeepAlive", () => {
       )?.params,
     ).toEqual({ includeAgentCards: false, includeArchived: true });
     expect(
-      clientState.actionQueryOptions.find((query) => query.name === "list_apps")
-        ?.options?.enabled,
+      clientState.actionQueryParams.some((query) => query.name === "list_apps"),
     ).toBe(false);
   });
 
-  it("resolves a granted external app instead of showing app not found", async () => {
+  it("does not resolve apps granted through Dispatch MCP", async () => {
     await act(async () => {
       root.render(
-        <WorkspaceAppKeepAlive activeAppId="analytics.agent-native.com" />,
+        <MemoryRouter>
+          <WorkspaceAppKeepAlive activeAppId="analytics.agent-native.com" />
+        </MemoryRouter>,
       );
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(
-      container.querySelector(
-        '[data-dispatch-workspace-app-cache-entry="analytics.agent-native.com"]',
-      ),
-    ).not.toBeNull();
-    expect(
       container.querySelector('[data-chat-first-app-status="ready"]'),
-    ).not.toBeNull();
-    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
-      app: "analytics.agent-native.com",
-      url: "https://analytics.agent-native.com/home",
-      chrome: "minimal",
-    });
+    ).toBeNull();
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
     expect(
-      clientState.actionQueryOptions.find((query) => query.name === "list_apps")
-        ?.options?.enabled,
-    ).toBe(true);
+      clientState.actionQueryParams.some((query) => query.name === "list_apps"),
+    ).toBe(false);
+    expect(
+      clientState.actionQueryParams.some(
+        (query) => query.name === "list-connected-agents",
+      ),
+    ).toBe(false);
   });
 
   it("does not resolve archived workspace apps from granted discovery", async () => {

@@ -3,12 +3,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { EDGE_HANDLE_HIT_INWARD_PX } from "../app/components/design/multi-screen/handle-hit-zones";
 import { canvasZoom, expandAllLayers } from "./helpers";
 
-/**
- * Selection reachability: everything a click can select, a rubber band must be
- * able to sweep, and a hairline must be grabbable. Each test drives the gesture
- * a designer performs, then asserts on the Layers panel and the bridge overlay.
- */
-
 const PAGE_W = 320;
 const PAGE_H = 820;
 
@@ -105,8 +99,6 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  // No blind settle: expandAllLayers waits for the first layer row, which
-  // the editor cannot render before it has parsed the document.
   await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
@@ -117,16 +109,10 @@ async function screenCard(page: Page) {
   return box;
 }
 
-/**
- * Leftmost x that is screen background rather than chrome. The frame's edge
- * resize handles keep a constant on-screen inward reach, so a sweep that
- * starts nearer the edge than that grabs a resize and selects the frame.
- */
 function insideScreenX(card: { x: number }, preferred: number): number {
   return Math.max(card.x + EDGE_HANDLE_HIT_INWARD_PX + 2, preferred);
 }
 
-/** Sweeps a rubber band between two page points, clamped inside the screen. */
 async function sweep(
   page: Page,
   from: { x: number; y: number },
@@ -140,7 +126,6 @@ async function sweep(
   await page.waitForTimeout(2200);
 }
 
-/** The bridge's selection outline, or null when nothing is outlined. */
 async function selectionOutline(page: Page) {
   return page
     .locator("iframe[data-design-preview-iframe]")
@@ -173,8 +158,6 @@ test.describe("marquee reachability", () => {
   }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
-    // Nothing selected: a selected frame is dragged by its own body (Figma
-    // does the same), so the rubber band lives in the unselected state.
     const a = (await node(page, "box-a").boundingBox())!;
     const b = (await node(page, "box-b").boundingBox())!;
     const card = await screenCard(page);
@@ -221,8 +204,6 @@ test.describe("marquee reachability", () => {
     );
 
     const swept = (await selectedRows(page).allTextContents()).join("|");
-    // Naming the target is what makes this fail for the bug it exists to
-    // catch: "not empty" is also satisfied by the frame selecting itself.
     expect(
       swept,
       "an id attribute is a persistence detail; a click selects this element, so a band must too",
@@ -287,8 +268,6 @@ test.describe("clicking into a selected screen", () => {
     const a = (await node(page, "box-a").boundingBox())!;
     const b = (await node(page, "box-b").boundingBox())!;
 
-    // Selecting the frame label updates the host selection, while the first
-    // content click establishes the bridge's container-first selection.
     await page.mouse.click(a.x + a.width / 2, a.y + a.height / 2);
     await expect
       .poll(() => selectedRows(page).allTextContents(), {
@@ -318,12 +297,6 @@ test.describe("clicking into a selected screen", () => {
   });
 });
 
-/**
- * Where box-a is actually painted, across every preview surface. Returned with
- * the frame index and position so a caller can prove a drag moved it: the
- * survival checks below (exists / not hidden / no leftover transform / in
- * viewport) are all satisfied by a drag that never happened.
- */
 async function paintedBoxA(page: Page) {
   return page.evaluate(() => {
     const frames = Array.from(document.querySelectorAll("iframe"));
@@ -440,8 +413,6 @@ test.describe("drag preview", () => {
       proxyFill,
       "the proxy must carry the layer's own fill, not a generic accent rectangle",
     ).toBe("rgb(59, 130, 246)");
-    // A 16px cursor dot is what this looked like before: the host never
-    // received the layer's size, so there was nothing to show.
     expect(Math.round(proxy!.width)).toBeGreaterThan(a.width * 0.8);
     expect(Math.round(proxy!.height)).toBeGreaterThan(a.height * 0.8);
   });
@@ -454,7 +425,6 @@ test.describe("dragging back into a screen", () => {
     const id = await newDesign(page);
     await openEditor(page, id);
 
-    // Out to the canvas first.
     const start = (await node(page, "box-a").boundingBox())!;
     const card = await screenCard(page);
     await page.mouse.click(
@@ -472,7 +442,6 @@ test.describe("dragging back into a screen", () => {
     await page.mouse.up();
     await page.waitForTimeout(4000);
 
-    // Then back in, released well away from the screen's top-left corner.
     const onCanvas = await page.evaluate(() => {
       for (const frame of Array.from(document.querySelectorAll("iframe"))) {
         const el = frame.contentDocument?.querySelector(
@@ -539,9 +508,6 @@ test.describe("dragging out and back onto the same screen", () => {
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(1700);
 
-    // Out past the screen edge, then back in — the pointer re-entering the
-    // source screen stops the cross-screen move messages, so the host's target
-    // is stale by the time of the release.
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(card.x - 150, card.y + 100, { steps: 14 });
@@ -592,8 +558,6 @@ test.describe("hidden layers", () => {
     const id = await newDesign(page);
     await openEditor(page, id);
 
-    // The band spans the hidden layer's coordinates, between the two boxes and
-    // the rule below them.
     const a = (await node(page, "box-a").boundingBox())!;
     const rule = (await node(page, "rule").boundingBox())!;
     const card = await screenCard(page);

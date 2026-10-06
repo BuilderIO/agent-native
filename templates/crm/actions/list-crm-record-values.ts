@@ -22,11 +22,6 @@ interface StoredValueRow {
   jsonValue: string | null;
 }
 
-/**
- * Decode by the attribute's declared storage column, never by sniffing which
- * column is non-null: a `false` checkbox and an empty text field are otherwise
- * indistinguishable.
- */
 function decodeValue(
   attribute: CrmAttributeRow,
   row: StoredValueRow,
@@ -106,8 +101,6 @@ export default defineAction({
       attributeIds: attributeRows.map((row) => row.id),
       includeArchived: args.includeArchived,
     });
-    // Keyed by field_name: that is the column the bitemporal writer keys on and
-    // the value `api_slug` was seeded from.
     const attributeByKey = new Map(
       attributeRows.map((row) => [
         `${row.connectionId}:${row.objectType}:${row.fieldName}`,
@@ -132,8 +125,6 @@ export default defineAction({
       .where(
         and(
           inArray(schema.crmRecordFields.recordId, recordIds),
-          // A list-entry value lives in this same table; `entry_id IS NULL` is
-          // the record-vs-entry discriminator.
           isNull(schema.crmRecordFields.entryId),
           isNull(schema.crmRecordFields.activeUntil),
           accessFilter(schema.crmRecordFields, schema.crmRecordFieldShares),
@@ -165,8 +156,6 @@ export default defineAction({
       const attribute = attributeByKey.get(
         `${record.connectionId}:${record.objectType}:${row.fieldName}`,
       );
-      // A value with no surviving attribute definition is not a cell the grid
-      // can type; skipping it here is not data loss — the row is still stored.
       if (!attribute) continue;
       const slug = attribute.apiSlug ?? attribute.fieldName;
       bucket.values[slug] = decodeValue(attribute, row);

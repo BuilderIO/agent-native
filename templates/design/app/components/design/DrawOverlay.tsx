@@ -66,14 +66,12 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
   } | null>(null);
   const drawing = useRef(false);
 
-  // Redraw canvas when strokes change
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Match canvas size to element size
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width * window.devicePixelRatio;
     canvas.height = rect.height * window.devicePixelRatio;
@@ -81,12 +79,10 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
 
     ctx.clearRect(0, 0, rect.width, rect.height);
 
-    // Draw completed strokes
     for (const stroke of strokes) {
       drawStroke(ctx, stroke.points, stroke.color, stroke.lineWidth);
     }
 
-    // Draw current stroke
     if (currentStroke && currentStroke.length > 0) {
       drawStroke(ctx, currentStroke, color, lineWidth);
     }
@@ -172,7 +168,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
   const queueDrawing = () => {
     if (strokes.length === 0) return;
 
-    // Convert each stroke into its own annotation to preserve per-stroke color/lineWidth
     const newAnnotations: DrawAnnotation[] = strokes.map((s) => {
       const pathData = s.points
         .map(
@@ -197,7 +192,6 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
   };
 
   const sendAll = () => {
-    // Queue current drawing first if any; preserve per-stroke color/lineWidth
     let allAnnotations = [...queued];
     if (strokes.length > 0) {
       const strokeAnnotations: DrawAnnotation[] = strokes.map((s) => {

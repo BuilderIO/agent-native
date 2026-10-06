@@ -288,10 +288,6 @@ export function MicrophoneVisualizer({
           }
         }
 
-        // The analyser is the only part of the meter this app owns; the shape
-        // and the level math are shared with the desktop app so a microphone
-        // reads the same here as it does in the recorder and the meeting pill.
-        // Sub-threshold room noise is silence, not decorative activity.
         setLevel(audible ? rms : 0);
         rafRef.current = requestAnimationFrame(draw);
       };
@@ -417,7 +413,6 @@ export function MicrophoneVisualizer({
       stopStream(stream);
       if (runIdRef.current !== runId) return;
       const message = await friendlyMicError(err, t);
-      // friendlyMicError awaits the Permissions API, so re-check after.
       if (runIdRef.current !== runId) return;
       setSignal(false);
       setError(message);
@@ -445,8 +440,6 @@ export function MicrophoneVisualizer({
     if (deviceChanged || status === "idle") void startTest();
   }, [deviceId, disabled, startTest, status, stopTest, unlocked]);
 
-  // Idle and error both rest the meter by holding `level` at null, so there is
-  // nothing left to draw on a state change.
   useEffect(() => {
     if (status === "idle" || status === "error") setLevel(null);
   }, [status]);

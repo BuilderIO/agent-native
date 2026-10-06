@@ -1,20 +1,3 @@
-/**
- * The headless agent-run seam used by the evals runner.
- *
- * This invokes the real `runAgentLoop` as a *caller* — resolving a provider-
- * agnostic engine + model from the existing registry, converting the app's
- * actions into engine tools, and collecting the assistant's text + tool calls
- * off the `send` event stream into a compact `AgentRunOutput`. It deliberately
- * does NOT modify `production-agent.ts`: everything it needs (`runAgentLoop`,
- * `actionsToEngineTools`, `ActionEntry`) is already exported from there.
- *
- * The factory shape (`createAgentRunner`) keeps the runner unit-testable: tests
- * inject a fake `runAgentLoop` and a fake engine so no real model is called,
- * while production wires in the genuine loop. The same factory builds the
- * `ScorerAnalyzeContext.judge` helper so LLM-judge scorers stream through the
- * exact same resolved engine.
- */
-
 import {
   resolveEngine,
   getStoredModelForEngine,
@@ -40,7 +23,6 @@ import type {
 const JUDGE_TIMEOUT_MS = 30_000;
 const DEFAULT_AGENT_TIMEOUT_MS = 120_000;
 
-/** The slice of `runAgentLoop` the runner depends on — injectable for tests. */
 export type RunAgentLoopFn = (opts: {
   engine: AgentEngine;
   model: string;
@@ -53,27 +35,16 @@ export type RunAgentLoopFn = (opts: {
 }) => Promise<AgentLoopUsage>;
 
 export interface AgentRunnerConfig {
-  /** App actions to expose to the agent under test. */
   actions: Record<string, ActionEntry>;
-  /** System prompt for the run. */
   systemPrompt?: string;
-  /** Pre-resolved engine; resolved from the registry when omitted. */
   engine?: AgentEngine;
-  /** Pre-resolved model; resolved from the engine's stored/default when omitted. */
   model?: string;
-  /** Per-run wall-clock budget in ms (default 120s). */
   timeoutMs?: number;
-  /**
-   * Seam for tests / custom hosts. Defaults to the real `runAgentLoop`. The
-   * runner never imports `runAgentLoop` directly so this can be swapped.
-   */
   runLoop?: RunAgentLoopFn;
 }
 
 export interface AgentRunner {
-  /** Run the agent loop for one eval input and collect a compact output. */
   runAgent(input: EvalInput): Promise<AgentRunOutput>;
-  /** Analyze context handed to LLM-judge scorers (shares engine/model). */
   analyzeContext(): ScorerAnalyzeContext;
   readonly engine: AgentEngine;
   readonly model: string;
@@ -94,11 +65,6 @@ function toEngineMessages(input: EvalInput): EngineMessage[] {
   return messages;
 }
 
-/**
- * Build an agent runner, resolving the engine/model once up front so every
- * eval case (and every LLM-judge scorer) reuses the same provider-agnostic
- * config. Resolution goes through `resolveEngine` — no model is ever hardcoded.
- */
 export async function createAgentRunner(
   config: AgentRunnerConfig,
 ): Promise<AgentRunner> {

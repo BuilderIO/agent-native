@@ -1,21 +1,4 @@
-/**
- * detach-component-instance — Figma's "Detach instance" (⌥⌘B).
- *
- * Detach the selected link while keeping its expanded markup and current
- * appearance. Nested component links remain linked to their own mains.
- *
- * Persists through the same deterministic HTML-patch + collab seam as
- * `apply-component-prop-edit` / `apply-visual-edit` (`writeInlineSourceFile`
- * with an `expectedVersionHash` CAS guard), so it participates in the
- * editor's undo/collab machinery exactly like every other HTML-mutating
- * action — there is no separate undo/history log in this codebase to hook
- * into (see those actions' docs).
- *
- * Inline/Alpine designs only; real-app sources fail closed (same posture as
- * `apply-component-prop-edit`).
- */
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -30,7 +13,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   writeInlineSourceFile,
@@ -56,19 +39,6 @@ import {
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 
-// ─── Pure transform ────────────────────────────────────────────────────────
-
-/**
- * Strip the `data-agent-native-component` annotation and every
- * `data-agent-native-prop-*` override attribute from a node's opening tag,
- * using its source span. Pure — no DB / IO — so it can be unit tested
- * directly.
- *
- * Leaves everything else (classes, style, text, `x-data`, `id`,
- * `data-agent-native-node-id`, …) untouched: the node keeps its current
- * rendered appearance and behavior, it simply stops being recognized as a
- * component instance.
- */
 export function stripComponentAnnotations(
   html: string,
   root: CodeLayerNode | null | undefined,
@@ -144,8 +114,6 @@ export function stripComponentAnnotations(
   };
 }
 
-// ─── Persistence ────────────────────────────────────────────────────────────
-
 async function persistEdit(file: {
   id: string;
   designId: string;
@@ -179,8 +147,6 @@ async function persistEdit(file: {
     agentLeaveDocument(file.id);
   }
 }
-
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -216,7 +182,8 @@ export default defineAction({
   }),
   run: async ({ designId, nodeId, fileId, source }, context) => {
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);

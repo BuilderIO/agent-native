@@ -63,6 +63,36 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
+  it("requires the request ID when timestamps collide", async () => {
+    const requestId = "workflow-request-current";
+    mocks.readAppState
+      .mockResolvedValueOnce({
+        kind: "email",
+        status: "generating",
+        recordingId: "rec_123",
+        requestedAt,
+        requestId,
+      })
+      .mockResolvedValueOnce({
+        kind: "generate-workflow",
+        workflowKind: "email",
+        recordingId: "rec_123",
+        requestedAt,
+        requestId: "workflow-request-old",
+      });
+
+    await expect(
+      action.run({
+        operation: "track",
+        recordingId: "rec_123",
+        requestedAt,
+        requestId,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "newer-request" });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
   it("does not replace another tab's active claim", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
@@ -335,6 +365,28 @@ describe("reconcile-workflow-generation", () => {
         operation: "stop",
         recordingId: "rec_123",
         requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "newer-request" });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not fail a newer generation with the same timestamp", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      requestId: "workflow-request-newer",
+      tabId,
+    });
+
+    await expect(
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        requestId: "workflow-request-old",
         tabId,
       }),
     ).resolves.toEqual({ reconciled: false, reason: "newer-request" });

@@ -1,18 +1,3 @@
-// What the agent did, as the ask sheet shows it.
-//
-// The framework's agent-chat stream already carries tool calls, their results,
-// and server-authored progress labels — see the `AgentChatEvent` union in
-// `packages/core/src/agent/types.ts`, which core's own `sse-event-processor`
-// renders in full for the web chat. The pill consumed `text` plus `activity`
-// and dropped the rest, which is why a working agent looked like it sat there
-// doing nothing and then answered.
-//
-// The desktop app deliberately carries no `@agent-native/core` dependency
-// (overlay bundle weight), so the frames it reads are re-declared here. Keep
-// this union a strict subset of the framework's: a frame that changes shape
-// upstream must fail to parse here, not render as something plausible.
-
-/** The subset of the framework's stream frames the pill presents. */
 export type AgentFrame =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
@@ -28,11 +13,8 @@ export type AgentFrame =
   | {
       type: "approval_required";
       tool: string;
-      /** Echoed back as `approvedToolCalls` to let the paused call run. Kept
-       *  because a step that drops it can never be resumed by anything. */
       approvalKey: string;
       toolCallId?: string;
-      /** Distinguishes THIS gate hit from an earlier ask for the same call. */
       askId?: string;
       input?: Record<string, string>;
     }
@@ -48,13 +30,6 @@ export type AgentFrame =
 
 export type AgentStepStatus = "running" | "done" | "error" | "blocked";
 
-/**
- * What kind of work a step is, which is all the icon strip shows.
- *
- * Every tool the agent can reach falls into one of these, so a run reads as a
- * short sequence of shapes — read, think, write — instead of a paragraph of
- * tool names nobody scans.
- */
 export type AgentStepKind =
   | "think"
   | "read"
@@ -63,34 +38,21 @@ export type AgentStepKind =
   | "call"
   | "wait";
 
-/** One row in the sheet's step list. */
 export interface AgentStep {
-  /** Tool-call id when the stream gave one, else derived from the tool name. */
   key: string;
   label: string;
   kind: AgentStepKind;
   status: AgentStepStatus;
-  /** One line about the outcome, only when the result actually says something. */
   detail?: string;
 }
 
-/**
- * Frames arrive as untyped JSON. Anything unrecognized returns null so it is
- * skipped rather than rendered as an empty step.
- */
 export function parseAgentFrame(raw: unknown): AgentFrame | null {
   if (!raw || typeof raw !== "object") return null;
   const ev = raw as Record<string, unknown>;
   const type = typeof ev.type === "string" ? ev.type : null;
   if (!type) return null;
-  // For identifiers and labels, where blank means absent.
   const str = (value: unknown): string | undefined =>
     typeof value === "string" && value.trim() ? value : undefined;
-  // For stream deltas, where blank means a space. Model chunks are not
-  // word-aligned, so " " and "\n" arrive as deltas of their own; dropping them
-  // is what runs two words together. `tail()` below already preserves this
-  // seam once the text is in — it never gets the chance if the frame is
-  // discarded here first.
   const delta = (value: unknown): string | undefined =>
     typeof value === "string" && value.length > 0 ? value : undefined;
 
@@ -124,10 +86,6 @@ export function parseAgentFrame(raw: unknown): AgentFrame | null {
     case "approval_required": {
       const tool = str(ev.tool);
       const approvalKey = str(ev.approvalKey);
-      // Both are required upstream. A frame missing either cannot be resumed
-      // by anyone, so rendering a "waiting for approval" row from it would be
-      // a spinner with nothing behind it — exactly the plausible-looking state
-      // this parser exists to refuse.
       if (!tool || !approvalKey) return null;
       return {
         type,
@@ -170,17 +128,8 @@ function stringRecord(value: unknown): Record<string, string> | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
-/**
- * Why a run ended without finishing, or null when it finished cleanly.
- *
- * The stream closes the same way whether the agent answered or was cut off at
- * a timeout, a loop cap, or an approval gate. Only the terminal frame tells
- * those apart, so whatever text arrived before one of these is a fragment, not
- * the answer — presenting it as the answer is the bug this guards.
- */
 export interface AskIncomplete {
   kind: "auto_continue" | "loop_limit" | "approval_required" | "error";
-  /** One line to show under whatever text did arrive. */
   message: string;
 }
 
@@ -223,10 +172,6 @@ const TOOL_LABELS: Record<string, string> = {
   "provider-api-request": "Calling a connected app",
 };
 
-/**
- * A readable label for a tool row. Unknown tools fall back to their own id
- * rather than a generic "Working", so a new action is still legible.
- */
 export function labelForTool(tool: string): string {
   const known = TOOL_LABELS[tool];
   if (known) return known;
@@ -235,8 +180,6 @@ export function labelForTool(tool: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** Verb-first classification. A tool absent here is read-only by default:
- *  claiming the agent wrote something it only looked at is the worse error. */
 const WRITE_PREFIXES = [
   "create-",
   "update-",
@@ -266,8 +209,6 @@ export function kindForTool(tool: string): AgentStepKind {
     return "call";
   }
   if (WRITE_PREFIXES.some((prefix) => tool.startsWith(prefix))) return "write";
-  // Searching and reading are the same to the code and different to the
-  // reader: a magnifier over "Reading" is the mismatch that reads as a bug.
   if (tool.startsWith("search-") || tool.startsWith("find-")) return "search";
   return "read";
 }
@@ -283,13 +224,6 @@ const COUNTABLE_KEYS = [
   "events",
 ];
 
-/**
- * One line about what a tool returned, or nothing.
- *
- * Nothing is the common case on purpose: a result is arbitrary JSON, and a
- * stringified blob under a step row reads as detail while saying less than the
- * row above it. Only a plain string or a countable collection qualifies.
- */
 export function summarizeToolResult(result: unknown): string | undefined {
   if (typeof result === "string") {
     const line = result.trim().split("\n")[0]?.trim();
@@ -310,12 +244,9 @@ export function summarizeToolResult(result: unknown): string | undefined {
   return undefined;
 }
 
-/** Newest reasoning, bounded to what a small overlay can show. */
 const THINKING_TAIL = 220;
 
 function tail(text: string): string | undefined {
-  // Only the leading edge is trimmed. Trailing whitespace is the seam between
-  // two deltas — trimming it here is what runs the next word into this one.
   const collapsed = text.replace(/\s+/g, " ").replace(/^ /, "");
   if (!collapsed.trim()) return undefined;
   return collapsed.length > THINKING_TAIL
@@ -331,10 +262,6 @@ function keyFor(tool: string, id?: string): string {
   return id ? `id:${id}` : `tool:${tool}`;
 }
 
-/**
- * Fold one frame into the step list, returning the same array when the frame
- * changes nothing so React can skip the render.
- */
 export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
   switch (frame.type) {
     case "tool_start": {
@@ -362,8 +289,6 @@ export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
         steps,
         (s) => s.key === key && s.status === "running",
       );
-      // A result with no matching start still gets a row: a step that only ever
-      // reports its outcome is worth showing, and dropping it would hide work.
       if (index < 0) {
         return [
           ...steps,
@@ -381,8 +306,6 @@ export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
       return next;
     }
     case "thinking": {
-      // Reasoning streams in deltas. Only the tail is kept: the strip shows
-      // what the agent is thinking now, not a transcript of how it got there.
       const index = lastIndexWhere(
         steps,
         (s) => s.kind === "think" && s.status === "running",
@@ -407,8 +330,6 @@ export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
       return next;
     }
     case "activity": {
-      // Server-authored progress. It renames the work already in flight when
-      // there is some, and stands alone when the agent is between tools.
       const index = lastIndexWhere(steps, (s) => s.status === "running");
       if (index < 0) {
         return [
@@ -427,9 +348,6 @@ export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
       return next;
     }
     case "approval_required": {
-      // Keyed by the call, not by position: a failed resume re-emits the same
-      // approval with a fresh `askId`, and stacking a second identical row
-      // would read as the agent asking twice.
       const key = `approval:${frame.approvalKey}`;
       const step: AgentStep = {
         key,
@@ -448,16 +366,6 @@ export function applyFrame(steps: AgentStep[], frame: AgentFrame): AgentStep[] {
   }
 }
 
-/**
- * Close out the list when the stream ends. A step left spinning after the
- * answer arrived would claim work is still running forever — the stream's own
- * end is the only signal that it is not.
- *
- * `incomplete` is what the run ended on. A run cut at a timeout, a loop cap, or
- * an approval gate did NOT finish the tool it was in the middle of, so those
- * steps settle as blocked rather than done: "Searched" under an answer that was
- * truncated mid-search is the same lie as calling the fragment an answer.
- */
 export function settleSteps(
   steps: AgentStep[],
   incomplete?: AskIncomplete | null,

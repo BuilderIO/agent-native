@@ -1,5 +1,3 @@
-// Approved baseline from Steve's compact Design inspector Figma screenshots
-// (2026-09-16). Keep this oracle independent from the implementation tokens.
 export const APPROVED_FIGMA_CHROME_REFERENCE = {
   inspectorTabs: {
     header: { height: 48, paddingY: 8, borderBottom: 1 },

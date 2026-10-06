@@ -74,7 +74,6 @@ async function createDesign(
   return designId;
 }
 
-/** Each vector's authored geometry next to where it paints, in screen px. */
 async function vectors(page: Page) {
   return page.evaluate(() => {
     const doc = document.querySelector<HTMLIFrameElement>(
@@ -313,19 +312,21 @@ test("a pen path drawn inside a frame paints where it was drawn and stays dragga
     }
     await page.keyboard.press("Enter");
     await page.waitForTimeout(2500);
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("Vector");
 
     const drawn = await vectors(page);
     expect(drawn).toHaveLength(1);
     const vector = drawn[0]!;
     expect(vector.parent).toBe("frame");
-    // Enter finishes the current open path; only an explicit click on its
-    // first anchor closes it. Open paths must remain visible as strokes and
-    // must not acquire the filled-shape default.
     expect(vector.pathData).not.toMatch(/Z\s*$/i);
     expect(vector.fill).toBe("none");
     expect(vector.stroke).not.toBe("none");
     expect(vector.strokeWidth).not.toBeNull();
-    // Painted where the path was drawn, not offset by the frame's origin.
     expect(Math.abs(vector.paintedLeft - vector.drawnLeft)).toBeLessThan(6);
     expect(Math.abs(vector.paintedTop - vector.drawnTop)).toBeLessThan(6);
 
@@ -334,8 +335,6 @@ test("a pen path drawn inside a frame paints where it was drawn and stays dragga
       .locator("svg[data-an-primitive='path']")
       .first()
       .boundingBox())!;
-    await page.keyboard.press("v");
-    await page.waitForTimeout(400);
     const centerX = box.x + box.width / 2;
     const centerY = box.y + box.height / 2;
     await page.mouse.click(centerX, centerY);
@@ -354,7 +353,7 @@ test("a pen path drawn inside a frame paints where it was drawn and stays dragga
   }
 });
 
-test("a new Pen path previews every pointer step in the selected frame and closes with fill", async ({
+test("a new Pen path previews every pointer step in the selected frame and closes without fill", async ({
   page,
   request,
 }) => {
@@ -389,9 +388,6 @@ test("a new Pen path previews every pointer step in the selected frame and close
       page.getByRole("button", { name: "Pen", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
 
-    // Each click adds the anchor while the pointer is still down. The second
-    // point is a real drag, so its Bézier handles and changing endpoint must
-    // be visible before mouseup, not only in the final persisted SVG.
     await page.mouse.move(points[0]!.x, points[0]!.y);
     await page.mouse.down();
     await expect
@@ -417,9 +413,18 @@ test("a new Pen path previews every pointer step in the selected frame and close
       expect(preview.pathData).toMatch(/[CQ]/);
       expect(Math.abs(preview.anchors[1]!.x - points[1]!.x)).toBeLessThan(3);
       expect(Math.abs(preview.anchors[1]!.y - points[1]!.y)).toBeLessThan(3);
-      const draggedHandle = preview.handles[preview.handles.length - 1]!;
-      expect(Math.abs(draggedHandle.x - pointer.x)).toBeLessThan(3);
-      expect(Math.abs(draggedHandle.y - pointer.y)).toBeLessThan(3);
+      await expect
+        .poll(async () => {
+          const handles = (await penPreview(page)).handles;
+          return Math.abs(handles[handles.length - 1]!.x - pointer.x);
+        })
+        .toBeLessThan(3);
+      await expect
+        .poll(async () => {
+          const handles = (await penPreview(page)).handles;
+          return Math.abs(handles[handles.length - 1]!.y - pointer.y);
+        })
+        .toBeLessThan(3);
     }
     const curvedAnchorExpected = await screenLocalPoint(page, points[1]!);
     await page.mouse.up();
@@ -432,8 +437,6 @@ test("a new Pen path previews every pointer step in the selected frame and close
     expect((await penPreview(page)).pathData).not.toMatch(/Z\s*$/i);
     await page.mouse.up();
 
-    // Closing is itself a pointer gesture. While the pointer is down over the
-    // first anchor the preview closes, but nothing is persisted before release.
     const firstAnchor = (await penPreview(page)).anchors[0]!;
     await page.mouse.move(firstAnchor.x, firstAnchor.y);
     await page.mouse.down();
@@ -488,8 +491,8 @@ test("a new Pen path previews every pointer step in the selected frame and close
       expect(Math.abs(actual.y - expected.y)).toBeLessThan(3);
     });
     expect(vector!.closed).toBe(true);
-    expect(vector!.fill).toBe("rgb(218, 218, 218)");
-    expect(vector!.stroke).toBe("none");
+    expect(vector!.fill).toBe("none");
+    expect(vector!.stroke).toBe("rgb(0, 0, 0)");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -530,11 +533,15 @@ test("Pen continues a selected open path in place and persists undo/redo", async
     const before = (await persistedVectors(request, designId))[0]!;
 
     await expect(
-      page.getByRole("button", { name: "Pen", exact: true }),
+      page.getByRole("button", { name: "Move", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),
     ).toContainText("Vector");
+    await page.keyboard.press("p");
+    await expect(
+      page.getByRole("button", { name: "Pen", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     const terminal = await terminalPenPoint(page);
     await page.mouse.click(terminal.x, terminal.y);
     await expect
@@ -604,9 +611,6 @@ test("Pen continues a selected open path in place and persists undo/redo", async
       );
     expect(selectedBeforeRestart).not.toContain(firstExtension.id);
 
-    // Undoing the creation must invalidate its continuation target. Clicking
-    // the old terminal point starts a fresh path instead of appending to the
-    // deleted vector and issuing an update against its missing node id.
     await page.keyboard.press("p");
     await expect(
       page.getByRole("button", { name: "Pen", exact: true }),

@@ -2,34 +2,45 @@ import type {
   AgentConnectionRequest,
   AgentMessage,
 } from "@agent-native/agentkit";
+import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
+import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
 import {
+  captureException,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  AgentMessageView,
+  AgentRunFailure,
   AgentConnectionRequestCard,
   AgentKitChat,
-} from "@agent-native/agentkit/react/components";
+  useAgentKitStopButton,
+} from "@agent-native/toolkit/app/agentkit/react/components";
 import {
   useAgentKit,
   useAgentKitControl,
   useAgentThread,
+  type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
-} from "@agent-native/agentkit/react/context";
-import { AgentKitRoot } from "@agent-native/agentkit/react/root";
-import { CoreComposerRuntimeProvider } from "@agent-native/core/client/agentkit-chat/composer";
+} from "@agent-native/toolkit/app/agentkit/react/context";
+import { CoreComposerRuntimeProvider } from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
 import {
   McpAgentKitConnectionRequestCard,
   McpAgentKitConnectionResume,
-} from "@agent-native/core/client/agentkit-chat/connections";
-import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/connections";
+import { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
-} from "@agent-native/core/client/agentkit-chat/questions";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/questions";
 import {
   findMcpConnectionSuggestionIntegration,
   McpConnectionSuggestion,
-} from "@agent-native/core/client/agentkit-chat/suggestions";
-import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
-import { trackEvent } from "@agent-native/core/client/analytics";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/suggestions";
+import {
+  BuilderSetupCard,
+  isMissingLlmProviderRunError,
+} from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import {
   useCallback,
@@ -39,6 +50,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -54,7 +66,7 @@ function chatThreadPath(threadId: string | null) {
   return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home";
 }
 
-// Module scope on purpose: AgentKitRoot memoizes the client on its options, so
+// Module scope on purpose: CoreAgentKitRoot memoizes the client on its options, so
 // a new callback each render would rebuild the client and drop the stream.
 const reportStreamIntegrity = createAgentKitIntegrityReporter("chat");
 
@@ -109,7 +121,7 @@ function ChatThreadRouteContent({
         }`}
       >
         <CoreComposerRuntimeProvider>
-          <AgentKitRoot
+          <CoreAgentKitRoot
             transport={transport}
             clientOptions={{
               transportOwnership: "owned",
@@ -120,7 +132,9 @@ function ChatThreadRouteContent({
             labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}
             slots={{
               emptyState: ChatEmptyState,
+              message: ChatMessage,
               messageSupplement: ChatMcpConnectionSuggestion,
+              runFailure: ChatRunFailure,
               connectionRequest: ChatMcpConnectionRequest,
               footer: ChatAgentFooter,
             }}
@@ -132,7 +146,7 @@ function ChatThreadRouteContent({
               workspaceOpen={workspaceOpen}
               setWorkspaceOpen={setWorkspaceOpen}
             />
-          </AgentKitRoot>
+          </CoreAgentKitRoot>
         </CoreComposerRuntimeProvider>
       </div>
       <aside
@@ -151,6 +165,123 @@ function ChatThreadRouteContent({
       </aside>
     </div>
   );
+}
+
+function ChatMessage({ value, threadId }: AgentKitRenderProps<AgentMessage>) {
+  const metadata = value.metadata as
+    | { custom?: { agentNativeRecoveryAction?: unknown } }
+    | undefined;
+  const recoveryAction = metadata?.custom?.agentNativeRecoveryAction;
+  if (
+    value.role === "user" &&
+    (recoveryAction === "continue" || recoveryAction === "retry")
+  ) {
+    return null;
+  }
+  return <AgentMessageView value={value} threadId={threadId} />;
+}
+
+type ChatRetryError = {
+  code: "attachment_id_unavailable";
+  runId: string;
+};
+
+function ChatRunFailure({
+  error,
+  runId,
+  threadId,
+}: AgentRunFailureRenderProps) {
+  const thread = useAgentThread(threadId);
+  const { controller } = useAgentKit();
+  const t = useT();
+  const [retryError, setRetryError] = useState<ChatRetryError | null>(null);
+  const retryStartedForRunsRef = useRef(new Set<string>());
+  const recoveryMetadata = (message: (typeof thread.messages)[number]) =>
+    (
+      message.metadata as
+        | {
+            custom?: {
+              agentNativeRecoveryAction?: unknown;
+              agentNativeRecoveryOfRunId?: unknown;
+            };
+          }
+        | undefined
+    )?.custom;
+  const userRequests = thread.messages.filter((message) => {
+    if (message.role !== "user") return false;
+    const action = recoveryMetadata(message)?.agentNativeRecoveryAction;
+    return action !== "continue" && action !== "retry";
+  });
+  const originalRequest = userRequests[0];
+  const hasRetryForThisRun = thread.messages.some(
+    (message) =>
+      recoveryMetadata(message)?.agentNativeRecoveryAction === "retry" &&
+      recoveryMetadata(message)?.agentNativeRecoveryOfRunId === runId,
+  );
+  const retryFirstMessage = useCallback(() => {
+    if (retryStartedForRunsRef.current.has(runId)) return;
+    const attachments =
+      originalRequest?.parts.filter((part) => part.type === "file") ?? [];
+    if (attachments.some((part) => part.fileId && !part.url)) {
+      setRetryError({ code: "attachment_id_unavailable", runId });
+      return;
+    }
+    setRetryError(null);
+    retryStartedForRunsRef.current.add(runId);
+    const prompt =
+      originalRequest?.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n") ?? "";
+    let send: unknown;
+    try {
+      send = controller.sendMessage({
+        threadId,
+        text: prompt || t("chat.retryPreviousRequest"),
+        ...(attachments.length ? { attachments } : {}),
+        metadata: {
+          custom: {
+            agentNativeRecoveryAction: "retry",
+            agentNativeRecoveryOfRunId: runId,
+          },
+        },
+      });
+    } catch (error) {
+      retryStartedForRunsRef.current.delete(runId);
+      captureException(error, { tags: { area: "chat_retry" } });
+      return;
+    }
+    void Promise.resolve(send).catch((error) => {
+      retryStartedForRunsRef.current.delete(runId);
+      captureException(error, { tags: { area: "chat_retry" } });
+    });
+  }, [controller, originalRequest, runId, t, threadId]);
+  const isFirstMessage = userRequests.length === 1 && !hasRetryForThisRun;
+  if (
+    isFirstMessage &&
+    isMissingLlmProviderRunError({
+      message: error.message,
+      details: typeof error.details === "string" ? error.details : undefined,
+      errorCode: error.code,
+    })
+  ) {
+    return (
+      <>
+        <BuilderSetupCard
+          fullWidth
+          layout="sidebar"
+          onRetry={retryFirstMessage}
+        />
+        {retryError?.runId === runId &&
+        retryError.code === "attachment_id_unavailable" ? (
+          <p role="alert" className="mt-2 px-3 text-sm text-destructive">
+            {t("chat.retryAttachmentUnavailable")}
+          </p>
+        ) : null}
+      </>
+    );
+  }
+  return <AgentRunFailure error={error} runId={runId} threadId={threadId} />;
 }
 
 function ChatLifecycleTracking({ threadId }: { threadId: string }) {
@@ -225,6 +356,9 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
     description,
     skipLabel,
     submitLabel,
+    isSubmissionBlocked,
+    providerStatus,
+    retryProviderStatus,
     handleSubmit,
     handleSkip,
   } = useGuidedQuestionFlow({
@@ -248,6 +382,9 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
             {...(description ? { description } : {})}
             {...(skipLabel ? { skipLabel } : {})}
             {...(submitLabel ? { submitLabel } : {})}
+            isSubmissionBlocked={isSubmissionBlocked}
+            providerStatus={providerStatus}
+            onRetryProviderStatus={retryProviderStatus}
             className="h-auto items-stretch justify-stretch bg-transparent"
           />
         </div>
@@ -271,6 +408,10 @@ function ChatMcpConnectionRequest({
   return (
     <McpAgentKitConnectionRequestCard
       provider={request.provider}
+      reason={request.reason}
+      status={request.status}
+      appId={request.appId}
+      source={request.source}
       {...(request.detail ? { detail: request.detail } : {})}
       target={{ threadId, runId, requestId: request.id }}
       onConnected={() => resolve("connected")}
@@ -283,22 +424,11 @@ function ChatMcpConnectionRequest({
 function ChatMcpConnectionResume() {
   const { controller, threadId } = useAgentKit();
   const onResume = useCallback(
-    async (
-      target: { threadId: string; runId: string; requestId: string },
-      request: { message: string },
-    ) => {
-      try {
-        await controller.resolveConnectionRequest({
-          ...target,
-          response: { status: "connected" },
-        });
-      } catch {
-        await controller.sendMessage({
-          threadId: target.threadId,
-          text: request.message,
-        });
-      }
-    },
+    (target: { threadId: string; runId: string; requestId: string }) =>
+      controller.resolveConnectionRequest({
+        ...target,
+        response: { status: "connected" },
+      }),
     [controller],
   );
   const onMessageResume = useCallback(
@@ -374,7 +504,6 @@ function ChatEmptyState() {
   return (
     <div className="agentkit-chat-empty-copy">
       <h1>{t("chat.heroTitle")}</h1>
-      <p>{t("chat.heroDescription")}</p>
     </div>
   );
 }
@@ -388,6 +517,10 @@ function ChatCanvas({
 }) {
   const t = useT();
   const thread = useAgentThread();
+  const stopButton = useAgentKitStopButton({
+    label: t("agentChat.composer.stopResponse"), // i18n-key-ignore shared framework catalog
+    onError: (error) => toast.error(error.message),
+  });
   const hasConversation = thread.messages.length > 0;
 
   useEffect(() => {
@@ -400,12 +533,11 @@ function ChatCanvas({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           data-agent-page-workspace-toggle=""
           aria-label={t("settings.workspaceTitle")}
           aria-expanded={workspaceOpen}
           onClick={() => setWorkspaceOpen((open) => !open)}
-          className="size-8"
         >
           <IconLayoutSidebarRight className="size-4" />
         </Button>
@@ -421,6 +553,7 @@ function ChatCanvas({
       toolbar={toolbar}
       emptyComposerPlacement="center"
       composerProps={{
+        stopButton,
         queueWhileRunning: true,
         autoFocus: true,
         plusMenuMode: "full",

@@ -31,11 +31,6 @@ const input = {
 };
 
 describe("trackInviteAccepted", () => {
-  // Regression test for the P1 finding on PR #5765: a discarded promise on
-  // a serverless runtime can be killed before its dynamic imports and the
-  // async user lookup finish, silently dropping `invite_accepted`. This
-  // fails before the fix (no `event`/waitUntil wiring existed) and passes
-  // after (the telemetry promise is registered with the event's waitUntil).
   it("registers the telemetry promise with the event's waitUntil when present", () => {
     const waitUntil = vi.fn();
     const event = { waitUntil } as any;

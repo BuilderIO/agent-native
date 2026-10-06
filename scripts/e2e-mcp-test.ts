@@ -1,63 +1,10 @@
 #!/usr/bin/env tsx
-/**
- * e2e-mcp-test.ts — exhaustive end-to-end MCP behavior test against a remote
- * Agent-Native MCP server (typically https://*.agent-native.com or an ngrok dev URL).
- *
- * # Usage
- *
- *   pnpm test:mcp:e2e [baseUrl] [token] [flags]
- *   tsx scripts/e2e-mcp-test.ts [baseUrl] [token] [flags]
- *
- *   Default baseUrl: https://archer-ophitic-unhortatively.ngrok-free.dev (dispatch dev)
- *
- * # Auth
- *
- *   1. Pass token as second positional arg, OR
- *   2. Set MCP_TEST_TOKEN env var, OR
- *   3. Use --device-flow (preferred) — the dispatch UI Connect page mints a token,
- *      device flow lets the script obtain it programmatically. Open the printed
- *      verification URL, approve it, and the script picks up the token.
- *   4. Use --auth-code — performs Dynamic Client Registration + Authorization Code
- *      with PKCE (S256 is required by the server). The script prints the auth URL
- *      and waits for you to paste back the `code=` param.
- *   5. --insecure-no-auth — skip auth (only works against AUTH_DISABLED dev servers).
- *
- * # Flags
- *
- *   --verbose             dump full request/response bodies
- *   --catalog-dump        just print tools/list + resources/list and exit
- *   --save-responses DIR  save each response body to a file
- *   --device-flow         use POST /_agent-native/mcp/connect/device/start
- *   --auth-code           use Dynamic Client Registration + Authorization Code (PKCE S256)
- *   --insecure-no-auth    skip auth entirely (dev only)
- *   --skip-mail           skip Group D (manage-draft) even if mail-like server detected
- *   --skip-open-app       skip Group C (open_app) even if open_app is listed
- *   --skip-stability      skip Group F (catalog stability — runs tools/list twice)
- *   --help                show this help
- *
- * # Test groups
- *
- *   A: Compact catalog detection (UA + client hint headers select catalog size)
- *   B: Resources catalog
- *   C: open_app + embed ticket privacy
- *   D: Mail manage-draft URL privacy
- *   E: ui.domain validation for Claude (no https:// prefix)
- *   F: Catalog stability across turns
- *
- * Exits 0 if all assertions pass, 1 if any fail.
- *
- * Node 22 built-ins only — no external deps.
- */
 
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const DEFAULT_BASE_URL = "https://archer-ophitic-unhortatively.ngrok-free.dev";
-
-// ---------------------------------------------------------------------------
-// CLI args
-// ---------------------------------------------------------------------------
 
 interface CliFlags {
   baseUrl: string;
@@ -138,10 +85,6 @@ Flags:
 `);
 }
 
-// ---------------------------------------------------------------------------
-// Test reporting
-// ---------------------------------------------------------------------------
-
 interface TestResult {
   group: string;
   id: string;
@@ -208,13 +151,6 @@ function maybeSaveResponse(name: string, body: unknown) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// SSE parsing — Streamable HTTP MCP responses come back as text/event-stream
-// when the transport decides to stream. Each event has a `data:` field with
-// one JSON-RPC payload. We collect them all and return the last `result`/`id`-
-// bearing payload, which is the tool/list/etc. response.
-// ---------------------------------------------------------------------------
-
 function parseSseEvents(text: string): any[] {
   const events: any[] = [];
   const blocks = text.split(/\r?\n\r?\n/);
@@ -237,38 +173,22 @@ function parseSseEvents(text: string): any[] {
   return events;
 }
 
-// ---------------------------------------------------------------------------
-// MCP request helper
-// ---------------------------------------------------------------------------
-
 interface McpCallOptions {
-  /** Override the User-Agent header sent on the request. */
   userAgent?: string;
-  /** Optional MCP client hint header `x-agent-native-mcp-client`. */
   clientHint?: string;
-  /** Optional full-catalog opt-in header `x-agent-native-mcp-full-catalog`. */
   fullCatalogHeader?: string;
-  /** Override clientInfo.name in initialize payloads. */
   clientInfoName?: string;
-  /** Override Authorization header (or omit by setting to ""). */
   token?: string | "";
-  /** Extra arbitrary headers. */
   extraHeaders?: Record<string, string>;
-  /** Exercise the legacy initialize path instead of modern per-request metadata. */
   protocolEra?: "modern" | "legacy";
 }
 
 interface McpCallResult {
   status: number;
-  /** The parsed JSON-RPC response (preferred) — works for both JSON and SSE. */
   result?: any;
-  /** Raw response body (text). */
   rawBody: string;
-  /** Byte length of the raw body — used for catalog-size assertions. */
   byteLength: number;
-  /** Response headers (for content-type debugging). */
   contentType: string;
-  /** Errors that prevented parsing (e.g. 4xx/5xx body). */
   parseError?: string;
 }
 
@@ -281,7 +201,6 @@ async function mcpCall(
   const url = `${flags.baseUrl}/_agent-native/mcp`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    // Streamable HTTP MCP requires Accept advertise both JSON and SSE
     Accept: "application/json, text/event-stream",
     "User-Agent": opts.userAgent ?? "e2e-mcp-test/1.0",
     ...(opts.extraHeaders ?? {}),
@@ -339,14 +258,12 @@ async function mcpCall(
   try {
     if (contentType.includes("text/event-stream")) {
       const events = parseSseEvents(rawBody);
-      // Pick the first event that has a matching id, else the last one
       const matching =
         events.find((e) => e && e.id === body.id) ?? events.at(-1);
       result = matching;
     } else if (contentType.includes("application/json")) {
       result = JSON.parse(rawBody);
     } else if (rawBody) {
-      // Best-effort
       try {
         result = JSON.parse(rawBody);
       } catch {
@@ -385,10 +302,6 @@ async function initialize(opts: McpCallOptions = {}): Promise<McpCallResult> {
     opts,
   );
 }
-
-// ---------------------------------------------------------------------------
-// Auth: device-code flow
-// ---------------------------------------------------------------------------
 
 async function runDeviceFlow(): Promise<string> {
   logInfo(`  Starting device flow against ${flags.baseUrl}`);
@@ -448,7 +361,6 @@ async function runDeviceFlow(): Promise<string> {
     try {
       pollJson = await pollRes.json();
     } catch {
-      // network blip — retry
       continue;
     }
     if (pollJson?.status === "pending") continue;
@@ -472,10 +384,6 @@ async function runDeviceFlow(): Promise<string> {
   }
   throw new Error("Timed out waiting for device-flow approval");
 }
-
-// ---------------------------------------------------------------------------
-// Auth: OAuth Dynamic Client Registration + Authorization Code (PKCE S256)
-// ---------------------------------------------------------------------------
 
 function base64url(buf: Buffer): string {
   return buf.toString("base64url");
@@ -509,8 +417,7 @@ async function runAuthCodeFlow(): Promise<string> {
   }
   const clientId = regJson.client_id;
 
-  // PKCE S256 is REQUIRED by the server (oauth-route.ts line 553-555).
-  const codeVerifier = base64url(randomBytes(48)); // 64 chars after base64url
+  const codeVerifier = base64url(randomBytes(48));
   const codeChallenge = base64url(
     createHash("sha256").update(codeVerifier).digest(),
   );
@@ -581,10 +488,6 @@ function prompt(question: string): Promise<string> {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Helpers for extracting JSON-RPC result/error from McpCallResult
-// ---------------------------------------------------------------------------
-
 function unwrapResult(call: McpCallResult): { result?: any; error?: any } {
   const env = call.result;
   if (!env || typeof env !== "object") {
@@ -604,10 +507,6 @@ function unwrapResult(call: McpCallResult): { result?: any; error?: any } {
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Group A — Compact catalog detection
-// ---------------------------------------------------------------------------
 
 const INTERNAL_TOOL_NAMES = [
   "view-screen",
@@ -666,7 +565,7 @@ const CATALOG_PROBES: CatalogProbe[] = [
   },
 ];
 
-const MAX_CATALOG_BYTES = 50 * 1024; // 50KB threshold — the regression was 224KB
+const MAX_CATALOG_BYTES = 50 * 1024;
 const REGRESSION_BYTES = 200 * 1024;
 
 function countTools(call: McpCallResult): {
@@ -691,7 +590,6 @@ async function groupA_CompactCatalog(): Promise<GroupAOutcome> {
   const out: GroupAOutcome = { toolsByProbe: {} };
 
   for (const probe of CATALOG_PROBES) {
-    // Initialize first (some SDK paths cache caller info from the initialize)
     const initRes = await initialize(probe.opts);
     if (initRes.status >= 400) {
       fail(
@@ -721,7 +619,6 @@ async function groupA_CompactCatalog(): Promise<GroupAOutcome> {
     const bytes = listRes.byteLength;
     out.toolsByProbe[probe.id] = { names: toolNames, bytes };
 
-    // Size guard — fires for any probe, with a tighter check for compact ones.
     const sizeCap = probe.expectCompact ? MAX_CATALOG_BYTES : REGRESSION_BYTES;
     if (bytes > sizeCap) {
       fail(
@@ -734,7 +631,6 @@ async function groupA_CompactCatalog(): Promise<GroupAOutcome> {
     }
 
     if (probe.expectCompact) {
-      // Compact mode must NOT expose internal-only tools
       const leaked = toolNames.filter((n) => INTERNAL_TOOL_NAMES.includes(n));
       if (leaked.length > 0) {
         fail(
@@ -745,9 +641,6 @@ async function groupA_CompactCatalog(): Promise<GroupAOutcome> {
         );
         continue;
       }
-      // Compact mode is small (8 or fewer tools typically: list/open/ask/embed
-      // + per-app mcpApp tools). Don't enforce an exact count — different apps
-      // expose different MCP App tools — just sanity-check the upper bound.
       if (toolNames.length > 25) {
         fail(
           probe.id,
@@ -762,10 +655,6 @@ async function groupA_CompactCatalog(): Promise<GroupAOutcome> {
         bytes,
       });
     } else {
-      // Full mode SHOULD include internal tools if the template registers them.
-      // We can't guarantee any single template registers `view-screen` (some
-      // don't), but we can verify the catalog is meaningfully bigger than the
-      // compact one. Defer that cross-probe check below.
       pass(probe.id, probe.desc, {
         toolCount: toolNames.length,
         bytes,
@@ -774,7 +663,6 @@ async function groupA_CompactCatalog(): Promise<GroupAOutcome> {
     }
   }
 
-  // Cross-probe sanity: full catalog should be at least as large as compact.
   const compact = out.toolsByProbe["A1"] ?? out.toolsByProbe["A2"];
   const full =
     out.toolsByProbe["A5"] ?? out.toolsByProbe["A3"] ?? out.toolsByProbe["A4"];
@@ -797,10 +685,6 @@ async function groupA_CompactCatalog(): Promise<GroupAOutcome> {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Group B — Resources catalog
-// ---------------------------------------------------------------------------
-
 interface GroupBOutcome {
   compactResources: any[];
   fullResources: any[];
@@ -810,7 +694,6 @@ async function groupB_Resources(): Promise<GroupBOutcome> {
   startGroup("Group B: Resources catalog (compact vs full, no ticket leaks)");
   const out: GroupBOutcome = { compactResources: [], fullResources: [] };
 
-  // B1: compact (ChatGPT UA)
   const compactInit = await initialize({
     userAgent: "ChatGPT/1.0",
     clientInfoName: "chatgpt",
@@ -841,7 +724,6 @@ async function groupB_Resources(): Promise<GroupBOutcome> {
       ? (compactResult.resources as any[])
       : [];
     out.compactResources = resources;
-    // Size guard
     if (compactRes.byteLength > MAX_CATALOG_BYTES) {
       fail(
         "B1",
@@ -859,7 +741,6 @@ async function groupB_Resources(): Promise<GroupBOutcome> {
     }
   }
 
-  // B2: full (code hint)
   const fullRes = await mcpCall("resources/list", {}, { clientHint: "code" });
   maybeSaveResponse("resources-list-full", fullRes.rawBody);
   const { result: fullResult, error: fullErr } = unwrapResult(fullRes);
@@ -880,7 +761,6 @@ async function groupB_Resources(): Promise<GroupBOutcome> {
     });
   }
 
-  // B3: no ui.domain has https:// (Claude rejects URL-form domain)
   const allResources = [...out.compactResources, ...out.fullResources];
   const bad: { uri: string; domain: string }[] = [];
   for (const r of allResources) {
@@ -902,8 +782,6 @@ async function groupB_Resources(): Promise<GroupBOutcome> {
     });
   }
 
-  // B4: no embed-ticket URL leaks in any user-visible field
-  // We treat any string containing "/_agent-native/embed/start?" as a leak.
   const leakHits: { uri: string; field: string; preview: string }[] = [];
   const visit = (uri: string, path: string, value: unknown) => {
     if (typeof value === "string") {
@@ -915,8 +793,6 @@ async function groupB_Resources(): Promise<GroupBOutcome> {
         value.forEach((v, i) => visit(uri, `${path}[${i}]`, v));
       } else {
         for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-          // _meta["agent-native/embedStart"] is the legitimate hiding place;
-          // tickets there are expected, not leaked.
           if (path === "_meta" && k === "agent-native/embedStart") continue;
           visit(uri, path ? `${path}.${k}` : k, v);
         }
@@ -925,7 +801,6 @@ async function groupB_Resources(): Promise<GroupBOutcome> {
   };
   for (const r of allResources) {
     const uri = String(r?.uri ?? "<unknown>");
-    // Only inspect user-facing fields, not the legitimate _meta hiding place.
     for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
       visit(uri, k, v);
     }
@@ -946,10 +821,6 @@ async function groupB_Resources(): Promise<GroupBOutcome> {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Group C — open_app + embed ticket privacy
-// ---------------------------------------------------------------------------
-
 interface GroupCOutcome {
   apps: { id: string }[];
   openAppResult?: any;
@@ -968,15 +839,11 @@ async function groupC_OpenAppPrivacy(
     return out;
   }
 
-  // Use the compact-mode probe to call open_app (which always lives in compact
-  // builtin set). Use the same client headers Cursor/Claude would use so we
-  // also exercise the path users care about.
   const opts: McpCallOptions = {
     userAgent: "ChatGPT/1.0",
     clientInfoName: "chatgpt",
   };
 
-  // Verify open_app exists at all
   const compactTools =
     toolsByProbe["A1"]?.names ?? toolsByProbe["A2"]?.names ?? [];
   if (!compactTools.includes("open_app")) {
@@ -991,7 +858,6 @@ async function groupC_OpenAppPrivacy(
     pass("C0", "compact catalog contains open_app", { compactTools });
   }
 
-  // First, list_apps so we know which app id is valid for this server.
   const listAppsRes = await mcpCall(
     "tools/call",
     { name: "list_apps", arguments: {} },
@@ -1008,8 +874,6 @@ async function groupC_OpenAppPrivacy(
     );
     return out;
   }
-  // list_apps result shape: { content: [...], structuredContent: { apps: [...] } }
-  // or sometimes { apps: [...] } at the top level.
   let appsArray: any[] = [];
   const sc = listAppsResult?.structuredContent;
   if (Array.isArray(sc?.apps)) appsArray = sc.apps;
@@ -1047,7 +911,6 @@ async function groupC_OpenAppPrivacy(
     apps: out.apps,
   });
 
-  // Pick the first app and call open_app with embed:true
   const targetApp = String(appsArray[0]?.id ?? appsArray[0]?.name ?? "");
   if (!targetApp) {
     fail(
@@ -1084,7 +947,6 @@ async function groupC_OpenAppPrivacy(
     keys: openResult ? Object.keys(openResult) : [],
   });
 
-  // Validate text content has no ticket URL
   const contentTexts: string[] = Array.isArray(openResult?.content)
     ? (openResult.content as any[])
         .filter((c) => c?.type === "text" && typeof c?.text === "string")
@@ -1106,7 +968,6 @@ async function groupC_OpenAppPrivacy(
     );
   }
 
-  // Validate structuredContent has no banned fields
   const sc2 = openResult?.structuredContent;
   if (sc2 && typeof sc2 === "object") {
     const banned = [
@@ -1122,7 +983,6 @@ async function groupC_OpenAppPrivacy(
       if (banned.includes(key)) found.push(key);
       if (/Ticket$/.test(key)) found.push(key);
     }
-    // Also check url field doesn't contain a ticket
     if (
       typeof (sc2 as any).url === "string" &&
       (sc2 as any).url.includes("/_agent-native/embed/start?")
@@ -1149,8 +1009,6 @@ async function groupC_OpenAppPrivacy(
     );
   }
 
-  // Validate _meta["agent-native/embedStart"].startUrl IS the legitimate
-  // hiding place. (Best-effort — some apps may not return embedStart at all.)
   const meta = openResult?._meta;
   const embedStart = meta?.["agent-native/embedStart"];
   if (embedStart && typeof embedStart === "object") {
@@ -1165,7 +1023,6 @@ async function groupC_OpenAppPrivacy(
         { startUrl: startUrl.slice(0, 200) },
       );
     } else {
-      // Not strictly a failure — some servers don't mint embed sessions for "/"
       pass(
         "C4",
         "_meta[agent-native/embedStart].startUrl present but not a ticket (acceptable for non-embed paths)",
@@ -1183,7 +1040,6 @@ async function groupC_OpenAppPrivacy(
     );
   }
 
-  // C5: openLink.webUrl, if present, must not be a ticket URL.
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as any).webUrl;
@@ -1209,10 +1065,6 @@ async function groupC_OpenAppPrivacy(
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Group D — Mail manage-draft URL privacy
-// ---------------------------------------------------------------------------
-
 async function groupD_MailManageDraft(
   toolsByProbe: GroupAOutcome["toolsByProbe"],
 ): Promise<void> {
@@ -1222,8 +1074,6 @@ async function groupD_MailManageDraft(
     return;
   }
 
-  // Check if this MCP server even exposes manage-draft. We probe with the
-  // full-catalog header so mail-app-derived MCPs always expose it.
   const fullTools =
     toolsByProbe["A5"]?.names ??
     toolsByProbe["A3"]?.names ??
@@ -1270,7 +1120,6 @@ async function groupD_MailManageDraft(
     keys: result ? Object.keys(result) : [],
   });
 
-  // D2: no compose= in text/structured (the base64 payload bug)
   const contentTexts: string[] = Array.isArray(result?.content)
     ? (result.content as any[])
         .filter((c) => c?.type === "text" && typeof c?.text === "string")
@@ -1302,14 +1151,11 @@ async function groupD_MailManageDraft(
     pass("D2", "manage-draft does NOT leak compose= base64 payload in URL", {});
   }
 
-  // D3: where a deep link URL appears, it should use composeDraftId= not compose=
-  // Look for /compose, /mail, or any URL-shaped string containing composeDraftId.
   const allText = `${textBlob}\n${scBlob}\n${metaBlob}`;
   const hasComposeDraftId = allText.includes("composeDraftId=");
   if (hasComposeDraftId) {
     pass("D3", "manage-draft uses composeDraftId= instead of compose=", {});
   } else {
-    // Acceptable — server may have changed the contract. Don't fail outright.
     pass(
       "D3",
       "manage-draft does not include composeDraftId= (acceptable if contract changed)",
@@ -1317,13 +1163,6 @@ async function groupD_MailManageDraft(
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Group E — ui.domain validation for Claude
-// (Already partially covered in B3, but here we also call resources/read on
-// each ui:// URI to make sure the read endpoint doesn't re-introduce the
-// https:// prefix.)
-// ---------------------------------------------------------------------------
 
 async function groupE_UiDomain(resourcesOutcome: GroupBOutcome): Promise<void> {
   startGroup("Group E: ui.domain validation across resources/read");
@@ -1339,7 +1178,6 @@ async function groupE_UiDomain(resourcesOutcome: GroupBOutcome): Promise<void> {
     return;
   }
 
-  // Dedup by URI
   const seen = new Map<string, any>();
   for (const r of uiResources) seen.set(r.uri, r);
 
@@ -1353,7 +1191,6 @@ async function groupE_UiDomain(resourcesOutcome: GroupBOutcome): Promise<void> {
     maybeSaveResponse(`resources-read-${uri}`, readRes.rawBody);
     const { result, error } = unwrapResult(readRes);
     if (error) {
-      // Not a hard failure — resources/read may legitimately reject in some configs
       logErr(
         `  warn: resources/read failed for ${uri}: ${JSON.stringify(error).slice(0, 200)}`,
       );
@@ -1384,10 +1221,6 @@ async function groupE_UiDomain(resourcesOutcome: GroupBOutcome): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Group F — Catalog stability across turns
-// ---------------------------------------------------------------------------
-
 async function groupF_Stability(): Promise<void> {
   startGroup("Group F: Catalog stability across turns");
   if (flags.skipStability) {
@@ -1400,7 +1233,6 @@ async function groupF_Stability(): Promise<void> {
   };
   const a = await mcpCall("tools/list", {}, opts);
   const b = await mcpCall("tools/list", {}, opts);
-  // Compare the tool name + description pairs — request id will differ.
   const { result: ra } = unwrapResult(a);
   const { result: rb } = unwrapResult(b);
   const sigA = JSON.stringify(
@@ -1448,10 +1280,6 @@ async function groupF_Stability(): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Catalog dump mode
-// ---------------------------------------------------------------------------
-
 async function runCatalogDump(): Promise<void> {
   logInfo(`Catalog dump for ${flags.baseUrl} (full catalog via client=code)`);
   await initialize({ clientHint: "code" });
@@ -1474,14 +1302,9 @@ async function runCatalogDump(): Promise<void> {
   logInfo(JSON.stringify(unwrapResult(compactTools).result, null, 2));
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
-
 async function main(): Promise<void> {
   logInfo(`MCP test target: ${flags.baseUrl}`);
 
-  // Resolve a token if needed
   if (!flags.token && !flags.insecureNoAuth) {
     if (flags.deviceFlow) {
       try {
@@ -1502,7 +1325,6 @@ async function main(): Promise<void> {
         "No token provided. Pass one positionally, set MCP_TEST_TOKEN, or use\n" +
           "  --device-flow / --auth-code / --insecure-no-auth.",
       );
-      // Quick probe to give the user a hint about server availability
       try {
         const probe = await fetch(`${flags.baseUrl}/_agent-native/mcp`, {
           method: "POST",
@@ -1547,7 +1369,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Verify the token works at all before running the suite
   if (!flags.insecureNoAuth) {
     const initProbe = await initialize({ clientHint: "code" });
     if (initProbe.status === 401) {
@@ -1566,7 +1387,6 @@ async function main(): Promise<void> {
     logInfo(`  Token accepted (MCP negotiation HTTP ${initProbe.status})`);
   }
 
-  // Run all groups
   const aOut = await groupA_CompactCatalog();
   const bOut = await groupB_Resources();
   await groupC_OpenAppPrivacy(aOut.toolsByProbe);
@@ -1574,7 +1394,6 @@ async function main(): Promise<void> {
   await groupE_UiDomain(bOut);
   await groupF_Stability();
 
-  // Summary
   logInfo("");
   logInfo("══════════════════════════════════════════════════════");
   const passed = results.filter((r) => r.pass).length;

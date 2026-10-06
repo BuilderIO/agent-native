@@ -23,12 +23,10 @@ async function getApolloKey(event: H3Event): Promise<string | undefined> {
   return (data as any)?.apiKey || undefined;
 }
 
-// GET /api/apollo/status — check if key is configured (never returns the key itself)
 export const apolloStatus = defineEventHandler(async (event: H3Event) => {
   return { connected: !!(await getApolloKey(event)) };
 });
 
-// PUT /api/apollo/key — save API key
 export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const body = await readBody(event);
@@ -41,7 +39,6 @@ export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
   return { connected: true };
 });
 
-// POST /api/apollo/validate — verify a key without saving it
 export const apolloValidate = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event).catch(() => ({}));
   const apiKey = (body as { apiKey?: unknown })?.apiKey;
@@ -67,19 +64,15 @@ export const apolloValidate = defineEventHandler(async (event: H3Event) => {
   }
 });
 
-// DELETE /api/apollo/key — remove API key
 export const apolloDeleteKey = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   await appStateDelete(sessionId, "apollo");
   return { connected: false };
 });
 
-// In-memory cache for Apollo person lookups — avoids redundant API calls
-// when flipping through emails from the same person.
 const personCache = new Map<string, { data: any; expiry: number }>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL = 10 * 60 * 1000;
 
-// GET /api/apollo/person?email=... — look up a person
 export const apolloPersonLookup = defineEventHandler(async (event: H3Event) => {
   const { email } = getQuery(event);
   if (!email || typeof email !== "string") {
@@ -93,7 +86,6 @@ export const apolloPersonLookup = defineEventHandler(async (event: H3Event) => {
     return { error: "Apollo API key not configured" };
   }
 
-  // Return cached result if still fresh
   const cached = personCache.get(email);
   if (cached && cached.expiry > Date.now()) {
     return cached.data;
@@ -117,7 +109,6 @@ export const apolloPersonLookup = defineEventHandler(async (event: H3Event) => {
     const data = await response.json();
     const person = data.person || null;
 
-    // Cache the result
     personCache.set(email, { data: person, expiry: Date.now() + CACHE_TTL });
 
     return person;

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withDbTimeout } from "../db/client.js";
+import { createDatabaseRequestTelemetry } from "../db/request-telemetry.js";
+import { registerObservabilityProvider } from "../observability/otel-provider.js";
 import {
   type AgentSpan,
   __resetAgentTracerCache,
@@ -20,9 +22,6 @@ import {
   setHttpRequestTelemetryActionName,
 } from "./http-response-telemetry.js";
 
-// The module keeps its cold-start bookkeeping on globalThis under this symbol.
-// Reaching for it lets a test pin whether a request is process request #1
-// instead of depending on which spec ran first.
 const processState = (globalThis as any)[
   Symbol.for("@agent-native/core/http-response-telemetry.process-state")
 ] as { requestSequence: number; moduleEvalUptimeMs: number };
@@ -60,8 +59,6 @@ function eventFor(path: string) {
     url,
     context: {},
     req: new Request(url, { method: "GET" }),
-    // `errHeaders` mirrors real h3 H3Event.res: a bucket separate from
-    // `headers` that a thrown createError()'s response is built from.
     res: { status: 200, headers: new Headers(), errHeaders: new Headers() },
   };
 }
@@ -108,6 +105,17 @@ describe("http response telemetry", () => {
     });
     installHttpResponseTelemetryHooks(nitroApp);
 
+    const startupState = (globalThis as any)[
+      Symbol.for("@agent-native/core/db.startup-telemetry-state")
+    ] as {
+      captureUntil: number;
+      claimed: boolean;
+      telemetry: ReturnType<typeof createDatabaseRequestTelemetry>;
+    };
+    startupState.claimed = false;
+    startupState.captureUntil = Date.now() + 120_000;
+    startupState.telemetry = createDatabaseRequestTelemetry();
+
     await withDbTimeout("connect", async () => undefined, 100);
 
     const url = new URL(
@@ -121,10 +129,12 @@ describe("http response telemetry", () => {
     };
 
     await requestHooks[0](event);
+    expect(startupState.claimed).toBe(false);
     setHttpRequestTelemetryActionName(event as any, "list-visual-plans");
     await withDbTimeout("connect", async () => undefined, 100);
     await withDbTimeout("query", async () => undefined, 100);
     recordFrameworkReadyWait(event as any, 12);
+    expect(startupState.claimed).toBe(true);
     const response = new Response("{}", { status: 201 });
     await responseHooks[0](response, event);
 
@@ -156,10 +166,41 @@ describe("http response telemetry", () => {
     expect(response.headers.get("server-timing")).toContain("app;dur=");
     expect(response.headers.get("server-timing")).toContain("startup;dur=12");
     expect(response.headers.get("server-timing")).toContain("db;dur=");
+    expect(response.headers.get("server-timing")).toContain("db-queries;dur=1");
+    expect(response.headers.get("server-timing")).toContain(
+      "db-connects;dur=1",
+    );
     expect(response.headers.get("server-timing")).toContain("startup-db;dur=");
     expect(response.headers.get("x-agent-native-request-id")).toBe(
       telemetry?.properties?.request_id,
     );
+  });
+
+  it("includes measured DB counters on cacheable cold pages", async () => {
+    const { requestHooks, responseHooks } = createHooks();
+    const event = eventFor("/");
+    await requestHooks[0](event);
+    await withDbTimeout(
+      "query",
+      async () => ({ rows: [{ name: "forms" }, { name: "responses" }] }),
+      100,
+      undefined,
+      {
+        sql: "SELECT name FROM information_schema.columns JOIN forms_migrations ON true",
+      },
+    );
+
+    const response = new Response("<html></html>", {
+      headers: { "cache-control": "public, s-maxage=60" },
+    });
+    await responseHooks[0](response, event);
+
+    const timing = response.headers.get("server-timing") ?? "";
+    expect(timing).toContain("dbq=1");
+    expect(timing).toContain("dbrows=2");
+    expect(timing).toContain("dbcatalog=1");
+    expect(timing).toContain("dbmigrations=1");
+    expect(timing).toMatch(/startupdb(?:q=|=unavailable)/);
   });
 
   it("flushes the response OTel mirror from its request scope", async () => {
@@ -458,6 +499,94 @@ describe("http response telemetry", () => {
     expect(tracked).toHaveLength(0);
   });
 
+  it("records the HTTP duration metric for requests tracking does not sample, then flushes", async () => {
+    vi.stubEnv("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE", "0");
+    processState.requestSequence = 5;
+    const recorded: Array<Record<string, string | number> | undefined> = [];
+    const forceFlush = vi.fn(async () => {});
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({
+            record: (
+              _value: number,
+              attributes?: Record<string, string | number>,
+            ) => recorded.push(attributes),
+          }),
+          createCounter: () => ({ add() {} }),
+        }),
+        forceFlush,
+      },
+    });
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      const tracked: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: "http-response-telemetry-test",
+        track(event) {
+          tracked.push(event);
+        },
+      });
+
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(tracked).toHaveLength(0);
+      expect(recorded).toEqual([
+        {
+          "http.request.method": "GET",
+          "http.response.status_code": 200,
+        },
+      ]);
+      expect(forceFlush).toHaveBeenCalledOnce();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("ends the HTTP duration metric at the response boundary, not after the tracking flush", async () => {
+    processState.requestSequence = 5;
+    const recorded: number[] = [];
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({
+            record: (value: number) => recorded.push(value),
+          }),
+          createCounter: () => ({ add() {} }),
+        }),
+      },
+    });
+    const startedAt = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    __setAgentTracerForTests({
+      startSpan(): AgentSpan {
+        // The tracking flush outlives the response by several seconds.
+        nowSpy.mockReturnValue(startedAt + 9_000);
+        return {
+          setAttribute() {},
+          setAttributes() {},
+          setStatus() {},
+          recordException() {},
+          end() {},
+        };
+      },
+    });
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      nowSpy.mockReturnValue(startedAt + 1_200);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(recorded).toEqual([1.2]);
+    } finally {
+      nowSpy.mockRestore();
+      unregister();
+    }
+  });
+
   it("reports the pre-handler boot phases on a cold start", async () => {
     const { requestHooks, responseHooks } = createHooks();
     processState.requestSequence = 0;
@@ -499,11 +628,8 @@ describe("http response telemetry", () => {
 
     const timing = response.headers.get("server-timing") ?? "";
     expect(timing).toContain("origin;dur=");
-    // A replayed header must not name a phase a later visitor would read as
-    // the cost of their own request.
     expect(timing).not.toContain("app;dur=");
     expect(timing).not.toContain("db;dur=");
-    // The render's wall-clock time is what makes the replay visible.
     const desc = /desc="([^"]+)"/.exec(timing)?.[1] ?? "";
     expect(Date.parse(desc.split(" ")[0] ?? "")).not.toBeNaN();
   });
@@ -552,10 +678,6 @@ describe("http response telemetry", () => {
   });
 
   it("attributes http.response app/template from the deploy URL instead of the unset display name", async () => {
-    // getAppConfig().app.name is an optional display name (APP_NAME or
-    // npm_package_name) that Lambda never sets, so it silently dropped `app`
-    // and `template` from every deployed row. trackingIdentityProperties
-    // falls back to the platform's deploy URL env var instead.
     vi.stubEnv("APP_URL", "https://slides.agent-native.com");
     const { requestHooks, responseHooks } = createHooks();
     const tracked: TrackingEvent[] = [];
@@ -596,12 +718,6 @@ describe("http response telemetry", () => {
   });
 
   it("writes the request-id header to both h3 response header buckets before the handler runs, so a guard's thrown error still carries it", async () => {
-    // h3 builds a thrown createError()'s response from `res.errHeaders`, a
-    // bucket separate from `res.headers` (its own CORS helpers write the
-    // same header to both, for the same reason). Only ever writing
-    // `res.headers` — as the "response" hook below still also does, for the
-    // ordinary success path — left every guard-rejected 401/403 action with
-    // no x-agent-native-request-id on the wire.
     const { requestHooks } = createHooks();
     const event = eventFor("/_agent-native/actions/get-labs");
 

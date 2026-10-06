@@ -47,8 +47,8 @@ export default createCoreRoutesPlugin({
 
 나머지 그룹은 모두 불리언이며 기본적으로 모두 켜져 있습니다: `sharing`,
 `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`,
-`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
-`chat`, `email`. 음성 우선이나 단일 목적 앱을 위해 모든 그룹을 한 번에
+`userProfile`, `automation`, `docs`, `resources`, `browserSessions`, `web`,
+`workspaceApps`, `chat`, `email`. 음성 우선이나 단일 목적 앱을 위해 모든 그룹을 한 번에
 끄려면 `frameworkTools: "minimal"`을 사용하고, 하나만 유지하려면
 `frameworkTools: { preset: "minimal", resources: true }`를 사용하세요.
 명시적인 그룹 키는 항상 프리셋보다 우선합니다.

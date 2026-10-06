@@ -98,6 +98,13 @@ export default defineAction({
             "مفتاح السجل لـ action المستدعى (مثل `delete-recording`)، يُضبط عند كل موقع إرسال بحيث يمكن للاهتمامات المتقاطعة مثل سجل التدقيق إسناد الاستدعاء. `undefined` لاستدعاءات `run()` البرمجية المباشرة التي تتجاوز المُرسِل.",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "معرّف استدعاء أداة النموذج (`toolCall.id`) لهذا الاستدعاء. تضبطه حلقة الوكيل ويُحفظ أيضًا عبر أغلفة `defineAction()`. يُستخدم لربط الأحداث عند تشغيل action نفسه أكثر من مرة. ليس مدخلًا لـ action، وتكون قيمته `undefined` لدى المستدعين الذين لا يملكون استدعاء أداة من النموذج.",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

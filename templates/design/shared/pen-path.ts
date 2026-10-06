@@ -7,9 +7,7 @@ export interface PenNode {
   point: PenPoint;
   handleIn?: PenPoint;
   handleOut?: PenPoint;
-  /** Figma's per-vertex corner radius; overrides the vector's own radius. */
   cornerRadius?: number;
-  /** Figma's handle mirroring once the user picks one; else read off the handles. */
   mirroring?: PenMirroring;
 }
 
@@ -44,17 +42,6 @@ export function createCornerNode(point: PenPoint): PenNode {
   return { point: { ...point } };
 }
 
-/**
- * Creates a smooth (symmetric-handle) anchor by default: `handleIn` mirrors
- * `handleOut` across `anchor`, giving the anchor a continuous tangent on
- * both sides — this is what dragging a fresh pen anchor normally produces.
- *
- * Pass `{ breakSymmetry: true }` (Figma: hold Alt/Option while dragging a
- * newly placed anchor) to break that symmetry into a cusp: `handleOut`
- * still follows the drag, but no mirrored `handleIn` is created, so the
- * incoming segment stays a plain corner while the outgoing segment curves
- * independently.
- */
 export function createSmoothNode(
   anchor: PenPoint,
   handleOut: PenPoint,
@@ -69,10 +56,6 @@ export function createSmoothNode(
   };
 }
 
-/**
- * Per-drag memory for Figma's Alt-breaks-the-handle-pair gesture on a new pen
- * anchor. Owned by the drag state, not by a single move event.
- */
 export interface PenCuspLatch {
   broken: boolean;
   handleIn?: PenPoint;
@@ -82,15 +65,6 @@ export function createPenCuspLatch(): PenCuspLatch {
   return { broken: false };
 }
 
-/**
- * Builds the anchor a new-anchor drag is currently describing.
- *
- * Alt is a one-way latch for the life of the drag: releasing it does not
- * re-mirror the pair, and breaking it freezes `handleIn` at the tangent it
- * had when Alt went down rather than deleting it, so the segment already
- * drawn keeps its curve. Alt held from the first tick has no earlier tangent
- * to keep, leaving the incoming side a corner.
- */
 export function createPenDragNode(
   anchor: PenPoint,
   handleOut: PenPoint,
@@ -156,11 +130,6 @@ export function constrainPointTo45Degrees(
   const axisX = Math.cos(snappedAngle);
   const axisY = Math.sin(snappedAngle);
 
-  // Project the drag vector onto the snapped axis component-wise (like
-  // Figma), rather than preserving the raw radial distance. For an
-  // axis-aligned snap (0/90/180/270) this reduces to keeping the dominant
-  // component and zeroing the other; for diagonal snaps it reduces to the
-  // usual equal-magnitude diagonal.
   const projection = dx * axisX + dy * axisY;
   return {
     x: origin.x + axisX * projection,
@@ -168,28 +137,11 @@ export function constrainPointTo45Degrees(
   };
 }
 
-/**
- * Light pen-anchor snapping (P15): snap a candidate new-anchor point to any
- * existing anchor point of the path currently being drawn (Figma snaps new
- * anchors onto other anchors of the same path so you can precisely re-hit a
- * prior point), and otherwise round to the nearest integer canvas px once
- * the user is zoomed in to 100% or more (where sub-pixel placement is
- * rarely intentional and hairline anti-aliasing becomes visible).
- *
- * This intentionally does not snap to *other* shapes/frames on the canvas —
- * that's the existing computeMoveSnap/grid machinery's job for whole-object
- * moves, not a per-anchor pen concern.
- */
 export function snapPenAnchorPoint(
   point: PenPoint,
   path: PenPath | null,
   options: { hitRadius: number; zoom: number },
 ): PenPoint {
-  // Nearest anchor within radius wins (matching hitTestPenAnchor), not the
-  // first one found in node order — two anchors can easily both sit within
-  // the hit radius (e.g. a tightly drawn shape), and a "first match" scan
-  // would snap to whichever happens to have the lower node index rather than
-  // the one actually closest to the cursor.
   let nearestAnchor: PenPoint | null = null;
   let nearestDistance = Infinity;
   for (const node of path?.nodes ?? []) {
@@ -220,11 +172,6 @@ export function isPenCloseTarget(
   return Math.hypot(point.x - start.x, point.y - start.y) <= hitRadius;
 }
 
-/**
- * The open path to keep drawing from when the pen clicks one of its
- * endpoints, oriented so that endpoint is last; `null` for a closed path or
- * a click on neither end.
- */
 export function continuePenPathFromEndpoint(
   path: PenPath,
   point: PenPoint,
@@ -251,13 +198,6 @@ export function getPenPathGeometry(path: PenPath): PenGeometry {
     return { x: 0, y: 0, width: MIN_PATH_SIZE, height: MIN_PATH_SIZE };
   }
 
-  // Tight bounds: rather than bounding all anchors *and* control handles
-  // (which over-counts — a handle that pulls a curve's tangent can sit well
-  // outside the curve's actual extent), walk each rendered segment and
-  // bound the real curve geometry: anchor endpoints plus any local extrema
-  // found by solving the cubic Bezier derivative per axis. This matches
-  // what `serializePenPath` actually draws (an `L` segment when handles
-  // coincide with their anchors, otherwise a `C` segment).
   let left = Infinity;
   let top = Infinity;
   let right = -Infinity;
@@ -286,9 +226,6 @@ export function getPenPathGeometry(path: PenPath): PenGeometry {
 
   const width = right - left;
   const height = bottom - top;
-  // Degenerate (zero-area) paths — e.g. a single anchor, or a perfectly
-  // straight horizontal/vertical two-point path — still need a visible
-  // selection box, so floor to a minimum size in that case only.
   if (width <= 0 && height <= 0) {
     return { x: left, y: top, width: MIN_PATH_SIZE, height: MIN_PATH_SIZE };
   }
@@ -309,8 +246,6 @@ function includeSegmentBounds(
   const c2 = to.handleIn ?? to.point;
   include(to.point);
 
-  // Straight segment (serializePenPath emits `L` in this case) — the two
-  // anchors already bound it, no interior extrema to solve for.
   if (samePoint(c1, from.point) && samePoint(c2, to.point)) {
     return;
   }
@@ -331,18 +266,6 @@ function includeSegmentBounds(
   }
 }
 
-/**
- * Roots of B'(t) = 0 for a single-axis cubic Bezier with control points
- * p0..p3, restricted to t in (0, 1) (endpoints are already included by the
- * caller via the anchor points).
- *
- * B(t) = (1-t)^3 p0 + 3(1-t)^2 t p1 + 3(1-t) t^2 p2 + t^3 p3
- * B'(t) = 3(1-t)^2 (p1-p0) + 6(1-t)t (p2-p1) + 3t^2 (p3-p2)
- *       = a t^2 + b t + c, with:
- *   a = 3 * (-p0 + 3p1 - 3p2 + p3)
- *   b = 6 * (p0 - 2p1 + p2)
- *   c = 3 * (p1 - p0)
- */
 function cubicBezierExtremaTs(
   p0: number,
   p1: number,
@@ -357,7 +280,6 @@ function cubicBezierExtremaTs(
   const EPS = 1e-9;
 
   if (Math.abs(a) < EPS) {
-    // Linear derivative: at most one root.
     if (Math.abs(b) >= EPS) {
       const t = -c / b;
       if (t > 0 && t < 1) roots.push(t);
@@ -392,22 +314,6 @@ function cubicBezierValue(
   );
 }
 
-/**
- * Compact, lossless, attribute-safe encoding of a full structured `PenPath`
- * (every node's anchor point, handleIn, handleOut, and the path's `closed`
- * flag) — for stashing on a committed screen element (e.g.
- * `data-an-pen-nodes="..."`) so the flattened `<path d="...">` baked by
- * `serializePenPath` can later be re-hydrated into an editable vector path
- * for vector edit mode.
- *
- * Format: `JSON.stringify([closedFlag, ...nodeTuples])` where each node
- * tuple is `[px, py, hix, hiy, hox, hoy, radius]`; missing handles and
- * radii are encoded as `null` for both handle coordinates / the radius. This is plain JSON (no raw `"`, `<`,
- * `>`, or `&`), so it round-trips safely through `Element.setAttribute` /
- * `getAttribute` without any additional escaping, and stays compact because
- * every node is a flat numeric array rather than an object with repeated
- * key names.
- */
 export function serializePenNodes(path: PenPath): string {
   const tuples: PenNodeTuple[] = path.nodes.map((node) => [
     node.point.x,
@@ -421,12 +327,6 @@ export function serializePenNodes(path: PenPath): string {
   return JSON.stringify([path.closed ? 1 : 0, ...tuples]);
 }
 
-/**
- * Inverse of `serializePenNodes`. Returns `null` (never throws) for any
- * malformed, truncated, or otherwise unrecognized input, so callers can
- * safely attempt to parse arbitrary/untrusted attribute strings read back
- * off the DOM.
- */
 export function parsePenNodes(serialized: string): PenPath | null {
   if (typeof serialized !== "string" || serialized.length === 0) return null;
 
@@ -473,8 +373,6 @@ function parsePenNodeTuple(tuple: unknown): PenNode | null {
   if (!isFiniteNumber(px) || !isFiniteNumber(py)) return null;
   if (!isNullOrFiniteNumber(hix) || !isNullOrFiniteNumber(hiy)) return null;
   if (!isNullOrFiniteNumber(hox) || !isNullOrFiniteNumber(hoy)) return null;
-  // A handle's two coordinates must agree on presence — one present and the
-  // other null is not a representable PenPoint.
   if ((hix === null) !== (hiy === null)) return null;
   if ((hox === null) !== (hoy === null)) return null;
 
@@ -505,11 +403,6 @@ function isNullOrFiniteNumber(value: unknown): value is number | null {
   return value === null || isFiniteNumber(value);
 }
 
-/**
- * Nearest pen anchor to `point` within `radiusInCanvasPx`, or `null` if none
- * qualifies. Ties (equal distance) resolve to the earlier node index, same
- * as a stable nearest-match scan.
- */
 export function hitTestPenAnchor(
   path: PenPath,
   point: PenPoint,
@@ -529,11 +422,6 @@ export function hitTestPenAnchor(
   return bestIndex === -1 ? null : { nodeIndex: bestIndex };
 }
 
-/**
- * Nearest pen control-handle endpoint (a node's `handleIn` or `handleOut`)
- * to `point` within `radiusInCanvasPx`, or `null` if none qualifies. Nodes
- * without a given handle are skipped for that handle.
- */
 export function hitTestPenHandle(
   path: PenPath,
   point: PenPoint,
@@ -559,14 +447,6 @@ export function hitTestPenHandle(
   return bestIndex === -1 ? null : { nodeIndex: bestIndex, which: bestWhich };
 }
 
-/**
- * Returns a new path with the anchor at `nodeIndex` moved to `newPoint`.
- * By default its `handleIn`/`handleOut` translate along with it (Figma:
- * dragging an anchor keeps both handles' offsets from the anchor fixed).
- * Pass `{ moveHandlesWithAnchor: false }` to move only the anchor point and
- * leave both handles at their existing absolute positions. Never mutates
- * `path`.
- */
 export function movePenAnchor(
   path: PenPath,
   nodeIndex: number,
@@ -598,18 +478,6 @@ export function movePenAnchor(
   return replaceNode(path, nodeIndex, nextNode);
 }
 
-/**
- * Returns a new path with the `which` control handle of the node at
- * `nodeIndex` moved to `newHandlePoint`. For a smooth node (one whose
- * *opposite* handle already exists), the opposite handle mirrors the drag
- * by default — the anchor stays the midpoint between both handles, so the
- * tangent stays continuous (Figma default). Pass `{ breakSymmetry: true }`
- * to move only the dragged handle, leaving the opposite handle where it
- * was; this turns the anchor into a cusp going forward. A node with no
- * opposite handle (a cusp already, or a plain corner gaining its first
- * handle) never gains one as a side effect of this call — only the
- * requested handle is created/moved. Never mutates `path`.
- */
 export function movePenHandle(
   path: PenPath,
   nodeIndex: number,
@@ -638,17 +506,6 @@ export function movePenHandle(
   return replaceNode(path, nodeIndex, nextNode);
 }
 
-/**
- * Returns a new path with the node at `nodeIndex` converted to `type`.
- * Converting to `"corner"` drops both handles (a corner anchor has none).
- * Converting to `"smooth"` synthesizes symmetric handles from the
- * neighboring anchors when the node doesn't already have at least one
- * handle — reusing the same mirrored-handle shape `createSmoothNode`
- * produces — so the anchor gets a continuous tangent through its
- * neighbors. A node that already has a handleIn or handleOut is left as-is
- * aside from ensuring both sides are populated and mirrored, since it's
- * already effectively smooth. Never mutates `path`.
- */
 export function setPenNodeType(
   path: PenPath,
   nodeIndex: number,
@@ -667,9 +524,6 @@ export function setPenNodeType(
   }
 
   if (node.handleIn || node.handleOut) {
-    // Already has at least one handle: treat as smooth already, but make
-    // sure both sides are present and mirrored around the anchor so the
-    // tangent is continuous on both sides.
     const source = node.handleOut ?? node.handleIn!;
     const handleOut = node.handleOut ?? mirrorPoint(node.point, source);
     const handleIn = node.handleIn ?? mirrorPoint(node.point, handleOut);
@@ -684,10 +538,6 @@ export function setPenNodeType(
     );
   }
 
-  // Plain corner with no handles yet: synthesize a symmetric handle pair
-  // from the neighboring anchors so the new tangent follows the path's
-  // local direction, matching what a freshly-dragged smooth anchor looks
-  // like via createSmoothNode.
   const neighbor =
     path.nodes[nodeIndex + 1] ??
     path.nodes[nodeIndex - 1] ??
@@ -695,9 +545,6 @@ export function setPenNodeType(
   const direction = neighbor
     ? { x: neighbor.point.x - node.point.x, y: neighbor.point.y - node.point.y }
     : { x: 1, y: 0 };
-  // Scale the synthesized handle to a small fraction of the distance to the
-  // neighbor (rather than reaching all the way to it), matching the usual
-  // proportions of a Figma smooth-anchor handle.
   const HANDLE_FRACTION = 1 / 3;
   const handleOut = {
     x: node.point.x + direction.x * HANDLE_FRACTION,
@@ -709,7 +556,6 @@ export function setPenNodeType(
 
 export type PenMirroring = "none" | "angle" | "angleAndLength";
 
-/** Figma's handle mirroring for a vertex, read from its handle geometry. */
 export function penNodeMirroring(node: PenNode): PenMirroring {
   if (node.mirroring) return node.mirroring;
   if (!node.handleIn || !node.handleOut) return "none";
@@ -723,7 +569,6 @@ export function penNodeMirroring(node: PenNode): PenMirroring {
   };
   const scale = Math.max(Math.hypot(vin.x, vin.y), Math.hypot(vout.x, vout.y));
   if (scale === 0) return "none";
-  // Saved paths round to 0.1px, so an exact mirror can come back a hair off.
   const tolerance = scale * 1e-2;
   if (Math.hypot(vin.x + vout.x, vin.y + vout.y) <= tolerance) {
     return "angleAndLength";
@@ -734,10 +579,6 @@ export function penNodeMirroring(node: PenNode): PenMirroring {
   return collinear ? "angle" : "none";
 }
 
-/**
- * Stores a vertex's mirroring mode and, for the mirrored modes, re-aims its
- * incoming handle off the outgoing one; a corner gains a smooth pair first.
- */
 export function setPenNodeMirroring(
   path: PenPath,
   nodeIndex: number,
@@ -762,7 +603,6 @@ export function setPenNodeMirroring(
   return replaceNode(path, nodeIndex, next);
 }
 
-/** `current`'s length, pointing directly away from `lead` across `anchor`. */
 function opposeAtLength(
   anchor: PenPoint,
   lead: PenPoint,
@@ -876,10 +716,6 @@ function roundedPenCommands(path: PenPath): string[] {
   return commands;
 }
 
-/**
- * `serializePenPath` with each corner rounded by an arc of `radius` (a vertex's
- * own `cornerRadius` wins), clamped to half the shorter neighbouring chord.
- */
 export function serializeRoundedPenPath(
   path: PenPath,
   radius: number,
@@ -910,9 +746,6 @@ export function serializeRoundedPenPath(
       segments[outgoing]!.controls,
     );
   });
-  // Each segment's length is shared by the corners at its two ends in
-  // proportion to what their radius asks for (Figma), so a rhombus rounds
-  // into its incircle and an open end cedes the whole segment.
   const need = (index: number) =>
     geometry[index] ? radiusAt(nodes[index]!) / geometry[index]!.halfTan : 0;
   const effective = nodes.map((node) => radiusAt(node));
@@ -995,8 +828,6 @@ function cornerGeometry(incoming: Cubic, outgoing: Cubic) {
       ? null
       : { x: (to.x - vertex.x) / length, y: (to.y - vertex.y) / length };
   };
-  // Direction along each segment away from the vertex, from its nearest
-  // distinct control point.
   const back = [incoming[2], incoming[1], incoming[0]].map(unit).find(Boolean);
   const ahead = [outgoing[1], outgoing[2], outgoing[3]].map(unit).find(Boolean);
   if (!back || !ahead) return null;
@@ -1010,8 +841,6 @@ function cornerGeometry(incoming: Cubic, outgoing: Cubic) {
   };
 }
 
-/** Curve parameter whose point lies `distance` from `vertex`, searching in
- *  from the end (`fromEnd`) or the start that touches the vertex. */
 function parameterAtDistance(
   curve: Cubic,
   vertex: PenPoint,
@@ -1039,7 +868,6 @@ function lerpPoint(a: PenPoint, b: PenPoint, t: number): PenPoint {
   return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
-/** The part of a cubic between parameters `t0` and `t1` (de Casteljau). */
 function subCubic(curve: Cubic, t0: number, t1: number): Cubic {
   const split = (c: Cubic, t: number): [Cubic, Cubic] => {
     const [p0, p1, p2, p3] = c;
@@ -1060,11 +888,6 @@ function subCubic(curve: Cubic, t0: number, t1: number): Cubic {
   return split(tail, (t1 - t0) / (1 - t0))[0];
 }
 
-/**
- * Nearest point on any segment of `path` within `radius`: the segment starts
- * at node `segmentIndex` (the closing segment of a closed path is the last
- * index) and `t` is the curve parameter of the hit.
- */
 export function hitTestPenSegment(
   path: PenPath,
   point: PenPoint,
@@ -1092,10 +915,6 @@ export function hitTestPenSegment(
   return best;
 }
 
-/**
- * Bends one segment so the point grabbed at curve parameter `t` follows the
- * pointer by `delta`; both anchors stay put (Figma's segment drag).
- */
 export function bendPenSegment(
   path: PenPath,
   segmentIndex: number,
@@ -1124,7 +943,6 @@ export function bendPenSegment(
   return { nodes, closed: path.closed };
 }
 
-/** The vector's radius replaces every vertex radius, as in Figma. */
 export function withoutVertexRadii(path: PenPath): PenPath {
   return {
     ...path,
@@ -1132,7 +950,6 @@ export function withoutVertexRadii(path: PenPath): PenPath {
   };
 }
 
-/** Maximum circular radius supported for a straight-sided corner anchor. */
 export function maxPenCornerRadius(
   path: PenPath,
   nodeIndex: number,
@@ -1177,7 +994,6 @@ export function maxPenCornerRadius(
   return Math.min(incomingLength, outgoingLength) * 0.5 * halfAngleTangent;
 }
 
-/** Set a circular radius on a straight-sided Pen anchor; unsupported geometry fails closed. */
 export function setPenNodeCornerRadius(
   path: PenPath,
   nodeIndex: number,
@@ -1190,7 +1006,6 @@ export function setPenNodeCornerRadius(
   return { nodes, closed: path.closed };
 }
 
-/** A straight segment's implicit control points sit a third of the way along. */
 function segmentControls(
   path: PenPath,
   segmentIndex: number,
@@ -1210,7 +1025,6 @@ function segmentControls(
   return [p0, from.handleOut ?? p0, to.handleIn ?? p3, p3];
 }
 
-/** Reads back the trailing "Z" `serializePenPath` emits for a closed path. */
 export function isClosedPathData(data: string | null | undefined): boolean {
   return Boolean(data && /Z\s*$/i.test(data.trim()));
 }

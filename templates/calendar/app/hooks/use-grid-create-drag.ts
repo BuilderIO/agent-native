@@ -3,25 +3,17 @@ import { useState, useRef, useCallback, useEffect } from "react";
 export const CREATE_DRAG_SNAP_MINUTES = 15;
 
 interface CreateDragState {
-  /** Day/column index the drag started in (week view cross-day drags are not supported — stays put) */
   dayIndex: number;
-  /** Pointer Y relative to grid top at drag start */
   startPointerY: number;
-  /** Snapped minutes (from grid start hour) at the current pointer position */
   startMinutes: number;
-  /** Snapped minutes (from grid start hour) at the current pointer position */
   currentMinutes: number;
-  /** Whether we've moved enough to count as a drag (vs a plain click) */
   hasMoved: boolean;
 }
 
 export interface CreateDragGhost {
   dayIndex: number;
-  /** Top of the ghost block in px, relative to the grid */
   top: number;
-  /** Height of the ghost block in px */
   height: number;
-  /** Snapped range, in minutes from the grid's start hour */
   startMinutes: number;
   endMinutes: number;
 }
@@ -29,24 +21,15 @@ export interface CreateDragGhost {
 export interface UseGridCreateDragOptions {
   hourHeight: number;
   startHour: number;
-  /** Reference to the scroll container for computing offsets */
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
-  /** Called when a drag (movement past the threshold) completes, with the snapped range in minutes from startHour */
   onCreate: (
     dayIndex: number,
     startMinutes: number,
     endMinutes: number,
   ) => void;
-  /** Minutes to snap to; defaults to the same increment use-event-drag uses */
   snapMinutes?: number;
 }
 
-/**
- * Pointer-down-drag-up on empty grid background to draw a live ghost block
- * and commit the dragged range on release. A plain click (no movement past
- * the threshold) never calls onCreate — callers keep their existing
- * fixed-duration click-to-create handler for that case.
- */
 export function useGridCreateDrag({
   hourHeight,
   startHour,
@@ -56,7 +39,6 @@ export function useGridCreateDrag({
 }: UseGridCreateDragOptions) {
   const [dragState, setDragState] = useState<CreateDragState | null>(null);
   const dragStateRef = useRef<CreateDragState | null>(null);
-  /** Tracks if a create-drag just ended — used to suppress the trailing click */
   const justCreatedRef = useRef(false);
   const pendingMoveEventRef = useRef<PointerEvent | null>(null);
   const rafIdRef = useRef<number | null>(null);
@@ -211,7 +193,6 @@ export function useGridCreateDrag({
     };
   }, [dragState, onPointerMove, onPointerUp, cancelCreateDrag]);
 
-  /** The live ghost to render, or null when not actively dragging (past the move threshold) */
   const ghost: CreateDragGhost | null =
     dragState && dragState.hasMoved
       ? {

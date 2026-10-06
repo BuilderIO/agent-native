@@ -5,7 +5,10 @@ import { z } from "zod";
 import { defineAction, fail } from "../../action.js";
 import { getTraceSummary, insertFeedback } from "../store.js";
 import type { FeedbackEntry } from "../types.js";
-import { requireObservabilityOrgAdmin } from "./authorization.js";
+import {
+  authorizeObservabilityOrgAdmin,
+  getObservabilityOrgAdminAccess,
+} from "./authorization.js";
 
 export default defineAction({
   description:
@@ -27,8 +30,9 @@ export default defineAction({
       }
     }),
   agentTool: false,
+  authorize: authorizeObservabilityOrgAdmin,
   run: async (args, ctx) => {
-    const { userId, orgId } = await requireObservabilityOrgAdmin(ctx);
+    const { userId, orgId } = getObservabilityOrgAdminAccess(ctx);
     const summary = await getTraceSummary(args.runId, { orgId });
     if (!summary)
       fail("That agent output is no longer available.", { statusCode: 404 });

@@ -9,12 +9,6 @@ import {
 } from "../settings/index.js";
 
 export const AGENT_LOOP_SETTINGS_KEY = "agent-loop";
-/**
- * Now that the budget is terminal rather than self-resetting, this has to clear
- * real deep work: production contains a legitimate 117-tool-call analysis, so
- * the old 100 would have cut it off. Runaway turns are caught by repetition
- * detection (`MAX_IDENTICAL_TOOL_CALLS`), not by this ceiling.
- */
 export const DEFAULT_AGENT_MAX_ITERATIONS = 400;
 export const MIN_AGENT_MAX_ITERATIONS = 1;
 export const MAX_AGENT_MAX_ITERATIONS = 1000;
@@ -43,7 +37,6 @@ export interface AgentLoopSettings {
   defaultMaxIterations: number;
   minMaxIterations: number;
   maxMaxIterations: number;
-  /** Per-turn input-token ceiling — see DEFAULT_AGENT_MAX_RUN_INPUT_TOKENS. */
   maxRunInputTokens: number;
   defaultMaxRunInputTokens: number;
   scope: AgentLoopSettingsScope;

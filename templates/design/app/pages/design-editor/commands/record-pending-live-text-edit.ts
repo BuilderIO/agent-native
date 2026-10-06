@@ -150,9 +150,6 @@ export function runRecordPendingLiveTextEdit(
     pendingLiveNonStyleEditsRef.current,
     nextEdit,
   );
-  // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
-  // stay painted until Apply, so sharing that cap silently drops them from
-  // the Apply payload. Consecutive keystrokes on the same node coalesce.
   const previousUndoLength = pendingLiveNonStyleUndoStackRef.current.length;
   appendPendingLiveNonStyleUndoEntry(
     pendingLiveNonStyleUndoStackRef.current,

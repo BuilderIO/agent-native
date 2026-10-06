@@ -2,7 +2,10 @@ import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
 import { listOutputReviews } from "../reviews.js";
-import { requireObservabilityOrgAdmin } from "./authorization.js";
+import {
+  authorizeObservabilityOrgAdmin,
+  getObservabilityOrgAdminAccess,
+} from "./authorization.js";
 
 export default defineAction({
   description:
@@ -15,8 +18,9 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
+  authorize: authorizeObservabilityOrgAdmin,
   run: async (args, ctx) => {
-    const { orgId } = await requireObservabilityOrgAdmin(ctx);
+    const { orgId, reviewScope } = getObservabilityOrgAdminAccess(ctx);
     if (args.cacheOrgId !== undefined && args.cacheOrgId !== orgId) {
       fail("The active organization changed. Reload human review.", {
         statusCode: 403,
@@ -25,7 +29,7 @@ export default defineAction({
     return listOutputReviews({
       sinceMs: args.sinceMs ?? Date.now() - 7 * 86_400_000,
       limit: args.limit ?? 100,
-      orgId,
+      scope: reviewScope,
     });
   },
 });

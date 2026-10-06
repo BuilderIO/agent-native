@@ -5,11 +5,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const COUNTDOWN_STEP_MS = 1000;
 
-/**
- * Full-screen transparent countdown overlay. Runs 3 → 2 → 1 on full-second
- * beats, then emits `clips:countdown-done` and closes its own window. The
- * recorder waits for that event before it starts capturing.
- */
 export function Countdown() {
   const [n, setN] = useState(3);
   const closingRef = useRef(false);

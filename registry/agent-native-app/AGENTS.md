@@ -54,7 +54,9 @@ the agent can use.
   docs with `pnpm action docs-search --query "<topic>"` or
   `node_modules/@agent-native/core/docs`. When implementation examples or
   template patterns matter, use `pnpm action source-search --query "<pattern>"`
-  or search `node_modules/@agent-native/core/corpus`.
+  or search `node_modules/@agent-native/core-corpus/corpus`. This package is
+  optional; install it at the same version as Core if source-search reports
+  that template source is unavailable.
 - Before building common workspace or agent UI, read `agent-native-toolkit` to
   inventory existing public kits and installed package seams.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.

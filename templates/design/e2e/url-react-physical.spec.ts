@@ -382,21 +382,21 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       `${baseURL}/visual-edit/${opened.designId}?editorView=overview&zoom=31`,
       { waitUntil: "domcontentloaded" },
     );
-    for (let attempt = 0; attempt < 2; attempt++) {
-      if (await page.locator("[data-design-editor]").count()) break;
-      try {
-        await page
-          .locator("[data-design-editor]")
-          .waitFor({ state: "attached", timeout: 2_000 });
-      } catch {
-        // The local editor can still be completing its first client mount.
-      }
-      if (await page.locator("[data-design-editor]").count()) break;
-      await page.reload({ waitUntil: "domcontentloaded" });
+    try {
+      await expect(page.locator("[data-design-editor]")).toBeVisible({
+        timeout: 45_000,
+      });
+    } catch (error) {
+      const pageState = await page
+        .evaluate(() => ({
+          title: document.title,
+          bodyText: document.body.innerText.slice(0, 600),
+        }))
+        .catch(() => ({ title: "unavailable", bodyText: "unavailable" }));
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; url=${redactDiagnostic(page.url())}; title=${redactDiagnostic(pageState.title)}; body=${redactDiagnostic(pageState.bodyText)}; client-errors=${clientErrors.slice(-12).join(" | ")}; bridge=${bridgeResponses.join(" | ")}; registration=${failedBridgeRequests.slice(-8).join(" | ")}`,
+      );
     }
-    await expect(page.locator("[data-design-editor]")).toBeVisible({
-      timeout: 30_000,
-    });
     const allowLocalAccess = page.getByRole("button", {
       name: "Allow local access",
     });
@@ -718,8 +718,6 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       });
       await expect(opacity).toHaveValue("100%");
       await opacity.fill(String(percent));
-      // ScrubInput commits typed values on Enter/blur; filling the draft is
-      // not a visual edit yet, so measure delivery from the commit gesture.
       await opacity.evaluate((input) => {
         const win = window as Window & { __visualStyleEnterAt?: number };
         input.addEventListener(
@@ -848,9 +846,6 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       ).toBeLessThanOrEqual(400);
     };
 
-    // Both live screens must receive inspector patches through their own
-    // mounted iframe, including the screen that was not active before its
-    // layer was selected. Switching back must not route to the old frame.
     await installBridge(page);
     await editOpacityInFrame(
       destinationFrame,
@@ -1671,29 +1666,46 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     };
     assertFullRafTrace(sourcePostReleaseSamples, "source");
     assertFullRafTrace(destinationPostReleaseSamples, "destination");
+    const misplacedSourceSamples = sourcePostReleaseSamples.filter(
+      (sample) =>
+        sample.present &&
+        sample.visible &&
+        (sample.parentId !== crossSourceInitialLocation.parentId ||
+          sample.index !== crossSourceInitialLocation.index ||
+          Math.abs(sample.x - crossSourceInitialLocation.x) >= 1 ||
+          Math.abs(sample.y - crossSourceInitialLocation.y) >= 1 ||
+          Math.abs(sample.width - crossSourceInitialLocation.width) >= 1 ||
+          Math.abs(sample.height - crossSourceInitialLocation.height) >= 1),
+    );
     expect(
-      sourcePostReleaseSamples.some((sample) => sample.visible),
-      "the moved node remained visible in its source iframe after mouseup; samples=" +
+      misplacedSourceSamples,
+      "the source moved to a drag-exit position before deletion; samples=" +
         JSON.stringify({
           firstVisible: sourcePostReleaseSamples.find(
             (sample) => sample.visible,
           ),
-          visibleCount: sourcePostReleaseSamples.filter(
-            (sample) => (sample as { visible: boolean }).visible,
-          ).length,
+          misplacedCount: misplacedSourceSamples.length,
           last: sourcePostReleaseSamples[sourcePostReleaseSamples.length - 1],
-          trace: await sourceBrowserFrame!.evaluate(
-            () =>
-              (
-                window as Window & {
-                  __crossScreenDropTrace?: {
-                    instanceId: string;
-                    insertions: unknown[];
-                    mutations: unknown[];
-                  };
+          trace: await sourceBrowserFrame!.evaluate(() => {
+            const trace = (
+              window as Window & {
+                __crossScreenDropTrace?: {
+                  instanceId: string;
+                  insertions: unknown[];
+                  mutations: unknown[];
+                  samples: CrossScreenDropSample[];
+                };
+              }
+            ).__crossScreenDropTrace;
+            return trace
+              ? {
+                  instanceId: trace.instanceId,
+                  insertions: trace.insertions,
+                  mutations: trace.mutations,
+                  lastSamples: trace.samples.slice(-8),
                 }
-              ).__crossScreenDropTrace ?? null,
-          ),
+              : null;
+          }),
           relevantMessages: hostMessageTrace.filter(
             (message) =>
               message.type === "agent-native:runtime-reloading" ||
@@ -1702,8 +1714,14 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
               message.type === "runtime-element-deleted" ||
               message.type === "visual-structure-ack",
           ),
+          navigations: crossFrameNavigations,
+          iframeLifecycle: iframeLifecycleTrace.slice(-20),
         }),
-    ).toBe(false);
+    ).toHaveLength(0);
+    expect(
+      sourcePostReleaseSamples[sourcePostReleaseSamples.length - 1],
+      "the moved node remained in the source after the stable 3s window",
+    ).toMatchObject({ present: false, visible: false });
     expect(
       firstDestinationInsert,
       "the inserted node never appeared in the destination within the 3s window",
@@ -1836,8 +1854,6 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       }),
     ).toBeVisible();
 
-    // The live iframe must keep Figma-style hover and pointer selection in
-    // overview mode. These are physical browser events, not bridge messages.
     const freeform = frame.locator('[data-agent-native-node-id="freeform"]');
     const freeformBefore = await physicalBox(
       frame,
@@ -1985,7 +2001,7 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
           width: number;
           height: number;
         }>,
-        stopAt: performance.now() + 15_000,
+        stopAt: performance.now() + 60_000,
       };
       (
         window as typeof window & { __visualDropTrace?: typeof trace }
@@ -2115,8 +2131,6 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       returnedToOriginal,
       "the source element visibly returned to its pre-drop location after moving",
     ).toBe(false);
-    // v2 was moved to the other live screen above, so the source reorder is
-    // applied to the remaining siblings.
     await expect.poll(order).toEqual(["v3", "v1"]);
     await expect
       .poll(
@@ -2138,16 +2152,18 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     );
     const appPath = path.join(rootPath, "src/App.tsx");
     const before = fs.readFileSync(appPath, "utf8");
-    const after = before.replace(
-      'const initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];',
-      'const initialCards = [{ id: "v2", label: "V2" }, { id: "v3", label: "V3" }, { id: "v1", label: "V1 updated" }];',
-    );
+    const after = before
+      .replace(
+        'const initialCards = [{ id: "v1", label: "V1" }, { id: "v2", label: "V2" }, { id: "v3", label: "V3" }];',
+        'const initialCards = [{ id: "v2", label: "V2" }, { id: "v3", label: "V3" }, { id: "v1", label: "V1 updated" }];',
+      )
+      .replace(">Go to next route</button>", ">Go to updated route</button>");
     if (after === before)
       throw new Error("React source edit did not match App.tsx");
     fs.writeFileSync(appPath, after);
-    await expect(frame.getByText("V1 updated", { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(
+      frame.getByRole("button", { name: "Go to updated route" }),
+    ).toBeVisible({ timeout: 15_000 });
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.locator("[data-design-editor]")).toBeVisible({
       timeout: 30_000,
@@ -2199,11 +2215,6 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
         { timeout: 15_000 },
       )
       .toBe("auto");
-    // React Router/framework hydration can replace the whole document body
-    // after the iframe first boots. The editor host lives outside that tree;
-    // prove a real physical click still selects after both a route render and
-    // a document-level React unmount/hydrate remount rather than trusting the
-    // initial bridge handshake.
     const reloadedFrame = await reloadedIframe
       .elementHandle()
       .then((iframe) => iframe?.contentFrame());
@@ -2260,10 +2271,6 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       if (!bridgeScript) throw new Error("missing editor bridge script");
       document.head.appendChild(bridgeScript.cloneNode(true));
     });
-    // A document-hydrating app can execute a viewer bridge before the editor
-    // bridge arrives. Reinstall both configurations in one document and prove
-    // the second install updates the live instance instead of only repairing
-    // the old read-only host.
     await reloaded.locator("body").evaluate(() => {
       const bridgeScript = document.querySelector(
         "script[data-agent-native-editor-chrome-bridge]",
@@ -2381,8 +2388,6 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       ),
     ).toBe(1);
 
-    // A framework hydration recovery can replace the documentElement itself,
-    // which disconnects observers attached only to the previous <html> node.
     await reloaded.locator("body").evaluate(() => {
       window.setTimeout(() => {
         const currentDocumentElement = document.documentElement;

@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/**
- * guard-no-major-changeset - refuse unattended major bumps.
- *
- * On 2026-08-28 `.changeset/remove-chat-settings-mode.md` declared
- * `"@agent-native/core": major`. Changesets reads `major` on a 0.x package as
- * 0.176.1 -> 1.0.0, the version PR was force-merged by
- * `auto-merge-version-packages.yml`, and `auto-publish.yml` pushed 1.0.0 plus
- * 55 nightlies to npm. No human saw a version number at any point. These
- * packages are pre-1.0 on purpose.
- *
- * Changesets itself has no setting for this - major bumps are legal - so the
- * refusal lives here, where every PR runs it. Minor bumps remain valid for
- * intentional breaking changes to 0.x packages.
- *
- * The escape hatch is deliberately not a pragma in the file: promoting a major
- * version is a decision someone makes on purpose, so it is done by a human
- * merging the version PR in GitHub after this guard is removed or the changeset
- * is edited down.
- */
 
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -29,11 +10,6 @@ const REPO_ROOT = path.resolve(
 );
 const CHANGESET_DIR = path.join(REPO_ROOT, ".changeset");
 
-/**
- * Read the `---` delimited front matter of a changeset.
- * Returns the raw bump lines; a file without front matter yields none rather
- * than throwing, because `README.md` and `config.json` live in this directory.
- */
 function bumpLines(contents) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(contents);
   if (!match) return [];
@@ -68,7 +44,6 @@ function main() {
       process.exit(2);
     }
     for (const line of bumpLines(contents)) {
-      // `"@agent-native/core": major`
       const bump = /^\s*["']?([^"':]+)["']?\s*:\s*(major|minor|patch)\s*$/.exec(
         line,
       );

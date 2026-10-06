@@ -1,10 +1,3 @@
-/**
- * Ranked command-palette search, ported from the Analytics palette so CRM
- * scores records, lists, and commands the same way the rest of the workspace
- * does. `commandPaletteFilter` returns a score rather than a boolean because
- * cmdk is driven with `shouldFilter: false` — ordering is ours to decide.
- */
-
 export function commandPaletteKeywords(
   ...parts: Array<string | null | undefined>
 ): string[] {

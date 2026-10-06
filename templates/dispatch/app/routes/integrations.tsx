@@ -4,16 +4,9 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  GoogleProductLogo,
-  IntegrationConnectionChoice,
-  IntegrationGrid,
-  startWorkspaceProviderOAuth as startManagedWorkspaceProviderOAuth,
-} from "@agent-native/core/client/integrations";
+import { startWorkspaceProviderOAuth as startManagedWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { useAppRoles, useOrgRole } from "@agent-native/core/client/org";
 import {
-  McpIntegrationDialog,
-  McpIntegrationLogo,
   getDefaultMcpIntegrations,
   isCustomMcpIntegrationEnabled,
   useCreateMcpServer,
@@ -59,6 +52,15 @@ import {
   SelectValue,
 } from "@agent-native/dispatch/components/ui/select";
 import { Switch } from "@agent-native/dispatch/components/ui/switch";
+import {
+  GoogleProductLogo,
+  IntegrationConnectionChoice,
+} from "@agent-native/toolkit/app/integrations";
+import { IntegrationGrid } from "@agent-native/toolkit/app/integrations";
+import {
+  McpIntegrationDialog,
+  McpIntegrationLogo,
+} from "@agent-native/toolkit/app/resources";
 import {
   IconAlertTriangle,
   IconArrowLeft,

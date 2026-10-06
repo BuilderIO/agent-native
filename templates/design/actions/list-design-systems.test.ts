@@ -29,9 +29,6 @@ const mocks = vi.hoisted(() => {
     orgId: null as string | null,
   };
 
-  // The main list query chains `.orderBy(...)` after `.where(...)`, the
-  // default lookup chains `.limit(1)`, and the batched share lookup awaits
-  // `.where(...)` directly.
   const orderByFn = vi.fn(async () => state.listRows);
   const defaultLimitFn = vi.fn(async () => state.defaultRows);
   const whereDesignSystemsFn = vi.fn(() => ({
@@ -239,7 +236,6 @@ describe("list-design-systems — effective isDefault", () => {
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
     ];
-    // resolveDefaultDesignSystemId resolves to the caller's own isDefault row.
     mocks.state.defaultRows = [{ id: "ds-mine" }];
 
     const result = await action.run({});

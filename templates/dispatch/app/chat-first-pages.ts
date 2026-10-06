@@ -13,6 +13,18 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "無法儲存應用程式釘選。",
       appPinSavedLocally: "應用程式釘選只儲存在此裝置上。",
       chatFirstCreateWorkspaceApp: "建立工作區應用程式",
+      chatFirstNewApp: "新增",
+      chatFirstOpenInNewTab: "在新分頁開啟",
+      chatFirstDefaultDescriptionCalendar:
+        "Agent-Native Google 日曆 — 管理活動、同步行程與公開預約",
+      chatFirstDefaultDescriptionClips:
+        "螢幕錄製、會議記錄與語音聽寫 — 全部由 AI 協助",
+      chatFirstDefaultDescriptionContent:
+        "適用於 MDX 的開源 Obsidian — 編輯本機文件並獲得代理協助",
+      chatFirstDefaultDescriptionDesign:
+        "Agent-Native 設計工具 — 建立與編輯視覺設計，並獲得代理協助",
+      chatFirstDefaultDescriptionMail:
+        "Agent-Native Superhuman — 支援鍵盤快捷鍵與 AI 分類的電子郵件用戶端",
       chatFirstOpenApp: "開啟 {{name}}",
       chatFirstAppsLoadError: "無法載入工作區應用程式",
       chatFirstNoWorkspaceApps: "尚無工作區應用程式。",
@@ -90,6 +102,18 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "无法保存应用固定设置。",
       appPinSavedLocally: "应用固定设置仅保存在此设备上。",
       chatFirstCreateWorkspaceApp: "创建工作区应用",
+      chatFirstNewApp: "新建",
+      chatFirstOpenInNewTab: "在新标签页中打开",
+      chatFirstDefaultDescriptionCalendar:
+        "Agent-Native Google 日历 — 管理活动、同步日程和公开预约",
+      chatFirstDefaultDescriptionClips:
+        "屏幕录制、会议记录和语音听写 — 全部由 AI 助力",
+      chatFirstDefaultDescriptionContent:
+        "面向 MDX 的开源 Obsidian — 在本地编辑文档并获得代理协助",
+      chatFirstDefaultDescriptionDesign:
+        "Agent-Native 设计工具 — 创建和编辑视觉设计，并获得代理协助",
+      chatFirstDefaultDescriptionMail:
+        "Agent-Native Superhuman — 支持键盘快捷键和 AI 分类的邮件客户端",
       chatFirstOpenApp: "打开 {{name}}",
       chatFirstAppsLoadError: "无法加载工作区应用",
       chatFirstNoWorkspaceApps: "尚无工作区应用。",
@@ -168,6 +192,18 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSavedLocally:
         "Las apps fijadas solo se guardan en este dispositivo.",
       chatFirstCreateWorkspaceApp: "Crear app del espacio de trabajo",
+      chatFirstNewApp: "Nuevo",
+      chatFirstOpenInNewTab: "Abrir en una pestaña nueva",
+      chatFirstDefaultDescriptionCalendar:
+        "Google Calendar de Agent-Native — gestiona eventos, sincronización y reservas públicas",
+      chatFirstDefaultDescriptionClips:
+        "Grabación de pantalla, notas de reuniones y dictado de voz, todo con IA",
+      chatFirstDefaultDescriptionContent:
+        "Obsidian de código abierto para MDX: edita documentos locales con ayuda del agente",
+      chatFirstDefaultDescriptionDesign:
+        "Herramienta de diseño de Agent-Native: crea y edita diseños visuales con ayuda del agente",
+      chatFirstDefaultDescriptionMail:
+        "Superhuman de Agent-Native: cliente de correo con atajos de teclado y clasificación con IA",
       chatFirstOpenApp: "Abrir {{name}}",
       chatFirstAppsLoadError:
         "No se pudieron cargar las apps del espacio de trabajo",
@@ -254,6 +290,18 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSavedLocally:
         "Les applications épinglées sont enregistrées uniquement sur cet appareil.",
       chatFirstCreateWorkspaceApp: "Créer une application d’espace de travail",
+      chatFirstNewApp: "Nouveau",
+      chatFirstOpenInNewTab: "Ouvrir dans un nouvel onglet",
+      chatFirstDefaultDescriptionCalendar:
+        "Google Agenda Agent-Native — gérez les événements, la synchronisation et les réservations publiques",
+      chatFirstDefaultDescriptionClips:
+        "Enregistrement d’écran, notes de réunion et dictée vocale, le tout avec l’IA",
+      chatFirstDefaultDescriptionContent:
+        "Obsidian open source pour MDX — modifiez des documents locaux avec l’aide de l’agent",
+      chatFirstDefaultDescriptionDesign:
+        "Outil de conception Agent-Native — créez et modifiez des visuels avec l’aide de l’agent",
+      chatFirstDefaultDescriptionMail:
+        "Superhuman Agent-Native — client e-mail avec raccourcis clavier et tri par IA",
       chatFirstOpenApp: "Ouvrir {{name}}",
       chatFirstAppsLoadError:
         "Impossible de charger les applications de l’espace de travail",
@@ -342,6 +390,18 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSavedLocally:
         "App-Anheftungen werden nur auf diesem Gerät gespeichert.",
       chatFirstCreateWorkspaceApp: "Arbeitsbereich-App erstellen",
+      chatFirstNewApp: "Neu",
+      chatFirstOpenInNewTab: "In neuem Tab öffnen",
+      chatFirstDefaultDescriptionCalendar:
+        "Agent-Native Google Kalender — Termine verwalten, synchronisieren und öffentliche Buchungen",
+      chatFirstDefaultDescriptionClips:
+        "Bildschirmaufnahmen, Besprechungsnotizen und Spracheingabe — alles mit KI",
+      chatFirstDefaultDescriptionContent:
+        "Open-Source Obsidian für MDX — lokale Dokumente mit Agentenunterstützung bearbeiten",
+      chatFirstDefaultDescriptionDesign:
+        "Agent-Native Design-Tool — visuelle Designs mit Agentenunterstützung erstellen und bearbeiten",
+      chatFirstDefaultDescriptionMail:
+        "Agent-Native Superhuman — E-Mail-Client mit Tastenkürzeln und KI-Sortierung",
       chatFirstOpenApp: "{{name}} öffnen",
       chatFirstAppsLoadError:
         "Arbeitsbereich-Apps konnten nicht geladen werden",
@@ -428,6 +488,17 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "アプリの固定を保存できませんでした。",
       appPinSavedLocally: "アプリの固定はこのデバイスにのみ保存されます。",
       chatFirstCreateWorkspaceApp: "ワークスペースアプリを作成",
+      chatFirstNewApp: "新規",
+      chatFirstOpenInNewTab: "新しいタブで開く",
+      chatFirstDefaultDescriptionCalendar:
+        "Agent-Native Google カレンダー — 予定の管理、同期、公開予約",
+      chatFirstDefaultDescriptionClips: "画面録画、会議メモ、音声入力を AI で",
+      chatFirstDefaultDescriptionContent:
+        "MDX 向けのオープンソース Obsidian — エージェントの支援でローカル文書を編集",
+      chatFirstDefaultDescriptionDesign:
+        "Agent-Native デザインツール — エージェントの支援でビジュアルデザインを作成・編集",
+      chatFirstDefaultDescriptionMail:
+        "Agent-Native Superhuman — キーボードショートカットと AI 振り分けに対応したメールクライアント",
       chatFirstOpenApp: "{{name}}を開く",
       chatFirstAppsLoadError: "ワークスペースアプリを読み込めませんでした",
       chatFirstNoWorkspaceApps: "ワークスペースアプリはまだありません。",
@@ -513,6 +584,18 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "앱 고정을 저장하지 못했습니다.",
       appPinSavedLocally: "앱 고정은 이 기기에만 저장됩니다.",
       chatFirstCreateWorkspaceApp: "워크스페이스 앱 만들기",
+      chatFirstNewApp: "새로 만들기",
+      chatFirstOpenInNewTab: "새 탭에서 열기",
+      chatFirstDefaultDescriptionCalendar:
+        "Agent-Native Google Calendar — 일정 관리, 동기화, 공개 예약",
+      chatFirstDefaultDescriptionClips:
+        "화면 녹화, 회의 메모, 음성 받아쓰기 — 모두 AI 지원",
+      chatFirstDefaultDescriptionContent:
+        "MDX용 오픈소스 Obsidian — 에이전트의 도움으로 로컬 문서 편집",
+      chatFirstDefaultDescriptionDesign:
+        "Agent-Native 디자인 도구 — 에이전트의 도움으로 시각 디자인 제작 및 편집",
+      chatFirstDefaultDescriptionMail:
+        "Agent-Native Superhuman — 키보드 단축키와 AI 분류 기능을 갖춘 이메일 클라이언트",
       chatFirstOpenApp: "{{name}} 열기",
       chatFirstAppsLoadError: "워크스페이스 앱을 불러오지 못했습니다",
       chatFirstNoWorkspaceApps: "아직 워크스페이스 앱이 없습니다.",
@@ -595,6 +678,18 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSavedLocally:
         "Os apps fixados são salvos somente neste dispositivo.",
       chatFirstCreateWorkspaceApp: "Criar app do espaço de trabalho",
+      chatFirstNewApp: "Novo",
+      chatFirstOpenInNewTab: "Abrir em nova aba",
+      chatFirstDefaultDescriptionCalendar:
+        "Google Calendar da Agent-Native — gerencie eventos, sincronização e reservas públicas",
+      chatFirstDefaultDescriptionClips:
+        "Gravação de tela, notas de reunião e ditado por voz — tudo com IA",
+      chatFirstDefaultDescriptionContent:
+        "Obsidian de código aberto para MDX — edite documentos locais com ajuda do agente",
+      chatFirstDefaultDescriptionDesign:
+        "Ferramenta de design da Agent-Native — crie e edite designs visuais com ajuda do agente",
+      chatFirstDefaultDescriptionMail:
+        "Superhuman da Agent-Native — cliente de e-mail com atalhos de teclado e triagem por IA",
       chatFirstOpenApp: "Abrir {{name}}",
       chatFirstAppsLoadError:
         "Não foi possível carregar os apps do espaço de trabalho",
@@ -680,6 +775,18 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "ऐप पिन सहेजे नहीं जा सके।",
       appPinSavedLocally: "ऐप पिन केवल इस डिवाइस पर सहेजे गए हैं।",
       chatFirstCreateWorkspaceApp: "वर्कस्पेस ऐप बनाएँ",
+      chatFirstNewApp: "नया",
+      chatFirstOpenInNewTab: "नए टैब में खोलें",
+      chatFirstDefaultDescriptionCalendar:
+        "Agent-Native Google Calendar — इवेंट, सिंक और सार्वजनिक बुकिंग प्रबंधित करें",
+      chatFirstDefaultDescriptionClips:
+        "स्क्रीन रिकॉर्डिंग, मीटिंग नोट्स और वॉइस डिक्टेशन — सब AI के साथ",
+      chatFirstDefaultDescriptionContent:
+        "MDX के लिए ओपन-सोर्स Obsidian — एजेंट की सहायता से स्थानीय दस्तावेज़ संपादित करें",
+      chatFirstDefaultDescriptionDesign:
+        "Agent-Native डिज़ाइन टूल — एजेंट की सहायता से विज़ुअल डिज़ाइन बनाएँ और संपादित करें",
+      chatFirstDefaultDescriptionMail:
+        "Agent-Native Superhuman — कीबोर्ड शॉर्टकट और AI ट्रायेज वाला ईमेल क्लाइंट",
       chatFirstOpenApp: "{{name}} खोलें",
       chatFirstAppsLoadError: "वर्कस्पेस ऐप्स लोड नहीं हो सके",
       chatFirstNoWorkspaceApps: "अभी कोई वर्कस्पेस ऐप नहीं है।",
@@ -759,6 +866,18 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "تعذر حفظ تثبيتات التطبيقات.",
       appPinSavedLocally: "تُحفظ تثبيتات التطبيقات على هذا الجهاز فقط.",
       chatFirstCreateWorkspaceApp: "إنشاء تطبيق مساحة عمل",
+      chatFirstNewApp: "جديد",
+      chatFirstOpenInNewTab: "فتح في علامة تبويب جديدة",
+      chatFirstDefaultDescriptionCalendar:
+        "تقويم Google من Agent-Native — إدارة الأحداث والمزامنة والحجوزات العامة",
+      chatFirstDefaultDescriptionClips:
+        "تسجيل الشاشة وملاحظات الاجتماعات والإملاء الصوتي — كلها مدعومة بالذكاء الاصطناعي",
+      chatFirstDefaultDescriptionContent:
+        "Obsidian مفتوح المصدر لـ MDX — حرّر المستندات المحلية بمساعدة الوكيل",
+      chatFirstDefaultDescriptionDesign:
+        "أداة تصميم من Agent-Native — أنشئ التصاميم المرئية وحرّرها بمساعدة الوكيل",
+      chatFirstDefaultDescriptionMail:
+        "Superhuman من Agent-Native — عميل بريد إلكتروني باختصارات لوحة المفاتيح وفرز ذكي بالذكاء الاصطناعي",
       chatFirstOpenApp: "فتح {{name}}",
       chatFirstAppsLoadError: "تعذر تحميل تطبيقات مساحة العمل",
       chatFirstNoWorkspaceApps: "لا توجد تطبيقات لمساحة العمل بعد.",

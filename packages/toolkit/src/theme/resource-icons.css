@@ -1,4 +1,3 @@
-/* User-selected icon colors stay independent of an app's brand/chart palette. */
 :root {
   --resource-icon-gray: #787774;
   --resource-icon-brown: #9f6b53;

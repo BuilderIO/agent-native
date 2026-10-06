@@ -106,14 +106,6 @@ export function runMotionAutosave({
   ) {
     return;
   }
-  // U-motion-empty: the user deleted every track (or the last keyframe of
-  // the last track, which MotionDock collapses into removing the track).
-  // apply-motion-edit's schema rejects an empty tracks array, so this can't
-  // go through the normal autosave — it must go through remove-motion-timeline
-  // instead, which deletes the motion_timeline row AND strips the managed
-  // <style data-agent-native-motion> block so a reload doesn't restore the
-  // old animation. Nothing to remove if there was never a persisted
-  // timeline for this file (motionTimelineId is null) — just clear dirty.
   if (motionTracks.length === 0) {
     if (!motionTimelineId) {
       setMotionTracksDirty(false);
@@ -157,15 +149,6 @@ export function runMotionAutosave({
   const fileRevisionAtSchedule = activeFile.updatedAt;
   const fire = () => {
     if (motionAutosaveRevisionRef.current !== revisionAtSchedule) return;
-    // Drop empty tracks defensively (a 0-keyframe track fails the action
-    // schema and would brick every subsequent autosave) and canonicalise
-    // keyframe order so the persisted JSON is always time-sorted. Full
-    // emptiness (0 tracks) is handled above via remove-motion-timeline
-    // before this closure is ever scheduled; this guards the case where
-    // every remaining track individually has 0 keyframes (shouldn't
-    // normally happen — MotionDock removes a track once its keyframes hit
-    // 0 — but stays a defensive no-op rather than sending an invalid
-    // payload that would brick the next autosave).
     const tracksForSave = motionTracks
       .filter((track) => track.keyframes.length > 0)
       .map(({ label: _label, ...track }) => ({
@@ -173,9 +156,6 @@ export function runMotionAutosave({
         keyframes: sortMotionKeyframes(track.keyframes),
       }));
     if (tracksForSave.length === 0) return;
-    // When flushed after a file switch, the schedule-time file is no longer
-    // active; resolve its content from the per-screen cache instead of the
-    // active-file refs (which may already point at the NEW file).
     const isActiveFileNow =
       previousMotionFileIdRef.current === fileIdAtSchedule;
     const currentContent = isActiveFileNow
@@ -229,11 +209,6 @@ export function runMotionAutosave({
             isStillActiveFile
           ) {
             setMotionTracksDirty(false);
-            // Seed the hydration fingerprint with the EXPECTED post-save
-            // identity instead of null: a null fingerprint lets the
-            // still-stale get-motion-timeline cache re-hydrate the
-            // pre-save tracks (UI reverts, then jumps back on refetch,
-            // and edits made in that window lock in the reverted state).
             const contentPatched = response.contentPatched !== false;
             const expectedHash =
               typeof response.compiledHash === "string"
@@ -268,9 +243,6 @@ export function runMotionAutosave({
             response.fileId === fileIdAtSchedule &&
             response.contentPatched !== false
           ) {
-            // Re-inject the managed CSS into the FRESHEST content at
-            // success time — replaying the pre-flight snapshot would
-            // clobber document edits made while the save was in flight.
             const freshContent = isStillActiveFile
               ? getFreshActiveFileContent({
                   activeContent: currentContent,
@@ -287,9 +259,6 @@ export function runMotionAutosave({
               refreshPreview: false,
               forcePreviewFullDocument: true,
               recordHistory: false,
-              // Without concurrent edits, adopt the server's write as-is
-              // (no re-save). With concurrent edits the merged content must
-              // flow through the normal save path and stay marked pending.
               ...(hasConcurrentEdits
                 ? {}
                 : {

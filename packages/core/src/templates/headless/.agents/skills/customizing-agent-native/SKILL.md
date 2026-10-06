@@ -142,17 +142,21 @@ app-owned code, or reconcile those edits before restoring it.
 
 Use the source that matches the installed package version:
 
+The template corpus is optional. If source-search reports it is unavailable,
+follow `agent-native-docs` to install the matching package before using the
+direct corpus path below.
+
 ```bash
 pnpm action docs-search --query "<component or feature>"
 pnpm action source-search --query "<component or symbol>"
 rg -n "<component or symbol>" node_modules/@agent-native/toolkit/src
-rg -n "<component or symbol>" node_modules/@agent-native/core/corpus
+rg -n "<component or symbol>" node_modules/@agent-native/core-corpus/corpus
 ```
 
 - Toolkit publishes readable TypeScript under
   `node_modules/@agent-native/toolkit/src/` for selective UI adoption.
 - First-party template source lives under
-  `node_modules/@agent-native/core/corpus/templates/`; Core's own implementation
+  `node_modules/@agent-native/core-corpus/corpus/templates/`; Core's own implementation
   lives under `node_modules/@agent-native/core/dist/`.
 - Treat those trees as read-only references. Prefer `agent-native eject` so the
   package manifest selects the complete source closure and rewrites imports.

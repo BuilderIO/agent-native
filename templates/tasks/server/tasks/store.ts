@@ -23,7 +23,6 @@ import {
 
 export { requireUserEmail };
 
-/** Action/UI view of a task on the task list (`promotedToTask = true` in storage). */
 export type Task = Omit<StoredItem, "promotedToTask">;
 
 const NOT_FOUND = "Task not found.";
@@ -126,10 +125,6 @@ export async function updateTasks(
   return items.map(toTask);
 }
 
-/**
- * Single-task update. Unlike `updateTasks` this also accepts `fieldValues`,
- * which are per-task and so have no meaningful bulk form.
- */
 export async function updateTask(
   input: {
     ownerEmail: string;

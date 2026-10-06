@@ -57,6 +57,8 @@ vi.mock("../db/index.js", () => ({
 }));
 
 vi.mock("./share-password.js", () => ({
+  getRecordingAccessTokenResourceId: (id: string, password: string | null) =>
+    password ? `${id}:password-scoped` : `${id}:update-scoped`,
   verifySharePassword: vi.fn(() => false),
 }));
 
@@ -89,6 +91,7 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
     videoSizeBytes: null,
     durationMs: 10_000,
     updatedAt: "2026-01-01T00:00:00.000Z",
+    sharePasswordVersion: "initial",
     ...overrides,
   };
 }
@@ -127,9 +130,31 @@ describe("public agent context access", () => {
     }
     expect(mockSignScopedAgentAccessToken).toHaveBeenCalledWith({
       resourceKind: "clip-agent-context",
-      resourceId: "rec-1",
+      resourceId: "rec-1:password-scoped",
       ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
+  });
+
+  it("does not accept an agent token scoped before a password was added", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        visibility: "private",
+        password: "encrypted-password",
+      }),
+    ];
+
+    const result = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "old-agent-token",
+    });
+
+    expect(result).toMatchObject({ ok: false, failure: { status: 404 } });
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "old-agent-token",
+      {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1:password-scoped",
+      },
+    );
   });
 
   it("allows a scoped agent token to read private clips without making them public", async () => {
@@ -153,7 +178,7 @@ describe("public agent context access", () => {
       "agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1",
+        resourceId: "rec-1:update-scoped",
       },
     );
   });
@@ -666,7 +691,6 @@ describe("buildPublicAgentContext", () => {
         durationMs: 120,
       },
     ]);
-    // consoleLogs exposes the full stream (all levels), not just warn/error.
     expect(context.browserDiagnostics?.consoleLogs).toEqual([
       {
         timestampMs: 1,
@@ -679,7 +703,6 @@ describe("buildPublicAgentContext", () => {
         message: "Failed without token=<redacted>",
       },
     ]);
-    // consoleIssues remains the curated warn/error highlight list.
     expect(context.browserDiagnostics?.consoleIssues).toEqual([
       {
         timestampMs: 2,
@@ -687,7 +710,6 @@ describe("buildPublicAgentContext", () => {
         message: "Failed without token=<redacted>",
       },
     ]);
-    // networkRequests exposes the full stream with sanitized URLs.
     expect(context.browserDiagnostics?.networkRequests).toEqual([
       {
         timestampMs: 3,
@@ -708,7 +730,6 @@ describe("buildPublicAgentContext", () => {
         durationMs: 40,
       },
     ]);
-    // failedNetworkRequests remains the curated failure highlight list.
     expect(context.browserDiagnostics?.failedNetworkRequests).toEqual([
       {
         timestampMs: 3,
@@ -720,7 +741,6 @@ describe("buildPublicAgentContext", () => {
         durationMs: 120,
       },
     ]);
-    // The recording's own page URL is still never exposed.
     expect(context.browserDiagnostics).not.toHaveProperty("pageUrl");
   });
 });

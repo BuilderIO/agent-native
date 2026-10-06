@@ -12,15 +12,6 @@ import {
   NOTO_NASKH_ARABIC_BASE64,
 } from "./og-fonts-data.js";
 
-/**
- * Liberation Sans is the metric-compatible libre replacement for
- * Arial/Helvetica that the OG image SVG asks for. Noto Naskh Arabic fills the
- * Arabic script gap for localized docs titles. Geist and Geist Mono match the
- * first-party sign-in page for app preview cards. They ship embedded as base64
- * (see {@link ./og-fonts-data.ts}) so the renderer never depends on the host's
- * system fonts — Linux serverless runtimes (Netlify/Lambda) have neither Arial,
- * Inter, nor Arabic fallback fonts.
- */
 const OG_FONT_FILES = [
   {
     filename: "LiberationSans-Regular.ttf",
@@ -43,13 +34,6 @@ export const OG_GEIST_MONO_FONT_FAMILY = "Geist Mono";
 
 let cachedFontFiles: string[] | null | undefined;
 
-/**
- * Materialize the embedded OG fonts to disk and return their paths for resvg's
- * `fontFiles` option. resvg 2.x only accepts file paths (no in-memory buffers),
- * so the bytes are written once to a content-hashed tmp directory and cached
- * for the lifetime of the process. Returns `undefined` if the fonts can't be
- * written, letting the caller fall back to system fonts.
- */
 export function resolveOgFontFiles(): string[] | undefined {
   if (cachedFontFiles !== undefined) return cachedFontFiles ?? undefined;
 

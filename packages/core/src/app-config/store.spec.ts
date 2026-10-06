@@ -19,6 +19,10 @@ describe("app config store", () => {
     process.env = { ...originalEnv };
     delete process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK;
     delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.DISPATCH_ADMIN_EMAILS;
+    delete process.env.WORKSPACE_OWNER_EMAIL;
+    delete process.env.DISPATCH_DEFAULT_OWNER_EMAIL;
   });
 
   afterEach(() => {
@@ -35,6 +39,11 @@ describe("app config store", () => {
   it("reads a declared environment alias", () => {
     process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(false);
+  });
+
+  it("reads the MCP static-token owner from its declared alias", () => {
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    expect(getAppConfig().auth.mcpOwnerEmail).toBe("owner@example.com");
   });
 
   it("reads early liveness configuration from declared aliases", () => {
@@ -72,6 +81,18 @@ describe("app config store", () => {
       bootstrapAdmins: ["Admin@example.com", "owner@example.com"],
       sso: { enabled: true },
       scim: { enabled: true },
+    });
+  });
+
+  it("resolves Dispatch admin emails from their declared environment aliases", () => {
+    process.env.DISPATCH_ADMIN_EMAILS = "admin@example.com,ops@example.com";
+    process.env.WORKSPACE_OWNER_EMAIL = "owner@example.com";
+    process.env.DISPATCH_DEFAULT_OWNER_EMAIL = "default@example.com";
+
+    expect(getAppConfig().dispatch).toEqual({
+      adminEmails: ["admin@example.com", "ops@example.com"],
+      workspaceOwnerEmails: ["owner@example.com"],
+      defaultOwnerEmail: "default@example.com",
     });
   });
 
@@ -248,8 +269,6 @@ describe("app identity", () => {
   });
 
   it("has no default, so credential scoping can still deny", () => {
-    // A default of "app" here would turn "no identity configured" into a grant
-    // lookup scoped to an app literally named `app`.
     expect(appConfigSchema.parse({}).app.id).toBeUndefined();
   });
 
@@ -304,9 +323,6 @@ describe("agent engine and model", () => {
   });
 
   it("rejects a malformed toggle instead of silently reading it as false", () => {
-    // Behavior change: `/^(1|true)$/i.test(...)` treated "maybe" as false, so a
-    // typo silently selected the opposite policy. It is now a startup error
-    // naming the key.
     process.env.AGENT_ENGINE_PREFER_BYO_KEY = "maybe";
     expect(() => getAppConfig()).toThrow(
       /AGENT_ENGINE_PREFER_BYO_KEY must be one of/,

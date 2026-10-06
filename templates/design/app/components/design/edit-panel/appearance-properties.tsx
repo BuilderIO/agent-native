@@ -3,16 +3,19 @@ import {
   IconBorderCorners,
   IconBorderRadius,
   IconCheck,
+  IconChevronDown,
   IconDroplet,
+  IconDropletFilled,
   IconEye,
   IconEyeOff,
   IconGridDots,
+  IconMinus,
   IconRadiusBottomLeft,
   IconRadiusBottomRight,
   IconRadiusTopLeft,
   IconRadiusTopRight,
 } from "@tabler/icons-react";
-import { useState, type ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +36,7 @@ import { ScrubInput, type ScrubInputChangeMeta } from "../inspector";
 import type { ElementInfo } from "../types";
 import { elementIdentityKey } from "./element-identity";
 import { FieldTrailer } from "./field-primitives";
-import { SectionIconToggle } from "./inspector-controls";
+import { SectionIconButton, SectionIconToggle } from "./inspector-controls";
 import {
   INSPECTOR_GRID_ACTION_GUTTER_SPAN,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
@@ -53,11 +56,7 @@ import type {
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
-import {
-  BLEND_MODE_OPTIONS,
-  optionValue,
-  parseNumericValue,
-} from "./style-options";
+import { BLEND_MODE_OPTIONS, parseNumericValue } from "./style-options";
 
 export function CornerRadiusControl({
   styles,
@@ -69,15 +68,11 @@ export function CornerRadiusControl({
   parentGrid = false,
   vectorPointRadius,
   hideForVectorPoint,
+  disabled = false,
 }: {
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  /**
-   * Optional — only needed to render the keyframe diamond / breakpoint
-   * override indicator next to the uniform radius field. Omit for callers
-   * that don't wire those features (both affordances stay hidden).
-   */
   element?: ElementInfo;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
@@ -88,6 +83,7 @@ export function CornerRadiusControl({
     onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   };
   hideForVectorPoint?: boolean;
+  disabled?: boolean;
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
@@ -103,8 +99,6 @@ export function CornerRadiusControl({
     bottomRight: isMixedValue(cornerSources.bottomRight),
     bottomLeft: isMixedValue(cornerSources.bottomLeft),
   };
-  // Guard cssLengthNumber against the Mixed sentinel — parseFloat("Mixed")
-  // would silently coerce it to 0 and render a concrete value.
   const corners = {
     topLeft: cornerMixed.topLeft ? 0 : cssLengthNumber(cornerSources.topLeft),
     topRight: cornerMixed.topRight
@@ -127,9 +121,6 @@ export function CornerRadiusControl({
     cornerMixed.topRight &&
     cornerMixed.bottomRight &&
     cornerMixed.bottomLeft;
-  // With mixed sentinels the parsed numbers are placeholders, so compare
-  // mixed-ness instead: all-mixed reads as uniform (each element may still be
-  // uniform), partially-mixed means at least one element has differing corners.
   const cornersDiffer = anyCornerMixed
     ? !allCornersMixed
     : !fourValuesEqual([
@@ -138,17 +129,6 @@ export function CornerRadiusControl({
         corners.bottomRight,
         corners.bottomLeft,
       ]);
-  // Seeds the toggle once per selection (this component is remounted per
-  // element via `key={elementIdentityKey(element)}` at its call site) and is
-  // otherwise a pure user-controlled toggle (see toggleIndependentCorners
-  // below). Do NOT add back a useEffect that re-derives this from
-  // `cornersDiffer` on every render: commitRadius below applies the 4 corner
-  // longhands + shorthand as separate onStyleChange calls, so a scrub
-  // gesture that re-invokes commitRadius on every drag tick can hit an
-  // intermediate render where one longhand has updated and another hasn't —
-  // `cornersDiffer` spikes true for that frame and a reactive effect would
-  // force-expand the per-corner view mid-drag, same class of bug as the
-  // padding auto-unlink fix above (STEVE TEST BATCH 4 #4 audit).
   const [showIndependentCorners, setShowIndependentCorners] =
     useState(cornersDiffer);
   const radiusMixed =
@@ -160,9 +140,6 @@ export function CornerRadiusControl({
       : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
   const commitRadius = (value: number, meta?: ScrubInputChangeMeta) => {
     const next = `${Math.max(0, Math.round(value))}px`;
-    // Always write the longhands along with the shorthand: stale inline
-    // longhand declarations serialize after the shorthand and would override
-    // it, turning uniform-radius commits into silent no-ops.
     const patch = {
       borderRadius: next,
       borderTopLeftRadius: next,
@@ -179,10 +156,6 @@ export function CornerRadiusControl({
     );
   };
   const toggleIndependentCorners = () => {
-    // Collapsing while corners differ flattens them to the displayed uniform
-    // value; otherwise the stale longhands would keep overriding the shorthand
-    // and the single field would silently no-op. Mixed selections collapse the
-    // UI only — committing would stamp the placeholder 0 onto every object.
     if (showIndependentCorners && cornersDiffer && !radiusMixed) {
       commitRadius(radius);
     }
@@ -199,8 +172,9 @@ export function CornerRadiusControl({
         mixed={radiusMixed}
         min={0}
         precision={0}
+        disabled={disabled}
       />
-      {element ? (
+      {element && !disabled ? (
         <FieldTrailer
           element={element}
           motionCssProperty="border-radius"
@@ -252,6 +226,7 @@ export function CornerRadiusControl({
           )}
           aria-label={independentCornersLabel}
           aria-pressed={showIndependentCorners}
+          disabled={disabled}
           onClick={toggleIndependentCorners}
         >
           <IconBorderCorners className="size-3.5" />
@@ -260,84 +235,85 @@ export function CornerRadiusControl({
       <TooltipContent>{independentCornersLabel}</TooltipContent>
     </Tooltip>
   );
-  const independentCornersFields = showIndependentCorners ? (
-    <InspectorGrid className="items-center" layout="pair">
-      <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-        <AppearanceScrubField
-          label={t("editPanel.labels.topLeft")}
-          ariaLabel="Top left"
-          icon={IconRadiusTopLeft}
-          value={corners.topLeft}
-          onChange={(value, meta) =>
-            onStyleChange(
-              "borderTopLeftRadius",
-              `${Math.max(0, Math.round(value))}px`,
-              meta,
-            )
-          }
-          mixed={cornerMixed.topLeft}
-          min={0}
-          precision={1}
-        />
-      </InspectorGridCell>
-      <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
-      <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-        <AppearanceScrubField
-          label={t("editPanel.labels.topRight")}
-          ariaLabel="Top right"
-          icon={IconRadiusTopRight}
-          value={corners.topRight}
-          onChange={(value, meta) =>
-            onStyleChange(
-              "borderTopRightRadius",
-              `${Math.max(0, Math.round(value))}px`,
-              meta,
-            )
-          }
-          mixed={cornerMixed.topRight}
-          min={0}
-          precision={1}
-        />
-      </InspectorGridCell>
-      <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-        <AppearanceScrubField
-          label={t("editPanel.labels.bottomLeft")}
-          ariaLabel="Bottom left"
-          icon={IconRadiusBottomLeft}
-          value={corners.bottomLeft}
-          onChange={(value, meta) =>
-            onStyleChange(
-              "borderBottomLeftRadius",
-              `${Math.max(0, Math.round(value))}px`,
-              meta,
-            )
-          }
-          mixed={cornerMixed.bottomLeft}
-          min={0}
-          precision={1}
-        />
-      </InspectorGridCell>
-      <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
-      <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
-        <AppearanceScrubField
-          label={t("editPanel.labels.bottomRight")}
-          ariaLabel="Bottom right"
-          icon={IconRadiusBottomRight}
-          value={corners.bottomRight}
-          onChange={(value, meta) =>
-            onStyleChange(
-              "borderBottomRightRadius",
-              `${Math.max(0, Math.round(value))}px`,
-              meta,
-            )
-          }
-          mixed={cornerMixed.bottomRight}
-          min={0}
-          precision={1}
-        />
-      </InspectorGridCell>
-    </InspectorGrid>
-  ) : null;
+  const independentCornersFields =
+    showIndependentCorners && !disabled ? (
+      <InspectorGrid className="items-center" layout="pair">
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <AppearanceScrubField
+            label={t("editPanel.labels.topLeft")}
+            ariaLabel="Top left"
+            icon={IconRadiusTopLeft}
+            value={corners.topLeft}
+            onChange={(value, meta) =>
+              onStyleChange(
+                "borderTopLeftRadius",
+                `${Math.max(0, Math.round(value))}px`,
+                meta,
+              )
+            }
+            mixed={cornerMixed.topLeft}
+            min={0}
+            precision={1}
+          />
+        </InspectorGridCell>
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <AppearanceScrubField
+            label={t("editPanel.labels.topRight")}
+            ariaLabel="Top right"
+            icon={IconRadiusTopRight}
+            value={corners.topRight}
+            onChange={(value, meta) =>
+              onStyleChange(
+                "borderTopRightRadius",
+                `${Math.max(0, Math.round(value))}px`,
+                meta,
+              )
+            }
+            mixed={cornerMixed.topRight}
+            min={0}
+            precision={1}
+          />
+        </InspectorGridCell>
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <AppearanceScrubField
+            label={t("editPanel.labels.bottomLeft")}
+            ariaLabel="Bottom left"
+            icon={IconRadiusBottomLeft}
+            value={corners.bottomLeft}
+            onChange={(value, meta) =>
+              onStyleChange(
+                "borderBottomLeftRadius",
+                `${Math.max(0, Math.round(value))}px`,
+                meta,
+              )
+            }
+            mixed={cornerMixed.bottomLeft}
+            min={0}
+            precision={1}
+          />
+        </InspectorGridCell>
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <AppearanceScrubField
+            label={t("editPanel.labels.bottomRight")}
+            ariaLabel="Bottom right"
+            icon={IconRadiusBottomRight}
+            value={corners.bottomRight}
+            onChange={(value, meta) =>
+              onStyleChange(
+                "borderBottomRightRadius",
+                `${Math.max(0, Math.round(value))}px`,
+                meta,
+              )
+            }
+            mixed={cornerMixed.bottomRight}
+            min={0}
+            precision={1}
+          />
+        </InspectorGridCell>
+      </InspectorGrid>
+    ) : null;
 
   if (parentGrid) {
     return (
@@ -425,73 +401,68 @@ export function AppearanceScrubField({
   );
 }
 
-export function BlendModeMenu({
-  styles,
-  onStyleChange,
+const BLEND_MENU_OPTIONS = [
+  {
+    value: "pass-through",
+    label: "Pass through", // i18n-ignore design blend mode label
+  },
+  ...BLEND_MODE_OPTIONS,
+] as const;
+
+type BlendMenuValue = (typeof BLEND_MENU_OPTIONS)[number]["value"];
+type BlendMenuSelection = BlendMenuValue | typeof MIXED_VALUE;
+
+export function resolveBlendMenuSelection(
+  styles: Record<string, string>,
+): BlendMenuSelection {
+  const blendMode =
+    BLEND_MODE_OPTIONS.find((option) => option.value === styles.mixBlendMode)
+      ?.value ?? "normal";
+  if (
+    isMixedValue(styles.mixBlendMode) ||
+    (blendMode === "normal" && isMixedValue(styles.isolation))
+  ) {
+    return MIXED_VALUE;
+  }
+  return blendMode === "normal" && styles.isolation !== "isolate"
+    ? "pass-through"
+    : blendMode;
+}
+
+function applyBlendMode(
+  onStyleChange: StyleChangeHandler,
+  value: BlendMenuValue,
+) {
+  if (value === "pass-through") {
+    onStyleChange("mixBlendMode", "normal");
+    onStyleChange("isolation", "auto");
+    return;
+  }
+  onStyleChange("mixBlendMode", value);
+  if (value === "normal") onStyleChange("isolation", "isolate");
+}
+
+function BlendModeMenu({
+  selected,
+  onSelect,
+  children,
 }: {
-  styles: Record<string, string>;
-  onStyleChange: StyleChangeHandler;
+  selected: BlendMenuSelection;
+  onSelect: (value: BlendMenuValue) => void;
+  children: (open: boolean) => ReactElement;
 }) {
   const [open, setOpen] = useState(false);
-  const blendMode = optionValue(
-    BLEND_MODE_OPTIONS,
-    styles.mixBlendMode || "normal",
-    "normal",
-  );
-  // Recognize the Mixed sentinel BEFORE optionValue's fallback maps it to
-  // "normal" — a mixed selection must not check a wrong concrete mode.
-  // Isolation only disambiguates pass-through vs normal, so it only makes the
-  // state mixed when the blend mode itself resolves to normal.
-  const blendModeMixed =
-    isMixedValue(styles.mixBlendMode) ||
-    (blendMode === "normal" && isMixedValue(styles.isolation));
-  const selectedBlendMode = blendModeMixed
-    ? MIXED_VALUE
-    : blendMode === "normal" && styles.isolation !== "isolate"
-      ? "pass-through"
-      : blendMode;
-  const options = [
-    {
-      value: "pass-through",
-      label: "Pass through", // i18n-ignore design blend mode label
-    },
-    ...BLEND_MODE_OPTIONS,
-  ] as const;
-  const selectBlendMode = (value: (typeof options)[number]["value"]) => {
-    if (value === "pass-through") {
-      onStyleChange("mixBlendMode", "normal");
-      onStyleChange("isolation", "auto");
-      return;
-    }
-    onStyleChange("mixBlendMode", value);
-    if (value === "normal") onStyleChange("isolation", "isolate");
-  };
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={"Blend mode" /* i18n-ignore design inspector action */}
-          aria-pressed={open}
-          className={cn(
-            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",
-            open &&
-              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
-          )}
-        >
-          <IconDroplet className="size-3.5" />
-        </Button>
-      </DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild>{children(open)}</DropdownMenuTrigger>
       <DropdownMenuContent
         side="left"
         align="start"
         sideOffset={8}
         className="z-[100010] w-48 rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[13px] text-foreground shadow-2xl"
       >
-        {blendModeMixed ? (
+        {selected === MIXED_VALUE ? (
           <>
             {/* Placeholder state for a mixed selection: the check sits next to
                 "Mixed" instead of a wrong concrete mode. Picking any option
@@ -505,14 +476,14 @@ export function BlendModeMenu({
             <DropdownMenuSeparator />
           </>
         ) : null}
-        {options.map((option) => (
+        {BLEND_MENU_OPTIONS.map((option) => (
           <DropdownMenuItem
             key={option.value}
             className="flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-[13px] focus:bg-[var(--design-editor-control-bg)]"
-            onSelect={() => selectBlendMode(option.value)}
+            onSelect={() => onSelect(option.value)}
           >
             <span className="flex size-4 shrink-0 items-center justify-center">
-              {selectedBlendMode === option.value ? (
+              {selected === option.value ? (
                 <IconCheck className="size-4" />
               ) : null}
             </span>
@@ -521,6 +492,67 @@ export function BlendModeMenu({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function BlendModeRow({
+  selected,
+  onSelect,
+}: {
+  selected: Exclude<BlendMenuSelection, "pass-through">;
+  onSelect: (value: BlendMenuValue) => void;
+}) {
+  const t = useT();
+  const blendModeLabel = t("editPanel.labels.blendMode");
+  const selectedLabel =
+    BLEND_MENU_OPTIONS.find((option) => option.value === selected)?.label ??
+    MIXED_VALUE;
+
+  return (
+    <InspectorGrid
+      className="design-inspector-pair-fields items-center"
+      layout="label-field-action"
+    >
+      <InspectorGridCell span={INSPECTOR_GRID_COLUMNS}>
+        <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
+          {blendModeLabel}
+        </p>
+      </InspectorGridCell>
+      <InspectorGridCell
+        span={INSPECTOR_GRID_COLUMNS - INSPECTOR_GRID_ACTION_SPAN}
+      >
+        <BlendModeMenu selected={selected} onSelect={onSelect}>
+          {(open) => (
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label={`${blendModeLabel}: ${selectedLabel}`}
+              className={cn(
+                "h-6 w-full min-w-0 cursor-pointer justify-start gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] font-normal text-foreground shadow-none hover:bg-[var(--design-editor-control-bg)]",
+                open && "ring-1 ring-[var(--design-editor-accent-color)]",
+              )}
+            >
+              <IconDroplet className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-left">
+                {selectedLabel}
+              </span>
+              <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
+            </Button>
+          )}
+        </BlendModeMenu>
+      </InspectorGridCell>
+      <InspectorGridCell
+        span={INSPECTOR_GRID_ACTION_SPAN}
+        className="flex justify-center"
+      >
+        <SectionIconButton
+          label={t("editPanel.labels.removeBlendMode")}
+          onClick={() => onSelect("pass-through")}
+        >
+          <IconMinus className="size-3.5" />
+        </SectionIconButton>
+      </InspectorGridCell>
+    </InspectorGrid>
   );
 }
 
@@ -534,6 +566,7 @@ export function AppearanceProperties({
   breakpointOverrideContext,
   vectorPointRadius,
   vectorPointSelected = false,
+  cornerRadiusDisabled = false,
   onVectorPointRadiusChange,
 }: {
   element: ElementInfo;
@@ -545,6 +578,7 @@ export function AppearanceProperties({
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   vectorPointRadius?: { value: number; max: number } | null;
   vectorPointSelected?: boolean;
+  cornerRadiusDisabled?: boolean;
   onVectorPointRadiusChange?: (
     value: number,
     meta?: ScrubInputChangeMeta,
@@ -552,6 +586,9 @@ export function AppearanceProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
+  const blendMenuSelection = resolveBlendMenuSelection(styles);
+  const selectBlendMode = (value: BlendMenuValue) =>
+    applyBlendMode(onStyleChange, value);
   return (
     <PanelSection
       title={t("root.commandAppearance")}
@@ -573,7 +610,31 @@ export function AppearanceProperties({
               <IconEye className="size-3.5" />
             )}
           </SectionIconToggle>
-          <BlendModeMenu styles={styles} onStyleChange={onStyleChange} />
+          <BlendModeMenu
+            selected={blendMenuSelection}
+            onSelect={selectBlendMode}
+          >
+            {(open) => (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("editPanel.labels.blendMode")}
+                aria-pressed={open}
+                className={cn(
+                  "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",
+                  open &&
+                    "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+                )}
+              >
+                {blendMenuSelection === "pass-through" ? (
+                  <IconDroplet className="size-3.5" />
+                ) : (
+                  <IconDropletFilled className="size-3.5" />
+                )}
+              </Button>
+            )}
+          </BlendModeMenu>
         </>
       }
     >
@@ -654,8 +715,15 @@ export function AppearanceProperties({
               : undefined
           }
           hideForVectorPoint={vectorPointSelected}
+          disabled={cornerRadiusDisabled}
         />
       </InspectorGrid>
+      {blendMenuSelection !== "pass-through" ? (
+        <BlendModeRow
+          selected={blendMenuSelection}
+          onSelect={selectBlendMode}
+        />
+      ) : null}
     </PanelSection>
   );
 }

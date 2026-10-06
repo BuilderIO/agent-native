@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory settings store so we can assert org/user scoping isolation.
 const orgStore = new Map<string, Record<string, unknown>>();
 const userStore = new Map<string, Record<string, unknown>>();
 
@@ -47,7 +46,6 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
 }));
 
-// Request-context resolver values for getAgentAppModelDefaultForCurrentRequest.
 let requestUserEmail: string | undefined;
 let requestOrgId: string | undefined;
 vi.mock("../server/request-context.js", () => ({
@@ -87,10 +85,8 @@ describe("normalizeAgentAppModelDefaultAppId", () => {
     expect(normalizeAgentAppModelDefaultAppId(undefined)).toBeNull();
     expect(normalizeAgentAppModelDefaultAppId("")).toBeNull();
     expect(normalizeAgentAppModelDefaultAppId("   ")).toBeNull();
-    // Must start with a letter.
     expect(normalizeAgentAppModelDefaultAppId("2cool")).toBeNull();
     expect(normalizeAgentAppModelDefaultAppId("-leading")).toBeNull();
-    // No underscores, spaces, dots, or other punctuation.
     expect(normalizeAgentAppModelDefaultAppId("my_app")).toBeNull();
     expect(normalizeAgentAppModelDefaultAppId("a b")).toBeNull();
     expect(normalizeAgentAppModelDefaultAppId("a.b")).toBeNull();
@@ -168,7 +164,6 @@ describe("readAgentAppModelDefaultSettings", () => {
     expect(s.engine).toBeNull();
     expect(s.model).toBeNull();
     expect(s.source).toBe("default");
-    // Scope still reflects where we looked.
     expect(s.scope).toBe("org");
   });
 
@@ -351,13 +346,11 @@ describe("getAgentAppModelDefaultForCurrentRequest", () => {
       updatedAt: 1,
       updatedBy: "boss@x.com",
     });
-    // A conflicting user-scoped value must NOT leak when an org is in context.
     userStore.set(userK("a@b.com", agentAppModelDefaultSettingsKey("mail")), {
       engine: "anthropic",
       model: "should-not-win",
     });
     const sel = await getAgentAppModelDefaultForCurrentRequest("mail");
-    // Only engine + model are returned (no metadata leakage); org wins.
     expect(sel).toEqual({ engine: "builder", model: "claude-sonnet-5" });
   });
 

@@ -57,16 +57,21 @@ describe("toolkit must not import core guard", () => {
     assert.deepEqual(violations, []);
   });
 
-  it("scans Toolkit source, config, and scripts while excluding generated artifacts", () => {
+  it("scans Toolkit source outside the Core-aware app surfaces", () => {
     for (const file of [
       "packages/toolkit/src/index.ts",
       "packages/toolkit/src/design-system/default-adapter.tsx",
       "packages/toolkit/src/conformance/runner.tsx",
+      "packages/toolkit/src/app-old/index.ts",
       "packages/toolkit/vite.config.ts",
       "packages/toolkit/scripts/finalize-build.mjs",
     ]) {
       assert.equal(shouldScanToolkitFile(file), true, file);
     }
+    assert.equal(
+      shouldScanToolkitFile("packages/toolkit/src/app/chat/index.tsx"),
+      false,
+    );
     for (const file of [
       "packages/toolkit/dist/index.js",
       "packages/toolkit/node_modules/example/index.js",

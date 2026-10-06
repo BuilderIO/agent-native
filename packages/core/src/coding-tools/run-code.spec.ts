@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { buildDataProgramPrelude } from "../data-programs/contract.js";
+import { getCredentialContext } from "../server/request-context.js";
 import { createRunCodeEntry, executeSandboxCode } from "./run-code.js";
 
 const tool = {
@@ -758,5 +759,30 @@ describe("run-code bridge", () => {
     expect(result.stdout).toContain(
       '__DATA_PROGRAM_RESULT__{"rows":[{"value":1}]}',
     );
+  });
+
+  it("restores org-only credential scope for sandbox action calls", async () => {
+    const result = await executeSandboxCode({
+      code: `console.log(JSON.stringify(await appAction("read-credential-context", {})));`,
+      timeoutMs: 30_000,
+      getActions: () => ({
+        "read-credential-context": {
+          tool,
+          readOnly: true,
+          run: async () => getCredentialContext(),
+        },
+      }),
+      context: {
+        caller: "tool",
+        userEmail: "admin@example.test",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+      evaluator: "run",
+    });
+
+    expect(result.stdout).toContain('"userEmail":"admin@example.test"');
+    expect(result.stdout).toContain('"orgId":"customer-org"');
+    expect(result.stdout).toContain('"credentialScope":"org"');
   });
 });

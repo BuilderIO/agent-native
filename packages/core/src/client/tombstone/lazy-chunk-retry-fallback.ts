@@ -1,0 +1,13 @@
+import {
+  throwMovedAgentNativeModule,
+  type DeprecatedExport,
+} from "../../package-lifecycle/upgrade-error.js";
+
+throwMovedAgentNativeModule(
+  "@agent-native/core/client/lazy-chunk-retry-fallback",
+  "@agent-native/toolkit/app/shared",
+);
+
+/** @deprecated @agent-native/core/client/lazy-chunk-retry-fallback moved to @agent-native/toolkit/app/shared. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx */
+export const LazyChunkRetryFallback =
+  undefined as DeprecatedExport<"@agent-native/core/client/lazy-chunk-retry-fallback moved to @agent-native/toolkit/app/shared. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx">;

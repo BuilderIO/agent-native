@@ -336,6 +336,30 @@ agents.example.com {
 
 </Callout>
 
+## Configurer Dispatch pour un workspace auto-hébergé {#dispatch-workspace-apps}
+
+Les images Dispatch de production ne contiennent souvent que `.output/`; le serveur ne peut donc pas détecter les répertoires d’apps au moment de l’exécution. Configurez ce manifeste sur le service Dispatch. Utilisez le même JSON dans les deux variables : la variable Vite est lue lors de la compilation de Dispatch, et l’autre au démarrage du serveur. N’incluez que les apps de ce workspace. Chaque `path` doit correspondre à `APP_BASE_PATH` et à la route du proxy. Définissez également APP_URL sur l’origine publique de votre proxy inverse.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## Activer les invitations dans un nouveau workspace {#workspace-invites}
+
+Pour un workspace où l’inscription nécessite une invitation, définissez ces paramètres sur chaque conteneur d’apps qui partage la base de données et l’authentification :
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+Remplacez l’adresse d’exemple par l’adresse vérifiée du premier administrateur de chaque workspace. Sur une base de données vide, cet administrateur se connecte d’abord, devient propriétaire de l’organisation initiale et peut inviter son équipe dans Settings → Organization → Members. Consultez [Déploiements administrés](/docs/administered-deployments) pour le processus complet d’amorçage.
+
 ## Et ensuite
 
 - [**Déploiement**](/docs/deployment) — choisissez une base de données persistante, un préréglage Nitro, et une plateforme avant de déployer un workspace

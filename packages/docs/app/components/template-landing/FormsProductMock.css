@@ -1318,3 +1318,9 @@
 .forms-product-art--sidebar-collapsed .forms-product-nav {
   display: flex;
 }
+
+@media (max-width: 639px) {
+  .forms-product-agent {
+    display: none;
+  }
+}

@@ -64,7 +64,6 @@ async function createDesign(request: APIRequestContext) {
   return { designId, fileId };
 }
 
-/** Counts source-backed nodes inside the screen's live preview iframe. */
 async function previewNodeCount(page: Page) {
   return page.evaluate(() => {
     const frame = document.querySelector<HTMLIFrameElement>(

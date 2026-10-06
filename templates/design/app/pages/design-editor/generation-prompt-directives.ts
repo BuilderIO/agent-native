@@ -132,7 +132,6 @@ export async function loadDesignSystemGenerationContext(
 
 export interface IntakeQuestionContextHint {
   coverage: IntakeTopicCoverage;
-  /** True when the Creative Context lookup itself failed - see loadIntakeContext. */
   contextUnavailable?: boolean;
   unavailableReason?: string;
 }
@@ -197,12 +196,6 @@ export function designVariantGenerationDirectives(
   ];
 }
 
-/**
- * An attached UI screenshot is the specification. Reproducing it is the whole
- * job, so these directives ship in the same prompt as the image — the skill
- * body is not in the system prompt and loses every conflict against directives
- * that are.
- */
 export function referenceImageDirectives(
   referenceImageCount: number,
 ): string[] {
@@ -215,18 +208,6 @@ export function referenceImageDirectives(
   ];
 }
 
-/**
- * The selected element's markup is a potential structural specification the
- * same way an attached screenshot is a visual one (see
- * `referenceImageDirectives` above) — but grounded in real markup/CSS
- * instead of pixels, so there is nothing to infer visually. Unlike an
- * attached image, a selection isn't necessarily a reference: the user might
- * just be pointing at something to edit. So this always ships with the
- * selection, and leaves the "is this a reference" call to the agent reading
- * the user's own next message — a client-side keyword guess would both miss
- * real phrasings ("build off this", "keep the same vibe") and misfire on
- * ordinary edits that happen to say "this".
- */
 export function structuralReferenceDirectives(label: string): string[] {
   return [
     `If the user's message asks for a design modeled after, similar to, or based on the selected element ("${label}") — rather than an edit to it — treat this markup as the reference specification.`,

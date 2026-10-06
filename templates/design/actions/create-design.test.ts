@@ -20,10 +20,6 @@ const mocks = vi.hoisted(() => {
 
   const defaultLimitFn = vi.fn(async () => state.defaultRows);
   const titleWhereFn = vi.fn(async () => state.titleRows);
-  // resolveDefaultDesignSystemId chains `.limit(1)` after `.where(...)`;
-  // resolveDesignSystemIdByTitle awaits `.where(...)` directly. Both query
-  // the same designSystems table, so the stub exposes both shapes and each
-  // call site only ever exercises the one it actually chains.
   const whereDesignSystemsFn = vi.fn(() => ({ limit: defaultLimitFn }));
   const fromFn = vi.fn((table: unknown) => ({
     where: (condition: unknown) => {

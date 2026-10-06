@@ -181,7 +181,6 @@ function normalizedFromDetail(
     colors: detail.item.colors,
     provenance: detail.item.provenance,
     thumbnailBlobRef: detail.item.thumbnailBlobRef ?? undefined,
-    // Keep compiler/reassembly manifests while stripping capability-like metadata.
     metadata: (sanitizePublicMetadata(detail.version.metadata) ?? {}) as Record<
       string,
       unknown
@@ -559,7 +558,6 @@ export async function createCreativeContext(input: {
   return getCreativeContextById(id);
 }
 
-/** Idempotently establishes the actor's governed Default with the currently usable corpus. */
 export async function ensureDefaultCreativeContext(): Promise<CreativeContextSummary | null> {
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
@@ -788,11 +786,15 @@ export async function updateCreativeContext(
   await assertContextRole(contextId, "admin");
   const { getDb, schema } = getCreativeContext();
   const values = { ...patch, updatedAt: nowIso() };
+  const contextAccess = accessFilter(
+    schema.creativeContexts,
+    schema.creativeContextShares,
+  );
   await getDb().transaction(async (tx: any) => {
     await tx
       .update(schema.creativeContexts)
       .set(values)
-      .where(eq(schema.creativeContexts.id, contextId));
+      .where(and(eq(schema.creativeContexts.id, contextId), contextAccess));
     await appendAudit(tx, contextId, "update", { fields: Object.keys(patch) });
   });
   return getCreativeContextById(contextId);
@@ -801,17 +803,21 @@ export async function updateCreativeContext(
 export async function archiveCreativeContext(contextId: string) {
   await assertContextRole(contextId, "admin");
   const { getDb, schema } = getCreativeContext();
+  const contextAccess = accessFilter(
+    schema.creativeContexts,
+    schema.creativeContextShares,
+  );
   const [context] = await getDb()
     .select({ kind: schema.creativeContexts.kind })
     .from(schema.creativeContexts)
-    .where(eq(schema.creativeContexts.id, contextId))
+    .where(and(eq(schema.creativeContexts.id, contextId), contextAccess))
     .limit(1);
   if (context?.kind === "default")
     throw new Error("The Default Creative Context cannot be archived");
   await getDb()
     .update(schema.creativeContexts)
     .set({ archivedAt: nowIso(), updatedAt: nowIso() })
-    .where(eq(schema.creativeContexts.id, contextId));
+    .where(and(eq(schema.creativeContexts.id, contextId), contextAccess));
   return getCreativeContextById(contextId);
 }
 
@@ -1018,12 +1024,6 @@ export async function listContextMemberships(input: {
   };
 }
 
-/**
- * Resolves private media for a pending submission without making the staged
- * item generally readable. This is intentionally server-only: callers must
- * already have an authenticated request context and can only read the exact
- * staged version they submitted or are allowed to review.
- */
 export async function readPendingCreativeContextMedia(input: {
   mediaId?: string;
   itemId?: string;

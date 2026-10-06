@@ -145,6 +145,16 @@ describe("app skill manifests", () => {
     ]);
   });
 
+  it("rejects malformed ChatGPT plugin metadata instead of casting it", () => {
+    expect(() =>
+      normalizeAppSkillManifest({
+        id: "assets",
+        hosted: { url: "https://assets.agent-native.com" },
+        chatgpt: { version: "1.0.0" },
+      }),
+    ).toThrow("chatgpt.interface must be an object.");
+  });
+
   it("parses commands and flags", () => {
     expect(
       parseAppSkillArgs([
@@ -409,8 +419,6 @@ describe("app skill packaging", () => {
     const packedMcp = JSON.parse(
       fs.readFileSync(path.join(outDir, ".mcp.json"), "utf-8"),
     );
-    // Pack output still includes both names for backward compat with older
-    // plugin consumers that may have installed only the alias name.
     expect(Object.keys(packedMcp.mcpServers).sort()).toEqual([
       "agent-native-assets",
       "assets",
@@ -434,7 +442,6 @@ describe("app skill packaging", () => {
     const config = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
-    // Only the canonical name; no alias duplicate.
     expect(Object.keys(config.mcpServers)).toEqual(["agent-native-assets"]);
     expect(config.mcpServers["agent-native-assets"]).toEqual({
       type: "http",
@@ -449,7 +456,6 @@ describe("app skill packaging", () => {
     manifest.mcp.aliases = ["assets"];
     fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
 
-    // Pre-seed with both the canonical and alias entry (simulates old install).
     fs.writeFileSync(
       path.join(root, ".mcp.json"),
       JSON.stringify(
@@ -487,12 +493,10 @@ describe("app skill packaging", () => {
     const config = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
-    // Canonical entry updated, alias removed, unrelated entry untouched.
     expect(Object.keys(config.mcpServers).sort()).toEqual([
       "agent-native-assets",
       "other-server",
     ]);
-    // Log message mentions the removed entry.
     expect(logged.join(" ")).toContain("assets");
   });
 

@@ -52,10 +52,6 @@ function offsetPasteOverPositions(
   }));
 }
 
-/** Paste-over must use document-root CSS. Clones insert at the document
- * root, so containing-block computed left/top is composed with the nearest
- * inline-positioned ancestor unless the selection is `position:fixed`
- * (viewport/root-relative). Never write iframe boundingRect as CSS. */
 export function resolvePasteOverPositions(
   entries: CanvasLayerClipboardEntry[],
   selectedElement: ElementInfo | null,

@@ -1,0 +1,43 @@
+name: Standalone AgentKit Chat acceptance
+description: >-
+  Pack AgentKit, generate and exercise a standalone Chat app, and run the
+  cross-surface sign-in matrix. Shared by the required CI job and the manual
+  chat-template-e2e.yml dispatch. Requires actions/checkout to have already run
+  and AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 in the job environment.
+
+runs:
+  using: composite
+  steps:
+    # Start from the cached browser set only, never the image's preinstalled one.
+    - name: Clear preinstalled Playwright browsers
+      shell: bash
+      run: rm -rf ~/.cache/ms-playwright
+
+    - uses: ./.github/actions/free-disk
+
+    - uses: ./.github/actions/setup-pnpm
+      with:
+        restore-dist-cache: "true"
+
+    - name: Restore Playwright browser cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: playwright-${{ runner.os }}-
+
+    - name: Install Playwright Chromium
+      shell: bash
+      run: pnpm exec playwright install --only-shell chromium
+
+    - name: Pack and launch an isolated AgentKit consumer
+      shell: bash
+      run: pnpm qa:agentkit-packages
+
+    - name: Generate, install, and exercise standalone AgentKit Chat
+      shell: bash
+      run: pnpm qa:agentkit-chat-acceptance
+
+    - name: Cross-surface sign-in matrix
+      shell: bash
+      run: pnpm qa:sign-in

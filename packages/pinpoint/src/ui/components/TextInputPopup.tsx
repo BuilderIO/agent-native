@@ -23,7 +23,6 @@ export const TextInputPopup: Component<TextInputPopupProps> = (props) => {
     else props.onCancel();
   }
 
-  // Position below the click point, adjusted for viewport
   const x = Math.max(8, Math.min(props.x, window.innerWidth - 260));
   const y = Math.max(8, Math.min(props.y + 8, window.innerHeight - 50));
 

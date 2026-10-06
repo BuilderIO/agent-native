@@ -13,6 +13,7 @@ import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   snapshotDesignBeforeAgentEditInVersionLock,
   withDesignVersionLock,
@@ -251,10 +252,6 @@ function snapshotDeletedFile(
   };
 }
 
-/**
- * Delete every file saved under one operation-source prefix (an aborted
- * browser import) and its canvas metadata in one transaction. Idempotent.
- */
 export async function deleteDesignFilesByOperationSourcePrefix(
   designId: string,
   prefix: string,
@@ -329,7 +326,6 @@ export default defineAction({
     const db = getDb();
     const requestedIds = [...new Set([id, ...(fileIds ?? [])])];
 
-    // Look up the files to get their designId for access checks.
     const scopedFiles = await db
       .select({
         id: schema.designFiles.id,
@@ -377,10 +373,6 @@ export default defineAction({
     }
 
     await assertAccess("design", file.designId, "editor");
-    // Locks exist to stop an agent destroying template branding in passing.
-    // A person deleting their own screen has already decided, and every
-    // template-backed screen carries locked layers — without this opt-in they
-    // could not be removed at all.
     if (!allowLockedLayers) {
       for (const candidate of scopedFiles) {
         if (countLockedLayers(candidate.content) > 0) {
@@ -417,9 +409,6 @@ export default defineAction({
       }
     }
 
-    // Restore locks the same design and updates file rows before designs.data.
-    // Keep the checkpoint and mutation under the same table/version boundary so
-    // history cannot capture a state that interleaves with the delete.
     const deletion: {
       deletedIds: string[];
       deletedFiles: DeletedFileSnapshot[];
@@ -503,9 +492,6 @@ export default defineAction({
               )
               .for("update");
           } catch (error) {
-            // Embedded deployments may omit the org module. Let the shared
-            // access resolver decide whether a direct share still applies;
-            // org visibility itself remains fail-closed without membership.
             if (!isMissingOrganizationTableError(error)) throw error;
           }
         }
@@ -547,9 +533,6 @@ export default defineAction({
         const deletedFiles = currentTargetFiles.map((candidate) =>
           snapshotDeletedFile(candidate, data),
         );
-        // A browser checkpoint may have been created by an older client before
-        // this request arrived. Capture again here so that any edit between
-        // those requests is included in the durable pre-delete version.
         await snapshotDesignBeforeAgentEditInVersionLock(
           file.designId,
           context,
@@ -633,11 +616,17 @@ export default defineAction({
 
     if (requestedIds.length === 1) {
       return deletion.deletedIds.includes(id)
-        ? { id, deleted: true, deletedFiles: deletion.deletedFiles }
+        ? {
+            id,
+            designId: file.designId,
+            deleted: true,
+            deletedFiles: deletion.deletedFiles,
+          }
         : { id, deleted: false, alreadyMissing: true };
     }
     return {
       id,
+      designId: file.designId,
       deleted: deletion.deletedIds.includes(id),
       deletedIds: deletion.deletedIds,
       ...(deletion.deletedIds.includes(id)
@@ -645,4 +634,6 @@ export default defineAction({
         : { alreadyMissing: true }),
     };
   },
+  changeResource: (_p, result) =>
+    designChangeResource(result?.designId, result),
 });

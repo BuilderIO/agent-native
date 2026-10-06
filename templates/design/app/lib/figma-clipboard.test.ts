@@ -236,8 +236,6 @@ describe("resolveFigmaPasteImportCall buffer transport", () => {
     const call = resolveFigmaPasteImportCall(pasteWithBuffer(base64Chars));
     expect(call.action).toBe("import-figma-clipboard");
     if (call.action !== "import-figma-clipboard") return;
-    // Silently omitting the buffer is what made a large paste look like it did
-    // nothing: no buffer, no visible HTML, no reason.
     expect(call.payload.clipboardBuffer).toBeUndefined();
     expect(call.payload.clipboardBufferOmittedBytes).toBe(
       Math.floor((base64Chars * 3) / 4),

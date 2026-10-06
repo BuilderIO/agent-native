@@ -1,21 +1,3 @@
-/**
- * Slot computation — the heart of the scheduling package.
- *
- * Input: an event type's config (duration, buffers, limits, period),
- *        a schedule (weekly hours + date overrides),
- *        a set of busy intervals (from external calendars + existing bookings),
- *        a time range to compute over.
- * Output: an array of Slot objects (UTC start/end) that are available
- *         and pass every constraint.
- *
- * Correctness priorities, in order:
- *   1. Never return a slot in the past (respect `now + minimumBookingNotice`)
- *   2. Never return a slot that overlaps a busy interval (with buffers)
- *   3. Never return a slot outside the schedule's available windows
- *   4. Never exceed booking limits (per-day/week/month/year)
- *   5. Respect the event type's period (rolling / range / unlimited)
- *   6. Correctness across DST transitions
- */
 import type {
   Slot,
   BusyInterval,
@@ -34,38 +16,25 @@ import {
 } from "./time.js";
 
 export interface ComputeSlotsInput {
-  /** Event type duration, minutes */
   duration: number;
-  /** Minutes before event start where the event type becomes unbookable; 0 = up to now */
   minimumBookingNotice: number;
-  /** Buffers in minutes applied to any existing busy interval and the candidate slot */
   beforeEventBuffer: number;
   afterEventBuffer: number;
-  /** Null = increment by duration */
   slotInterval: number | null;
   periodType: PeriodType;
   periodDays?: number;
   periodStartDate?: string;
   periodEndDate?: string;
   bookingLimits?: BookingLimits;
-  /** Schedule — intervals in schedule's timezone */
   schedule: ScheduleInput;
-  /** Busy intervals in UTC (already aggregated from all sources) */
   busy: BusyInterval[];
-  /** Existing bookings grouped by bucket key — used for limit enforcement */
   bookingCounts?: BookingCounts;
-  /** Week start for limit-bucketing */
   weekStartsOn?: 0 | 1;
-  /** Range to compute over, UTC */
   rangeStart: Date;
   rangeEnd: Date;
-  /** Current time (UTC). Defaults to now. */
   now?: Date;
-  /** Seats per slot — if > 1, slot stays available until seats exhausted */
   seatsPerTimeSlot?: number;
-  /** Seat count already reserved, keyed by ISO start */
   seatsTaken?: Map<string, number>;
-  /** Timezone in which the Booker displays the slots (for limit buckets) */
   viewerTimezone?: string;
 }
 
@@ -82,7 +51,6 @@ export function computeAvailableSlots(input: ComputeSlotsInput): Slot[] {
   const viewerTz = input.viewerTimezone ?? input.schedule.timezone;
   const slots: Slot[] = [];
 
-  // Enumerate each local day in the schedule's timezone that the range touches.
   const dates = localDatesInRange(
     rangeStart,
     rangeEnd,
@@ -114,19 +82,16 @@ export function computeAvailableSlots(input: ComputeSlotsInput): Slot[] {
       while (addMinutes(slotStart, input.duration) <= dayEndUtc) {
         const slotEnd = addMinutes(slotStart, input.duration);
 
-        // Cap to range
         if (slotStart < rangeStart || slotEnd > rangeEnd) {
           slotStart = addMinutes(slotStart, interval);
           continue;
         }
 
-        // Respect minimum notice
         if (slotStart < minBookableTime) {
           slotStart = addMinutes(slotStart, interval);
           continue;
         }
 
-        // Conflict check (expanded with buffers)
         const expanded = expandSlotForConflictCheck(
           slotStart,
           slotEnd,
@@ -138,7 +103,6 @@ export function computeAvailableSlots(input: ComputeSlotsInput): Slot[] {
           continue;
         }
 
-        // Booking limits (in viewer's timezone for perDay buckets)
         if (
           input.bookingCounts &&
           exceedsLimits(
@@ -153,7 +117,6 @@ export function computeAvailableSlots(input: ComputeSlotsInput): Slot[] {
           continue;
         }
 
-        // Seats
         const seatsTaken = input.seatsTaken?.get(slotStart.toISOString()) ?? 0;
         const seatsRemaining =
           input.seatsPerTimeSlot != null
@@ -189,7 +152,6 @@ function capToPeriodStart(
     const start = new Date(input.periodStartDate);
     return rangeStart > start ? rangeStart : start;
   }
-  // Rolling + unlimited don't restrict start
   return rangeStart > now ? rangeStart : now;
 }
 
@@ -210,8 +172,6 @@ function capToPeriodEnd(
 }
 
 function dayOfWeekForLocalDate(localDate: string, timezone: string): number {
-  // Construct a UTC date that corresponds to noon on that local date in the
-  // target timezone, then ask what day-of-week it is in that timezone.
   const noon = zonedTimeToUtc(localDate, "12:00", timezone);
   return getDayOfWeek(noon, timezone);
 }

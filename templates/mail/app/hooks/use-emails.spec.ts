@@ -7,10 +7,12 @@ import {
   apiFetch,
   type ApiError,
   consumeExternalEmailRefresh,
+  beginThreadReadIntent,
   beginReadMutation,
   confirmReadMutation,
   clearOptimisticOverride,
   forgetSuppressionClaim,
+  finishThreadReadIntent,
   filterSuppressedThreads,
   markExternalEmailRefresh,
   parseAccountErrorsHeader,
@@ -23,6 +25,9 @@ import {
   suppressThread,
   hasFreshOptimisticOverrideEvidence,
   keepLatestEmailPage,
+  emailListRefetchInterval,
+  markThreadReadRetryAfterMs,
+  shouldRetryMarkThreadRead,
 } from "./use-emails";
 
 function makeEmail(id: string, threadId: string): EmailMessage {
@@ -76,6 +81,55 @@ describe("keepLatestEmailPage", () => {
 
     expect(keepLatestEmailPage(stale, confirmed)).toBe(confirmed);
     expect(keepLatestEmailPage(confirmed, stale)).toBe(confirmed);
+  });
+});
+
+describe("emailListRefetchInterval", () => {
+  it("stops background polling after a quota response", () => {
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: Object.assign(new Error("quota"), { status: 429 }),
+      }),
+    ).toBe(false);
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: new Error("temporary failure"),
+      }),
+    ).toBe(4 * 60_000);
+    expect(
+      emailListRefetchInterval(
+        { status: "success", fetchFailureCount: 0, error: null },
+        "search term",
+      ),
+    ).toBe(false);
+  });
+
+  it("looks once more after the cooldown Gmail named, and never sooner", () => {
+    const cooldown = (retryAfterMs: number) =>
+      Object.assign(new Error("busy"), {
+        status: 429,
+        errorCode: "gmail_quota_cooldown",
+        retryAfterMs,
+      });
+
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: cooldown(20_000),
+      }),
+    ).toBe(21_000);
+    expect(
+      emailListRefetchInterval({
+        status: "error",
+        fetchFailureCount: 1,
+        error: cooldown(60 * 60_000),
+      }),
+    ).toBe(5 * 60_000);
   });
 });
 
@@ -159,8 +213,6 @@ describe("filterSuppressedThreads", () => {
     const row = () => [makeEmail("msg-archived", "thread-archived")];
 
     expect(filterSuppressedThreads(row(), "archive")).toHaveLength(1);
-    // Archiving removes only INBOX, so All Mail and every label it carries
-    // still list the thread.
     expect(filterSuppressedThreads(row(), "all")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "all", "Projects")).toHaveLength(1);
   });
@@ -234,8 +286,6 @@ describe("suppression evidence", () => {
       views: ["inbox", "unread"],
     });
 
-    // Provider evidence can retire the active suppression before the toast's
-    // Undo callback runs.
     expect(settleSuppression(threadId, id)).toBe(true);
     expect(releaseSuppressionClaims(threadId, [id])).toBe(true);
     expect(releaseSuppressionClaims(threadId, [])).toBe(false);
@@ -253,8 +303,6 @@ describe("suppression evidence", () => {
     expect(settleSuppression(threadId, muted)).toBe(true);
     expect(releaseSuppressionClaims(threadId, [archived])).toBe(false);
 
-    // Releasing the newer committed claim removes its tombstone, so the
-    // older Undo can be honored after the newer action is explicitly undone.
     expect(releaseSuppressionClaims(threadId, [muted])).toBe(true);
   });
 
@@ -440,8 +488,12 @@ describe("useMarkRead", () => {
       source.indexOf("export function useMarkThreadRead()"),
     );
 
-    expect(hook).toContain("getCachedThread(resolvedThreadId)");
-    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
+    expect(hook).toMatch(
+      /getCachedThread\(\s*resolvedThreadId,\s*resolvedAccountEmail\s*\)/,
+    );
+    expect(hook).toMatch(
+      /supersedeCachedThreadFetch\(\s*resolvedThreadId,\s*resolvedAccountEmail\s*\)/,
+    );
     expect(hook).toContain(
       "message.id === id ? { ...message, isRead } : message",
     );
@@ -509,7 +561,9 @@ describe("useMarkRead", () => {
     );
 
     expect(hook).toContain("const restartThread = resolvedThreadId");
-    expect(hook).toContain("supersedeCachedThreadFetch(resolvedThreadId)");
+    expect(hook).toMatch(
+      /supersedeCachedThreadFetch\(\s*resolvedThreadId,\s*resolvedAccountEmail\s*\)/,
+    );
     expect(hook).toContain("resolvedThreadId && restartThread");
     expect(source).toContain("clearOptimisticOverrideProperty(emailId, field)");
     expect(hook).toContain("refreshThreadAfterMutations(");
@@ -519,13 +573,89 @@ describe("useMarkRead", () => {
 describe("thread fetch ownership", () => {
   it("only lets the current request clear its in-flight entry", () => {
     expect(threadCacheSource()).toContain(
-      "if (inflight.get(threadId) === request) inflight.delete(threadId)",
+      "if (inflight.get(key) === request) inflight.delete(key)",
     );
     expect(threadCacheSource()).toContain("return superseded");
   });
 });
 
 describe("useMarkThreadRead", () => {
+  it("waits only for a typed Gmail cooldown and caps its delay", () => {
+    expect(
+      markThreadReadRetryAfterMs(
+        Object.assign(new Error("cooldown"), {
+          status: 429,
+          errorCode: "gmail_quota_cooldown",
+          retryAfterMs: 45_000,
+        }),
+      ),
+    ).toBe(45_000);
+    expect(
+      markThreadReadRetryAfterMs(
+        Object.assign(new Error("other 429"), {
+          status: 429,
+          retryAfterMs: 45_000,
+        }),
+      ),
+    ).toBeUndefined();
+    expect(
+      markThreadReadRetryAfterMs(
+        Object.assign(new Error("invalid delay"), {
+          status: 429,
+          errorCode: "gmail_quota_cooldown",
+          retryAfterMs: 900_000,
+        }),
+      ),
+    ).toBe(300_000);
+
+    const hook = emailsHookSource().slice(
+      emailsHookSource().indexOf("export function useMarkThreadRead()"),
+      emailsHookSource().indexOf("export function useToggleStar()"),
+    );
+    expect(hook).toContain("retry: (failureCount, error) =>");
+    expect(hook).toContain("retryDelay: (_failureCount, error) =>");
+    expect(hook).toContain('t("mail.error.rateLimitDescription")');
+  });
+
+  it("skips a cooldown retry after a newer read or unread intent", () => {
+    const error = Object.assign(new Error("cooldown"), {
+      status: 429,
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 45_000,
+    });
+    const first = beginThreadReadIntent("thread-retry-order");
+
+    expect(shouldRetryMarkThreadRead(0, error, first)).toBe(true);
+    const newer = beginThreadReadIntent("thread-retry-order");
+    expect(shouldRetryMarkThreadRead(0, error, first)).toBe(false);
+    expect(shouldRetryMarkThreadRead(0, error, newer)).toBe(true);
+
+    finishThreadReadIntent(newer);
+    expect(shouldRetryMarkThreadRead(0, error, first)).toBe(false);
+    finishThreadReadIntent(first);
+
+    const source = emailsHookSource();
+    const threadReadHook = source.slice(
+      source.indexOf("export function useMarkThreadRead()"),
+      source.indexOf("export function markThreadReadRetryAfterMs"),
+    );
+    expect(threadReadHook).toContain(
+      "if (intent && !isCurrentThreadReadIntent(intent)) {",
+    );
+    expect(threadReadHook).toContain(
+      "throw new SupersededThreadReadRetryError();",
+    );
+    expect(threadReadHook).not.toContain("return undefined;");
+    expect(threadReadHook).toContain(
+      "if (err instanceof SupersededThreadReadRetryError) return;",
+    );
+    expect(threadReadHook).toContain(
+      "threadReadIntentByVariables.set(variables, retryIntent)",
+    );
+    expect(source).toContain("beginThreadReadIntent(resolvedThreadId)");
+    expect(source).toContain("].map(beginThreadReadIntent)");
+  });
+
   it("supersedes a cold thread fetch before the optimistic update", () => {
     const source = emailsHookSource();
     const hook = source.slice(
@@ -533,26 +663,23 @@ describe("useMarkThreadRead", () => {
       source.indexOf("export function useToggleStar()"),
     );
 
-    expect(hook).toContain("supersedeCachedThreadFetch(threadId)");
+    expect(hook).toMatch(
+      /supersedeCachedThreadFetch\(\s*threadId,\s*resolvedAccountEmail,?\s*\)/,
+    );
     expect(hook).toContain("beginReadMutation(id, false, true)");
     expect(hook).not.toContain("context.previousThread");
   });
 
   it("sends accountEmail with the mark-thread-read call so multi-account owners don't 401", () => {
-    // Repro: the mutation used to take a bare threadId, so the server fell
-    // back to the request owner's login email — wrong whenever that isn't
-    // the Gmail account the thread belongs to (a second/personal account,
-    // or local dev where the owner's login isn't a connected Gmail address).
     const source = emailsHookSource();
     const hook = source.slice(
       source.indexOf("export function useMarkThreadRead()"),
       source.indexOf("export function useToggleStar()"),
     );
 
-    expect(hook).toContain(
-      'mutationFn: ({\n      threadId,\n      accountEmail,\n    }: {\n      threadId: string;\n      accountEmail?: string;\n    }) =>\n      callAction("mark-thread-read", { threadId, accountEmail })',
-    );
-    expect(hook).toContain("onMutate: async ({ threadId, accountEmail }) => {");
+    expect(hook).toContain('await callAction("mark-thread-read", variables)');
+    expect(hook).toContain("threadId: string;\n      accountEmail?: string;");
+    expect(hook).toContain("const { threadId, accountEmail } = variables;");
   });
 });
 
@@ -620,8 +747,17 @@ describe("useUpdateSettings", () => {
     expect(source).toContain("rebasePinnedLabelsUpdate(");
     expect(source).toContain("resetPinnedLabelsState(owner)");
     expect(source).toContain("settingsLoading || !prev || !owner");
-    expect(source).toContain('if ("showAllTab" in variables)');
-    expect(source).toContain("invalidations.push(invalidateInboxThreads(qc))");
+    expect(source).toContain('"pinnedLabels" in variables ||');
+    expect(source).toContain('"combineInbox" in variables ||');
+    expect(source).toContain('"showAllTab" in variables ||');
+    expect(source).toContain('"savedFilters" in variables ||');
+    expect(source).toContain('"labelAliases" in variables');
+    expect(source).toContain(
+      "qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY })",
+    );
+    expect(source).toContain(
+      'qc.invalidateQueries({ queryKey: ["mail-inbox-overview"] })',
+    );
     expect(source).toContain("requestSource: TAB_ID");
   });
 });
@@ -698,6 +834,30 @@ describe("apiFetch quota signaling", () => {
     });
   });
 
+  it("carries the typed cooldown fields from the response body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: "Email service is briefly busy.",
+            errorCode: "gmail_quota_cooldown",
+            retryAfterMs: 12_500,
+            cooldownUntil: 1_790_000_000_000,
+          }),
+          { status: 429, headers: { "Retry-After": "13" } },
+        ),
+      ),
+    );
+
+    await expect(apiFetch("/api/emails")).rejects.toMatchObject({
+      status: 429,
+      errorCode: "gmail_quota_cooldown",
+      retryAfterMs: 12_500,
+      cooldownUntil: 1_790_000_000_000,
+    });
+  });
+
   it("leaves retryAfterMs undefined without a Retry-After header", async () => {
     vi.stubGlobal(
       "fetch",
@@ -713,8 +873,6 @@ describe("apiFetch quota signaling", () => {
 });
 
 describe("inbox-thread cache rollback on mutation error", () => {
-  // Inbox optimistic state is a journal overlay. Errors retire only their own
-  // entry, so overlapping mutations never restore an older cache snapshot.
   const boundaries: Array<[string, string]> = [
     ["export function useMarkRead()", "export function useMarkThreadRead()"],
     ["export function useMarkThreadRead()", "export function useToggleStar()"],
@@ -828,6 +986,13 @@ describe("inbox-thread cache rollback on mutation error", () => {
       const hook = source.slice(source.indexOf(start), source.indexOf(end));
       for (const marker of markers) expect(hook).toContain(marker);
     }
+    const starHook = source.slice(
+      source.indexOf("export function useBulkToggleStar()"),
+      source.indexOf("export function useBulkMarkRead()"),
+    );
+    expect(starHook).toContain("accountEmailsByEmailId");
+    expect(starHook).toContain("context.accountEmailsByEmailId");
+    expect(source).toContain("getCachedThread(threadId, accountEmail)");
     expect(source).toContain('enqueueBulkGmailMutation("trash"');
     expect(source).toContain('cancelOrWait("trash", id)');
   });
@@ -848,8 +1013,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
     expect(hook).toContain(
       "releaseSuppression(threadId, context.suppressionIds[threadId])",
     );
-    // Restoring the whole ["emails"] snapshot here would also revert a move
-    // that completed while this one was still pending.
     expect(hook).not.toContain("previous.forEach");
   });
 
@@ -861,8 +1024,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
       views: ["inbox", "unread"],
     });
 
-    // The move failed for its own thread only; an archive that landed while it
-    // was still pending must stay hidden.
     releaseSuppression("thread-moved", moved);
 
     const visible = filterSuppressedThreads(
@@ -878,8 +1039,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("keeps the same thread hidden when an overlapping mutation rolls back", () => {
-    // Move, then archive the same thread, then fail the move. The archive is
-    // still pending, so releasing the move's claim must not reveal the row.
     const moved = suppressThread("thread-both", "move", {
       views: ["inbox", "unread"],
     });
@@ -919,8 +1078,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("lets the newest claim decide where an overlapping thread stays visible", () => {
-    // Archive then trash the same thread: Trash is its final location, so the
-    // older archive claim must not keep hiding it there.
     const archived = suppressThread("thread-relocated", "archive", {
       views: ["inbox", "unread"],
     });
@@ -931,7 +1088,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
 
     expect(filterSuppressedThreads(row(), "trash")).toHaveLength(1);
     expect(filterSuppressedThreads(row(), "archive")).toEqual([]);
-    // Trash leaves All Mail and every label behind as well.
     expect(filterSuppressedThreads(row(), "all")).toEqual([]);
     expect(filterSuppressedThreads(row(), "all", "Projects")).toEqual([]);
 
@@ -940,8 +1096,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("keeps a moved thread in the labels it still carries", () => {
-    // Moving out of the inbox with no source label leaves every label the
-    // thread already had attached, so only the inbox loses the row.
     const moved = suppressThread("thread-filed", "move", {
       views: ["inbox", "unread"],
     });
@@ -956,8 +1110,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("hides a moved thread only in the source label it was moved out of", () => {
-    // A mailbox-wide label tab fetches with view "all" plus the active label,
-    // so only the label the move actually removed may stop listing it.
     const moved = suppressThread("thread-refiled", "move", {
       views: ["inbox", "unread"],
       label: "Marketing",
@@ -973,8 +1125,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
   });
 
   it("hides an archived thread only in the label the archive removed", () => {
-    // Archiving from a label view passes removeLabel, so that label stops
-    // listing the thread while every other label it carries keeps it.
     const archived = suppressThread("thread-filed-away", "archive", {
       views: ["inbox", "unread"],
       label: "Marketing",
@@ -1012,8 +1162,6 @@ describe("inbox-thread cache rollback on mutation error", () => {
       expect(hook).toContain(
         "settleInboxMutationIfObserved(qc, context?.inboxMutationId)",
       );
-      // A whole-snapshot restore here would revert mutations that landed after
-      // this one started — the bug class this hook set was rewritten to avoid.
       expect(hook).not.toContain("previous.forEach");
     }
   });

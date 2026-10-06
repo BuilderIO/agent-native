@@ -20,11 +20,6 @@ export type SortableItemRenderProps = {
   listeners: DragListeners | undefined;
 };
 
-/**
- * Inert props for rendering a row outside a sortable context — e.g. the drag
- * overlay, which mounts the real row for its preview but must not register a
- * second sortable node or apply drag transforms.
- */
 export const INERT_SORTABLE_PROPS: SortableItemRenderProps = {
   setNodeRef: () => {},
   style: {},

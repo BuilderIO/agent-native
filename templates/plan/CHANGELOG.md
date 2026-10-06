@@ -3,6 +3,23 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-01
+
+### Improved
+
+- Plan routes show page-shaped skeletons while content loads
+
+### Fixed
+
+- Two people editing one plan at the same time, or one of them offline, now keep both sets of edits, and opening a plan together no longer duplicates its content.
+- Consecutive Plan edits now use the latest saved revision.
+
+## 2026-09-25
+
+### Improved
+
+- Plan shows how to connect file storage before uploading images.
+
 ## 2026-09-09
 
 ### Improved

@@ -14,9 +14,7 @@ export async function buildListViewScreen<
   toSummary: (item: TItem) => TSummary;
   getById: (id: string) => Promise<TItem | null>;
   selection?: {
-    /** Deep-link highlight from navigation (single row). */
     highlightId?: string;
-    /** Bulk-select mode ids from app state. */
     bulkIds?: string[];
   };
   resolveSelectedMiss?: (id: string) => Promise<Record<string, unknown> | null>;

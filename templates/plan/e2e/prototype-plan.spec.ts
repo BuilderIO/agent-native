@@ -13,60 +13,10 @@ import {
   planE2eAuthEmailPath,
 } from "./auth-state";
 
-/*
- * PROTOTYPE PLAN — deep, adversarial E2E for the prototype-first plan feature
- * (content.prototype = functional screens + transitions rendered ABOVE the
- * document by the PrototypeViewer).
- *
- * What we cover:
- *  - create-prototype-plan via the authed action surface: persistence of
- *    screens + transitions + an auto-derived static-mock canvas, SQL round-trip.
- *  - The functional PrototypeViewer rendering on top: data-goto hotspots
- *    advance true screens/routes, and local prototype directives drive basic
- *    inputs, toggles, filtering, and list mutation without scripts.
- *  - The shared review toolbar: comment mode, sketchy<->clean (the rendered
- *    frame's data-style flips), dark<->light, and POPOUT (a real new browser
- *    page opens to ?prototype=1) without stacking a second prototype toolbar.
- *  - TABS: a prototype plan always derives a canvas, so the surface shows
- *    Prototype / Wireframes tabs ([data-plan-visual-tabs]); Wireframes is the
- *    default, and flipping the tab swaps the top surface (canvas <-> viewer).
- *  - The standalone popout (?prototype=1): viewer only, no tabs, no document
- *    header, "Open full plan" control, navigation still works.
- *  - COMMENTS on the prototype: a UI-dropped comment pin persists with the
- *    real reviewer identity; an API-dropped prototype pin keeps its prototype
- *    anchor, survives reload, and routes to the agent (actionableThreads) vs a
- *    human (humanReviewThreads) per resolutionTarget — the "send to agent" path.
- *  - convert-visual-plan-to-prototype: an HTML-canvas plan becomes a live
- *    prototype (keeps static mocks by default; removeCanvas drops them).
- *  - Adversarial edges: single-screen prototype; cyclic A->B->A; a dead data-goto
- *    (missing screen id) is a guarded no-op; a transition to a non-existent screen
- *    is a 4xx client error (NOT a 500); converting a document-only plan with no
- *    canvas is a 4xx client error (NOT a 500).
- *
- * Reviewer identity for the authed project is e2e+autoz@plan.test
- * (e2e/global-setup.ts). Every assertion encodes CORRECT behavior; a genuine
- * failure of correct behavior is a reported app bug, not a flaky spec. Specs use
- * web-first auto-retrying assertions (no fixed sleeps) so concurrent-agent HMR
- * reloads are absorbed by config retries.
- *
- * Renderer facts grounded in the running app (PrototypeViewer.tsx /
- * PlanVisualSurface.tsx / PlanContentRenderer.tsx / PlansPage.tsx):
- *  - The viewer is [data-plan-prototype-viewer]; the active screen container is
- *    [data-prototype-screen="<id>"]; screen ids are slugs of titles.
- *  - The rendered HTML frame carries data-style="sketchy|clean" (Wireframe.tsx),
- *    which the rough/clean toggle flips for every wireframe in the viewer.
- *  - create-prototype-plan derives a static-mock canvas, so the surface shows
- *    Prototype/Wireframes tabs (role=tab "Prototype"/"Wireframes").
- *  - ?prototype=1 renders only the standalone viewer (no tabs, no document).
- *  - Popout = window.open(url+?prototype=1, "_blank") — a real new page.
- *  - goToScreen() guards unknown ids, so dead hotspots are no-ops, never crashes.
- */
-
 const REVIEWER_EMAIL =
   process.env.PLAN_E2E_EMAIL ||
   (() => {
     try {
-      // global-setup writes the actual per-run authed identity here.
       return readFileSync(planE2eAuthEmailPath(), "utf8").trim();
     } catch {
       return "e2e+autoz@plan.test";
@@ -118,9 +68,6 @@ function planIdFrom(body: ActionResult): string | undefined {
   return body.planId ?? body.plan?.id;
 }
 
-/** Add a comment server-side with an explicit prototype anchor + resolution
- *  target. Mirrors what the UI sends when a reviewer pins a prototype dot and
- *  chooses to route it to the agent or to a human. */
 async function addPrototypeComment(
   req: APIRequestContext,
   planId: string,
@@ -151,8 +98,6 @@ async function addPrototypeComment(
   });
 }
 
-/** Create a standard 3-screen onboarding prototype with explicit hotspots and
- *  transitions. Screen ids end up as slugs: welcome / setup / done. */
 async function createOnboardingPrototype(
   req: APIRequestContext,
   label: string,
@@ -205,7 +150,6 @@ async function createOnboardingPrototype(
   return { planId: planId as string, body: res.body };
 }
 
-/** Open a plan, optionally activate Prototype, and return its viewer. */
 async function openPrototype(
   page: Page,
   planId: string,
@@ -254,16 +198,12 @@ const activeScreenId = (viewer: Locator) =>
     .locator("[data-prototype-screen]")
     .getAttribute("data-prototype-screen");
 
-/* ------------------------------------------------------------------ */
-/* 1. create-prototype-plan persists a functional prototype + canvas   */
-/* ------------------------------------------------------------------ */
 test("create-prototype-plan persists prototype screens, transitions, and derived static mocks", async ({
   page,
 }) => {
   const req = page.request;
   const { planId, body } = await createOnboardingPrototype(req, "persist");
 
-  // Returned content carries the prototype + an auto-derived static-mock canvas.
   const content = body.plan?.content;
   expect(
     content?.prototype,
@@ -286,7 +226,6 @@ test("create-prototype-plan persists prototype screens, transitions, and derived
     "a static-mock canvas is derived from the screens",
   ).toBeGreaterThanOrEqual(3);
 
-  // Reload from SQL (get-visual-plan) — prototype must survive the round-trip.
   const reloaded = await getPlan(req, planId);
   expect(
     reloaded.plan?.content?.prototype?.screens?.length,
@@ -298,9 +237,6 @@ test("create-prototype-plan persists prototype screens, transitions, and derived
   ).toBe(3);
 });
 
-/* ------------------------------------------------------------------ */
-/* 2. The functional viewer renders on top and navigates via hotspots  */
-/* ------------------------------------------------------------------ */
 test("prototype viewer renders the first screen and navigates a multi-step flow via data-goto hotspots", async ({
   page,
 }) => {
@@ -308,8 +244,6 @@ test("prototype viewer renders the first screen and navigates a multi-step flow 
   const { planId } = await createOnboardingPrototype(req, "click");
   const viewer = await openPrototype(page, planId);
 
-  // The viewer renders ABOVE the document, but without the old badge/state
-  // chip/screen-counter chrome. The prototype content itself is the review UI.
   expect(
     await activeScreenId(viewer),
     "initial screen is the first screen",
@@ -319,13 +253,11 @@ test("prototype viewer renders the first screen and navigates a multi-step flow 
     "the global bottom pager is intentionally gone",
   ).toHaveCount(0);
 
-  // Multi-step flow: Welcome -> Setup via in-screen hotspots.
   await viewer.locator('[data-prototype-screen] [data-goto="setup"]').click();
   expect(await activeScreenId(viewer), "hotspot navigates to Setup").toBe(
     "setup",
   );
 
-  // A "Back" hotspot navigates against the flow.
   await viewer.locator('[data-prototype-screen] [data-goto="welcome"]').click();
   expect(
     await activeScreenId(viewer),
@@ -339,9 +271,6 @@ test("prototype viewer renders the first screen and navigates a multi-step flow 
   );
 });
 
-/* ------------------------------------------------------------------ */
-/* 3. Functional local prototype behavior                              */
-/* ------------------------------------------------------------------ */
 test("prototype viewer runs local controls for a todo-style prototype", async ({
   page,
 }) => {
@@ -410,9 +339,6 @@ test("prototype viewer runs local controls for a todo-style prototype", async ({
   await expect(viewer.getByText("Ship live prototype")).toHaveCount(0);
 });
 
-/* ------------------------------------------------------------------ */
-/* 4. Toolbar: sketchy/clean flips the rendered frame; dark/light flips */
-/* ------------------------------------------------------------------ */
 test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark<->light flips theme", async ({
   page,
 }) => {
@@ -420,16 +346,11 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
   const { planId } = await createOnboardingPrototype(req, "toggles");
   const viewer = await openPrototype(page, planId);
 
-  // The rendered HTML frame exposes data-style="sketchy|clean". Assert the
-  // actual rendered frame flips, not just the toolbar label.
   const frame = viewer.locator("[data-prototype-screen] .plan-html-frame");
   await expect(frame.first()).toBeVisible();
   const originalStyle = await frame.first().getAttribute("data-style");
   expect(["sketchy", "clean"]).toContain(originalStyle);
 
-  // The sketchy/clean + dark/light toggles now live in the ⋮ "Plan actions"
-  // menu (DropdownMenu items "Clean/Sketchy wireframes", "Light/Dark mode"),
-  // not a prototype-specific toolbar button.
   const openPlanMenu = async () => {
     await page.getByRole("button", { name: "Plan actions" }).first().click();
   };
@@ -471,7 +392,6 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
     );
   }).toPass({ timeout: 6000 });
 
-  // Flip it back to the known sketchy baseline used by the overlay regression.
   await openPlanMenu();
   await page.getByRole("menuitem", { name: /wireframes/i }).click();
   await expect(async () => {
@@ -482,7 +402,6 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
     expect(restored).toBe(styleBefore);
   }).toPass({ timeout: 6000 });
 
-  // Dark/light theme toggle (also in the ⋮ menu) flips the documentElement class.
   const wasDark = await page
     .locator("html")
     .evaluate((el) => el.classList.contains("dark"));
@@ -497,16 +416,12 @@ test("prototype toolbar: sketchy<->clean flips the rendered frame style and dark
     );
   }).toPass({ timeout: 6000 });
 
-  // Viewer is still mounted and showing a screen after toggling.
   await expect(viewer.locator("[data-prototype-screen]")).toBeVisible();
   if (originalStyle === "clean") {
     await ensureStyle("clean");
   }
 });
 
-/* ------------------------------------------------------------------ */
-/* 5. Popout: the shared toolbar opens a real new ?prototype=1 window   */
-/* ------------------------------------------------------------------ */
 test("prototype popout: the shared toolbar opens a new browser page to the standalone prototype", async ({
   page,
   context,
@@ -520,7 +435,6 @@ test("prototype popout: the shared toolbar opens a new browser page to the stand
     "prototype viewer must not add a second top-right toolbar over the shared page toolbar",
   ).toHaveCount(0);
 
-  // The shared page toolbar popout button opens window.open(_blank).
   const popout = page.getByRole("button", {
     name: "Open prototype window",
     exact: true,
@@ -541,16 +455,12 @@ test("prototype popout: the shared toolbar opens a new browser page to the stand
     planId,
   );
 
-  // The popout is a working standalone viewer.
   const popoutViewer = popoutPage.locator("[data-plan-prototype-viewer]");
   await expect(popoutViewer).toBeVisible({ timeout: 20000 });
   expect(await activeScreenId(popoutViewer)).toBe("welcome");
   await popoutPage.close();
 });
 
-/* ------------------------------------------------------------------ */
-/* 5b. Popout: the plan actions menu item also opens the popout window  */
-/* ------------------------------------------------------------------ */
 test("prototype popout: the plan actions menu 'Open prototype window' opens a standalone page", async ({
   page,
   context,
@@ -579,9 +489,6 @@ test("prototype popout: the plan actions menu 'Open prototype window' opens a st
   await popoutPage.close();
 });
 
-/* ------------------------------------------------------------------ */
-/* 6. Tabs: prototype + derived canvas => Prototype/Wireframes tabs     */
-/* ------------------------------------------------------------------ */
 test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surface", async ({
   page,
 }) => {
@@ -589,7 +496,6 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
   const { planId } = await createOnboardingPrototype(req, "tabs");
   const viewer = await openPrototype(page, planId, false);
 
-  // create-prototype-plan derives a canvas, so the tab chrome renders.
   const tabs = page.locator("[data-plan-visual-tabs]");
   await expect(tabs, "prototype + canvas => visual tabs render").toBeVisible();
   const prototypeTab = page.getByRole("tab", { name: "Prototype" });
@@ -597,7 +503,6 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
   await expect(prototypeTab).toBeVisible();
   await expect(wireframesTab).toBeVisible();
 
-  // Wireframes are active by default, even when a live prototype is present.
   await expect(wireframesTab).toHaveAttribute("aria-selected", "true");
   await expect(viewer).toBeHidden();
   const textNoteTool = page.getByRole("radio", { name: "Text note" });
@@ -608,13 +513,10 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
   ).toBeVisible();
   await expect(arrowCalloutTool).toBeVisible();
 
-  // The Prototype tab remains available for interactive review.
   await prototypeTab.click();
   await expect(prototypeTab).toHaveAttribute("aria-selected", "true");
   await expect(viewer).toBeVisible();
 
-  // Choosing a drawing tool from Prototype switches back to the wireframe
-  // canvas, because freeform notes and arrow callouts are authored there.
   await textNoteTool.click();
   await expect(wireframesTab).toHaveAttribute("aria-selected", "true");
   await expect(
@@ -653,9 +555,6 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
     expect(actionableText).toContain(markupText);
   }).toPass({ timeout: 15000 });
 
-  // Flip to Wireframes: the live viewer's screen container goes away and the
-  // canvas board shows instead, with drawing tools available in the one shared
-  // top-right toolbar.
   await wireframesTab.click();
   await expect(wireframesTab).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("radio", { name: "Text note" })).toBeVisible();
@@ -667,7 +566,6 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
     "switching to Wireframes hides the live prototype screen",
   ).toHaveCount(0);
 
-  // Flip back to Prototype: the live viewer returns and route hotspots work.
   await prototypeTab.click();
   await expect(prototypeTab).toHaveAttribute("aria-selected", "true");
   await expect(viewer.locator("[data-prototype-screen]")).toBeVisible();
@@ -678,9 +576,6 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
   ).toBe("setup");
 });
 
-/* ------------------------------------------------------------------ */
-/* 7. Standalone popout (?prototype=1) renders the viewer only          */
-/* ------------------------------------------------------------------ */
 test("?prototype=1 renders a standalone prototype viewer without the tabs or document chrome", async ({
   page,
 }) => {
@@ -694,7 +589,6 @@ test("?prototype=1 renders a standalone prototype viewer without the tabs or doc
     timeout: 20000,
   });
 
-  // Standalone mode hides the Prototype/Wireframes tab chrome and the document.
   await expect(
     page.locator("[data-plan-visual-tabs]"),
     "popout suppresses the visual tab chrome",
@@ -704,13 +598,11 @@ test("?prototype=1 renders a standalone prototype viewer without the tabs or doc
     "popout suppresses the plan document header",
   ).toHaveCount(0);
 
-  // In standalone mode the popout control flips to "Open full plan".
   await expect(
     page.getByRole("button", { name: "Open full plan", exact: true }),
     "standalone viewer offers a way back to the full plan",
   ).toBeVisible();
 
-  // Navigation still works in the popout.
   expect(await activeScreenId(viewer)).toBe("welcome");
   await viewer.locator('[data-prototype-screen] [data-goto="setup"]').click();
   expect(await activeScreenId(viewer)).toBe("setup");
@@ -718,16 +610,12 @@ test("?prototype=1 renders a standalone prototype viewer without the tabs or doc
   expect(await activeScreenId(viewer)).toBe("done");
 });
 
-/* ------------------------------------------------------------------ */
-/* 8. Comments: a UI pin on the live prototype persists with identity   */
-/* ------------------------------------------------------------------ */
 test("comments work in prototype mode: a UI pin on a live screen persists with the reviewer identity", async ({
   page,
 }) => {
   const req = page.request;
   const { planId } = await createOnboardingPrototype(req, "comments");
 
-  // Catch any server error the optimistic UI might hide.
   const updateStatuses: number[] = [];
   page.on("requestfinished", async (r) => {
     if (
@@ -740,8 +628,6 @@ test("comments work in prototype mode: a UI pin on a live screen persists with t
     }
   });
 
-  // Use the standalone prototype popout (?prototype=1): the live prototype is
-  // the sole review surface, so commenting targets the prototype screen.
   await page.goto(`/plans/${planId}?prototype=1`);
   await page.waitForLoadState("domcontentloaded");
   const viewer = page.locator("[data-plan-prototype-viewer]");
@@ -752,9 +638,6 @@ test("comments work in prototype mode: a UI pin on a live screen persists with t
     timeout: 20000,
   });
 
-  // Enter comment (review) mode. The ReviewMarkupToolbar exposes a "Comment"
-  // ToggleGroupItem (role="radio"); once active its label flips to
-  // "Stop commenting".
   const commentToggle = page.getByRole("radio", {
     name: "Comment",
     exact: true,
@@ -766,12 +649,10 @@ test("comments work in prototype mode: a UI pin on a live screen persists with t
     "comment review mode must engage",
   ).toBeVisible({ timeout: 5000 });
 
-  // Click directly on the live prototype screen to drop a pin.
   await viewer
     .locator("[data-prototype-screen]")
     .click({ position: { x: 100, y: 100 } });
 
-  // The inline composer should open on the prototype surface.
   await expect(
     page.getByText("Add a comment...", { exact: false }),
     "clicking the live prototype in comment mode opens the inline composer",
@@ -793,8 +674,6 @@ test("comments work in prototype mode: a UI pin on a live screen persists with t
     "the composer must not show a save error",
   ).toBeHidden({ timeout: 5000 });
 
-  // It persists server-side with the real reviewer identity. The anchor records
-  // the prototype surface so the agent can read where it was pinned.
   await expect(async () => {
     const fb = await getFeedback(req, planId);
     const human = (fb.body.comments ?? []).filter(
@@ -809,16 +688,12 @@ test("comments work in prototype mode: a UI pin on a live screen persists with t
   }).toPass({ timeout: 15000 });
 });
 
-/* ------------------------------------------------------------------ */
-/* 8b. Comments: prototype pins route to agent vs human; survive reload */
-/* ------------------------------------------------------------------ */
 test("prototype comments route to the agent or a human by resolutionTarget and survive reload", async ({
   page,
 }) => {
   const req = page.request;
   const { planId } = await createOnboardingPrototype(req, "routing");
 
-  // One pin meant for the agent ("send to agent"), one meant for a human.
   const toAgent = await addPrototypeComment(req, planId, {
     message: "Agent: tighten the welcome screen spacing.",
     screenId: "welcome",
@@ -836,7 +711,6 @@ test("prototype comments route to the agent or a human by resolutionTarget and s
   });
   expect(toHuman.ok, "human-targeted prototype comment must save").toBeTruthy();
 
-  // get-plan-feedback (the "send to agent" surface) sorts them correctly.
   await expect(async () => {
     const fb = await getFeedback(req, planId);
     const comments = (fb.body.comments ?? []).filter(
@@ -846,7 +720,6 @@ test("prototype comments route to the agent or a human by resolutionTarget and s
       comments.length,
       "both prototype pins persist",
     ).toBeGreaterThanOrEqual(2);
-    // Reviewer identity stamped on every human pin.
     for (const c of comments) {
       expect(c.authorEmail).toBe(EXPECTED_COMMENT_AUTHOR_EMAIL);
       expect(
@@ -854,7 +727,6 @@ test("prototype comments route to the agent or a human by resolutionTarget and s
         "every prototype pin keeps a prototype anchor",
       ).toContain("prototype");
     }
-    // Agent-bound pin shows up in actionableThreads; human-bound in humanReview.
     expect(
       (fb.body.actionableThreads ?? []).length,
       "the agent-targeted pin is actionable by the agent",
@@ -873,7 +745,6 @@ test("prototype comments route to the agent or a human by resolutionTarget and s
     ).toBeGreaterThanOrEqual(1);
   }).toPass({ timeout: 15000 });
 
-  // The pins are visible to a fresh page load of the live prototype too.
   const viewer = await openPrototype(page, planId);
   await expect(viewer).toBeVisible();
   const reloaded = await getFeedback(req, planId);
@@ -884,15 +755,11 @@ test("prototype comments route to the agent or a human by resolutionTarget and s
   ).toBeGreaterThanOrEqual(2);
 });
 
-/* ------------------------------------------------------------------ */
-/* 9. convert-visual-plan-to-prototype: HTML canvas -> live prototype  */
-/* ------------------------------------------------------------------ */
 test("convert-visual-plan-to-prototype derives a live prototype from canvas wireframes and keeps static mocks", async ({
   page,
 }) => {
   const req = page.request;
 
-  // A visual plan whose canvas frames carry real wireframe HTML.
   const content = {
     version: 2,
     title: "Inbox Flow",
@@ -946,7 +813,6 @@ test("convert-visual-plan-to-prototype derives a live prototype from canvas wire
     "the source visual plan starts WITHOUT a prototype",
   ).toBeFalsy();
 
-  // Convert.
   const converted = await action(req, "convert-visual-plan-to-prototype", {
     planId,
   });
@@ -972,24 +838,18 @@ test("convert-visual-plan-to-prototype derives a live prototype from canvas wire
     "static mocks (canvas) are preserved by default",
   ).toBeTruthy();
 
-  // Open it: the live prototype now renders on top, starting at the first frame.
   const viewer = await openPrototype(page, planId);
   expect(
     await activeScreenId(viewer),
     "converted prototype opens at ab-inbox",
   ).toBe("ab-inbox");
 
-  // The canvas flow becomes an in-prototype route control because there is no
-  // global slide navigator anymore.
   await viewer
     .locator('[data-prototype-screen] [data-goto="ab-reader"]')
     .click();
   expect(await activeScreenId(viewer)).toBe("ab-reader");
 });
 
-/* ------------------------------------------------------------------ */
-/* 9b. convert with removeCanvas drops the static mocks                 */
-/* ------------------------------------------------------------------ */
 test("convert-visual-plan-to-prototype with removeCanvas=true drops the static mocks", async ({
   page,
 }) => {
@@ -1043,7 +903,6 @@ test("convert-visual-plan-to-prototype with removeCanvas=true drops the static m
     "removeCanvas=true drops the static-mock canvas",
   ).toBeFalsy();
 
-  // With no canvas the surface has no Prototype/Wireframes tabs — just the viewer.
   const viewer = await openPrototype(page, planId);
   await expect(
     page.locator("[data-plan-visual-tabs]"),
@@ -1052,9 +911,6 @@ test("convert-visual-plan-to-prototype with removeCanvas=true drops the static m
   expect(await activeScreenId(viewer)).toBe("rc-a");
 });
 
-/* ------------------------------------------------------------------ */
-/* 10. EDGE: a single-screen prototype renders without nav chrome        */
-/* ------------------------------------------------------------------ */
 test("EDGE: a one-screen prototype renders without global next/prev controls", async ({
   page,
 }) => {
@@ -1129,20 +985,14 @@ test("EDGE: cyclic transitions let the viewer loop A -> B -> A safely", async ({
   await viewer.locator('[data-prototype-screen] [data-goto="b"]').click();
   expect(await activeScreenId(viewer), "cycle loops indefinitely").toBe("b");
 
-  // The in-screen hotspot continues to follow the cycle without deadlock.
   await viewer.locator('[data-prototype-screen] [data-goto="a"]').click();
   expect(await activeScreenId(viewer)).toBe("a");
 });
 
-/* ------------------------------------------------------------------ */
-/* 12. EDGE: a dead data-goto hotspot is a no-op, never a crash         */
-/* ------------------------------------------------------------------ */
 test("EDGE: a data-goto pointing at a missing screen is a safe no-op", async ({
   page,
 }) => {
   const req = page.request;
-  // Only the HTML hotspot is dead; the declared transitions are all valid, so
-  // the plan is accepted. The viewer must guard navigation to unknown ids.
   const res = await action(req, "create-prototype-plan", {
     title: `Dead Hotspot ${Date.now()}`,
     brief: "One hotspot points nowhere.",
@@ -1164,7 +1014,6 @@ test("EDGE: a data-goto pointing at a missing screen is a safe no-op", async ({
   const viewer = await openPrototype(page, planId);
   expect(await activeScreenId(viewer)).toBe("home");
 
-  // Click the dead hotspot: must stay put (guarded), not crash.
   await viewer.locator('[data-prototype-screen] [data-goto="ghost"]').click();
   expect(
     await activeScreenId(viewer),
@@ -1175,14 +1024,10 @@ test("EDGE: a data-goto pointing at a missing screen is a safe no-op", async ({
     "the viewer stays mounted after a dead-hotspot click",
   ).toBeVisible();
 
-  // The valid hotspot still works.
   await viewer.locator('[data-prototype-screen] [data-goto="real"]').click();
   expect(await activeScreenId(viewer)).toBe("real");
 });
 
-/* ------------------------------------------------------------------ */
-/* 13. EDGE: a transition to a missing screen is a 4xx, not a 500       */
-/* ------------------------------------------------------------------ */
 test("EDGE: a transition whose target screen does not exist is a 4xx client error", async ({
   page,
 }) => {
@@ -1197,17 +1042,13 @@ test("EDGE: a transition whose target screen does not exist is a 4xx client erro
       },
       { title: "Real", html: `<div><h1>Real</h1></div>` },
     ],
-    // "ghost" is not a screen id — the prototype schema must reject this.
     transitions: [{ from: "home", to: "ghost" }],
   });
 
-  // Correct behavior: the malformed prototype is rejected and nothing persists.
   expect(
     res.ok,
     `a transition to a non-existent screen must be rejected (status ${res.status})`,
   ).toBeFalsy();
-  // It must be a 4xx client-validation error, NOT an opaque 5xx. The action
-  // wraps the schema ZodError as statusCode 400 (create-prototype-plan.ts).
   expect(
     res.status,
     `a malformed transition must be a 4xx client error, not a 5xx server error (got ${res.status}: ${res.raw.slice(0, 200)})`,
@@ -1218,9 +1059,6 @@ test("EDGE: a transition whose target screen does not exist is a 4xx client erro
   ).toBeLessThan(500);
 });
 
-/* ------------------------------------------------------------------ */
-/* 14. EDGE: converting a plan with no canvas wireframes is a 4xx       */
-/* ------------------------------------------------------------------ */
 test("EDGE: converting a plan with no canvas wireframes is a 4xx client error, not silently empty", async ({
   page,
 }) => {
@@ -1249,8 +1087,6 @@ test("EDGE: converting a plan with no canvas wireframes is a 4xx client error, n
     planId,
   });
 
-  // Correct behavior: conversion must fail (no wireframes) with a 4xx, and the
-  // plan must NOT gain an empty/garbage prototype.
   expect(
     conv.ok,
     `converting a plan with no canvas wireframes must be rejected (status ${conv.status})`,

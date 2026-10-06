@@ -38,26 +38,10 @@ import {
   Toolbar,
 } from "./primitives";
 
-/*
- * Node registry — maps a kit-tree node's `el` name to the React renderer that
- * draws it. Wireframe.tsx walks the tree (PlanWireframeNode[]) and calls
- * `renderNodes` / `renderNode`; this module owns the el -> component mapping so
- * the model only ever emits semantic nodes (no geometry, no CSS).
- *
- * Containers (screen, row, col, sidebar, main, card, column, box) render their
- * `children`. Leaf primitives map props straight through. Collection nodes
- * (chips, tabs, kv) consume `items` / `rows`.
- */
-
 type NodeRenderer = (node: PlanWireframeNode, children: ReactNode) => ReactNode;
 
 const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
-  // --- Frame / structure -------------------------------------------------
   screen: (n) => {
-    // Surface-aware safe area so content never touches a frame edge:
-    // - browser/window screens are full-bleed (chrome + sidebar/main pad inside)
-    // - mobile keeps the status bar full-bleed but pads the body below it
-    // - bare card/panel/popover screens inset all their content uniformly
     const kids = n.children ?? [];
     const lead = kids[0]?.el;
     if (lead === "browserBar") {
@@ -111,7 +95,6 @@ const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
   ),
   divider: () => <Divider />,
 
-  // --- Text --------------------------------------------------------------
   title: (n) => <Title text={n.text} script={n.script} />,
   text: (n) => (
     <Text
@@ -126,7 +109,6 @@ const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
     <SectionLabel tone={n.tone}>{n.label ?? n.text}</SectionLabel>
   ),
 
-  // --- List / task -------------------------------------------------------
   navItem: (n) => (
     <NavItem
       label={n.label ?? n.text}
@@ -147,7 +129,6 @@ const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
     />
   ),
 
-  // --- Controls ----------------------------------------------------------
   chips: (n) => <Tabs items={n.items ?? []} />,
   chip: (n) => <Chip active={n.active}>{n.label ?? n.text}</Chip>,
   pill: (n) => <Pill tone={n.tone}>{n.label ?? n.text}</Pill>,
@@ -168,7 +149,6 @@ const REGISTRY: Record<PlanWireframeElName, NodeRenderer> = {
   fab: (n) => <Fab icon={n.icon} />,
   searchBar: (n) => <SearchBar placeholder={n.placeholder} />,
 
-  // --- Atoms -------------------------------------------------------------
   avatar: () => <Avatar />,
   iconSquare: (n) => <IconSquare active={n.active} />,
   kv: (n) => <KV rows={n.rows ?? []} />,
@@ -190,7 +170,6 @@ function renderScreenBodyNodes(nodes: PlanWireframeNode[]): ReactNode {
   );
 }
 
-/** Render a single kit-tree node (and its children, recursively). */
 export function renderNode(
   node: PlanWireframeNode,
   key?: string | number,
@@ -198,16 +177,9 @@ export function renderNode(
   const renderer = REGISTRY[node.el];
   const children = node.children?.length ? renderNodes(node.children) : null;
   if (!renderer) {
-    // Unknown el — fail soft: draw children (or nothing) so one bad node does
-    // not blank the whole frame.
     return children ? <div key={key}>{children}</div> : null;
   }
   let rendered = renderer(node, children);
-  // Wrap identified nodes in a layout-transparent element carrying stable node
-  // identity so UI click handlers can walk ancestors for wireframe comment
-  // anchoring. The kit primitives do not forward unknown props to the DOM, so
-  // a real wrapper element (display: contents keeps flex layout intact) is the
-  // only reliable way to land the data attributes.
   if (node.id && rendered != null) {
     rendered = (
       <div
@@ -219,21 +191,17 @@ export function renderNode(
       </div>
     );
   }
-  // Attach a stable key by wrapping in a Fragment.
   return <KeyedNode key={key ?? node.id}>{rendered}</KeyedNode>;
 }
 
-/** Render an array of nodes. */
 export function renderNodes(nodes: PlanWireframeNode[]): ReactNode {
   return nodes.map((node, i) => renderNode(node, node.id ?? i));
 }
 
-/** Lightweight keyed wrapper that does not introduce extra DOM. */
 function KeyedNode({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Whether an `el` name has a registered renderer. */
 export function hasRenderer(el: string): el is PlanWireframeElName {
   return el in REGISTRY;
 }

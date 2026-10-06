@@ -9,6 +9,7 @@ import { and, eq } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
 import { getDb, schema } from "../db/index.js";
+import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
 import {
   documentChatStartVersionId,
@@ -19,9 +20,6 @@ import {
   resolvePublicViewerOwner,
 } from "../lib/public-documents.js";
 
-// These tools are injected by the framework/provider layer, so they cannot
-// declare `deferLoading` beside a Content action. Content-owned starter tools
-// carry `deferLoading: false` in their own definitions.
 const INJECTED_INITIAL_TOOL_NAMES = [
   "provider-api-catalog",
   "provider-api-docs",
@@ -198,12 +196,10 @@ export default createAgentChatPlugin({
     externalAgents: { writes: "allowlisted" },
     instructions:
       "Find documents with list-documents or search-documents; read with get-document (pull-document for raw Markdown). Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. Use update-document for metadata and browser rewrites. For provider data use provider-api-catalog → provider-api-docs → provider-api-request.",
+    directoryProfile: CHATGPT_DIRECTORY_PROFILE,
   },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,
-  // Enable sandboxed JavaScript execution so Content agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per Notion endpoint.
   codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are an AI document assistant. You manage documents, comments, media blocks, sharing, and connected Notion content through actions and shared application state.
@@ -227,8 +223,6 @@ Content's Notion access is per-user OAuth only. Never ask for or use NOTION_API_
         search: async (query: string) => {
           const db = getDb();
           const ownerEmail = getCurrentOwnerEmail();
-          // Project only id/title/parentId — documents.content is the full
-          // page body and must not be pulled into this per-keystroke search.
           const mentionColumns = {
             id: documents.id,
             title: documents.title,

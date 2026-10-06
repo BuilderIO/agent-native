@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { McpIntegrationsLanding } from "@agent-native/core/client/integrations";
+import { McpIntegrationsLanding } from "@agent-native/toolkit/app/integrations";
 import { Link } from "react-router";
 
 import { DispatchShell } from "../../components/dispatch-shell";

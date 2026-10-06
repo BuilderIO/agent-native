@@ -75,7 +75,7 @@ const COMMAND_FIXTURE = `<!doctype html>
 
 function preview(page: Page): Locator {
   return page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .contentFrame()
     .locator("body");
@@ -108,7 +108,9 @@ async function previewPoint(
   cssX: number,
   cssY: number,
 ): Promise<{ x: number; y: number }> {
-  const iframe = page.locator("iframe[data-design-preview-iframe]").first();
+  const iframe = page
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
+    .first();
   const iframeBox = await iframe.boundingBox();
   if (!iframeBox) throw new Error("preview iframe has no box");
   const size = await preview(page).evaluate(() => ({
@@ -146,27 +148,29 @@ async function runtimeState(page: Page, id: string) {
 }
 
 async function visibleInsertionGuides(page: Page) {
-  return preview(page)
-    .locator("[data-agent-native-insertion-guide]")
-    .evaluateAll((elements) =>
-      elements
-        .map((element) => {
-          const htmlElement = element as HTMLElement;
-          const style = getComputedStyle(htmlElement);
-          const rect = htmlElement.getBoundingClientRect();
-          return {
-            display: style.display,
-            width: rect.width,
-            height: rect.height,
-            borderTop: style.borderTopWidth,
-            borderLeft: style.borderLeftWidth,
-          };
-        })
-        .filter(
-          (guide) =>
-            guide.display !== "none" && guide.width > 0 && guide.height > 0,
-        ),
-    );
+  return preview(page).evaluate((body) =>
+    Array.from(
+      body.ownerDocument.querySelectorAll(
+        "[data-agent-native-insertion-guide]",
+      ),
+    )
+      .map((element) => {
+        const htmlElement = element as HTMLElement;
+        const style = getComputedStyle(htmlElement);
+        const rect = htmlElement.getBoundingClientRect();
+        return {
+          display: style.display,
+          width: rect.width,
+          height: rect.height,
+          borderTop: style.borderTopWidth,
+          borderLeft: style.borderLeftWidth,
+        };
+      })
+      .filter(
+        (guide) =>
+          guide.display !== "none" && guide.width > 0 && guide.height > 0,
+      ),
+  );
 }
 
 async function visibleDuplicateState(page: Page) {
@@ -217,14 +221,12 @@ test("literal Control after pointerdown removes a flow child from flow and it re
       y: targetPeerBefore!.y + targetPeerBefore!.height / 2,
     };
 
-    // Start unmodified, cross the threshold, then press literal Control while
-    // the pointer remains held. This is the native Ignore Auto Layout timing.
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
     await page.mouse.move(start.x + 5, start.y + 4, { steps: 2 });
     await page.keyboard.down("Control");
     await page.mouse.move(target.x, target.y, { steps: 18 });
-    await page.waitForTimeout(120);
+    await expect.poll(() => visibleInsertionGuides(page)).not.toHaveLength(0);
 
     const held = await runtimeState(page, "control-child");
     const peerHeld = await node(page, "control-target-peer").boundingBox();
@@ -234,15 +236,13 @@ test("literal Control after pointerdown removes a flow child from flow and it re
       x: expect.closeTo(targetPeerBefore!.x, 2),
       y: expect.closeTo(targetPeerBefore!.y, 2),
     });
-    // Ignore Auto Layout is a free-placement state, never a flow slot. The
-    // held state may retain an inside chrome overlay while the target settles,
-    // but it must not paint the flow insertion line.
     expect(
       guidesHeld.every(
         (guide) => guide.borderTop === "0px" || guide.borderLeft !== "0px",
       ),
       JSON.stringify({ held, guidesHeld }),
     ).toBe(true);
+    expect(guidesHeld).not.toHaveLength(0);
 
     await page.mouse.up();
     await page.keyboard.up("Control");
@@ -267,9 +267,6 @@ test("literal Control after pointerdown removes a flow child from flow and it re
       y: expect.closeTo(targetPeerBefore!.y, 2),
     });
 
-    // The structural move is one history unit. Exercise history before a
-    // reload, because a route remount intentionally resets the in-memory
-    // undo stack; persistence is checked by the reloads after each direction.
     await page.keyboard.press("ControlOrMeta+z");
     await expect
       .poll(() => indexHtml(page, designId))
@@ -293,9 +290,6 @@ test("literal Control after pointerdown removes a flow child from flow and it re
       position: "absolute",
     });
 
-    // Re-enter the same row without Control. The old absolute positioning must
-    // be stripped, the child must become a flow sibling, and selection/name
-    // must remain attached to the moved node.
     await selectCanvasNode(page, "control-child");
     const absolute = (await node(page, "control-child").boundingBox())!;
     const peer = (await node(page, "control-target-peer").boundingBox())!;
@@ -382,7 +376,6 @@ test("late Alt duplicate keeps the source visible, names a clone, and supports E
     expect(heldClones[0].id).not.toBe("copy-source");
     expect(heldClones[0].left).not.toBeCloseTo(sourceBefore.x, 0);
 
-    // Figma's copy gesture releases the pointer before Alt. Keep that order.
     await page.mouse.up();
     await page.keyboard.up("Alt");
     await expect
@@ -404,8 +397,6 @@ test("late Alt duplicate keeps the source visible, names a clone, and supports E
         .count(),
     ).toBe(2);
 
-    // Escape cancels a second late-modifier gesture without removing or
-    // renaming the authored source.
     const beforeEscape = await indexHtml(page, designId);
     await selectCanvasNode(page, "copy-source");
     const sourceForEscape = (await node(page, "copy-source").boundingBox())!;
@@ -448,9 +439,6 @@ test("late Alt free drag waits for post-key movement before duplicating", async 
     await page.waitForTimeout(120);
     const heldSource = await runtimeState(page, "copy-source");
 
-    // Alt arrives after the source has visibly moved. With no follow-up
-    // pointer event there is no placed duplicate yet; the source document and
-    // persisted history stay byte-identical until the drag is released.
     const beforeAltDocument = await indexHtml(page, designId);
     await page.keyboard.down("Alt");
     expect(await visibleDuplicateState(page)).toHaveLength(0);
@@ -500,7 +488,7 @@ test("late Alt flow reorder duplicates without moving the source and Escape is b
     await page.mouse.move(start.x + 5, start.y + 4, { steps: 2 });
     await page.keyboard.down("Alt");
     await page.mouse.move(destination.x, destination.y, { steps: 18 });
-    await page.waitForTimeout(120);
+    await expect.poll(() => visibleInsertionGuides(page)).not.toHaveLength(0);
 
     const heldSource = await runtimeState(page, "control-child");
     const heldClones = await visibleDuplicateState(page);
@@ -663,9 +651,6 @@ test("Alt before movement threshold does not duplicate a flow child click", asyn
       y: source.y + source.height / 2,
     };
 
-    // A modifier pressed during a stationary click must not turn the
-    // selection gesture into a copy. Alt only latches once the pointer has
-    // crossed the movement threshold.
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
     await page.keyboard.down("Alt");

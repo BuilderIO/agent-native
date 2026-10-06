@@ -19,6 +19,7 @@ import {
   insertPendingTask,
   isDuplicateEventError,
 } from "../integrations/pending-tasks-store.js";
+import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import {
   nextOccurrence,
   describeCron,
@@ -254,8 +255,6 @@ async function resourceToAutomationItem(
     canUpdate,
     triggerType: meta.triggerType,
     event: meta.event,
-    // The path is a bearer credential; read-only organization members can see
-    // the trigger without receiving permission to invoke it.
     webhookPath:
       canUpdate && meta.triggerType === "webhook"
         ? await readAutomationWebhookPath(resource, meta)
@@ -365,6 +364,13 @@ export async function setAutomationEnabledForOwner(
 
   parsed.meta.enabled = input.enabled;
   const fields: JobFrontmatterPatch = { enabled: input.enabled };
+  if (
+    input.enabled &&
+    (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
+  ) {
+    // Enabling lifts a framework pause and starts a clean failure streak.
+    Object.assign(fields, RESUME_AUTOMATION_PATCH);
+  }
   if (
     parsed.meta.enabled &&
     meta.triggerType === "schedule" &&

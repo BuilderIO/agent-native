@@ -54,11 +54,6 @@ type DesktopAssetKind =
 
 interface DownloadOption {
   labelKey: string;
-  // Short label + file extension shown in the all-platforms grid row, distinct
-  // from labelKey's full sentence (used by the hero CTA and the quick alt
-  // link). The extension is a literal file-format token, not prose — it stays
-  // unlocalized the same way "AppImage"/".deb" already do inside labelKey's
-  // translated strings.
   gridLabelKey: string;
   ext: string;
   assetKinds: readonly DesktopAssetKind[];
@@ -225,8 +220,6 @@ function pickAsset(manifest: Manifest | null, option: DownloadOption) {
   return null;
 }
 
-// Two-option segmented control rather than the on/off switch this replaced:
-// "Stable vs Nightly" is a choice between two named things, not a boolean.
 function ChannelToggle({
   channel,
   onChange,
@@ -267,10 +260,6 @@ function ChannelToggle({
   );
 }
 
-// Deliberately not the shared ds/code-block.tsx wrapper (that also nests the
-// shiki-highlighted SharedCodeBlock inside its own padded card) — same border
-// and background tokens as other code blocks, just applied directly to a
-// plain command display instead of double-boxing it.
 function CreateCommandBlock() {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -401,8 +390,6 @@ export default function DownloadPage() {
       : primaryLabel;
   const isManifestLoading = !manifest && !manifestError;
 
-  // Every platform's builds, driven off the same channel manifest — the hero
-  // above only ever shows the one platform detected from the user agent.
   const allPlatformDownloads = useMemo(() => {
     return (Object.keys(PLATFORMS) as Platform[]).map((key) => {
       const platformInfo = PLATFORMS[key];

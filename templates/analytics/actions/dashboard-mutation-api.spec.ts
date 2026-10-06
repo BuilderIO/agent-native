@@ -6,6 +6,7 @@ import {
   type SqlPanel,
 } from "../app/pages/adhoc/sql-dashboard/types";
 import {
+  DASHBOARD_MUTATION_EXAMPLES,
   applyDashboardMutationOperations,
   parseDashboardMutationScript,
 } from "./dashboard-mutation-api";
@@ -65,6 +66,22 @@ function renderedRows(root: { columns?: number; panels: unknown[] }) {
 }
 
 describe("dashboard mutation api", () => {
+  it("uses the seeded dashboard timeRange filter in first-party insert examples", () => {
+    const examples = DASHBOARD_MUTATION_EXAMPLES.filter(
+      (example) =>
+        example.includes("dashboard.insertPanel") &&
+        example.includes('"source":"first-party"'),
+    );
+
+    expect(examples).toHaveLength(3);
+    for (const example of examples) {
+      expect(example).toContain("{{timeRange}}");
+      expect(example).toContain("{{timeRangeStart}}");
+      expect(example).toContain("{{timeRangeEnd}}");
+      expect(example).not.toContain("{{dateStart}}");
+    }
+  });
+
   it("parses and applies id-based moves, panel patches, and dashboard patches", () => {
     const root = clone(config());
     const operations = parseDashboardMutationScript(

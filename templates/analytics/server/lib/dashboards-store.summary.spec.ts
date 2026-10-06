@@ -134,6 +134,7 @@ vi.mock("../db/index.js", () => {
 
 const {
   assertDashboardNameIsAvailable,
+  listAnalyses,
   listDashboardSummaries,
   normalizeDashboardName,
 } = await import("./dashboards-store.js");
@@ -386,5 +387,43 @@ describe("listDashboardSummaries", () => {
     await expect(
       assertDashboardNameIsAvailable("New dashboard", ctx),
     ).rejects.toBe(error);
+  });
+});
+
+describe("listAnalyses", () => {
+  it("migrates scoped legacy analyses without reading unrelated settings", async () => {
+    state.settings = {
+      [`u:${ctx.email}:adhoc-analysis-legacy-user`]: {
+        name: "Legacy user analysis",
+      },
+      [`o:${ctx.orgId}:adhoc-analysis-legacy-org`]: {
+        name: "Legacy org analysis",
+      },
+      [`u:${ctx.email}:unrelated-setting`]: { value: true },
+      [`o:${ctx.orgId}:unrelated-setting`]: { value: true },
+    };
+    state.insert.mockImplementation(() => ({
+      values: (row: Record<string, unknown>) => ({
+        onConflictDoNothing: async () => {
+          state.rows = [row];
+        },
+      }),
+    }));
+
+    const result = await listAnalyses(ctx);
+
+    expect(result.map((row) => row.id)).toEqual(["legacy-user", "legacy-org"]);
+    expect(state.insert).toHaveBeenCalledTimes(2);
+    expect(state.settingsPrefixCalls).toEqual([
+      { prefix: `u:${ctx.email}:adhoc-analysis-`, options: undefined },
+      { prefix: `o:${ctx.orgId}:adhoc-analysis-`, options: undefined },
+    ]);
+  });
+
+  it("surfaces unreadable scoped legacy settings", async () => {
+    const error = new Error("settings query failed");
+    state.settingsError = error;
+
+    await expect(listAnalyses(ctx)).rejects.toBe(error);
   });
 });

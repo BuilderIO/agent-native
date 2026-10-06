@@ -21,7 +21,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-09-22"
+last_reviewed: "2026-09-23"
 ---
 
 # Document editor
@@ -40,6 +40,8 @@ Ravi turns a paragraph into a callout, anchors a Comment, accepts an agent edit,
 - Agent proposals use the ordinary action, review, and history path; they are not a private inline editor.
 - Collaborators see reconciliation and failures honestly rather than silently losing edits.
 - Refresh and tab lifecycle saves carry durable editor lineage so stale recovery writes cannot reopen settled work; overlapping local intent wins only within Content's explicit reconciliation policy, with displaced versions retained in History.
+- One Page editing session keeps the confirmed SQL snapshot, the currently observed live body, and pending authored intent distinct. Each save attempt carries its matching title/body base and candidate; exact retries keep the same payload-bound identity, while a rebased candidate gets a new attempt identity. Peer Yjs changes update the recoverable view without becoming a new local edit or a save acknowledgement.
+- A stale canonical revision is an input to automatic reconciliation. Exhausted contention or failed transport keeps the latest draft recoverable with honest save feedback; only incompatible structure may require explicit recovery. Delayed acknowledgements and lifecycle saves cannot settle newer authored or observed content.
 
 ## Boundaries and non-goals
 
@@ -58,7 +60,7 @@ Given media, comments, and an agent mutation, when export runs, then visible con
 
 ## Current evidence
 
-`app/components/editor/VisualEditor.tsx`, `DocumentEditor.tsx`, `actions/edit-document.ts`, and `actions/update-document.ts` now share revisioned saves, idempotent external edits, and generation-fenced recovery. Focused transaction tests and a local browser/external-action pass cover immediate refresh and independent edits; the complete responsive and deployed collaboration matrix remains unproved.
+`app/components/editor/VisualEditor.tsx`, `DocumentEditor.tsx`, `actions/edit-document.ts`, and `actions/update-document.ts` provide revisioned saves, idempotent external edits, and generation-fenced recovery. The September 23 authenticated beta pass on deployed `c0d9e4b97f73` failed after three alternating two-tab edits: the saved body missed later edits from one tab and the other tab opened the version-choice dialog. The current save-session repair has passed an early local three-cycle reproduction, ten alternating cycles with canonical read-back, and an independent browser/MCP edit with replay receipt. This is local, in-progress evidence; the final cumulative R01–R08 real-interface pass and repaired hosted beta acceptance are still pending.
 
 ## Proof plan
 
@@ -69,4 +71,4 @@ Given media, comments, and an agent mutation, when export runs, then visible con
 
 ## Open questions
 
-A minimal real-interface collaboration script needs selection.
+The final cumulative R01–R08 real-interface pass and authenticated beta rerun must establish that the repaired session preserves edits, history, cursor, undo, comments, and recovery across delivery and lifecycle orderings.

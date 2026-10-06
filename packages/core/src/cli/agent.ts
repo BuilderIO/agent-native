@@ -160,9 +160,6 @@ export async function runAgent(
 ): Promise<number> {
   loadEnv();
   registerBuiltinEngines();
-  // No Nitro plugins run here either, and action discovery skips `run.ts`, so
-  // the app's own registrations reach this loop only through the shared
-  // bootstrap `runScript` also loads.
   await loadCliBootstrap();
 
   const stdout = io.stdout ?? console.log;

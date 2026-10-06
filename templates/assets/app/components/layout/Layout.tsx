@@ -1,6 +1,4 @@
 import {
-  AgentSidebar,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
@@ -9,7 +7,6 @@ import {
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
@@ -19,6 +16,8 @@ import {
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -77,8 +76,6 @@ export function Layout({ children }: LayoutProps) {
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     isChatPath: (pathname) =>
       pathname === "/home" || pathname.startsWith("/chat/"),
-    // Only preserve the transition when chat activity has recorded an active
-    // handoff; an empty home chat should keep the destination sidebar closed.
     requireActiveHandoff: true,
   });
 
@@ -109,7 +106,19 @@ export function Layout({ children }: LayoutProps) {
     );
   }
 
-  const appFrame = (
+  // The Settings shell brings its own nav, back link, and agent toggle, so
+  // the app's sidebar and header would double them.
+  const settingsFullBleed =
+    location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/");
+
+  const appFrame = settingsFullBleed ? (
+    <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+      <main className="agent-native-app-main min-h-0 min-w-0 flex-1 overflow-hidden">
+        {children}
+      </main>
+    </div>
+  ) : (
     <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
       {mobileSidebarOpen && (
         <div

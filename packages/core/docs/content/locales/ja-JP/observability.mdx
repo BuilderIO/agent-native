@@ -19,7 +19,7 @@ description: "エージェント トレース、評価、フィードバック�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | 「エージェントはこの固定入力に対して正しいことを行いますか?」    | アクティブ、決定論的、CI/デプロイ ゲート          | 品質                  |
 | **[Observational Memory](/docs/observational-memory)** | 「この長いスレッドは安くてウィンドウ内に留まっているのですか？」 | 長いスレッドでのバックグラウンド圧縮              | コスト / コンテキスト |
 
-可観測性と CI 評価ゲートは両方とも品質\_スコアを付けますが、反対の端からのものです。つまり、実際のトラフィックの受動的な事後スコアリングと、固定入力でのアクティブな合否チェックです。観察記憶は質とは無関係です。それはトークンのコストとコンテキスト ウィンドウのプレッシャーに関するものです。
+可観測性と CI 評価ゲートは両方とも品質\_スコアを付けますが、反対の端からのものです。つまり、実際のトラフィックの受動的な事後スコアリングと、固定入力でのアクティブな合否チェックです。完了した本番トレースを `*.eval.ts` ケースに昇格してください（ダッシュボードの **Promote to eval**、`promote-trace-eval`、または `agent-native eval promote <runId> --write evals/from-trace.eval.ts`）。[本番トレースから](/docs/evals#from-trace) を参照。観察記憶は質とは無関係です。それはトークンのコストとコンテキスト ウィンドウのプレッシャーに関するものです。
 
 ## 自動的にキャプチャされるもの {#captured}
 
@@ -96,7 +96,7 @@ description: "エージェント トレース、評価、フィードバック�
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -123,7 +123,7 @@ export default function ObservabilityPage() {
 
 会話タブには記録された実行が表示されます。実行を選ぶとスパンを確認でき、各スパンを展開すると、記録されたツールの入力、出力、エラー、メタデータを表示できます。**会話全体を開く**を選ぶと、対応するチャットスレッドに移動します。
 
-ツールの引数と結果は既定では記録されません。保存するには `observability` 設定で `captureToolArgs` と `captureToolResults` を有効にしてください。機密フィールドとツールのエラーメッセージは保存前にマスキングされます。
+ツールの引数、結果、完全なエラー本文は既定では記録されません。`observability` 設定で、引数を保存するには `captureToolArgs` を、結果と完全なエラー本文を保存するには `captureToolResults` を有効にしてください。機密フィールドは保存前にマスキングされます。失敗したツールは、`captureToolResults` が無効でも障害を診断できるよう、認証情報、メールアドレス、長い不透明な ID をマスキングしたうえで、エラーの先頭行を長さを制限して常に保持します。
 
 ### 人によるレビュー {#review}
 
@@ -290,7 +290,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+コンテンツは**既定でマスキングされます**。保存されるのはトークン数、コスト、タイミングに加え、失敗したツールについては、認証情報、メールアドレス、長い不透明な ID をマスキングした、長さ制限付きのエラー先頭行です。プロンプト、ツールの入力、ツールの結果、完全なエラー本文は、`capturePrompts`、`captureToolArgs`、`captureToolResults` を有効にしない限り記録されません。デバッグでプロンプトや引数の内容が必要なときにのみ有効にしてください。
 
 </Callout>
 
@@ -304,6 +304,7 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 | GET      | `/traces`                  | トレース概要のリスト           |
 | GET      | `/traces/:runId`           | トレースの詳細 (概要 + スパン) |
 | GET      | `/traces/:runId/evals`     | 実行の評価                     |
+| POST     | `/traces/:runId/promote`   | 完了した実行を CI eval に昇格  |
 | POST     | `/feedback`                | フィードバックを送信           |
 | GET      | `/feedback`                | フィードバックの一覧表示       |
 | GET      | `/feedback/stats`          | フィードバックの集約           |
@@ -337,13 +338,28 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 エージェント ループは 3 種類のスパンを出力します。
 
-| スパン      | いつ                          | 属性                                                              |
-| ----------- | ----------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | エージェントの実行ごとに 1 回 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | アクション呼び出しごとに 1 回 | `tool.name`、および成功/エラーステータス                          |
-| `llm.call`  | モデル呼び出しごと            | タイミング + OK/エラーステータス                                  |
+| スパン                | いつ                          | 属性                                                                                                      |
+| --------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | エージェントの実行ごとに 1 回 | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | アクション呼び出しごとに 1 回 | `gen_ai.tool.name`、および成功/エラーステータス                                                           |
+| `chat {model}`        | モデル呼び出しごと            | `gen_ai.provider.name`, タイミング + OK/エラーステータス                                                  |
 
 スパンは OK/ERROR ステータスで終了し、失敗した場合はエラー メッセージを記録します。ゼロ/センチネルの属性値はプルーニングされ、スパンがノイズで乱雑にならないようにします。この OTel レイヤーは、上記のダッシュボードを強化する社内の `agent_trace_spans` / `agent_trace_summaries` テーブルに純粋に追加されます。両方とも同じ実行イベントから生成されます。
+
+### メトリクス {#otel-metrics}
+
+ホストが `@agent-native/core/server` の `registerObservabilityProvider()` でメータープロバイダーを登録すると、Core はメトリクスも記録します。メトリクスはサンプリングなしで、すべてのリクエストと実行について記録されます。
+
+| インストゥルメント                      | 属性                                                                                         |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+
+メトリクスでは、`gen_ai.tool.name` はフレームワークのアクション名または `other` になり、`gen_ai.request.model` はエンジンがサポート対象として挙げているモデル ID の場合のみその値、それ以外は `_OTHER` になります。そのため、アプリ定義のツールや呼び出し元が指定したモデル ID によって系列が無制限に増えることはありません。スパンには正確な値が残ります。
 
 ## エラー報告 (Sentry) {#sentry}
 

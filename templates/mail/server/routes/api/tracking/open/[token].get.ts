@@ -8,7 +8,6 @@ import {
 
 import { recordOpen } from "../../../../lib/email-tracking.js";
 
-// 43-byte 1x1 transparent GIF
 const PIXEL_GIF = Buffer.from(
   "R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
   "base64",

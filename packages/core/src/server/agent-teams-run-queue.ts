@@ -1,44 +1,12 @@
-/**
- * Durable dispatch queue for Agent Teams sub-agent runs.
- *
- * Background sub-agents used to run as an in-process detached promise from the
- * spawning request, which serverless hosts (Netlify/Lambda/Vercel) freeze the
- * moment the response flushes — so the sub-agent never actually completed. This
- * queue is the durable hand-off: `spawnTask` enqueues a row here and self-fires
- * the `/_agent-native/agent-teams/_process-run` route (see `self-dispatch.ts`),
- * which claims the row and runs the sub-agent in its own fresh function
- * invocation. The same pattern A2A (`a2a/task-store.ts`) and integration
- * webhooks use.
- *
- * The app_state task record (`agent-task:{taskId}`) remains the source of truth
- * for UI/status; this table only drives dispatch, idempotent claiming, and
- * cross-invocation continuation.
- */
 import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
-/** Max cross-invocation continuations for one sub-agent run. Each continuation
- * is one ~40s soft-timeout chunk, so ~60 ≈ ~40 minutes of wall-clock work. Two
- * independent guards bound runaway self-fire: this persisted cap and the
- * per-invocation `MAX_RUN_LOOP_CONTINUATIONS` inside the run loop.
- *
- * Progress-aware continuation: non-progressing chunks count against a much
- * smaller budget (`MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS`) so a stalled
- * sub-agent is detected and finalized quickly, while actively-working sub-agents
- * can run for as long as this absolute cap allows. */
 export const MAX_AGENT_TEAM_CONTINUATIONS = 60;
 
-/** Max consecutive *non-progressing* continuations before the run is finalized.
- * A chunk that emits no new events, tool calls, or text counts as no-progress. */
 export const MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS = 3;
 
-/** A `running` row whose `updated_at` is older than this is treated as a
- * dropped dispatch and may be re-claimed / re-fired. Must be comfortably larger
- * than the processor heartbeat interval so a healthy run is never re-claimed. */
 export const RUN_DISPATCH_STUCK_AFTER_MS = 15_000;
 
-/** Hard cutoff after which a stuck row is failed deterministically rather than
- * retried (side-effectful work may already have happened). Mirrors A2A. */
 export const RUN_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 
 export type AgentTeamRunQueueStatus = "queued" | "running" | "done" | "failed";
@@ -47,19 +15,11 @@ export interface AgentTeamRunPayload {
   description: string;
   instructions?: string;
   model?: string;
-  /** Custom agent profile name (agents/*.md) to brief the sub-agent with. */
   agentRef?: string;
-  /** Parent thread to post a completion recap to. */
   parentThreadId?: string;
-  /** Parent run that launched this durable background task. */
   parentRunId?: string;
-  /** Display name for the sub-agent tab. */
   name?: string;
-  /** Exact action registry captured when the parent spawned this task. Older
-   * queue rows omit it and retain their original unscoped behavior. */
   allowedActionNames?: string[];
-  /** Logical-turn id, stable across continuation chunks so durable assistant
-   * messages fold into one. */
   turnId: string;
 }
 
@@ -170,12 +130,6 @@ export async function enqueueAgentTeamRun(
   });
 }
 
-/**
- * Atomically claim a run for processing. Succeeds when the row is `queued`, or
- * `running` but stale (a dropped dispatch past `RUN_DISPATCH_STUCK_AFTER_MS`).
- * Flips it to `running`, bumps `attempts`, and stamps `updated_at`. Returns the
- * claimed row, or null if another invocation already holds it (idempotency).
- */
 export async function claimAgentTeamRun(
   taskId: string,
   options: { stuckAfterMs?: number } = {},
@@ -202,14 +156,6 @@ export async function claimAgentTeamRun(
   return rowToQueueRow(rows[0]);
 }
 
-/** Heartbeat: bump `updated_at` while a claimed run is actively processing so a
- * healthy run isn't re-claimed by the stuck-refire path.
- *
- * When `claimedAttempts` is provided the UPDATE is fenced to
- * `attempts = claimedAttempts`: a superseded invocation (one that was
- * re-claimed after it stalled) will find the attempts counter has been bumped
- * and the update will be a no-op, signalling that this invocation should
- * self-terminate. */
 export async function touchAgentTeamRun(
   taskId: string,
   claimedAttempts?: number,
@@ -230,14 +176,6 @@ export async function touchAgentTeamRun(
   return getAffectedRowCount(result) > 0;
 }
 
-/**
- * Record a soft-timeout continuation: re-queue the row (so the next
- * self-fired invocation can claim it) and increment the counter. Returns the
- * new continuation count, or null if the row wasn't in a continuable state.
- *
- * When `claimedAttempts` is provided the UPDATE is fenced to
- * `attempts = claimedAttempts` so a superseded invocation cannot queue a
- * spurious continuation. */
 export async function bumpAgentTeamContinuation(
   taskId: string,
   claimedAttempts?: number,
@@ -268,12 +206,6 @@ export async function bumpAgentTeamContinuation(
   return Number((rows[0] as any).continuation_count ?? 0);
 }
 
-/**
- * Mark a run terminal.
- *
- * When `claimedAttempts` is provided the UPDATE is fenced to
- * `attempts = claimedAttempts` so a superseded invocation cannot overwrite a
- * freshly-claimed row's status. Returns whether the row was actually updated. */
 export async function completeAgentTeamRun(
   taskId: string,
   status: "done" | "failed",
@@ -294,8 +226,6 @@ export async function completeAgentTeamRun(
   return getAffectedRowCount(result) > 0;
 }
 
-/** Task ids of an owner's in-flight (queued/running) sub-agent runs. Used by
- * the RunsTray data path to self-heal dropped dispatches and dead runs. */
 export async function listActiveAgentTeamTaskIdsForOwner(
   owner: string,
   limit = 50,
@@ -325,7 +255,6 @@ export async function getAgentTeamRunDispatchState(
   return rowToQueueRow(rows[0]);
 }
 
-/** Test-only accessor for resetting the cached init promise between specs. */
 export const _agentTeamRunQueueForTests = {
   resetInit() {
     _initPromise = undefined;

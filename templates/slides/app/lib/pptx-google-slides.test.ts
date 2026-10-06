@@ -19,8 +19,6 @@ import {
 
 describe("softBreaksFromWrapMarks", () => {
   it("splits a run at a mid-run mark into two runs joined by an <a:br> with the same rPr, trimming the trailing space", () => {
-    // rPr copied from a real exported "82" stat slide, children and all —
-    // the split has to carry a non-self-closing rPr into both runs and the break.
     const rPr =
       '<a:rPr lang="en-US" sz="3999" b="1" spc="-160" kern="0" dirty="0"><a:solidFill><a:srgbClr val="FAF9F5"/></a:solidFill><a:latin typeface="Inter" pitchFamily="34" charset="0"/></a:rPr>';
     const input = `<a:r>${rPr}<a:t>Hello ${WRAP_MARK}World</a:t></a:r>`;
@@ -74,7 +72,6 @@ const EMU_PER_POINT = 12_700;
 const TEXT_WIDTH_TOLERANCE = 0.02;
 const TEXT_WIDTH_SLACK_PT = 2;
 
-/** Mirrors widenTextBoxes' own arithmetic so fixture numbers never have to be hand-computed. */
 function expectedGrowth(droppedTrackingPt: number, cx: number): number {
   return Math.round(
     droppedTrackingPt * EMU_PER_POINT +
@@ -88,7 +85,6 @@ function expectedX(x: number, align: string, growth: number): number {
   return Math.round(x - shift);
 }
 
-/** One run, in the shape a real export emits, with a chosen tracking value. */
 function textRun(text: string, spc: number): string {
   return (
     `<a:r><a:rPr lang="en-US" sz="3999" b="1" spc="${spc}" kern="0" dirty="0">` +
@@ -97,7 +93,6 @@ function textRun(text: string, spc: number): string {
   );
 }
 
-/** A text box shape copied from a real exported slide, with the bits tests vary parameterized. */
 function textBoxShape({
   x = 812_597,
   y = 984_861,
@@ -186,8 +181,6 @@ describe("widenTextBoxes", () => {
 
     const { cx: resultCx } = widenedRect(widenTextBoxes(xml));
 
-    // The 10-char line drops 16pt of tracking; "Hi" alone would only drop
-    // 3.2pt. Summing the two lines would charge 19.2pt instead of 16pt.
     expect(resultCx).toBe(cx + expectedGrowth(16, cx));
   });
 
@@ -305,7 +298,6 @@ describe("lineSpacingAsPercent", () => {
       '<a:r><a:rPr sz="3999"/><a:t>Hi</a:t></a:r>' +
       '<a:endParaRPr sz="3999"/></a:p>';
 
-    // 4199 / (1.2 * 3999) * 100000 = 87501.0419...
     expect(lineSpacingAsPercent(xml)).toContain('<a:spcPct val="87501"/>');
   });
 
@@ -315,8 +307,6 @@ describe("lineSpacingAsPercent", () => {
       '<a:r><a:rPr sz="2000"/><a:t>Small </a:t></a:r>' +
       '<a:r><a:rPr sz="4000"/><a:t>Big</a:t></a:r></a:p>';
 
-    // Using the max (4000) gives exactly single-line spacing: 4800/(1.2*4000) = 1.
-    // Using the min (2000) would give 200000 instead.
     expect(lineSpacingAsPercent(xml)).toContain('<a:spcPct val="100000"/>');
   });
 
@@ -352,9 +342,6 @@ describe("lineSpacingAsPercent", () => {
   });
 
   it("still resizes a mismatched endParaRPr even when lnSpc already uses spcPct", () => {
-    // The two rewrites are independent chained String#replace calls: the
-    // paragraph already using spcPct only skips the lnSpc rewrite, not the
-    // endParaRPr one.
     const xml =
       '<a:p><a:pPr><a:lnSpc><a:spcPct val="150000"/></a:lnSpc></a:pPr>' +
       '<a:r><a:rPr sz="1800"/><a:t>Hi</a:t></a:r>' +
@@ -367,7 +354,6 @@ describe("lineSpacingAsPercent", () => {
   });
 });
 
-/** A minimal shape with just the bits alignFirstBaselines reads. */
 function baselineShape({
   anchor,
   x = 812_597,
@@ -402,7 +388,6 @@ function baselineShape({
   );
 }
 
-/** Mirrors alignFirstBaselines' own arithmetic so fixture numbers never have to be hand-computed. */
 function expectedBaselineShift(
   anchor: "t" | "ctr" | "b",
   size: number,
@@ -475,7 +460,6 @@ describe("alignFirstBaselines", () => {
   });
 });
 
-/** A rounded-rectangle shape with just the bits compensateRoundRectTextInsets reads. */
 function roundRectShape({
   cx,
   cy,
@@ -506,7 +490,6 @@ function roundRectShape({
 
 describe("compensateRoundRectTextInsets", () => {
   it("subtracts the measured text inset from every side, pinning the exact rounding", () => {
-    // Measured in Slides as a card's text landing ~2.9px right and down.
     const shape = roundRectShape({
       adjust: 8032,
       cx: 1_948_100,
@@ -516,8 +499,6 @@ describe("compensateRoundRectTextInsets", () => {
 
     const result = compensateRoundRectTextInsets(shape);
 
-    // min(cx,cy) * min(adjust,50000)/100000 * 0.29289 = 1580755 * 0.08032 * 0.29289 ≈ 37187.14
-    // 177756 - 37187.14 = 140568.86 -> rounds to 140569.
     for (const side of ["lIns", "tIns", "rIns", "bIns"]) {
       expect(result).toContain(`${side}="140569"`);
     }
@@ -533,7 +514,6 @@ describe("compensateRoundRectTextInsets", () => {
 
     const result = compensateRoundRectTextInsets(shape);
 
-    // inset = 200000 * (50000/100000) * 0.29289 = 29289; 50000 - 29289 = 20711.
     expect(result).toContain('lIns="20711"');
   });
 
@@ -547,7 +527,6 @@ describe("compensateRoundRectTextInsets", () => {
 
     const result = compensateRoundRectTextInsets(shape);
 
-    // min(75000, 50000) = 50000, so this must match the adj=50000 case exactly.
     expect(result).toContain('lIns="20711"');
   });
 
@@ -606,11 +585,9 @@ describe("retargetSlideXmlForGoogleSlides", () => {
 
     expect(result).toContain("<a:br>");
     expect(result).not.toContain(WRAP_MARK);
-    // Both wrapped lines ("Hello", "World") drop 5 * 1.6 = 8pt of tracking.
     expect(Number(result.match(/<a:ext cx="(\d+)" cy="\d+"\/>/)?.[1])).toBe(
       cx + expectedGrowth(8, cx),
     );
-    // sz=3999, lnSpc=4199 -> the same 87501 pinned in the lineSpacingAsPercent suite.
     expect(result).toContain('<a:spcPct val="87501"/>');
     const expectedShift = expectedBaselineShift(
       "t",

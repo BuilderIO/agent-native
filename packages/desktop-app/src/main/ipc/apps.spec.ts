@@ -72,7 +72,6 @@ describe("APPS_UPDATE_CREATION_SETTINGS", () => {
       error: expect.any(String),
       settings: { appsRoot: "/Users/steve/apps" },
     });
-    // The rejected input must never surface as the saved root.
     expect(
       (result as { settings: { appsRoot: string } }).settings.appsRoot,
     ).not.toBe("/");

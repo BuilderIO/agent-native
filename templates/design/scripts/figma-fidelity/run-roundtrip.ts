@@ -7,29 +7,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-/**
- * Round-trip fidelity: Figma -> our HTML -> the SVG we hand back to Figma.
- *
- * The import and export harnesses each measure one hop. Neither answers the
- * question that actually matters to someone moving a design between the two
- * tools: after a full round trip, does it still look like the design they
- * started with? A converter can score well on import and still lose the design
- * on the way out, and vice versa, so this scores all three against ONE
- * reference — Figma's own render of the source node:
- *
- *   import  — our HTML rendered to pixels
- *   export  — that same HTML pushed through the real `renderDesignToFigmaSvg`
- *             and rendered to pixels; this is what Figma receives
- *   drift   — export against import, i.e. what the export hop alone costs
- *
- * It reuses the artifacts the import and paste harnesses already produced, so
- * it costs no Figma quota and runs on the complex community designs rather
- * than on synthetic fixtures.
- *
- * Usage:
- *   pnpm figma-fidelity:roundtrip            # every case with artifacts on disk
- *   pnpm figma-fidelity:roundtrip positivus  # matching ids
- */
 import { chromium } from "@playwright/test";
 
 import { renderDesignToFigmaSvg } from "../../server/lib/design-to-figma-svg.js";
@@ -42,19 +19,11 @@ const MANIFEST =
 
 interface RoundTripCase {
   id: string;
-  /** HTML produced by one of the import paths. */
   html: string;
-  /** Figma's own render of the same node — the single reference for all hops. */
   referencePng: string;
-  /** The import render, when that path already produced one. */
   importPng?: string;
   width: number;
   height: number;
-  /**
-   * The region Figma actually rendered, when it differs from the design box —
-   * see `run-import.ts`. Carried over verbatim rather than re-derived, so the
-   * export hop is scored over exactly the pixels the import hop was.
-   */
   canvas?: { width: number; height: number };
   contentOffset?: { left: number; top: number };
   renderScale?: number;
@@ -63,14 +32,6 @@ interface RoundTripCase {
 
 const IMPORT_DIR = ".tmp/figma-fidelity/import";
 
-/**
- * Every import case that produced artifacts is a round-trip case for free: the
- * document the product persists is on disk next to Figma's own render of the
- * same node. Deriving them beats listing them — the hand-written manifest
- * covered 10 designs while the import corpus had grown to 23, so the export
- * hop was simply unmeasured on more than half of them, including every mobile,
- * tablet, and dashboard case.
- */
 function discoverImportCases(): RoundTripCase[] {
   if (!existsSync(IMPORT_DIR)) return [];
   const cases: RoundTripCase[] = [];
@@ -124,7 +85,6 @@ interface CaseOutcome {
   width?: number;
   height?: number;
   svgBytes?: number;
-  /** Export-report counts; an omission here is a design element Figma will not receive. */
   vectorized?: number;
   approximated?: number;
   rasterized?: number;
@@ -136,12 +96,6 @@ interface CaseOutcome {
   error?: string;
 }
 
-/**
- * Google Fonts request covering every family the SVG asks for. Only the first
- * family of each stack is requested: the rest are the local fallbacks the
- * exporter appends, and asking Google for "-apple-system" returns a 400 that
- * would drop the whole stylesheet.
- */
 function googleFontsUrlForSvg(svg: string): string | null {
   const families = new Set<string>();
   for (const match of svg.matchAll(/font-family="([^"]*)"/g)) {
@@ -151,7 +105,6 @@ function googleFontsUrlForSvg(svg: string): string | null {
       ?.trim()
       .replace(/^["']|["']$/g, "");
     if (!first) continue;
-    // Generic and system families are not on Google Fonts.
     if (
       /^(-|system-ui$|sans-serif$|serif$|monospace$|cursive$|fantasy$)/i.test(
         first,
@@ -203,27 +156,16 @@ async function runCase(
   const dir = join(OUT_DIR, testCase.id);
   mkdirSync(dir, { recursive: true });
 
-  // The real export path, not a stand-in: a fix here is a fix in the product.
   const { svg, report } = await renderDesignToFigmaSvg({
     html,
     width: testCase.width,
     height: testCase.height,
-    // Image fills reach the SVG as data URIs, which is what Figma needs — an
-    // http(s) href would import as a broken link.
     embedImages: true,
   });
   writeFileSync(join(dir, "export.svg"), svg);
   writeFileSync(join(dir, "report.json"), JSON.stringify(report, null, 2));
 
-  // The SVG names its font families but carries no @font-face — Figma resolves
-  // them against its own font list on import. Rendering it here without them
-  // silently substitutes Arial for every custom face, which shifts every glyph
-  // and would report a font the harness did not load as an export defect.
   const fontsUrl = googleFontsUrlForSvg(svg);
-  // The SVG is the design at its own size; the canvas is the region Figma
-  // rendered. They differ whenever ink spills outside the frame box, so size
-  // the SVG explicitly and composite it at the same offset the import used
-  // rather than stretching it to the canvas.
   const sizedSvg = svg.replace(
     /<svg\b([^>]*)>/,
     (match: string, attrs: string) =>
@@ -237,13 +179,6 @@ async function runCase(
     contentOffset: testCase.contentOffset,
     contentSize: { width: testCase.width, height: testCase.height },
     deviceScaleFactor: testCase.renderScale ?? 1,
-    // Match the import render's text settings. The imported document asks for
-    // `geometricPrecision` (Figma lays glyphs on exact outlines), and rendering
-    // the SVG with the browser's default hinting instead makes the two sides
-    // disagree on every glyph edge — `drift` read 9.2% on the typography
-    // fixture while export-vs-Figma had not moved at all. Figma does its own
-    // text layout on import, so this is about comparing like with like here,
-    // not about what ships.
     headHtml:
       `<style>*{text-rendering:geometricPrecision}</style>` +
       (fontsUrl
@@ -298,9 +233,6 @@ const filter = process.argv.slice(2).find((arg) => !arg.startsWith("--"));
 const manifestCases = JSON.parse(
   readFileSync(MANIFEST, "utf8"),
 ) as RoundTripCase[];
-// Discovered cases carry the import run's exact framing, so they win over a
-// hand-written entry for the same id; the manifest keeps the ones no import
-// run produces (the clipboard paths).
 const discovered = discoverImportCases();
 const byId = new Map<string, RoundTripCase>();
 for (const testCase of manifestCases) byId.set(testCase.id, testCase);

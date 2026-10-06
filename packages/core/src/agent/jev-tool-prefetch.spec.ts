@@ -381,6 +381,54 @@ describe("preloadJevTools", () => {
     ]);
   });
 
+  it("lets Jev consider relevant tools beyond the bounded alphabetical menu", async () => {
+    systemOne.mockResolvedValue({
+      answers: {
+        best_tool: {
+          choice: "z-search-customers",
+          probabilities: {
+            "z-search-customers": 0.9,
+            __no_match__: 0.1,
+          },
+        },
+      },
+    });
+    const initialTools = [tool("tool-search", "Find tools")];
+    const names = [
+      ...Array.from({ length: 8 }, (_, index) => `a-tool-${index}`),
+      "z-search-customers",
+    ];
+    const registry = Object.fromEntries(
+      names.map((name) => [
+        name,
+        action(
+          name === "z-search-customers" ? "Search customer records" : name,
+        ),
+      ]),
+    );
+
+    const result = await preloadJevTools({
+      personalApiKey: "jev-test-key",
+      request: "Search customer records",
+      registry,
+      initialTools,
+      availableTools: [
+        ...initialTools,
+        ...names.map((name) => tool(name, registry[name]!.tool.description)),
+      ],
+    });
+
+    expect(
+      systemOne.mock.calls[0][0].state.candidate_tools.map(
+        (candidate: { id: string }) => candidate.id,
+      ),
+    ).toContain("z-search-customers");
+    expect(result.map((item) => item.name)).toEqual([
+      "z-search-customers",
+      "tool-search",
+    ]);
+  });
+
   it("prefetches tools through the Builder proxy without a direct key", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
     vi.stubGlobal(

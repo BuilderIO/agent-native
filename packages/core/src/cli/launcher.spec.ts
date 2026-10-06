@@ -16,9 +16,6 @@ const fresh = (over: Partial<Record<string, unknown>> = {}) => ({
 
 describe("shouldUseSourceFallback", () => {
   it("never falls back to source in an installed package (regression guard)", () => {
-    // Installed tarballs ship both src and dist, and extraction can leave .ts
-    // newer than .js. Without the isSourceCheckout gate this returned true and
-    // spawned tsx -> `spawn tsx ENOENT`.
     expect(
       shouldUseSourceFallback({
         isSourceCheckout: false,

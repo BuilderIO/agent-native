@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/**
- * Fresh-repo smoke for the primitive-first headless on-ramp:
- *
- *   agent-native create <name> --headless
- *   cd <name> && pnpm install
- *   pnpm action hello --name Builder
- *
- * Then add one new action file and prove the app grows from that primitive
- * without adding UI scaffolding.
- */
 import assert from "node:assert/strict";
 import {
   execFileSync,

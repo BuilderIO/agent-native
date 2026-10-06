@@ -50,11 +50,6 @@ import { collapseConsecutiveInboxEvents } from "@/lib/collapse-inbox-events";
 
 const INBOX_PAGE_SIZE = 50;
 
-// Each row is its own grid instance (a <button>), so `auto`/`fr`-sized
-// columns compute independently per row and drift out of alignment across
-// rows once content length differs (e.g. "Merged" vs. "Needs reconciliation").
-// Every column but the title is a fixed width for that reason; long labels
-// wrap within their pill instead of resizing the column.
 const inboxListColumns =
   "w-full gap-3 sm:grid-cols-[minmax(0,1.4fr)_5.5rem_4.5rem_8.5rem_8.5rem_4.5rem] sm:items-start";
 
@@ -1024,7 +1019,6 @@ function StoredEvidencePane({
   builderSlackUserId: string | null;
   t: ReturnType<typeof useT>;
 }) {
-  // The title renders as the detail heading, so it is not an evidence fallback.
   const text = item.summary || listItem?.summary;
   if (!text) {
     return (
@@ -1231,8 +1225,6 @@ function looksLikeSlackUserId(value: string): boolean {
 }
 
 function inboxTitle(item: InboxListItem | InboxDetail | null): string | null {
-  // Slack items have no subject line: the poller stores an author label as the
-  // title and the root message as the summary, so the message stands in.
   if (isSlackSource(item?.source ?? item?.sourceName)) {
     return item?.summary?.trim() || null;
   }

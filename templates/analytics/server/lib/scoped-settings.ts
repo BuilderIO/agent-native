@@ -7,7 +7,6 @@ import {
   deleteOrgSetting,
   deleteSetting,
   deleteUserSetting,
-  getAllSettings,
   getOrgSetting,
   getUserSetting,
   listOrgSettings,
@@ -129,16 +128,21 @@ export async function migrateGlobalSettingsPrefixesToUser(
     return { migrated: 0, keys: [] };
   }
 
-  const all = await getAllSettings();
-  const keys = Object.keys(all).filter((key) =>
-    prefixes.some((prefix) => isGlobalAppKey(key, prefix)),
-  );
+  const candidates = new Map<string, Record<string, unknown>>();
+  for (const prefix of new Set(prefixes)) {
+    if (!prefix) {
+      throw new RangeError("Settings migration prefixes must be non-empty.");
+    }
+    for (const { key, value } of await listSettingsByPrefix(prefix)) {
+      if (isGlobalAppKey(key, prefix)) candidates.set(key, value);
+    }
+  }
 
   const migrated: string[] = [];
-  for (const key of keys) {
+  for (const [key, value] of candidates) {
     const existing = await getUserSetting(scope.email, key);
     if (!existing) {
-      await putUserSetting(scope.email, key, all[key]);
+      await putUserSetting(scope.email, key, value);
     }
     await deleteSetting(key);
     migrated.push(key);
@@ -147,10 +151,6 @@ export async function migrateGlobalSettingsPrefixesToUser(
   return { migrated: migrated.length, keys: migrated };
 }
 
-/**
- * Resolve the current scope from request context for action `run` bodies,
- * which receive an `ActionRunContext` rather than an `H3Event`.
- */
 export function resolveRequestScope(): SettingsScope {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");

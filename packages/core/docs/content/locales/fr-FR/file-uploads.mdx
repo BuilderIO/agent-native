@@ -129,6 +129,8 @@ S3 (AWS S3, Cloudflare R2, MinIO, et similaires). Connectez-le avec des
 variables d'environnement ou via la liste de configuration initiale de la
 barre latérale. Aucun code n'est nécessaire. Voir [Onboarding](/docs/onboarding).
 
+Les paramètres, la liste de configuration initiale et Video storage dans Clips affichent tous le même formulaire de stockage. Il enregistre les valeurs `S3_*` comme secrets de l'espace de travail, et seuls les propriétaires et administrateurs de l'organisation peuvent les enregistrer ou les effacer. La Public URL est obligatoire, sauf si le fournisseur `s3` enregistré définit `publicBaseUrlOptional: true` (c'est le cas de Clips, qui relit les enregistrements via des requêtes signées). **Clear credentials** demande d'abord une confirmation, puis supprime chaque clé de stockage enregistrée. Les fichiers existants restent dans le bucket. L'agent fait de même avec les actions `get-file-storage` et `manage-file-storage`.
+
 N'enregistrez un fournisseur personnalisé que pour un type de backend
 différent. Cet exemple effectue un téléchargement via une API HTTP générique
 en utilisant `fetch()` :

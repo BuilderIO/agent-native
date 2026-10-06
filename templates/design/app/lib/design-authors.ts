@@ -1,6 +1,5 @@
 import { emailToName } from "@agent-native/core/client/collab";
 
-/** Author-filter values that cannot collide with a real owner email. */
 export const ALL_AUTHORS = "all";
 export const MY_DESIGNS = "me";
 
@@ -15,7 +14,6 @@ export function normalizeAuthorEmail(
   return trimmed ? trimmed.toLowerCase() : null;
 }
 
-/** Distinct owner emails across the whole library, ordered by display name. */
 export function collectAuthorEmails(designs: AuthoredDesign[]): string[] {
   const byNormalized = new Map<string, string>();
   for (const design of designs) {
@@ -29,12 +27,6 @@ export function collectAuthorEmails(designs: AuthoredDesign[]): string[] {
   );
 }
 
-/**
- * Whether author bylines are worth showing on cards. A solo workspace would
- * only ever repeat the viewer's own name, so bylines stay hidden until a
- * second person is involved — either as an org member or as the owner of a
- * design the viewer can see.
- */
 export function shouldShowAuthors(input: {
   orgMemberCount: number | undefined;
   authorEmails: string[];
@@ -49,8 +41,6 @@ export function filterDesignsByAuthor<T extends AuthoredDesign>(
 ): T[] {
   if (author === ALL_AUTHORS) return designs;
   const normalizedViewer = normalizeAuthorEmail(viewerEmail);
-  // An unknown viewer cannot own anything, so "mine" is empty rather than
-  // silently falling back to every design.
   if (author === MY_DESIGNS) {
     if (!normalizedViewer) return [];
     return designs.filter(

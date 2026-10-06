@@ -2,6 +2,8 @@ import { agentNative } from "@agent-native/core/vite";
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig } from "vite";
 
+import { CLIENT_COMPATIBILITY_VERSION } from "./shared/client-compatibility";
+
 const reactRouterPlugins = reactRouter as unknown as () => any[];
 const agentNativePlugins = agentNative as unknown as (
   options?: Parameters<typeof agentNative>[0],
@@ -11,10 +13,7 @@ export default defineConfig({
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      // These libs only render in the browser (diagram/drawing canvases) and
-      // blow past CF Pages' 25 MiB Functions limit if bundled into SSR.
-      // MermaidRenderer and Excalidraw-based components mount client-side only
-      // (inside useEffect), so SSR never calls into them.
+      clientCompatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
       ssrStubs: [
         "shiki",
         "mermaid",

@@ -232,6 +232,29 @@ pnpm dev
 
 활성 조직은 `session.orgId` → `AGENT_ORG_ID` → SQL 행 범위 지정과 같이 자동으로 흐르므로 `org_id`로 태그가 지정된 데이터는 에이전트뿐 아니라 다른 조직에서도 볼 수 없습니다. 전체 모델을 보려면 [Security & Data Scoping](/docs/security)를 참조하세요.
 
+## 기본 제공 앱 {#builtin-apps}
+
+기본적으로 모든 워크스페이스는 호스팅된 자사 앱(Mail, Calendar, Content, Design, Clips 등)을 기본 제공 에이전트로 사용할 수 있습니다. 워크스페이스에서 제공할 앱은 루트 `package.json`의 `agent-native.builtinAgents`로 선택합니다.
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"]
+    }
+  }
+}
+```
+
+- `mode`: `"all"`(기본값, 공개된 모든 자사 앱), `"none"`(기본 제공 앱 없음), `"selected"`(`include`만).
+- `include`: `mode`가 `"selected"`일 때 이 워크스페이스가 제공하는 기본 제공 앱입니다. 나머지는 워크스페이스에 알려지지 않습니다.
+
+알 수 없는 ID는 경고를 남기고 무시됩니다. 독립 실행형 앱은 자체 `package.json`에서 같은 키를 사용할 수 있습니다. `agent-native dev`와 워크스페이스 배포는 이 값을 `AGENT_NATIVE_BUILTIN_AGENTS_JSON`으로 각 앱에 전달합니다.
+
+이 설정은 앱 목록, 에이전트 검색, 에이전트 간 호출을 제어합니다. 마운트된 워크스페이스 앱과 연결된 원격 에이전트는 영향을 받지 않으며, MCP 앱 액세스는 별도의 라우팅 권한으로 유지됩니다.
+
 ## 공유 MCP 서버 {#shared-mcp}
 
 작업 공간 앱 전체에서 MCP 서버를 공유하기 위한 권장 옵션(선호도 순):
@@ -260,7 +283,7 @@ my-company-platform/
 
 몇 가지 온보딩 흐름은 기본적으로 작업공간을 인식합니다.
 
-- **Builder OAuth**: clicking "Connect Builder" authorizes the signed-in user with the least-privilege `builder:ai:invoke` scope and stores the token in encrypted per-user custody. Legacy Builder keys remain available only to existing uncovered integrations.
+- **Builder OAuth**: clicking "Builder.io를 사용하세요" authorizes the signed-in user with the least-privilege `builder:ai:invoke` scope and stores the token in encrypted per-user custody. Legacy Builder keys remain available only to existing uncovered integrations.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## 공유 자격 증명 {#shared-credentials}
@@ -406,7 +429,7 @@ Workspace 앱은 기본적으로 내부용입니다. 로그인 전용 관리 페
 
 ### 공유 데이터베이스, 공유 자격 증명
 
-무엇을 선택하든 모든 앱이 동일한 `DATABASE_URL`를 가리키도록 하여 즉시 앱 간 상태를 확인하세요. 사용자 계정 한 세트, 조직 한 세트, 공유 설정 한 세트. 각 앱에 자체 데이터베이스가 있는 경우 작업 공간 패턴은 계속 작동합니다. 공유 상태 스토리가 손실됩니다.
+사용자 계정, 조직, 설정 및 기타 앱 간 데이터를 공유하려면 모든 앱이 동일한 `DATABASE_URL`을 사용하도록 설정하세요. 로컬 개발 중에는 워크스페이스 루트 `.env`에 설정하여 모든 앱이 동일한 PostgreSQL 데이터베이스를 사용하게 하세요. 설정하지 않으면 앱마다 프로세스 내 PGlite 데이터베이스를 사용하므로 사용자와 조직이 공유되지 않습니다.
 
 같은 데이터베이스를 공유하는 프로세스의 연결 수를 합산해야 합니다. 예를 들어, 오래 실행되는 Node.js 앱 프로세스 5개가 같은 `DATABASE_URL`에 대해 각각 공유 런타임 풀 하나를 사용하면 풀당 기본값 20에서 최대 100개의 연결을 사용할 수 있습니다 (`5 × 1 풀 × 20`). 서버리스 워크스페이스는 런타임별 풀 기본값과 앱마다 유지되는 웜 함수 인스턴스 수를 기준으로 계산하세요. `AGENT_NATIVE_DB_POOL_MAX`와 자세한 연결 예산 안내는 [Server database](/docs/server-database)를 참조하세요.
 

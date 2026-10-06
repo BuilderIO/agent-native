@@ -258,9 +258,6 @@ export async function runApplyPendingVisualStylesWithAgent({
       const initialSources = await readWithHardDeadline(
         Promise.all(
           Array.from(sourceTargets.values()).map(async (source) => {
-            // read-local-file declares `http: { method: "GET" }`, so a
-            // default POST is refused with 405 and every Apply preflight
-            // fails before it reads a single baseline hash.
             const result = (await callAction(
               "read-local-file",
               {
@@ -417,9 +414,6 @@ export async function runApplyPendingVisualStylesWithAgent({
               if (!verificationRuntimeMounted) {
                 verificationRuntimeMounted = true;
               }
-              // A source write gets a fresh hidden iframe. Reusing the same
-              // request key can leave the old document mounted and its
-              // snapshot race with the next write.
               pendingStructureVerificationSnapshotsRef.current.delete(
                 session.requestId,
               );

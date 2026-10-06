@@ -1,23 +1,3 @@
-/**
- * Managed breakpoint media block for the Design Studio (§6.4).
- *
- * Responsive class prefixes can't express arbitrary values (exact px
- * positions from canvas drags, rgb() colors, calc() sizes, …). Those
- * overrides persist into a single managed
- * `<style data-agent-native-breakpoints>` block as plain
- * `@media (max-width: Npx)` rules — readable and editable in the Code panel,
- * and rendered identically by every breakpoint frame because each frame is
- * just the same document at a different viewport width.
- *
- * Follows the managed-block conventions of `motion-compiler.ts`:
- * - **Deterministic**: same model → byte-identical CSS. Buckets are sorted
- *   widest bound first (so narrower ranges win by source order, matching the
- *   Framer desktop-down cascade), node ids and properties alphabetically.
- * - **Targets by node id**: rules use `[data-agent-native-node-id="<id>"]`
- *   selectors — no class/id coupling.
- * - **No dependencies**, pure string transforms.
- */
-
 import {
   breakpointUpperBoundPx,
   maxWidthOverridesForStem,
@@ -25,18 +5,11 @@ import {
   utilityStemsForCssProperty,
 } from "./responsive-classes.js";
 
-// ─── Model ────────────────────────────────────────────────────────────────────
-
-/**
- * Parsed managed block: max-width bound (px) → node id → CSS property →
- * value. Plain nested records so callers can serialize/diff cheaply.
- */
 export type BreakpointMediaModel = Record<
   string,
   Record<string, Record<string, string>>
 >;
 
-/** One flattened managed rule, as returned by `getBreakpointMediaDeclarations`. */
 export interface BreakpointMediaDeclaration {
   maxWidthPx: number;
   nodeId: string;
@@ -44,65 +17,29 @@ export interface BreakpointMediaDeclaration {
   value: string;
 }
 
-// ─── Validation ──────────────────────────────────────────────────────────────
-
 const CSS_VALUE_BREAKOUT_RE = /[;{}<>]|\/\*|\*\//;
 const CSS_VALUE_URL_RE = /\burl\s*\(/i;
 const CSS_VALUE_CONTROL_RE = /[\u0000-\u001f\u007f]/;
 const URL_FUNCTION_RE =
   /\burl\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/gi;
-// The image-fill fit marker (`ImageFillControls.tsx`'s `imageFitMarker`) is
-// the one recognized comment shape allowed inside a background-image
-// value — every other /* ... *\/ is still rejected as a breakout risk.
 const IMAGE_FIT_MARKER_RE =
   /\/\*\s*agent-native-image-fit:(?:fill|fit|crop|tile)\s*\*\//gi;
 
-/**
- * CSS properties allowed to carry a `url(...)` reference (fill images).
- * Deliberately excludes the `background` shorthand — only the exact
- * `background-image` longhand that `imageFillToBackgroundStyles` commits is
- * trusted with a sanitized url(); shorthand `background: url(...)` values
- * (e.g. hand-edited in the Code panel) stay on the strict no-url path.
- */
 const URL_CAPABLE_PROPERTIES = new Set(["background-image"]);
 
-/**
- * Safety gate for a single `url(...)` reference inside a background-image
- * value. Allows http(s), protocol-relative, root/relative paths, and
- * `data:image/...` URIs — the shapes `imageFillToBackgroundStyles` and the
- * fill picker actually produce. Rejects `javascript:`, non-image `data:`
- * payloads (e.g. `data:text/html`), and any other unrecognized scheme.
- */
 export function isSafeCssUrlReference(rawUrl: string): boolean {
   const url = rawUrl.trim();
   if (!url) return false;
   if (CSS_VALUE_CONTROL_RE.test(url)) return false;
-  // A legitimate URL/data-URI never needs a literal angle bracket or quote —
-  // reject outright rather than rely on the outer HTML/CSS writer to escape
-  // them correctly.
   if (/[<>"']/.test(url)) return false;
   if (/^javascript\s*:/i.test(url)) return false;
   if (/^data\s*:/i.test(url)) return /^data:image\//i.test(url);
   if (/^[a-z][a-z0-9+.-]*:/i.test(url)) {
-    // Any other explicit scheme (vbscript:, file:, etc.) — only the
-    // web-safe ones are allowed.
     return /^https?:\/\//i.test(url);
   }
-  // No scheme — protocol-relative ("//host/...") or relative/root path.
   return true;
 }
 
-/**
- * Reject caller-supplied CSS values before interpolation into the managed
- * stylesheet. Allows useful CSS functions (`calc(...)`, `var(...)`,
- * `rgb(...)`) but blocks declaration/rule breakouts and remote-resource
- * hooks — same policy as the managed motion block.
- *
- * `url(...)` is rejected unconditionally here; callers persisting a
- * sanitized fill image reference (`background-image`) should use
- * {@link isSafeBreakpointCssValueForProperty} instead, which applies the
- * scheme allowlist from {@link isSafeCssUrlReference} per-reference.
- */
 export function isSafeBreakpointCssValue(value: string): boolean {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
@@ -117,15 +54,6 @@ export function isSafeBreakpointCssValue(value: string): boolean {
   return true;
 }
 
-/**
- * Same breakout/control-character policy as {@link isSafeBreakpointCssValue},
- * but for `background-image` every `url(...)` reference is checked against
- * {@link isSafeCssUrlReference} (which itself rejects control characters and
- * `<>"'`) instead of being rejected outright. A validated `url(...)` — a
- * `data:image/...` URI legitimately contains a `;` before `base64,` — is
- * excised before the generic breakout check runs, so that check only ever
- * sees the CSS *around* the url() reference.
- */
 function isSafeBackgroundValue(value: string): boolean {
   if (typeof value !== "string") return false;
   if (value.trim().length === 0) return false;
@@ -141,13 +69,8 @@ function isSafeBackgroundValue(value: string): boolean {
     lastIndex = URL_FUNCTION_RE.lastIndex;
   }
   withoutValidatedParts += value.slice(lastIndex);
-  // Any "url(" left over wasn't matched by the well-formed pattern above
-  // (malformed/unterminated) — reject rather than pass it through.
   if (CSS_VALUE_URL_RE.test(withoutValidatedParts)) return false;
 
-  // Strip the one recognized comment shape (the image-fill fit marker) too,
-  // so a legitimate fill commit isn't rejected just for carrying it. Any
-  // OTHER comment still trips the breakout check below.
   const withoutFitMarker = withoutValidatedParts.replace(
     IMAGE_FIT_MARKER_RE,
     "",
@@ -161,12 +84,6 @@ function isSafeBackgroundValue(value: string): boolean {
   return true;
 }
 
-/**
- * Value safety check for a given CSS property: routes `background-image`
- * through {@link isSafeBackgroundValue} (which allows sanitized `url(...)`
- * references) and every other property — including the `background`
- * shorthand — through the strict {@link isSafeBreakpointCssValue}.
- */
 export function isSafeBreakpointCssValueForProperty(
   property: string,
   value: string,
@@ -175,19 +92,12 @@ export function isSafeBreakpointCssValueForProperty(
   return isSafeBreakpointCssValue(value);
 }
 
-/** Valid (optionally vendor-prefixed) CSS property identifier. */
 export function isSafeBreakpointCssProperty(property: string): boolean {
   return /^-?[a-zA-Z][a-zA-Z0-9-]*$/.test(property);
 }
 
-// ─── HTML block extraction / injection ───────────────────────────────────────
-
 const OPEN_RE = /<style\b(?=[^>]*\bdata-agent-native-breakpoints\b)[^>]*>/i;
 
-/**
- * Extract the CSS body of the managed `<style data-agent-native-breakpoints>`
- * block. Returns `null` when the document has no managed block.
- */
 export function extractManagedBreakpointCss(html: string): string | null {
   const openMatch = OPEN_RE.exec(html);
   if (!openMatch) return null;
@@ -198,11 +108,6 @@ export function extractManagedBreakpointCss(html: string): string | null {
   return afterOpen.slice(0, closeMatch.index).trim();
 }
 
-/**
- * Inject or replace the managed block. Inserts before `</head>` when no
- * managed block exists, or just inside `<html>` when there is no `<head>`.
- * Passing empty CSS removes the block entirely.
- */
 export function injectManagedBreakpointCss(html: string, css: string): string {
   const openMatch = OPEN_RE.exec(html);
   const trimmed = css.trim();
@@ -217,8 +122,6 @@ export function injectManagedBreakpointCss(html: string, css: string): string {
     const closeMatch = /<\s*\/\s*style\b[^>]*>/i.exec(afterOpen);
     if (closeMatch) {
       const closeEnd = bodyStart + closeMatch.index + closeMatch[0].length;
-      // Removing the block: also swallow one trailing newline so repeated
-      // add/remove cycles don't accumulate blank lines.
       if (block === "") {
         const after = html.slice(closeEnd);
         return html.slice(0, openMatch.index) + after.replace(/^\n/, "");
@@ -232,8 +135,6 @@ export function injectManagedBreakpointCss(html: string, css: string): string {
   if (headClose !== -1) {
     return html.slice(0, headClose) + block + "\n" + html.slice(headClose);
   }
-  // Prepending would put the block outside `<html>`, which the design HTML
-  // integrity check rejects — discarding the whole write.
   const htmlOpen = /<html\b[^>]*>/i.exec(html);
   if (htmlOpen) {
     const afterOpen = htmlOpen.index + htmlOpen[0].length;
@@ -242,12 +143,6 @@ export function injectManagedBreakpointCss(html: string, css: string): string {
   return block + "\n" + html;
 }
 
-// ─── CSS body parse / serialize ──────────────────────────────────────────────
-
-/**
- * Parse a managed CSS body into the model. Tolerant of hand edits made in
- * the Code panel: unknown at-rules and selectors are skipped, not errors.
- */
 export function parseBreakpointMediaCss(css: string): BreakpointMediaModel {
   const model: BreakpointMediaModel = {};
   const mediaRe = /@media\s*\(\s*max-width\s*:\s*(\d+(?:\.\d+)?)px\s*\)\s*\{/g;
@@ -261,12 +156,6 @@ export function parseBreakpointMediaCss(css: string): BreakpointMediaModel {
     if (body === null) continue;
     mediaRe.lastIndex = bodyStart + body.length + 1;
 
-    // Matches the LAST [data-agent-native-node-id="…"] attribute directly
-    // before the `{`, so it accepts BOTH the legacy single-attribute selector
-    // and the current doubled-attribute selector (see
-    // serializeBreakpointMediaModel below) without double-counting: on a
-    // doubled selector the scan skips the first attribute occurrence (no `{`
-    // after it) and captures the nodeId exactly once from the second.
     const ruleRe =
       /\[data-agent-native-node-id="((?:\\.|[^"\\])*)"\]\s*\{([^}]*)\}/g;
     let ruleMatch: RegExpExecArray | null;
@@ -295,11 +184,6 @@ export function parseBreakpointMediaCss(css: string): BreakpointMediaModel {
   return model;
 }
 
-/**
- * Serialize the model into a deterministic CSS body: buckets widest bound
- * FIRST (narrower ranges later in source so they win the desktop-down
- * cascade), node ids and properties sorted alphabetically.
- */
 export function serializeBreakpointMediaModel(
   model: BreakpointMediaModel,
 ): string {
@@ -323,19 +207,6 @@ export function serializeBreakpointMediaModel(
       const lines = properties.map(
         (property) => `    ${property}: ${declarations[property]};`,
       );
-      // Doubled attribute selector → specificity (0,2,0), beating any single
-      // Tailwind utility class (0,1,0) REGARDLESS of stylesheet order. This
-      // matters because designs load Tailwind via the Play CDN script, which
-      // injects its generated utility sheet at RUNTIME — always after this
-      // static managed block — so an equal-specificity (0,1,0) single
-      // attribute selector always lost by source order and the breakpoint
-      // override silently never rendered (verified on real designs: the
-      // @media rule was live and matching, but .px-5 won). Doubling the
-      // attribute survives DOM reorder, Tailwind re-injection, and any
-      // future stylesheet ordering change; parseBreakpointMediaCss above
-      // accepts both formats, and because every write re-serializes the
-      // whole block, legacy single-attribute rules are upgraded to this
-      // format on the next edit automatically.
       const attrSelector = `[data-agent-native-node-id="${escAttr(nodeId)}"]`;
       rules.push(
         `  ${attrSelector}${attrSelector} {\n${lines.join("\n")}\n  }`,
@@ -349,13 +220,6 @@ export function serializeBreakpointMediaModel(
   return blocks.join("\n\n");
 }
 
-// ─── High-level document operations ──────────────────────────────────────────
-
-/**
- * Set (or overwrite) one managed declaration for a node at a max-width
- * scope, returning the updated HTML. Throws on unsafe property/value — the
- * caller decides how to surface that.
- */
 export function setBreakpointMediaDeclaration(
   html: string,
   args: {
@@ -389,11 +253,6 @@ export function setBreakpointMediaDeclaration(
   return injectManagedBreakpointCss(html, serializeBreakpointMediaModel(model));
 }
 
-/**
- * Remove one managed declaration (reset the property back to the base /
- * wider-scope value). Prunes empty rules, buckets, and — when nothing is
- * left — the whole managed block.
- */
 export function removeBreakpointMediaDeclaration(
   html: string,
   args: { nodeId: string; maxWidthPx: number; property: string },
@@ -415,10 +274,6 @@ export function removeBreakpointMediaDeclaration(
   return injectManagedBreakpointCss(html, serializeBreakpointMediaModel(model));
 }
 
-/**
- * All managed declarations for one node (every bound), flattened and sorted
- * widest bound first. Pass `null` nodeId to list every declaration.
- */
 export function getBreakpointMediaDeclarations(
   html: string,
   nodeId?: string | null,
@@ -444,47 +299,18 @@ export function getBreakpointMediaDeclarations(
   );
 }
 
-// ─── Override state (inspector indicator contract) ───────────────────────────
-
-/** One breakpoint override of a property, from either persistence layer. */
 export interface BreakpointPropertyOverride {
-  /** Inclusive upper viewport bound the override applies below. */
   maxWidthPx: number;
-  /** Where the override persists. */
   source: "class" | "media";
-  /** Utility token (class source) or CSS value (media source). */
   value: string;
 }
 
-/** Result of {@link getBreakpointOverrideState}. */
 export interface BreakpointOverrideState {
-  /** Every override of the property, widest bound first. */
   overrides: BreakpointPropertyOverride[];
-  /** True when an override exists exactly at the active scope's bound. */
   overriddenAtActive: boolean;
-  /**
-   * The active scope's upper bound (from `breakpointUpperBoundPx`), or null
-   * when the active frame is the widest context (base editing).
-   */
   activeUpperBoundPx: number | null;
 }
 
-/**
- * EditPanel contract: per-property override indicators for the active
- * breakpoint. Aggregates BOTH persistence layers — max-width-scoped
- * responsive classes on the element and managed `@media` rules for its
- * node id.
- *
- * @param args.className    The element's class attribute value.
- * @param args.html         The screen HTML (for the managed media block).
- *                          Optional — omit to check classes only.
- * @param args.nodeId       The element's `data-agent-native-node-id`.
- * @param args.property     CSS property (camelCase or kebab-case).
- * @param args.breakpointWidths  Widths of the design's breakpoint frames.
- * @param args.baseWidthPx  The primary frame's width (base context).
- * @param args.activeWidthPx    The active breakpoint frame width, or null
- *                              when editing the base.
- */
 export function getBreakpointOverrideState(args: {
   className: string;
   html?: string | null;
@@ -540,9 +366,6 @@ export function getBreakpointOverrideState(args: {
   };
 }
 
-// ─── Internal helpers ────────────────────────────────────────────────────────
-
-/** Escape a string for a CSS attribute selector value (`\` and `"`). */
 function escAttr(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
@@ -551,10 +374,6 @@ function unescAttr(value: string): string {
   return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
-/**
- * Find the content of the CSS block that starts just after position `start`
- * (just after the opening `{`). Returns `null` on unbalanced braces.
- */
 function extractBlock(css: string, start: number): string | null {
   let depth = 1;
   let i = start;

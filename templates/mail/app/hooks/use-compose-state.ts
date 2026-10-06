@@ -43,7 +43,6 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-/** Check if a compose draft has any meaningful content worth saving */
 function hasDraftContent(draft: ComposeState): boolean {
   return !!(
     draft.to?.trim() ||
@@ -71,8 +70,6 @@ export function filterRemovedDrafts<T extends { id: string }>(
   return drafts.filter((draft) => removed[draft.id] === undefined);
 }
 
-/** Save a compose draft to persistent storage (emails with isDraft=true).
- *  Returns the draftId so callers can track it for subsequent updates. */
 async function saveDraftToEmails(
   draft: ComposeState,
 ): Promise<SavedDraftMetadata | undefined> {
@@ -352,7 +349,6 @@ export function useComposeState() {
     [],
   );
 
-  // Fetch all drafts — short staleTime so agent-written drafts appear quickly
   const query = useQuery<ComposeState[]>({
     queryKey: ["compose-drafts"],
     queryFn: async () => {
@@ -425,7 +421,6 @@ export function useComposeState() {
     if (newActiveId) setActiveId(newActiveId);
   }, [allDrafts, query.isSuccess]);
 
-  // Resolve activeId: use current if valid, else last draft, else null
   const resolvedActiveId =
     activeId && drafts.some((d) => d.id === activeId)
       ? activeId
@@ -482,7 +477,6 @@ export function useComposeState() {
     [deleteSavedDraftMutation],
   );
 
-  /** Open a new draft tab. Returns the new draft's id. */
   const open = useCallback(
     (state: Omit<ComposeState, "id">) => {
       const id = nanoid(10);
@@ -497,14 +491,12 @@ export function useComposeState() {
       };
       delete removedDraftIdsRef.current[id];
 
-      // Optimistically add to cache
       qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) => [
         ...(old ?? []),
         draft,
       ]);
       setActiveId(id);
 
-      // Persist to server
       void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
         putMutation.mutateAsync(draft),
       ).catch(() =>
@@ -518,7 +510,6 @@ export function useComposeState() {
     [qc, putMutation],
   );
 
-  /** Auto-save a draft to Gmail/persistent storage, storing the returned draftId. */
   const autoSaveToGmail = useCallback(
     (id: string) => {
       const current = (
@@ -565,7 +556,6 @@ export function useComposeState() {
     [qc, putMutation, reportDraftSaveResult],
   );
 
-  /** Update a specific draft (debounced 300ms for app-state, 3s for Gmail). */
   const update = useCallback(
     (id: string, partial: Partial<ComposeState>) => {
       if (removedDraftIdsRef.current[id] !== undefined) return;
@@ -574,12 +564,10 @@ export function useComposeState() {
       const version = (versionRef.current[id] ?? 0) + 1;
       versionRef.current[id] = version;
 
-      // Optimistic cache update
       qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
         (old ?? []).map((d) => (d.id === id ? { ...d, ...partial } : d)),
       );
 
-      // Debounced write to application-state (300ms)
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
       debounceRef.current[id] = setTimeout(() => {
         const current = (
@@ -604,7 +592,6 @@ export function useComposeState() {
         }
       }, 300);
 
-      // Debounced auto-save to Gmail (3s)
       if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
       gmailSaveRef.current[id] = setTimeout(() => {
         autoSaveToGmail(id);
@@ -613,12 +600,10 @@ export function useComposeState() {
     [qc, putMutation, autoSaveToGmail],
   );
 
-  /** Close a single draft tab — auto-saves to Drafts if it has content. */
   const close = useCallback(
     (id: string) => {
       removedDraftIdsRef.current[id] = Date.now();
       void qc.cancelQueries({ queryKey: ["compose-drafts"] });
-      // Clear debounce timers
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
       if (gmailSaveRef.current[id]) clearTimeout(gmailSaveRef.current[id]);
       delete dirtyRef.current[id];
@@ -626,14 +611,12 @@ export function useComposeState() {
       delete debounceRef.current[id];
       delete gmailSaveRef.current[id];
 
-      // Get the draft before removing it
       const currentDrafts =
         qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
       const draft = currentDrafts.find((d) => d.id === id);
       const idx = currentDrafts.findIndex((d) => d.id === id);
       const remaining = currentDrafts.filter((d) => d.id !== id);
 
-      // Keep the save result available to close-toast actions that reopen or delete it.
       const savePromise =
         draft && hasDraftContent(draft)
           ? enqueueDraftSave(
@@ -663,10 +646,8 @@ export function useComposeState() {
         setActiveId(nextDraft?.id ?? null);
       }
 
-      // Remove from cache
       qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
 
-      // Delete compose file
       void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
         deleteMutation.mutateAsync(id),
       ).catch(() => undefined);
@@ -675,8 +656,6 @@ export function useComposeState() {
     [qc, deleteMutation, resolvedActiveId, reportDraftSaveResult],
   );
 
-  /** Discard a single draft — closes WITHOUT saving to Drafts.
-   *  If a Gmail draft was already created by auto-save, delete it. */
   const discard = useCallback(
     (id: string) => {
       setStagedSendIds((current) => {
@@ -756,7 +735,6 @@ export function useComposeState() {
     setActiveId(id);
   }, []);
 
-  /** Close the captured drafts — wait for mailbox saves before deleting state. */
   const closeAll = useCallback(
     (draftIds?: string[]) => {
       const allDrafts =
@@ -905,7 +883,6 @@ export function useComposeState() {
     [qc, deleteMutation, putMutation, reportDraftSaveResult, stagedSendIds],
   );
 
-  /** Flush a specific draft immediately (for Generate button). */
   const flush = useCallback(
     (id: string) => {
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
@@ -916,7 +893,6 @@ export function useComposeState() {
       if (current) {
         dirtyRef.current[id] = false;
         versionRef.current[id] = versionRef.current[id] ?? 0;
-        // Also trigger Gmail save immediately
         if (hasDraftContent(current)) autoSaveToGmail(id);
         return enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
           putMutation.mutateAsync(current),

@@ -126,8 +126,6 @@ describe("fireInternalDispatch", () => {
 
     try {
       await fireInternalDispatch({
-        // Base url is already app-base-path-prefixed (as resolveSelfDispatchBaseUrl
-        // returns it for a workspace app).
         baseUrl: "https://workspace.example.test/starter",
         path: "/.netlify/functions/starter-agent-background",
         taskId: "task-1",
@@ -139,7 +137,6 @@ describe("fireInternalDispatch", () => {
       else process.env.APP_BASE_PATH = previous;
     }
 
-    // The /starter base path must be stripped for the host-root function url.
     expect(calledUrl).toBe(
       "https://workspace.example.test/.netlify/functions/starter-agent-background",
     );
@@ -275,8 +272,6 @@ describe("fireInternalDispatch", () => {
     ).resolves.toBeUndefined();
   });
 
-  // ─── awaitResponse (confirmed handoff for continuation dispatch) ───────────
-
   describe("awaitResponse", () => {
     it("resolves once the target confirms receipt with a 2xx", async () => {
       globalThis.fetch = vi.fn(async () => ({
@@ -398,7 +393,6 @@ describe("fireInternalDispatch", () => {
         }),
       ).resolves.toBeUndefined();
 
-      // Let the late 503 land and be swallowed by the existing .catch path.
       await new Promise((resolve) => setTimeout(resolve, 80));
       process.off("unhandledRejection", onUnhandledRejection);
       await Promise.race([unhandledGuard, Promise.resolve()]);

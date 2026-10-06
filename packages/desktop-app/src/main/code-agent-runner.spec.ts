@@ -227,7 +227,6 @@ describe("resolveExecutable", () => {
     const localBin = path.join(root, ".local", "bin");
     fs.mkdirSync(npmBin, { recursive: true });
     fs.mkdirSync(localBin, { recursive: true });
-    // What `npm install -g` leaves on Windows: a POSIX shim and a .cmd wrapper.
     fs.writeFileSync(path.join(npmBin, "claude"), "#!/bin/sh\n", {
       mode: 0o755,
     });
@@ -238,7 +237,6 @@ describe("resolveExecutable", () => {
 
     expect(resolveExecutable("claude", environment, "win32")).toBeNull();
 
-    // The native installer's launcher.
     const nativeExecutable = path.join(localBin, "claude.exe");
     fs.writeFileSync(nativeExecutable, "", { mode: 0o755 });
     expect(resolveExecutable("claude", environment, "win32")).toBe(

@@ -98,6 +98,13 @@ La plupart des actions ne lisent que `ctx?.userEmail` et `ctx?.orgId`, le [déco
             "La clé de registre de l’action appelée (par ex. `delete-recording`), définie à chaque site de dispatch afin que des préoccupations transverses comme le journal d’audit puissent attribuer l’appel. `undefined` pour les appels `run()` programmatiques directs qui contournent le dispatcher.",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "Identifiant de l’appel d’outil du modèle (`toolCall.id`) pour cette invocation. Fourni par la boucle de l’agent, y compris à travers les wrappers `defineAction()`. Il permet de corréler les événements lorsque la même action est exécutée plusieurs fois. Ce n’est pas une entrée de l’action. Il vaut `undefined` pour les appelants sans appel d’outil du modèle.",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

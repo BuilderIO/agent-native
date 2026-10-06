@@ -99,9 +99,9 @@ search: "Claude Anthropic ChatGPT OpenAI Claude कोड Codex कर्सर 
 https://<your-app>.agent-native.com/mcp
 ```
 
-ऐप में **Settings → Integrations** खोलें और उस host का जाना-पहचाना नाम खोजें:
+ऐप में **Settings → Connections → Integrations** खोलें और उस host का जाना-पहचाना नाम खोजें:
 Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI, Codex, Grok, या
-xAI। बाहरी host का एकमात्र परिणाम **Settings → MCP** खोलता है और सबसे उपयुक्त
+xAI। बाहरी host का एकमात्र परिणाम **Settings → MCP server** खोलता है और सबसे उपयुक्त
 guide चुनता है। **MCP server URL** कॉपी करके AI host में पेस्ट करें। URL deployed
 app के base URL के अंत में `/mcp` जोड़कर बनता है।
 
@@ -141,9 +141,9 @@ Claude, ChatGPT, कर्सर, Claude कोड, Codex, Grok और अन्
 
 ### ऐप के अंदर MCP सेटिंग {#mcp-settings}
 
-ऐप की standard Settings में **Integrations** के पास एक **MCP** टैब होता है। इसमें
+Settings में ऐप के समूह में एक **MCP server** पेज होता है। इसमें
 ऐप का canonical MCP URL, उपलब्ध होने पर A2A agent card और पूरी connect page
-जैसे setup guides दिखते हैं। ऐप के अंदर शुरुआत करने के लिए **Settings → MCP**
+जैसे setup guides दिखते हैं। ऐप के अंदर शुरुआत करने के लिए **Settings → MCP server**
 का उपयोग करें, या पूरे flow और token fallback के लिए `/mcp/connect` सीधे खोलें।
 
 ### Claude और ChatGPT OAuth {#oauth}
@@ -264,6 +264,8 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 
 ### 401 के बाद पुन:प्रमाणित किया जा रहा है {#reconnect}
 
+OAuth स्वामी-बाइंडिंग अपडेट के बाद हर मौजूदा OAuth कनेक्शन को [एक बार दोबारा कनेक्ट करना होगा](/docs/external-agents#reconnect)। अपडेट लागू होने के बाद पुराने OAuth एक्सेस टोकन अस्वीकार किए जाते हैं। बिना स्वामी-बाइंडिंग वाले पुराने रिफ्रेश टोकन पर `invalid_grant` मिलता है और लंबित पुराने प्राधिकरण कोड के लिए सहमति प्रक्रिया फिर से शुरू करनी होगी। नए जारी किए गए एक्सेस टोकन कॉन्फ़िगर की गई वैधता अवधि और हर अनुरोध पर सदस्यता जाँच का उपयोग करते हैं। इस बदलाव से पुराने A2A फ़ॉर्मैट वाले `mcp-connect` क्रेडेंशियल और ऐप्स के बीच A2A टोकन नहीं बदलते। पुराने OAuth फ़ॉर्मैट वाले Connect टोकन का उपयोग करने वाले कनेक्शन को भी दोबारा कनेक्ट करना होगा।
+
 एक बार कनेक्ट होने के बाद, ऑथ लंबे समय तक जारी रहना चाहिए - एक्सेस टोकन डिफ़ॉल्ट रूप से 30 दिनों तक चलते हैं (सर्वर पर `MCP_OAUTH_ACCESS_TOKEN_TTL` के साथ ओवरराइड, उदाहरण के लिए `7d` या `12h`) स्लाइडिंग 365-दिन की रिफ्रेश विंडो के साथ, इसलिए यादृच्छिक 401 दुर्लभ होना चाहिए। जब ऐसा होता है, तो पुनः इंस्टॉल करने के बजाय लाइटवेट रीकनेक्ट कमांड का उपयोग करें:
 
 ```bash
@@ -312,7 +314,7 @@ claude mcp add --transport http agent-native \
 https://dispatch.agent-native.com/mcp
 ```
 
-OAuth प्रवाह ताज़ा-टोकन रोटेशन के साथ प्राधिकरण-कोड + PKCE है। एक्सेस टोकन सटीक MCP संसाधन URL के लिए ऑडियंस-बाउंड हैं और हस्ताक्षरित उपयोगकर्ता/संगठन पहचान रखते हैं, इसलिए टूल कॉल, `resources/read`, और MCP ऐप iframe-आरंभित `tools/call` सभी मौजूदा कनेक्ट-मिंटेड JWT पथ के समान `runWithRequestContext` किरायेदार स्कोपिंग के माध्यम से चलते हैं। iframe को कभी भी कच्चा OAuth टोकन प्राप्त नहीं होता है; होस्ट प्रमाणित MCP कनेक्शन के माध्यम से कॉल में मध्यस्थता करता है।
+OAuth प्रवाह रीफ्रेश टोकन के साथ प्राधिकरण-कोड + PKCE है, और रीफ्रेश टोकन रोटेट नहीं किए जाते। एक्सेस टोकन सटीक MCP संसाधन URL के लिए ऑडियंस-बाउंड हैं और हस्ताक्षरित उपयोगकर्ता/संगठन पहचान रखते हैं, इसलिए टूल कॉल, `resources/read`, और MCP ऐप iframe-आरंभित `tools/call` सभी मौजूदा कनेक्ट-मिंटेड JWT पथ के समान `runWithRequestContext` किरायेदार स्कोपिंग के माध्यम से चलते हैं। iframe को कभी भी कच्चा OAuth टोकन प्राप्त नहीं होता है; होस्ट प्रमाणित MCP कनेक्शन के माध्यम से कॉल में मध्यस्थता करता है।
 
 वर्तमान दायरे हैं:
 

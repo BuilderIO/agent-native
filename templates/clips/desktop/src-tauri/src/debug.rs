@@ -1,7 +1,3 @@
-//! Verbose-log gating. Enable with `DEBUG=true` or `CLIPS_DEBUG=true`. Errors
-//! and one-time startup messages stay on `eprintln!` directly; per-click /
-//! per-frame chatter (toolbar shown, popover blur, capture-excluded applied,
-//! …) goes through `dlog!` so it stays quiet by default.
 
 use std::sync::OnceLock;
 

@@ -4,7 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsRow } from "@agent-native/core/client/settings";
+import { SettingsRow } from "@agent-native/toolkit/app/settings";
 import { IconArrowLeft, IconLoader2 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";

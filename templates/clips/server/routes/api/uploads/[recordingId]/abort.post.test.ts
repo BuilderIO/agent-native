@@ -199,8 +199,8 @@ describe("/api/uploads/:recordingId/abort route", () => {
     );
   });
 
-  it("classifies aborts without a normalized cause as unknown", async () => {
-    mockReadBody.mockResolvedValue({ failureCode: "upload_failed" });
+  it("classifies aborts without a normalized cause as upload-aborted", async () => {
+    mockReadBody.mockResolvedValue({});
 
     await handler({} as any);
 
@@ -208,7 +208,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
       expect.arrayContaining([
         expect.objectContaining({
           status: "failed",
-          failureCode: "unknown",
+          failureCode: "upload_aborted",
           failureReason: "unknown",
         }),
       ]),
@@ -238,7 +238,22 @@ describe("/api/uploads/:recordingId/abort route", () => {
 
     expect(mockUpdateSets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ failureCode: "unknown" }),
+        expect.objectContaining({ failureCode: "upload_aborted" }),
+      ]),
+    );
+  });
+
+  it("classifies a legacy interruption as recording-interrupted", async () => {
+    mockReadBody.mockResolvedValue({
+      reason: "Recording interruption has unknown cause",
+      failureCode: "unknown",
+    });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ failureCode: "recording_interrupted" }),
       ]),
     );
   });
@@ -442,6 +457,21 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(JSON.stringify(mockUpdateSets)).not.toContain("<!DOCTYPE html>");
   });
 
+  it("keeps HTML responses classified when the abort payload has no useful code", async () => {
+    mockReadBody.mockResolvedValue({
+      reason: "Upload failed: <!DOCTYPE html><html>",
+      failureCode: "unknown",
+    });
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ failureCode: "chunk_html_error" }),
+      ]),
+    );
+  });
+
   it("does not let an older client abort durable media verification", async () => {
     mockSelectRows.rows = [
       {
@@ -525,34 +555,58 @@ describe("/api/uploads/:recordingId/abort route", () => {
   });
 
   it("addresses the active generation-scoped session on abort", async () => {
+    // A reset moved the row on to generation-2, but the cancel still carries
+    // the pre-reset generation. Cleanup must follow the row's generation, so
+    // the request's value and the row's value are deliberately different.
     mockSelectRows.rows = [
       {
         id: "rec-1",
         status: "uploading",
         videoUrl: null,
         failureReason: null,
-        uploadAttemptId: null,
-        uploadGenerationId: "generation-1",
+        failureCode: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-2",
       },
     ];
+    mockUpdateRows.rows = [{ id: "rec-1", uploadGenerationId: "generation-2" }];
     mockReadBody.mockResolvedValue({
-      reason: "Cancelled",
+      reason: "Recording cancelled by user",
+      failureCode: "user_cancelled",
+      attemptId: "attempt-1",
       uploadGenerationId: "generation-1",
     });
-    mockGetResumableSession.mockResolvedValue({
-      providerId: "s3",
-      sessionId: "upload-example",
-      meta: {},
-      bytesUploaded: 123,
-    });
+    mockGetResumableSession.mockImplementation(
+      async (_recordingId: string, generationId: string) =>
+        generationId === "generation-2"
+          ? {
+              providerId: "s3",
+              sessionId: "upload-example",
+              meta: {},
+              bytesUploaded: 123,
+            }
+          : null,
+    );
 
     await handler({} as any);
 
     expect(mockGetResumableSession).toHaveBeenCalledWith(
       "rec-1",
+      "generation-2",
+    );
+    expect(mockGetResumableSession).not.toHaveBeenCalledWith(
+      "rec-1",
       "generation-1",
     );
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "upload-example",
+      meta: {},
+    });
     expect(mockDeleteResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-2",
+    );
+    expect(mockDeleteResumableSession).not.toHaveBeenCalledWith(
       "rec-1",
       "generation-1",
     );

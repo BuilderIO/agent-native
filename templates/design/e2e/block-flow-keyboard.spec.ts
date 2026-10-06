@@ -8,19 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { childNodeIds, gotoEditor } from "./helpers";
 
-/**
- * Keyboard nudge in NORMAL BLOCK FLOW.
- *
- * The auto-layout spec covers a parent with an inline `display:flex`, which the
- * authored-style parser can read directly. This covers the case it cannot: a
- * plain block stack whose layout comes from a STYLESHEET, which is what a real
- * running app (fusion/localhost screen) looks like.
- *
- * Before the fix, `describeFlowContainer` recognised only flex and grid, so this
- * parent resolved to `kind: "none"` and arrow keys wrote `left`/`top` onto the
- * child. Under `position: static` that does nothing at all — the user-visible
- * symptom was "arrows just do px movements" with nothing moving.
- */
 const BLOCK_FLOW_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -67,8 +54,6 @@ test.describe("block flow keyboard nudge", () => {
     );
     await gotoEditor(page, designId);
 
-    // Down the block axis: DOM order is visual order, so the child moves past
-    // its sibling rather than receiving a `top` that static positioning ignores.
     await selectLayerRow(page, "BlockAlpha");
     await pressEditorKey(page, "ArrowDown");
     await expectFileContent(request, baseURL, designId, (html) => {
@@ -77,14 +62,11 @@ test.describe("block flow keyboard nudge", () => {
       expect(html).not.toMatch(/bf-alpha[^>]*top:\s*1px/);
     });
 
-    // And back up.
     await pressEditorKey(page, "ArrowUp");
     await expectFileContent(request, baseURL, designId, (html) => {
       expect(flowOrder(html)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
     });
 
-    // Cross axis of a non-wrapping stack has nowhere to go, and must not fall
-    // back to a positional offset.
     await pressEditorKey(page, "ArrowRight");
     await expectFileContent(request, baseURL, designId, (html) => {
       expect(flowOrder(html)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
@@ -113,7 +95,6 @@ test.describe("block flow keyboard nudge", () => {
   });
 });
 
-/** DOM order of the stack's flow children, by node id. */
 function flowOrder(html: string): string[] {
   return childNodeIds(html, "bf-stack");
 }

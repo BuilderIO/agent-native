@@ -28,11 +28,9 @@ describe("blockFieldSaveController", () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const c = createBlockFieldSaveController({ initialContent: "", save });
 
-    // User typed but the 500ms debounce has NOT fired yet.
     c.change("draft in flight");
     expect(save).not.toHaveBeenCalled();
 
-    // Collapsing the field / navigating away flushes immediately.
     const flushed = c.flush();
     expect(save).toHaveBeenCalledExactlyOnceWith("draft in flight");
     expect(c.hasPendingTimer).toBe(false);
@@ -56,7 +54,6 @@ describe("blockFieldSaveController", () => {
 
     c.change("typed");
     vi.advanceTimersByTime(500);
-    // Save is in flight but not yet resolved — still dirty.
     expect(c.lastSaved).toBe("");
 
     resolveSave?.();
@@ -67,19 +64,14 @@ describe("blockFieldSaveController", () => {
   it("tracks hasSavedLocally: false initially, true after a save resolves, cleared by mark()", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const c = createBlockFieldSaveController({ initialContent: "", save });
-    // Fresh controller has not originated any local save yet.
     expect(c.hasSavedLocally).toBe(false);
 
     c.change("typed");
     vi.advanceTimersByTime(500);
     await flushTicks();
-    // A confirmed local save flips it true — lastSaved is now content we
-    // originated that the server may not have echoed yet.
     expect(c.lastSaved).toBe("typed");
     expect(c.hasSavedLocally).toBe(true);
 
-    // Adopting server content as the new baseline clears it: server is no longer
-    // "behind" this controller.
     c.mark("server value");
     expect(c.hasSavedLocally).toBe(false);
   });
@@ -96,7 +88,6 @@ describe("blockFieldSaveController", () => {
     c.change("typed");
     vi.advanceTimersByTime(500);
     await flushTicks();
-    // The save rejected, so the value stayed dirty and nothing was confirmed.
     expect(c.hasSavedLocally).toBe(false);
     expect(c.lastSaved).toBe("");
   });
@@ -116,14 +107,11 @@ describe("blockFieldSaveController", () => {
     c.change("v1");
     await vi.advanceTimersByTimeAsync(500);
 
-    // Failed save must not be recorded as saved, and must NOT auto-retry in a
-    // tight loop (single save attempt for this debounce).
     expect(c.lastSaved).toBe("");
     expect(onError).toHaveBeenCalledOnce();
     expect(save).toHaveBeenCalledTimes(1);
     expect(c.isSaving).toBe(false);
 
-    // A subsequent flush retries the still-dirty value rather than skipping it.
     await c.flush();
     expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenLastCalledWith("v1");
@@ -149,10 +137,6 @@ describe("blockFieldSaveController", () => {
   });
 
   it("single-flight: never overlaps two saves; an edit mid-flight coalesces into one trailing save", async () => {
-    // The server write is unconditional (last write wins at the DB), so the ONLY
-    // safe guarantee is that we never have two saves in flight. While save A is
-    // in flight, typing more must NOT start save B; it coalesces, and a single
-    // trailing save fires for the LATEST content only after A settles.
     const resolvers: Array<() => void> = [];
     const order: string[] = [];
     const save = vi.fn(
@@ -164,33 +148,26 @@ describe("blockFieldSaveController", () => {
     );
     const c = createBlockFieldSaveController({ initialContent: "", save });
 
-    // A: type "old", debounce fires → save("old") in flight.
     c.change("old");
     vi.advanceTimersByTime(500);
     expect(save).toHaveBeenCalledTimes(1);
     expect(save).toHaveBeenNthCalledWith(1, "old");
 
-    // While A is in flight, type "new" and let its debounce fire. Single-flight
-    // means NO second save starts yet — it is coalesced into pending.
     c.change("new");
     vi.advanceTimersByTime(500);
     expect(save).toHaveBeenCalledTimes(1);
     expect(c.pending).toBe("new");
 
-    // A settles. Its successful completion kicks exactly ONE trailing save for
-    // the latest pending content.
     resolvers[0]!();
     await flushTicks();
     expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenNthCalledWith(2, "new");
-    expect(c.lastSaved).toBe("old"); // "new" not confirmed until it resolves.
+    expect(c.lastSaved).toBe("old");
 
-    // Trailing save settles → latest content is the final persisted value.
     resolvers[1]!();
     await flushTicks();
     expect(c.lastSaved).toBe("new");
 
-    // Server saw the writes in issue order: old before new.
     expect(order).toEqual(["old", "new"]);
   });
 
@@ -206,19 +183,14 @@ describe("blockFieldSaveController", () => {
     );
     const c = createBlockFieldSaveController({ initialContent: "", save });
 
-    // First edit fires a debounced save that is still in flight.
     c.change("first");
     vi.advanceTimersByTime(500);
     expect(save).toHaveBeenNthCalledWith(1, "first");
 
-    // User types more, then unmount-flushes before any new debounce fires. flush
-    // must NOT start a second save while the first is in flight (single-flight);
-    // it awaits the first, then sends the final pending content.
     c.change("second");
     const flushed = c.flush();
-    expect(save).toHaveBeenCalledTimes(1); // not yet — first still in flight.
+    expect(save).toHaveBeenCalledTimes(1);
 
-    // Let the in-flight first save resolve; flush then issues the trailing save.
     resolvers[0]!();
     await flushTicks();
     expect(save).toHaveBeenCalledTimes(2);
@@ -227,8 +199,7 @@ describe("blockFieldSaveController", () => {
     await flushTicks();
     await flushed;
 
-    // Deterministically the latest content is the last thing written.
     expect(c.lastSaved).toBe("second");
-    expect(order).toEqual(["first", "second"]); // never out of order.
+    expect(order).toEqual(["first", "second"]);
   });
 });

@@ -36,9 +36,6 @@ export default defineAction({
       .where(
         and(
           eq(schema.crmFieldPolicies.target, args.target),
-          // `object_type` carries the target for both kinds — for list
-          // attributes it mirrors `target_id` — and, unlike `target_id`, it is
-          // populated on rows written by the provider adapters.
           eq(schema.crmFieldPolicies.objectType, args.targetId),
           ...(args.connectionId
             ? [eq(schema.crmFieldPolicies.connectionId, args.connectionId)]

@@ -19,7 +19,6 @@ import type {
 export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
   activeCodeFile: CodeWorkbenchActiveFile | null;
-  /** Undefined before any screen is active — every read below must guard. */
   activeFile: DesignFile | undefined;
   activeInspectorTab: InspectorTab;
   activeLeftPanel: DesignLeftPanel | null;
@@ -106,7 +105,6 @@ export function runPublishAgentSelectionContext({
       dirty: activeCodeFile?.dirty ?? false,
       versionHash: activeCodeFile?.versionHash ?? null,
     },
-    // §8 DesignNavigationState additions — dock + breakpoint context
     dock: { kind: "motion" as const, open: motionDockOpen },
     motion: {
       previewing: false,
@@ -115,7 +113,6 @@ export function runPublishAgentSelectionContext({
       selectedTrackId: undefined as string | undefined,
       selectedKeyframeId: undefined as string | undefined,
     },
-    // §8 breakpoint fields — "auto" = no specific breakpoint focused.
     breakpoint: (activeBreakpointWidthState != null
       ? activeBreakpointWidthState < 500
         ? "mobile"
@@ -156,10 +153,7 @@ export function runPublishAgentSelectionContext({
       }
       return undefined;
     })(),
-    // §8 — active design state (null = Default / live view)
     selectedStateId,
-    // The grid the active screen's positions snap to, so the agent authors
-    // left/top on the same multiples dragging produces. null = no grid.
     layoutGrid: activeFile ? (layoutGrids[activeFile.id] ?? null) : null,
   };
   (window as any).__designSelection = selection;
@@ -205,16 +199,12 @@ export function runPublishAgentSelectionContext({
     }
   };
   if (persistedSelectionStateRef.current === persistedKey) {
-    // A zoom gesture can return to the last persisted value before its
-    // trailing write fires. Cancel that now-stale queued intermediate.
     if (persistedSelectionWriteTimerRef.current !== null) {
       window.clearTimeout(persistedSelectionWriteTimerRef.current);
       persistedSelectionWriteTimerRef.current = null;
     }
     pendingPersistedSelectionWriteRef.current = null;
   } else if (persistedSelectionContextRef.current !== persistedContextKey) {
-    // Screen/selection/tool/panel changes are agent context and stay
-    // immediate. Only zoom-only churn is coalesced below.
     if (persistedSelectionWriteTimerRef.current !== null) {
       window.clearTimeout(persistedSelectionWriteTimerRef.current);
       persistedSelectionWriteTimerRef.current = null;
@@ -226,10 +216,6 @@ export function runPublishAgentSelectionContext({
       value: persistedSelection,
     });
   } else if (pendingPersistedSelectionWriteRef.current?.key !== persistedKey) {
-    // Wheel/pinch zoom can render at 60+ Hz. Writing both scoped and global
-    // application-state keys for every tick creates an avoidable request +
-    // sync-event storm; keep the immediate in-memory context above and
-    // persist only the settled zoom after a short trailing delay.
     pendingPersistedSelectionWriteRef.current = {
       key: persistedKey,
       contextKey: persistedContextKey,

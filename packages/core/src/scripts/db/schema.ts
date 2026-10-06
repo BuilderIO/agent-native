@@ -1,10 +1,3 @@
-/**
- * Core script: db-schema
- *
- * Inspect the configured PostgreSQL database and print its tables, columns,
- * constraints, foreign keys, and indexes. Local execution uses PGlite.
- */
-
 import path from "node:path";
 
 import { getDatabaseUrl } from "../../db/client.js";

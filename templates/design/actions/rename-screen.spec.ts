@@ -1,9 +1,3 @@
-/**
- * Real-SQL coverage for the all-or-nothing screen rename mutation. These tests
- * exercise the framework's async PGlite transaction patch so a failure
- * after the target row updates proves the earlier write is actually rolled
- * back, not merely hidden by a mocked Drizzle chain.
- */
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({

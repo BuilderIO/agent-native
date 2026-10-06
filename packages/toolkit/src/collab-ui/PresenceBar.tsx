@@ -21,33 +21,17 @@ import {
 } from "./types.js";
 
 export interface PresenceBarProps {
-  /** Active collaborators on this document. */
   activeUsers: CollabUser[];
-  /** Whether the agent has a durable presence entry. */
   agentPresent?: boolean;
-  /** Whether the agent is actively making edits right now. */
   agentActive?: boolean;
   /** @deprecated Agent editing is represented by the AI presence circle and tooltip. */
   showAgentEditingDot?: boolean;
-  /** Current user's email, excluded unless showCurrentUser is true. */
   currentUserEmail?: string;
-  /** Include the current user in the roster as a non-followable avatar. */
   showCurrentUser?: boolean;
-  /** Max visible avatars before "+N" overflow. Default: 5 */
   maxVisible?: number;
-  /** Additional CSS classes. */
   className?: string;
-  /**
-   * Called when an avatar is clicked. Receives the user being clicked
-   * (or null for the agent avatar). Use this to start/stop follow mode.
-   */
   onAvatarClick?: (user: CollabUser | null) => void;
-  /** Keep the AI avatar display-only when no agent viewport can be followed. */
   disableAgentClick?: boolean;
-  /**
-   * The email of the user currently being followed. Highlighted with a
-   * blue ring to indicate active follow mode.
-   */
   followingEmail?: string | null;
 }
 

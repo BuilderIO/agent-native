@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { resolveSecret } from "@agent-native/core/server";
+import { resolveGeminiApiKey, resolveSecret } from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
@@ -9,7 +9,7 @@ export default defineAction({
   http: { method: "GET" },
   run: async () => {
     return {
-      gemini: !!(await resolveSecret("GEMINI_API_KEY")),
+      gemini: !!(await resolveGeminiApiKey()),
       openai: !!(await resolveSecret("OPENAI_API_KEY")),
     };
   },

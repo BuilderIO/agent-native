@@ -25,11 +25,6 @@ export interface EmailActivityEntry {
   lastEventTime: string;
 }
 
-/**
- * Renders one email's activity feed. Used both inline on the detail page and
- * inside the list page's activity dialog, so the "unavailable" and "empty"
- * states only need to be written once.
- */
 export function ActivityTable({
   result,
   isLoading,

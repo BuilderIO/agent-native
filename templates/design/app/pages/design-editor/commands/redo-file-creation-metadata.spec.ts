@@ -70,6 +70,9 @@ function makeRedoHarness(
     fileDeletionRedoStackRef: ref([]),
     fileDeletionUndoStackRef: ref([]),
     fileHistoryMutationPendingRef,
+    onFileHistoryMutationSettled: vi.fn(() => {
+      expect(fileHistoryMutationPendingRef.current).toBe(false);
+    }),
     files: [],
     focusCreatedScreen,
     geometryRedoStackRef: ref([]),
@@ -151,6 +154,231 @@ function makeRedoHarness(
 }
 
 describe("redo file creation metadata persistence", () => {
+  it("replays duplicate z changes without restoring stale frame geometry", async () => {
+    const harness = makeRedoHarness(vi.fn().mockResolvedValue(undefined));
+    const duplicateEntry = {
+      filename: "copy.html",
+      content: "<main>copy</main>",
+      fileType: "html",
+      createdFileId: "old-copy",
+      geometry: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+      duplicateStackUndoSettled: true,
+      duplicateStackUndoApplied: true,
+      duplicateStack: {
+        before: { peer: 1 },
+        after: { peer: 2 },
+      },
+    };
+    harness.fileCreationRedoStackRef.current = [duplicateEntry] as any;
+    const movedPeer = { x: 1500, y: 420, width: 320, height: 240, z: 1 };
+    harness.args.designDataJsonRef.current = {
+      canvasFrames: { peer: movedPeer },
+    };
+    harness.args.liveFrameGeometryRef.current = { peer: movedPeer };
+
+    runRedo(harness.args);
+    await vi.waitFor(() => expect(harness.getOnSuccess()).toBeDefined());
+    const completion = harness.getOnSuccess()?.({ id: "new-copy" });
+    expect(completion).toBeDefined();
+    await completion;
+    await vi.waitFor(() =>
+      expect(harness.writeFrameGeometrySnapshot).toHaveBeenCalled(),
+    );
+
+    const dataOperations =
+      harness.args.updateDesignAsync.mock.calls[0][0].dataOperations;
+    expect(dataOperations).toContainEqual({
+      op: "set",
+      path: ["canvasFrames", "peer", "z"],
+      value: 2,
+    });
+    expect(dataOperations).not.toContainEqual(
+      expect.objectContaining({
+        path: ["canvasFrames", "peer"],
+      }),
+    );
+    expect(harness.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        peer: { ...movedPeer, z: 2 },
+        "new-copy": expect.objectContaining({ x: 376, z: 1 }),
+      }),
+    );
+    expect(harness.fileCreationUndoStackRef.current).toContainEqual(
+      expect.objectContaining({ createdFileId: "new-copy" }),
+    );
+    expect(harness.fileCreationUndoStackRef.current[0]).not.toHaveProperty(
+      "duplicateStackUndoSettled",
+    );
+    expect(harness.fileCreationUndoStackRef.current[0]).not.toHaveProperty(
+      "duplicateStackUndoApplied",
+    );
+    expect(harness.args.onFileHistoryMutationSettled).toHaveBeenCalledOnce();
+  });
+
+  it("skips duplicate z replay after a concurrent stack reorder", async () => {
+    const harness = makeRedoHarness(vi.fn().mockResolvedValue(undefined));
+    harness.fileCreationRedoStackRef.current = [
+      {
+        filename: "copy.html",
+        content: "<main>copy</main>",
+        fileType: "html",
+        createdFileId: "old-copy",
+        geometry: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+        duplicateStack: {
+          before: { peer: 1 },
+          after: { peer: 2 },
+        },
+      },
+    ] as any;
+    const movedPeer = { x: 1500, y: 420, width: 320, height: 240, z: 9 };
+    harness.args.designDataJsonRef.current = {
+      canvasFrames: { peer: movedPeer },
+    };
+    harness.args.liveFrameGeometryRef.current = { peer: movedPeer };
+
+    runRedo(harness.args);
+    await vi.waitFor(() => expect(harness.getOnSuccess()).toBeDefined());
+    const completion = harness.getOnSuccess()?.({ id: "new-copy" });
+    expect(completion).toBeDefined();
+    await vi.waitFor(() =>
+      expect(harness.writeFrameGeometrySnapshot).toHaveBeenCalled(),
+    );
+
+    const dataOperations =
+      harness.args.updateDesignAsync.mock.calls[0][0].dataOperations;
+    expect(dataOperations).not.toContainEqual(
+      expect.objectContaining({ path: ["canvasFrames", "peer", "z"] }),
+    );
+    expect(harness.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({ peer: movedPeer }),
+    );
+  });
+
+  it("keeps a canvas move made while duplicate metadata persistence is pending", async () => {
+    let settleUpdate!: () => void;
+    const updateDesignAsync = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          settleUpdate = resolve;
+        }),
+    );
+    const harness = makeRedoHarness(updateDesignAsync);
+    const duplicateEntry = {
+      filename: "copy.html",
+      content: "<main>copy</main>",
+      fileType: "html",
+      createdFileId: "old-copy",
+      geometry: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+      duplicateStack: {
+        before: { peer: 1 },
+        after: { peer: 2 },
+      },
+    };
+    harness.fileCreationRedoStackRef.current = [duplicateEntry] as any;
+    const originalPeer = { x: 1500, y: 420, width: 320, height: 240, z: 1 };
+    harness.args.designDataJsonRef.current = {
+      canvasFrames: { peer: originalPeer },
+    };
+    harness.args.liveFrameGeometryRef.current = { peer: originalPeer };
+
+    runRedo(harness.args);
+    await vi.waitFor(() => expect(harness.getOnSuccess()).toBeDefined());
+    const completion = harness.getOnSuccess()?.({ id: "new-copy" });
+    expect(completion).toBeDefined();
+    await vi.waitFor(() => expect(updateDesignAsync).toHaveBeenCalledTimes(1));
+
+    const movedPeer = { ...originalPeer, x: 2200, y: 760, z: 2 };
+    harness.args.designDataJsonRef.current = {
+      canvasFrames: {
+        peer: movedPeer,
+        "new-copy": duplicateEntry.geometry,
+      },
+    };
+    harness.args.liveFrameGeometryRef.current = { peer: movedPeer };
+    settleUpdate();
+    await completion;
+
+    expect(harness.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        peer: movedPeer,
+        "new-copy": duplicateEntry.geometry,
+      }),
+    );
+  });
+
+  it("remaps later duplicate stack keys when redo recreates an earlier copy", async () => {
+    const harness = makeRedoHarness(vi.fn().mockResolvedValue(undefined));
+    harness.redoOrderRef.current = ["file-created", "file-created"];
+    const earlier = {
+      filename: "earlier.html",
+      content: "<main>earlier</main>",
+      fileType: "html",
+      createdFileId: "old-earlier",
+      geometry: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+      duplicateStack: { before: { peer: 1 }, after: { peer: 2 } },
+    };
+    const later = {
+      filename: "later.html",
+      content: "<main>later</main>",
+      fileType: "html",
+      createdFileId: "old-later",
+      geometry: { x: 752, y: 0, width: 320, height: 240, z: 2 },
+      duplicateStack: {
+        before: { "old-earlier": 1, peer: 2 },
+        after: { "old-earlier": 2, peer: 3 },
+      },
+    };
+    harness.fileCreationRedoStackRef.current = [later, earlier] as any;
+    const initialGeometry = {
+      source: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      peer: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+    };
+    harness.args.designDataJsonRef.current = {
+      canvasFrames: initialGeometry,
+    };
+    harness.args.liveFrameGeometryRef.current = initialGeometry;
+
+    runRedo(harness.args);
+    await vi.waitFor(() => expect(harness.getOnSuccess()).toBeDefined());
+    const firstCompletion = harness.getOnSuccess()?.({ id: "new-earlier" });
+    expect(firstCompletion).toBeDefined();
+    await firstCompletion;
+    await vi.waitFor(() =>
+      expect(harness.queryClient.invalidateQueries).toHaveBeenCalledTimes(1),
+    );
+    await vi.waitFor(() =>
+      expect(harness.fileCreationRedoStackRef.current).toHaveLength(1),
+    );
+    expect(
+      (harness.fileCreationRedoStackRef.current[0] as any)?.duplicateStack,
+    ).toEqual({
+      before: { "new-earlier": 1, peer: 2 },
+      after: { "new-earlier": 2, peer: 3 },
+    });
+
+    runRedo(harness.args);
+    await vi.waitFor(() =>
+      expect(harness.args.createFileMutation.mutate).toHaveBeenCalledTimes(2),
+    );
+    const secondCompletion = harness.getOnSuccess()?.({ id: "new-later" });
+    expect(secondCompletion).toBeDefined();
+    await secondCompletion;
+    await vi.waitFor(() =>
+      expect(harness.queryClient.invalidateQueries).toHaveBeenCalledTimes(2),
+    );
+    await vi.waitFor(() =>
+      expect(harness.focusCreatedScreen).toHaveBeenCalledTimes(2),
+    );
+
+    expect(harness.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        "new-earlier": { x: 376, y: 0, width: 320, height: 240, z: 2 },
+        peer: { x: 376, y: 0, width: 320, height: 240, z: 3 },
+        "new-later": expect.objectContaining({ x: 752, z: 2 }),
+      }),
+    );
+  });
+
   it("refetches only after the recreated screen data is committed", async () => {
     let resolveUpdate!: () => void;
     const updateDesignAsync = vi.fn(
@@ -199,6 +427,12 @@ describe("redo file creation metadata persistence", () => {
     const updateDesignAsync = vi.fn().mockRejectedValue(error);
     const performDeleteFiles = vi.fn().mockResolvedValue(undefined);
     const harness = makeRedoHarness(updateDesignAsync, performDeleteFiles);
+    const retryEntry = {
+      ...harness.fileCreationRedoStackRef.current[0]!,
+      duplicateStackUndoSettled: true,
+      duplicateStack: { before: { peer: 1 }, after: { peer: 2 } },
+    };
+    harness.fileCreationRedoStackRef.current = [retryEntry];
 
     runRedo(harness.args);
     await vi.waitFor(() => expect(harness.getOnSuccess()).toBeDefined());
@@ -209,6 +443,7 @@ describe("redo file creation metadata persistence", () => {
       updatedAt: "2026-09-17T00:00:00.000Z",
     });
     expect(completion).toBeDefined();
+    await completion;
     await vi.waitFor(() =>
       expect(harness.deleteFileMutation.mutateAsync).toHaveBeenCalledWith({
         id: "recreated-screen",
@@ -220,9 +455,225 @@ describe("redo file creation metadata persistence", () => {
     expect(harness.focusCreatedScreen).not.toHaveBeenCalled();
     expect(harness.fileCreationUndoStackRef.current).toEqual([]);
     expect(harness.fileCreationRedoStackRef.current).toHaveLength(1);
+    expect(harness.fileCreationRedoStackRef.current[0]).not.toHaveProperty(
+      "duplicateStackUndoSettled",
+    );
     expect(harness.historyOrderRef.current).toEqual([]);
     expect(harness.redoOrderRef.current).toEqual(["file-created"]);
     expect(harness.fileHistoryMutationPendingRef.current).toBe(false);
     expect(harness.queryClient.invalidateQueries).toHaveBeenCalledTimes(1);
+    expect(harness.args.onFileHistoryMutationSettled).toHaveBeenCalledOnce();
+  });
+
+  it("rolls back every applied duplicate stack delta when a later batch member fails", async () => {
+    const harness = makeRedoHarness(
+      vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("third screen metadata failed")),
+    );
+    const entries = [
+      {
+        filename: "first.html",
+        content: "first",
+        fileType: "html",
+        createdFileId: "old-first",
+        historyBatchId: "duplicate-batch",
+        duplicateStackUndoSettled: true,
+        duplicateStackUndoApplied: true,
+        geometry: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+        duplicateStack: { before: { peer: 0 }, after: { peer: 1 } },
+      },
+      {
+        filename: "second.html",
+        content: "second",
+        fileType: "html",
+        createdFileId: "old-second",
+        historyBatchId: "duplicate-batch",
+        duplicateStackUndoSettled: true,
+        duplicateStackUndoApplied: true,
+        geometry: { x: 752, y: 0, width: 320, height: 240, z: 2 },
+        duplicateStack: {
+          before: { "old-first": 1, peer: 1 },
+          after: { "old-first": 2, peer: 2 },
+        },
+      },
+      {
+        filename: "third.html",
+        content: "third",
+        fileType: "html",
+        createdFileId: "old-third",
+        historyBatchId: "duplicate-batch",
+        duplicateStackUndoSettled: true,
+        duplicateStackUndoApplied: true,
+        geometry: { x: 1128, y: 0, width: 320, height: 240, z: 3 },
+        duplicateStack: {
+          before: { "old-second": 2, peer: 2 },
+          after: { "old-second": 3, peer: 3 },
+        },
+      },
+    ];
+    harness.fileCreationRedoStackRef.current = entries as any;
+    harness.redoOrderRef.current = ["file-created"];
+    const initialGeometry = {
+      peer: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+    };
+    harness.args.designDataJsonRef.current = {
+      canvasFrames: initialGeometry,
+    };
+    harness.args.liveFrameGeometryRef.current = initialGeometry;
+
+    runRedo(harness.args);
+    for (const [index, id] of ["first", "second", "third"].entries()) {
+      await vi.waitFor(() =>
+        expect(harness.args.createFileMutation.mutate).toHaveBeenCalledTimes(
+          index + 1,
+        ),
+      );
+      const completion = harness.getOnSuccess()?.({ id: `new-${id}` });
+      expect(completion).toBeDefined();
+      await completion;
+    }
+    await vi.waitFor(() =>
+      expect(harness.fileHistoryMutationPendingRef.current).toBe(false),
+    );
+
+    expect(harness.args.updateDesignAsync).toHaveBeenCalledTimes(3);
+    expect(harness.deleteFileMutation.mutateAsync).toHaveBeenCalledTimes(3);
+    expect(harness.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith({
+      peer: initialGeometry.peer,
+    });
+    expect(harness.fileCreationRedoStackRef.current).toHaveLength(3);
+    expect(harness.fileCreationRedoStackRef.current).toEqual(
+      expect.arrayContaining(
+        entries.map((entry) =>
+          expect.objectContaining({
+            filename: entry.filename,
+            duplicateStack: entry.duplicateStack,
+          }),
+        ),
+      ),
+    );
+    for (const entry of harness.fileCreationRedoStackRef.current) {
+      expect(entry).not.toHaveProperty("duplicateStackUndoSettled");
+      expect(entry).not.toHaveProperty("duplicateStackUndoApplied");
+    }
+  });
+
+  it("rolls back stack shifts when a recovered batch member is reused", async () => {
+    const harness = makeRedoHarness(
+      vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("later screen metadata failed")),
+    );
+    const recovered = {
+      filename: "recovered.html",
+      content: "recovered",
+      fileType: "html",
+      createdFileId: "recovered-id",
+      recoveryFileId: "recovered-id",
+      historyBatchId: "duplicate-batch",
+      geometry: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+      duplicateStack: { before: { peer: 0 }, after: { peer: 1 } },
+    };
+    const later = {
+      filename: "later.html",
+      content: "later",
+      fileType: "html",
+      createdFileId: "old-later",
+      historyBatchId: "duplicate-batch",
+      geometry: { x: 752, y: 0, width: 320, height: 240, z: 2 },
+      duplicateStack: { before: { peer: 1 }, after: { peer: 2 } },
+    };
+    harness.fileCreationRedoStackRef.current = [recovered, later] as any;
+    harness.queryClient.getQueryData.mockReturnValue({
+      files: [
+        {
+          id: "recovered-id",
+          filename: "recovered.html",
+          content: "recovered",
+          fileType: "html",
+        },
+      ],
+    });
+    const initialGeometry = {
+      peer: { x: 0, y: 0, width: 320, height: 240, z: 0 },
+      "recovered-id": { x: 376, y: 0, width: 320, height: 240, z: 1 },
+    };
+    harness.args.designDataJsonRef.current = {
+      canvasFrames: initialGeometry,
+    };
+    harness.args.liveFrameGeometryRef.current = initialGeometry;
+
+    runRedo(harness.args);
+    await vi.waitFor(() =>
+      expect(harness.args.createFileMutation.mutate).toHaveBeenCalledOnce(),
+    );
+    const completion = harness.getOnSuccess()?.({ id: "new-later" });
+    expect(completion).toBeDefined();
+    await completion;
+    await vi.waitFor(() =>
+      expect(harness.queryClient.invalidateQueries).toHaveBeenCalledOnce(),
+    );
+
+    expect(harness.args.updateDesignAsync).toHaveBeenCalledTimes(2);
+    expect(
+      harness.deleteFileMutation.mutateAsync,
+    ).toHaveBeenCalledExactlyOnceWith({
+      id: "new-later",
+      allowLockedLayers: true,
+    });
+    expect(harness.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith({
+      peer: { ...initialGeometry.peer },
+      "recovered-id": initialGeometry["recovered-id"],
+    });
+    expect(harness.fileCreationRedoStackRef.current).toHaveLength(2);
+  });
+
+  it("rolls back duplicate stack after cleanup rejects but absence is confirmed", async () => {
+    const harness = makeRedoHarness(
+      vi.fn().mockRejectedValue(new Error("metadata failed")),
+    );
+    harness.deleteFileMutation.mutateAsync.mockRejectedValue(
+      new Error("delete response lost"),
+    );
+    harness.fileCreationRedoStackRef.current = [
+      {
+        filename: "copy.html",
+        content: "copy",
+        fileType: "html",
+        createdFileId: "old-copy",
+        geometry: { x: 376, y: 0, width: 320, height: 240, z: 1 },
+        duplicateStackUndoSettled: true,
+        duplicateStack: { before: { peer: 1 }, after: { peer: 2 } },
+      },
+    ] as any;
+    harness.args.designDataJsonRef.current = {
+      canvasFrames: {
+        peer: { x: 0, y: 0, width: 320, height: 240, z: 1 },
+      },
+    };
+    harness.args.liveFrameGeometryRef.current = {
+      peer: { x: 0, y: 0, width: 320, height: 240, z: 1 },
+    };
+    harness.queryClient.getQueryData.mockReturnValue({ files: [] });
+
+    runRedo(harness.args);
+    await vi.waitFor(() => expect(harness.getOnSuccess()).toBeDefined());
+    const completion = harness.getOnSuccess()?.({ id: "new-copy" });
+    expect(completion).toBeDefined();
+    await completion;
+    await vi.waitFor(() =>
+      expect(harness.fileHistoryMutationPendingRef.current).toBe(false),
+    );
+
+    expect(harness.writeFrameGeometrySnapshot).toHaveBeenLastCalledWith({
+      peer: { x: 0, y: 0, width: 320, height: 240, z: 1 },
+    });
+    expect(harness.fileCreationRedoStackRef.current[0]).not.toHaveProperty(
+      "duplicateStackUndoSettled",
+    );
   });
 });

@@ -67,8 +67,5 @@ export default async function globalTeardown(): Promise<void> {
     }
   };
 
-  // Playwright runs global teardown before it publishes the final status. The
-  // exit event is the first boundary that reliably distinguishes pass (0) from
-  // failure, while the run id keeps cleanup scoped to this invocation.
   process.once("exit", cleanup);
 }

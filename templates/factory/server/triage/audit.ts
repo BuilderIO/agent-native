@@ -48,7 +48,6 @@ function boundedDetails(value: Record<string, unknown> | undefined): string {
     : serialized;
 }
 
-/** Record which prompt version and execution hash an automation run used. */
 export async function recordFactoryAutomationRunPrompt(input: {
   identity: { userEmail: string; orgId: string };
   automationRunId: string;
@@ -88,7 +87,6 @@ export async function recordFactoryAutomationRunPrompt(input: {
     });
 }
 
-/** Persist a governance event outside an automation run (startup repair, etc.). */
 export async function recordFactoryGovernanceAudit(
   identity: { userEmail: string; orgId: string },
   input: FactoryAuditInput,
@@ -117,11 +115,6 @@ export async function recordFactoryGovernanceAudit(
     });
 }
 
-/**
- * Persist a bounded, source-linked explanation of an automation action. The
- * agent run id is the join key to core's automation history; no raw provider
- * payload is copied into this table.
- */
 export async function recordFactoryAudit(
   context: ActionRunContext | undefined,
   identity: { userEmail: string; orgId: string },
@@ -152,7 +145,6 @@ export async function recordFactoryAudit(
     });
 }
 
-/** Skip an item-scoped decision that repeats the last recorded summary. */
 export async function recordFactoryAuditIfChanged(
   context: ActionRunContext | undefined,
   identity: { userEmail: string; orgId: string },

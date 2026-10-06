@@ -46,8 +46,6 @@ describe("removeFillLayerAtIndex", () => {
   });
 
   it("keeps every remaining layer's size/repeat/position paired with its own image, not shifted", () => {
-    // Three distinctly-tagged layers so a misalignment is obvious: layer N's
-    // size/repeat/position all encode N, e.g. layer 2's size is "2px 2px".
     const layers = {
       backgroundImage: ["url(0.png)", "url(1.png)", "url(2.png)"],
       backgroundSize: ["0px 0px", "1px 1px", "2px 2px"],
@@ -55,12 +53,6 @@ describe("removeFillLayerAtIndex", () => {
       backgroundPosition: ["0% 0%", "1% 1%", "2% 2%"],
     };
 
-    // Remove layer 0 — layer "1" and layer "2" must keep their own tagged
-    // size/repeat/position, not shift to what used to belong to the layer
-    // before them (there's nothing before layer 1 now, but a naive 2-array
-    // fix would leave size/repeat/position untouched, so index 0 in those
-    // arrays — "0px 0px" / "repeat 0" / "0% 0%" — would incorrectly become
-    // paired with url(1.png)).
     const patch = removeFillLayerAtIndex(layers, 0);
 
     expect(splitCssLayers(patch.backgroundImage)).toEqual([
@@ -125,8 +117,6 @@ describe("removeFillLayerAtIndex", () => {
       0,
     );
 
-    // The comma inside the remaining gradient's stop list must not be
-    // misread as a layer separator.
     expect(splitCssLayers(patch.backgroundImage)).toEqual([
       "linear-gradient(45deg, #222222 0%, #dddddd 100%)",
     ]);
@@ -149,9 +139,6 @@ describe("solidToGradientPatch", () => {
   it("solid to gradient converts instead of stacking", () => {
     const patch = solidToGradientPatch("#FFFFFF", fillLayers([]), "linear");
 
-    // One real fill after the switch: the gradient replaces the solid
-    // (backgroundColor cleared) instead of stacking on top of it, which
-    // used to leave a phantom second row in the Fill panel.
     expect(patch.backgroundColor).toBe("transparent");
     expect(splitCssLayers(patch.backgroundImage)).toHaveLength(1);
   });
@@ -183,10 +170,6 @@ describe("solidToGradientPatch", () => {
     const [gradientLayer] = splitCssLayers(patch.backgroundImage);
     const gradient = parseGradientLayer(gradientLayer || "");
 
-    // Switching back to solid recovers the pre-gradient color from the
-    // first stop (the panel's solid branch prefers it over the now-
-    // "transparent" backgroundColor, which would otherwise fall back to
-    // black).
     expect(gradient?.stops[0]?.color).toBe("#ff0000");
     expect(gradient?.stops[0]?.opacity).toBe(100);
   });
@@ -247,11 +230,6 @@ describe("addFillLayerPatch", () => {
   });
 
   it("adds a solid layer instead of un-hiding the base solid when layers already exist", () => {
-    // Regression: after switching solid -> gradient (solidToGradientPatch
-    // clears backgroundColor to "transparent"), clicking "+" again used to
-    // just un-hide the base solid instead of stacking a new layer — the
-    // opposite of "+", and it reintroduced the exact phantom-fill problem
-    // solidToGradientPatch exists to avoid.
     const patch = addFillLayerPatch({
       backgroundColor: "transparent",
       backgroundLayers: ["linear-gradient(90deg, red, blue)"],
@@ -296,10 +274,6 @@ describe("addFillLayerPatch", () => {
 
 describe("removeBaseFillPatch", () => {
   it("clears only the base color, never backgroundImage", () => {
-    // Regression: this used to also set backgroundImage: "none" whenever
-    // onStylesChange was available, silently deleting every other stacked
-    // gradient/image layer just from clicking the base fill row's remove
-    // button.
     const patch = removeBaseFillPatch("backgroundColor");
 
     expect(patch).toEqual({ backgroundColor: "transparent" });

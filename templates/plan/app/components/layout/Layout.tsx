@@ -1,15 +1,17 @@
 import {
-  AgentSidebar,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
+import { immersiveReaderSegmentPattern } from "@shared/plan-routes";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
@@ -30,23 +32,19 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-/**
- * Routes whose page renders its own h-12 toolbar (with title + AgentToggleButton).
- * Layout still wraps these with the left Sidebar and AgentSidebar but skips the
- * global Header so they don't double-stack a header bar.
- */
 function routeOwnsToolbar(pathname: string): boolean {
   return pathname.startsWith("/extensions") || isPlanDetailRoute(pathname);
 }
 
-// Recaps are a kind of plan: `/plans/:id` and `/recaps/:id` both render
-// PlansPage and share the immersive full-screen reader, so the layout must
-// treat them identically (matching `viewForPath` in use-navigation-state.ts).
-// Without `/recaps/` here, recap routes never owned their toolbar and never
-// went immersive — they were stuck in app view and the full-screen toggle did
-// nothing.
+// A kind missing from this pattern never owns its toolbar, never goes
+// immersive, and its full-screen toggle does nothing — so the pattern is
+// derived from `immersiveReaderSegmentPattern` rather than hand-listed here.
+const PLAN_DETAIL_ROUTE_PATTERN = new RegExp(
+  `^\\/(${immersiveReaderSegmentPattern()}|local-plans)\\/[^/]+`,
+);
+
 function isPlanDetailRoute(pathname: string): boolean {
-  return /^\/(plans|recaps|local-plans)\/[^/]+/.test(pathname);
+  return PLAN_DETAIL_ROUTE_PATTERN.test(pathname);
 }
 
 export function Layout({ children }: LayoutProps) {
@@ -116,7 +114,7 @@ export function Layout({ children }: LayoutProps) {
               : undefined;
           return Array.isArray(versions)
             ? versions.filter(isAssistantChatHistoryVersion)
-            : [];
+            : null;
         },
       },
       restore: {
@@ -141,7 +139,11 @@ export function Layout({ children }: LayoutProps) {
     isChatPath: (path) => (path.replace(/\/+$/, "") || "/") === "/chat",
     requireActiveHandoff: true,
   });
-  const hideAppNavigation = planDetailRoute && planReaderImmersive;
+  // Settings brings its own navigation, header, and agent toggle, so it
+  // renders full width.
+  const isSettingsRoute = isSettingsPathname(pathname);
+  const hideAppNavigation =
+    (planDetailRoute && planReaderImmersive) || isSettingsRoute;
   const hideAppHeader = pathname === "/plans" && !sessionLoading && !session;
   const effectiveSidebarCollapsed = chatRoute
     ? chatSidebarCollapsed
@@ -181,10 +183,6 @@ export function Layout({ children }: LayoutProps) {
       window.removeEventListener(PLAN_READER_VIEW_EVENT, onPlanReaderView);
   }, [planDetailRoute]);
 
-  // Embed mode: render just the reader, flowing — no Sidebar, no AgentSidebar,
-  // no h-screen shell. Those (some in shared core) lock the embed to the iframe
-  // height; bypassing them lets the document flow so the shell sizes to content
-  // (see global.css `html[data-embed]` + frame.ts content-height reporting).
   const embedded = new URLSearchParams(location.search).get("embedded") === "1";
   if (embedded) {
     return (
@@ -198,7 +196,7 @@ export function Layout({ children }: LayoutProps) {
 
   const pageContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      {chatRoute ? null : ownsToolbar ? (
+      {chatRoute || isSettingsRoute ? null : ownsToolbar ? (
         hideAppNavigation ? null : (
           <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
             <button

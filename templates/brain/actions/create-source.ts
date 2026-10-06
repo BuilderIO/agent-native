@@ -18,16 +18,23 @@ import {
   sourceAnswerPolicySchema,
   sourceProviderSchema,
 } from "./_schemas.js";
-import { assertValidSourceConfig } from "./_source-config.js";
+import {
+  assertValidSourceConfig,
+  mergeSourceConfigJson,
+  sourceConfigJsonSchema,
+} from "./_source-config.js";
 
 export default defineAction({
   description:
-    "Create a Brain source for manual imports, generic captures, Slack, Granola, or GitHub.",
+    "Create a Brain source for manual imports, generic captures, Slack, Granola, GitHub, or Zoom.",
   schema: z.object({
     id: z.string().optional().describe("Optional optimistic source ID"),
     title: z.string().min(1).describe("Human-readable source name"),
     provider: sourceProviderSchema.default("manual"),
-    config: jsonRecordSchema.describe("Provider configuration stored as JSON"),
+    config: jsonRecordSchema.describe(
+      "Provider configuration object for UI and CLI callers; agents use configJson",
+    ),
+    configJson: sourceConfigJsonSchema,
     sourceKey: z
       .string()
       .optional()
@@ -44,8 +51,8 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    assertValidSourceConfig(args.provider, args.config);
-    let config = { ...args.config };
+    let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
+    assertValidSourceConfig(args.provider, config);
     if (args.policy !== undefined || config.answerPolicy !== undefined) {
       config = withSourceAnswerPolicy(
         config,

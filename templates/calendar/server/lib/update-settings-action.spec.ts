@@ -42,8 +42,6 @@ describe("update-settings timezone validation", () => {
   });
 
   it("rejects an invalid IANA timezone at the action boundary", () => {
-    // The framework validates against `schema` before `run`; the mocked
-    // defineAction hands the definition back as-is, so reach it directly.
     const { schema } = action as unknown as { schema: z.ZodTypeAny };
     expect(schema.safeParse({ timezone: "not-a-timezone" }).success).toBe(
       false,

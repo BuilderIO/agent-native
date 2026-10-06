@@ -1,12 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/**
- * Builds one labelled side-by-side PNG from a run's artifacts so a whole case
- * can be eyeballed in a single image.
- *
- * Usage: pnpm figma-fidelity:sheet <caseDir> [maxWidthPerPanel]
- */
 import { chromium } from "@playwright/test";
 
 const caseDir = process.argv[2];

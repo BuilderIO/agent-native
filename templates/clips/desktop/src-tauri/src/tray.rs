@@ -11,11 +11,6 @@ use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, Me
 use crate::util::{is_meeting_active, is_recording_active};
 use crate::TRAY_PNG;
 
-/// A rounded stop square rendered at the same pixel size as the normal tray
-/// icon, used as the menu-bar icon while a recording is live (CleanShot's
-/// pattern: the status item becomes stop + elapsed time, and clicking it
-/// stops the recording). Template-style: black with alpha, so macOS tints it
-/// for menu-bar appearance.
 fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
     let mut rgba = vec![0u8; (w * h * 4) as usize];
     let side = ((w.min(h) as f32) * 0.62).round() as i32;
@@ -58,9 +53,6 @@ fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
     tauri::image::Image::new_owned(rgba, w, h)
 }
 
-/// macOS template images should contain only black and clear pixels. Keep the
-/// source asset's alpha edge while normalizing its brand-colored RGB channels
-/// before handing it to AppKit.
 fn template_tray_icon() -> Result<tauri::image::Image<'static>, Box<dyn std::error::Error>> {
     let base = tauri::image::Image::from_bytes(TRAY_PNG)?;
     #[cfg(not(target_os = "macos"))]
@@ -82,18 +74,8 @@ fn template_tray_icon() -> Result<tauri::image::Image<'static>, Box<dyn std::err
     }
 }
 
-/// Whether the status item is in recording mode (stop square + timer).
-/// Written ONLY by `tray_recording_status` — the pill is the single owner of
-/// this state — plus the window-destroyed backstop in lib.rs.
 static TRAY_RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// Millis timestamp of the last recording-mode write. The pill refreshes the
-/// title every 500ms while live, so 2.5s of silence means the writer is gone
-/// and the dead-man loop below clears the status item — a stale menu-bar
-/// timer is structurally impossible, not just handled per code path.
 static TRAY_LAST_WRITE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-/// Icon image last applied to the status item: unset, app logo, or stop
-/// square. Tracked separately from `TRAY_RECORDING` because it records what
-/// the status item actually accepted, not what was requested.
 const TRAY_ICON_MODE_UNSET: i8 = -1;
 static TRAY_ICON_MODE: std::sync::atomic::AtomicI8 =
     std::sync::atomic::AtomicI8::new(TRAY_ICON_MODE_UNSET);
@@ -106,13 +88,6 @@ fn tray_icon_mode(stored: i8) -> Option<bool> {
     }
 }
 
-/// Whether the status item's icon image has to be re-uploaded.
-///
-/// `set_icon` replaces the NSStatusItem's image, and the pill refreshes the
-/// title four times a second to tick the timer. Re-uploading the same image at
-/// that cadence makes the menu-bar icon visibly flash, so the image is written
-/// only on the first write and on an actual mode flip. The title still goes
-/// out every call — it is the part that genuinely changes.
 fn tray_icon_needs_write(previous: Option<bool>, next: bool) -> bool {
     previous != Some(next)
 }
@@ -143,9 +118,6 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
             } else {
                 base
             };
-            // Recorded only once the status item accepts the image: a failed
-            // write must stay pending so the next call retries it, not look
-            // like the mode is already on screen.
             match tray.set_icon(Some(icon)) {
                 Ok(()) => {
                     #[cfg(target_os = "macos")]
@@ -156,9 +128,6 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
             }
         }
     }
-    // ALWAYS Some(...): tray-icon's macOS set_title is a silent no-op for
-    // None (its Some-only branch never clears the NSStatusItem text), so a
-    // reset must pass an empty string or the stale timer sticks forever.
     #[cfg(target_os = "macos")]
     let _ = tray.set_title(Some(if active {
         title.unwrap_or_default()
@@ -167,11 +136,6 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
     }));
     #[cfg(not(target_os = "macos"))]
     let _ = title;
-    // The stop-square icon swap above is easy to miss at tray-icon size, and
-    // Windows has no menu-bar title text to reinforce it — the tooltip is the
-    // one place left to spell out that this icon is now the stop button. Gated
-    // on the same mode flip as the icon so the 4x/sec timer tick from the pill
-    // doesn't touch the tooltip on every call.
     if tray_icon_needs_write(applied_icon_mode, active) {
         let _ = tray.set_tooltip(Some(if active {
             "Clips — Recording (click to stop)"
@@ -181,11 +145,6 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
     }
 }
 
-/// Single writer for the status item's recording mode: the pill invokes this
-/// with `active` mirroring its own visibility (capture live, not the
-/// completion card) and a preformatted timer title. Everything the menu bar
-/// shows about recording flows through here — no inference from recorder
-/// events on the Rust side.
 #[tauri::command]
 pub async fn tray_recording_status(
     app: tauri::AppHandle,
@@ -196,8 +155,6 @@ pub async fn tray_recording_status(
     Ok(())
 }
 
-/// Backstop for the one failure the pill cannot report: its window dying
-/// while the tray still shows recording mode.
 pub fn reset_tray_recording(app: &tauri::AppHandle) {
     if tray_recording_active() {
         apply_tray_mode(app, false, None);
@@ -216,9 +173,6 @@ fn physical_tray_rect(rect: tauri::Rect) -> (i32, i32, i32, i32) {
     (x, y, width, height)
 }
 
-/// A status item that has not been laid out yet reports a frame at the screen
-/// origin, which macOS coordinate flipping turns into a bottom-left rect. Only
-/// a rect sitting in a monitor's menu-bar row can anchor the popover.
 fn tray_rect_is_laid_out(app: &tauri::AppHandle, rect: tauri::Rect) -> bool {
     let (x, y, width, height) = physical_tray_rect(rect);
     if width <= 0 || height <= 0 {
@@ -277,10 +231,6 @@ pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
     store_tray_anchor(app, rect)
 }
 
-/// Build the full tray menu with the given upcoming-meetings list. Used both
-/// at startup (with `Vec::new()`) and at refresh time when the meetings
-/// watcher pushes a new snapshot — `TrayIcon::set_menu(Some(...))` swaps the
-/// menu atomically.
 fn build_menu_with_meetings(
     app: &tauri::AppHandle,
     meetings: Vec<MeetingItem>,
@@ -358,10 +308,6 @@ fn build_menu_with_meetings(
     Ok(menu)
 }
 
-/// Rebuild the tray menu from the cached meetings snapshot. Tauri 2 menu APIs
-/// are main-thread-only on macOS, so this hops back via `run_on_main_thread`
-/// before swapping the menu (`set_menu` is atomic — the documented Tauri 2
-/// way to update a tray; there's no partial-update API for items).
 pub fn rebuild_tray_menu(app: &tauri::AppHandle) {
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
@@ -387,11 +333,8 @@ pub fn rebuild_tray_menu(app: &tauri::AppHandle) {
 }
 
 pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // Initial build with an empty meetings list — the watcher will push real
-    // data via the `meetings:updated` event below and we'll rebuild then.
     let menu = build_menu_with_meetings(app.handle(), Vec::new())?;
 
-    // Load the tray icon from embedded bytes so the binary is self-contained.
     let tray_icon = template_tray_icon()?;
 
     eprintln!(
@@ -406,7 +349,6 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             let id_ref = event.id.as_ref();
-            // Meeting click → open popover + emit `meetings:open`.
             if handle_meeting_menu_click(app, id_ref) {
                 return;
             }
@@ -431,29 +373,18 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let mut new_config = crate::config::feature_config(app);
                     let next_visible = !new_config.region_guides.always_visible;
                     new_config.region_guides.always_visible = next_visible;
-                    // Mirrors the Settings "open the editor" choice: turning
-                    // it on with no preset drawn opens the region-guide editor
-                    // so the user can draw one — we still persist
-                    // always_visible = true so it activates once a preset is
-                    // saved.
                     if next_visible && new_config.region_guides.rects.is_empty() {
                         let a = app.clone();
                         tauri::async_runtime::spawn(async move {
                             let _ = crate::clips::show_region_guide_editor(a).await;
                         });
                     }
-                    // set_feature_config is async (saves + emits
-                    // app:feature-config-changed to keep the Settings switch in
-                    // sync + calls reconcile_region_guides). Spawn it from this
-                    // sync handler.
                     let a = app.clone();
                     tauri::async_runtime::spawn(async move {
                         if let Err(err) = crate::config::set_feature_config(a, new_config).await {
                             eprintln!("[clips-tray] toggle-region-guides save failed: {err}");
                         }
                     });
-                    // Rebuild the tray menu immediately so the checkmark
-                    // reflects the new state without waiting on the async save.
                     rebuild_tray_menu(app);
                 }
                 "devtools" => {
@@ -472,7 +403,6 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .on_tray_icon_event(|tray, event| {
-            // Remember the icon's rect so the popover can anchor below it.
             let rect = match &event {
                 TrayIconEvent::Click { rect, .. }
                 | TrayIconEvent::DoubleClick { rect, .. }
@@ -500,20 +430,12 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     meeting_active
                 );
                 if tray_recording_active() && !meeting_active {
-                    // The status item IS the stop button while recording — it
-                    // shows a stop square and the elapsed time, so the click
-                    // is an explicit Stop, not an implicit one. Route through
-                    // the pill so its finishing hold and completion card run;
-                    // if the pill window is somehow gone, stop directly.
                     if app.get_webview_window("toolbar").is_some() {
                         let _ = app.emit("clips:tray-stop-request", ());
                     } else {
                         let _ = app.emit("clips:recorder-stop", ());
                     }
                 } else if active && !meeting_active && crate::clips::popover_is_parked(app) {
-                    // Setup may park the popover while the native picker owns
-                    // focus. Restore it from that state, but do not let a
-                    // stale recording flag swallow an ordinary tray toggle.
                     force_show_popover(app);
                 } else {
                     toggle_popover(app);
@@ -525,15 +447,8 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("[clips-tray] failed to make tray visible: {err}");
     }
     eprintln!("[clips-tray] tray built — should be visible in menu bar");
-    // Persist the tray so it isn't dropped at the end of setup.
     app.manage(tray);
 
-    // Listen for meetings:updated and rebuild the menu live. Uses
-    // `tray_by_id("main")` to fetch the persisted handle from the
-    // resource table. `set_menu` is atomic — replacing the entire menu
-    // is the documented Tauri 2 way to update a tray (there's no
-    // partial-update API for items).
-    // Dead-man switch for recording mode: see TRAY_LAST_WRITE_MS.
     let deadman_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
         loop {
@@ -562,8 +477,6 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
         };
-        // Cache the latest snapshot so on-demand rebuilds (e.g. toggling the
-        // region-guides check item) keep the meetings submenu.
         if let Some(state) = app_handle.try_state::<TrayMeetings>() {
             if let Ok(mut g) = state.0.lock() {
                 *g = parsed.meetings;
@@ -587,8 +500,6 @@ mod tests {
 
     #[test]
     fn skips_the_icon_when_the_mode_is_unchanged() {
-        // The pill re-invokes the status update four times a second to tick
-        // the timer; re-uploading the same image at that rate is the flash.
         assert!(!tray_icon_needs_write(Some(true), true));
         assert!(!tray_icon_needs_write(Some(false), false));
     }
@@ -601,9 +512,6 @@ mod tests {
 
     #[test]
     fn ten_seconds_of_ticking_writes_the_icon_once() {
-        // The reported flash: the pill invokes the status update every 250ms
-        // to tick the timer, and every one of those used to re-upload the
-        // image. Ten seconds of recording is one icon write, not forty-one.
         let mut applied: Option<bool> = None;
         let mut writes = 0;
         for _ in 0..41 {

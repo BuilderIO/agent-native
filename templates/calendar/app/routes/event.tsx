@@ -4,7 +4,6 @@ import {
   isInAgentEmbed,
   postNavigate,
 } from "@agent-native/core/client/navigation";
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { getCalendarAttendeeCount, type CalendarEvent } from "@shared/api";
 import {
@@ -20,6 +19,7 @@ import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import enUSMessages from "@/i18n/en-US";
 
 type EventPreviewResult = CalendarEvent | { error: string };
@@ -141,7 +141,7 @@ function EventCard({ event }: { event: CalendarEvent }) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 px-2 text-muted-foreground hover:text-foreground text-xs gap-1.5"
+                className="px-2 text-muted-foreground hover:text-foreground text-xs gap-1.5"
                 onClick={() => postNavigate("/")}
               >
                 <IconCalendar className="h-3.5 w-3.5" />
@@ -150,6 +150,44 @@ function EventCard({ event }: { event: CalendarEvent }) {
               </Button>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EventCardSkeleton() {
+  return (
+    <div className="flex min-h-screen items-start justify-center bg-background p-4">
+      <div
+        className="w-full max-w-sm overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+        aria-busy="true"
+      >
+        <Skeleton className="h-1 w-full rounded-none" />
+        <div className="space-y-4 px-5 py-4">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-4/5" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <div className="flex gap-2.5">
+            <Skeleton className="mt-0.5 size-4 shrink-0 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-40 max-w-full" />
+              <Skeleton className="h-3 w-32 max-w-full" />
+            </div>
+          </div>
+          <div className="flex gap-2.5">
+            <Skeleton className="mt-0.5 size-4 shrink-0 rounded-full" />
+            <Skeleton className="h-4 w-48 max-w-full" />
+          </div>
+          <div className="flex gap-2.5">
+            <Skeleton className="mt-0.5 size-4 shrink-0 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-4/5" />
+            </div>
+          </div>
+          <Skeleton className="h-8 w-full" />
         </div>
       </div>
     </div>
@@ -201,7 +239,7 @@ export default function EventPreviewRoute() {
   }
 
   if (isLoading) {
-    return <DefaultSpinner />;
+    return <EventCardSkeleton />;
   }
 
   if (error || !result || "error" in result) {

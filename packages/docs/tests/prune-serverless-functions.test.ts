@@ -11,12 +11,6 @@ import {
   pruneFunction,
 } from "../scripts/prune-serverless-functions";
 
-/**
- * The pruner deletes real files out of a deployed function, so the two things
- * worth pinning are the ones whose failure is silent: attributing a chunk to
- * the wrong side (deleting an English page's content) and deleting a page that
- * was never prerendered (a 500 on a translated doc).
- */
 describe("prune-serverless-functions", () => {
   let dir: string;
 
@@ -58,7 +52,6 @@ describe("prune-serverless-functions", () => {
   });
 
   it("keeps a chunk shared by an English key, even if a locale key also reaches it", () => {
-    // Deleting this would strip content the function genuinely still renders.
     writeChunk(dir, "docs-content.mjs", [
       ["../../../core/docs/content/locales/ja-JP/shared.mdx", "shared.mjs"],
       ["../../../core/docs/content/shared.mdx", "shared.mjs"],
@@ -78,16 +71,11 @@ describe("prune-serverless-functions", () => {
   });
 
   it("accepts a translated doc whose prerendered page exists", () => {
-    // `new URL().pathname` leaves the path percent-encoded, so a checkout whose
-    // path contains a space writes to a literal `%20` directory the script never
-    // reads. `fileURLToPath` is the decoding form.
     const publish = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
       "..",
       "dist",
     );
-    // The build writes the canonical lowercase locale directory, not the cased
-    // locale the source filename uses.
     mkdirSync(path.join(publish, "de-de", "docs", "actions-overview"), {
       recursive: true,
     });

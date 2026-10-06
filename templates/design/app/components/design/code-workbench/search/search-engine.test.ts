@@ -66,8 +66,6 @@ describe("findMatchesInText", () => {
     expect(regexMatches[0].length).toBe(4);
     expect(regexMatches[2].length).toBe(6);
 
-    // A literal query containing regex metacharacters must be escaped when
-    // regex mode is off — "a.b" should not match "axb".
     const literalMatches = findMatchesInText("a.b axb", "a.b", baseOptions());
     expect(literalMatches).toHaveLength(1);
     expect(literalMatches[0].column).toBe(1);
@@ -177,7 +175,7 @@ describe("searchWorkspace", () => {
 
   it("caps total matches at 5000 and flags capped", async () => {
     invalidate();
-    const line = "foo ".repeat(200); // 200 matches per file
+    const line = "foo ".repeat(200);
     const files: Record<string, string> = {};
     for (let i = 0; i < 30; i += 1) files[`f${i}.txt`] = line;
     const provider = makeProvider("inline:d1", files);
@@ -233,8 +231,6 @@ describe("searchWorkspace", () => {
       wholeWord: false,
       regex: false,
     });
-    // readFile is still called each time (to check versionHash), but content
-    // itself is served from cache — verify no crash and correct results.
     expect(readCount).toBe(2);
   });
 });
@@ -273,9 +269,6 @@ describe("replaceMatchesInText", () => {
   });
 
   it("supports backreferences when the pattern has named capture groups", () => {
-    // A named-group regex makes String.replace pass an extra trailing
-    // `groups` object to the callback; group-index backreferences ($1, $2)
-    // must still resolve to the real capture values, not the match offset.
     const { content, count } = replaceMatchesInText(
       "hello world",
       "(?<first>\\w+) (?<second>\\w+)",

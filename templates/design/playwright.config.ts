@@ -3,17 +3,6 @@ import path from "node:path";
 
 import { defineConfig, devices } from "@playwright/test";
 
-/**
- * E2E config for the Design visual editor.
- *
- * Runs real Chromium against a dev server backed by a throwaway local PGlite
- * database (`data/e2e-pglite`). `global-setup.ts` signs up a test user, saves the
- * signed session as `storageState`, and seeds one design with a known fixture.
- *
- * Run: `pnpm e2e` (headless), `pnpm e2e:headed`, `pnpm e2e:ui`.
- * Override the target with `E2E_BASE_URL` (e.g. point at an already-running
- * server on :9300); then `webServer.reuseExistingServer` keeps it.
- */
 const PORT = Number(process.env.E2E_PORT ?? 9333);
 const INSPECT_PORT = Number(process.env.E2E_INSPECT_PORT ?? 9229);
 const USE_SIDEBAR_LOOPBACK = process.env.E2E_AI_SIDEBAR_LOOPBACK === "1";
@@ -69,13 +58,7 @@ const ADVANCED_PANEL_SPEC_FILES = [
 export default defineConfig({
   metadata: { sidebarLoopbackPort: LOOPBACK_PORT },
   testDir: "./e2e",
-  // These suites intentionally exercise panels that are not mounted in the
-  // disabled profile. Ignoring them keeps that profile focused on verifying
-  // the hidden-panel contract without failing on missing advanced controls.
-  // No CI job sets E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS=0, so this branch and
-  // editor.spec.ts's hidden-panel test only run via `pnpm e2e:no-panels`.
   testIgnore: SHOW_SECONDARY_PANELS_IN_E2E ? [] : ADVANCED_PANEL_SPEC_FILES,
-  // The editor is heavy (iframe bridge + polling); give generous budgets.
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
@@ -104,16 +87,9 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        // APP_NAME + the app-prefixed DESIGN_DATABASE_URL is checked BEFORE the
-        // generic DATABASE_URL, but set both to an absolute PGlite URL so a
-        // `.env` Postgres URL or a changed command cwd can never override this
-        // throwaway local db.
         command: `APP_NAME=design AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=1 ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=sk-agentkit-loopback-not-a-real-key OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm exec agent-native dev --inspect=${INSPECT_PORT}`,
         url: BASE_URL,
-        // The panel flag is compiled into the Vite bundle. Reusing a local
-        // server can therefore run this profile with the opposite setting.
         reuseExistingServer: false,
-        // Cold Vite dep-optimization on first boot can exceed two minutes.
         timeout: 300_000,
         stdout: "ignore",
         stderr: "pipe",

@@ -1,35 +1,21 @@
-/**
- * playwright-runtime.ts — shared headless-Chromium bootstrap used by every
- * server-side action that needs a real rendered DOM (as opposed to static
- * HTML/CSS analysis): `take-design-screenshot.ts`'s visual diagnostics pass
- * and `design-to-figma-svg.ts`'s scene extractor for the Figma SVG export.
- *
- * Extracted out of `take-design-screenshot.ts` (which originally owned this
- * logic) so `server/lib/*` modules can share it without an inverted
- * lib -> action dependency. `take-design-screenshot.ts` re-exports these same
- * names for backward compatibility with its existing spec/imports.
- */
-
 import { randomUUID } from "node:crypto";
-
-import {
-  chromiumPackUrl,
-  loadOptionalServerlessChromium,
-} from "@agent-native/creative-context/connectors/serverless-chromium";
 
 export type PlaywrightModule = {
   chromium: import("@playwright/test").BrowserType;
 };
 
-/**
- * Dynamic import of the runtime `playwright` dependency. Falls back to the
- * `playwright-core` package copied into serverless functions, then to
- * `@playwright/test` for local development setups that only install the test
- * runner. Non-literal specifiers keep bundlers from including browser binaries.
- *
- * When no package is available, the first error names the runtime dependency
- * instead of telling users to install the test runner.
- */
+export class ChromiumUnavailableError extends Error {
+  readonly code = "chromium_unavailable" as const;
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`Chromium unavailable: ${detail}`);
+    this.name = "ChromiumUnavailableError";
+    this.cause = cause;
+  }
+}
+
 export async function importPlaywright(
   loadModule: (specifier: string) => Promise<unknown> = (specifier) =>
     import(/* @vite-ignore */ specifier),
@@ -49,15 +35,8 @@ export async function importPlaywright(
   }
 }
 
-const SYSTEM_CHROME_EXECUTABLES = [
-  "/usr/bin/google-chrome-stable",
-  "/usr/bin/google-chrome",
-  "/usr/bin/chromium-browser",
-  "/usr/bin/chromium",
-];
-
-/** Pure classifier for "no Chromium binary available" errors. */
 export function isMissingBrowserError(err: unknown): boolean {
+  if (err instanceof ChromiumUnavailableError) return true;
   const message = err instanceof Error ? err.message : String(err);
   return /Executable doesn't exist|playwright install|browser.*not found|chromium.*not found/i.test(
     message,
@@ -85,70 +64,30 @@ async function connectBuilderBrowser(
   return chromium.connectOverCDP(wsUrl);
 }
 
-async function launchLocalChromium(
-  chromium: import("@playwright/test").BrowserType,
-): Promise<import("@playwright/test").Browser> {
-  const launchOptions = { args: ["--no-sandbox"] };
-  let missingBrowserError: unknown;
-  try {
-    return await chromium.launch(launchOptions);
-  } catch (err) {
-    if (!isMissingBrowserError(err)) throw err;
-    missingBrowserError = err;
-  }
-
-  const serverlessChromium = await loadOptionalServerlessChromium();
-  if (serverlessChromium) {
-    try {
-      const executablePath =
-        await serverlessChromium.executablePath(chromiumPackUrl());
-      if (executablePath) {
-        return await chromium.launch({
-          ...launchOptions,
-          args: [...launchOptions.args, ...(serverlessChromium.args ?? [])],
-          executablePath,
-        });
-      }
-    } catch (err) {
-      missingBrowserError = err;
-    }
-  }
-
-  const { existsSync } = await import("node:fs");
-  for (const executablePath of SYSTEM_CHROME_EXECUTABLES) {
-    if (!existsSync(executablePath)) continue;
-    try {
-      return await chromium.launch({ ...launchOptions, executablePath });
-    } catch (err) {
-      missingBrowserError = err;
-    }
-  }
-  throw missingBrowserError;
-}
-
-/** Connects to Builder Browser first, then falls back to local/system Chrome. */
 export async function launchChromium(
   chromium: import("@playwright/test").BrowserType,
 ): Promise<import("@playwright/test").Browser> {
-  let hostedError: unknown;
+  let builderBrowserError: unknown;
   try {
     return await connectBuilderBrowser(chromium);
   } catch (error) {
-    hostedError = error;
+    builderBrowserError = error;
   }
 
   try {
-    return await launchLocalChromium(chromium);
-  } catch (localError) {
+    return await chromium.launch({ chromiumSandbox: true });
+  } catch (localBrowserError) {
     const describe = (error: unknown) =>
       error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Builder Browser unavailable: ${describe(hostedError)}; local Chromium unavailable: ${describe(localError)}.`,
+    console.error(
+      "Design export could not launch sandboxed local Chromium:",
+      localBrowserError,
+    );
+    throw new ChromiumUnavailableError(
+      new Error(
+        `Builder Browser unavailable: ${describe(builderBrowserError)}; ` +
+          `sandboxed local Chromium unavailable: ${describe(localBrowserError)}.`,
+      ),
     );
   }
 }
-
-// NOTE: no shared `chromiumUnavailableReason` here on purpose — each caller's
-// message should name ITS OWN fallback (e.g. `take-design-screenshot.ts`
-// points at `run-design-audit`; the Figma SVG export points at `export-svg`),
-// so that stays a small, action-local export next to each call site.

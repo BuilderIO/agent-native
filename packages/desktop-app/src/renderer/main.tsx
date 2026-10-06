@@ -27,8 +27,6 @@ configureTracking({
   }),
 });
 
-// Apply platform class to body so CSS can adapt per OS
-// (e.g. add padding for macOS traffic lights)
 const platform = window.electronAPI?.platform ?? "unknown";
 document.body.classList.add(`platform-${platform}`);
 

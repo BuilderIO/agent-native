@@ -1,13 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Org service-token actions: gating (owner/admin for mint/revoke, member for
- * list), no-org / non-member rejection, and that the secret only appears in
- * the mint response. The store/signing layers are covered by
- * connect-store.spec.ts and build-server.verify-auth.spec.ts — here they are
- * mocked so the spec exercises only the action layer.
- */
-
 const mintOrgServiceTokenMock = vi.fn();
 vi.mock("../connect-route.js", () => ({
   mintOrgServiceToken: (...a: any[]) => mintOrgServiceTokenMock(...a),
@@ -20,10 +12,6 @@ vi.mock("../connect-store.js", () => ({
   revokeOrgServiceToken: (...a: any[]) => revokeOrgServiceTokenMock(...a),
 }));
 
-// org_members lookups used by the gating helper. Two distinct queries hit the
-// same mock: the role lookup (`SELECT role ...`) and the membership lookup
-// (`SELECT org_id ...`) used to auto-resolve an org when the token carries no
-// org context. Route by the selected column so each returns the right rows.
 const roleRows: Array<{ role: string }> = [];
 const memberOrgRows: Array<{ org_id: string }> = [];
 const dbExecuteMock = vi.fn(async (query: { sql: string }) =>
@@ -170,6 +158,57 @@ describe("create-org-service-token", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
     expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["not-member", 403],
+    ["unavailable", 503],
+  ] as const)(
+    "answers %s from the mint's membership lock with %i",
+    async (reason, statusCode) => {
+      const { McpCredentialIssuanceError } =
+        await import("../credential-issuance.js");
+      mintOrgServiceTokenMock.mockRejectedValue(
+        new McpCredentialIssuanceError(reason),
+      );
+      await expect(
+        createAction.run({ name: "ci" }, CTX()),
+      ).rejects.toMatchObject({ name: "ServiceTokenError", statusCode });
+    },
+  );
+
+  it.each([
+    ["the caller's role", CTX()],
+    [
+      "the caller's org",
+      { userEmail: "admin@example.com", orgId: null, caller: "http" },
+    ],
+  ])(
+    "answers a membership-store outage reading %s with a retryable 503",
+    async (_label, ctx) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      dbExecuteMock.mockRejectedValueOnce(new Error("connection terminated"));
+      await expect(
+        createAction.run({ name: "ci" }, ctx as any),
+      ).rejects.toMatchObject({ name: "ServiceTokenError", statusCode: 503 });
+      expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [403, CTX()],
+    [400, { userEmail: "admin@example.com", orgId: null, caller: "http" }],
+  ])(
+    "still answers %i when the template has no org tables",
+    async (statusCode, ctx) => {
+      dbExecuteMock.mockRejectedValueOnce(
+        new Error('relation "org_members" does not exist'),
+      );
+      await expect(
+        createAction.run({ name: "ci" }, ctx as any),
+      ).rejects.toMatchObject({ name: "ServiceTokenError", statusCode });
+      expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("list-org-service-tokens", () => {
@@ -209,7 +248,6 @@ describe("list-org-service-tokens", () => {
       CTX({ userEmail: "member@example.com" }),
     );
     expect(listOrgServiceTokensMock).toHaveBeenCalledWith("org-1");
-    // Revoked tokens are excluded by default.
     expect(res.tokens.map((t: any) => t.id)).toEqual(["tok-1"]);
     expect(res.tokens[0]).toEqual({
       id: "tok-1",

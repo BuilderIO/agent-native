@@ -3,21 +3,6 @@ import { expect, test, type Frame, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { enterDirectMode, enterInteractView, gotoEditor } from "./helpers";
 
-/**
- * Steve (screen recording, DARK theme): "it's doing that flashing thing again
- * where it goes light mode background for a second" during editing, and
- * "if I hit undo again, it goes back on the canvas, but the white background
- * comes back... I have to refresh to undo that."
- *
- * A prior sweep sampled steady state (before/after a gesture) 8 times and
- * found nothing — the flash is transient (a few frames) or needs state that
- * sweep's fixture lacked. This spec instruments every rendered frame during
- * the gesture instead of sampling before/after, on a DARK, two-screen design
- * with real landmark containers (reused from parity-drag-reparent.spec.ts's
- * fixture) so "drag into a container" and "alt-drag out of a screen" are
- * real, not board-rectangle stand-ins.
- */
-
 const SCREEN_ONE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Screen One</title></head>
@@ -50,14 +35,6 @@ const SCREEN_TWO = `<!doctype html>
   </body>
 </html>`;
 
-/**
- * Refined-hypothesis fixture (mechanism b/c): dark via a STYLESHEET RULE keyed
- * off `<html class="dark">`, not an inline `style="background:..."` on body.
- * The prior fixture's inline body background can never go light — it does
- * not depend on a class surviving a morph or on the iframe's own
- * `color-scheme` matching the parent before its stylesheet applies. This one
- * does, on purpose.
- */
 const SCREEN_ONE_CLASS_DARK = `<!doctype html>
 <html lang="en" class="dark">
   <head>
@@ -85,16 +62,6 @@ const SCREEN_ONE_CLASS_DARK = `<!doctype html>
   </body>
 </html>`;
 
-/**
- * Refined-hypothesis fixture, second mechanism: dark via
- * `@media (prefers-color-scheme: dark)` + `:root{color-scheme:dark}`, no
- * class involved at all. If Chromium paints an opaque white backdrop for an
- * iframe whose resolved `color-scheme` diverges from the parent document's
- * during a reload gap, this is the screen that would show it — the parent
- * page runs `page.emulateMedia({ colorScheme: "dark" })` (see the test body),
- * which applies to iframe documents too, so this screen's own media query
- * matches for the whole test unless something transient changes it.
- */
 const SCREEN_TWO_MEDIA_DARK = `<!doctype html>
 <html lang="en">
   <head>
@@ -154,8 +121,6 @@ async function newTwoScreenDarkDesign(page: Page): Promise<string> {
   return id;
 }
 
-/** Same shape as newTwoScreenDarkDesign, but with the class-based and
- *  media-query-based dark fixtures above instead of an inline body colour. */
 async function newClassAndMediaDarkDesign(page: Page): Promise<string> {
   const created = await postAction(page, "create-design", {
     title: "parity screen flash (class/media dark)",
@@ -203,9 +168,6 @@ async function boxFor(page: Page, screenId: string, nodeId: string) {
   return box;
 }
 
-/** Same "clear of chrome" point picker as parity-canvas-background.spec.ts's
- *  sampleXY, restated per this task's spec: 60%/60% of the visible canvas
- *  rect, clear of the left rail and right inspector. */
 async function canvasSamplePoint(
   page: Page,
 ): Promise<{ x: number; y: number }> {
@@ -266,26 +228,9 @@ async function pixelAt(page: Page, x: number, y: number): Promise<string> {
 function isLightRgb(rgb: string): boolean {
   if (rgb === "NO_CONTAINER") return false;
   const [r, g, b] = rgb.split(",").map(Number);
-  // Dark canvas is hsl(0 0% 10%) ~= 26,26,26. Light/white is >= 235.
   return r > 150 && g > 150 && b > 150;
 }
 
-/**
- * In-page recorder installed once per test. `start(label)` begins an rAF loop
- * (catches every rendered frame, not a Node-side poll) plus a
- * MutationObserver on the canvas container and <html>. `stop()` returns every
- * recorded frame so a one-frame flash can't hide between two `expect.poll`s.
- *
- * Refined-hypothesis extension: the prior sweep only ever sampled the
- * OVERVIEW CANVAS CONTAINER, never the screen documents living inside each
- * iframe. Edit-mode iframes carry `allow-same-origin` in their sandbox
- * (design-canvas/external-preview.ts's EDITABLE_INLINE_IFRAME_SANDBOX /
- * READ_ONLY_INLINE_IFRAME_SANDBOX, for inline/srcdoc screens), so
- * `contentDocument` is readable directly from this parent-page rAF loop —
- * no postMessage round trip, no risk of missing a same-tick flash. Every
- * screen iframe currently in the DOM is sampled on every rendered frame,
- * same cadence as the canvas-container check.
- */
 async function installRecorder(page: Page): Promise<void> {
   await page.evaluate(() => {
     const w = window as any;
@@ -323,10 +268,6 @@ async function installRecorder(page: Page): Promise<void> {
               const prev = this.seenIframes.get(screenId);
               if (prev && prev !== el) remounts.push(screenId);
               this.seenIframes.set(screenId, el);
-              // Read the SCREEN's OWN document — the refined hypothesis's
-              // actual target — not the canvas around it. contentDocument
-              // throws (or is null) for a genuinely cross-origin/torn-down
-              // frame; record that explicitly rather than aborting the tick.
               let doc: Document | null = null;
               try {
                 doc = (el as HTMLIFrameElement).contentDocument;
@@ -383,13 +324,6 @@ async function stopRecorder(page: Page): Promise<any[]> {
   return page.evaluate(() => (window as any).__flash.stop());
 }
 
-/** The actual bug report is a colour flash — only a light/white frame fails
- *  the test. A screen iframe remount is logged (see `remountFrames`) but
- *  never asserted on its own: MultiScreenCanvas.tsx's PF16 comment documents
- *  a real, intended full remount of every overview screen when the whole
- *  overview shell unmounts (Direct <-> Interact), and this run's own samples
- *  show it repainting the correct dark colour immediately — so failing on
- *  that remount alone would flag working code, not this bug. */
 function badFrames(frames: any[]): any[] {
   return frames.filter((f) => isLightRgb(f.bg));
 }
@@ -398,20 +332,12 @@ function remountFrames(frames: any[]): any[] {
   return frames.filter((f) => f.remounts.length > 0);
 }
 
-/** Same light/white check, but against each SCREEN's own document instead of
- *  the canvas around it — the refined hypothesis's actual target. */
 function badScreenFrames(frames: any[]): any[] {
   return frames.filter((f) =>
     (f.screens ?? []).some((s: any) => isLightRgb(s.bodyBg)),
   );
 }
 
-/** First screen-document sample (across any frame) that painted light,
- *  reported with the surrounding classification signals — the report this
- *  spec exists to produce: was the frame mid-reload (readyState !==
- *  "complete"), was the bridge/shield gone (an actual navigation just
- *  happened), did the html class or color-scheme diverge from the canvas's
- *  own dark state. */
 function firstBadScreenSample(frames: any[]): Record<string, unknown> | null {
   for (const frame of frames) {
     const hit = (frame.screens ?? []).find((s: any) => isLightRgb(s.bodyBg));
@@ -425,16 +351,6 @@ function summarize(frames: any[]): string {
   return `${frames.length} frames recorded, ${bad.length} light. First light frame: ${JSON.stringify(bad[0] ?? null)}`;
 }
 
-/**
- * Node-side companion to installRecorder's in-page screen sampling: a CDP
- * screenshot pixel sampled INSIDE the first screen card (catches anything a
- * DOM read alone could miss — compositor paint vs. style recalculation lag)
- * plus a `page.frames()` identity/title poll. A remounted iframe is a NEW
- * Playwright `Frame` object, and `frame.title()` mid-navigation throws — both
- * are themselves evidence, so record them rather than treating either as a
- * bug in the recorder. Runs on its own ~40ms cadence, concurrently with a
- * gesture, until `stop.done` flips.
- */
 async function recordExternalSignals(
   page: Page,
   point: { x: number; y: number },
@@ -484,8 +400,6 @@ async function recordExternalSignals(
           const title = await frame.title();
           frameSamples.push({ t: Date.now(), id, title, url: frame.url() });
         } catch (error) {
-          // Execution context destroyed mid-navigation IS the reload signal
-          // this poll exists to catch — keep it, not just an empty catch.
           frameSamples.push({ t: Date.now(), id, error: String(error) });
         }
       }
@@ -497,14 +411,10 @@ async function recordExternalSignals(
   return { pixels, frameSamples };
 }
 
-/** Any pixel sample the CDP screenshot loop caught painting light. */
 function badPixels(pixels: any[]): any[] {
   return pixels.filter((p) => isLightRgb(p.rgb));
 }
 
-/** A title seen under more than one Playwright Frame id is a genuine
- *  navigation/remount the frame-identity poll actually witnessed, as
- *  distinct from the in-page DOM-element remount check. */
 function frameTitleRemounts(frameSamples: any[]): Record<string, number[]> {
   const idsByTitle = new Map<string, Set<number>>();
   for (const sample of frameSamples) {
@@ -520,8 +430,6 @@ function frameTitleRemounts(frameSamples: any[]): Record<string, number[]> {
   return out;
 }
 
-/** Runs one gesture with both the in-page (installRecorder) and Node-side
- *  (recordExternalSignals) instrumentation active for its whole duration. */
 async function runInstrumentedGesture(
   page: Page,
   label: string,
@@ -540,10 +448,6 @@ async function runInstrumentedGesture(
     nextFrameId,
   );
   await gesture();
-  // Fixed sampling window for frame-capture instrumentation, not a wait for
-  // settled state — a transient flash can occur after the gesture's own
-  // state settles, so polling a proxy condition would defeat the point of
-  // this spec.
   await page.waitForTimeout(1500); // e2e-harness-ignore fixed frame-capture sampling window, see comment above
   stop.done = true;
   const { pixels, frameSamples } = await externalPromise;
@@ -594,7 +498,6 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         { total: number; bad: any[]; remounts: any[] }
       > = {};
 
-      // (a) drag Widget into the Footer container.
       {
         const widget = await boxFor(page, screenOneId, "widget");
         const footer = await boxFor(page, screenOneId, "footer");
@@ -629,7 +532,6 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         }
       }
 
-      // (b) undo the nest.
       {
         await startRecorder(page, "undo-1");
         await page.keyboard.press("ControlOrMeta+z");
@@ -644,7 +546,6 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         }
       }
 
-      // (c) undo again ("if I hit undo again ... white background comes back").
       {
         await startRecorder(page, "undo-2");
         await page.keyboard.press("ControlOrMeta+z");
@@ -659,7 +560,6 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         }
       }
 
-      // (d) alt-drag Widget from inside the screen out onto the empty board.
       {
         const widget = await boxFor(page, screenOneId, "widget");
         const world = await page
@@ -695,7 +595,6 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         }
       }
 
-      // (e) draw the first free-floating shape.
       {
         await startRecorder(page, "draw-first-shape");
         await page.locator('button[aria-label="Rectangle"]').first().click();
@@ -720,13 +619,10 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         }
       }
 
-      // Rectangle tool leaves a full-canvas creation shield armed; back to
-      // Move (and close any open menu) before driving chrome buttons again.
       await page.keyboard.press("Escape");
       await page.locator('button[aria-label="Move"]').first().click();
       await page.waitForTimeout(200);
 
-      // (f) enter single-screen mode and back.
       {
         await startRecorder(page, "single-screen-round-trip");
         await enterInteractView(page, { screenId: screenOneId });
@@ -743,7 +639,6 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
         }
       }
 
-      // (g) resize the browser viewport.
       {
         await startRecorder(page, "viewport-resize");
         await page.setViewportSize({ width: 1280, height: 900 });
@@ -794,18 +689,6 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
   });
 });
 
-/**
- * Refined hypothesis: the previous describe block proved the OVERVIEW CANVAS
- * CONTAINER never flashes light — but it never looked inside a screen's own
- * document. Steve's report is specifically about the SCREEN turning light,
- * both mid-gesture ("during editing") and stuck ("if I hit undo again ... I
- * have to refresh to undo that"). This block reuses the same dark, two-screen,
- * real-container fixture but instruments each screen's `contentDocument`
- * directly (installRecorder's `screens` field) plus a Node-side CDP pixel/
- * frame-identity poll (recordExternalSignals), across a wider gesture set
- * that includes a second undo depth, redo, and a select+delete+undo cycle —
- * the exact sequence from the report.
- */
 test.describe("screen document flash — inside-iframe capture, dark theme", () => {
   test("no screen document ever paints a light/white background across drag-into-container, undo/redo depth, alt-drag-out, delete+undo, and Direct<->Interact", async ({
     page,
@@ -837,11 +720,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         x: Math.round(screenCardBox.x + screenCardBox.width / 2),
         y: Math.round(screenCardBox.y + screenCardBox.height / 2),
       };
-      // The screen card center must itself read as dark before any gesture
-      // runs (it may land on the header/main/footer's own dark tone, not
-      // exactly the body's #0f1115, depending on where geometry puts the
-      // sample point) — the same light/white check the gestures are judged
-      // by, not a specific RGB triple.
       await expect
         .poll(async () =>
           isLightRgb(await pixelAt(page, screenCardPoint.x, screenCardPoint.y)),
@@ -855,8 +733,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         Awaited<ReturnType<typeof runInstrumentedGesture>>
       > = {};
 
-      // (a) drag Widget into the Footer container — the real structural
-      // reparent the report's "editing" covers, not a board-rectangle move.
       results["drag-into-container"] = await runInstrumentedGesture(
         page,
         "drag-into-container",
@@ -886,7 +762,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         },
       );
 
-      // (b) first undo.
       results["undo-1"] = await runInstrumentedGesture(
         page,
         "undo-1",
@@ -896,7 +771,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         () => page.keyboard.press("ControlOrMeta+z"),
       );
 
-      // (c) second undo — Steve's own repro step ("if I hit undo again").
       results["undo-2"] = await runInstrumentedGesture(
         page,
         "undo-2",
@@ -906,7 +780,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         () => page.keyboard.press("ControlOrMeta+z"),
       );
 
-      // (d) redo, back toward the nested state.
       results["redo"] = await runInstrumentedGesture(
         page,
         "redo",
@@ -916,7 +789,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         () => page.keyboard.press("ControlOrMeta+Shift+z"),
       );
 
-      // (e) alt-drag Widget out of the screen onto the empty board.
       results["alt-drag-out"] = await runInstrumentedGesture(
         page,
         "alt-drag-out",
@@ -949,7 +821,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         },
       );
 
-      // (f) undo the alt-drag-out.
       results["undo-after-alt-drag-out"] = await runInstrumentedGesture(
         page,
         "undo-after-alt-drag-out",
@@ -959,7 +830,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         () => page.keyboard.press("ControlOrMeta+z"),
       );
 
-      // (g) Direct <-> Interact round trip (PF16's own named repro path).
       results["direct-interact-round-trip"] = await runInstrumentedGesture(
         page,
         "direct-interact-round-trip",
@@ -973,8 +843,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         },
       );
 
-      // (h) select the Widget and delete it, then undo — the report's other
-      // named repro shape ("if I hit undo again ... white background").
       results["delete-widget"] = await runInstrumentedGesture(
         page,
         "delete-widget",
@@ -1016,11 +884,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
         }
       }
 
-      // A bare title-remount (frameTitleRemounts) is not itself a failure —
-      // same rule the first describe block's `badFrames` comment documents:
-      // MultiScreenCanvas.tsx's PF16 remount on Direct<->Interact is real and
-      // intended, and is only a bug if it (or anything else) actually paints
-      // light. It stays in the per-gesture log below for classification.
       const failing = Object.entries(results).filter(
         ([, r]) => r.badScreen.length > 0 || r.badPixels.length > 0,
       );
@@ -1046,23 +909,6 @@ test.describe("screen document flash — inside-iframe capture, dark theme", () 
   });
 });
 
-/**
- * Script-bearing hypothesis: both describe blocks above used SCRIPT-FREE
- * fixtures (inline `style="background:..."` or a `<style>` tag) and found
- * nothing. Every REAL generated Design screen instead carries a Tailwind Play
- * CDN `<script src="https://cdn.tailwindcss.com">`, an inline
- * `tailwind.config = { darkMode: 'class' }`, an Alpine CDN `<script>`, and
- * often an inline theme script — see design-generation's "Alpine.js +
- * Tailwind CDN" contract. `runtimeDocumentNeedsReload`
- * (DesignCanvas.tsx ~1078) forces a FULL iframe reload whenever *script* text
- * differs between the current runtime document and the next content; a full
- * reload of a Tailwind-CDN screen repaints unstyled (light) until the CDN
- * script re-downloads and runs. Both CDN scripts are routed here to a tiny
- * local stand-in that paints `html.dark` + body `#0b0b0b` only after a 400ms
- * `setTimeout`, so a real reload (script re-executes from scratch) is
- * observable as a light body for up to ~400ms, while an in-place DOM morph
- * (script never re-runs) never repaints light again after the initial load.
- */
 const CDN_LATENCY_SCRIPT = `
 setTimeout(function () {
   document.documentElement.classList.add('dark');
@@ -1135,9 +981,6 @@ const SCRIPT_BEARING_SCREEN_TWO = `<!doctype html>
   </body>
 </html>`;
 
-/** One-shot diagnostic snapshot of a screen's own document, read directly
- *  (not via the rAF recorder) — used to tell a transient flash apart from a
- *  genuinely stuck-light document (Steve: "I have to refresh to undo that"). */
 async function screenDocState(page: Page, screenId: string) {
   return page.evaluate((id) => {
     const iframe = document.querySelector(
@@ -1204,10 +1047,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
         x: Math.round(screenCardBox.x + screenCardBox.width / 2),
         y: Math.round(screenCardBox.y + screenCardBox.height / 2),
       };
-      // The mock CDN script only paints dark ~400ms after the document first
-      // parses. Wait that out before any gesture runs so every subsequent
-      // light frame is attributable to a gesture-triggered reload, not the
-      // one legitimate initial-load paint.
       await expect
         .poll(async () =>
           isLightRgb(await pixelAt(page, screenCardPoint.x, screenCardPoint.y)),
@@ -1221,7 +1060,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
         Awaited<ReturnType<typeof runInstrumentedGesture>>
       > = {};
 
-      // (a) drag Widget into the Footer container.
       results["drag-into-container"] = await runInstrumentedGesture(
         page,
         "drag-into-container",
@@ -1251,7 +1089,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
         },
       );
 
-      // (b) Cmd+Z.
       results["undo-1"] = await runInstrumentedGesture(
         page,
         "undo-1",
@@ -1261,7 +1098,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
         () => page.keyboard.press("ControlOrMeta+z"),
       );
 
-      // (c) Cmd+Z again.
       results["undo-2"] = await runInstrumentedGesture(
         page,
         "undo-2",
@@ -1271,7 +1107,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
         () => page.keyboard.press("ControlOrMeta+z"),
       );
 
-      // (d) alt-drag Widget out of the screen onto the empty board.
       results["alt-drag-out"] = await runInstrumentedGesture(
         page,
         "alt-drag-out",
@@ -1304,7 +1139,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
         },
       );
 
-      // (e) Cmd+Z (undo the alt-drag-out).
       results["undo-after-alt-drag-out"] = await runInstrumentedGesture(
         page,
         "undo-after-alt-drag-out",
@@ -1314,7 +1148,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
         () => page.keyboard.press("ControlOrMeta+z"),
       );
 
-      // (f) select the Widget and Delete.
       results["delete-widget"] = await runInstrumentedGesture(
         page,
         "delete-widget",
@@ -1335,7 +1168,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
         `[script-flash] DIAG after delete-widget (settled): ${JSON.stringify(await screenDocState(page, screenOneId))}`,
       );
 
-      // (g) Cmd+Z (undo the delete).
       results["undo-after-delete"] = await runInstrumentedGesture(
         page,
         "undo-after-delete",
@@ -1347,8 +1179,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
       console.log(
         `[script-flash] DIAG after undo-after-delete (settled): ${JSON.stringify(await screenDocState(page, screenOneId))}`,
       );
-      // Is it STUCK white (Steve's "have to refresh to undo that") or does it
-      // recover on its own after more time?
       await page.waitForTimeout(3000); // e2e-harness-ignore fixed frame-capture sampling window (see runInstrumentedGesture doc comment)
       console.log(
         `[script-flash] DIAG 3s later (still stuck?): ${JSON.stringify(await screenDocState(page, screenOneId))}`,
@@ -1370,11 +1200,6 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
         }
       }
 
-      // Stricter than the two describe blocks above: this gesture set has no
-      // Direct<->Interact toggle, so there is no gesture here for which a
-      // full iframe remount is intentional. Any Frame-identity change
-      // (title-remount) or in-page iframe-element remount is itself evidence
-      // of an unwarranted reload, in addition to any light frame/pixel.
       const failing = Object.entries(results).filter(
         ([, r]) =>
           r.badScreen.length > 0 ||

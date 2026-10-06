@@ -62,9 +62,6 @@ export function RecordingOptionsMenu({
     {
       onSuccess: () => {
         toast.success(t("deleteRecordingMenu.movedToTrash"));
-        // Keep the route mounted until Radix has finished removing the
-        // dialog portal. Navigating in the mutation callback can leave its
-        // body lock behind, which makes the destination look unclickable.
         deletedWhileOpenRef.current = true;
         setOpen(false);
       },
@@ -96,8 +93,8 @@ export function RecordingOptionsMenu({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="order-last h-8 w-8 shrink-0"
+            size="icon-sm"
+            className="order-last shrink-0"
             aria-label={t("deleteRecordingMenu.clipOptions")}
           >
             <IconDotsVertical className="h-4 w-4" />
@@ -111,11 +108,6 @@ export function RecordingOptionsMenu({
               : "w-44"
           }
           onCloseAutoFocus={(event) => {
-            // Opening the AlertDialog while this menu is still tearing down
-            // leaves `pointer-events: none` stuck on <body>: two dismissable
-            // layers overlap and the survivor never restores the style. Wait
-            // for the menu to finish closing, and keep focus off the trigger
-            // so the dialog owns it.
             if (pendingDeleteConfirmRef.current) {
               event.preventDefault();
               pendingDeleteConfirmRef.current = false;

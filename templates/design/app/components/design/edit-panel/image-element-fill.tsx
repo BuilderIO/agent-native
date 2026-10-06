@@ -37,13 +37,8 @@ import type {
 
 export type ImageScaleMode = "fill" | "fit" | "crop";
 
-/** Marks Crop, which renders as a frozen Fill: CSS cannot stretch a crop. */
 export const IMAGE_SCALE_MARKER = "--an-image-scale";
 
-/**
- * Figma's scale modes on an `<img>`. Switching to Crop keeps the region Fill
- * showed (measured in Figma); it never stretches the image to the box.
- */
 export function imageScaleModePatch(
   mode: ImageScaleMode,
 ): Record<string, string> {
@@ -63,17 +58,12 @@ export function imageScaleModeFromStyles(
 }
 
 export interface ImageAdjustments {
-  /** Paint opacity, 0..100, as Figma's fill row shows it. */
   opacity: number;
   exposure: number;
   contrast: number;
   saturation: number;
 }
 
-/**
- * Figma slider value (-100..100) to CSS filter amount, fitted to pixels
- * sampled from Figma exports; Figma's contrast is much weaker than CSS's.
- */
 const ADJUSTMENT_STOPS: Record<
   "contrast" | "saturation",
   { fn: string; stops: Array<[number, number]> }
@@ -142,7 +132,6 @@ export function imageAdjustmentsFromFilter(
   };
 }
 
-/** Rewrites only the adjustment functions, keeping blur and other filters. */
 export function imageAdjustmentFilter(
   filter: string | undefined,
   adjustments: ImageAdjustments,
@@ -361,8 +350,6 @@ export function ImageElementFill({
             sideOffset={8}
             className="w-[252px] p-0 shadow-xl"
             data-design-chrome-region="right-panel"
-            // The scale-mode menu portals outside this popover; picking from it
-            // must not read as a click outside that closes the popover first.
             onInteractOutside={(event) => {
               const target = event.target as Element | null;
               if (target?.closest?.('[role="listbox"]')) event.preventDefault();

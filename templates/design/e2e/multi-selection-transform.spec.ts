@@ -91,7 +91,6 @@ async function selectTextAndRect(page: Page) {
   await page.waitForTimeout(1200);
 }
 
-/** Geometry of both members plus whether the group bounds box is on screen. */
 async function state(page: Page) {
   return page.evaluate(() => {
     const doc = document.querySelector<HTMLIFrameElement>(
@@ -154,16 +153,11 @@ test("the scale tool scales a whole multi-selection and keeps it selected", asyn
     await page.waitForTimeout(2000);
 
     const after = (await state(page))!;
-    // Both members shrink, the group's NW corner stays put, and the text
-    // scales with the box rather than staying at its authored size.
     expect(after.rect.width).toBeLessThan(before.rect.width);
     expect(after.text.width).toBeLessThan(before.text.width);
     expect(after.text.fontSize).toBeLessThan(before.text.fontSize);
     expect(after.text.left).toBe(before.text.left);
     expect(after.rect.left).toBeLessThan(before.rect.left);
-    // Still a multi-selection, so the next gesture can scale it again — the
-    // independently sized child commits its own scaled size and must not
-    // become the selection.
     await expect(page.getByText("2 selected")).toBeVisible();
     expect(after.groupBoundsVisible).toBe(true);
   } finally {
@@ -194,7 +188,6 @@ test("moving a multi-selection leaves it selected", async ({
     await page.waitForTimeout(2000);
 
     const after = (await state(page))!;
-    // Both members carry the same delta, so the gap between them is unchanged.
     expect(after.text.left).toBeGreaterThan(before.text.left);
     expect(after.rect.left - after.text.left).toBe(
       before.rect.left - before.text.left,
@@ -202,7 +195,6 @@ test("moving a multi-selection leaves it selected", async ({
     await expect(page.getByText("2 selected")).toBeVisible();
     expect(after.groupBoundsVisible).toBe(true);
 
-    // A plain click still collapses the selection to the object clicked.
     await page
       .frameLocator("iframe[data-screen-iframe-id]")
       .locator('[data-agent-native-node-id="rect"]')

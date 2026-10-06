@@ -43,11 +43,6 @@ export function deriveAppIdentity(app: AppConfig["app"]): AppConfig["app"] {
   };
 }
 
-/**
- * A custom app can be generated from a first-party template, so the package
- * name alone is not enough. When scaffolding records its source template,
- * that server-side provenance must agree with the derived first-party identity.
- */
 export function isFirstPartyApp(app: AppConfig["app"]): boolean {
   const template = app.slug ? getTemplate(app.slug) : undefined;
   if (!template || app.packageName !== template.name) return false;
@@ -57,16 +52,6 @@ export function isFirstPartyApp(app: AppConfig["app"]): boolean {
   );
 }
 
-/**
- * The home path the workspace deploy recorded for this app in its manifest.
- *
- * A workspace deploy infers `/` for an app that only has a root route (see
- * `inferWorkspaceAppRootHomePath`), and the launcher links there. The app's own
- * runtime cannot repeat that inference — its routes directory does not exist
- * inside a serverless bundle — so it reads the same manifest entry instead.
- * Without this, the launcher opens `/` while the app's root handoff bounces a
- * signed-in visitor to a `/home` route the app never defined.
- */
 let cachedManifestHomePaths:
   | { appsJson: string; homePaths: Map<string, string> }
   | undefined;
@@ -86,8 +71,6 @@ function workspaceManifestHomePath(
           ? (parsed as { apps?: unknown }).apps
           : null;
       if (Array.isArray(entries)) {
-        // Match the launcher (`parseWorkspaceAppLinks`): trimmed ids, and the
-        // first entry wins a duplicate id, so both always agree on one home.
         for (const entry of entries) {
           if (!entry || typeof entry !== "object") continue;
           const record = entry as Record<string, unknown>;

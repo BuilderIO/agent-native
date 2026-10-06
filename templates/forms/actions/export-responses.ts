@@ -68,10 +68,6 @@ export default defineAction({
         ];
       });
 
-      // Neutralize CSV/formula injection: a cell that begins with =,+,-,@,tab,
-      // or CR is interpreted as a formula by Excel/LibreOffice/Sheets. Response
-      // values come from anonymous public submitters, so prefix any such cell
-      // with a single quote so spreadsheets treat it as literal text.
       const neutralize = (cell: string) =>
         /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
       fileBody = [headers, ...rows]
@@ -93,7 +89,7 @@ export default defineAction({
     if (!uploaded) {
       fail(
         "Export was generated but not saved because file storage is not configured. " +
-          "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider.",
+          "Use Builder.io (free tier available) in Settings → File uploads, or register a custom provider.",
         { errorCode: "file_storage_not_configured" },
       );
     }

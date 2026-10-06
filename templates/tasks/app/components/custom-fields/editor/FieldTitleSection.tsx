@@ -28,7 +28,7 @@ export function FieldTitleSection({
         disabled={disabled}
         onChange={(event) => onChange(event.currentTarget.value)}
         aria-label={t("fieldEditor.editFieldTitleAriaLabel")}
-        className="h-9 text-[13px]"
+        className="text-[13px]"
       />
     </section>
   );

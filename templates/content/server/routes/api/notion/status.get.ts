@@ -21,7 +21,6 @@ export default defineEventHandler(async (event) => {
     };
   }
 
-  // Not connected — check what's available
   const hasOAuthCredentials = await hasNotionOAuthCredentials(event);
 
   return {

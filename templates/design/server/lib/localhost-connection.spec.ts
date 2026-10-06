@@ -25,8 +25,6 @@ vi.mock("@agent-native/core/sharing", () => ({
     mockResolveAccess(resourceType, resourceId),
 }));
 
-// Each `select()` shifts the next queued result, so the scoped query and the
-// owner-only diagnostic query can return different rows.
 let selectResults: unknown[][] = [];
 
 vi.mock("../db/index.js", () => ({
@@ -83,9 +81,6 @@ describe("resolveLocalhostConnectionScope", () => {
   });
 
   it("falls back to the caller's active org when there is no request org", async () => {
-    // `pnpm action connect-localhost` and every other CLI caller runs outside a
-    // request store, so without this fallback the row lands in a different
-    // partition than the same user's browser session reads.
     mockResolveOrgIdForEmail.mockResolvedValue("org_1");
 
     await expect(resolveLocalhostConnectionScope()).resolves.toEqual({
@@ -209,8 +204,6 @@ describe("resolveLocalhostBridgeConnection", () => {
     expect(error).toBeInstanceOf(LocalhostConnectionError);
     expect(error).toMatchObject({
       errorCode: "connection-scope-mismatch",
-      // 4xx is what makes the message reach the client at all — the action
-      // route replaces any 500 body with "Internal server error".
       statusCode: 409,
     });
     expect((error as Error).message).toContain("conn_1");
@@ -302,8 +295,6 @@ describe("bridge round trip", () => {
 
     expect(error).toMatchObject({
       errorCode: "bridge-request-failed",
-      // < 500 so the action route echoes the message; the bridge is the user's
-      // own local process, not an untrusted upstream.
       statusCode: 424,
     });
     expect(error.message).toContain("boom");

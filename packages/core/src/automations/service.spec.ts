@@ -127,7 +127,6 @@ describe("automation domain service", () => {
     });
 
     expect(definition.meta.timezone).toBe("America/New_York");
-    // 8am Eastern is 12:00 or 13:00 UTC depending on DST, never 08:00 UTC.
     expect(definition.meta.nextRun).toBeTruthy();
     expect(new Date(definition.meta.nextRun as string).getUTCHours()).not.toBe(
       8,
@@ -404,6 +403,64 @@ Send the digest.`);
     expect(resourceDeleteMock).toHaveBeenCalledWith("automation-1");
   });
 
+  it("lifts a framework pause when the owner enables the automation again", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const pausedAutomation = eventAutomation
+      .replace("enabled: true", "enabled: false")
+      .replace(
+        "runAs: creator",
+        [
+          "runAs: creator",
+          "lastStatus: paused",
+          'lastError: "Paused after 3 consecutive missing_tools failures: gone."',
+          'lastErrorCode: "missing_tools"',
+          "consecutiveFailures: 3",
+          'pausedReason: "missing_tools"',
+          'pausedAt: "2026-10-01T12:00:00.000Z"',
+        ].join("\n"),
+      );
+    resourceGetByPathMock.mockResolvedValue(resource(pausedAutomation));
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: true },
+    );
+
+    const content = resourcePutMock.mock.calls[0][2] as string;
+    expect(content).toContain("enabled: true");
+    for (const field of [
+      "lastStatus",
+      "lastError",
+      "lastErrorCode",
+      "consecutiveFailures",
+      "pausedReason",
+      "pausedAt",
+    ]) {
+      expect(content).not.toContain(`${field}:`);
+    }
+    expect(updated.meta.pausedReason).toBeUndefined();
+    expect(updated.meta.enabled).toBe(true);
+  });
+
+  it("keeps a healthy automation's last status when it is enabled while already enabled", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(
+      resource(
+        eventAutomation.replace(
+          "runAs: creator",
+          "runAs: creator\nlastStatus: success",
+        ),
+      ),
+    );
+
+    await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: true },
+    );
+
+    expect(resourcePutMock.mock.calls[0][2]).toContain("lastStatus: success");
+  });
+
   it("rejects an unrecognized reasoningEffort value", async () => {
     executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
     resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
@@ -543,6 +600,7 @@ Observe Slack.`),
     ).resolves.toMatchObject({
       ok: false,
       reason: expect.stringContaining("no longer a member"),
+      code: "owner_missing",
     });
   });
 
@@ -559,6 +617,7 @@ Observe Slack.`),
     ).resolves.toEqual({
       ok: false,
       reason: "Organization automations must run as their creator.",
+      code: "config_invalid",
     });
     expect(executeMock).not.toHaveBeenCalled();
   });

@@ -1,4 +1,4 @@
-import type { AppRolesDescriptor } from "@agent-native/core/client/org";
+import type { AppRolesDescriptor } from "@agent-native/core/org/app-roles";
 
 export const dispatchAccessDescriptor = {
   appId: "dispatch",

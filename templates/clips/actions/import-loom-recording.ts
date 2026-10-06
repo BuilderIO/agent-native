@@ -23,6 +23,11 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
+import {
+  uploadLeaseExpiry,
+  WAITING_STORAGE_EXPIRED_REASON,
+  waitingStorageLeaseExpiry,
+} from "../server/lib/upload-lease.js";
 import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 import {
   downloadDirectVideo,
@@ -94,9 +99,9 @@ const ImportLoomRecordingSchema = z.object({
 });
 
 const LOOM_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
+  "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
 const DIRECT_VIDEO_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
+  "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -192,11 +197,16 @@ export default defineAction({
           "Only a matching waiting import can be retried this way.",
         );
       }
+      // Still parked, or failed by the reaper once its waiting lease ran out:
+      // the source URL is kept, so either retries in place.
       const isWaitingStorageRetry =
-        existingRecording.status === "uploading" &&
         !existingRecording.videoUrl &&
-        existingRecording.failureReason === storageSetupReason &&
-        existingRecording.sourceWindowTitle === sourceUrl;
+        existingRecording.sourceWindowTitle === sourceUrl &&
+        ((existingRecording.status === "uploading" &&
+          existingRecording.failureReason === storageSetupReason) ||
+          (existingRecording.status === "failed" &&
+            existingRecording.failureReason ===
+              WAITING_STORAGE_EXPIRED_REASON));
       const isRetryableLoomImport =
         isLoom &&
         !existingRecording.videoUrl &&
@@ -219,11 +229,6 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       existingRecording?.organizationId ?? args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
-      organizationId,
-      actionContext?.userEmail ?? ownerEmail,
-    );
-
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
     const createdAt = existingRecording?.createdAt ?? now;
@@ -249,7 +254,12 @@ export default defineAction({
     const height = boundedDimension(oembed?.height ?? oembed?.thumbnail_height);
     const folderId = args.folderId ?? existingRecording?.folderId ?? null;
     const visibility =
-      args.visibility ?? existingRecording?.visibility ?? defaultVisibility;
+      args.visibility ??
+      existingRecording?.visibility ??
+      (await getDefaultRecordingVisibility(
+        organizationId,
+        actionContext?.userEmail ?? ownerEmail,
+      ));
     const titleSource = args.title
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");
@@ -298,6 +308,7 @@ export default defineAction({
             status: "uploading",
             videoUrl: null,
             failureReason: storageSetupReason,
+            uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
             loomImportClaimId: null,
             loomImportClaimedAt: null,
           })
@@ -309,6 +320,7 @@ export default defineAction({
           videoUrl: null,
           status: "uploading",
           failureReason: storageSetupReason,
+          uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
           ownerEmail,
           createdAt,
         });
@@ -356,15 +368,10 @@ export default defineAction({
     }
 
     if (isLoom) {
-      // Storage is connected: create/refresh the row now and hand the slow
-      // Loom download + reupload + transcript off to a durable background
-      // job (post-finalize-worker.post.ts's "loom-import" kind /
-      // runLoomImportJob). Loom's CDN plus a reupload can outlast a single
-      // request; the worker claims the row (loomImportClaimId) and moves it
-      // to "ready" or "failed" once done.
-      const recordingValues = buildRecordingValues(
-        existingRecording?.videoSizeBytes ?? 0,
-      );
+      const recordingValues = {
+        ...buildRecordingValues(existingRecording?.videoSizeBytes ?? 0),
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
+      };
       if (existingRecording) {
         await db
           .update(schema.recordings)
@@ -442,9 +449,6 @@ export default defineAction({
       };
     }
 
-    // Direct video links stay synchronous: they typically download and
-    // reupload well within a single request, and this keeps
-    // request-transcript as the deliberate next step for a transcript.
     const media = await downloadDirectVideo(sourceUrl);
     const videoFormat = media.mimeType === "video/webm" ? "webm" : "mp4";
     const upload = await uploadFile({

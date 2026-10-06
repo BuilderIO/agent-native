@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Hermetic unit tests for the CLI-side half of the dev action bridge: mock
-// the discovery-file reader, the database URL/hash resolvers, and `fetch`
-// rather than spinning up a real dev server. The server-side route handler
-// has its own coverage in `server/dev-action-bridge.spec.ts`.
 const mockReadDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
 const mockIsProcessAlive = vi.hoisted(() => vi.fn());
 const mockGetDatabaseUrl = vi.hoisted(() =>

@@ -34,9 +34,6 @@ type LivePreviewDocumentResult =
   | { status: "unavailable" }
   | { status: "stale" };
 
-/** Resolve the rendered document for a screen using the same Board and active
- * breakpoint routing as live layer movement. Creation uses this to inspect
- * computed layout without treating parsed HTML as a layout oracle. */
 export function getLivePreviewDocument(args: {
   activeBreakpointWidthState?: number;
   activeFileId?: string;
@@ -145,9 +142,6 @@ export function readLiveLayerMoveLayout(args: {
       attribute,
       value,
     );
-    // Canonical publication gives every source node its own identity. A
-    // missing/stale preview or a runtime clone cannot fall back to a path
-    // that may now identify another duplicate after a runtime reorder.
     if (liveMatches.length !== 1) return null;
     const element = liveMatches[0];
     return element?.localName === node.tag.toLowerCase() &&

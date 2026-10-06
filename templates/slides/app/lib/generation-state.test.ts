@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isNewDeckGenerationFailed,
   nextNewDeckGenerationPhase,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
@@ -10,6 +11,80 @@ import {
 } from "./generation-state";
 
 describe("new deck generation state", () => {
+  const base = {
+    slideCount: 0,
+    hasGenerationContext: true,
+    failureCode: undefined,
+    isNewDeckCreation: false,
+    phase: "started" as const,
+    generating: false,
+    waitingOnQuestions: false,
+  };
+
+  it("fails a generation whose run ended without a slide", () => {
+    expect(isNewDeckGenerationFailed(base)).toBe(true);
+  });
+
+  it("fails a generation that never started", () => {
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        isNewDeckCreation: true,
+        phase: "abandoned",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps waiting while the run is live, questions are open, or slides exist", () => {
+    expect(isNewDeckGenerationFailed({ ...base, generating: true })).toBe(
+      false,
+    );
+    expect(
+      isNewDeckGenerationFailed({ ...base, waitingOnQuestions: true }),
+    ).toBe(false);
+    expect(isNewDeckGenerationFailed({ ...base, slideCount: 2 })).toBe(false);
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        isNewDeckCreation: true,
+        phase: "pending",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps stale failure metadata from hiding active or question-waiting progress", () => {
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        failureCode: "agent_error",
+        generating: true,
+      }),
+    ).toBe(false);
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        failureCode: "agent_error",
+        waitingOnQuestions: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not call a reopened, unprompted empty deck a failure", () => {
+    expect(isNewDeckGenerationFailed({ ...base, phase: "pending" })).toBe(
+      false,
+    );
+    expect(
+      isNewDeckGenerationFailed({ ...base, hasGenerationContext: false }),
+    ).toBe(false);
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        phase: "pending",
+        failureCode: "agent_error",
+      }),
+    ).toBe(true);
+  });
+
   it("shows the blocking overlay before and during the first slide", () => {
     expect(
       shouldShowNewDeckGeneratingOverlay({
@@ -101,7 +176,6 @@ describe("new deck generation state", () => {
       }),
     ).toBeNull();
 
-    // Agent appends a net-new slide: no placeholder to light up.
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
@@ -111,7 +185,6 @@ describe("new deck generation state", () => {
       }),
     ).toBeNull();
 
-    // Placeholder deleted mid-run.
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
@@ -124,9 +197,6 @@ describe("new deck generation state", () => {
       }),
     ).toBeNull();
 
-    // The agent has already written real content: the fill is done, so a
-    // follow-up `add-slide` for the rest of a multi-slide request gets the
-    // trailing generating row again instead of staying suppressed.
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
@@ -173,9 +243,6 @@ describe("new deck generation state", () => {
 
   describe("nextNewDeckGenerationPhase", () => {
     it("reloading a dead ?generating=1 deck (no run, no questions) abandons after the wait lapses, and that clears the stuck state", () => {
-      // A page load that never observes a run and isn't blocked on
-      // questions must eventually leave "pending" — otherwise the overlay
-      // and the url param that re-seeds it persist forever.
       const phase = nextNewDeckGenerationPhase({
         phase: "pending",
         generating: false,
@@ -212,9 +279,6 @@ describe("new deck generation state", () => {
     });
 
     it("survives an expired wait while pre-generation questions are pending", () => {
-      // Intent can legitimately arrive after mount, through the question
-      // flow the empty editor shows — the wait must not lapse underneath it
-      // even once the plain time bound would otherwise have expired.
       const phase = nextNewDeckGenerationPhase({
         phase: "pending",
         generating: false,
@@ -259,8 +323,6 @@ describe("new deck generation state", () => {
       });
       expect(started).toBe("started");
 
-      // Terminal: further calls (e.g. `generating` flickering, a stray
-      // expiry) never move it back to pending or to abandoned.
       expect(
         nextNewDeckGenerationPhase({
           phase: started,

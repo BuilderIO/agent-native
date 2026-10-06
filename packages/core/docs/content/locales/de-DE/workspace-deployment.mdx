@@ -335,6 +335,30 @@ agents.example.com {
 
 </Callout>
 
+## Dispatch für einen selbst gehosteten Arbeitsbereich konfigurieren {#dispatch-workspace-apps}
+
+Produktionsimages von Dispatch enthalten häufig nur `.output/`; der Server kann App-Verzeichnisse deshalb zur Laufzeit nicht erkennen. Konfiguriere dieses Manifest beim Dispatch-Dienst. Verwende für beide Variablen dasselbe JSON: Die Vite-Variable wird beim Build von Dispatch gelesen, die andere beim Serverstart. Führe nur Apps aus diesem Arbeitsbereich auf. Jeder `path` muss mit `APP_BASE_PATH` und der Proxy-Route übereinstimmen. Setze APP_URL außerdem auf den öffentlichen Ursprung deines Reverse-Proxys.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## Einladungen in einem neuen Arbeitsbereich aktivieren {#workspace-invites}
+
+Wenn für die Registrierung in einem Arbeitsbereich eine Einladung erforderlich ist, setze diese Zugriffsvariablen in jedem App-Container, der Datenbank und Authentifizierung gemeinsam nutzt:
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+Ersetze die Beispieladresse durch die verifizierte Adresse der ersten Admin-Person in jedem Arbeitsbereich. Bei einer leeren Datenbank meldet sie sich zuerst an, wird Eigentümer der ersten Organisation und kann das Team unter Settings → Organization → Members einladen. Der vollständige Bootstrap-Ablauf steht unter [Administrierte Deployments](/docs/administered-deployments).
+
 ## Was kommt als nächstes?
 
 - [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank, eine Nitro-Voreinstellung und eine Plattform, bevor Sie einen Arbeitsbereich bereitstellen

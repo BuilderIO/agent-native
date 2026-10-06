@@ -82,8 +82,6 @@ describe("isPrivateAddress", () => {
   });
 
   it("unwraps the hexadecimal spelling of IPv4-mapped addresses", () => {
-    // The same addresses as above, written without the dotted tail. A
-    // prefix/regex check on the text sees these as ordinary public IPv6.
     expect(isPrivateAddress("::ffff:7f00:1")).toBe(true);
     expect(isPrivateAddress("::ffff:a9fe:a9fe")).toBe(true);
     expect(isPrivateAddress("::ffff:c0a8:1")).toBe(true);

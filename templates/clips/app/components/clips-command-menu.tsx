@@ -1,16 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { useOrgRole } from "@agent-native/core/client/org";
-import {
-  AGENT_SIDEBAR_QUERY_PARAM,
-  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
-  docsUrl,
-} from "@agent-native/core/shared";
+import { docsUrl } from "@agent-native/core/shared";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   IconArchive,
+  IconPhoto,
   IconCalendar,
   IconFileText,
   IconFolder,
@@ -170,6 +165,11 @@ function RecordingSearchResults({
             {formatSearchSnippet(hit.snippet ?? hit.description) ? (
               <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-muted-foreground">
                 {formatSearchSnippet(hit.snippet ?? hit.description)}
+              </span>
+            ) : null}
+            {hit.trashedAt ? (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {t("navigation.trash")}
               </span>
             ) : null}
           </span>
@@ -446,7 +446,19 @@ export function ClipsCommandMenu({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
-      changelog={changelog}
+      changelog={changelog
+        .split(
+          "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+        )
+        .join(t("settings.changelogCommentSignup"))
+        .split(
+          "The empty comments state now explains how screen recordings help AI agents.",
+        )
+        .join(t("settings.changelogCommentsEmptyState"))
+        .split(
+          'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
+        )
+        .join(t("settings.changelogShareLink"))}
       changelogLabel={t("settings.whatsNew")}
       changelogKey="clips"
       renderResults={renderResults}
@@ -484,7 +496,7 @@ export function ClipsCommandMenu({
               onSelect={() =>
                 void navigate(
                   withQuery(`/r/${context.recordingId}`, {
-                    [AGENT_SIDEBAR_QUERY_PARAM]: AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+                    panel: "agent",
                   }),
                 )
               }
@@ -601,6 +613,13 @@ export function ClipsCommandMenu({
           <IconMicrophone2 size={16} />
           {t("navigation.dictate")}
           <CommandMenu.Shortcut>G D</CommandMenu.Shortcut>
+        </CommandMenu.Item>
+        <CommandMenu.Item
+          onSelect={() => void navigate("/screenshots")}
+          keywords={["screenshots", "screenshot", "images", "stills"]}
+        >
+          <IconPhoto size={16} />
+          {t("navigation.screenshots")}
         </CommandMenu.Item>
         <CommandMenu.Item
           onSelect={() => void navigate("/archive")}

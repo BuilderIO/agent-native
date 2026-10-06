@@ -227,7 +227,10 @@ test("Selection colors replaces a grouped SVG fill without stale inspector color
       .toBe("rgb(204, 51, 153)");
     await expect(
       fillSection.getByRole("button", { name: "Open color picker" }),
-    ).toContainText("CC3399");
+    ).toBeVisible();
+    await expect(
+      fillSection.getByRole("textbox", { name: "Color", exact: true }),
+    ).toHaveValue("CC3399");
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

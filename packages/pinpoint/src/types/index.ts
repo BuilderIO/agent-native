@@ -3,7 +3,6 @@
 
 export type PinStatus = "open" | "acknowledged" | "resolved" | "dismissed";
 
-// Draw mode types
 export type DrawToolType = "freehand" | "arrow" | "circle" | "rect" | "text";
 
 export interface DrawStroke {
@@ -20,7 +19,6 @@ export interface TextNote {
   color: string;
 }
 
-// Queue system types
 export interface QueuedAnnotation {
   id: string;
   pin?: Pin;
@@ -35,14 +33,13 @@ export interface AgentOutput {
   submit?: boolean;
 }
 
-// Toolbar mode
 export type ToolbarMode = "select" | "draw" | "queue";
 
 export interface Pin {
   id: string;
   pageUrl: string;
-  createdAt: string; // ISO 8601
-  updatedAt: string; // ISO 8601
+  createdAt: string;
+  updatedAt: string;
   author?: string;
   comment: string;
   element: ElementInfo;
@@ -50,7 +47,7 @@ export interface Pin {
   status: {
     state: PinStatus;
     changedAt: string;
-    changedBy?: string; // 'user' | 'agent' | author name
+    changedBy?: string;
   };
 }
 
@@ -73,9 +70,9 @@ export interface ElementInfo {
 }
 
 export interface FrameworkInfo {
-  framework: string; // 'react' | 'vue' | 'svelte' | 'angular' | 'unknown'
-  componentPath: string; // <App> <Layout> <Sidebar> <NavLink>
-  sourceFile?: string; // src/components/Sidebar.tsx:42
+  framework: string;
+  componentPath: string;
+  sourceFile?: string;
   frameworkVersion?: string;
 }
 
@@ -101,7 +98,6 @@ export interface SourceLocation {
   column?: number;
 }
 
-// Plugin types
 export interface Plugin {
   name: string;
   setup?(api: PinpointAPI, hooks: PluginHookRegistry): void;
@@ -137,7 +133,6 @@ export interface ContextMenuAction {
   handler(element: Element, context: ElementContext): void;
 }
 
-// API surface
 export interface PinpointAPI {
   activate(): void;
   deactivate(): void;
@@ -156,7 +151,6 @@ export interface PinpointAPI {
   dispose(): void;
 }
 
-// Storage interface (carried forward from our fork — our design)
 export interface PinStorage {
   load(pageUrl: string): Promise<Pin[]>;
   save(pin: Pin): Promise<void>;
@@ -166,47 +160,27 @@ export interface PinStorage {
   clear(pageUrl?: string): Promise<void>;
 }
 
-// Configuration
 export interface PinpointConfig {
-  /** Target element to mount pinpoint into */
   target?: HTMLElement;
-  /** Author name for annotations */
   author?: string;
-  /** REST API endpoint for pin storage */
   endpoint?: string;
-  /** Color scheme */
   colorScheme?: "auto" | "light" | "dark";
-  /** Output detail level */
   outputFormat?: OutputFormat;
-  /** Auto-submit to agent chat */
   autoSubmit?: boolean;
-  /** Clear pins after sending */
   clearOnSend?: boolean;
-  /** Custom bridge for sending annotations to an agent chat */
   sendToAgent?: (output: AgentOutput) => void | Promise<void>;
-  /** Block page interactions during annotation */
   blockInteractions?: boolean;
-  /** Freeze JS timers (opt-in, disabled by default) */
   freezeJSTimers?: boolean;
-  /** Allowed origins for postMessage */
   allowedOrigins?: string[];
-  /** Webhook URL for pin events */
   webhookUrl?: string;
-  /** Include source file paths in output */
   includeSourcePaths?: boolean;
-  /** Plugins */
   plugins?: Plugin[];
-  /** Custom storage adapter */
   storage?: PinStorage;
-  /** Initial position of the toolbar */
   position?: { x: number; y: number };
-  /** Marker color */
   markerColor?: string;
-  /** Compact popup — hide technical details behind a toggle (default: true) */
   compactPopup?: boolean;
 }
 
-// Framework adapter interface
 export interface FrameworkAdapter {
   name: string;
   detect(): boolean;
@@ -216,7 +190,6 @@ export interface FrameworkAdapter {
   unfreeze?(): void;
 }
 
-// SSE event
 export interface PinEvent {
   type: "pin:created" | "pin:updated" | "pin:deleted" | "pin:resolved";
   pin: Pin;

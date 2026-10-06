@@ -1,25 +1,10 @@
-import type { Page } from "@playwright/test";
-
-/**
- * Helpers for reading a beta app the way it actually renders.
- *
- * These apps are client-rendered behind a public, impersonal SSR shell: the
- * server returns the same HTML to everyone, and the decision to show the app or
- * bounce to sign-in happens after hydration. A check that reads the document at
- * `domcontentloaded` therefore sees an empty body and concludes the app served
- * a protected route to an anonymous visitor. It has to wait for the client.
- */
+import type { Locator, Page } from "@playwright/test";
 
 const SIGN_IN_TEXT = /sign in|sign up|continue with google|create an account/i;
 const SIGN_IN_PATH = /\/(sign-in|login)\b/;
 const VECTOR_HOST_PATTERN =
   /(?:^|[^a-z0-9-])(?:[a-z0-9-]+\.)*vector\.co(?::\d+)?(?:[/'`)\s]|$)/i;
 
-/**
- * The Vector pixel wraps its own cross-origin fetch in an app-bundle callback,
- * so the stack contains both the app origin and Vector. Keep that known noise
- * out of app failures without hiding arbitrary third-party errors.
- */
 export function isKnownThirdPartyPageError(
   message: string,
   stack: string,
@@ -30,14 +15,6 @@ export function isKnownThirdPartyPageError(
   );
 }
 
-/**
- * Read the body text, keeping "the page rendered nothing" and "the page could
- * not be read at all" as different answers.
- *
- * A locator read rejects when the frame is mid-navigation or the context is
- * gone. Collapsing that to `""` would let a caller conclude the app rendered an
- * empty page, which is a different — and differently actionable — fact.
- */
 async function readBodyText(
   page: Page,
 ): Promise<{ text: string } | { unreadable: string }> {
@@ -55,14 +32,6 @@ async function readBodyText(
   }
 }
 
-/**
- * Read the visible text, refusing to return a blank page.
- *
- * Every "the app must NOT show X" assertion is trivially satisfied by an empty
- * string, so a page that failed to render passes all of them at once — the
- * exact failure this suite exists to catch. Reading through here turns a blank
- * page into its own explicit failure instead.
- */
 export async function renderedText(
   page: Page,
   where: string,
@@ -92,21 +61,42 @@ export async function renderedText(
   );
 }
 
+const DESTROYED_CONTEXT = /Execution context was destroyed/i;
+
+/**
+ * Run an in-page evaluation right after `goto(..., "domcontentloaded")`. An app
+ * that redirects once its first script runs destroys the context an evaluate
+ * was already sent to, and that says nothing about the app under test. Wait for
+ * the document to finish loading, and when the evaluation still hits a
+ * destroyed context, run it once more on the new document and report that it
+ * did. A second destroyed context, and every other error, are the caller's.
+ */
+export async function evaluateAfterNavigation<R>(
+  page: Page,
+  evaluate: () => Promise<R>,
+  recordRetry: (note: string) => void,
+): Promise<R> {
+  await page.waitForLoadState("load", { timeout: 30_000 });
+  try {
+    return await evaluate();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!DESTROYED_CONTEXT.test(message)) throw error;
+    recordRetry(
+      `evaluate lost its page to a navigation and ran again at ${page.url()}: ${message.split("\n")[0]}`,
+    );
+    await page.waitForLoadState("load", { timeout: 30_000 });
+    return await evaluate();
+  }
+}
+
 export interface AuthGateOutcome {
-  /** The app decided this visitor must sign in. */
   gated: boolean;
   url: string;
   bodyText: string;
-  /** Set when the page could never be read, as distinct from rendering nothing. */
   unreadable?: string;
 }
 
-/**
- * Wait until the client has settled on either a sign-in surface or app content.
- *
- * Resolves as soon as the outcome is knowable rather than sleeping a fixed
- * amount, and reports which outcome it saw instead of asserting one.
- */
 export async function settleAuthGate(
   page: Page,
   { timeoutMs = 25_000 }: { timeoutMs?: number } = {},
@@ -130,7 +120,6 @@ export async function settleAuthGate(
     ) {
       return { gated: true, url, bodyText };
     }
-    // Non-trivial content with no sign-in affordance means the app rendered.
     if (bodyText.trim().length > 40) {
       return { gated: false, url, bodyText };
     }
@@ -154,16 +143,6 @@ export interface SignInAffordances {
   bodyText: string;
 }
 
-/**
- * What sign-in options this app actually offers a visitor right now.
- *
- * Read from the rendered page rather than assumed per app: the shared login
- * document ships markup for every provider and hides what is not configured,
- * so the HTML source says "Google" for apps that do not offer it (and matches
- * `googletagmanager.com` besides). Deriving the expectation from what renders
- * keeps the Google assertions pointed at apps that really do promise Google
- * sign-in — which is where a broken redirect_uri strands users.
- */
 export async function readSignInAffordances(
   page: Page,
   origin: string,
@@ -172,15 +151,8 @@ export async function readSignInAffordances(
     waitUntil: "domcontentloaded",
     timeout: 45_000,
   });
-  // Waits for the document to render rather than sleeping a fixed amount:
-  // this runs once per host, and a flat pause is dead time multiplied by the
-  // size of the fleet.
   await renderedText(page, `${origin}/sign-in`);
 
-  // `isVisible()` already answers false for an element that is absent, so
-  // these are left to throw: the only rejections left are a dead page or a
-  // closed context, and a Google assertion that quietly disabled itself on
-  // one of those is the failure this suite exists to prevent.
   const google = await page.locator(GOOGLE_BUTTON).first().isVisible();
   const passwordForm = await page
     .locator('input[type="password"]')
@@ -201,14 +173,6 @@ export async function readSignInAffordances(
   };
 }
 
-/**
- * Uncaught errors this page's own code produced.
- *
- * Third-party marketing and analytics pixels throw on beta hosts they are not
- * registered for ("Domain not allowed" from a tracking script, for one), and
- * counting those as app failures would make this assertion permanently red for
- * a reason no app change can fix.
- */
 export function collectAppPageErrors(
   page: Page,
   appOrigin: string,
@@ -224,9 +188,7 @@ export function collectAppPageErrors(
     );
     const fromApp =
       !fromKnownThirdParty &&
-      (stack.includes(appOrigin) ||
-        // A stack with no URL at all is most likely inline app code.
-        !/https?:\/\//.test(stack));
+      (stack.includes(appOrigin) || !/https?:\/\//.test(stack));
     if (fromApp)
       errors.push(
         `${error.message}\n${stack.split("\n").slice(0, 3).join("\n")}`,
@@ -235,4 +197,118 @@ export function collectAppPageErrors(
   });
 
   return { errors, thirdParty };
+}
+
+export async function describeFocusedElement(page: Page): Promise<string> {
+  try {
+    return await page.evaluate(() => {
+      const active = document.activeElement as HTMLElement | null;
+      if (!active) return "no focused element";
+      return JSON.stringify({
+        tag: active.tagName,
+        id: active.id || null,
+        role: active.getAttribute("role"),
+        ariaLabel: active.getAttribute("aria-label"),
+        contentEditable: active.isContentEditable,
+        className: String(active.className).slice(0, 80),
+      });
+    });
+  } catch (error) {
+    return `focused element unreadable: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/**
+ * Press a shortcut until `target` shows, for a page whose key handler attaches
+ * after the first paint: a press that lands before it is lost, so one press and
+ * one long wait reports "missing" for a command that is only late. The target
+ * is checked before every press because a shortcut that toggles would close the
+ * menu a slow first press opened.
+ */
+export async function pressUntilVisible(
+  page: Page,
+  shortcut: string,
+  target: Locator,
+  { timeoutMs = 45_000, settleMs = 3_000 } = {},
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let presses = 0;
+  while (Date.now() < deadline) {
+    if (await target.isVisible()) return;
+    await page.keyboard.press(shortcut);
+    presses += 1;
+    const settledBy = Date.now() + settleMs;
+    while (Date.now() < settledBy) {
+      if (await target.isVisible()) return;
+      await page.waitForTimeout(100);
+    }
+  }
+  throw new Error(
+    `${shortcut} was pressed ${presses} time(s) over ${Math.round(timeoutMs / 1000)}s and ${target} never became visible at ${page.url()}. Focused element: ${await describeFocusedElement(page)}`,
+  );
+}
+
+export type PageVisibility = "visible" | "hidden";
+
+interface VisibilityControlWindow {
+  __betaVisibility?: { set(state: PageVisibility): void };
+}
+
+/**
+ * Runs in the page before any app script. Headless Chromium keeps every page
+ * in a context `visible` even after `bringToFront()` on another one, so a
+ * hidden-tab precondition can never be observed there. This overrides what the
+ * page reads and fires the event it listens for, which is the contract an app's
+ * pause-while-hidden code depends on. Exported only so it can be unit tested.
+ */
+export function visibilityControlScript(): void {
+  const control = window as unknown as VisibilityControlWindow;
+  if (control.__betaVisibility) return;
+  const nativeState = Object.getOwnPropertyDescriptor(
+    Document.prototype,
+    "visibilityState",
+  )?.get;
+  const nativeHidden = Object.getOwnPropertyDescriptor(
+    Document.prototype,
+    "hidden",
+  )?.get;
+  if (!nativeState || !nativeHidden) {
+    throw new Error("document.visibilityState is not an accessor here");
+  }
+  let forced: PageVisibility | null = null;
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => forced ?? nativeState.call(document),
+  });
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    get: () =>
+      forced === null ? nativeHidden.call(document) : forced === "hidden",
+  });
+  control.__betaVisibility = {
+    set(state) {
+      forced = state;
+      document.dispatchEvent(new Event("visibilitychange"));
+    },
+  };
+}
+
+export async function installVisibilityControl(page: Page): Promise<void> {
+  await page.addInitScript(visibilityControlScript);
+}
+
+export async function setPageVisibility(
+  page: Page,
+  state: PageVisibility,
+): Promise<void> {
+  await page.evaluate((next) => {
+    const control = (window as unknown as VisibilityControlWindow)
+      .__betaVisibility;
+    if (!control) {
+      throw new Error(
+        "installVisibilityControl() must run before this page navigates",
+      );
+    }
+    control.set(next);
+  }, state);
 }

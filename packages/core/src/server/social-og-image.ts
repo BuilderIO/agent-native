@@ -11,11 +11,10 @@ import {
 import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
-import { getAppStatus } from "../shared/app-status.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingByName,
-  resolveBuiltInAuthMarketingPresentation,
 } from "./auth-marketing.js";
 import { AGENT_NATIVE_OG_BACKGROUND_DATA_URL } from "./og-background-data.js";
 import {
@@ -26,7 +25,6 @@ import {
   resolveOgFontFiles,
 } from "./og-fonts.js";
 
-/** The first-party sign-in page copy an app preview card mirrors. */
 export interface AgentNativeOgImagePresentation {
   appLabel: string;
   status: string;
@@ -40,7 +38,6 @@ export interface AgentNativeOgImageInput {
   brand?: "agent-native" | "custom";
   title?: string | null;
   accentText?: string | null;
-  /** `null` forces the title layout even when sign-in copy exists. */
   presentation?: AgentNativeOgImagePresentation | null;
 }
 
@@ -68,11 +65,7 @@ const OSS_BADGE_BG = "#1B1B1B";
 // guard:allow-raw-color — exact auth-page palette mirrored in a generated social-preview image
 const OSS_BADGE_BORDER = "#2E2E2E";
 const OSS_BADGE_TEXT = "FREE & OPEN SOURCE";
-// estimateTextWidth is calibrated for Liberation Sans. Measured against the
-// bundled Geist it overstates -0.04em-tracked copy by up to ~21% and never
-// understates it by more than ~4%, so scaling by this keeps fits conservative.
 const GEIST_WIDTH_RATIO = 0.97;
-// Geist Mono advances every glyph by exactly 0.6em.
 const GEIST_MONO_ADVANCE = 0.6;
 const CONTENT_X = 80;
 const CONTENT_WIDTH = WIDTH - CONTENT_X * 2;
@@ -85,7 +78,6 @@ const LOGO_DATA_URL_RE = new RegExp(
   "i",
 );
 
-// Same tabler "brand-github" outline the auth page's open-source badge uses.
 const GITHUB_ICON_PATH =
   "M9 19c-4.3 1.4 -4.3 -2.5 -6 -3m12 5v-3.5c0 -1 .1 -1.4 -.5 -2c2.8 -.3 5.5 -1.4 5.5 -6a4.6 4.6 0 0 0 -1.3 -3.2a4.2 4.2 0 0 0 -.1 -3.2s-1.1 -.3 -3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4 -1.6 -3.5 -1.3 -3.5 -1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6 .6 -.6 1.2 -.5 2v3.5";
 
@@ -160,7 +152,6 @@ interface AgentNativeOgImageBrand {
   appName: string;
   logoUrl?: string;
   mode: "agent-native" | "custom";
-  presentation?: AgentNativeOgImagePresentation;
 }
 
 interface WrappedText {
@@ -410,20 +401,7 @@ function resolveAgentNativeOgImageBrand(
       (trustedFirstPartyHost
         ? "Agent-Native"
         : resolveAgentNativeOgImageAppName(event));
-    return {
-      appName,
-      mode,
-      // Catalog copy can also resolve from env app names on a custom host;
-      // only mirror the sign-in page when the app config or host is trusted,
-      // matching the share-card metadata the sign-in page emits.
-      presentation:
-        configuredFirstParty || trustedFirstPartyHost
-          ? resolveAgentNativeOgImagePresentation(appName, {
-              requestHost,
-              requestPath,
-            })
-          : undefined,
-    };
+    return { appName, mode };
   }
 
   const customAppName =
@@ -432,25 +410,6 @@ function resolveAgentNativeOgImageBrand(
     appName: customAppName || resolveAgentNativeOgImageAppName(event),
     logoUrl: sanitizeLogoUrl(app.logoUrl),
     mode,
-  };
-}
-
-function resolveAgentNativeOgImagePresentation(
-  appName: string,
-  opts: { requestHost?: string; requestPath?: string },
-): AgentNativeOgImagePresentation | undefined {
-  const appLabel = appName.replace(/^Agent-Native\s+/i, "").trim();
-  if (!appLabel || appLabel.toLowerCase() === "agent-native") return undefined;
-  const presentation = resolveBuiltInAuthMarketingPresentation(
-    { appName, tagline: "" },
-    opts,
-  );
-  if (!presentation) return undefined;
-  return {
-    appLabel,
-    status: getAppStatus(appLabel),
-    headline: presentation.headline,
-    description: presentation.description,
   };
 }
 
@@ -586,17 +545,12 @@ export function isResvgRuntimeUnavailableError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return (
     /@resvg\/resvg-js|resvgjs\.[\w-]+\.node|native binding/i.test(message) &&
-    // "no such module" is workerd's wording when the package is externalized
-    // out of the Cloudflare worker bundle.
     /cannot find|no such module|err_module_not_found|dlopen|invalid elf|wrong architecture|not a valid win32|native binding/i.test(
       message,
     )
   );
 }
 
-// Keep a single reference to the ~450 KB background data URL: the server
-// bundler inlines string constants at each use site, so a second direct
-// reference duplicates the whole payload in every serverless function.
 function backgroundImageTag(): string {
   return `<image x="0" y="0" width="${WIDTH}" height="${HEIGHT}" href="${AGENT_NATIVE_OG_BACKGROUND_DATA_URL}" preserveAspectRatio="xMidYMid slice"/>`;
 }
@@ -635,8 +589,6 @@ function getHeadlineLayout(headline: string): TitleLayout {
   };
 }
 
-// Mirrors the first-party sign-in page: mark, app name, and status badge on
-// top; headline, description, and open-source badge anchored bottom-left.
 function renderPresentationOgImageSvg(
   presentation: AgentNativeOgImagePresentation,
 ): string {
@@ -659,7 +611,6 @@ function renderPresentationOgImageSvg(
   const nameFontSize = 52;
   const badgeFontSize = 22;
   const badgeTracking = badgeFontSize * 0.02;
-  // Baselines sit half a cap height (0.71em in Geist) below the row center.
   const nameBaseline = Math.round(brandCenterY + (nameFontSize * 0.71) / 2);
   const badgeBaselineOffset = Math.round((badgeFontSize * 0.71) / 2);
   const nameTracking = -nameFontSize * 0.04;
@@ -761,12 +712,7 @@ export function renderAgentNativeOgImageSvg(
   const configuredBrand = resolveAgentNativeOgImageBrand();
   const appName = cleanText(input.appName) || configuredBrand.appName;
   const mode = input.brand ?? configuredBrand.mode;
-  const presentation =
-    input.presentation !== undefined
-      ? input.presentation
-      : cleanText(input.appName)
-        ? undefined
-        : configuredBrand.presentation;
+  const presentation = input.presentation;
   if (
     mode === "agent-native" &&
     presentation &&
@@ -810,9 +756,6 @@ export function renderAgentNativeOgImageSvg(
       y: titleY,
       fontSize: titleLayout.fontSize,
       lineHeight: titleLayout.lineHeight,
-      // resvg's fontdb maps font-weight 850 to the Regular face (only 400/700
-      // exist for Liberation Sans); 800 resolves to Bold, the heaviest face we
-      // bundle, which is the intended look for the display title.
       weight: 800,
       fill: FG,
       anchor: textAnchor,
@@ -846,15 +789,15 @@ export async function renderAgentNativeOgImagePng(
       ? process.env.AGENT_NATIVE_RESVG_PACKAGE
       : undefined;
   const resvgPackage = overridePackage || "@resvg/resvg-js";
-  const { Resvg } = await import(/* @vite-ignore */ resvgPackage);
+  const { Resvg } = await loadOptionalPeer(
+    resvgPackage,
+    () => import(/* @vite-ignore */ resvgPackage),
+  );
   const configuredLogoUrl =
     input.logoUrl !== undefined
       ? input.logoUrl
       : resolveAgentNativeOgImageBrand().logoUrl;
   const logoUrl = await loadLogoDataUrl(configuredLogoUrl);
-  // Feed resvg the embedded Liberation Sans font explicitly. System fonts can't
-  // be relied on: Linux serverless runtimes (Netlify/Lambda) ship neither Arial
-  // nor Inter, so without a bundled font every `<text>` rendered blank.
   const fontFiles = resolveOgFontFiles();
   const hasBundledFonts = Boolean(fontFiles?.length);
   const render = (renderLogoUrl: string | null) =>
@@ -901,13 +844,6 @@ export function agentNativeOgImageResponseHeaders(
   return headers;
 }
 
-/**
- * h3 v2 lets headers already staged on the event override a returned
- * Response's own headers, so the security middleware's baseline
- * `Cross-Origin-Resource-Policy: same-site` silently replaced the
- * `cross-origin` these public images need and broke every browser-rendered
- * link preview. Stage image headers on the event before returning the body.
- */
 export function stageOgImageResponseHeaders(
   event: H3Event,
   headers: Record<string, string>,
@@ -939,14 +875,8 @@ export function createAgentNativeOgImageHandler(
       appName,
       brand: options.brand ?? brand.mode,
       logoUrl: options.logoUrl !== undefined ? options.logoUrl : brand.logoUrl,
-      // A caller-supplied app name outranks the host-derived sign-in copy,
-      // which would otherwise label the card with another app's name.
       presentation:
-        options.presentation !== undefined
-          ? options.presentation
-          : cleanText(options.appName)
-            ? null
-            : (brand.presentation ?? null),
+        options.presentation !== undefined ? options.presentation : null,
       title: cleanText(options.title) || queryStringValue(query.title, 140),
       accentText:
         cleanText(options.accentText) || queryStringValue(query.accentText, 80),

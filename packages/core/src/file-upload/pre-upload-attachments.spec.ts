@@ -335,8 +335,6 @@ describe("preUploadAttachments", () => {
     expect(result.providerMissing).toBe(true);
     expect(result.injectedText).toContain("no durable storage URL");
     expect(att.storageRequired).toBe(true);
-    // A readable photo is a durability gap, not a readability gap. The model
-    // must not be told to open the storage card just to look at it.
     expect(result.readableWithoutStorage).toEqual(["photo.png"]);
     expect(result.injectedText).not.toContain(
       "Call `connect-file-storage` to render",
@@ -357,7 +355,6 @@ describe("preUploadAttachments", () => {
     expect(result.uploadedFiles).toHaveLength(0);
     expect(att.storageRequired).toBe(true);
     expect(result.injectedText).toContain("no durable storage URL");
-    // Same rule for a small PDF: inline-readable means readable now.
     expect(result.readableWithoutStorage).toEqual(["report.pdf"]);
   });
 
@@ -409,15 +406,11 @@ describe("preUploadAttachments", () => {
       "object-storage provider failed to upload",
     );
     expect(result.injectedText).not.toContain("Call `connect-file-storage` to");
-    // The attachment should still be in the list so the model can see base64.
     expect(result.attachments).toContain(att);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
 
-  // Reported from mobile: a photo attached as context produced a storage
-  // setup card plus an invented "the image was too large" excuse, when the
-  // photo was readable and storage was merely unconfigured.
   it("does not describe a readable photo as too large when storage is unconfigured", async () => {
     uploadFileMock.mockResolvedValue(null);
 
@@ -452,8 +445,6 @@ describe("preUploadAttachments", () => {
     expect(result.injectedText).toContain("could not read the contents");
     expect(result.injectedText).toContain("over the 0.7 MB inline limit");
     expect(result.injectedText).toContain("Do not invent a size limit");
-    // Storage buys a reference URL, never readability. Offering the card as
-    // the cure for an over-limit file is the original bug in a new costume.
     expect(result.injectedText).toContain(
       "would NOT make their contents readable",
     );
@@ -511,10 +502,8 @@ describe("preUploadImageAttachments (legacy shim)", () => {
       ownerEmail: "user@example.com",
     });
 
-    // Image should be uploaded, file should not.
     expect(result.uploaded).toHaveLength(1);
     expect(result.uploadedFiles).toHaveLength(0);
-    // uploadFile was called only for the image.
     expect(uploadFileMock).toHaveBeenCalledTimes(1);
   });
 });

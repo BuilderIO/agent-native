@@ -1,16 +1,6 @@
-/**
- * Unit tests for Y.UndoManager scoping.
- *
- * Verifies that only transactions tagged with LOCAL_EDIT_ORIGIN are captured
- * in the undo stack, while remote/agent transactions are excluded.
- */
-
 import { describe, it, expect, beforeEach } from "vitest";
 import * as Y from "yjs";
 
-// Mirrors the constant in DesignEditor.tsx. The actual runtime value
-// includes a randomly generated TAB_ID prefix; for test purposes we use a
-// fixed string that exercises the same Set-membership logic.
 const LOCAL_EDIT_ORIGIN = "test-tab:local";
 
 function makeDocWithUndoManager() {
@@ -30,11 +20,9 @@ describe("Y.UndoManager undo scoping", () => {
 
   beforeEach(() => {
     ({ ydoc, ytext, um } = makeDocWithUndoManager());
-    // Seed initial content without the local origin so it isn't tracked.
     ydoc.transact(() => {
       ytext.insert(0, "<h1>Hello</h1>");
     }, "remote");
-    // Clear stacks so seed doesn't affect test assertions.
     um.clear();
   });
 
@@ -61,32 +49,24 @@ describe("Y.UndoManager undo scoping", () => {
       ytext.delete(0, ytext.length);
       ytext.insert(0, "<h1>Null origin</h1>");
     });
-    // null origin is not in trackedOrigins — should not be captured.
     expect(um.canUndo()).toBe(false);
   });
 
   it("undoes only local edits, leaving remote content intact", () => {
-    // Local edit on top of remote seed
     ydoc.transact(() => {
       ytext.delete(0, ytext.length);
       ytext.insert(0, "<h1>Local change</h1>");
     }, LOCAL_EDIT_ORIGIN);
     expect(ytext.toJSON()).toBe("<h1>Local change</h1>");
 
-    // Remote edit arrives after local edit
     ydoc.transact(() => {
       ytext.delete(0, ytext.length);
       ytext.insert(0, "<h1>Remote change after local</h1>");
     }, "remote");
     expect(ytext.toJSON()).toBe("<h1>Remote change after local</h1>");
 
-    // Undo should only revert the local transaction.
-    // Because we replaced the full text with remote, undoing the local
-    // deletion/insert restores the original text the local edit removed.
     const result = um.undo();
     expect(result).not.toBeNull();
-    // The remote transaction that followed must not be undone.
-    // The exact post-undo text depends on CRDT merge, but undo must have run.
     expect(um.canRedo()).toBe(true);
   });
 
@@ -115,9 +95,9 @@ describe("Y.UndoManager undo scoping", () => {
     }, LOCAL_EDIT_ORIGIN);
 
     expect(um.undoStack.length).toBe(2);
-    um.undo(); // reverts B
+    um.undo();
     expect(um.undoStack.length).toBe(1);
-    um.undo(); // reverts A
+    um.undo();
     expect(um.canUndo()).toBe(false);
   });
 
@@ -130,7 +110,6 @@ describe("Y.UndoManager undo scoping", () => {
     um.undo();
     expect(um.canRedo()).toBe(true);
 
-    // New local edit should clear redo stack
     ydoc.transact(() => {
       ytext.delete(0, ytext.length);
       ytext.insert(0, "<h1>Edit 2</h1>");

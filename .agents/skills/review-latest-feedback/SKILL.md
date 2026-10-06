@@ -26,11 +26,23 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 Output is fixes; reply only when informative. Two fixes and three messages
 beats thirty replies.
 
+## Slack channels
+
+Default channels: `#product-agent-native-feedback` (`C0ATH3CCZT4`),
+`#qa-agent-native` (`C0C4U4XRT6X`), and
+`#dev-agent-native-feedback` (`C0AJ5QV0J03`). Apply the full workflow to each:
+use its `in:<#CHANNEL>` filter for searches and read each channel. Track
+pagination, reply cursors, and counts separately. Honor narrower invocation
+scope. Each channel uses the same five-day scan boundary; `#dev-agent-native-feedback`
+is a default input, not a special-case exclusion.
+
 ## Phase 0: claim what you are taking
 
-Other agents work concurrently. The eye is a temporary work lock: keep it only
-while actively investigating or fixing. Remove it while waiting for reporter
-input, and re-add it when work resumes.
+`👀` is permanent claim history; add it before investigation and never remove
+it. An eye without a terminal disposition is unresolved, not available to
+another workflow. Check its thread and linked work; continue or coordinate
+active work, and defer if ownership is unclear. Post **In progress** only when
+work continues beyond this run.
 
 **Defects are in scope: fix them or ask for the one detail needed to fix them.**
 Investigate first; ask what they saw or did in plain language. Gather request
@@ -39,88 +51,83 @@ details and logs yourself; don't send reporters to developer tools.
 The proposed remedy may be wrong while the bug is real. Trace the failure to
 its owning boundary; do not reject it because the suggestion is unsuitable.
 
-For a parent with multiple symptoms, record a disposition for each symptom
-before reacting. A subjective or out-of-scope suggestion does not close a
-separate defect: keep `👀` while any objective symptom is being fixed, and do
-not use a release marker until every actionable defect in the parent is
-terminal.
+Record each symptom's disposition; subjective or out-of-scope feedback
+doesn't close a separate defect. Tie each reaction to the scope it marks.
 
-### Checkmark gate
+### Reaction gate
 
-Use `✅` only for verified **Fixed**, **Shipped**, or **Live verified** after
-Phase 2's four bars. A read, claim, review, assignment, code change, test, or
-PR queue is not closure; other terminal states use `:no_entry_sign:`.
+`👀` is claim history; `✅` requires **Fixed** after all Phase 2 bars. `🎫`
+marks accepted work another owner must do; use it only with an existing ticket
+naming that owner and exact action, linked in the ledger and reply. No `🎫` for
+fixed scope, routine rollout, optional live checks, subjective/out-of-scope, or
+unapproved work. Pair `✅` + `🎫` only for distinct scopes; name the fixed
+behavior and ticket action. **Shipped**/**Live verified** alone don't earn
+`✅`. Never remove reactions.
 
-If no safe repo-owned fix is evident, remove `👀` while blocked and record the
-evidence limit. Ask only a question that could unblock a fix; re-add `👀` when
-work resumes. Age never upgrades evidence; after 4 days without an answer,
-close as **Abandoned - no answer in 4 days**.
+If no safe repo-owned fix is evident, record the evidence limit. Ask only a
+question that could unblock a fix; after four days without an answer, record
+**Abandoned - no answer in 4 days**.
 
-Use **Skipped** only for non-defects, never breakage. **Open - no reply** means
-you worked the defect and found neither a fix nor a useful question; document
-why.
+Use **Skipped** only for non-defects, never breakage. **Open - no question**
+means you found neither a fix nor a useful question; state why in the thread.
 
 ### Authoritative disposition vocabulary
 
-Use exactly one disposition per ledger row; keep the same wording in recap and
-Slack reply:
+Use one disposition per row; record it in the recap and, if unstated, in the
+thread or linked work. Current status comes from text or work, never the eye.
+For clusters, post one owner status with each source permalink and
+**Clustered**; reply in a non-owner only for a distinct question or update.
 
-- **Terminal (release this workflow's eye):** **Fixed**, **Shipped**, **Live
-  verified**, **Open - no reply**, **Resolved elsewhere**, **Skipped**,
-  **Clustered**, or **Abandoned - no answer in 4 days**. Use `✅` only for
-  verified fixes; use `:no_entry_sign:` otherwise.
+- **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
+  verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,
+  **Clustered**, or **Abandoned - no answer in 4 days**. Apply the reaction
+  gate above.
 - **Active (retain 👀):** **Verified locally**, **Built - live unverified**,
   **Deployed - live unverified**, **Not reproducible - attempted**, or
   **In progress**.
-- **Waiting on reporter (no eye):** **Asked**, **Clarification needed**, or
+- **Waiting on reporter (retain 👀):** **Asked**, **Clarification needed**, or
   **Blocked on reporter**. Find these through Phase 1's question search.
-- **Foreign ownership:** **Owned elsewhere**; preserve their eye.
+- **Foreign ownership:** **Owned elsewhere** only when the latest thread update
+  or linked work confirms another active owner; an eye alone is claim history.
 
-After source merge, **Fixed** is terminal; track publication, beta, and live
-work separately. Link follow-ups with the original issue, target package/
-release/runtime, owner, and verification command or URL. Do not rediscover or
-reopen closed fixes through open-issue scans. **Clustered** closes one row but
-retains it.
-
-Never delete a foreign eye; record **Owned elsewhere** and preserve it as a
-blocker when needed.
+After merge, **Fixed** closes the source issue. Track release/runtime
+separately; normal rollout and optional live checks neither reopen it nor
+warrant `🎫`. Follow up only on accepted work outside this run; record source,
+target, owner, exact action, and verification. Don't reopen closed fixes.
+**Clustered** closes one row but retains it.
 
 Enumerate `slack_read_channel` newest backward through `next_cursor` until a
-parent has your open `👀` without either release marker, or is older than 5
-days. Use its oldest timestamp as the recap cursor. Classify from parent text,
-attachments, and reactions; do not open threads yet.
+parent is older than 5 days. Record the oldest in-range parent as the scan
+boundary. Classify parent text, attachments, and reactions before opening
+threads.
 
-**`slack_search` is not a scan.** It ranks and truncates. Use channel reads for
-enumeration and put their count in the recap; use search for known things such
-as prior replies, eyes, and repeat symptoms.
+**`slack_search` can rank and truncate.** Use channel reads to enumerate parents
+and put their count in the recap. Sort targeted searches oldest-first and follow
+`next_cursor` until exhausted.
 
 A channel read returns parents, so use its timestamps directly; *search* hits
 are usually replies, so resolve those through the permalink `thread_ts` first.
 
-Add `👀` to every intended item and read reactions back before investigation.
-Claim all actionable reports, including carried-over parents, without adding a
-second reaction.
+Read back each `👀` once before investigation. Follow status for resumed work.
 
-When reopening, re-claiming, or changing a terminal disposition, remove this
-workflow's marker before adding `👀`; they are mutually exclusive. Remove only
-our reaction. If removal is unavailable, enumerate full reaction metadata,
-record manual cleanup/unverified, and claim only after removal; do not trust
-the optimized negative-marker cursor.
+Claiming does not investigate. Search-discovered work gets the same eye-first
+read-back. Do not claim items that are already
+classified as out of scope. If an item is later found out of scope after being
+claimed, keep `👀`, record **Skipped**, and post one concise status reply, no
+question. New
+evidence or a current `:upvote:` can restore scope after any non-fixed terminal
+disposition; continue on the existing eye. Preserve foreign eyes. Confirm an
+active owner from current thread status or linked work, not the eye alone.
 
-Claiming only marks work; it does not investigate or reply. Search-discovered
-work gets the same eye-first read-back. Release out-of-scope work with
-`:no_entry_sign:`; preserve foreign eyes and stop on unverified reactions.
-
-Never end with an unworked claim: give each eye a disposition; release markers
-apply only to terminal states. Every item gets a recap row, but only informative outcomes get a reply. A fresh
-symptom after an answer is a repeat; claim and cluster it for Phase 2.
+Give each claim a disposition and recap row; reply only with informative
+outcomes. Cluster fresh repeats for Phase 2.
 
 ### External trackers are evidence, not status
 
 For a supplied spreadsheet, export, test matrix, or tracker, read metadata then
-the bounded range with its named connector. Enumerate every row, including
-`handled`, `completed`, `✅`, and `:no_entry_sign:`; retain its id, reporter,
-symptom, status, retest, and source link.
+the bounded range with its named connector. Enumerate every row and its
+completion status; retain its id, reporter, symptom, status, retest, and source
+link.
 
 Status, reactions, a merged PR, a source diff, or a unit test is not behavior
 proof. Each row needs a post-change ledger result. If it cannot be read, say
@@ -131,45 +138,46 @@ proof. Each row needs a post-change ledger result. If it cannot be read, say
 Every question you ask creates an obligation to come back for the answer.
 Discharge it before reading anything new.
 
-Slack is the ledger. Do not keep a local one — a per-run state file cannot
-see the previous run, which is why the follow-up never happened. Run this
-first, every time:
+Slack is the ledger; a per-run state file cannot carry state across runs. First,
+exhaust this search to enumerate prior questions and context:
 
 ```
 slack_search: "this was sent from a bot." in:<#CHANNEL>
   sort=timestamp sort_dir=asc include_context=true max_context_length=300
 ```
 
-Keep `include_context=true` on every page. Its `Context after` block identifies
-human replies; do not filter to replies ending in `?`, because a clarification
-may not use a question mark. Open only threads with a human reply.
+Keep `include_context=true` on every page and follow `next_cursor` until
+exhausted. Its `Context after` block identifies human replies; do not filter to
+replies ending in `?`. Open only threads with a human reply.
 
 **The parent is the permalink's `thread_ts`.** `Message_ts` is your own
 reply's timestamp; acting on it targets the wrong message.
 
-Also search for the invoking identity's eye-marked parents before applying the
-disclosure filter:
+Find replies even when their parent is older than the five-day scan. Read this
+channel's prior reply-scan cursor; without one, scan all available history. A
+new reply can belong to an old disclosure, so search all channel messages over
+an overlapping date window instead of cursor-filtering the disclosure search:
 
 ```
-slack_search: hasmy::eyes: -hasmy::white_check_mark: -hasmy::no_entry_sign: in:<#CHANNEL>
+slack_search: in:<#CHANNEL> after:<YYYY-MM-DD>
+  sort=timestamp sort_dir=asc
 ```
 
-The emoji-delimited modifiers are required. They scope the search to messages
-with the connected identity's eye and without either release marker. Do not
-replace them with emoji text searches.
+Filter hits by their own timestamp after the cursor, resolve each to its
+parent's `thread_ts`, and read the full thread. Never filter by the older
+parent/disclosure timestamp. Slack's `after:` is date-only, so begin one day
+before the cursor date. Exhaust `next_cursor`; advance each cursor only to its
+greatest fully processed timestamp.
 
-An item is answered only when a person speaks after the question without this
-workflow's disclosure marker. Open the thread: a partial, unrelated, or
-"will check later" reply is not sufficient. Count a reply once; only a newer
-message re-enters the set. Enumerate answered threads before new work and put
-the count in the recap. Keep unanswered **Clarification needed** threads
-pending until answered, resolved, or aged out at four days; **Fixed**,
-**Shipped**, **In progress**, and **Open - no reply** are not substitutes.
-Reapply the Phase 0 release contract to terminal states.
+Count a question answered only when a person posts after it without this
+workflow's disclosure marker; read the thread to reject partial, unrelated, or
+deferred replies. Count each answer once; only a newer message reopens it.
+Enumerate answered threads before new work and recap the count. Keep unanswered
+**Clarification needed** pending until answered, resolved, or four days old;
+other dispositions do not substitute. Reapply Phase 0 eye/checkmark rules.
 
-Only an unanswered **Clarification needed** thread enters the age branches
-below. If an older thread was marked **Open - no reply** despite one, restore it
-to pending.
+Apply the age branches only to unanswered **Clarification needed** threads;
+restore any such thread mistakenly marked **Open - no question**.
 
 - **Someone answered** → highest priority in the run, ahead of every newer
   report: the evidence you said blocked you now exists. Rebuild it and attempt
@@ -178,43 +186,35 @@ to pending.
   An answer that the issue is already resolved, fixed elsewhere, or not ours —
   a linked PR, "not a Clips issue" — is still an answer. Close it as
   **Resolved elsewhere** (terminal, and distinct from **Skipped**, which means
-  out of scope): release the `👀` with `:no_entry_sign:`, name who resolved it
-  and where, post nothing. Adding the release marker is what makes the closure
-  durable, or the next run's open-claim cursor resurfaces it as unfinished
-  forever.
+  out of scope): keep our `👀` and record who resolved it and where. The
+  participant's reply is the status; do not add `✅`.
 - **No answer, posted under 4 days ago** → leave it. Post nothing. A second
   message is a nag, not a follow-up.
-- **No answer, posted over 4 days ago** → the question failed. Drop it
-  silently: no reminder, no re-ask, no new reaction. Release the `👀` with
-  `:no_entry_sign:` and record **Abandoned - no answer in 4 days**, which is a
-  terminal non-fixed ledger disposition - an expired thread keeps no eye and
-  owes no reply, in this workflow or a standalone companion run. If the bug
-  still matters, carry it forward as an internal investigation with no
-  reporter dependency - dropping the question is not dropping the bug.
+- **No answer, posted over 4 days ago** → the question failed. Do not remind or
+  re-ask. Keep the `👀`, record **Abandoned - no answer in 4 days** once in the
+  thread without a new question, and carry any still-relevant bug forward as an
+  internal investigation.
 
-Search without an `after` filter, then apply the four-day expiry; disclosure is
-the primary cross-identity cursor. For legacy replies
-without disclosure or eyes, run this once per valid workflow identity:
+Search without `after`, then apply the four-day expiry; disclosure is the
+cross-identity cursor. For legacy replies without disclosure or eyes, run once
+per valid workflow identity:
 
 ```
 slack_search: from:<EACH_WORKFLOW_IDENTITY> in:<#CHANNEL>
   sort=timestamp sort_dir=asc
 ```
 
-Classify those hits by clarification wording such as `if you can share`, not as
-the discovery cursor. Inspect author and full thread so another identity finds
-the same question; never re-ask either search's result. Search for the
-disclosure string, not a display name, and never omit it from a reply.
+Classify these hits by clarification wording (for example, `if you can share`),
+not as the discovery cursor. Inspect author and full thread; never re-ask a
+result from either search. Search the disclosure string, not a display name,
+and include it in every reply.
 
 ## Classification rules
 
 Phase 0 applies these from parent-level evidence to decide what to claim.
-Phase 2 re-applies them once the full thread is read, and retracts an eye that
-no longer holds.
+Phase 2 reapplies these rules after full-thread review.
 
-Use the workspace's product feedback channel; here that is
-`#product-agent-native-feedback` (`C0ATH3CCZT4`) unless the invocation names
-another.
+Use `## Slack channels` unless the invocation narrows scope.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
@@ -232,9 +232,9 @@ product signoff. Discoverability complaints and preferences do not authorize
 adding, promoting, moving, or duplicating buttons or other persistent chrome.
 Check overflow, keyboard, Cmd+K, and contextual surfaces first. Adding or
 promoting chrome requires the invoking user's explicit current-task request or
-:upvote:` below. Otherwise mark **Skipped**, release the eye with
-`:no_entry_sign:`, and do
-not ask the reporter to decide. Measure failures with `text-heavy-ui`.
+  :upvote:` below. Otherwise mark **Skipped**. If already claimed, keep our `👀`
+  and post **Skipped** once if the thread does not state it; do not ask the
+  reporter to decide. Measure failures with `text-heavy-ui`.
 
 Requests for a new capability still follow the invoking identity's `:upvote:`
 gate. Content remains Alice's area unless the invocation claims it.
@@ -263,27 +263,21 @@ not `👀`, fix-altitude, verification, or question-budget requirements. The
 upvote overrides the bug gate, not ownership; build the smallest endorsed
 version and name Sid or Alice in the recap. Add `👀` before investigation or
 delegation and read it back. Keep an evidence-limited disposition until Phase
-2's four bars hold; only then use **Shipped** with `✅`.
+2's four bars hold; then use **Shipped**, adding `✅` only if it also meets
+**Fixed**.
 
-Phase 0 already claimed these with `👀`. If this workflow earlier eyed
-something out of scope, release it with `:no_entry_sign:`; do not post a
-compensating message.
-
-Run an unbounded reaction search across identities as well:
+Every run, exhaust oldest-first `has::eyes:` pages. Revisit active/waiting
+claims at any age, even without replies; terminal claims reopen on new evidence:
 
 ```
-slack_search: has:reaction in:<#CHANNEL>
+slack_search: has::eyes: in:<#CHANNEL>
+  sort=timestamp sort_dir=asc
 ```
 
-Read each matching parent and its reaction metadata. Use other valid workflow
-identities' eyes only to detect **Owned elsewhere**; leave those items out of
-your worklist. The `hasmy::eyes: -hasmy::white_check_mark: -hasmy::no_entry_sign:`
-cursor optimizes the current identity's scan but is
-never the only cursor. Keep your active claims in the worklist until a verified
-fix, targeted clarification, or Phase 0 release.
-
-Group repeat symptoms into one cluster with one owning investigation; the
-repeat gate in Phase 2 owns how they are worked.
+Read each full thread and linked work before classifying its current status;
+use reaction metadata only as history. Mark **Owned elsewhere** only when
+thread status or linked work confirms an active owner. New evidence after
+terminal status reopens the report; keep reactions.
 
 For GitHub, Sentry, and first-party Agent-Native Analytics, use native state as
 the cursor: recent open or unresolved items with no maintainer disposition,
@@ -310,11 +304,11 @@ re-read before posting/closing.
 Query both production Sentry projects - frontend/browser and backend/CLI -
 paginate unresolved issues, and record representative events, releases, and
 fingerprints. Classify each as repo-owned, external/provider,
-deployment/configuration, or unclear; fix repo-owned failures at the boundary
-and verify the source/build. Check the published runtime when available, but
-record any release or live gap separately rather than holding a merged fix open.
-Record external actions for the rest; silence or an old release is not proof the
-current error is gone.
+deployment/configuration, or unclear. Fix repo-owned failures at the boundary
+and verify locally. Use hosted runtime only when the full symptom cannot be
+reproduced locally and hosted behavior is needed. Track release gaps separately;
+don't hold a merged fix open. Record other external actions; silence or a stale
+release doesn't prove the error is gone.
 
 Query authenticated Agent-Native Analytics error issues in parallel. Use
 `list-error-issues` for unresolved groups, then `get-error-issue` for stacks,
@@ -323,9 +317,9 @@ and server `captureError()` failures when the server Analytics key/provider is
 configured. Use it as the Sentry fallback when rate-limited. Do not query
 `error_issues` or `error_events` through
 `query-agent-native-analytics`; use that action only for bounded event/LLM
-correlation. Apply the same ownership gate: fix worthwhile repo-owned issues
-at their boundary, verify runtime, and record external, deployment, or unclear
-issues without inventing a fix.
+correlation. Apply the same local-first rule. Fix worthwhile repo-owned failures
+at their boundary; record external, deployment, or unclear issues without
+inventing a fix.
 
 ## Phase 2: fix
 
@@ -397,18 +391,17 @@ surface is the contract:
    read UI and persisted state, and cover failure/retry/cancel/async paths.
    Destructive flows require wrong/partial/exact confirmation and recovery;
    do not delete unless needed.
-4. **Test release and race layers.** Use deterministic concurrency or 10 runs,
-   a clean scaffold/cache and exact published/candidate package, and the exact
-   beta/production URL when those layers are in scope. These strengthen
-   **Shipped** and **Live verified**; they do not keep a verified, merged source
-   fix open.
-5. Record untested layers/variants. Before a verified merge, use the narrowest
-   evidence-limited disposition. Once the source fix is verified in the merged
-   shipping snapshot, use **Fixed** even when publication, beta, or live layers
-   remain; create or link the durable follow-up required above. Use **Shipped**
-   or **Live verified** only after their additional bars hold. Never release
-   `✅` or call **Fixed** without merged source proof. A post-checkmark repeat
-   reopens the item and needs a fresh failing pre-change reproduction.
+4. **Test release/race layers when needed.** Use concurrency/10 runs, a clean
+   scaffold, and the exact package for package reports. Reproduce and verify
+   locally by default; use beta only if the full symptom cannot be reproduced
+   locally and hosted behavior is needed. Record why. These checks support
+   **Shipped**/**Live verified**, not a merged **Fixed** claim.
+5. Record untested layers. Before merge, use an evidence-limited status. After
+   verified source merge, mark **Fixed** even if release/live layers remain;
+   routine rollout and optional beta checks aren't ticketed follow-ups.
+   **Shipped**/**Live verified** need their own bars. Don't mark **Fixed**/`✅`
+   without merged-source proof. Reopen repeats only with a fresh failing
+   pre-change reproduction.
 
 ### Reproduction ledger - required for every row
 
@@ -460,37 +453,53 @@ instruction or prompt exception.
 
 ### The bar for saying "Fixed"
 
-Say **Fixed** only when all four hold: named symptom; exact pre/post
-reproduction; clean or triaged sibling sweep; and verified change in the merged
-shipping snapshot with source or built layer named. **Shipped** adds
-build/deploy provenance; **Live verified** adds target-runtime proof. Otherwise
-use a narrower disposition without implying beta or production health. Upvoted
-improvements state requested versus actual behavior and use **Shipped**.
+Phase 2 defines the proof bars for **Fixed**, **Shipped**, and
+**Live verified**. Upvoted improvements state requested versus actual behavior
+and use **Shipped**.
 
 ## Phase 3: reply
 
-`address-feedback-with-replies` owns reply voice, wording, and the thank-first
-rule. Follow it; do not restate or re-derive it here. Every reply from this
-workflow ends with `this was sent from a bot.` after the plain-language status.
+Thank issue reporters for opening it and Slack reporters for sharing. Give the
+status or ask a useful question. Follow `address-feedback-with-replies` for
+Slack voice. End each Slack reply with `this was sent from a bot.` after its
+plain-language status.
 
-Reply only where the reply carries information the thread does not already
-have. Three kinds qualify:
+Use everyday words for nontechnical readers. In one short paragraph, say what
+we did, what we didn't do when relevant, and what's next. Give a simple reason
+when useful. Keep technical proof in the recap or PR.
 
-- **Fixed** / **Shipped** / **Live verified** - meet the applicable bars above.
-  A live-verified row may be silent if its observation is recorded. For
-  packages, name the published version when available; otherwise name the
-  merged fix and list publication plus the upgrade/re-scaffold follow-up without
-  claiming the published package is fixed. Name beta URL/runtime only when
-  exercised; never substitute a future beta promise for release or live proof.
-  Use **Shipped** for upvoted improvements.
-- **In progress** — the thread already has real, concrete ownership (a named
-  PR, a person actively working it). Acknowledge it; ask nothing.
+Share only new or useful information.
+
+### After a PR merges
+
+After a Slack-fix PR merges, reply once in each affected thread, including
+clusters, and name the fix.
+
+For beta app fixes, check the merge-triggered publisher run before giving the
+normal few-hours ETA. This checks release-job status, not beta behavior. If it
+succeeds, say what changed and that it'll be on beta in the next few hours.
+Keep test environment, verification, publisher results, and rollout details out
+of the reply; record evidence in the recap or PR. If the run is missing or
+failed, omit the ETA and state what's done, the exact remaining action and owner,
+and an existing ticket when available. Apply the Reaction gate before `🎫`.
+For packages, state availability without verification details.
+
+For a fixed behavior with a ticketed handoff, state the done behavior and
+remaining action/owner/ticket separately; don't imply the fixed scope is open.
+Don't promise a ticket until created and assigned. Ask one targeted question if
+needed. If merge is later, retain source links and the reply obligation in the
+ledger.
+
+- **Fixed** / **Shipped** / **Live verified** meet Phase 2 bars. Recorded live
+  observations may be silent; merged Slack fixes still get the reply above.
+  **Shipped** is for upvoted improvements.
+- **In progress** — name continuing work and its owner; ask nothing.
 - **A question** — subject to the budget below.
 
-Everything else gets an internal recap row and **no message**. An unverified
-defect earns a targeted question when one answer would unblock it; use **Open -
-no reply** and `:no_entry_sign:` only when none can. Cluster duplicate causes.
-Re-read the full thread before replying and stay out of active human work.
+Unclaimed scope/noise gets an internal recap row. Ask about an unverified defect
+only when one answer would unblock it; otherwise record **Open - no question**
+once. Cluster duplicates. Re-read threads before replying and stay out of
+active human work.
 
 ### The question budget
 
@@ -528,30 +537,31 @@ invocation authorizes it; link them in the recap instead.
 
 ## Publishing
 
-A worktree is a valid PR source — commit, push, and open or update the PR from
-this worktree's branch and cwd. Use `corepack pnpm ship:push` for the complete
-snapshot and update the existing PR rather than opening a second one.
+Use this worktree's branch. Batch fixes with one
+`corepack pnpm ship:push -m "<specific fix>"`; each head reruns CI. Sync
+`origin/main` only for GitHub conflicts; prefer normal merges on shared
+branches. Behind/pending never justify syncing.
 
-With shipping authority — an explicit request, or a caller that already
-granted it — continue straight into `ship` in the same worktree without asking
-again. Without it, prepare the ready-to-ship handoff and say shipping is
-pending authorization. Carry the start cursor, grouped reports, evidence
-links, owning seam, sibling-sweep results, and every disposition into the PR
-body. Keep source-tested, built, deployed, and observed-live claims separate.
+Use `/ship` for PR ownership, push, and merge checks. Never push to another
+person's PR without explicit authorization for that exact PR in this request.
+Push-only authorization means `ship_mode=ready-only`; merging requires separate
+authorization for that PR. Without push authorization, hand off as pending.
+Carry feedback evidence and dispositions into PRs; reference only issues the
+PR fixes.
+Keep source-tested, built, deployed, and observed-live claims separate.
 
-If a tracker was supplied, carry its exact row ids and the reproduction ledger
-into the PR or release recap. Never turn a tracker status into a shipping claim.
-Give every row its own disposition marker. A single reaction, checkmark, or
-"reviewed" marker must not stand in for several rows, including expected,
-docs-owned, cross-team, or duplicate items. Any source/docs change is linked
-to its exact PR or commit; non-coding dispositions link the evidence or named
-owner instead of borrowing a nearby PR link.
+Carry exact tracker row ids and the reproduction ledger into the PR or release
+recap; tracker status is not shipping evidence. Mark each row independently: a
+reaction, checkmark, or "reviewed" cannot cover multiple rows, including
+expected, docs-owned, cross-team, or duplicate items. Link each source/docs
+change to its exact PR or commit, and each non-coding disposition to its
+evidence or owner.
 
-If the sweep found no verified fix, finish with the recap and say why no ship
-started. Unavailable connectors and external failures are not shipping blockers.
-While waiting, **Clarification needed** stays open with no `👀` or `✅`. It must
-not block merging independently verified fixes unless the report could affect a
-PR change. Re-claim when new evidence arrives.
+If no fix is verified, recap why shipping did not start. Unavailable connectors
+and external failures are not shipping blockers.
+While waiting, **Clarification needed** stays open with `👀` and no `✅`. It
+must not block merging independently verified fixes unless the report could
+affect a PR change. Keep the eye when new evidence arrives.
 
 ## Recap
 
@@ -560,25 +570,26 @@ on - that is how silence stays auditable.
 
 ```md
 ## Feedback sweep
-Start cursor: [Slack message](...)
-Messages enumerated: N · Claimed: N · Answered since last run: N
+Start cursors: product [Slack message](...) · QA [Slack message](...) · dev [Slack message](...)
+Reply cursors (reuse next run): product <timestamp> · QA <timestamp> · dev <timestamp>
+Messages: product N · QA N · dev N (total N) · claimed N · answered N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
-| Tracker row / source item | Reporter | Disposition | Repro and expected vs actual | Pre / post result | Runtime / build / live evidence | Docs locales | Replied? | Eye |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 18 / [Slack thread](...) | ... | <one disposition from the authoritative list above> | command or click sequence; expected / actual | before: ...; after: ... | source / tests / build / deploy / URL | updated / not applicable / pending | yes / no | held by me / held by other / released with `✅` (verified fix) or `:no_entry_sign:` (non-fixed closure) |
+| Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete
 Unavailable or unverified: ...
 ```
 
-`Open - no reply` is a last resort, not a success state. It requires that you
-worked the defect, could not fix it, and could not form a question that would
-unblock it; a run whose ledger is mostly `Open - no reply` has under-asked, not
-finished. It always means the eye was released with `:no_entry_sign:`. "Nothing
+`Open - no question` is a last resort, not a success state. It requires that
+you worked the defect, could not fix it, and could not form a question that would
+unblock it; a run whose ledger is mostly `Open - no question` has under-asked, not
+finished. It keeps our eye and has no checkmark. "Nothing
 matched" is valid only after each source was queried successfully, with the
 cursor stated.
 
