@@ -340,11 +340,10 @@ export function setCodeLayerAttributeInHtml(
   return `${content.slice(0, insertAt)}${replacement}${content.slice(insertAt)}`;
 }
 
-// Reads whole tags with their quoted attributes, so a `<body` inside a comment,
-// an attribute value, or a script, style, textarea, or title is never taken
-// for the document's body tag.
+// Reads whole tags with their quoted attributes and skips every element whose
+// content HTML parses as text, so only the document's own `<body` matches.
 const BODY_OPEN_TAG_SCAN =
-  /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title)\b[\s\S]*?<\/\1\s*>|<\/?[A-Za-z][^\s/>]*(?:"[^"]*"|'[^']*'|[^'">])*>/gi;
+  /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title|xmp|iframe|noembed|noframes|noscript)\b[\s\S]*?<\/\1\s*>|<\/?[A-Za-z][^\s/>]*(?:"[^"]*"|'[^']*'|[^'">])*>/gi;
 
 function findBodyOpenTag(
   content: string,
