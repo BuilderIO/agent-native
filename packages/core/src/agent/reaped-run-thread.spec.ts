@@ -125,6 +125,25 @@ describe("a run the server reaps after its worker died", () => {
     });
   });
 
+  it("leaves the thread alone once a later prompt was saved", async () => {
+    const thread = `thread-reaped-${seq}`;
+    const turn = `turn-reaped-${seq}`;
+    const run = `run-reaped-${seq}`;
+    const nextPrompt = userTurn("Never mind");
+    (nextPrompt.message as any).metadata = {
+      custom: { submittedTurnId: `${turn}-later` },
+    };
+    const later = JSON.stringify({
+      messages: [userTurn("Bill Ana"), nextPrompt],
+    });
+    threads.set(thread, later);
+    await crashAfterSending(thread, turn, run);
+
+    expect(await reapIfStale(run, -1)).toBe(true);
+
+    expect(threads.get(thread)).toBe(later);
+  });
+
   it("leaves the thread alone once a later turn started", async () => {
     const thread = `thread-reaped-${seq}`;
     const turn = `turn-reaped-${seq}`;

@@ -8,6 +8,7 @@ import {
   buildAssistantMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  isRunPrompt,
   normalizeThreadRepository,
 } from "./thread-data-builder.js";
 
@@ -20,8 +21,8 @@ import {
  *
  * A run continued in its turn is saved as the first part of that turn's
  * reply; one with nothing after it keeps its error. Nothing is saved once a
- * later turn started, because the reply would land after that turn's
- * messages.
+ * later turn started or a later prompt was saved, because the reply would
+ * land under that prompt instead of its own.
  */
 export async function foldReapedRunIntoThread(runId: string): Promise<void> {
   const run = await readStoppedRunForThreadFold(runId);
@@ -38,13 +39,12 @@ export async function foldReapedRunIntoThread(runId: string): Promise<void> {
       JSON.parse(thread.threadData || "{}"),
     );
     const last = repo.messages.at(-1)?.message ?? repo.messages.at(-1);
-    const lastTurnId = last?.metadata?.custom?.turnId;
-    if (
-      last?.role !== "user" &&
-      !(last?.role === "assistant" && lastTurnId === run.turnId)
-    ) {
-      return;
-    }
+    const ownsLast =
+      last?.role === "user"
+        ? isRunPrompt(last, { runId, ...run })
+        : last?.role === "assistant" &&
+          last.metadata?.custom?.turnId === run.turnId;
+    if (!ownsLast) return;
     const folded = foldAssistantTurn(repo, assistant, {
       runId,
       turnId: run.turnId,

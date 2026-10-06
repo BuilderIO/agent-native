@@ -1794,6 +1794,26 @@ function latestStoredUser(repo: any): any {
     .findLast((message: any) => message?.role === "user");
 }
 
+/**
+ * Whether a stored user message is the prompt this run answers, rather than
+ * one sent after it started. Messages saved without the server's turn stamp
+ * fall back to their creation time.
+ */
+export function isRunPrompt(
+  user: any,
+  run: { runId: string; turnId?: string | null; startedAt: number },
+): boolean {
+  const userContext = user?.metadata?.custom;
+  if (userContext?.submittedTurnId) {
+    return userContext.submittedTurnId === run.turnId;
+  }
+  return (
+    userContext?.submittedRunId === run.runId ||
+    !user?.createdAt ||
+    new Date(user.createdAt).getTime() <= run.startedAt
+  );
+}
+
 function clearThreadSuggestions(repo: any): any {
   return repo.agentKit
     ? { ...repo, agentKit: { ...repo.agentKit, suggestions: [] } }
@@ -1815,17 +1835,7 @@ export function foldThreadRunSuggestions(
   repo: any,
   run: ThreadSuggestionRun,
 ): any {
-  const user = latestStoredUser(repo);
-  const userContext = user?.metadata?.custom;
-  if (
-    userContext?.submittedTurnId
-      ? userContext.submittedTurnId !== run.turnId
-      : userContext?.submittedRunId !== run.runId &&
-        user?.createdAt &&
-        new Date(user.createdAt).getTime() > run.startedAt
-  ) {
-    return repo;
-  }
+  if (!isRunPrompt(latestStoredUser(repo), run)) return repo;
   const previous = repo.agentKit ?? {};
   const latest = latestSnapshotRun(previous.runs);
   const startedAt = new Date(run.startedAt).toISOString();

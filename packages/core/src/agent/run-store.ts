@@ -2376,6 +2376,7 @@ export async function getRunById(runId: string): Promise<{
 export async function readStoppedRunForThreadFold(runId: string): Promise<{
   threadId: string;
   turnId: string;
+  startedAt: number;
   events: RunEvent[];
   continuedInTurn: boolean;
   laterTurnStarted: boolean;
@@ -2384,6 +2385,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT r.thread_id, COALESCE(r.turn_id, r.id) AS turn_id,
+                 r.started_at,
                  EXISTS (
                    SELECT 1 FROM agent_runs later
                    WHERE later.thread_id = r.thread_id
@@ -2405,6 +2407,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
     | {
         thread_id: string;
         turn_id: string;
+        started_at: number | string;
         continued_in_turn: boolean | string;
         later_turn_started: boolean | string;
       }
@@ -2417,6 +2420,7 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
   return {
     threadId: row.thread_id,
     turnId: row.turn_id,
+    startedAt: Number(row.started_at),
     events,
     continuedInTurn:
       row.continued_in_turn === true || row.continued_in_turn === "t",
