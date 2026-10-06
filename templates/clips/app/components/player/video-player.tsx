@@ -82,6 +82,7 @@ function resolveLocalUrl(url: string | null | undefined): string | undefined {
 const VOLATILE_VIDEO_QUERY_PARAMS = new Set([
   "t",
   "cb",
+  "media",
   LOOM_START_MS_QUERY_PARAM,
   "password",
   "X-Amz-Algorithm",
@@ -97,24 +98,52 @@ const VOLATILE_VIDEO_QUERY_PARAMS = new Set([
 ]);
 
 const PLAY_ATTEMPT_TIMEOUT_MS = 15_000;
+// The file behind a clip's URL can be replaced while a viewer has it open
+// (post-finalize compression). One retry is spent on the first failure, so a
+// second is what lets a later swap recover instead of surfacing an error.
+const MAX_AUTO_ERROR_RETRIES = 2;
 
-function videoSourceIdentity(url: string | undefined): string {
-  if (!url) return "";
+function parseVideoUrl(url: string): URL | null {
   try {
     const base =
       typeof window === "undefined"
         ? "http://clips.local"
         : window.location.href;
-    const parsed = new URL(url, base);
-    parsed.hash = "";
-    for (const key of VOLATILE_VIDEO_QUERY_PARAMS) {
-      parsed.searchParams.delete(key);
-    }
-    parsed.searchParams.sort();
-    return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+    return new URL(url, base);
   } catch {
-    return url;
+    return null;
   }
+}
+
+function videoSourceIdentity(url: string | undefined): string {
+  if (!url) return "";
+  const parsed = parseVideoUrl(url);
+  if (!parsed) return url;
+  parsed.hash = "";
+  for (const key of VOLATILE_VIDEO_QUERY_PARAMS) {
+    parsed.searchParams.delete(key);
+  }
+  parsed.searchParams.sort();
+  return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+}
+
+function videoMediaVersion(url: string | undefined): string | null {
+  return url ? (parseVideoUrl(url)?.searchParams.get("media") ?? null) : null;
+}
+
+// The file behind a recording's URL is rewritten after finalize (webm
+// seekable repair, compression, edits) and `media` carries that version. It is
+// volatile for identity, so a bump must be applied as an explicit hot swap or
+// a playing element would keep streaming the stale file.
+export function isMediaVersionRefresh(
+  activeSrc: string | undefined,
+  incomingSrc: string | undefined,
+): boolean {
+  if (!activeSrc || !incomingSrc) return false;
+  if (videoSourceIdentity(activeSrc) !== videoSourceIdentity(incomingSrc)) {
+    return false;
+  }
+  return videoMediaVersion(activeSrc) !== videoMediaVersion(incomingSrc);
 }
 
 function clampLoomSeek(ms: number, durationMs: number): number {
@@ -292,7 +321,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       null,
     );
     const resumeAfterReloadMsRef = useRef<number | null>(null);
-    const autoRetriedErrorRef = useRef(false);
+    const autoErrorRetriesRef = useRef(0);
     const recoveringFromErrorRef = useRef(false);
     const prevMseModeRef = useRef("");
     const currentMsRef = useRef(startMs ?? 0);
@@ -368,6 +397,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       },
       [autoPlay, clearPlayAttemptWatchdog, recordingId],
     );
+
+    const beginPlayAttempt = useCallback(() => {
+      const nextId = playAttemptIdRef.current + 1;
+      playAttemptIdRef.current = nextId;
+      playAttemptPendingRef.current = true;
+      setIsPlayPending(true);
+      setIsBuffering(true);
+      armPlayAttemptWatchdog(nextId);
+    }, [armPlayAttemptWatchdog]);
     const [resolvedDurationMs, setResolvedDurationMs] = useState<number>(
       Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0,
     );
@@ -614,12 +652,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }
 
       if (wasPlaying) {
-        const nextId = playAttemptIdRef.current + 1;
-        playAttemptIdRef.current = nextId;
-        playAttemptPendingRef.current = true;
-        setIsPlayPending(true);
-        setIsBuffering(true);
-        armPlayAttemptWatchdog(nextId);
+        beginPlayAttempt();
       } else {
         clearPlayAttemptWatchdog();
         setIsPlaying(false);
@@ -627,12 +660,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }
       setIsPreparing(true);
       setCanPlay(false);
-    }, [
-      activeVideoSrc,
-      armPlayAttemptWatchdog,
-      clearPlayAttemptWatchdog,
-      mse.mode,
-    ]);
+    }, [activeVideoSrc, beginPlayAttempt, clearPlayAttemptWatchdog, mse.mode]);
 
     useEffect(() => {
       if (!resolvedVideoSrc) {
@@ -655,12 +683,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         isPlaying ||
         Boolean(v && !v.paused && !v.ended);
 
+      if (isMediaVersionRefresh(activeVideoSrc, resolvedVideoSrc)) {
+        const posMs = currentMsRef.current > 0 ? currentMsRef.current : null;
+        if (posMs != null) resumeAfterReloadMsRef.current = posMs;
+        recoveringFromErrorRef.current = true;
+        autoPlayAttemptedSourceRef.current = resolvedVideoSrc ?? "";
+
+        if (playbackActive) beginPlayAttempt();
+        setIsPreparing(true);
+        setCanPlay(false);
+        setActiveVideoSrc(resolvedVideoSrc);
+        return;
+      }
+
       if (!sameResource || !playbackActive) {
         setActiveVideoSrc(resolvedVideoSrc);
       }
     }, [
       activeVideoSourceIdentity,
       activeVideoSrc,
+      beginPlayAttempt,
       incomingVideoSourceIdentity,
       isPlayPending,
       isPlaying,
@@ -1177,7 +1219,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       thumbnailCapturedRef.current = false;
       initialVisibleFrameSeekedRef.current = false;
       loomInitialStartAppliedRef.current = "";
-      autoRetriedErrorRef.current = false;
+      autoErrorRetriesRef.current = 0;
       recoveringFromErrorRef.current = false;
       setLoomStartMs(null);
       playAttemptIdRef.current += 1;
@@ -1778,9 +1820,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 return;
               }
 
-              if (!autoRetriedErrorRef.current && activeVideoSrc) {
-                autoRetriedErrorRef.current = true;
+              if (
+                autoErrorRetriesRef.current < MAX_AUTO_ERROR_RETRIES &&
+                activeVideoSrc
+              ) {
+                autoErrorRetriesRef.current += 1;
                 recoveringFromErrorRef.current = true;
+                const wasPlaying = isPlayingRef.current;
                 const v = e.currentTarget;
                 const cacheBustedSrc = setUrlSearchParam(
                   activeVideoSrc,
@@ -1789,7 +1835,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 );
                 resumeAfterReloadMsRef.current =
                   currentMs > 0 ? currentMs : null;
-                setIsBuffering(false);
+                if (wasPlaying) beginPlayAttempt();
+                else setIsBuffering(false);
                 setIsPreparing(true);
                 setCanPlay(false);
                 v.src = cacheBustedSrc;
@@ -1809,7 +1856,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 {
                   recordingId,
                   videoSrc: activeVideoSrc,
-                  autoRetried: autoRetriedErrorRef.current,
+                  autoRetries: autoErrorRetriesRef.current,
                 },
               );
               setPlayError(
