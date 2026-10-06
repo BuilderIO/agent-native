@@ -59,7 +59,6 @@ function formatLinkedReferenceDesignSystem(
   ];
   return [
     ...lines,
-    `designSystemTitle: ${context.title}`,
     `scope: ${context.scope}`,
     context.agentContext,
     ...(context.next ? [context.next] : []),
