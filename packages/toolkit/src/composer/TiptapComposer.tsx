@@ -1222,8 +1222,8 @@ export interface TiptapComposerProps {
   interceptBuildRequestsForBuilder?: boolean;
   /**
    * Called when a drag-drop or paste attachment fails (e.g. unsupported format,
-   * size cap). Use this to surface a visible error in the parent chat surface
-   * rather than silently swallowing the problem.
+   * size cap) so the host can show it in its own surface. Without it, the
+   * composer shows the message inline.
    */
   onAttachmentError?: (message: string) => void;
 }
@@ -2863,8 +2863,10 @@ export function TiptapComposer({
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
   const composingRef = useRef(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const onAttachmentErrorRef = useRef(onAttachmentError);
-  onAttachmentErrorRef.current = onAttachmentError;
+  // Many standalone prompts pass no handler; a rejected file must still say so.
+  onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
   const execModeRef = useRef(execMode);
@@ -3091,6 +3093,7 @@ export function TiptapComposer({
   }, [cleanStaleAttachments, composerRuntime]);
   const addAttachmentForCurrentScope = useCallback(
     (file: File) => {
+      setAttachmentError(null);
       const scopeGeneration = draftScopeGenerationRef.current;
       const submissionBarrier = attachmentSubmissionBarrierRef.current;
       let resolveOperation!: () => void;
@@ -3287,6 +3290,7 @@ export function TiptapComposer({
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
       setEditorHasText(composerDocumentHasContent(ed.state.doc));
+      setAttachmentError(null);
       onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
       setReferenceRevision((revision) => revision + 1);
 
@@ -5859,6 +5863,14 @@ export function TiptapComposer({
       {contextSubmissionError ? (
         <p role="alert" className="px-2 text-xs text-destructive">
           {contextSubmissionError}
+        </p>
+      ) : null}
+      {attachmentError ? (
+        <p
+          role="alert"
+          className="break-words px-2.5 pt-2 text-xs text-destructive"
+        >
+          {attachmentError}
         </p>
       ) : null}
       <div

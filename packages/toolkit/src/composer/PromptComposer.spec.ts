@@ -277,4 +277,40 @@ describe("PromptComposer attachment policy", () => {
       }),
     ).resolves.toMatchObject({ type: "image", name: "logo.png" });
   });
+
+  it("shows why a file was rejected when the host passes no error handler", async () => {
+    await act(async () => {
+      root.render(
+        React.createElement(PromptComposer, {
+          attachmentsEnabled: true,
+          includeDefaultSlashSkills: false,
+          onSubmit: () => {},
+          plusMenuMode: "upload-only",
+          showModelSelector: false,
+          voiceEnabled: false,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const editor = container.querySelector<HTMLElement>(
+      ".agent-composer-prosemirror",
+    );
+    expect(editor).not.toBeNull();
+    const pasteEvent = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: {
+        files: [new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" })],
+        getData: () => "",
+      },
+    });
+
+    await act(async () => {
+      editor?.dispatchEvent(pasteEvent);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Could not attach the pasted image. Try a different format.",
+    );
+  });
 });
