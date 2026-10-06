@@ -31,6 +31,7 @@ const SESSION_STATUS_PATH = "/_agent-native/auth/session";
 const cache = new Map<string, CacheEntry>();
 const requests = new Map<string, Promise<ClientStatusResult<unknown>>>();
 const supersededRequests = new WeakSet<object>();
+const freshRequests = new WeakSet<object>();
 const requestControllers = new Map<string, AbortController>();
 const requestGenerations = new Map<string, number>();
 let invalidationListenersInstalled = false;
@@ -96,6 +97,9 @@ async function fetchClientStatus<T>(
   cache.delete(url);
 
   const pending = requests.get(url);
+  if (pending && options?.fresh && freshRequests.has(pending)) {
+    return pending as Promise<ClientStatusResult<T>>;
+  }
   if (pending && !options?.fresh) {
     return pending as Promise<ClientStatusResult<T>>;
   }
@@ -144,7 +148,7 @@ async function fetchClientStatus<T>(
   const request = Promise.race([transport, timeout])
     .then((result) => {
       if (supersededRequests.has(request)) {
-        return { state: "unavailable", stale: true } as const;
+        return fetchClientStatus<T>(path);
       }
       if (
         currentGeneration() === requestGeneration &&
@@ -171,6 +175,7 @@ async function fetchClientStatus<T>(
     });
 
   requests.set(url, request);
+  if (options?.fresh) freshRequests.add(request);
   if (controller) requestControllers.set(url, controller);
   return request as Promise<ClientStatusResult<T>>;
 }
