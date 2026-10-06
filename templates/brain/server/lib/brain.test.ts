@@ -813,8 +813,12 @@ import {
   writeBrainSettings,
   writeKnowledgeRecord,
 } from "./brain.js";
-import { buildSanitizerSystemPrompt } from "./capture-sanitization.js";
 import {
+  BrainClassifierUnavailableError,
+  buildSanitizerSystemPrompt,
+} from "./capture-sanitization.js";
+import {
+  connectorErrorMessage,
   isSlackDirectConversation,
   normalizeSlackThreadCapture,
   normalizeGranolaNote,
@@ -2846,6 +2850,27 @@ describe("Brain knowledge quality gates", () => {
   });
 });
 
+describe("connectorErrorMessage", () => {
+  it("reads a message from a non-Error event instead of printing [object ErrorEvent]", () => {
+    class ErrorEvent {
+      constructor(
+        readonly message: string,
+        readonly error?: unknown,
+      ) {}
+    }
+
+    expect(connectorErrorMessage(new ErrorEvent("socket hang up"))).toBe(
+      "socket hang up",
+    );
+    expect(
+      connectorErrorMessage(new ErrorEvent("", new Error("connection reset"))),
+    ).toBe("connection reset");
+    const fallback = connectorErrorMessage(new ErrorEvent(""));
+    expect(fallback).toContain("unexpected ErrorEvent");
+    expect(fallback).not.toContain("[object");
+  });
+});
+
 describe("Brain connector smoke coverage", () => {
   it("tests Slack credentials and channel metadata without reading history", async () => {
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
@@ -4174,6 +4199,30 @@ describe("Brain connector smoke coverage", () => {
     expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "org", upstreamRefHash: "G123" }),
     );
+  });
+
+  it("schedules a short retry and keeps the cursor when Jev times out mid-sync", async () => {
+    vi.stubGlobal("fetch", privateSlackChannelFetch());
+    mocks.audienceHook.value = async () => {
+      throw new BrainClassifierUnavailableError("jev-timeout");
+    };
+    const source = seedSource({
+      id: "slack-jev-timeout-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+    const before = Date.now();
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    expect(source.status).toBe("error");
+    expect(source.lastError).toContain("nothing was skipped");
+    const cursor = JSON.parse(String(source.cursorJson));
+    expect(cursor.channels?.G123?.latestTs).toBeUndefined();
+    const retryAt = Date.parse(cursor.transientRetryAt);
+    expect(retryAt - before).toBeGreaterThan(9 * 60 * 1000);
+    expect(retryAt - before).toBeLessThan(11 * 60 * 1000);
   });
 
   it("still rejects a private channel configured by name instead of ID", async () => {
