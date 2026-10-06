@@ -95,11 +95,6 @@ interface FirstPartyAnalyticsEventRow {
 
 const TABLE_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const PROJECT_ID_PATTERN = /^[A-Za-z][A-Za-z0-9-]{4,61}[A-Za-z0-9]$/;
-const FIRST_PARTY_QUERY_TABLES = [
-  "analytics_events",
-  "analytics_event_daily_rollups",
-  "analytics_user_days",
-] as const;
 const BACKEND_CONFIG_CACHE_TTL_MS = 30_000;
 const MAX_BACKFILL_BATCH_SIZE = 750;
 const MAX_INSERT_BATCH_SIZE = 200;
