@@ -6,6 +6,10 @@ import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 import type { DbExec } from "../db/client.js";
 import { getOrgDomain } from "../org/context.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
+import {
+  describeBearerCredentialRefusalWithRecovery,
+  type BearerCredentialRefusal,
+} from "../server/bearer-credential-refusal.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
@@ -186,6 +190,11 @@ export function getMcpOAuthIssuer(event: H3Event): string | undefined {
   return appendConfiguredBasePath(baseUrl);
 }
 
+export function getMcpConnectUrl(event: H3Event): string | undefined {
+  const issuer = getMcpOAuthIssuer(event);
+  return issuer ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/connect` : undefined;
+}
+
 function normalizeMcpResourcePath(routePath?: string): string {
   if (
     routePath === MCP_LEGACY_ROUTE_PREFIX ||
@@ -275,15 +284,24 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
   return metadataUrl.toString();
 }
 
+/** `refusal` is set only when the request presented a bearer token. */
 export function buildMcpOAuthChallenge(
   event: H3Event,
   routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  refusal?: BearerCredentialRefusal,
 ): string {
   const metadata = getMcpOAuthProtectedResourceMetadataUrl(event, routePath);
-  const scope = MCP_OAUTH_RESOURCE_SCOPE;
-  return metadata
-    ? `Bearer resource_metadata="${metadata}", scope="${scope}"`
-    : `Bearer scope="${scope}"`;
+  const params = [
+    ...(metadata ? [`resource_metadata="${metadata}"`] : []),
+    `scope="${MCP_OAUTH_RESOURCE_SCOPE}"`,
+    ...(refusal
+      ? [
+          `error="invalid_token"`,
+          `error_description="${describeBearerCredentialRefusalWithRecovery(refusal, getMcpConnectUrl(event))}"`,
+        ]
+      : []),
+  ];
+  return `Bearer ${params.join(", ")}`;
 }
 
 function protectedResourcePathFromRequest(

@@ -441,7 +441,7 @@ describe("handleMcpConnect", () => {
       expect(res.status).toBe(401);
     });
 
-    it("mints a connect-scoped JWT with jti and records it", async () => {
+    it("mints an audience-bound MCP OAuth token while A2A_SECRET is set and records its jti", async () => {
       getSessionMock.mockResolvedValue({
         email: "u@example.com",
         orgId: "org-1",
@@ -465,21 +465,28 @@ describe("handleMcpConnect", () => {
         "npx @agent-native/core@latest connect https://mail.agent-native.com",
       );
 
-      const { payload } = await jose.jwtVerify(
-        data.token,
-        new TextEncoder().encode(SECRET),
-      );
-      expect(payload.sub).toBe("u@example.com");
-      expect(payload.scope).toBe("mcp-connect");
-      expect(typeof payload.jti).toBe("string");
-      expect(payload.org_domain).toBe("builder.io");
+      const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const verified = await verifyMcpOAuthAccessToken(data.token, data.mcpUrl);
+      expect(verified).toMatchObject({
+        userEmail: "u@example.com",
+        orgId: "org-1",
+        orgDomain: "builder.io",
+        clientId: "agent-native-connect",
+        jti: expect.any(String),
+      });
+      expect(
+        await verifyMcpOAuthAccessToken(
+          data.token,
+          "https://calendar.agent-native.com/mcp",
+        ),
+      ).toBeNull();
 
       expect(tokenRows).toHaveLength(1);
       expect(tokenRows[0]).toMatchObject({
         ownerEmail: "u@example.com",
         orgId: "org-1",
         label: "laptop",
-        jti: payload.jti,
+        jti: verified?.jti,
       });
     });
 
@@ -1089,12 +1096,14 @@ describe("handleMcpConnect", () => {
       );
       const data = await res.json();
       expect(data.status).toBe("approved");
-      const { payload } = await jose.jwtVerify(
-        data.token,
-        new TextEncoder().encode(SECRET),
-      );
-      expect(payload.sub).toBe("u@example.com");
-      expect(payload.scope).toBe("mcp-connect");
+      const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
+      expect(
+        await verifyMcpOAuthAccessToken(data.token, data.mcpUrl),
+      ).toMatchObject({
+        userEmail: "u@example.com",
+        clientId: "agent-native-connect",
+      });
+      const payload = jose.decodeJwt(data.token);
       const lifetimeDays =
         ((payload.exp as number) - (payload.iat as number)) / 86400;
       expect(Math.round(lifetimeDays)).toBe(365);

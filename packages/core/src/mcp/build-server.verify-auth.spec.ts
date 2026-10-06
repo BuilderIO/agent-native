@@ -110,7 +110,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       resourceUrl: "https://assets.example.com/_agent-native/mcp",
     });
 
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
   });
 
   it("rejects an audience-bound ordinary A2A JWT when the resource URL is unknown", async () => {
@@ -120,7 +120,7 @@ describe("verifyAuth — connect-token revoke check", () => {
 
     const res = await verifyAuth(`Bearer ${token}`);
 
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
   });
 
   it("accepts an org-secret A2A JWT without treating its subject as a user", async () => {
@@ -190,7 +190,7 @@ describe("verifyAuth — connect-token revoke check", () => {
 
     const res = await verifyAuth(`Bearer ${token}`, "alice@acme");
 
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
@@ -271,7 +271,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       org_domain: "builder.io",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, refusal: "unknown-connect-token" });
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
@@ -346,7 +346,7 @@ describe("verifyAuth — connect-token revoke check", () => {
         org_id: orgId,
       });
       const res = await verifyAuth(`Bearer ${token}`);
-      expect(res).toEqual({ authed: false });
+      expect(res).toEqual({ authed: false, refusal: "invalid" });
       expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     },
   );
@@ -864,7 +864,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
         resourceUrl: resource,
       },
     );
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, refusal: "not-member" });
   });
 
   it("fails closed, and says so, when the membership check cannot run", async () => {
@@ -922,7 +922,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
       jti: "jti-legacy",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, refusal: "not-member" });
     expect(checkCredentialOrgMembershipMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_legacy",
@@ -946,7 +946,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
       org_id: "org_123",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, refusal: "not-member" });
     expect(checkCredentialOrgMembershipMock).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org_123",
@@ -970,7 +970,10 @@ describe("verifyAuth — the token's organization must still be the user's", () 
       org_id: "org_other",
     });
 
-    expect(await verifyAuth(`Bearer ${token}`)).toEqual({ authed: false });
+    expect(await verifyAuth(`Bearer ${token}`)).toEqual({
+      authed: false,
+      refusal: "identity-mismatch",
+    });
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
@@ -984,7 +987,10 @@ describe("verifyAuth — the token's organization must still be the user's", () 
       org_id: "org_123",
     });
 
-    expect(await verifyAuth(`Bearer ${token}`)).toEqual({ authed: false });
+    expect(await verifyAuth(`Bearer ${token}`)).toEqual({
+      authed: false,
+      refusal: "unknown-connect-token",
+    });
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
   });
 
@@ -1126,6 +1132,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
 
     await expect(verifyAuth(`Bearer ${token}`)).resolves.toEqual({
       authed: false,
+      refusal: "invalid",
     });
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
@@ -1259,9 +1266,8 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(resolveA2AOrganizationMetadataByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
-    expect(lookupConnectTokenOrgMock).toHaveBeenCalledWith(
-      "jti-first-party-unclaimed",
-    );
+    expect(isJtiRevokedMock).not.toHaveBeenCalled();
+    expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
   });
 });
@@ -1300,7 +1306,7 @@ describe("verifyAuth — a credential for an address an email change retired", (
     const res = await verifyAuth(`Bearer ${token}`, undefined, {
       resourceUrl: resource,
     });
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, refusal: "email-retired" });
     expect(checkCredentialEmailRetirementMock).toHaveBeenCalledWith({
       email: "renamed@example.com",
       issuedAt: expect.any(Number),
@@ -1321,7 +1327,7 @@ describe("verifyAuth — a credential for an address an email change retired", (
       jti: "jti-renamed",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res).toEqual({ authed: false });
+    expect(res).toEqual({ authed: false, refusal: "email-retired" });
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 

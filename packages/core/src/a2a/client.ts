@@ -191,8 +191,8 @@ export async function signA2AToken(
     preferGlobalSecret?: boolean;
     audience?: string | string[];
     /**
-     * Extra JWT claims to merge alongside `sub` / `org_domain`. Used by the
-     * MCP connect flow to add a revocable `jti` and a `scope: "mcp-connect"`
+     * Extra JWT claims to merge alongside `sub` / `org_domain`. Used by
+     * first-party MCP calls to add a `jti` and a `scope: "mcp-connect"`
      * marker. Reserved claims (`sub`, `org_domain`) cannot be overridden —
      * they are spread last so a caller can never spoof identity via this map.
      */

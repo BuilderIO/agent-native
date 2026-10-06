@@ -168,6 +168,10 @@ import {
   type SignupAttributionContext,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
+import {
+  markBearerCredentialRefused,
+  respondBearerCredentialRefused,
+} from "./bearer-credential-refusal.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
@@ -1151,11 +1155,13 @@ export async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveMcpIdentityOrgId }] =
-      await Promise.all([
-        import("../mcp/oauth-route.js"),
-        import("../mcp/build-server.js"),
-      ]);
+    const [
+      { getMcpConnectUrl, getMcpOAuthAudiences },
+      { verifyAuth, resolveMcpIdentityOrgId },
+    ] = await Promise.all([
+      import("../mcp/oauth-route.js"),
+      import("../mcp/build-server.js"),
+    ]);
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
@@ -1165,7 +1171,17 @@ export async function getMcpOAuthBearerSession(
       markCredentialMembershipUnavailable(event);
       return null;
     }
-    const identity = result.authed ? result.identity : undefined;
+    if (!result.authed) {
+      if (result.refusal) {
+        markBearerCredentialRefused(
+          event,
+          result.refusal,
+          getMcpConnectUrl(event),
+        );
+      }
+      return null;
+    }
+    const identity = result.identity;
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
@@ -4193,6 +4209,8 @@ function createAuthGuardFn(
     if (isCredentialMembershipUnavailable(event)) {
       return respondCredentialMembershipUnavailable(event);
     }
+    const refused = respondBearerCredentialRefused(event);
+    if (refused) return refused;
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
       setResponseStatus(event, 401);

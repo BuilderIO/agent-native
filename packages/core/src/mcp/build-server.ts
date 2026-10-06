@@ -37,6 +37,7 @@ import { getAppConfig } from "../app-config/store.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import type { BearerCredentialRefusal } from "../server/bearer-credential-refusal.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import {
   buildDeepLink,
@@ -75,7 +76,6 @@ import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
-  type ConnectTokenOrgLookup,
   type StoredConnectTokenIdentity,
 } from "./connect-store.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
@@ -2772,8 +2772,6 @@ async function verifyA2AJwtForMcp(
         }
       }
 
-      const tokenScope =
-        typeof payload.scope === "string" ? payload.scope : undefined;
       const firstPartyMcp = payload.agent_native_first_party_mcp === true;
       const hasOrganizationClaim =
         Object.prototype.hasOwnProperty.call(payload, "org_id") &&
@@ -2781,11 +2779,11 @@ async function verifyA2AJwtForMcp(
       const hasOrganizationDomainClaim =
         Object.prototype.hasOwnProperty.call(payload, "org_domain") &&
         payload.org_domain !== null;
-      const locallyIssuedConnectToken =
-        tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp;
-      const unclaimedFirstPartyToken =
-        firstPartyMcp && !hasOrganizationClaim && !hasOrganizationDomainClaim;
-      if (locallyIssuedConnectToken || unclaimedFirstPartyToken) {
+      if (
+        firstPartyMcp &&
+        !hasOrganizationClaim &&
+        !hasOrganizationDomainClaim
+      ) {
         return payload;
       }
 
@@ -2852,10 +2850,12 @@ function mcpAudienceList(resource: string | string[] | undefined): string[] {
 async function refuseInactiveConnectToken(
   jti: string | undefined,
 ): Promise<VerifyAuthResult | null> {
-  if (!jti) return { authed: false };
+  if (!jti) return { authed: false, refusal: "invalid" };
   const { isJtiRevoked } = await import("./connect-store.js");
   try {
-    return (await isJtiRevoked(jti)) ? { authed: false } : null;
+    return (await isJtiRevoked(jti))
+      ? { authed: false, refusal: "revoked" }
+      : null;
   } catch (error) {
     console.error(
       "[mcp] Connect-token revocation check failed; refusing the token:",
@@ -2880,73 +2880,6 @@ async function markConnectTokenUsed(jti: string | undefined): Promise<void> {
   }
 }
 
-type ConnectTokenOrgResolution =
-  | {
-      status: "claimed";
-      orgId: string | null;
-      storedConnectToken?: StoredConnectTokenIdentity;
-    }
-  | ConnectTokenOrgLookup
-  | { status: "unclaimed" };
-
-/**
- * `connectJti` is set only for connect tokens. Any other token without an
- * `org_id` claim is `unclaimed`, and its org is resolved later from
- * `org_domain` or the caller's email.
- */
-async function resolveConnectTokenOrgId(
-  connectJti: string | undefined,
-  claimedOrgId: string | null | undefined,
-): Promise<ConnectTokenOrgResolution> {
-  let stored: ConnectTokenOrgLookup | undefined;
-  if (connectJti) {
-    const { lookupConnectTokenOrg } = await import("./connect-store.js");
-    stored = await lookupConnectTokenOrg(connectJti);
-    if (stored.status === "unavailable") return stored;
-  }
-  if (claimedOrgId !== undefined) {
-    return {
-      status: "claimed",
-      orgId: claimedOrgId,
-      ...(stored?.status === "found" ? { storedConnectToken: stored } : {}),
-    };
-  }
-  return stored ?? { status: "unclaimed" };
-}
-
-function orgIdFromConnectTokenResolution(
-  resolution: ConnectTokenOrgResolution,
-): string | null | undefined {
-  if (resolution.status === "claimed" || resolution.status === "found") {
-    return resolution.orgId;
-  }
-  // A first-party cross-app token with no row here was not issued for any org
-  // this app knows. Its `org_domain` claim must not grant that domain's org.
-  if (resolution.status === "missing") return null;
-  return undefined;
-}
-
-function matchesStoredConnectTokenIdentity(
-  resolution: ConnectTokenOrgResolution,
-  input: {
-    ownerEmail: string | undefined;
-    orgId: string | null | undefined;
-  },
-): boolean {
-  const stored =
-    resolution.status === "found"
-      ? resolution
-      : resolution.status === "claimed"
-        ? resolution.storedConnectToken
-        : undefined;
-  if (!stored || !input.ownerEmail?.trim()) return false;
-  return (
-    stored.ownerEmail.trim().toLowerCase() ===
-      input.ownerEmail.trim().toLowerCase() &&
-    (input.orgId === undefined || stored.orgId === input.orgId)
-  );
-}
-
 export type VerifyAuthResult = {
   authed: boolean;
   identity?: MCPCallerIdentity;
@@ -2959,7 +2892,164 @@ export type VerifyAuthResult = {
    * a retryable error, not an auth challenge: signing in again would not help.
    */
   unavailable?: true;
+  /**
+   * Why a presented bearer token was refused. Absent when no token was
+   * presented, and when the refusal is `unavailable`.
+   */
+  refusal?: BearerCredentialRefusal;
 };
+
+/**
+ * A verified MCP credential this app issued: an MCP OAuth access token
+ * (Connect mints these too), or a connect token in the older A2A format.
+ */
+type IssuedMcpCredential = {
+  userEmail: string;
+  /** The signed `org_id` claim; undefined when the token has none. */
+  orgId: string | null | undefined;
+  orgDomain: string | undefined;
+  /** Set for connect tokens, whose standing lives in `mcp_connect_tokens`. */
+  connect?: { jti: string | undefined };
+  oauthScopes?: string[];
+  oauthClientId?: string;
+  catalogScope?: "full";
+  /** `iat`, in seconds. */
+  issuedAt: number | undefined;
+};
+
+/**
+ * Connect tokens minted before Connect used the MCP OAuth format: an
+ * A2A-shaped JWT with `scope: "mcp-connect"` and no audience, signed with this
+ * deployment's A2A_SECRET. They are this app's own credentials, not cross-app
+ * assertions, so organization secrets and organization-principal rules never
+ * apply to them: their identity is their stored row. `invalid` claims such a
+ * token so it never falls through to the A2A or static-token checks.
+ */
+async function verifyLegacyConnectToken(
+  token: string,
+): Promise<IssuedMcpCredential | "invalid" | null> {
+  const jose = await import("jose");
+  let claims: Record<string, unknown>;
+  try {
+    claims = jose.decodeJwt(token) as Record<string, unknown>;
+  } catch {
+    // coercion-ok: a token that is not a JWT is not a connect token; the static-token check still runs.
+    return null;
+  }
+  if (
+    claims.scope !== MCP_CONNECT_SCOPE ||
+    claims.agent_native_first_party_mcp === true
+  ) {
+    return null;
+  }
+  const secret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+  if (!secret || claims.aud !== undefined) return "invalid";
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await jose.jwtVerify(token, new TextEncoder().encode(secret)))
+      .payload as Record<string, unknown>;
+  } catch {
+    // coercion-ok: a bad signature or an expired token is refused as invalid.
+    return "invalid";
+  }
+  const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
+  if (typeof payload.sub !== "string" || !payload.sub || !orgIdClaim) {
+    return "invalid";
+  }
+  return {
+    userEmail: payload.sub,
+    orgId: orgIdClaim.orgId,
+    orgDomain:
+      typeof payload.org_domain === "string" ? payload.org_domain : undefined,
+    connect: { jti: typeof payload.jti === "string" ? payload.jti : undefined },
+    ...(payload.catalog_scope === "full"
+      ? { catalogScope: "full" as const }
+      : {}),
+    issuedAt: typeof payload.iat === "number" ? payload.iat : undefined,
+  };
+}
+
+async function verifyIssuedMcpCredential(
+  token: string,
+  resourceUrl: string | string[] | undefined,
+): Promise<IssuedMcpCredential | "invalid" | null> {
+  const oauth = await verifyMcpOAuthAccessToken(token, resourceUrl);
+  if (!oauth) return verifyLegacyConnectToken(token);
+  return {
+    userEmail: oauth.userEmail,
+    orgId: oauth.orgId,
+    orgDomain: oauth.orgDomain,
+    ...(oauth.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
+      ? { connect: { jti: oauth.jti } }
+      : {}),
+    oauthScopes: oauth.scopes,
+    oauthClientId: oauth.clientId,
+    ...(oauth.catalogScope ? { catalogScope: oauth.catalogScope } : {}),
+    issuedAt: oauth.issuedAt,
+  };
+}
+
+/**
+ * The one admission path for MCP credentials this app issued. A connect token
+ * is admitted only while its stored row exists, is unrevoked, and names the
+ * token's subject and org claim; the row also supplies the org of a token
+ * without a claim and marks service identities. Every credential then passes
+ * `admitIssuedCredential`.
+ */
+async function admitIssuedMcpCredential(
+  credential: IssuedMcpCredential,
+  requestOrigin: string | undefined,
+): Promise<VerifyAuthResult> {
+  let stored: StoredConnectTokenIdentity | undefined;
+  if (credential.connect) {
+    const refused = await refuseInactiveConnectToken(credential.connect.jti);
+    if (refused) return refused;
+    const { lookupConnectTokenOrg } = await import("./connect-store.js");
+    const lookup = await lookupConnectTokenOrg(credential.connect.jti!);
+    if (lookup.status === "unavailable") {
+      return { authed: false, unavailable: true };
+    }
+    if (lookup.status === "missing") {
+      return { authed: false, refusal: "unknown-connect-token" };
+    }
+    if (
+      lookup.ownerEmail.trim().toLowerCase() !==
+        credential.userEmail.trim().toLowerCase() ||
+      (credential.orgId !== undefined && lookup.orgId !== credential.orgId)
+    ) {
+      return { authed: false, refusal: "identity-mismatch" };
+    }
+    stored = lookup;
+  }
+  const orgId =
+    credential.orgId !== undefined ? credential.orgId : stored?.orgId;
+  const admitted = await admitIssuedCredential(
+    {
+      authed: true,
+      identity: {
+        userEmail: credential.userEmail,
+        identityAssurance: stored?.kind === "service" ? "service" : "user",
+        ...(orgId !== undefined ? { orgId } : {}),
+        orgDomain: credential.orgDomain,
+        ...(credential.oauthScopes
+          ? { oauthScopes: credential.oauthScopes }
+          : {}),
+        ...(credential.oauthClientId
+          ? { oauthClientId: credential.oauthClientId }
+          : {}),
+      },
+      fullSurface: true,
+      fullCatalog: credential.catalogScope === "full",
+    },
+    requestOrigin,
+    stored,
+    credential.issuedAt,
+  );
+  if (admitted.authed && credential.connect) {
+    await markConnectTokenUsed(credential.connect.jti);
+  }
+  return admitted;
+}
 
 /**
  * Credentials this app issues (MCP OAuth access tokens and connect tokens)
@@ -2971,16 +3061,11 @@ export type VerifyAuthResult = {
  *
  * They also carry the subject's address, which an email change retires; a
  * credential signed for it before the change is refused, Personal or not.
- *
- * Shared-secret A2A org claims must resolve against local metadata before they
- * become request scope. A sibling app's user roster is not this app's roster;
- * locally issued connect credentials instead use their stored JTI owner and
- * organization.
  */
 async function admitIssuedCredential(
   result: VerifyAuthResult & { identity: MCPCallerIdentity },
   requestOrigin: string | undefined,
-  orgResolution: ConnectTokenOrgResolution,
+  storedConnectToken: StoredConnectTokenIdentity | undefined,
   issuedAt: number | undefined,
 ): Promise<VerifyAuthResult> {
   const { checkCredentialEmailRetirement, checkCredentialOrgMembership } =
@@ -2993,7 +3078,7 @@ async function admitIssuedCredential(
     if (retirement !== "current")
       return retirement === "unavailable"
         ? { authed: false, unavailable: true }
-        : { authed: false };
+        : { authed: false, refusal: "email-retired" };
   }
   const orgId = result.identity.orgId;
   if (typeof orgId !== "string" || !orgId) return result;
@@ -3001,44 +3086,39 @@ async function admitIssuedCredential(
     orgId,
     email: result.identity.userEmail,
     requestOrigin,
-    ...(orgResolution.status === "found"
-      ? { storedConnectToken: orgResolution }
-      : orgResolution.status === "claimed" && orgResolution.storedConnectToken
-        ? { storedConnectToken: orgResolution.storedConnectToken }
-        : {}),
+    ...(storedConnectToken ? { storedConnectToken } : {}),
   });
   if (membership === "member") return result;
   return membership === "unavailable"
     ? { authed: false, unavailable: true }
-    : { authed: false };
+    : { authed: false, refusal: "not-member" };
 }
 
 /**
  * Verify the inbound auth header. Returns:
- *   - { authed: true, identity } when verified. A deployment-secret JWT may
+ *   - { authed: true, identity } when verified. A credential this app issued
+ *     (an MCP OAuth access token or a connect token) supplies its subject and
+ *     org, checked against live membership. A deployment-secret A2A JWT may
  *     supply its asserted user (`sub`), while an org-secret JWT supplies only
- *     verified organization scope. Legacy connect tokens recover stored org
- *     scope. Static-token auth gets identity from `AGENT_NATIVE_OWNER_EMAIL`
- *     or `X-Agent-Native-Owner-Email` (the `agent-native mcp install` flow).
- *     `identity` is undefined only for true dev-open with no owner hint.
- *   - { authed: false } on rejection.
+ *     verified organization scope. Static-token auth gets identity from
+ *     `AGENT_NATIVE_OWNER_EMAIL` or `X-Agent-Native-Owner-Email` (the
+ *     `agent-native mcp install` flow). `identity` is undefined only for true
+ *     dev-open with no owner hint.
+ *   - { authed: false, refusal? } on rejection; `refusal` is set whenever a
+ *     presented token was refused.
  *
- * A deployment-secret A2A JWT can supply its trusted `sub` (caller email).
- * An org-secret JWT never supplies a user identity; both paths bind
- * `org_domain` to local organization metadata. Legacy connect tokens can use
- * a stored-org fallback. The MCP endpoint wraps tool runs in
- * `runWithRequestContext({ userEmail, orgId })`. Without that wrap, the
- * MCP endpoint loses tenant identity and downstream `accessFilter` /
- * `resolveCredential` calls fall back to platform-wide defaults.
+ * Credentials this app issued are recognized and verified before any A2A
+ * rule runs, so a change to cross-app trust cannot reclassify them. Both A2A
+ * paths bind `org_domain` to local organization metadata. The MCP endpoint
+ * wraps tool runs in `runWithRequestContext({ userEmail, orgId })`. Without
+ * that wrap, the MCP endpoint loses tenant identity and downstream
+ * `accessFilter` / `resolveCredential` calls fall back to platform-wide
+ * defaults.
  *
  * `ownerEmailHeader` is the forwarded `X-Agent-Native-Owner-Email` value; it
  * is consulted ONLY on the static-token / dev-open path (never to influence
  * verified JWT identity), so the install flow runs tools as the configured
  * owner instead of an unscoped anonymous caller.
- *
- * A credential this app issued that names an organization is admitted only
- * while its subject is still a member, and none is admitted for an address an
- * email change retired after signing (see `admitIssuedCredential`).
  */
 export async function verifyAuth(
   authHeader: string | undefined,
@@ -3054,60 +3134,9 @@ export async function verifyAuth(
   const hasA2ASecret = !!readDeployCredentialEnv("A2A_SECRET")?.trim();
   const token = getBearerToken(authHeader);
   if (token) {
-    const oauthIdentity = await verifyMcpOAuthAccessToken(
-      token,
-      options.resourceUrl,
-    );
-    if (oauthIdentity) {
-      if (oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID) {
-        const refused = await refuseInactiveConnectToken(oauthIdentity.jti);
-        if (refused) return refused;
-      }
-      const orgResolution = await resolveConnectTokenOrgId(
-        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
-          ? oauthIdentity.jti
-          : undefined,
-        oauthIdentity.orgId,
-      );
-      if (orgResolution.status === "unavailable") {
-        return { authed: false, unavailable: true };
-      }
-      if (
-        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID &&
-        !matchesStoredConnectTokenIdentity(orgResolution, {
-          ownerEmail: oauthIdentity.userEmail,
-          orgId: oauthIdentity.orgId,
-        })
-      ) {
-        return { authed: false };
-      }
-      const orgId = orgIdFromConnectTokenResolution(orgResolution);
-      const admitted = await admitIssuedCredential(
-        {
-          authed: true,
-          identity: {
-            userEmail: oauthIdentity.userEmail,
-            identityAssurance: "user",
-            ...(orgId !== undefined ? { orgId } : {}),
-            orgDomain: oauthIdentity.orgDomain,
-            oauthScopes: oauthIdentity.scopes,
-            oauthClientId: oauthIdentity.clientId,
-          },
-          fullSurface: true,
-          fullCatalog: oauthIdentity.catalogScope === "full",
-        },
-        options.requestOrigin,
-        orgResolution,
-        oauthIdentity.issuedAt,
-      );
-      if (
-        admitted.authed &&
-        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
-      ) {
-        await markConnectTokenUsed(oauthIdentity.jti);
-      }
-      return admitted;
-    }
+    const issued = await verifyIssuedMcpCredential(token, options.resourceUrl);
+    if (issued === "invalid") return { authed: false, refusal: "invalid" };
+    if (issued) return admitIssuedMcpCredential(issued, options.requestOrigin);
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {
     if (options.allowDevOpen === false) {
@@ -3132,69 +3161,35 @@ export async function verifyAuth(
     throw error;
   }
   if (payload) {
+    // Connect tokens this app minted never reach here, so a connect-scoped
+    // token is a sibling app's per-call first-party MCP token.
     const tokenScope =
       typeof payload.scope === "string" ? payload.scope : undefined;
     if (tokenScope && tokenScope !== MCP_CONNECT_SCOPE) {
-      return { authed: false };
-    }
-
-    // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
-    // and are individually revocable. Only these tokens hit the revoke
-    // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
-    // the hot path is unchanged.
-    if (tokenScope === MCP_CONNECT_SCOPE) {
-      const refused = await refuseInactiveConnectToken(
-        payload.jti as string | undefined,
-      );
-      if (refused) return refused;
+      return { authed: false, refusal: "invalid" };
     }
 
     const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);
-    if (!orgIdClaim) return { authed: false };
+    if (!orgIdClaim) return { authed: false, refusal: "invalid" };
     const firstPartyMcp = payload.agent_native_first_party_mcp === true;
-    const orgResolution = await resolveConnectTokenOrgId(
-      tokenScope === MCP_CONNECT_SCOPE &&
-        (!firstPartyMcp || orgIdClaim.orgId === undefined)
-        ? (payload.jti as string | undefined)
-        : undefined,
-      orgIdClaim.orgId,
-    );
-    if (orgResolution.status === "unavailable") {
-      return { authed: false, unavailable: true };
-    }
-
-    if (tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp) {
-      if (
-        !matchesStoredConnectTokenIdentity(orgResolution, {
-          ownerEmail: typeof payload.sub === "string" ? payload.sub : undefined,
-          orgId: orgIdClaim.orgId,
-        })
-      ) {
-        return { authed: false };
-      }
-    }
-
-    const orgId = orgIdFromConnectTokenResolution(orgResolution);
-    const storedConnectToken =
-      orgResolution.status === "found"
-        ? orgResolution
-        : orgResolution.status === "claimed"
-          ? orgResolution.storedConnectToken
+    // A first-party token without an org claim was not issued for any org
+    // this app knows. Its `org_domain` or caller email must not grant one.
+    const orgId =
+      orgIdClaim.orgId !== undefined
+        ? orgIdClaim.orgId
+        : tokenScope === MCP_CONNECT_SCOPE
+          ? null
           : undefined;
-    const verified = {
+    return {
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
-        ...(tokenScope === MCP_CONNECT_SCOPE &&
-        !firstPartyMcp &&
-        storedConnectToken?.kind === "service"
-          ? { identityAssurance: "service" as const }
-          : typeof payload.sub === "string"
-            ? { identityAssurance: "user" as const }
-            : typeof payload.org_id === "string" ||
-                typeof payload.org_domain === "string"
-              ? { identityAssurance: "organization" as const }
-              : {}),
+        ...(typeof payload.sub === "string"
+          ? { identityAssurance: "user" as const }
+          : typeof payload.org_id === "string" ||
+              typeof payload.org_domain === "string"
+            ? { identityAssurance: "organization" as const }
+            : {}),
         ...(orgId !== undefined ? { orgId } : {}),
         orgDomain:
           typeof payload.org_domain === "string"
@@ -3205,27 +3200,12 @@ export async function verifyAuth(
       fullSurface: true,
       fullCatalog: payload.catalog_scope === "full",
     };
-    // First-party MCP tokens share the connect scope but are minted by a
-    // sibling app per call, so they are cross-app A2A tokens.
-    const admitted =
-      tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp
-        ? await admitIssuedCredential(
-            verified,
-            options.requestOrigin,
-            orgResolution,
-            typeof payload.iat === "number" ? payload.iat : undefined,
-          )
-        : verified;
-    if (admitted.authed && tokenScope === MCP_CONNECT_SCOPE) {
-      await markConnectTokenUsed(payload.jti as string | undefined);
-    }
-    return admitted;
   }
 
   if (accessTokens.length === 0) {
     // A supplied bearer that failed JWT verification must not fall through to
     // dev-open auth or reuse a forwarded owner-email hint.
-    return { authed: false };
+    return { authed: false, refusal: "invalid" };
   }
 
   // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no
@@ -3253,7 +3233,7 @@ export async function verifyAuth(
     }
   }
 
-  return { authed: false };
+  return { authed: false, refusal: "invalid" };
 }
 
 export async function resolveOrgIdFromDomain(

@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type { H3Event } from "h3";
 import { getMethod, getHeader } from "h3";
 
-import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
@@ -46,7 +45,6 @@ import {
   finishDeviceCodeMint,
   expireDeviceCode,
   MCP_CONNECT_OAUTH_CLIENT_ID,
-  MCP_CONNECT_SCOPE,
   DEFAULT_TOKEN_TTL_DAYS,
   MIN_TOKEN_TTL_DAYS,
   MAX_TOKEN_TTL_DAYS,
@@ -258,6 +256,12 @@ async function mintConnectToken(params: {
   );
 }
 
+/**
+ * Connect tokens are MCP OAuth access tokens bound to this app's MCP URL, so
+ * they share OAuth's verification path. Do not sign them as A2A JWTs again:
+ * that format let cross-app trust rules reinterpret a credential this app
+ * issued.
+ */
 async function signConnectToken(params: {
   ownerEmail: string;
   orgId: string | null | undefined;
@@ -265,24 +269,8 @@ async function signConnectToken(params: {
   appUrl: string;
   expiresIn: string;
   jti: string;
-  includeOrgIdClaim?: boolean;
   catalogScope?: "full";
 }): Promise<string> {
-  if (readDeployCredentialEnv("A2A_SECRET")?.trim()) {
-    return signA2AToken(params.ownerEmail, params.orgDomain, undefined, {
-      preferGlobalSecret: true,
-      expiresIn: params.expiresIn,
-      extraClaims: {
-        jti: params.jti,
-        scope: MCP_CONNECT_SCOPE,
-        ...(params.includeOrgIdClaim && params.orgId
-          ? { org_id: params.orgId }
-          : {}),
-        ...(params.catalogScope === "full" ? { catalog_scope: "full" } : {}),
-      },
-    });
-  }
-
   return signMcpOAuthAccessToken({
     ownerEmail: params.ownerEmail,
     orgId: params.orgId ?? null,
@@ -350,7 +338,6 @@ export async function mintOrgServiceToken(params: {
         appUrl: params.appUrl,
         expiresIn: `${ttlDays}d`,
         jti,
-        includeOrgIdClaim: true,
       });
       const id = await recordMintedToken(
         {

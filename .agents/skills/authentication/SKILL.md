@@ -78,7 +78,17 @@ same token and slides its 365-day expiry. MCP OAuth and connect tokens carry
 the org chosen when they were issued, so `verifyAuth` and the token endpoint
 re-check live org membership on every use. A removed member gets a 401 or
 `invalid_grant`; a failed check answers a retryable 503. Offboarding revokes
-their MCP refresh and connect tokens instead of transferring them. Cross-app A2A
+their MCP refresh and connect tokens instead of transferring them.
+Connect mints MCP OAuth access tokens too, whatever `A2A_SECRET` holds.
+`verifyAuth` recognizes every credential this app issued (OAuth access tokens
+and both connect formats) before any A2A rule runs, and admits them through
+one path. Earlier A2A-format connect tokens verify only with the deployment
+`A2A_SECRET` and take their identity from their stored row. Never let
+organization-secret or organization-principal rules see them: an org whose
+`a2a_secret` matched `A2A_SECRET` once stripped every connect token's subject,
+a bare 401 for every terminal and static-token client. A refused bearer token
+gets a typed `reason` in the 401 body and, on `/mcp`, an `error_description` in
+the challenge. Cross-app A2A
 tokens are not re-checked, because their `org_id` is the signing app's
 assertion, and the A2A endpoint rejects MCP credentials.
 Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
