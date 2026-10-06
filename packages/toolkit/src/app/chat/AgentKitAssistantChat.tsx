@@ -1179,6 +1179,16 @@ const AgentKitAssistantChatBody = forwardRef<
   const passiveReadinessRef = useRef(readiness.state);
   const providerReadinessPassRef = useRef<number | null>(null);
   const latestSubmissionReadinessRef = useRef(readiness.state);
+  const resetSubmissionReadiness = useCallback(
+    (state: AgentEngineConfiguredState) => {
+      readinessRequestIdRef.current += 1;
+      providerReadinessRequestRef.current = null;
+      providerReadinessPassRef.current = null;
+      latestSubmissionReadinessRef.current = state;
+      setSubmissionReadiness(null);
+    },
+    [],
+  );
   useEffect(() => {
     if (passiveReadinessRef.current !== readiness.state) {
       const explicitReadinessPassed =
@@ -1190,18 +1200,14 @@ const AgentKitAssistantChatBody = forwardRef<
         return;
       }
       passiveReadinessRef.current = readiness.state;
-      readinessRequestIdRef.current += 1;
-      providerReadinessRequestRef.current = null;
-      providerReadinessPassRef.current = null;
-      latestSubmissionReadinessRef.current = readiness.state;
-      setSubmissionReadiness(null);
+      resetSubmissionReadiness(readiness.state);
       return;
     }
     if (submissionReadiness === readiness.state) {
       latestSubmissionReadinessRef.current = readiness.state;
       setSubmissionReadiness(null);
     }
-  }, [readiness.state, submissionReadiness]);
+  }, [readiness.state, resetSubmissionReadiness, submissionReadiness]);
   const modelCatalogPending =
     props.showModelSelector !== false && props.modelListLoading === true;
   const modelListUnavailable =
@@ -1221,8 +1227,11 @@ const AgentKitAssistantChatBody = forwardRef<
           : "configured";
   const composerPreflightRunActiveRef = useRef<boolean | null>(null);
   const retryProviderStatus = useCallback(() => {
+    // A failed pre-send check overrides passive readiness until the passive
+    // state changes, so a retry that re-confirms the same state must drop it.
+    resetSubmissionReadiness(passiveReadinessRef.current);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
-  }, []);
+  }, [resetSubmissionReadiness]);
   const retryModelList = modelListUnavailable
     ? props.onRetryModelList
     : retryProviderStatus;
@@ -1723,7 +1732,16 @@ const AgentKitAssistantChatBody = forwardRef<
     }
   }, [props.tabId, thread, threadId]);
 
+  const reportedMessageCountRef = useRef<number | null>(null);
+
   useEffect(() => {
+    // This effect re-runs on every host render; reporting an unchanged count
+    // makes the host re-render, which re-runs it.
+    const reportMessageCount = (count: number) => {
+      if (reportedMessageCountRef.current === count) return;
+      reportedMessageCountRef.current = count;
+      props.onMessageCountChange?.(count);
+    };
     if (observedThreadIdRef.current !== threadId) {
       observedThreadIdRef.current = threadId;
       observedMessagesRef.current = new Set();
@@ -1750,7 +1768,7 @@ const AgentKitAssistantChatBody = forwardRef<
             .map((event) => event.id),
         ),
       };
-      props.onMessageCountChange?.(thread.messages.length);
+      reportMessageCount(thread.messages.length);
       return;
     }
     let addedUserMessage = false;
@@ -1801,7 +1819,7 @@ const AgentKitAssistantChatBody = forwardRef<
     ) {
       saveSnapshotRef.current();
     }
-    props.onMessageCountChange?.(
+    reportMessageCount(
       thread.messages.length +
         voiceTranscriptMessages.filter(
           (message) => !thread.messages.some((item) => item.id === message.id),

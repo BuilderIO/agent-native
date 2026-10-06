@@ -187,6 +187,8 @@ export function invalidateClientStatusRequest(path: string): void {
   }
   requestGenerations.set(url, (requestGenerations.get(url) ?? 0) + 1);
   cache.delete(url);
+  const pending = requests.get(url);
+  if (pending) supersededRequests.add(pending);
   requestControllers.get(url)?.abort();
   requestControllers.delete(url);
   requests.delete(url);
@@ -207,6 +209,9 @@ export function invalidateClientStatusRequests(): void {
     delete window.__agentNativeSessionBootstrap;
   }
   cache.clear();
+  // Callers already awaiting an aborted read get a new read, not a result
+  // indistinguishable from an unreachable server.
+  for (const pending of requests.values()) supersededRequests.add(pending);
   for (const controller of requestControllers.values()) {
     controller.abort();
   }

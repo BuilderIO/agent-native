@@ -6,8 +6,12 @@ import type {
   ServerContext,
   Tool,
 } from "@modelcontextprotocol/server";
+import type { JWTPayload } from "jose";
 
-import { verifyA2AOrganizationIdentity } from "../a2a/organization-identity.js";
+import {
+  organizationPrincipalClaims,
+  verifyA2AOrganizationIdentity,
+} from "../a2a/organization-identity.js";
 import {
   actionCallEmitsChange,
   actionChangeResource,
@@ -151,6 +155,7 @@ export interface MCPConfig {
 
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
+  identityAssurance?: "user" | "organization" | "service";
   orgId?: string | null;
   orgDomain: string | undefined;
   oauthScopes?: string[];
@@ -1885,8 +1890,16 @@ export async function createMCPServerForRequest(
     const verifiedState =
       ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined;
     const argumentsHash = await sha256Base64Url(canonicalJson(args));
+    const hasVerifiedUserIdentity =
+      effectiveIdentity?.identityAssurance === "user" &&
+      Boolean(effectiveIdentity.userEmail?.trim());
 
     if (verifiedState !== undefined) {
+      if (!hasVerifiedUserIdentity) {
+        return actionApprovalError(
+          `${name} requires approval from a verified user identity.`,
+        );
+      }
       if (
         verifiedState.version !== 1 ||
         typeof verifiedState.nonce !== "string" ||
@@ -1943,6 +1956,12 @@ export async function createMCPServerForRequest(
       mustApprove = true;
     }
     if (!mustApprove) return undefined;
+
+    if (!hasVerifiedUserIdentity) {
+      return actionApprovalError(
+        `${name} requires approval from a verified user identity.`,
+      );
+    }
 
     if (approvalConfigurationError || !approvalCodec || !approvalCallerKey) {
       return actionApprovalError(
@@ -2706,8 +2725,10 @@ async function verifyA2AJwtForMcp(
       ? unverifiedPayload.org_domain.trim().toLowerCase()
       : undefined;
   const firstPartyMcp = unverifiedPayload.agent_native_first_party_mcp === true;
-  const audiences = firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
-  if (firstPartyMcp && !audiences?.length) return null;
+  const hasAudience = typeof unverifiedPayload.aud !== "undefined";
+  const audiences =
+    hasAudience || firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
+  if ((hasAudience || firstPartyMcp) && !audiences?.length) return null;
 
   const verifyWithSecret = async (secret: string) => {
     for (const audience of audiences ?? [undefined]) {
@@ -2729,15 +2750,41 @@ async function verifyA2AJwtForMcp(
   if (globalSecret) {
     const payload = await verifyWithSecret(globalSecret);
     if (payload) {
+      if (orgDomain) {
+        let organization: {
+          orgId: string;
+          orgDomain: string;
+          secret: string;
+        } | null;
+        try {
+          const { resolveA2AOrganizationCredentialsByDomain } =
+            await import("../org/context.js");
+          organization =
+            await resolveA2AOrganizationCredentialsByDomain(orgDomain);
+        } catch (error) {
+          throw new McpIdentityVerificationUnavailableError(error);
+        }
+        if (organization?.secret.trim() === globalSecret) {
+          return organizationPrincipalClaims(
+            payload as JWTPayload,
+            organization,
+          ) as Record<string, unknown> | null;
+        }
+      }
+
       const tokenScope =
         typeof payload.scope === "string" ? payload.scope : undefined;
       const firstPartyMcp = payload.agent_native_first_party_mcp === true;
       const hasOrganizationClaim =
         Object.prototype.hasOwnProperty.call(payload, "org_id") &&
         payload.org_id !== null;
+      const hasOrganizationDomainClaim =
+        Object.prototype.hasOwnProperty.call(payload, "org_domain") &&
+        payload.org_domain !== null;
       const locallyIssuedConnectToken =
         tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp;
-      const unclaimedFirstPartyToken = firstPartyMcp && !hasOrganizationClaim;
+      const unclaimedFirstPartyToken =
+        firstPartyMcp && !hasOrganizationClaim && !hasOrganizationDomainClaim;
       if (locallyIssuedConnectToken || unclaimedFirstPartyToken) {
         return payload;
       }
@@ -2778,33 +2825,10 @@ async function verifyA2AJwtForMcp(
 
   const payload = await verifyWithSecret(organization.secret);
   if (!payload) return null;
-  const verifiedDomain =
-    typeof payload.org_domain === "string"
-      ? payload.org_domain.trim().toLowerCase()
-      : "";
-  const email = typeof payload.sub === "string" ? payload.sub.trim() : "";
-  const claimedOrgId = payload.org_id;
-  if (
-    !email ||
-    verifiedDomain !== organization.orgDomain ||
-    (typeof claimedOrgId !== "undefined" &&
-      (typeof claimedOrgId !== "string" ||
-        claimedOrgId.trim() !== organization.orgId))
-  ) {
-    return null;
-  }
-
-  try {
-    const { isOrgMemberForA2A } = await import("../org/membership.js");
-    if (!(await isOrgMemberForA2A(organization.orgId, email))) return null;
-  } catch (error) {
-    throw new McpIdentityVerificationUnavailableError(error);
-  }
-  return {
-    ...payload,
-    org_id: organization.orgId,
-    org_domain: organization.orgDomain,
-  };
+  return organizationPrincipalClaims(
+    payload as JWTPayload,
+    organization,
+  ) as Record<string, unknown> | null;
 }
 
 function mcpAudienceList(resource: string | string[] | undefined): string[] {
@@ -2991,17 +3015,18 @@ async function admitIssuedCredential(
 
 /**
  * Verify the inbound auth header. Returns:
- *   - { authed: true, identity } when verified — `identity` is derived from
- *     the JWT (`sub` / `org_domain`) for JWT auth, with stored org scope for
- *     legacy connect tokens; or from the
- *     `AGENT_NATIVE_OWNER_EMAIL` env / `X-Agent-Native-Owner-Email` header
- *     for static-token auth (the `agent-native mcp install` flow). `identity`
- *     is undefined only for true dev-open with no owner hint.
+ *   - { authed: true, identity } when verified. A deployment-secret JWT may
+ *     supply its asserted user (`sub`), while an org-secret JWT supplies only
+ *     verified organization scope. Legacy connect tokens recover stored org
+ *     scope. Static-token auth gets identity from `AGENT_NATIVE_OWNER_EMAIL`
+ *     or `X-Agent-Native-Owner-Email` (the `agent-native mcp install` flow).
+ *     `identity` is undefined only for true dev-open with no owner hint.
  *   - { authed: false } on rejection.
  *
- * When A2A_SECRET is set we extract the JWT's `sub` (caller email) and
- * `org_domain` claims, with a stored-org fallback for legacy connect tokens,
- * so the MCP endpoint can wrap tool runs in
+ * A deployment-secret A2A JWT can supply its trusted `sub` (caller email).
+ * An org-secret JWT never supplies a user identity; both paths bind
+ * `org_domain` to local organization metadata. Legacy connect tokens can use
+ * a stored-org fallback. The MCP endpoint wraps tool runs in
  * `runWithRequestContext({ userEmail, orgId })`. Without that wrap, the
  * MCP endpoint loses tenant identity and downstream `accessFilter` /
  * `resolveCredential` calls fall back to platform-wide defaults.
@@ -3062,6 +3087,7 @@ export async function verifyAuth(
           authed: true,
           identity: {
             userEmail: oauthIdentity.userEmail,
+            identityAssurance: "user",
             ...(orgId !== undefined ? { orgId } : {}),
             orgDomain: oauthIdentity.orgDomain,
             oauthScopes: oauthIdentity.scopes,
@@ -3149,10 +3175,26 @@ export async function verifyAuth(
     }
 
     const orgId = orgIdFromConnectTokenResolution(orgResolution);
+    const storedConnectToken =
+      orgResolution.status === "found"
+        ? orgResolution
+        : orgResolution.status === "claimed"
+          ? orgResolution.storedConnectToken
+          : undefined;
     const verified = {
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
+        ...(tokenScope === MCP_CONNECT_SCOPE &&
+        !firstPartyMcp &&
+        storedConnectToken?.kind === "service"
+          ? { identityAssurance: "service" as const }
+          : typeof payload.sub === "string"
+            ? { identityAssurance: "user" as const }
+            : typeof payload.org_id === "string" ||
+                typeof payload.org_domain === "string"
+              ? { identityAssurance: "organization" as const }
+              : {}),
         ...(orgId !== undefined ? { orgId } : {}),
         orgDomain:
           typeof payload.org_domain === "string"

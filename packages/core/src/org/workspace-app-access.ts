@@ -1,5 +1,6 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 
+import { canonicalA2AAudience } from "../a2a/audience.js";
 import { isLoopbackAddress } from "../a2a/auth-policy.js";
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -279,32 +280,24 @@ async function resolveHostedWorkspaceAppAuth(
 
   const orgId = context.orgId?.trim() || null;
   try {
-    const [orgDomain, orgSecret] = orgId
-      ? await Promise.all([
-          import("./context.js").then(({ getOrgDomain }) =>
-            getOrgDomain(orgId),
-          ),
-          import("./context.js").then(({ getOrgA2ASecret }) =>
-            getOrgA2ASecret(orgId),
-          ),
-        ])
-      : [null, null];
+    const orgDomain = orgId
+      ? await import("./context.js").then(({ getOrgDomain }) =>
+          getOrgDomain(orgId),
+        )
+      : null;
     const normalizedOrgDomain = orgDomain?.trim() || undefined;
-    const normalizedOrgSecret = orgSecret?.trim() || undefined;
-    const signingSecret =
-      readDeployCredentialEnv("A2A_SECRET") || normalizedOrgSecret;
-    const token = await signA2AToken(
-      email,
-      normalizedOrgDomain,
-      normalizedOrgSecret,
-      {
-        expiresIn: "1m",
-        preferGlobalSecret: true,
-        ...(orgId ? { extraClaims: { org_id: orgId } } : {}),
-      },
-    );
-
+    if (orgId && !normalizedOrgDomain) return null;
+    const signingSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
     if (!signingSecret) return null;
+    const token = await signA2AToken(email, normalizedOrgDomain, undefined, {
+      expiresIn: "1m",
+      preferGlobalSecret: true,
+      audience: canonicalA2AAudience(configuredDirectory),
+      extraClaims: {
+        jti: randomUUID(),
+      },
+    });
+
     const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
       url.toString(),
     );

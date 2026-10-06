@@ -96,6 +96,10 @@ describe("verifyAuth — static-token caller identity", () => {
     process.env.A2A_SECRET = "jwt-secret";
     vi.spyOn(
       orgContext,
+      "resolveA2AOrganizationCredentialsByDomain",
+    ).mockResolvedValue(null);
+    vi.spyOn(
+      orgContext,
       "resolveA2AOrganizationMetadataByDomain",
     ).mockResolvedValue({ orgId: "org-acme", orgDomain: "acme.com" });
     const jose = await import("jose");
@@ -477,9 +481,6 @@ describe("ask_app — honest routing metadata", () => {
       app: "mail",
       message: "hello",
       async: true,
-      approvedActions: [
-        { tool: "send-email", input: { to: "alice@example.test" } },
-      ],
     });
 
     expect(askAgent).not.toHaveBeenCalled();
@@ -494,9 +495,6 @@ describe("ask_app — honest routing metadata", () => {
           orgDomain: "acme.com",
           requestOrigin: "https://mail.example.com",
         },
-        approvedActions: [
-          { tool: "send-email", input: { to: "alice@example.test" } },
-        ],
       }),
     );
     expect(result).toMatchObject({

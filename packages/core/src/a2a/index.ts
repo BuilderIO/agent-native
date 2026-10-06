@@ -30,6 +30,8 @@ export {
   callAction,
   callAgent,
   clearA2ACardCache,
+  getGlobalA2ASecret,
+  signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";
 export type { A2AProtocolErrorCode } from "./client.js";

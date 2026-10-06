@@ -252,9 +252,8 @@ export interface PromptComposerProps {
     selection: Pick<PromptComposerSubmitOptions, "model" | "engine" | "effort">,
   ) => void;
   /**
-   * Override the Builder.io connect action in the model picker. When provided,
-   * clicking "Use Builder.io" calls this instead of opening a browser popup.
-   * Used by the Electron desktop app to route through the native IPC handler.
+   * Handle the existing-account choice in the Builder chooser in the model
+   * picker. "Create and activate" always uses the shared one-click flow.
    */
   onConnectProvider?: () => void;
   /** Called when a local runtime needs its native sign-in/setup flow. */
