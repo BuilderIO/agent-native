@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-06
+
+### Fixed
+
+- Fixed home prompts silently doing nothing instead of starting a new deck.
+
 ## 2026-10-05
 
 ### Improved
@@ -11,6 +17,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Keyboard navigation and drag edits keep styled bullet rows in place.
 - Agent links copied from a deck are shorter, so Claude can fetch them without hitting its URL length limit.
 - AI setup checks use a fresh status before sending, even when an older check is already running.
 - Image generation reaches Assets when Slides and Assets use different local organization IDs.
@@ -25,6 +32,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- List edits keep slide layouts anchored, and long editing sessions retain undo history within a fixed memory budget.
 - Slide text edits preserve layout with inline-size containment.
 
 ## 2026-10-02

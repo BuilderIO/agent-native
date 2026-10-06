@@ -1266,7 +1266,7 @@ export function embedApp(
       const frame = document.createElement("iframe");
       frame.title = body.dataset.iframeTitle || "Agent-Native app";
       frame.src = src;
-      frame.allow = "clipboard-read; clipboard-write";
+      ${ctx.catalogMode === "directory" ? "" : 'frame.allow = "clipboard-read; clipboard-write";'}
       appFrame = frame;
       appFrameReady = false;
       lastFrameSrc = src;
