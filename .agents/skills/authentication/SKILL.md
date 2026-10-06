@@ -206,11 +206,19 @@ checklist, chat, and CLI stay usable during setup.
 
 ## A2A Identity
 
-Set `A2A_SECRET` (same value) on all apps that must verify each other's identity.
+Set a distinct `A2A_SECRET` (same value) on apps that must verify each other's
+user identity. Only this deployment secret may sign a per-user A2A assertion;
+mint it from the authenticated request context. The shared organization
+`a2a_secret` proves organization scope only. Its subject/email claims are
+ignored, so it cannot impersonate a member or carry human approval into A2A or
+MCP. Keep each organization's secret different from `A2A_SECRET`.
 
-- Outbound A2A calls are signed with JWTs
-- Inbound calls are verified cryptographically
-- Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev)
+- Outbound calls sign user assertions with `A2A_SECRET` and verify them
+  cryptographically at the receiver.
+- Organization-secret calls run as an organization principal without a user
+  email; user-owned reads, tasks, and approvals need a verified user assertion.
+- Without a verifiable credential, production rejects A2A calls; local dev can
+  remain open.
 
 ## Cross-App SSO (Dispatch identity hub)
 

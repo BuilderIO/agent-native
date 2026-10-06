@@ -33,7 +33,7 @@ export interface ToggleLayerLockedArgs {
   ) => void;
   canEditDesign: boolean;
   canEditLiveScreens?: ReadonlySet<string>;
-  codeLayerOwnerByNodeId: Map<
+  codeLayerOwnerByNodeId: ReadonlyMap<
     string,
     {
       fileId: string;

@@ -1553,6 +1553,157 @@ ALTER TABLE error_events ADD COLUMN IF NOT EXISTS test_identity BOOLEAN NOT NULL
 CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
   ON dashboard_views (dashboard_id) WHERE is_default = true`,
     },
+    {
+      // The coverage table comes last: ingest and reads take its existence
+      // as proof that every friction table and index exists.
+      version: 156,
+      name: "analytics-session-friction",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS session_recording_friction (
+      recording_id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      processed_chunks INTEGER NOT NULL DEFAULT 0,
+      dead_clicks INTEGER NOT NULL DEFAULT 0,
+      error_toasts INTEGER NOT NULL DEFAULT 0,
+      retry_loops INTEGER NOT NULL DEFAULT 0,
+      error_then_leave INTEGER NOT NULL DEFAULT 0,
+      stalled_requests INTEGER NOT NULL DEFAULT 0,
+      http_4xx INTEGER NOT NULL DEFAULT 0,
+      http_5xx INTEGER NOT NULL DEFAULT 0,
+      issue_errors INTEGER,
+      score INTEGER NOT NULL DEFAULT 0,
+      detector_state TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS session_recording_friction_updated_at_idx
+      ON session_recording_friction (updated_at);
+    CREATE TABLE IF NOT EXISTS analytics_session_friction (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      failed_actions INTEGER NOT NULL DEFAULT 0,
+      stuck_chats INTEGER NOT NULL DEFAULT 0,
+      thumbs_down INTEGER NOT NULL DEFAULT 0,
+      cancelled_runs INTEGER NOT NULL DEFAULT 0,
+      agent_failures INTEGER NOT NULL DEFAULT 0,
+      quick_backs INTEGER NOT NULL DEFAULT 0,
+      agent_signals_measured BOOLEAN NOT NULL DEFAULT false,
+      agent_signals_missing BOOLEAN NOT NULL DEFAULT false,
+      score INTEGER NOT NULL DEFAULT 0,
+      nav_state TEXT,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_friction_key_idx
+      ON analytics_session_friction (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_session_friction_last_at_idx
+      ON analytics_session_friction (last_at);
+    CREATE TABLE IF NOT EXISTS analytics_session_trouble (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT,
+      cause TEXT,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS analytics_session_trouble_session_idx
+      ON analytics_session_trouble (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_session_trouble_last_at_idx
+      ON analytics_session_trouble (last_at);
+    CREATE TABLE IF NOT EXISTS analytics_session_friction_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_friction_gaps_key_idx
+      ON analytics_session_friction_gaps (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS error_events_client_recording_idx
+      ON error_events (client_recording_id);
+    CREATE INDEX IF NOT EXISTS error_issues_last_session_recording_idx
+      ON error_issues (last_session_recording_id);
+    CREATE TABLE IF NOT EXISTS analytics_session_friction_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
+    {
+      version: 157,
+      name: "analytics-performance-aggregates",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_route_performance_daily (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      route TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      histogram_version INTEGER NOT NULL DEFAULT 1,
+      bucket INTEGER NOT NULL,
+      weight DOUBLE PRECISION NOT NULL DEFAULT 0
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_route_performance_daily_key_idx
+      ON analytics_route_performance_daily (tenant_key, event_date, app, route, metric, histogram_version, bucket);
+    CREATE TABLE IF NOT EXISTS analytics_session_performance (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      page_views INTEGER NOT NULL DEFAULT 0,
+      max_ttfb_ms DOUBLE PRECISION,
+      max_lcp_ms DOUBLE PRECISION,
+      max_inp_ms DOUBLE PRECISION,
+      max_cls DOUBLE PRECISION,
+      slow_requests INTEGER NOT NULL DEFAULT 0,
+      max_request_ms DOUBLE PRECISION,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_performance_key_idx
+      ON analytics_session_performance (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_session_performance_tenant_last_at_idx
+      ON analytics_session_performance (tenant_key, last_at);
+    CREATE TABLE IF NOT EXISTS analytics_performance_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      session_id TEXT NOT NULL DEFAULT '',
+      recorded_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_performance_gaps_key_idx
+      ON analytics_performance_gaps (tenant_key, event_date, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_performance_gaps_session_idx
+      ON analytics_performance_gaps (tenant_key, session_id);
+    CREATE TABLE IF NOT EXISTS analytics_performance_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

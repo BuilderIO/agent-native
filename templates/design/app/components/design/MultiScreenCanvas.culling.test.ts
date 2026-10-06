@@ -875,6 +875,93 @@ describe("overview level of detail", () => {
     ).toBe(false);
   });
 
+  it("starts editors only for screens on screen when a zoom enlarges the whole board", () => {
+    const visibleViewport = { left: 0, top: 0, right: 2000, bottom: 2000 };
+    const retainViewport = {
+      left: -4000,
+      top: -4000,
+      right: 6000,
+      bottom: 6000,
+    };
+    const candidates = [
+      {
+        id: "on-screen",
+        width: 1440,
+        alwaysLive: false,
+        geometry: geom(0, 0, 1440, 1000),
+      },
+      {
+        id: "overscan",
+        width: 1440,
+        alwaysLive: false,
+        geometry: geom(3000, 0, 1440, 1000),
+      },
+      {
+        id: "far",
+        width: 1440,
+        alwaysLive: false,
+        geometry: geom(20_000, 0, 1440, 1000),
+      },
+      {
+        id: "protected",
+        width: 1440,
+        alwaysLive: true,
+        geometry: geom(20_000, 0, 1440, 1000),
+      },
+    ];
+    const live = (previousIds: ReadonlySet<string>) => [
+      ...resolveLiveEditorScreenIds({
+        candidates,
+        zoomPercent: 50,
+        previousIds,
+        visibleViewport,
+        retainViewport,
+      }),
+    ];
+    expect(live(none)).toEqual(["on-screen", "protected"]);
+    expect(live(new Set(["overscan", "far"]))).toEqual([
+      "on-screen",
+      "overscan",
+      "protected",
+    ]);
+  });
+
+  it("holds new live editors while the camera is moving", () => {
+    const candidates = [
+      { id: "was-live", width: 1440, alwaysLive: false },
+      { id: "now-large", width: 1440, alwaysLive: false },
+      { id: "protected", width: 1440, alwaysLive: true },
+    ];
+    expect([
+      ...resolveLiveEditorScreenIds({
+        candidates,
+        zoomPercent: 50,
+        previousIds: new Set(["was-live"]),
+        admitNew: false,
+      }),
+    ]).toEqual(["was-live", "protected"]);
+  });
+
+  it("keeps recently used editors running when a zoom-out shrinks them", () => {
+    const candidates = ["warm", "cold"].map((id, index) => ({
+      id,
+      width: 1440,
+      alwaysLive: false,
+      geometry: geom(index * 1500, 0, 1440, 900),
+    }));
+    const viewport = { left: -5000, top: -5000, right: 50000, bottom: 50000 };
+    expect([
+      ...resolveLiveEditorScreenIds({
+        candidates,
+        zoomPercent: 7,
+        previousIds: new Set(["warm", "cold"]),
+        warmIds: new Set(["warm"]),
+        visibleViewport: viewport,
+        retainViewport: viewport,
+      }),
+    ]).toEqual(["warm"]);
+  });
+
   it("mounts static previews nearest the viewport center within budget", () => {
     const viewport = { left: 0, top: 0, right: 1000, bottom: 1000 };
     const candidates = [
@@ -884,11 +971,45 @@ describe("overview level of detail", () => {
       { id: "outside", geometry: geom(5000, 0, 50, 50) },
     ];
     expect([
-      ...selectStaticPreviewScreenIds({ candidates, viewport, budget: 2 }),
+      ...selectStaticPreviewScreenIds({
+        candidates,
+        viewport,
+        retainedIds: new Set(),
+        budget: 2,
+      }),
     ]).toEqual(["center", "near"]);
     expect(
-      selectStaticPreviewScreenIds({ candidates, viewport: null }).size,
+      selectStaticPreviewScreenIds({
+        candidates,
+        viewport: null,
+        retainedIds: new Set(),
+      }).size,
     ).toBe(0);
+  });
+
+  it("keeps previews of screens already seen after the camera zooms into another", () => {
+    const zoomedIn = { left: 0, top: 0, right: 200, bottom: 200 };
+    const candidates = [
+      { id: "focused", geometry: geom(50, 50, 50, 50) },
+      { id: "seen-near", geometry: geom(3000, 0, 50, 50) },
+      { id: "seen-far", geometry: geom(9000, 0, 50, 50) },
+      { id: "never-seen", geometry: geom(4000, 0, 50, 50) },
+    ];
+    const selected = selectStaticPreviewScreenIds({
+      candidates,
+      viewport: zoomedIn,
+      retainedIds: new Set(["seen-near", "seen-far"]),
+      budget: 3,
+    });
+    expect([...selected]).toEqual(["focused", "seen-near", "seen-far"]);
+    expect(
+      selectStaticPreviewScreenIds({
+        candidates,
+        viewport: zoomedIn,
+        retainedIds: new Set(["seen-near", "seen-far"]),
+        budget: 2,
+      }),
+    ).toEqual(new Set(["focused", "seen-near"]));
   });
 });
 

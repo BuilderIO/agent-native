@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 
 import {
   designFileCodeLayerSource,
+  forgetPreparedSourcesExcept,
   prepareCanonicalSourceContent,
   preparedSourceProjection,
   resolveSourceBaseForPublication,
@@ -242,4 +243,17 @@ it("refuses a projection source that names another file", () => {
       source: designFileCodeLayerSource("design-1", "screen-b", undefined),
     }),
   ).toThrow("same file");
+});
+
+it("forgets prepared sources for files that left the design", () => {
+  const html = '<div data-agent-native-node-id="kept">kept</div>';
+  const deleted = prepareCanonicalSourceContent(html, { fileId: "deleted" });
+  const kept = prepareCanonicalSourceContent(html, { fileId: "kept" });
+
+  forgetPreparedSourcesExcept(new Set(["kept"]));
+
+  expect(prepareCanonicalSourceContent(html, { fileId: "kept" })).toBe(kept);
+  expect(prepareCanonicalSourceContent(html, { fileId: "deleted" })).not.toBe(
+    deleted,
+  );
 });

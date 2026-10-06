@@ -31,12 +31,10 @@ import {
 } from "@agent-native/toolkit/ui/alert-dialog";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
@@ -53,9 +51,18 @@ import {
   IconUnlink,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState, type ComponentType } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
 
-import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
+import {
+  DeferredBuilderConnectChoicePanel,
+  DeferredBuilderConnectPopover,
+} from "../settings/deferred-builder-connect-popover.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { useSettingsPageHeader } from "../settings/shell/context.js";
 import type { SettingsPageContext } from "../settings/shell/registry.js";
@@ -243,17 +250,23 @@ function ConnectButton({
   flow,
   scope,
   onStart,
+  openOnMount,
 }: {
   flow: BuilderConnectFlow;
   scope?: BuilderConnectionScope;
-  onStart: (scope: BuilderConnectionScope | undefined) => void;
+  onStart: (
+    scope: BuilderConnectionScope | undefined,
+    provisionAccount: boolean,
+  ) => void;
+  openOnMount?: boolean;
 }) {
   const t = useT();
   return (
     <DeferredBuilderConnectPopover
       flow={flow}
+      openOnMount={openOnMount}
       onConnect={(provisionAccount) => {
-        onStart(scope);
+        onStart(scope, provisionAccount);
         flow.start({
           provisionAccount,
           trackingSource: TRACKING_SOURCE,
@@ -279,17 +292,42 @@ function ManageMenu({
   canReconnect,
   onStart,
   onDisconnect,
+  openOnMount,
 }: {
   flow: BuilderConnectFlow;
   scope?: BuilderConnectionScope;
   canReconnect: boolean;
-  onStart: (scope: BuilderConnectionScope | undefined) => void;
+  onStart: (
+    scope: BuilderConnectionScope | undefined,
+    provisionAccount: boolean,
+  ) => void;
   onDisconnect: () => void;
+  openOnMount?: boolean;
 }) {
   const t = useT();
+  const [manageOpen, setManageOpen] = useState(openOnMount);
+  const [showConnectChoices, setShowConnectChoices] = useState(openOnMount);
+
+  const start = (provisionAccount: boolean) => {
+    setShowConnectChoices(false);
+    setManageOpen(false);
+    onStart(scope, provisionAccount);
+    flow.start({
+      provisionAccount,
+      trackingSource: TRACKING_SOURCE,
+      ...(scope ? { scope } : {}),
+    });
+  };
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Popover
+      open={manageOpen}
+      onOpenChange={(open) => {
+        setManageOpen(open);
+        if (!open) setShowConnectChoices(false);
+      }}
+    >
+      <PopoverTrigger asChild>
         <Button
           type="button"
           variant="outline"
@@ -298,35 +336,48 @@ function ManageMenu({
         >
           {t(`${K}.manage`)}
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
-        {canReconnect ? (
-          <>
-            <DropdownMenuItem
-              onSelect={() => {
-                onStart(scope);
-                flow.start({
-                  provisionAccount: false,
-                  trackingSource: TRACKING_SOURCE,
-                  ...(scope ? { scope } : {}),
-                });
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className={showConnectChoices ? "w-80 p-3" : "w-48 p-1.5"}
+      >
+        {showConnectChoices ? (
+          <DeferredBuilderConnectChoicePanel
+            flow={flow}
+            canProvisionAccount={
+              flow.statusResolved &&
+              flow.agentNativeProvisioningEnabled === true
+            }
+            onCreateAndActivate={() => start(true)}
+            onExistingAccount={() => start(false)}
+          />
+        ) : (
+          <div className="space-y-0.5">
+            {canReconnect ? (
+              <button
+                type="button"
+                onClick={() => setShowConnectChoices(true)}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-xs text-foreground hover:bg-accent"
+              >
+                <IconRefresh className="size-4" aria-hidden="true" />
+                {t(`${K}.reconnect`)}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                setManageOpen(false);
+                onDisconnect();
               }}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-xs text-destructive hover:bg-destructive/10"
             >
-              <IconRefresh className="size-4" aria-hidden="true" />
-              {t(`${K}.reconnect`)}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-        <DropdownMenuItem
-          onSelect={onDisconnect}
-          className="text-destructive focus:text-destructive"
-        >
-          <IconUnlink className="size-4" aria-hidden="true" />
-          {t(`${K}.disconnect`)}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+              <IconUnlink className="size-4" aria-hidden="true" />
+              {t(`${K}.disconnect`)}
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -488,6 +539,9 @@ export function BuilderIntegrationPage({
   context,
 }: BuilderIntegrationPageProps) {
   const t = useT();
+  const openConnectChoicesOnMount =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("builderConnect") === "1";
   const org = useOrg();
   const header = useMemo(
     () => ({
@@ -513,6 +567,9 @@ export function BuilderIntegrationPage({
   const [startedScope, setStartedScope] = useState<
     BuilderConnectionScope | "legacy" | null
   >(null);
+  const pendingProvisionScopeRef = useRef<
+    BuilderConnectionScope | "legacy" | null
+  >(null);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [personalPending, setPersonalPending] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
@@ -528,10 +585,25 @@ export function BuilderIntegrationPage({
   const active = statusKnown && (flow.configured || flow.effective !== null);
   const usage = useBuilderUsages({ enabled: active, hasOrg: !solo });
 
-  const onStart = (scope: BuilderConnectionScope | undefined) => {
+  const onStart = (
+    scope: BuilderConnectionScope | undefined,
+    provisionAccount: boolean,
+  ) => {
     setRowError(null);
-    setStartedScope(scope ?? "legacy");
+    const targetScope = scope ?? "legacy";
+    setStartedScope(targetScope);
+    pendingProvisionScopeRef.current = provisionAccount ? targetScope : null;
   };
+  useEffect(() => {
+    if (!flow.connecting && !flow.accountExists) {
+      pendingProvisionScopeRef.current = null;
+    }
+  }, [flow.accountExists, flow.connecting]);
+  const openProvisionRecoveryFor = (
+    scope: BuilderConnectionScope | undefined,
+  ) =>
+    flow.accountExists &&
+    pendingProvisionScopeRef.current === (scope ?? "legacy");
   const connectingFor = (scope: BuilderConnectionScope | "legacy") =>
     flow.connecting && startedScope === scope;
   const cancelButton = (
@@ -583,9 +655,18 @@ export function BuilderIntegrationPage({
       canReconnect
       onStart={onStart}
       onDisconnect={() => setDisconnectOpen(true)}
+      openOnMount={openProvisionRecoveryFor("org")}
     />
   ) : (
-    <ConnectButton flow={flow} scope="org" onStart={onStart} />
+    <ConnectButton
+      flow={flow}
+      scope="org"
+      onStart={onStart}
+      openOnMount={
+        openProvisionRecoveryFor("org") ||
+        (openConnectChoicesOnMount && !solo && context.isAdmin)
+      }
+    />
   );
 
   const personalSpace = spaceFor("personal");
@@ -615,9 +696,20 @@ export function BuilderIntegrationPage({
       canReconnect={flow.canConnect.personal}
       onStart={onStart}
       onDisconnect={() => void disconnectPersonal()}
+      openOnMount={openProvisionRecoveryFor("personal")}
     />
   ) : flow.canConnect.personal ? (
-    <ConnectButton flow={flow} scope="personal" onStart={onStart} />
+    <ConnectButton
+      flow={flow}
+      scope="personal"
+      onStart={onStart}
+      openOnMount={
+        openProvisionRecoveryFor("personal") ||
+        (openConnectChoicesOnMount &&
+          !solo &&
+          (!context.isAdmin || !flow.canConnect.org))
+      }
+    />
   ) : null;
 
   const soloConnected = flow.configured;
@@ -637,10 +729,19 @@ export function BuilderIntegrationPage({
         canReconnect
         onStart={onStart}
         onDisconnect={() => void disconnectPersonal()}
+        openOnMount={
+          openProvisionRecoveryFor(undefined) || openConnectChoicesOnMount
+        }
       />
     ) : null
   ) : (
-    <ConnectButton flow={flow} onStart={onStart} />
+    <ConnectButton
+      flow={flow}
+      onStart={onStart}
+      openOnMount={
+        openProvisionRecoveryFor(undefined) || openConnectChoicesOnMount
+      }
+    />
   );
 
   return (

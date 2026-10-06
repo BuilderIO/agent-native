@@ -1223,6 +1223,7 @@ export function CommentsSidebar({
   const [threadPositions, setThreadPositions] = useState<
     Map<string, CommentThreadPosition>
   >(new Map());
+  const [threadPositionsMeasured, setThreadPositionsMeasured] = useState(false);
   const [threadCardHeights, setThreadCardHeights] = useState<
     Map<string, number>
   >(new Map());
@@ -1284,6 +1285,7 @@ export function CommentsSidebar({
   const hasPendingComment = !!displayedPendingComment;
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
+    setThreadPositionsMeasured(!!container);
     if (!container || inlineThreads.length === 0) {
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setPendingOffset((prev) => {
@@ -1597,6 +1599,12 @@ export function CommentsSidebar({
         onClose={onClose}
         currentUserEmail={currentUserEmail}
         quote={thread.quotedText}
+        anchorUnavailable={
+          threadPositionsMeasured &&
+          !!thread.quotedText &&
+          !thread.resolved &&
+          !threadPositions.has(thread.threadId)
+        }
         renderEntry={(id, slots) => (
           <CommentEntry
             comment={thread.comments.find((comment) => comment.id === id)!}
@@ -2934,6 +2942,7 @@ function ThreadView({
   renderEntry,
   surface = "rail",
   quote,
+  anchorUnavailable = false,
   onClose,
   popoverTitle,
   currentUserEmail,
@@ -2978,6 +2987,7 @@ function ThreadView({
   surface?: CommentSurface;
   /** The anchored text, shown as a quote line above the thread in the panel. */
   quote?: string | null;
+  anchorUnavailable?: boolean;
   onClose?: () => void;
   popoverTitle?: string;
   currentUserEmail?: string;
@@ -3232,6 +3242,14 @@ function ThreadView({
           >
             {quote}
           </button>
+        ) : null}
+        {anchorUnavailable ? (
+          <span
+            className="-mb-1 text-xs text-muted-foreground"
+            data-comment-anchor-unavailable
+          >
+            {t("comments.unanchored")}
+          </span>
         ) : null}
         {canExpand ? (
           <button
