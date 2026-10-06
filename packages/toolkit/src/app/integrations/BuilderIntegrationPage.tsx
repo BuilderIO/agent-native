@@ -250,17 +250,23 @@ function ConnectButton({
   flow,
   scope,
   onStart,
+  openOnMount,
 }: {
   flow: BuilderConnectFlow;
   scope?: BuilderConnectionScope;
-  onStart: (scope: BuilderConnectionScope | undefined) => void;
+  onStart: (
+    scope: BuilderConnectionScope | undefined,
+    provisionAccount: boolean,
+  ) => void;
+  openOnMount?: boolean;
 }) {
   const t = useT();
   return (
     <DeferredBuilderConnectPopover
       flow={flow}
+      openOnMount={openOnMount}
       onConnect={(provisionAccount) => {
-        onStart(scope);
+        onStart(scope, provisionAccount);
         flow.start({
           provisionAccount,
           trackingSource: TRACKING_SOURCE,
@@ -286,33 +292,26 @@ function ManageMenu({
   canReconnect,
   onStart,
   onDisconnect,
+  openOnMount,
 }: {
   flow: BuilderConnectFlow;
   scope?: BuilderConnectionScope;
   canReconnect: boolean;
-  onStart: (scope: BuilderConnectionScope | undefined) => void;
+  onStart: (
+    scope: BuilderConnectionScope | undefined,
+    provisionAccount: boolean,
+  ) => void;
   onDisconnect: () => void;
+  openOnMount?: boolean;
 }) {
   const t = useT();
-  const [manageOpen, setManageOpen] = useState(false);
-  const [showConnectChoices, setShowConnectChoices] = useState(false);
-  const provisionAttemptRef = useRef(false);
-
-  useEffect(() => {
-    if (!flow.connecting && flow.accountExists && provisionAttemptRef.current) {
-      provisionAttemptRef.current = false;
-      setShowConnectChoices(true);
-      setManageOpen(true);
-    } else if (!flow.connecting) {
-      provisionAttemptRef.current = false;
-    }
-  }, [flow.accountExists, flow.connecting]);
+  const [manageOpen, setManageOpen] = useState(openOnMount);
+  const [showConnectChoices, setShowConnectChoices] = useState(openOnMount);
 
   const start = (provisionAccount: boolean) => {
-    if (provisionAccount) provisionAttemptRef.current = true;
     setShowConnectChoices(false);
     setManageOpen(false);
-    onStart(scope);
+    onStart(scope, provisionAccount);
     flow.start({
       provisionAccount,
       trackingSource: TRACKING_SOURCE,
@@ -565,6 +564,9 @@ export function BuilderIntegrationPage({
   const [startedScope, setStartedScope] = useState<
     BuilderConnectionScope | "legacy" | null
   >(null);
+  const pendingProvisionScopeRef = useRef<
+    BuilderConnectionScope | "legacy" | null
+  >(null);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [personalPending, setPersonalPending] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
@@ -580,10 +582,25 @@ export function BuilderIntegrationPage({
   const active = statusKnown && (flow.configured || flow.effective !== null);
   const usage = useBuilderUsages({ enabled: active, hasOrg: !solo });
 
-  const onStart = (scope: BuilderConnectionScope | undefined) => {
+  const onStart = (
+    scope: BuilderConnectionScope | undefined,
+    provisionAccount: boolean,
+  ) => {
     setRowError(null);
-    setStartedScope(scope ?? "legacy");
+    const targetScope = scope ?? "legacy";
+    setStartedScope(targetScope);
+    pendingProvisionScopeRef.current = provisionAccount ? targetScope : null;
   };
+  useEffect(() => {
+    if (!flow.connecting && !flow.accountExists) {
+      pendingProvisionScopeRef.current = null;
+    }
+  }, [flow.accountExists, flow.connecting]);
+  const openProvisionRecoveryFor = (
+    scope: BuilderConnectionScope | undefined,
+  ) =>
+    flow.accountExists &&
+    pendingProvisionScopeRef.current === (scope ?? "legacy");
   const connectingFor = (scope: BuilderConnectionScope | "legacy") =>
     flow.connecting && startedScope === scope;
   const cancelButton = (
@@ -635,9 +652,15 @@ export function BuilderIntegrationPage({
       canReconnect
       onStart={onStart}
       onDisconnect={() => setDisconnectOpen(true)}
+      openOnMount={openProvisionRecoveryFor("org")}
     />
   ) : (
-    <ConnectButton flow={flow} scope="org" onStart={onStart} />
+    <ConnectButton
+      flow={flow}
+      scope="org"
+      onStart={onStart}
+      openOnMount={openProvisionRecoveryFor("org")}
+    />
   );
 
   const personalSpace = spaceFor("personal");
@@ -667,9 +690,15 @@ export function BuilderIntegrationPage({
       canReconnect={flow.canConnect.personal}
       onStart={onStart}
       onDisconnect={() => void disconnectPersonal()}
+      openOnMount={openProvisionRecoveryFor("personal")}
     />
   ) : flow.canConnect.personal ? (
-    <ConnectButton flow={flow} scope="personal" onStart={onStart} />
+    <ConnectButton
+      flow={flow}
+      scope="personal"
+      onStart={onStart}
+      openOnMount={openProvisionRecoveryFor("personal")}
+    />
   ) : null;
 
   const soloConnected = flow.configured;
@@ -689,10 +718,15 @@ export function BuilderIntegrationPage({
         canReconnect
         onStart={onStart}
         onDisconnect={() => void disconnectPersonal()}
+        openOnMount={openProvisionRecoveryFor(undefined)}
       />
     ) : null
   ) : (
-    <ConnectButton flow={flow} onStart={onStart} />
+    <ConnectButton
+      flow={flow}
+      onStart={onStart}
+      openOnMount={openProvisionRecoveryFor(undefined)}
+    />
   );
 
   return (

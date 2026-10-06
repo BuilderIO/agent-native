@@ -46,7 +46,10 @@ export function DeferredBuilderConnectPopover(
           },
         })}
       >
-        <LazyBuilderConnectPopover {...props} openOnMount={openAfterLoad} />
+        <LazyBuilderConnectPopover
+          {...props}
+          openOnMount={props.openOnMount || openAfterLoad}
+        />
       </Suspense>
     </LazyChunkErrorBoundary>
   );

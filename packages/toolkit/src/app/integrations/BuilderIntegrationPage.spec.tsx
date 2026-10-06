@@ -329,6 +329,43 @@ describe("BuilderIntegrationPage", () => {
     );
   });
 
+  it("reopens the scoped chooser when activation finds an existing account", async () => {
+    const start = vi.fn(() => {
+      flowMock.current = { ...flowMock.current, connecting: true };
+    });
+    flowMock.current = flow({
+      configured: true,
+      effective: "personal",
+      grants: {
+        personal: { connectedAt: 1, needsReconnect: false, restricted: false },
+      },
+      canConnect: { org: true, personal: true },
+      agentNativeProvisioningEnabled: true,
+      start,
+    });
+    await render(admin);
+
+    await openMenu("personal");
+    await act(async () => button("Reconnect", document.body)?.click());
+    await act(async () =>
+      button("Create and activate", document.body)?.click(),
+    );
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "personal", provisionAccount: true }),
+    );
+    expect(button("Create and activate", document.body)).toBeUndefined();
+
+    flowMock.current = {
+      ...flowMock.current,
+      connecting: false,
+      accountExists: true,
+    };
+    await render(admin);
+
+    expect(button("Create and activate", document.body)).toBeDefined();
+    expect(button("I have a Builder.io account", document.body)).toBeDefined();
+  });
+
   it("confirms an organization disconnect with what stops working", async () => {
     flowMock.current = flow({
       configured: true,

@@ -212,6 +212,48 @@ describe("BuilderConnectPopover", () => {
     expect(flow.start).not.toHaveBeenCalled();
   });
 
+  it("offers a retry after a Builder status read fails", () => {
+    const retry = vi.fn(() => true);
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry,
+      statusResolved: false,
+      statusReadSettledCount: 1,
+      agentNativeProvisioningEnabled: false,
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    click(connectButton());
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.textContent).toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
+    click(
+      [...(consent?.querySelectorAll("button") ?? [])].find(
+        (button) => button.textContent === "Retry",
+      ) as HTMLElement,
+    );
+    expect(retry).toHaveBeenCalledOnce();
+    expect(
+      consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
+        ?.disabled,
+    ).toBe(true);
+  });
+
   it("allows an explicit one-click handler for a custom flow", () => {
     const onConnect = vi.fn();
     const flow = {
@@ -309,7 +351,7 @@ describe("BuilderConnectPopover", () => {
     expect(consent?.textContent).toContain(
       "Create or connect a Builder.io account in one click to get free credits.",
     );
-    expect(consent?.textContent).not.toContain(
+    expect(consent?.textContent).toContain(
       "You already have a Builder.io account",
     );
     expect(consent?.querySelector("[data-testid='create']")?.textContent).toBe(

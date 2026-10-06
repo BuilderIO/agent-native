@@ -21,13 +21,19 @@ type BuilderConnectTrigger = React.ReactElement<{
   disabled?: boolean;
 }>;
 
+type BuilderConnectChoiceFlow = Pick<BuilderConnectFlow, "connecting"> & {
+  accountExists?: boolean;
+  retry?: () => boolean | void;
+  statusReadSettledCount?: number;
+  statusResolved?: boolean;
+};
+
 export interface BuilderConnectPopoverProps {
-  flow: Pick<BuilderConnectFlow, "connecting" | "start"> & {
-    statusResolved?: boolean;
-    agentNativeProvisioningEnabled?: boolean;
-    accountExists?: boolean;
-    cancel?: BuilderConnectFlow["cancel"];
-  };
+  flow: BuilderConnectChoiceFlow &
+    Pick<BuilderConnectFlow, "start"> & {
+      agentNativeProvisioningEnabled?: boolean;
+      cancel?: BuilderConnectFlow["cancel"];
+    };
   canProvisionAccount?: boolean;
   children: BuilderConnectTrigger;
   onConnect?: (provisionAccount: boolean) => void;
@@ -39,7 +45,7 @@ export interface BuilderConnectPopoverProps {
 }
 
 export interface BuilderConnectChoicePanelProps {
-  flow: Pick<BuilderConnectFlow, "connecting">;
+  flow: BuilderConnectChoiceFlow;
   canProvisionAccount: boolean;
   onCreateAndActivate: () => void;
   onExistingAccount: () => void;
@@ -58,6 +64,8 @@ export function BuilderConnectChoicePanel({
   secondaryTestId,
 }: BuilderConnectChoicePanelProps) {
   const t = useT();
+  const statusReadFailed =
+    flow.statusResolved === false && (flow.statusReadSettledCount ?? 0) > 0;
 
   return (
     <div className="space-y-2.5" data-testid={contentTestId}>
@@ -75,6 +83,49 @@ export function BuilderConnectChoicePanel({
             "Create or connect a Builder.io account in one click to get free credits.",
         })}
       </p>
+      {flow.accountExists ? (
+        <div
+          role="alert"
+          className="rounded-md bg-muted px-3 py-2 text-xs leading-5"
+        >
+          <p className="font-medium text-foreground">
+            {t("agentChat.onboarding.builderAccountExistsTitle", {
+              defaultValue: "You already have a Builder.io account",
+            })}
+          </p>
+          <p className="text-muted-foreground">
+            {t("agentChat.onboarding.builderAccountExistsDescription", {
+              defaultValue: "Log in to use your account.",
+            })}
+          </p>
+        </div>
+      ) : null}
+      {statusReadFailed ? (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-2 rounded-md bg-muted px-3 py-2 text-xs"
+        >
+          <span className="text-muted-foreground">
+            {t("agentChat.settingsShell.builder.grantsFailed", {
+              defaultValue: "Couldn't read the Builder.io connections.",
+            })}
+          </span>
+          {flow.retry ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              onClick={() => flow.retry?.()}
+              disabled={flow.connecting}
+            >
+              {t("agentChat.settingsShell.builder.retry", {
+                defaultValue: "Retry",
+              })}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <BuilderConnectIncludedServices />
       <div className="flex flex-col gap-2">
         <Button
