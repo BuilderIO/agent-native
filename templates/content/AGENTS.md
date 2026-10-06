@@ -26,7 +26,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 
 ## Key actions
 
-Every action has a schema; use `tool-search` for comments, sharing, Collections, Notion, local sources, and other registered actions.
+Every action has a schema; use `tool-search` for comments, sharing, Collections, Notion, and other registered actions. Use `remove-local-file-source` to remove an imported local source without deleting its files.
 
 | Action | Purpose |
 | --- | --- |
