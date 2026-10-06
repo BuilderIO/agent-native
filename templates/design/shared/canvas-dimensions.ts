@@ -14,8 +14,6 @@ const DIMENSION_CONTEXT_BEFORE =
   /\b(?:exact(?:ly)?|fixed[- ]size|dimensions?|size|canvas|artboard|frame|screen|pixels?)\s*(?:(?:to|at)\s*)?(?:[:=]\s*)?$/i;
 const DIMENSION_CONTEXT_AFTER =
   /^\s*(?:canvas|artboard|frame|screen|(?:exact(?:ly)?\s+)?(?:dimensions?|size))\b/i;
-const EXPLICIT_OUTPUT_DIMENSION_CONTEXT_BEFORE =
-  /\b(?:(?:exact(?:ly)?\s+)?(?:canvas|artboard|frame|screen)\s+)?(?:exact(?:ly)?\s+)?(?:dimensions?|size)(?:\s+(?:of|is|at|to))?\s*(?:[:=]\s*)?$/i;
 const FORMAT_CONTEXT_BEFORE =
   /\b(?:ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard|cover|favicon|logo|avatar|social\s+post|post|story|email\s+header|email|newsletter|print|flyer|poster|screenshot)(?:\s+(?:at|for|of|in|with|size|dimensions?))?\s*[:,;]?\s*$/i;
 const FORMAT_CONTEXT_AFTER =
@@ -29,6 +27,10 @@ const OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE =
   /\b(?:card\s+)?(?:grid|matrix|layout)\s+at\s*$/i;
 const IMAGE_OUTPUT_CONTEXT_BEFORE =
   /\bimage\s+(?:(?:at|of)\s*|with\s+(?:exact(?:ly)?\s+)?(?:dimensions?|size)\s*)?$/i;
+const OUTPUT_CONTEXT_BEFORE_SEPARATOR =
+  /\b(?:screens?|canvas|artboard|frame)\s*[:,;]\s*$/i;
+const EXPLICIT_CANVAS_DIMENSION_CONTEXT_BEFORE =
+  /\b(?:exact(?:ly)?\s+)?(?:canvas|artboard|frame|screen)\s+(?:(?:with|at)\s+)?(?:exact(?:ly)?\s+)?(?:dimensions?|size)(?:\s+(?:of|is|at|to))?\s*(?:[:=]\s*)?$/i;
 const ASSET_CONTEXT_AFTER =
   /^\s*(?:[a-z-]+\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration)\b/i;
 const PIXEL_ASSET_CONTEXT_AFTER =
@@ -52,8 +54,12 @@ const NESTED_SCREEN_SIBLING_RELATIONSHIP_BEFORE = new RegExp(
   `\\b${SCREEN_CONTAINER_CONTEXT}\\b[\\s\\S]{0,96}\\b(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\b[\\s\\S]{0,24}\\band\\s+(?:an?|the)?\\s*$`,
   "i",
 );
+const NESTED_ASSET_FOR_OUTPUT_AFTER = new RegExp(
+  `\\b(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\b[\\s\\S]{0,32}\\bfor\\s+(?:an?\\s+)?${OUTPUT_CONTAINER_CONTEXT}\\s*(?:\\b(?:at|with|of|size|dimensions?)\\b\\s*)?$`,
+  "i",
+);
 const NESTED_OUTPUT_ASSET_CONTEXT_BEFORE = new RegExp(
-  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring|using|for)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})(?:[a-z-]+\\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at|of|exact(?:ly)?)?\\s*$`,
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}(?:\\b(?:with|including|containing|inside|featuring|using|for)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\b(?:that|which)\\s+(?:includes|contains|features|has)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|\\band\\s+(?:include|add|insert|place|put|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3}|[.!?:;,]\\s*(?:add|insert|place|put|include|use)\\s+(?:an?|the)?\\s*(?:[a-z-]+\\s+){0,3})(?:[a-z-]+\\s+){0,3}(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:(?:with|of)\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to|exact(?:ly)?)){0,2}|at|of|exact(?:ly)?)?\\s*$`,
   "i",
 );
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
@@ -110,7 +116,8 @@ export function explicitCanvasDimensionsFromPrompt(
     const hasDimensionContext =
       DIMENSION_CONTEXT_BEFORE.test(prefix ?? "") ||
       DIMENSION_CONTEXT_AFTER.test(suffix ?? "") ||
-      OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE.test(prefix ?? "");
+      OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE.test(prefix ?? "") ||
+      OUTPUT_CONTEXT_BEFORE_SEPARATOR.test(nearbyPrefix);
     const hasPixelImageContext =
       Boolean(match[2] || match[4]) &&
       PIXEL_ASSET_CONTEXT_AFTER.test(suffix ?? "");
@@ -120,11 +127,12 @@ export function explicitCanvasDimensionsFromPrompt(
       FORMAT_CONTEXT_AFTER.test(suffix ?? "");
     const hasNestedAssetContext =
       NESTED_OUTPUT_ASSET_CONTEXT_BEFORE.test(nearbyPrefix) ||
+      NESTED_ASSET_FOR_OUTPUT_AFTER.test(suffix ?? "") ||
       ((NESTED_OUTPUT_RELATIONSHIP_BEFORE.test(nearbyPrefix) ||
         NESTED_PAGE_RELATIONSHIP_BEFORE.test(nearbyPrefix) ||
         NESTED_SCREEN_SIBLING_RELATIONSHIP_BEFORE.test(nearbyPrefix)) &&
         NESTED_OUTPUT_ASSET_AFTER.test(suffix ?? "") &&
-        !EXPLICIT_OUTPUT_DIMENSION_CONTEXT_BEFORE.test(prefix ?? ""));
+        !EXPLICIT_CANVAS_DIMENSION_CONTEXT_BEFORE.test(prefix ?? ""));
     const hasImageOutputContext =
       IMAGE_OUTPUT_CONTEXT_BEFORE.test(prefix ?? "") ||
       (ASSET_CONTEXT_AFTER.test(suffix ?? "") && width >= 100 && height >= 100);
