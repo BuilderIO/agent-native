@@ -47,7 +47,7 @@ export function emailAuthLinkLandingUrl(value: string): string | undefined {
       if (callbackURL) {
         const callback = new URL(callbackURL, url.origin);
         if (
-          callback.origin !== url.origin ||
+          callback.origin === url.origin &&
           canonicalFrameworkPathname(callback.pathname).endsWith(
             DESKTOP_MAGIC_LINK_CALLBACK_PATH,
           )
@@ -61,7 +61,9 @@ export function emailAuthLinkLandingUrl(value: string): string | undefined {
     if (markerIndex < 0 || markerIndex + marker.length !== pathname.length) {
       return undefined;
     }
-    url.pathname = `${pathname.slice(0, markerIndex)}${publicFrameworkPath(EMAIL_AUTH_LINK_LANDING_PATH)}`;
+    url.pathname = publicFrameworkPath(
+      `${pathname.slice(0, markerIndex)}${EMAIL_AUTH_LINK_LANDING_PATH}`,
+    );
     url.searchParams.set("kind", kind);
     return url.toString();
   } catch {
@@ -100,12 +102,6 @@ export function emailAuthVerificationUrl(
     for (const key of EMAIL_AUTH_LINK_CALLBACK_KEYS) {
       const callback = fields[key];
       if (!callback) continue;
-      if (
-        new URL(callback, verificationURL.origin).origin !==
-        verificationURL.origin
-      ) {
-        return undefined;
-      }
       verificationURL.searchParams.set(key, callback);
     }
     verificationURL.searchParams.set("token", fields.token);

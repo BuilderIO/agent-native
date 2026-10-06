@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   emailAuthLinkFields,
@@ -9,6 +9,10 @@ import {
 } from "./email-auth-links.js";
 
 describe("email authentication links", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it.each([
     [
       "magic-link",
@@ -36,13 +40,18 @@ describe("email authentication links", () => {
     },
   );
 
-  it("preserves the deployment base path and framework route prefix", () => {
+  it("preserves a base path and custom framework prefix exactly once", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/workspace");
+    vi.stubEnv(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      "/_platform",
+    );
     const landing = emailAuthLinkLandingUrl(
-      "https://design.agent-native.com/workspace/_agent-native/auth/ba/verify-email?token=verify-token",
+      "https://design.agent-native.com/workspace/_platform/auth/ba/verify-email?token=verify-token",
     );
 
     expect(new URL(landing!).pathname).toBe(
-      "/workspace/_agent-native/auth/email-link/landing",
+      "/workspace/_platform/auth/email-link/landing",
     );
   });
 
@@ -67,7 +76,7 @@ describe("email authentication links", () => {
     ).toBeUndefined();
   });
 
-  it("reconstructs only same-origin Better Auth verification requests", () => {
+  it("reconstructs Better Auth verification requests on the app origin", () => {
     const values = {
       kind: "magic-link",
       token: "magic token",
@@ -90,8 +99,8 @@ describe("email authentication links", () => {
       emailAuthVerificationUrl(
         "https://design.agent-native.com/_agent-native/auth/ba/magic-link/verify",
         { ...values, callbackURL: "https://evil.example/steal" },
-      ),
-    ).toBeUndefined();
+      )?.searchParams.get("callbackURL"),
+    ).toBe("https://evil.example/steal");
     expect(
       emailAuthVerificationUrl(
         "https://design.agent-native.com/_agent-native/auth/ba/verify-email",
@@ -105,6 +114,16 @@ describe("email authentication links", () => {
         callbackURL: 42,
       }),
     ).toBeUndefined();
+  });
+
+  it("wraps cross-origin magic-link callbacks for Better Auth to validate", () => {
+    const callbackURL = "https://workspace.example.test/after-auth";
+    const landing = emailAuthLinkLandingUrl(
+      `https://design.agent-native.com/_agent-native/auth/ba/magic-link/verify?token=magic-token&callbackURL=${encodeURIComponent(callbackURL)}`,
+    );
+
+    expect(landing).toBeTruthy();
+    expect(new URL(landing!).searchParams.get("callbackURL")).toBe(callbackURL);
   });
 
   it("renders a localized, non-cacheable POST confirmation form", async () => {

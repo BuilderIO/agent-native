@@ -136,16 +136,22 @@ describe("password sign-up on a one-connection Neon pool", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { auth, pglite, stats } = await bootSignUp({
       AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
+      NODE_ENV: "production",
       RESEND_API_KEY: "re_test_not_a_real_key",
       EMAIL_FROM: "Test <test@example.test>",
-      APP_URL: "http://localhost:3000",
+      APP_URL: "https://design.example.test",
+      VITE_APP_BASE_PATH: "/workspace",
+      AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_platform",
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://workspace.example.test",
     });
+    const callbackURL = "https://workspace.example.test/after-auth";
 
     await auth.api.signUpEmail({
       body: {
         email: "verify-me@example.test",
         password: "correct-horse-battery",
         name: "verify-me",
+        callbackURL,
       },
       headers: new Headers({ "user-agent": "vitest" }),
     });
@@ -166,7 +172,11 @@ describe("password sign-up on a one-connection Neon pool", () => {
     )?.[1];
     expect(href).toBeTruthy();
     const landingURL = new URL(href!.replaceAll("&amp;", "&"));
+    expect(landingURL.pathname).toBe(
+      "/workspace/_platform/auth/email-link/landing",
+    );
     expect(landingURL.searchParams.get("kind")).toBe("verify-email");
+    expect(landingURL.searchParams.get("callbackURL")).toBe(callbackURL);
     const fields = emailAuthLinkFields(
       Object.fromEntries(landingURL.searchParams.entries()),
     );
@@ -184,6 +194,26 @@ describe("password sign-up on a one-connection Neon pool", () => {
       0,
     );
 
+    const rejectedCallbackResponse = (await landingHandler(
+      createEmailAuthEvent(
+        createEmailAuthPostRequest(landingURL, {
+          ...fields!,
+          callbackURL: "https://evil.example/steal",
+        }),
+      ),
+    )) as Response;
+    const rejectedVerificationResponse = await auth.handler(
+      new Request(rejectedCallbackResponse.headers.get("location")!),
+    );
+    expect(rejectedVerificationResponse.status).toBe(403);
+    expect(
+      (
+        await pglite.query(
+          `SELECT email_verified FROM "user" WHERE email = 'verify-me@example.test'`,
+        )
+      ).rows,
+    ).toEqual([{ email_verified: false }]);
+
     const continueResponse = (await landingHandler(
       createEmailAuthEvent(createEmailAuthPostRequest(landingURL, fields!)),
     )) as Response;
@@ -192,7 +222,7 @@ describe("password sign-up on a one-connection Neon pool", () => {
       new Request(continueResponse.headers.get("location")!),
     );
     expect(verificationResponse.status).toBe(302);
-    expect(verificationResponse.headers.get("location")).toBe("/");
+    expect(verificationResponse.headers.get("location")).toBe(callbackURL);
     const cookieHeader = verificationResponse.headers
       .getSetCookie()
       .map((cookie) => cookie.split(";")[0])
@@ -225,6 +255,7 @@ describe("password sign-up on a one-connection Neon pool", () => {
       RESEND_API_KEY: "re_test_not_a_real_key",
       EMAIL_FROM: "Test <test@example.test>",
       APP_URL: "http://localhost:3000",
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://workspace.example.test",
     });
     const email = "magic-link-user@example.test";
 
@@ -239,7 +270,7 @@ describe("password sign-up on a one-connection Neon pool", () => {
     await auth.api.signInMagicLink({
       body: {
         email,
-        callbackURL: "http://localhost:3000/_agent-native/sign-in",
+        callbackURL: "https://workspace.example.test/after-magic-link",
       },
       headers: new Headers({ "user-agent": "vitest" }),
     });
@@ -254,6 +285,9 @@ describe("password sign-up on a one-connection Neon pool", () => {
     expect(href).toBeTruthy();
     const landingURL = new URL(href!.replaceAll("&amp;", "&"));
     expect(landingURL.pathname).toBe(EMAIL_AUTH_LINK_LANDING_PATH);
+    expect(landingURL.searchParams.get("callbackURL")).toBe(
+      "https://workspace.example.test/after-magic-link",
+    );
 
     const fields = emailAuthLinkFields(
       Object.fromEntries(landingURL.searchParams.entries()),
@@ -283,7 +317,7 @@ describe("password sign-up on a one-connection Neon pool", () => {
     );
     expect(verificationResponse.status).toBe(302);
     expect(verificationResponse.headers.get("location")).toContain(
-      "/_agent-native/sign-in",
+      "https://workspace.example.test/after-magic-link",
     );
     const setCookies = verificationResponse.headers.getSetCookie();
     const cookieHeader = setCookies
