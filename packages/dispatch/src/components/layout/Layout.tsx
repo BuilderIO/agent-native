@@ -1480,12 +1480,14 @@ function DispatchLayout({
     () => chatFirstBuiltinApps.map((app) => app.id),
     [chatFirstBuiltinApps],
   );
+  const chatFirstWorkspaceAppsLoading = chatFirstAppsQuery.isLoading;
+  const chatFirstConnectedAppsLoading = chatFirstConnectedAppsQuery.isLoading;
   const chatFirstAppsLoading =
-    chatFirstAppsQuery.isLoading || chatFirstConnectedAppsQuery.isLoading;
+    chatFirstWorkspaceAppsLoading || chatFirstConnectedAppsLoading;
   const chatFirstAppsFailed = chatFirstAppsQuery.isError;
   const chatFirstAppsError =
     chatFirstAppsQuery.error ?? chatFirstConnectedAppsQuery.error;
-  const chatFirstWorkspaceApps = useMemo(
+  const chatFirstResolvableApps = useMemo(
     () =>
       mergeChatFirstWorkspaceApps(
         chatFirstAppsQuery.data,
@@ -1497,20 +1499,20 @@ function DispatchLayout({
           url: app.homeUrl?.trim() || app.url,
           source: "builtin" as const,
         })),
-      ).filter(
-        (app) =>
-          app.status !== "pending" &&
-          app.archived !== true &&
-          isWorkspaceAppVisibleInDefaultLaunchers(app),
-      ),
+      ).filter((app) => app.status !== "pending" && app.archived !== true),
     [
       chatFirstAppsQuery.data,
       chatFirstBuiltinApps,
       chatFirstEnabledBuiltinAppIds,
     ],
   );
+  const chatFirstWorkspaceApps = useMemo(
+    () =>
+      chatFirstResolvableApps.filter(isWorkspaceAppVisibleInDefaultLaunchers),
+    [chatFirstResolvableApps],
+  );
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(() => {
-    return chatFirstWorkspaceApps.map((app) => ({
+    return chatFirstResolvableApps.map((app) => ({
       id: app.id,
       name: app.name,
       source: app.source ?? "workspace",
@@ -1519,7 +1521,7 @@ function DispatchLayout({
       homePath: app.homePath,
       enabled: true,
     }));
-  }, [chatFirstWorkspaceApps]);
+  }, [chatFirstResolvableApps]);
   const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
     () =>
       chatFirstWorkspaceApps.map((app) => ({
@@ -1535,6 +1537,14 @@ function DispatchLayout({
       const registration = chatFirstAppRegistrations.find(
         (candidate) => candidate.id.toLowerCase() === app.id.toLowerCase(),
       );
+      if (registration?.source === "builtin") {
+        const directHref = workspaceAppDirectHref(
+          registration,
+          workspaceAppTargetPath(registration),
+        );
+        if (directHref) navigateToWorkspaceApp(directHref);
+        return;
+      }
       const hasWorkspaceRoute = Boolean(registration?.path?.trim());
       if (!hasWorkspaceRoute) {
         if (registration) {
@@ -1784,7 +1794,14 @@ function DispatchLayout({
         },
       );
       if (resolution.status === "unresolved") {
-        if (chatFirstAppsLoading) {
+        if (
+          chatFirstWorkspaceAppsLoading ||
+          (resolution.reason === "unknown-app" && chatFirstConnectedAppsLoading)
+        ) {
+          pendingChatFirstOpenAppRef.current = detail;
+          return;
+        }
+        if (chatFirstConnectedAppsQuery.isError) {
           pendingChatFirstOpenAppRef.current = detail;
           return;
         }
@@ -1817,7 +1834,9 @@ function DispatchLayout({
     [
       chatFirstAppRegistrations,
       chatFirstAppsFailed,
-      chatFirstAppsLoading,
+      chatFirstWorkspaceAppsLoading,
+      chatFirstConnectedAppsLoading,
+      chatFirstConnectedAppsQuery.isError,
       chatFirstSurfaceTabsStore,
       openChatFirstPane,
       navigate,
@@ -1964,7 +1983,10 @@ function DispatchLayout({
       return;
     }
     if (
-      chatFirstAppsLoading ||
+      chatFirstWorkspaceAppsLoading ||
+      (resolution.status === "unresolved" &&
+        resolution.reason === "unknown-app" &&
+        chatFirstConnectedAppsLoading) ||
       chatFirstAppsFailed ||
       chatFirstConnectedAppsQuery.isError
     ) {
@@ -1973,8 +1995,9 @@ function DispatchLayout({
     setPendingChatFirstPaneRestore(null);
   }, [
     chatFirstAppsFailed,
-    chatFirstAppsLoading,
     chatFirstAppRegistrations,
+    chatFirstWorkspaceAppsLoading,
+    chatFirstConnectedAppsLoading,
     chatFirstConnectedAppsQuery.isError,
     chatFirstMode,
     chatFirstPane,
@@ -1991,6 +2014,7 @@ function DispatchLayout({
     persistChatFirstPane(null);
     setChatFirstNotice(null);
     pendingChatFirstOpenAppRef.current = null;
+    setPendingChatFirstPaneRestore(null);
     chatFirstPaneHydratedRef.current = true;
     chatFirstSurfaceTabsStore.closeAll();
     setChatFirstSurfacePanelOpen(false);
@@ -2046,7 +2070,10 @@ function DispatchLayout({
   }, [
     chatFirstAppsQuery.data,
     chatFirstAppsFailed,
-    chatFirstAppsLoading,
+    chatFirstWorkspaceAppsLoading,
+    chatFirstConnectedAppsLoading,
+    chatFirstConnectedAppsQuery.data,
+    chatFirstConnectedAppsQuery.isError,
     resolveChatFirstOpenApp,
   ]);
 
@@ -2223,7 +2250,9 @@ function DispatchLayout({
         return renderChatFirstAppSurfaceTab({
           registration,
           embedPath: tab.path ?? registration?.path ?? "/",
-          loading: !registration && chatFirstAppsLoading,
+          loading:
+            !registration &&
+            (chatFirstWorkspaceAppsLoading || chatFirstConnectedAppsLoading),
           isMobileSurface,
           copy: chatFirstCopy,
         });
@@ -2293,7 +2322,8 @@ function DispatchLayout({
       chatFirstAgentsQuery.error,
       chatFirstAgentsQuery.isError,
       chatFirstAgentsQuery.isLoading,
-      chatFirstAppsLoading,
+      chatFirstWorkspaceAppsLoading,
+      chatFirstConnectedAppsLoading,
       chatFirstCopy,
       chatFirstSessionWatch.target,
       chatFirstSurfaceTabs.activeTabId,

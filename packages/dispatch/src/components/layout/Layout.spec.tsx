@@ -3,7 +3,7 @@ import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 // @vitest-environment happy-dom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
@@ -38,6 +38,14 @@ const clientState = vi.hoisted(() => ({
   createEmbedSessionMutateAsync: vi
     .fn()
     .mockResolvedValue({ startUrl: "about:blank" }),
+}));
+const workspaceAppNavigation = vi.hoisted(() => ({
+  navigateToWorkspaceApp: vi.fn((_href: string) => true),
+}));
+
+vi.mock("../../lib/workspace-apps", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/workspace-apps")>()),
+  navigateToWorkspaceApp: workspaceAppNavigation.navigateToWorkspaceApp,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
@@ -212,6 +220,15 @@ function LocationProbe({ onChange }: { onChange: (path: string) => void }) {
   return null;
 }
 
+function ChatRouteSwitcher({ target }: { target: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(target)}>
+      Switch chat
+    </button>
+  );
+}
+
 describe("Dispatch navigation paths", () => {
   afterEach(() => {
     clientState.basePath = "";
@@ -351,6 +368,7 @@ describe("Dispatch NavContent", () => {
     clientState.connectedAppsError = null;
     clientState.connectedAppsLoading = false;
     clientState.appState = {};
+    workspaceAppNavigation.navigateToWorkspaceApp.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -420,7 +438,7 @@ describe("Dispatch NavContent", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+        <MemoryRouter initialEntries={["/chat/mounted-optional-error"]}>
           <Layout extensions={{ chatFirst: true }}>
             <div />
           </Layout>
@@ -451,7 +469,7 @@ describe("Dispatch NavContent", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+        <MemoryRouter initialEntries={["/chat/mounted-while-loading"]}>
           <Layout extensions={{ chatFirst: true }}>
             <div />
           </Layout>
@@ -481,7 +499,7 @@ describe("Dispatch NavContent", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+        <MemoryRouter initialEntries={["/chat/builtin-mounted-error"]}>
           <Layout extensions={{ chatFirst: true }}>
             <div />
           </Layout>
@@ -496,6 +514,163 @@ describe("Dispatch NavContent", () => {
     expect(
       container.querySelector("[data-chat-first-app-pane]"),
     ).not.toBeNull();
+  });
+
+  it("retries an app open after connected built-in discovery recovers", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsError = new Error("Connected apps unavailable");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/discovery-retry"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "clips" });
+    });
+
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    clientState.connectedAppsError = null;
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  it("keeps hidden Dispatch registered for agent app targets", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        path: "/dispatch",
+        url: "https://dispatch.agent-native.com",
+        isDispatch: true,
+        status: "ready",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "dispatch" });
+    });
+
+    expect(container.querySelector(".dispatch-chat-first-notice")).toBeNull();
+  });
+
+  it("does not restore a deferred pane after switching chats", async () => {
+    clientState.connectedAppsLoading = true;
+    clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+      appId: "clips",
+      path: "/inbox",
+    };
+    const onPathChange = vi.fn();
+    const renderLayout = () => (
+      <MemoryRouter initialEntries={["/chat/pane-restore"]}>
+        <Layout extensions={{ chatFirst: true }}>
+          <ChatRouteSwitcher target="/chat/next-chat" />
+        </Layout>
+        <LocationProbe onChange={onPathChange} />
+      </MemoryRouter>
+    );
+
+    await act(async () => {
+      root.render(renderLayout());
+    });
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch chat")
+        ?.click();
+    });
+    expect(onPathChange).toHaveBeenLastCalledWith("/chat/next-chat");
+
+    clientState.connectedAppsLoading = false;
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    await act(async () => {
+      root.render(renderLayout());
+    });
+
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+  });
+
+  it("opens connected built-ins from the chat-first app rail", async () => {
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/rail-built-in"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      const clipsApp = container.querySelector<HTMLElement>(
+        '[data-chat-first-app][data-app-id="clips"]',
+      );
+      const openButton =
+        clipsApp?.querySelector<HTMLButtonElement>("button") ??
+        (clipsApp as HTMLButtonElement | null);
+      openButton?.click();
+    });
+
+    expect(workspaceAppNavigation.navigateToWorkspaceApp).toHaveBeenCalledWith(
+      "https://clips.agent-native.com/home",
+    );
   });
 
   it("restores a mounted pane without waiting for optional built-in discovery", async () => {
