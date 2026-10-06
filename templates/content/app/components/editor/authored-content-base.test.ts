@@ -58,6 +58,25 @@ describe("authored content base", () => {
     expect(tracker.base(merged)).toEqual(merged);
   });
 
+  it("keeps what the editor showed for a save queued behind an earlier one", () => {
+    const tracker = createAuthoredContentBase();
+    tracker.edited("Alpha.\nBravo. mine");
+    // The first save is out; more typing queues a second one behind it.
+    tracker.edited("Alpha.\nBravo. mine more");
+    tracker.observed("Alpha. peer\nBravo. mine more", authoredOn);
+    tracker.edited("Alpha.\nBravo. mine more");
+    const first = { revision: "r2", content: "Alpha.\nBravo. mine" };
+    tracker.saved({ saved: first, sentContent: first.content, authoredOn });
+    const second = { revision: "r3", content: "Alpha. peer\nBravo. mine more" };
+    tracker.saved({
+      saved: second,
+      sentContent: "Alpha.\nBravo. mine more",
+      authoredOn,
+    });
+    // The peer's text was shown and deleted here, so the deletion sticks.
+    expect(tracker.base(second)).toEqual(second);
+  });
+
   it("authors on the winner a displaced save adopted", () => {
     const tracker = createAuthoredContentBase();
     const winner = { revision: "r2", content: "Alpha. peer\nBravo." };
