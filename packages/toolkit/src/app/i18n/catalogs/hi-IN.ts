@@ -1271,6 +1271,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
+  "tool.identifierHidden": "[पहचानकर्ता छिपाया गया]",
+  "tool.contentOmitted": "[सामग्री छोड़ी गई]",
+  "tool.circularReference": "[चक्रीय संदर्भ]",
   "tool.interrupted":
     "रिपोर्ट पूरी होने से पहले प्रक्रिया रुक गई — संभव है कि कार्य पूरा हुआ हो या न हुआ हो। दोबारा प्रयास करने से पहले जाँच लें।",
   "tool.longRunning": "काम अभी जारी है। बड़े अपडेट में एक-दो मिनट लग सकते हैं।",

@@ -658,6 +658,7 @@ interface CommentsSidebarOptions {
   selectedThreadId?: string | null;
   onActivateThread?: (id: string) => void;
   activeSuggestionId?: string | null;
+  unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
   focusSuggestionId?: string | null;
   onSuggestionFocused?: () => void;
   hoveredSuggestionId?: string | null;
@@ -738,6 +739,7 @@ export function CommentsSidebar({
   selectedThreadId,
   onActivateThread,
   activeSuggestionId,
+  unplaceableSuggestionRevisions,
   focusSuggestionId,
   onSuggestionFocused,
   hoveredSuggestionId,
@@ -838,9 +840,15 @@ export function CommentsSidebar({
     historyStatus !== "all" || historyKind !== "all" || historyAuthor !== null;
   const [historyPortalContainer, setHistoryPortalContainer] =
     useState<HTMLDivElement | null>(null);
+  // A failed accept leaves the suggestion pending at the revision that failed.
+  // Amending it keeps the id but bumps the revision, and the new edit may place.
+  const isUnplaceable = (suggestion: ResourceSuggestion) =>
+    suggestion.status === "pending" &&
+    unplaceableSuggestionRevisions?.get(suggestion.id) === suggestion.revision;
   const activeConflictId = suggestions.find(
     (suggestion) =>
-      suggestion.id === activeSuggestionId && suggestion.status === "stale",
+      suggestion.id === activeSuggestionId &&
+      (suggestion.status === "stale" || isUnplaceable(suggestion)),
   )?.id;
   useEffect(() => {
     if (presentation !== "history") return;
@@ -1688,6 +1696,7 @@ export function CommentsSidebar({
         focusRequested={focusSuggestionId === suggestion.id}
         onFocused={onSuggestionFocused}
         anchorUnavailable={anchorUnavailable}
+        unplaceable={isUnplaceable(suggestion)}
         canComment={canComment}
         canDecide={canDecideSuggestions}
         deciding={decidingSuggestion(suggestion.id)}
@@ -2216,16 +2225,18 @@ function ProposalGroup({
         aria-expanded={expanded}
         aria-controls={detailsId}
         onClick={() => setExpanded((current) => !current)}
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <IconChevronDown
           size={14}
           className={cn(
-            "shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)]",
+            "mt-px shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)]",
             !expanded && "-rotate-90",
           )}
         />
-        <span className="min-w-0 flex-1 truncate font-medium">{summary}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 break-words font-medium">
+          {summary}
+        </span>
         <span className="shrink-0 text-muted-foreground">
           {t("comments.proposalEditCount", { count: totalCount })}
         </span>
@@ -2559,6 +2570,7 @@ function SuggestionThreadView({
   focusRequested,
   onFocused,
   anchorUnavailable,
+  unplaceable,
   canComment,
   canDecide,
   deciding,
@@ -2585,6 +2597,7 @@ function SuggestionThreadView({
   focusRequested: boolean;
   onFocused?: () => void;
   anchorUnavailable: boolean;
+  unplaceable: boolean;
   canComment: boolean;
   canDecide: boolean;
   deciding: boolean;
@@ -2906,7 +2919,7 @@ function SuggestionThreadView({
             <div role="alert" className="px-3 pb-3 text-xs text-destructive">
               {error.message}
             </div>
-          ) : suggestion.status === "stale" ? (
+          ) : suggestion.status === "stale" || unplaceable ? (
             <div role="alert" className="px-3 pb-3 text-xs text-destructive">
               {t("editor.toolbar.conflict")}
             </div>
