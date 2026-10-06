@@ -5,6 +5,9 @@ export interface AuthoredContentBase {
   content: string;
 }
 
+// Forgetting an older observation only keeps the base held, which keeps text.
+const MAX_SEEN_WHILE_SAVING = 16;
+
 /**
  * A save the server merged with another writer's text confirms a body this
  * editor does not hold until that text reaches it through collaboration or
@@ -15,6 +18,9 @@ export interface AuthoredContentBase {
  */
 export function createAuthoredContentBase() {
   let unheld: { revision: string; base: AuthoredContentBase } | null = null;
+  // The other writer's text can arrive and be deleted here before the save's
+  // answer names the body that holds it.
+  let seenWhileSaving: string[] = [];
   // The other writer's text can reach the editor before the save's answer,
   // or alongside typing here, so an exact match with the saved body misses
   // an editor that already holds it.
@@ -33,11 +39,14 @@ export function createAuthoredContentBase() {
       authoredOn: AuthoredContentBase | null;
     }) {
       const { saved, sentContent, editorContent, authoredOn } = args;
+      const seen = seenWhileSaving;
+      seenWhileSaving = [];
       if (!saved.revision) return;
       unheld =
         authoredOn &&
         saved.content !== sentContent &&
-        !holds(editorContent, saved, authoredOn)
+        !holds(editorContent, saved, authoredOn) &&
+        !seen.some((content) => holds(content, saved, authoredOn))
           ? { revision: saved.revision, base: authoredOn }
           : null;
     },
@@ -47,8 +56,14 @@ export function createAuthoredContentBase() {
     },
     /** The editor's text changed without an edit here, as a peer's arrives. */
     observed(content: string, saved: AuthoredContentBase) {
-      if (!unheld || unheld.revision !== saved.revision) return;
-      if (holds(content, saved, unheld.base)) unheld = null;
+      seenWhileSaving.push(content);
+      if (seenWhileSaving.length > MAX_SEEN_WHILE_SAVING)
+        seenWhileSaving.shift();
+      if (
+        unheld?.revision === saved.revision &&
+        holds(content, saved, unheld.base)
+      )
+        unheld = null;
     },
     base(saved: AuthoredContentBase): AuthoredContentBase {
       return unheld && unheld.revision === saved.revision
@@ -57,6 +72,7 @@ export function createAuthoredContentBase() {
     },
     reset() {
       unheld = null;
+      seenWhileSaving = [];
     },
   };
 }
