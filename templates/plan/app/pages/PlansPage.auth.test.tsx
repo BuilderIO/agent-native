@@ -4,6 +4,28 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const appBasePathState = vi.hoisted(() => ({ value: "" }));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => {
+    const basePath = appBasePathState.value;
+    return basePath && path.startsWith("/") ? `${basePath}${path}` : path;
+  },
+  appBasePath: () => appBasePathState.value,
+  appPath: (path: string) => {
+    const basePath = appBasePathState.value;
+    if (
+      !basePath ||
+      path === basePath ||
+      path.startsWith(`${basePath}/`) ||
+      !path.startsWith("/")
+    ) {
+      return path;
+    }
+    return `${basePath}${path}`;
+  },
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
@@ -38,6 +60,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  appBasePathState.value = "";
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -131,6 +154,24 @@ describe("Plan inline email signup verification", () => {
     expect(callback.pathname).toBe(SIGN_IN_ENTRY_PATH);
     expect(decodeContinuation(callback.searchParams.get("c"))).toBe(
       "/plans/plan-42?tab=comments#thread-9",
+    );
+  });
+
+  it("keeps the plan destination inside a mounted app base path", () => {
+    appBasePathState.value = "/plan";
+
+    const callback = new URL(
+      buildPlanEmailVerificationCallbackURL({
+        pathname: "/plans/plan-42",
+        search: "?tab=comments",
+        hash: "#thread-9",
+      }),
+      window.location.origin,
+    );
+
+    expect(callback.pathname).toBe("/plan/sign-in");
+    expect(decodeContinuation(callback.searchParams.get("c"))).toBe(
+      "/plan/plans/plan-42?tab=comments#thread-9",
     );
   });
 

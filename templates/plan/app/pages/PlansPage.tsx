@@ -356,7 +356,7 @@ export function buildPlanEmailVerificationCallbackURL(
   location: Pick<Location, "pathname" | "search" | "hash">,
 ): string {
   return buildSignInReturnHref({
-    returnTo: planReturnPathFromLocation(location),
+    returnTo: appPath(planReturnPathFromLocation(location)),
   });
 }
 
@@ -7090,7 +7090,7 @@ export function PlanLoadError({
       ? t("plansPage.loadError.orgTitle", { orgName })
       : null;
 
-  const returnPath = () => planReturnPathFromLocation(window.location);
+  const returnPath = () => appPath(planReturnPathFromLocation(window.location));
 
   const readAuthError = async (res: Response, fallback: string) => {
     const data = (await res.json().catch(() => null)) as {
