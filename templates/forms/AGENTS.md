@@ -68,6 +68,10 @@ Read the relevant skill before deeper work:
   routes authenticated.
 - Use framework sharing actions for forms and response resources.
 
+## Team Roles
+
+Reviewer reviews responses; Editor edits. Both need resource access. See `form-responses` for role policy.
+
 ## Application State
 
 - `navigation` exposes the `/home` chat, builder, published form, responses,
@@ -96,10 +100,7 @@ Read the relevant skill before deeper work:
   fields, sharing, and response review.
 - When the user @-tags a form, use the referenced form ID directly with
   `preview-form`, `response-insights`, `list-responses`, or `navigate`.
-- For tables or charts in chat, use typed action results. `response-insights`
-  is the first-party path for native response tables and submission charts, but
-  do not include both unless the user asked for both; iframe/MCP App rendering
-  is only a fallback for external hosts.
+
 
 ## Source Changes
 

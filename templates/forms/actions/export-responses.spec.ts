@@ -62,6 +62,7 @@ vi.mock("@agent-native/core/file-upload", () => uploadMock);
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => undefined,
   getRequestUserEmail: () => "owner@example.com",
+  getRequestOrgId: () => undefined,
 }));
 
 vi.mock("../server/db/index.js", async () => ({

@@ -21,8 +21,13 @@ export interface AppRolesDescriptor<
 }
 
 export type AppRoleLookup<R extends string = string> =
-  | { status: "assigned"; roles: R[]; orgId: string }
-  | { status: "unassigned"; orgId: string }
+  | { status: "assigned"; roles: R[]; orgId: string; orgRole?: string }
+  | {
+      status: "unassigned";
+      orgId: string;
+      orgRole?: string;
+      hasAssignments?: boolean;
+    }
   | { status: "not-a-member"; orgId: string }
   | { status: "no-identity" }
   | { status: "no-org" };
@@ -30,6 +35,11 @@ export type AppRoleLookup<R extends string = string> =
 export interface AppRoleCaller {
   userEmail?: string | null;
   orgId?: string | null;
+}
+
+export interface AppPermissionPolicy<R extends string> {
+  unassignedRole?: R;
+  allowOrgAdmins?: boolean;
 }
 
 export interface AppAuthorizationContext {
@@ -89,11 +99,20 @@ function callerIdentity(caller?: AppRoleCaller): {
 export function defineAppRoles<
   const R extends string,
   const P extends string = string,
->(descriptor: AppRolesDescriptor<R, P>): AppRoles<R, P> {
+>(
+  descriptor: AppRolesDescriptor<R, P>,
+  permissionPolicy: AppPermissionPolicy<R> = {},
+): AppRoles<R, P> {
   const appId = descriptor.appId.trim();
   if (!appId) throw new Error("defineAppRoles: appId is required");
   if (!descriptor.roles.length) {
     throw new Error(`defineAppRoles(${appId}): at least one role is required`);
+  }
+  if (
+    permissionPolicy.unassignedRole &&
+    !descriptor.roles.includes(permissionPolicy.unassignedRole)
+  ) {
+    throw new Error(`defineAppRoles(${appId}): unassignedRole is not in roles`);
   }
   if (
     descriptor.defaultRole &&
@@ -166,16 +185,27 @@ export function defineAppRoles<
         `Requires ${appId} permission ${permissions.join(" or ")}`,
       );
     const lookup = await resolve(caller);
-    if (lookup.status !== "assigned")
+    if (lookup.status !== "assigned" && lookup.status !== "unassigned")
       throw new ForbiddenError(
         `Requires ${appId} permission ${permissions.join(" or ")}`,
       );
+    if (
+      permissionPolicy.allowOrgAdmins &&
+      (lookup.orgRole === "owner" || lookup.orgRole === "admin")
+    )
+      return;
+    const roles =
+      lookup.status === "assigned"
+        ? lookup.roles
+        : permissionPolicy.unassignedRole && !lookup.hasAssignments
+          ? [permissionPolicy.unassignedRole]
+          : [];
     const overrides = await getAppPermissionOverrides(appId, identity.orgId);
     const grants = permissions.flatMap(
       (permission) =>
         overrides[permission] ?? descriptor.permissions?.[permission] ?? [],
     );
-    if (!lookup.roles.some((role) => grants.includes(role))) {
+    if (!roles.some((role) => grants.includes(role))) {
       throw new ForbiddenError(
         `Requires ${appId} permission ${permissions.join(" or ")}`,
       );
@@ -261,7 +291,7 @@ export async function resolveAppRole<R extends string>(
   try {
     rows = (
       await getDbExec().execute({
-        sql: `SELECT array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL) AS roles,
+        sql: `SELECT m.role AS "orgRole", array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL) AS roles,
                      o.identity_authority AS "identityAuthority",
                      o.identity_id AS "identityId"
               FROM org_members m
@@ -272,7 +302,7 @@ export async function resolveAppRole<R extends string>(
                AND LOWER(r.email) = LOWER(m.email)
               WHERE m.org_id = ? AND LOWER(m.email) = ?
                 AND m.federation_removal_pending_at IS NULL
-              GROUP BY o.identity_authority, o.identity_id`,
+              GROUP BY m.role, o.identity_authority, o.identity_id`,
         args: [descriptor.appId, orgId, normalizeEmail(email)],
       })
     ).rows as Array<Record<string, unknown>>;
@@ -280,7 +310,7 @@ export async function resolveAppRole<R extends string>(
     if (!isMissingOrganizationTableError(error)) throw error;
     rows = (
       await getDbExec().execute({
-        sql: `SELECT array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL) AS roles
+        sql: `SELECT m.role AS "orgRole", array_agg(r.role ORDER BY r.role) FILTER (WHERE r.role IS NOT NULL) AS roles
               FROM org_members m
               LEFT JOIN app_member_roles r
                 ON r.org_id = m.org_id
@@ -288,7 +318,7 @@ export async function resolveAppRole<R extends string>(
                AND LOWER(r.email) = LOWER(m.email)
               WHERE m.org_id = ? AND LOWER(m.email) = ?
                 AND m.federation_removal_pending_at IS NULL
-              GROUP BY m.org_id, m.email`,
+              GROUP BY m.org_id, m.email, m.role`,
         args: [descriptor.appId, orgId, normalizeEmail(email)],
       })
     ).rows as Array<Record<string, unknown>>;
@@ -297,6 +327,7 @@ export async function resolveAppRole<R extends string>(
   const row = rows[0] as
     | {
         roles?: unknown;
+        orgRole?: unknown;
         appRoles?: unknown;
         approles?: unknown;
         identityAuthority?: unknown;
@@ -329,8 +360,16 @@ export async function resolveAppRole<R extends string>(
   const validRoles = [
     ...new Set(roles.filter((role) => descriptor.roles.includes(role))),
   ];
-  if (!validRoles.length) return { status: "unassigned", orgId };
-  return { status: "assigned", roles: validRoles, orgId };
+  const membership =
+    typeof row.orgRole === "string" ? { orgRole: row.orgRole } : {};
+  if (!validRoles.length)
+    return {
+      status: "unassigned",
+      orgId,
+      ...membership,
+      ...(roles.length ? { hasAssignments: true } : {}),
+    };
+  return { status: "assigned", roles: validRoles, orgId, ...membership };
 }
 
 export interface AppMemberRoleRow {

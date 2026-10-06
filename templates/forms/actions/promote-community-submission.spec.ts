@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
+  getRequestUserEmail: () => "owner@example.com",
+  getRequestOrgId: () => undefined,
+}));
+
 const response = {
   id: "response_123456",
   formId: "form_community",

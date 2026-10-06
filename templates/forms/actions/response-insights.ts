@@ -16,6 +16,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { publicSubmitterEmail } from "../shared/submitter-email.js";
 import type {
   FormField,
@@ -282,6 +283,7 @@ async function loadForms(args: ResponseInsightsArgs) {
 }
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.review", "formId"),
   description:
     "Analyze form response data and return a native widget. Set displayMode=chart for chart-only requests, displayMode=table for table-only requests, and displayMode=insights only for combined dashboards/reports.",
   schema: responseInsightsSchema,

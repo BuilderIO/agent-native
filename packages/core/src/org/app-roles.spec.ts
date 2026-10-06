@@ -198,6 +198,104 @@ describe("app roles", () => {
     });
   });
 
+  describe("opt-in permission compatibility", () => {
+    function compatibleAccess() {
+      return defineAppRoles(
+        {
+          appId: uniqueAppId("compatible"),
+          roles: ["editor", "reviewer"] as const,
+          permissions: { edit: ["editor"], review: ["editor", "reviewer"] },
+        },
+        { unassignedRole: "editor", allowOrgAdmins: true },
+      );
+    }
+
+    it("allows an unassigned member while keeping resolve unassigned", async () => {
+      const access = compatibleAccess();
+      mockExecute
+        .mockResolvedValueOnce(joinRow())
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(
+        access.requirePermission("edit")({}, CALLER as any),
+      ).resolves.toBeUndefined();
+      mockExecute.mockResolvedValueOnce(joinRow());
+      expect(await access.resolve(CALLER)).toEqual({
+        status: "unassigned",
+        orgId: "org1",
+      });
+    });
+
+    it("does not apply the fallback to an explicit reviewer or a retired role", async () => {
+      const access = compatibleAccess();
+      for (const role of ["reviewer", "retired"]) {
+        mockExecute
+          .mockResolvedValueOnce(joinRow(role))
+          .mockResolvedValueOnce({ rows: [] });
+        await expect(access.assertPermission(["edit"], CALLER)).rejects.toThrow(
+          ForbiddenError,
+        );
+      }
+    });
+
+    it.each(["owner", "admin"])(
+      "preserves an active org %s's access",
+      async (orgRole) => {
+        const access = compatibleAccess();
+        mockExecute.mockResolvedValueOnce({
+          rows: [{ roles: ["reviewer"], orgRole }],
+        });
+        await expect(
+          access.assertPermission(["edit"], CALLER),
+        ).resolves.toBeUndefined();
+      },
+    );
+
+    it("never bypasses removed membership or missing identity", async () => {
+      const access = compatibleAccess();
+      await expect(access.assertPermission(["edit"], CALLER)).rejects.toThrow(
+        ForbiddenError,
+      );
+      await expect(
+        access.assertPermission(["edit"], { userEmail: null, orgId: "org1" }),
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it("applies permission overrides to the fallback role", async () => {
+      const access = compatibleAccess();
+      mockExecute.mockResolvedValueOnce(joinRow()).mockResolvedValueOnce({
+        rows: [{ permission: "edit", roles_json: "[]" }],
+      });
+      await expect(access.assertPermission(["edit"], CALLER)).rejects.toThrow(
+        ForbiddenError,
+      );
+    });
+
+    it("does not grant admins an exemption unless the app opts in", async () => {
+      const access = defineAppRoles({
+        appId: uniqueAppId("strict"),
+        roles: ["editor", "reviewer"],
+        permissions: { edit: ["editor"] },
+      });
+      mockExecute
+        .mockResolvedValueOnce({
+          rows: [{ roles: ["reviewer"], orgRole: "admin" }],
+        })
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(access.assertPermission(["edit"], CALLER)).rejects.toThrow(
+        ForbiddenError,
+      );
+    });
+
+    it("rejects an undeclared fallback role", () => {
+      expect(() =>
+        defineAppRoles(
+          { appId: uniqueAppId("invalid"), roles: ["editor"] },
+          { unassignedRole: "reviewer" as any },
+        ),
+      ).toThrow("unassignedRole is not in roles");
+    });
+  });
+
   describe("a retired role does not satisfy a guard", () => {
     it("resolves a stored role outside the declared vocabulary as unassigned", async () => {
       const access = defineTestRoles();
@@ -206,6 +304,7 @@ describe("app roles", () => {
       expect(await access.resolve(CALLER)).toEqual({
         status: "unassigned",
         orgId: "org1",
+        hasAssignments: true,
       });
     });
 

@@ -131,3 +131,5 @@ description: "Typeform과 Google Forms를 하나로 대체하는, 직접 소유�
 - [**액션**](/docs/actions-overview) — 빌더를 구동하는 액션 시스템
 - [**메시징**](/docs/messaging) — Slack과 그 밖의 제출 대상
 - [**공유**](/docs/sharing) — 양식 공유가 기반으로 삼는 공유 부여 모델
+
+Forms는 공유 권한 검사를 통해 팀 페이지의 역할을 적용합니다. Reviewer는 제출 내용을 검토하고 응답을 내보내거나 분석할 수 있지만 양식을 생성, 편집, 게시, 보관, 삭제 또는 복원할 수 없습니다. Editor는 편집과 검토를 할 수 있습니다. 제출 내용 검토에는 여전히 리소스의 editor 수준 공유 권한이 필요하며, 앱 역할만으로 비공개 양식에 접근할 수는 없습니다. 양식 소유자와 조직 소유자 및 관리자는 앱 역할 제한에서 제외되지만 리소스 공유 검사는 계속 적용됩니다. 역할이 지정되지 않은 구성원은 호환성을 위해 Editor 권한을 유지하며, Reviewer를 지정하면 편집 권한이 제거됩니다. 조직이 없는 인증된 개인 설치 환경은 기존 리소스 접근 권한을 유지합니다. Forms는 `defineAppRoles(descriptor, { unassignedRole: "editor", allowOrgAdmins: true })`를 사용합니다. `defaultRole`은 표시 전용으로 유지되며, 다른 앱은 이 옵션을 활성화하지 않는 한 엄격한 검사를 유지합니다.
