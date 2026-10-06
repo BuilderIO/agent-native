@@ -170,6 +170,21 @@ describe("list-model-providers", () => {
     expect(entry(listing, "anthropic").deploymentConfigured).toBe(false);
   });
 
+  it("keeps the organization deployment fallback when an admin has a personal key", async () => {
+    mocks.deploymentEngines.add("anthropic");
+    setSecret(
+      "user",
+      "admin@example.com",
+      "ANTHROPIC_API_KEY",
+      "sk-ant-personal-test",
+    );
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").personal?.masked).toBe("••••test");
+    expect(entry(listing, "anthropic").deploymentConfigured).toBe(true);
+  });
+
   it("shows admins the organization key's mask and gateway", async () => {
     setSecret("org", "org-1", "OPENAI_API_KEY", "sk-test-fake-1111");
     setSecret("org", "org-1", "OPENAI_BASE_URL", "https://gateway.example/v1");
