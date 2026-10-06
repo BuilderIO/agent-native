@@ -29,7 +29,7 @@ import {
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
-import { readPreviewDocumentDraft } from "./_preview-document-draft.js";
+import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   getDatabaseById,
   listPropertiesForDocument,
@@ -195,14 +195,19 @@ export default defineAction({
             )
             .limit(1)
         : [],
-      readsPreviewDraft && canEditRole(access.role)
-        ? readPreviewDocumentDraft(
+      readsPreviewDraft
+        ? previewDocumentDraftAnswer(
             userEmail!,
             getRequestOrgId() ?? "",
             doc.id,
-            db,
+          ).catch(
+            // coercion-ok: this page's access can come from its space, which
+            // the draft read never uses, so a refusal is no answer rather than
+            // "nothing to recover". Leaving previewDraft out sends the browser
+            // to get-preview-document-draft, which reports it.
+            () => undefined,
           )
-        : null,
+        : undefined,
     ]);
     if (softDeleted) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
@@ -422,14 +427,7 @@ export default defineAction({
       contextPath,
       // The same answer get-preview-document-draft gives, so a page open
       // needs no second request before it can show the page.
-      ...(readsPreviewDraft
-        ? {
-            previewDraft: {
-              editable: canEditRole(access.role),
-              draft: previewDraft,
-            },
-          }
-        : {}),
+      ...(previewDraft ? { previewDraft } : {}),
     };
   },
   link: ({ result }) => {

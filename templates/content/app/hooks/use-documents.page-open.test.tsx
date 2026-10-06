@@ -596,6 +596,91 @@ describe("draft recovery read", () => {
     expect(reads("get-preview-document-draft")).toBe(1);
   });
 
+  it("shows a restarted draft read's own answer, not the late shared one", async () => {
+    const page = deferred<unknown>();
+    server.respond = (name, params) =>
+      name === "get-document"
+        ? page.promise
+        : Promise.resolve({ editable: true, draft: { version: 2 } });
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await queryClient.invalidateQueries({ queryKey: draftKey });
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await draftLanded();
+    page.resolve({
+      ...pageOrDraft("get-document", { id: "doc-1" }),
+      previewDraft: { editable: true, draft: { version: 1 } },
+    });
+    await act(async () => {});
+
+    await ensurePreviewDocumentDraftRead(queryClient, "doc-1");
+
+    expect(reads("get-document")).toBe(1);
+    expect(reads("get-preview-document-draft")).toBe(1);
+    expect(queryClient.getQueryData(draftKey)).toEqual({
+      editable: true,
+      draft: { version: 2 },
+    });
+  });
+
+  it("shows the restarted page read's draft answer, not the late one it replaced", async () => {
+    const first = deferred<unknown>();
+    let pageReads = 0;
+    server.respond = (name, params) => {
+      if (name !== "get-document")
+        return Promise.resolve(pageOrDraft(name, params));
+      const version = ++pageReads;
+      const answer = {
+        ...pageOrDraft(name, params),
+        previewDraft: { editable: true, draft: { version } },
+      };
+      return version === 1
+        ? first.promise.then(() => answer)
+        : Promise.resolve(answer);
+    };
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await deliverSyncEvents(queryClient, "/home", [
+      "update-preview-document-draft",
+    ]);
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await draftLanded();
+    first.resolve(undefined);
+    await act(async () => {});
+
+    await ensurePreviewDocumentDraftRead(queryClient, "doc-1");
+
+    expect(reads("get-document")).toBe(2);
+    expect(reads("get-preview-document-draft")).toBe(0);
+    expect(queryClient.getQueryData(draftKey)).toEqual({
+      editable: true,
+      draft: { version: 2 },
+    });
+  });
+
+  it("still answers the draft from a page read cancelled for this open", async () => {
+    const page = deferred<unknown>();
+    server.respond = (name, params) =>
+      name === "get-document"
+        ? page.promise
+        : Promise.resolve(pageOrDraft(name, params));
+    startPageOpenDocumentReads(queryClient, "doc-1");
+    await queryClient.cancelQueries({
+      queryKey: ["action", "get-document", { id: "doc-1" }],
+    });
+    page.resolve({
+      ...pageOrDraft("get-document", { id: "doc-1" }),
+      previewDraft: { editable: true, draft: { version: 1 } },
+    });
+    await draftLanded();
+
+    await ensurePreviewDocumentDraftRead(queryClient, "doc-1");
+
+    expect(reads("get-preview-document-draft")).toBe(0);
+    expect(queryClient.getQueryData(draftKey)).toEqual({
+      editable: true,
+      draft: { version: 1 },
+    });
+  });
+
   it("reads again when another tab wrote a draft after the early read", async () => {
     startPageOpenDocumentReads(queryClient, "doc-1");
     await draftLanded();
