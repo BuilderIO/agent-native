@@ -629,60 +629,84 @@ export async function trashDocumentSubtree(
   return activeDocumentIds;
 }
 
+async function collectRestoreScope(
+  db: ReturnType<typeof getDb>,
+  rootId: string,
+  ownerEmail: string,
+) {
+  const documentIds = (
+    await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.trashRootId, rootId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      )
+  ).map((document) => document.id);
+  const memberships = await selectMembershipsForDocuments(db, documentIds);
+  const ownedDatabases = await selectOwnedDatabaseIds(
+    db,
+    documentIds,
+    ownerEmail,
+  );
+  return {
+    documentIds,
+    databaseIds: [
+      ...new Set([
+        ...ownedDatabases.map((database) => database.id),
+        ...memberships.map((membership) => membership.databaseId),
+      ]),
+    ].sort(),
+  };
+}
+
+/**
+ * A restore's group is every page with this trashRootId, which can differ from
+ * the root's current subtree once a member moves. Lock the group's collections
+ * here, before any page row, so every restore path takes them in one order.
+ */
+export async function lockDatabasesForRestore(
+  db: ReturnType<typeof getDb>,
+  rootId: string,
+  ownerEmail: string,
+  alsoLockDatabaseIds: readonly string[] = [],
+) {
+  const scope = await collectRestoreScope(db, rootId, ownerEmail);
+  const databaseIds = [
+    ...new Set([...scope.databaseIds, ...alsoLockDatabaseIds]),
+  ].sort();
+  for (const databaseId of databaseIds) {
+    await lockContentDatabaseMutation(db, databaseId);
+  }
+  return new Set(databaseIds);
+}
+
 export async function restoreDocumentSubtree(
   db: ReturnType<typeof getDb>,
   rootId: string,
   ownerEmail: string,
+  lockedDatabaseIds?: ReadonlySet<string>,
 ): Promise<string[]> {
-  const collectRestoreScope = async () => {
-    const documentIds = (
-      await db
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.trashRootId, rootId),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        )
-    ).map((document) => document.id);
-    const memberships = await selectMembershipsForDocuments(db, documentIds);
-    const ownedDatabaseIds = (
-      await selectOwnedDatabaseIds(db, documentIds, ownerEmail)
-    ).map((database) => database.id);
-    return { documentIds, memberships, ownedDatabaseIds };
-  };
-
-  const initialScope = await collectRestoreScope();
-  if (initialScope.documentIds.length === 0) return [];
-  const lockedDatabaseIds = [
-    ...new Set([
-      ...initialScope.ownedDatabaseIds,
-      ...initialScope.memberships.map((membership) => membership.databaseId),
-    ]),
-  ].sort();
-  for (const databaseId of lockedDatabaseIds) {
-    await lockContentDatabaseMutation(db, databaseId);
-  }
-
-  const restoreScope = await collectRestoreScope();
-  const lockedDatabaseIdSet = new Set(lockedDatabaseIds);
-  const unlockedDatabaseId = [
-    ...new Set([
-      ...restoreScope.ownedDatabaseIds,
-      ...restoreScope.memberships.map((membership) => membership.databaseId),
-    ]),
-  ].find((databaseId) => !lockedDatabaseIdSet.has(databaseId));
-  if (unlockedDatabaseId) {
+  const lockedDatabaseIdSet =
+    lockedDatabaseIds ??
+    (await lockDatabasesForRestore(db, rootId, ownerEmail));
+  const restoreScope = await collectRestoreScope(db, rootId, ownerEmail);
+  const documentIds = restoreScope.documentIds;
+  if (documentIds.length === 0) return [];
+  if (
+    restoreScope.databaseIds.some(
+      (databaseId) => !lockedDatabaseIdSet.has(databaseId),
+    )
+  ) {
     throw new Error("Document restore scope changed; retry restoration.");
   }
   await lockDatabaseMemberships(
     db,
-    await selectMembershipIdsForDatabases(db, lockedDatabaseIds),
+    await selectMembershipIdsForDatabases(db, [...lockedDatabaseIdSet].sort()),
   );
 
-  const documentIds = restoreScope.documentIds;
-  if (documentIds.length === 0) return [];
   const now = new Date().toISOString();
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     await db

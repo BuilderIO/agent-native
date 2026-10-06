@@ -9,7 +9,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   createMCPServerForRequest,
@@ -375,6 +375,63 @@ describe("page Trash through external MCP", () => {
       id: child.id,
     });
     expect(visible.id).toBe(child.id);
+  });
+
+  it("locks a Trash group's collections in one order after a member moves", async () => {
+    const parent = await createPage("Restore lock parent");
+    const child = await createPage("Restore lock child", parent.id);
+    const collection = await createPage("Restore lock collection");
+    const destination = await createPage("Restore lock destination");
+    // Sorts before generated ids, so an out-of-order restore locks it last.
+    const collectionId = "--restore-lock-collection";
+    await getDb().insert(schema.contentDatabases).values({
+      id: collectionId,
+      documentId: collection.id,
+      ownerEmail: owner,
+    });
+    await getDb().insert(schema.contentDatabaseItems).values({
+      id: "restore-lock-membership",
+      databaseId: collectionId,
+      documentId: child.id,
+      ownerEmail: owner,
+    });
+    const trashed = await callJson(ownerClient, "delete-document", {
+      id: parent.id,
+      expectedUpdatedAt: (await readPage(parent.id)).updatedAt,
+      idempotencyKey: "restore-lock-trash",
+    });
+    const moveDocument = (await import("./move-document.js")).default;
+    await runWithRequestContext({ userEmail: owner }, () =>
+      moveDocument.run(
+        { id: child.id, parentId: destination.id },
+        { caller: "frontend" },
+      ),
+    );
+
+    const locks = await import("./_content-database-mutation-lock.js");
+    const lockDatabase = locks.lockContentDatabaseMutation;
+    const lockOrder: string[] = [];
+    const spy = vi
+      .spyOn(locks, "lockContentDatabaseMutation")
+      .mockImplementation(async (tx, databaseId) => {
+        lockOrder.push(databaseId);
+        return lockDatabase(tx, databaseId);
+      });
+    try {
+      const restored = await callJson(ownerClient, "restore-document", {
+        id: parent.id,
+        expectedTrashedAt: trashed.trashedAt,
+        idempotencyKey: "restore-lock-restore",
+      });
+      expect(restored).toMatchObject({
+        affectedDocumentCount: 2,
+        receipt: { outcome: "restored" },
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(lockOrder).toContain(collectionId);
+    expect(lockOrder).toEqual([...lockOrder].sort());
   });
 
   it("routes collection pages to the collection lifecycle", async () => {

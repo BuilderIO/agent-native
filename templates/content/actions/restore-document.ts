@@ -15,7 +15,7 @@ import {
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
 import {
-  lockDatabasesForTrash,
+  lockDatabasesForRestore,
   restoreDocumentSubtree,
 } from "./delete-document.js";
 
@@ -52,7 +52,11 @@ async function restoreDocumentWithReceipt(
   const ownerEmail = access.resource.ownerEmail as string;
   const result = await getDb().transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
-    await lockDatabasesForTrash(tx, input.id, ownerEmail);
+    const lockedDatabaseIds = await lockDatabasesForRestore(
+      tx,
+      input.id,
+      ownerEmail,
+    );
     const before = await lockLifecycleDocument(tx, input.id, ownerEmail);
     const { claim, replay } = await claimDocumentLifecycleIntent(
       tx,
@@ -76,7 +80,12 @@ async function restoreDocumentWithReceipt(
         "TRASH_REVISION_CONFLICT",
         "The Trash item changed after you read it. List Trash again and retry with its current trashedAt.",
       );
-    const restored = await restoreDocumentSubtree(tx, input.id, ownerEmail);
+    const restored = await restoreDocumentSubtree(
+      tx,
+      input.id,
+      ownerEmail,
+      lockedDatabaseIds,
+    );
     const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
     if (after.trashedAt || !restored.includes(input.id))
       setupError(
