@@ -122,29 +122,6 @@ pnpm migrate:production
 
 ## الخطوة 4: البناء {#step-4-build}
 
-### ضبط بيئة تشغيل الواجهة البرمجية {#set-the-api-runtime}
-
-يشغّل Azure خادم التطبيق على إصدار Node.js المذكور في الملف
-`staticwebapp.config.json` الخاص بالبناء. يختار البناء هذا الإصدار من الحقل
-`engines` في `package.json`، لكن فقط عندما تكون قيمة الحقل `20` أو `22` تمامًا.
-يتطلب التطبيق الجديد `>=22.22.0`، لذلك يعود البناء إلى Node.js 18، وهو إصدار قديم
-جدًا بالنسبة إلى التطبيق ولم يعد Azure يدعمه.
-
-اضبط الإصدار بنفسك في `vite.config.ts`. أضف الخيار `nitro` إلى استدعاء الإضافة
-`agentNative` الموجود، واترك باقي الملف دون تغيير:
-
-```ts filename="vite.config.ts"
-...agentNativePlugins({
-  ssrStubs: ["shiki"],
-  nitro: {
-    azure: { config: { platform: { apiRuntime: "node:22" } } },
-  },
-}),
-```
-
-يستخدم هذا المثال ملف `vite.config.ts` من قالب Chat. في القوالب الأخرى، أضف
-الخيار `nitro` نفسه إلى استدعاء `agentNative` هناك.
-
 ### بناء التطبيق {#build-the-app}
 
 ابنِ التطبيق لـ Azure Static Web Apps:
@@ -155,8 +132,24 @@ NITRO_PRESET=azure-swa pnpm build
 
 يبني `NITRO_PRESET=azure-swa` التطبيق بالتنسيق الذي يتوقعه Azure Static Web Apps.
 يكتب البناء الملفات الثابتة في `.output/public` ودوال الخادم في `.output/server`.
-ويكتب أيضًا الملف `staticwebapp.config.json`، مع بيئة تشغيل الواجهة البرمجية من
-القسم السابق، في مجلد التطبيق.
+ويكتب أيضًا الملف `staticwebapp.config.json` في مجلد التطبيق، وهو يخبر Azure بكيفية
+توجيه الطلبات وبإصدار Node.js الذي يشغّل الخادم.
+
+### ضبط بيئة تشغيل الواجهة البرمجية {#set-the-api-runtime}
+
+يشغّل Azure خادم التطبيق على إصدار Node.js المذكور في `staticwebapp.config.json`.
+يختار البناء هذا الإصدار من الحقل `engines` في `package.json`، لكن فقط عندما تكون
+قيمة الحقل `20` أو `22` تمامًا. يتطلب التطبيق الجديد `>=22.22.0`، لذلك يكتب البناء
+Node.js 18 بدلًا من ذلك، وهو إصدار قديم جدًا بالنسبة إلى التطبيق ولم يعد Azure يدعمه.
+
+بعد كل بناء، اضبط الإصدار على Node.js 22:
+
+```bash
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
+```
+
+يغيّر الأمر الإعداد `apiRuntime` فقط، ويُبقي باقي الملف الذي كتبه البناء. يعيد
+البناء كتابة الملف في كل مرة، لذلك شغّل هذا الأمر بعد كل بناء، وقبل النشر.
 
 ## الخطوة 5: إنشاء تطبيق الويب الثابت وحفظ الأسرار {#step-5-create-the-static-web-app-and-save-the-secrets}
 
@@ -213,6 +206,8 @@ npx @azure/static-web-apps-cli deploy .output/public --api-location .output/serv
 pnpm migrate:production
 
 NITRO_PRESET=azure-swa pnpm build
+
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
 
 npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
 ```

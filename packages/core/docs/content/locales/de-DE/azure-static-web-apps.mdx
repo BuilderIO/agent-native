@@ -135,31 +135,6 @@ bevor Sie die neue Version deployen.
 
 ## Schritt 4: Bauen {#step-4-build}
 
-### Die API-Runtime festlegen {#set-the-api-runtime}
-
-Azure führt den Server der App mit der Node.js-Version aus, die in der Datei
-`staticwebapp.config.json` des Builds steht. Der Build übernimmt diese Version
-aus dem Feld `engines` in `package.json`, aber nur, wenn das Feld genau `20`
-oder `22` lautet. Eine neue App verlangt `>=22.22.0`. Der Build greift daher auf
-Node.js 18 zurück. Diese Version ist zu alt für die App und wird von Azure nicht
-mehr unterstützt.
-
-Legen Sie die Version selbst in `vite.config.ts` fest. Ergänzen Sie den
-vorhandenen Aufruf des `agentNative`-Plugins um eine `nitro`-Option und lassen
-Sie den Rest der Datei unverändert:
-
-```ts filename="vite.config.ts"
-...agentNativePlugins({
-  ssrStubs: ["shiki"],
-  nitro: {
-    azure: { config: { platform: { apiRuntime: "node:22" } } },
-  },
-}),
-```
-
-Dieses Beispiel verwendet die `vite.config.ts` des Chat-Templates. Ergänzen Sie
-in anderen Templates dieselbe `nitro`-Option im dortigen `agentNative`-Aufruf.
-
 ### Die App bauen {#build-the-app}
 
 Bauen Sie die App für Azure Static Web Apps:
@@ -170,9 +145,28 @@ NITRO_PRESET=azure-swa pnpm build
 
 `NITRO_PRESET=azure-swa` baut die App in dem Format, das Azure Static Web Apps
 erwartet. Der Build schreibt die statischen Dateien nach `.output/public` und
-die Server-Funktionen nach `.output/server`. Außerdem schreibt er
-`staticwebapp.config.json` mit der API-Runtime aus dem vorherigen Abschnitt in
-den Ordner der App.
+die Server-Funktionen nach `.output/server`. Außerdem schreibt er eine Datei
+`staticwebapp.config.json` in den Ordner der App. Diese Datei legt fest, wie
+Azure Anfragen weiterleitet und mit welcher Node.js-Version der Server läuft.
+
+### Die API-Runtime festlegen {#set-the-api-runtime}
+
+Azure führt den Server der App mit der Node.js-Version aus, die in
+`staticwebapp.config.json` steht. Der Build übernimmt diese Version aus dem Feld
+`engines` in `package.json`, aber nur, wenn das Feld genau `20` oder `22`
+lautet. Eine neue App verlangt `>=22.22.0`. Der Build schreibt daher stattdessen
+Node.js 18. Diese Version ist zu alt für die App und wird von Azure nicht mehr
+unterstützt.
+
+Setzen Sie die Version nach jedem Build auf Node.js 22:
+
+```bash
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
+```
+
+Der Befehl ändert nur die Einstellung `apiRuntime` und behält den Rest der
+Datei bei, die der Build geschrieben hat. Der Build schreibt die Datei jedes Mal
+neu. Führen Sie diesen Befehl also nach jedem Build aus, bevor Sie deployen.
 
 ## Schritt 5: Die Static Web App erstellen und die Secrets speichern {#step-5-create-the-static-web-app-and-save-the-secrets}
 
@@ -235,6 +229,8 @@ erneut und laden Sie den Build hoch:
 pnpm migrate:production
 
 NITRO_PRESET=azure-swa pnpm build
+
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
 
 npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
 ```

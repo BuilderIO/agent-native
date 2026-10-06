@@ -114,28 +114,6 @@ pnpm migrate:production
 
 ## 步驟 4：建置 {#step-4-build}
 
-### 設定 API 執行環境 {#set-the-api-runtime}
-
-Azure 會使用建置成果的 `staticwebapp.config.json` 檔案中指定的 Node.js 版本執行
-應用程式的伺服器。建置會從 `package.json` 的 `engines` 欄位選取該版本，但只有在
-該欄位剛好是 `20` 或 `22` 時才會這樣做。新的應用程式要求 `>=22.22.0`，因此建置會
-退回使用 Node.js 18，而這個版本對應用程式來說太舊，Azure 也已不再支援。
-
-請在 `vite.config.ts` 中自行設定版本。在現有的 `agentNative` 外掛程式呼叫中加入一個
-`nitro` 選項，檔案的其餘部分維持不變：
-
-```ts filename="vite.config.ts"
-...agentNativePlugins({
-  ssrStubs: ["shiki"],
-  nitro: {
-    azure: { config: { platform: { apiRuntime: "node:22" } } },
-  },
-}),
-```
-
-這個範例使用的是 Chat 範本的 `vite.config.ts`。在其他範本中，請在那裡的
-`agentNative` 呼叫中加入同樣的 `nitro` 選項。
-
 ### 建置應用程式 {#build-the-app}
 
 為 Azure Static Web Apps 建置應用程式：
@@ -145,8 +123,25 @@ NITRO_PRESET=azure-swa pnpm build
 ```
 
 `NITRO_PRESET=azure-swa` 會依照 Azure Static Web Apps 要求的格式建置應用程式。建置會把
-靜態檔案寫入 `.output/public`，並把伺服器函式寫入 `.output/server`。它還會把
-`staticwebapp.config.json` 寫入應用程式的資料夾，其中包含上一節設定的 API 執行環境。
+靜態檔案寫入 `.output/public`，並把伺服器函式寫入 `.output/server`。它還會把一個
+`staticwebapp.config.json` 檔案寫入應用程式的資料夾，這個檔案會告訴 Azure 如何路由
+請求，以及使用哪個 Node.js 版本執行伺服器。
+
+### 設定 API 執行環境 {#set-the-api-runtime}
+
+Azure 會使用 `staticwebapp.config.json` 中指定的 Node.js 版本執行應用程式的伺服器。
+建置會從 `package.json` 的 `engines` 欄位選取該版本，但只有在該欄位剛好是 `20` 或
+`22` 時才會這樣做。新的應用程式要求 `>=22.22.0`，因此建置會改為寫入 Node.js 18，
+而這個版本對應用程式來說太舊，Azure 也已不再支援。
+
+每次建置之後，將版本設定為 Node.js 22：
+
+```bash
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
+```
+
+這個指令只會變更 `apiRuntime` 設定，並保留建置寫入的檔案中的其餘內容。建置每次都會
+重寫這個檔案，因此請在每次建置之後、部署之前執行這個指令。
 
 ## 步驟 5：建立靜態 Web 應用程式並儲存密鑰 {#step-5-create-the-static-web-app-and-save-the-secrets}
 
@@ -201,6 +196,8 @@ npx @azure/static-web-apps-cli deploy .output/public --api-location .output/serv
 pnpm migrate:production
 
 NITRO_PRESET=azure-swa pnpm build
+
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
 
 npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
 ```

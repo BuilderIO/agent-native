@@ -127,29 +127,6 @@ deploy करने से पहले इसे फिर से चलाए�
 
 ## चरण 4: Build करें {#step-4-build}
 
-### API runtime सेट करें {#set-the-api-runtime}
-
-Azure ऐप के server को उस Node.js version पर चलाता है जो build की
-`staticwebapp.config.json` file में दिया गया है। Build यह version `package.json`
-के `engines` field से चुनता है, लेकिन सिर्फ़ तब जब field ठीक `20` या `22` हो।
-नए ऐप को `>=22.22.0` चाहिए, इसलिए build Node.js 18 पर fall back करता है, जो ऐप के
-लिए बहुत पुराना है और जिसे Azure अब support नहीं करता।
-
-Version खुद `vite.config.ts` में सेट करें। मौजूदा `agentNative` plugin call में एक
-`nitro` option जोड़ें और file का बाकी हिस्सा जैसा है वैसा रहने दें:
-
-```ts filename="vite.config.ts"
-...agentNativePlugins({
-  ssrStubs: ["shiki"],
-  nitro: {
-    azure: { config: { platform: { apiRuntime: "node:22" } } },
-  },
-}),
-```
-
-यह उदाहरण Chat template की `vite.config.ts` इस्तेमाल करता है। दूसरे templates में,
-वही `nitro` option वहां के `agentNative` call में जोड़ें।
-
 ### ऐप build करें {#build-the-app}
 
 ऐप को Azure Static Web Apps के लिए build करें:
@@ -160,8 +137,27 @@ NITRO_PRESET=azure-swa pnpm build
 
 `NITRO_PRESET=azure-swa` ऐप को उस format में build करता है जिसकी Azure Static Web
 Apps को ज़रूरत है। Build, static files को `.output/public` में और server functions
-को `.output/server` में लिखता है। यह पिछले section के API runtime के साथ
-`staticwebapp.config.json` भी ऐप के folder में लिखता है।
+को `.output/server` में लिखता है। यह ऐप के folder में एक `staticwebapp.config.json`
+file भी लिखता है, जो Azure को बताती है कि requests को कैसे route करना है और server
+किस Node.js version पर चलेगा।
+
+### API runtime सेट करें {#set-the-api-runtime}
+
+Azure ऐप के server को उस Node.js version पर चलाता है जो
+`staticwebapp.config.json` में दिया गया है। Build यह version `package.json` के
+`engines` field से चुनता है, लेकिन सिर्फ़ तब जब field ठीक `20` या `22` हो। नए ऐप
+को `>=22.22.0` चाहिए, इसलिए build इसके बजाय Node.js 18 लिखता है, जो ऐप के लिए बहुत
+पुराना है और जिसे Azure अब support नहीं करता।
+
+हर build के बाद, version को Node.js 22 पर सेट करें:
+
+```bash
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
+```
+
+यह command सिर्फ़ `apiRuntime` setting बदलता है और build की लिखी file का बाकी
+हिस्सा वैसा ही रखता है। Build हर बार file को फिर से लिखता है, इसलिए deploy करने से
+पहले, हर build के बाद यह command चलाएं।
 
 ## चरण 5: Static web app बनाएं और secrets save करें {#step-5-create-the-static-web-app-and-save-the-secrets}
 
@@ -219,6 +215,8 @@ Command पूरा होने पर यह ऐप का address print क�
 pnpm migrate:production
 
 NITRO_PRESET=azure-swa pnpm build
+
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
 
 npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
 ```
