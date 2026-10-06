@@ -1786,9 +1786,9 @@ function getRealtimeClientConfigScript() {
 function getAppOriginClientConfigScript() {
   // MUST stay consistent with resolvePublicAppOriginConfig in
   // server/app-origin-config.ts, and with the alias order declared on
-  // app.url / workspace.* in app-config (worker bundles a string copy; it
-  // can't import them). Impersonal values only — this ships into the
-  // CDN-cached shell.
+  // app.id / app.workspaceId / app.url / workspace.* in app-config (worker
+  // bundles a string copy; it can't import them). Impersonal values only —
+  // this ships into the CDN-cached shell.
   const env = globalThis.process?.env || {};
   const appUrl = firstNonEmpty(
     env.APP_URL,
@@ -1851,23 +1851,34 @@ function getAppOriginClientConfigScript() {
       return;
     }
   })();
-  const appHomePath = resolveAgentNativeAppHomePath(
-    getAgentNativeAppConfig().app,
-    getAgentNativeAppConfig().workspace,
-  );
+  const appConfig = getAgentNativeAppConfig();
   const config = {
-    appHomePath,
+    ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
+    ...(appConfig.app.workspaceId
+      ? { workspaceAppId: appConfig.app.workspaceId }
+      : {}),
+    appHomePath: resolveAgentNativeAppHomePath(
+      appConfig.app,
+      appConfig.workspace,
+    ),
     ...(appUrl ? { appUrl } : {}),
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
     ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
   };
+  const serializedConfig = JSON.stringify(config).replace(
+    /[<>&\\u2028\\u2029]/g,
+    (character) =>
+      String.fromCharCode(92) +
+      "u" +
+      character.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
   if (Object.keys(config).length === 0) return null;
   return (
     '<script data-agent-native-app-origin-config>' +
     'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
-    JSON.stringify(config) +
+    serializedConfig +
     ");</script>"
   );
 }
