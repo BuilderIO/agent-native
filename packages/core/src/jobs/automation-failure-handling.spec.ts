@@ -227,6 +227,20 @@ const okUsage = {
   model: "test-model",
 };
 
+async function successfulAutomationRun({
+  send,
+}: Parameters<
+  typeof import("../agent/run-loop-with-resume.js").runAgentLoopDirectWithSoftTimeout
+>[0]) {
+  send({
+    type: "tool_done",
+    tool: "send-notification",
+    result: "Sent",
+    completedSideEffect: true,
+  });
+  return okUsage;
+}
+
 function putJob(
   owner: string,
   name: string,
@@ -289,7 +303,7 @@ beforeEach(async () => {
   resourceStore.rows.clear();
   createThreadMock.mockClear();
   insertRunSpy.mockClear();
-  runAgentLoopMock.mockReset().mockResolvedValue(okUsage);
+  runAgentLoopMock.mockReset().mockImplementation(successfulAutomationRun);
   engineUsableMock.mockReset().mockResolvedValue(true);
   sendFailureEmailMock.mockClear();
   trackMock.mockClear();
@@ -541,7 +555,7 @@ describe("scheduled automations that cannot run", () => {
     expect(await historyOf("credit-digest")).toHaveLength(6);
 
     // The daily credits reset: the next probe runs and the streak is gone.
-    runAgentLoopMock.mockReset().mockResolvedValue(okUsage);
+    runAgentLoopMock.mockReset().mockImplementation(successfulAutomationRun);
     await tickAt(Date.parse(repaused.pausedAt!) + 6 * 60 * MINUTE);
     const resumed = readJob("alice@agent-native.test", "credit-digest");
     expect(resumed.enabled).toBe(true);
