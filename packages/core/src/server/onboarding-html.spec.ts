@@ -410,6 +410,9 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("--auth-marketing-muted: GrayText;");
     expect(html).toContain(".auth-marketing-home .card input:focus {");
     expect(html).toContain(".auth-marketing-home .card input::placeholder {");
+    expect(html).toMatch(
+      /\.auth-marketing-home \.form-panel\s*\{[^}]*backdrop-filter: blur\(10px\);/,
+    );
     expect(html).toContain(
       '.auth-marketing-home .card .btn-google,\n    .auth-marketing-home .card .btn-primary,\n    .auth-marketing-home .card button[type="submit"]',
     );

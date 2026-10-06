@@ -2342,6 +2342,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     border-inline-start: 1px solid var(--auth-marketing-border);
     position: relative;
     z-index: 1;
+    backdrop-filter: blur(10px);
   }
   .auth-marketing-home .form-panel > .card {
     width: min(27.5rem, 100%);

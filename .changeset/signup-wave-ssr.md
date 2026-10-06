@@ -4,4 +4,4 @@
 "@agent-native/toolkit": minor
 ---
 
-Render hosted sign-in pages on the server and use the shared Calendar wave across signup pages and the homepage hero.
+Render hosted sign-in pages on the server, blur the signup form panel backdrop, and use the shared Calendar wave across signup pages and the homepage hero.
