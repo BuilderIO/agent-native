@@ -3045,24 +3045,32 @@ async function zoomCall<T>(endpoint: string, call: () => Promise<T>) {
   }
 }
 
+const ZOOM_DEDUPE_CHUNK_SIZE = 500;
+
 async function importedZoomExternalIds(
   sourceId: string,
   externalIds: string[],
 ): Promise<Set<string>> {
   const imported = new Set<string>();
-  if (!externalIds.length) return imported;
-  const rows = await getDb()
-    .select({ externalId: schema.brainRawCaptures.externalId })
-    .from(schema.brainRawCaptures)
-    .where(
-      and(
-        eq(schema.brainRawCaptures.sourceId, sourceId),
-        inArray(schema.brainRawCaptures.externalId, externalIds),
-        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
-      ),
-    );
-  for (const row of rows) {
-    if (row.externalId) imported.add(row.externalId);
+  for (
+    let offset = 0;
+    offset < externalIds.length;
+    offset += ZOOM_DEDUPE_CHUNK_SIZE
+  ) {
+    const chunk = externalIds.slice(offset, offset + ZOOM_DEDUPE_CHUNK_SIZE);
+    const rows = await getDb()
+      .select({ externalId: schema.brainRawCaptures.externalId })
+      .from(schema.brainRawCaptures)
+      .where(
+        and(
+          eq(schema.brainRawCaptures.sourceId, sourceId),
+          inArray(schema.brainRawCaptures.externalId, chunk),
+          eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        ),
+      );
+    for (const row of rows) {
+      if (row.externalId) imported.add(row.externalId);
+    }
   }
   return imported;
 }
