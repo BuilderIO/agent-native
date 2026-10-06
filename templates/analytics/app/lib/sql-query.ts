@@ -4,8 +4,8 @@ import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "@shared/sql-query-limits";
-import { useQuery } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -203,18 +203,23 @@ export function useSqlQuery(
   },
 ) {
   const successfulRefreshToken = useRef(0);
-  return useQuery<SqlQueryResult>({
+  const refreshToken = options?.refreshToken ?? 0;
+  const latestRefreshToken = useRef(refreshToken);
+  latestRefreshToken.current = refreshToken;
+  const previousRefreshToken = useRef(refreshToken);
+  const queryClient = useQueryClient();
+  const query = useQuery<SqlQueryResult>({
     queryKey,
     queryFn: async ({ signal }) => {
-      const refreshToken = options?.refreshToken ?? 0;
-      const forceRefresh = refreshToken > successfulRefreshToken.current;
+      const currentRefreshToken = latestRefreshToken.current;
+      const forceRefresh = currentRefreshToken > successfulRefreshToken.current;
       const result = await executeSqlQuery(sql, source, signal, {
         reportScreenshot: options?.reportScreenshot,
         forceRefresh,
       });
       successfulRefreshToken.current = Math.max(
         successfulRefreshToken.current,
-        refreshToken,
+        currentRefreshToken,
       );
       return result;
     },
@@ -226,4 +231,14 @@ export function useSqlQuery(
     retry: options?.retry ?? false,
     staleTime: options?.staleTime ?? 5 * 60 * 1000,
   });
+
+  useEffect(() => {
+    if (refreshToken <= previousRefreshToken.current) return;
+    previousRefreshToken.current = refreshToken;
+    void queryClient
+      .cancelQueries({ queryKey, exact: true })
+      .then(() => query.refetch());
+  }, [queryClient, queryKey, query.refetch, refreshToken]);
+
+  return query;
 }

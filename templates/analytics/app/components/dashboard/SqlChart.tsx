@@ -1282,6 +1282,7 @@ export function SqlChart({
   const isExtension = panel.chartType === "extension";
   const shouldQuery = !isSection && !isExtension && loadData && !resultOverride;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
+  const [localRefreshToken, setLocalRefreshToken] = useState(0);
   const {
     data: queryResult,
     isLoading: queryIsLoading,
@@ -1292,15 +1293,12 @@ export function SqlChart({
     ["sql-chart", dashboardId || panel.id, sql, panel.source],
     sql,
     panel.source,
-    { enabled: shouldQuery, reportScreenshot, refreshToken },
+    {
+      enabled: shouldQuery,
+      reportScreenshot,
+      refreshToken: refreshToken + localRefreshToken,
+    },
   );
-  const previousRefreshToken = useRef(refreshToken);
-
-  useEffect(() => {
-    if (refreshToken <= previousRefreshToken.current) return;
-    previousRefreshToken.current = refreshToken;
-    void refetch();
-  }, [refreshToken, refetch]);
 
   const result = resultOverride ?? queryResult;
   const isLoading = resultOverride ? false : queryIsLoading;
@@ -1414,7 +1412,9 @@ export function SqlChart({
             variant="secondary"
             size="sm"
             onClick={() =>
-              onRefreshRequested ? onRefreshRequested() : void refetch()
+              onRefreshRequested
+                ? onRefreshRequested()
+                : setLocalRefreshToken((token) => token + 1)
             }
           >
             <IconRefresh className="mr-2 h-3.5 w-3.5" />

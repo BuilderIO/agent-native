@@ -149,7 +149,7 @@ describe("SqlChart refresh feedback", () => {
     expect(container.textContent).toContain("42");
   });
 
-  it("refetches when the dashboard refresh token advances", async () => {
+  it("passes dashboard refresh tokens through to the query hook", async () => {
     const panel = {
       id: "signups",
       title: "Signups",
@@ -170,7 +170,7 @@ describe("SqlChart refresh feedback", () => {
     });
 
     expect(mocks.queryRefreshToken).toBe(1);
-    expect(mocks.query.refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.query.refetch).not.toHaveBeenCalled();
   });
 
   it("routes the error-card refresh action through its dashboard callback", async () => {
@@ -385,7 +385,7 @@ describe("SqlChart refresh feedback", () => {
     await act(async () => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(mocks.query.refetch).toHaveBeenCalledTimes(1);
+    expect(mocks.queryRefreshToken).toBe(1);
   });
 
   it("does not expose a retry for a disabled query with a cached error", async () => {
