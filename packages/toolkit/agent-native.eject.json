@@ -663,7 +663,8 @@
         "@agent-native/core/notifications/types",
         "@agent-native/core/shared/document-title",
         "@agent-native/core/shared/ssr-beta-redirect",
-        "@agent-native/core/shared/ssr-session-bootstrap"
+        "@agent-native/core/shared/ssr-session-bootstrap",
+        "@agent-native/core/shared/ssr-session-bootstrap-slot"
       ]
     },
     {
