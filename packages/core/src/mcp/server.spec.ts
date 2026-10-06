@@ -1109,29 +1109,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           expect(
             resource._meta?.["openai/widgetCSP"]?.redirect_domains,
           ).toEqual([expectedOrigin]);
-          if (profile.widgetDiagnostic === "no-frame-domains") {
-            expect(resource._meta?.ui?.domain).toBeUndefined();
-            expect(resource._meta?.["openai/widgetDomain"]).toBeUndefined();
-            expect(resource._meta?.ui?.csp).not.toHaveProperty("frameDomains");
-            expect(resource._meta?.["openai/widgetCSP"]).not.toHaveProperty(
-              "frame_domains",
-            );
-          } else {
-            expect(resource._meta?.ui?.domain).toBe(expectedOrigin);
-            expect(resource._meta?.["openai/widgetDomain"]).toBe(
-              expectedOrigin,
-            );
-            expect(resource._meta?.ui?.csp?.frameDomains).toContain(
-              `https://${host}`,
-            );
-          }
+          expect(resource._meta?.ui?.domain).toBe(expectedOrigin);
+          expect(resource._meta?.["openai/widgetDomain"]).toBe(expectedOrigin);
+          expect(resource._meta?.ui?.csp?.frameDomains).toContain(
+            `https://${host}`,
+          );
           expect(resource.text).toMatch(/<\/body>\n<\/html>$/);
           expect(resource.text).not.toContain("https://esm.sh");
-          if (profile.widgetDiagnostic === "tiny-html") {
-            expect(resource.text.length).toBeGreaterThan(500);
-            expect(resource.text.length).toBeLessThan(2_500);
-            expect(resource.text).toContain("Widget resource size diagnostic");
-          }
+          expect(resource.text).toContain('<section class="stage" data-stage>');
+          expect(resource.text).toContain(
+            'data-start-tool="create_embed_session"',
+          );
+          expect(resource.text).toContain("function hostState()");
+          expect(resource.text).toContain("window.openai");
         }
         expect(responses.every((response) => !response.hasSessionId)).toBe(
           true,
