@@ -70,10 +70,11 @@ vi.mock("./task-store.js", () => {
       ownerScope?: string | null,
       idempotencyKey?: string,
     ) {
-      if (ownerEmail && idempotencyKey) {
+      if (ownerScope && idempotencyKey) {
         const existing = Object.values(tasks).find(
           (task) =>
-            task.ownerEmail?.toLowerCase() === ownerEmail.toLowerCase() &&
+            (task.ownerEmail?.toLowerCase() ?? null) ===
+              (ownerEmail?.toLowerCase() ?? null) &&
             task.ownerScope === ownerScope &&
             task.idempotencyKey === idempotencyKey,
         );
@@ -635,6 +636,38 @@ describe("handleJsonRpc", () => {
         message: {
           role: "user",
           parts: [{ type: "text", text: "do this once" }],
+        },
+      },
+    };
+
+    const first = await handleJsonRpc(request, event, config);
+    const duplicate = await handleJsonRpc(request, event, config);
+
+    expect(duplicate.result.id).toBe(first.result.id);
+    expect(duplicate.result.status.state).toBe("working");
+    expect(duplicate.result.ownerEmail).toBeUndefined();
+    expect(duplicate.result.ownerScope).toBeUndefined();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("reuses an organization principal's task without a user email", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aIdentityAssurance: "organization",
+      __a2aVerifiedOrgId: "org-acme",
+    };
+    const request = {
+      jsonrpc: "2.0",
+      id: 25,
+      method: "message/send",
+      params: {
+        async: true,
+        idempotencyKey: "v1:org-stable-message",
+        message: {
+          role: "user",
+          parts: [{ type: "text", text: "do this once for the organization" }],
         },
       },
     };

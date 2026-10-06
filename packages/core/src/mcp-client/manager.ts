@@ -998,7 +998,6 @@ async function mintFirstPartyMcpIdentityToken(
   return signA2AOrganizationToken(orgDomain, orgSecret, orgId, {
     expiresIn: "5m",
     audience,
-    preferGlobalSecret: true,
     extraClaims,
   });
 }

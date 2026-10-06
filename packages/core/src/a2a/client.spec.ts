@@ -1792,9 +1792,15 @@ describe("A2AClient", () => {
     await expect(
       jose.jwtVerify(
         bearerTokens[1],
-        new TextEncoder().encode("global-a2a-secret"),
+        new TextEncoder().encode("org-a2a-secret"),
       ),
     ).resolves.toMatchObject({ payload: { org_domain: "builder.io" } });
+    await expect(
+      jose.jwtVerify(
+        bearerTokens[1],
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
+    ).rejects.toThrow();
     expect(jose.decodeJwt(bearerTokens[1])).not.toHaveProperty("sub");
   });
 
@@ -1859,7 +1865,7 @@ describe("A2AClient", () => {
         }
 
         const verifiedOrgPrincipal = await jose
-          .jwtVerify(token, new TextEncoder().encode("global-a2a-secret"))
+          .jwtVerify(token, new TextEncoder().encode("org-a2a-secret"))
           .then(
             ({ payload }) =>
               payload.sub === undefined && payload.org_domain === "builder.io",
@@ -1906,9 +1912,15 @@ describe("A2AClient", () => {
     await expect(
       jose.jwtVerify(
         calls[2]!.token,
-        new TextEncoder().encode("global-a2a-secret"),
+        new TextEncoder().encode("org-a2a-secret"),
       ),
     ).resolves.toMatchObject({ payload: { org_domain: "builder.io" } });
+    await expect(
+      jose.jwtVerify(
+        calls[2]!.token,
+        new TextEncoder().encode("global-a2a-secret"),
+      ),
+    ).rejects.toThrow();
     expect(jose.decodeJwt(calls[2]!.token)).not.toHaveProperty("sub");
   });
 

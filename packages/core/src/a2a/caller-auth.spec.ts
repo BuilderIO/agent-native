@@ -63,7 +63,7 @@ describe("resolveA2ACallerAuth", () => {
     );
   });
 
-  it("prefers the shared A2A secret and includes the verified org domain hint", async () => {
+  it("uses the org secret for an organization-principal fallback", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
 
     await runWithRequestContext(
@@ -100,7 +100,7 @@ describe("resolveA2ACallerAuth", () => {
         expect(auth.apiKeyFallbacks).toHaveLength(1);
         const { payload: orgPrincipal } = await jose.jwtVerify(
           auth.apiKeyFallbacks![0],
-          new TextEncoder().encode("global-a2a-secret"),
+          new TextEncoder().encode("org-a2a-secret"),
         );
         expect(orgPrincipal).toMatchObject({
           org_domain: "builder.io",
@@ -111,7 +111,7 @@ describe("resolveA2ACallerAuth", () => {
         await expect(
           jose.jwtVerify(
             auth.apiKeyFallbacks![0],
-            new TextEncoder().encode("org-a2a-secret"),
+            new TextEncoder().encode("global-a2a-secret"),
           ),
         ).rejects.toThrow();
       },

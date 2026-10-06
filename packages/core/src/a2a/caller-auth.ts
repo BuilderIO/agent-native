@@ -63,7 +63,6 @@ export async function resolveA2ACallerAuth(options?: {
     addApiKeyAttempt(
       await signA2AOrganizationToken(orgDomain, orgSecret, orgId, {
         expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,
-        preferGlobalSecret: true,
         audience: options?.audience,
       }),
     );

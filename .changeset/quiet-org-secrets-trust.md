@@ -1,5 +1,6 @@
 ---
 "@agent-native/core": patch
+"@agent-native/dispatch": patch
 ---
 
-Treat organization-secret A2A and MCP calls as organization principals without user identity, and stop forwarding caller-supplied A2A action approvals.
+Bind cross-app MCP tokens to their endpoint, preserve verified user identity before organization fallback, and deduplicate organization-principal A2A submissions.

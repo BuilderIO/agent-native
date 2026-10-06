@@ -1930,12 +1930,12 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "org-1",
       {
         expiresIn: "5m",
-        audience: "http://localhost:8086",
+        audience: "http://localhost:8086/mcp",
       },
     );
   });
 
-  it("falls back to the shared A2A secret when the target rejects org signing", async () => {
+  it("uses the verified user token first and falls back to the org principal", async () => {
     vi.stubEnv("A2A_SECRET", "shared-secret");
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
@@ -1974,7 +1974,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer org-signed-token" },
+            headers: { Authorization: "Bearer global-signed-token" },
           }),
         },
       }),
@@ -1984,7 +1984,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer global-signed-token" },
+            headers: { Authorization: "Bearer org-signed-token" },
           }),
         },
       }),
@@ -1995,7 +1995,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "org-1",
       {
         expiresIn: "5m",
-        audience: "http://localhost:8086",
+        audience: "http://localhost:8086/mcp",
       },
     );
     expect(mocks.signA2AToken).toHaveBeenCalledWith(
@@ -2004,7 +2004,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
-        audience: "http://localhost:8086",
+        audience: "http://localhost:8086/mcp",
         preferGlobalSecret: true,
         extraClaims: { org_id: "org-1" },
       },
@@ -2034,7 +2034,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
-        audience: "http://localhost:8086",
+        audience: "http://localhost:8086/mcp",
         preferGlobalSecret: true,
         extraClaims: { org_id: "org-1" },
       },
@@ -2064,7 +2064,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
-        audience: "http://localhost:8086",
+        audience: "http://localhost:8086/mcp",
         preferGlobalSecret: true,
         extraClaims: { org_id: "org-1" },
       },

@@ -2150,7 +2150,7 @@ async function buildA2AApiKeyAttempts(
         opts.orgDomain,
         opts.orgSecret,
         opts.orgId,
-        { audience, preferGlobalSecret: true },
+        { audience },
       ),
     );
   }

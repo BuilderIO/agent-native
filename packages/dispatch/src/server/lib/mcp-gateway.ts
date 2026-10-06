@@ -1197,7 +1197,9 @@ async function createTargetMcpTokenAttempts(input: {
   const addAttempt = async (tokenInput: {
     strategy: TargetMcpTokenAttempt["strategy"];
   }) => {
-    const audience = canonicalA2AAudience(appHomeBaseUrl(input.target));
+    const audience = canonicalA2AAudience(
+      `${appHomeBaseUrl(input.target)}/mcp`,
+    );
     const token =
       tokenInput.strategy === "org" && input.orgDomain && input.orgSecret
         ? await signA2AOrganizationToken(
@@ -1217,23 +1219,17 @@ async function createTargetMcpTokenAttempts(input: {
     }
   };
 
-  if (input.orgDomain && input.orgSecret) {
-    await addAttempt({
-      strategy: "org",
-    });
-    // A target app may not have the org secret synced yet. The shared secret
-    // is a bounded compatibility fallback, used only after the target rejects
-    // the org-signed request and never after a non-authentication failure.
-    if (getGlobalA2ASecret()) {
-      await addAttempt({
-        strategy: "global",
-      });
-    }
-  } else {
+  if (getGlobalA2ASecret()) {
     await addAttempt({
       strategy: "global",
     });
   }
+  if (input.orgDomain && input.orgSecret) {
+    await addAttempt({
+      strategy: "org",
+    });
+  }
+  if (attempts.length === 0) await addAttempt({ strategy: "global" });
 
   return attempts;
 }

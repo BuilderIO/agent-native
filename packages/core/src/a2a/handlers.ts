@@ -699,7 +699,7 @@ async function handleSend(
   const { ownerEmail: ownerEmailForTask, ownerScope: ownerScopeForTask } =
     verifiedTaskOwner(event);
   let idempotencyKey: string | undefined;
-  if (ownerEmailForTask && params.idempotencyKey !== undefined) {
+  if (ownerScopeForTask && params.idempotencyKey !== undefined) {
     if (typeof params.idempotencyKey !== "string") {
       return {
         ...jsonRpcError(
