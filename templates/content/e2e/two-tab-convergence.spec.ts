@@ -295,6 +295,10 @@ test.describe("two tabs editing one page at beta cadence", () => {
           );
         s.notes.shownBeforeSession = shownBeforeSession;
         s.notes.heldSessionReads = session.queued;
+        expect(
+          session.queued,
+          "returning never re-read the session, so no read was held pending",
+        ).toBeGreaterThan(0);
         await saves.release();
         if (shownBeforeSession)
           await typeAtParagraphEnd(

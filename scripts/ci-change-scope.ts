@@ -105,6 +105,7 @@ const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/react-router.config.ts",
   "templates/content/ssr-entry.ts",
   "templates/content/vite.config.ts",
+  "templates/content/e2e/convergence-summary.ts",
   "templates/content/e2e/global-setup.ts",
   "templates/content/e2e/helpers.ts",
   "templates/content/e2e/playwright.config.ts",

@@ -494,6 +494,7 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     "templates/content/vite.config.ts",
     "templates/content/e2e/two-tab-convergence.spec.ts",
     "templates/content/e2e/helpers.ts",
+    "templates/content/e2e/convergence-summary.ts",
     "templates/content/e2e/global-setup.ts",
     "templates/content/e2e/playwright.config.ts",
     "packages/core/src/collab/client.ts",
