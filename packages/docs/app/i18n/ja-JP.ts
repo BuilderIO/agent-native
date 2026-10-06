@@ -2598,6 +2598,7 @@ const jaJP = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "その他のプラットフォーム",
     ssrCaching: "SSRキャッシュ",
     deploymentEnvironmentVariables: "デプロイ: 環境変数",

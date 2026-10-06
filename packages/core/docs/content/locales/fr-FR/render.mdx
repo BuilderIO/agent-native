@@ -1,0 +1,227 @@
+---
+title: "Render"
+description: "Déployez une application Agent-Native autonome sur Render en tant que service web Node.js."
+---
+
+# Render
+
+<Badge label="Beta" color="orange" icon="rocket" />
+
+Render héberge votre application en tant que service web. Vous n'avez donc aucun
+serveur à configurer ni à maintenir en marche. Render exécute le même serveur
+Node.js que celui décrit dans le [guide Node.js](/docs/node-js), le construit à
+partir de votre dépôt Git et fournit à l'application une adresse publique en
+HTTPS.
+
+Ce guide présente le déploiement d'une application autonome depuis le début.
+Vous allez créer l'application et la pousser vers un dépôt Git, lui fournir une
+base de données de production et un secret d'authentification, préparer la base
+de données, puis créer un service web Render qui la construit et l'exécute.
+
+<Callout tone="info">
+
+Node.js `22.22+` est requis.
+
+</Callout>
+
+Vous avez aussi besoin d'un compte Render et d'un dépôt sur GitHub, GitLab ou
+Bitbucket. Exécutez les commandes de ce guide sur votre propre ordinateur.
+Render construit et exécute l'application à partir de votre dépôt.
+
+## Étape 1 : Créer l'application {#step-1-create-the-app}
+
+Créez votre nouvelle application autonome. L'exemple ci-dessous crée une
+application à partir du template Chat, mais vous pouvez partir de n'importe quel
+template. Placez-vous dans le dossier de l'application et installez ses
+dépendances. `corepack enable` active la version de `pnpm` attendue par
+l'application. Vous n'avez donc pas besoin d'installer `pnpm` vous-même.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Remplacez `my-app` par le nom de votre application si vous le souhaitez. La
+suite de ce guide suppose que vous vous trouvez dans le dossier de
+l'application.
+
+Render construit l'application à partir d'un dépôt Git. Poussez donc le dossier
+de l'application vers un nouveau dépôt sur GitHub, GitLab ou Bitbucket avant de
+continuer. Committez aussi le fichier `pnpm-lock.yaml`, car le build installe
+exactement les versions qu'il indique.
+
+## Étape 2 : Configurer les secrets d'environnement {#step-2-configure-environment-secrets}
+
+L'application lit ses paramètres de production depuis des variables
+d'environnement :
+
+| Variable             | Requise | Rôle                                                                 |
+| -------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
+
+Les exports ci-dessous permettent aux commandes suivantes de fonctionner dans ce
+shell. Avant de déployer, enregistrez ces mêmes variables dans les paramètres
+d'environnement du projet ou du service chez votre hébergeur. L'étape 4 montre
+comment les enregistrer dans Render.
+
+### URL de la base de données {#database-url}
+
+En développement local, l'application stocke ses données dans une base de
+données locale lorsque `DATABASE_URL` n'est pas défini. Une application déployée
+a besoin d'une vraie base de données PostgreSQL qui conserve ses données d'un
+déploiement à l'autre. Render remplace les fichiers du service à chaque
+déploiement et à chaque redémarrage. La base de données doit donc se trouver en
+dehors du service web. Copiez la chaîne de connexion fournie par votre
+fournisseur et exportez-la :
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Les [guides des fournisseurs de bases de données](/docs/neon) indiquent où
+trouver la chaîne de connexion pour chaque fournisseur. Render Postgres
+fonctionne aussi. Utilisez ici sa chaîne de connexion externe, et sa chaîne de
+connexion interne dans les paramètres du service web.
+
+<Callout tone="warning">
+
+Choisissez un fournisseur PostgreSQL persistant, par exemple Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Secret d'authentification {#auth-secret}
+
+Générez-le une seule fois et gardez-le identique d'un déploiement à l'autre.
+
+L'application utilise `BETTER_AUTH_SECRET` pour signer les sessions utilisateur.
+S'il change, tous les utilisateurs connectés sont déconnectés. La commande
+ci-dessous génère une valeur aléatoire :
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Conservez la valeur générée en lieu sûr, par exemple dans un gestionnaire de
+mots de passe. Utilisez la même valeur à chaque déploiement.
+
+### URL publique {#public-url}
+
+Facultatif. Définissez-la si vous utilisez un domaine personnalisé, un reverse
+proxy ou un flux d'authentification ou OAuth qui exige une origine publique
+fixe.
+
+`BETTER_AUTH_URL` est l'adresse publique utilisée pour accéder à votre
+application. Sans elle, l'application déduit son adresse de chaque requête
+entrante. Cela convient généralement avec l'adresse que Render vous fournit,
+mais définissez-la lorsque vous connectez un domaine personnalisé, afin que les
+liens de connexion et les redirections OAuth utilisent ce domaine.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Étape 3 : Migrer {#step-3-migrate}
+
+Les migrations créent et mettent à jour les tables dont l'application a besoin
+dans votre base de données. Exécutez cette commande avant le premier
+déploiement :
+
+```bash
+pnpm migrate:production
+```
+
+La commande s'exécute sur votre ordinateur et se connecte à la base de données
+de production avec la `DATABASE_URL` que vous avez exportée à l'étape 2.
+Exécutez-la de nouveau après une mise à niveau de l'application, avant de
+déployer la nouvelle version.
+
+Sur une instance Render payante, vous pouvez plutôt définir le **Pre-Deploy
+Command** du service sur `pnpm migrate:production`. Render exécute alors les
+migrations avant la mise en ligne de chaque déploiement. Le Pre-Deploy Command
+n'est pas disponible avec le type d'instance Free.
+
+## Étape 4 : Créer le service web {#step-4-create-the-web-service}
+
+Dans le tableau de bord Render, créez un nouveau **Web Service** et connectez le
+dépôt de l'étape 1. Utilisez ces paramètres :
+
+| Paramètre     | Valeur                                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| Language      | `Node`                                                                                    |
+| Branch        | La branche depuis laquelle vous déployez, par exemple `main`                              |
+| Build Command | `corepack enable && pnpm install --frozen-lockfile && NITRO_PRESET=render_com pnpm build` |
+| Start Command | `node .output/server/index.mjs`                                                           |
+
+Le Build Command active la version de `pnpm` de l'application, installe les
+dépendances indiquées dans `pnpm-lock.yaml` et construit l'application.
+`NITRO_PRESET=render_com` construit le même serveur Node.js que dans le guide
+Node.js, configuré pour servir ses propres fichiers statiques. Le Start Command
+exécute ce serveur. Render indique au serveur le port à utiliser via la variable
+d'environnement `PORT`, et le serveur la lit automatiquement.
+
+Sous **Environment Variables**, ajoutez `DATABASE_URL` et `BETTER_AUTH_SECRET`
+avec les valeurs que vous avez exportées à l'étape 2. Si vous avez défini
+`BETTER_AUTH_URL`, ajoutez-la de la même façon.
+
+Render choisit la version de Node.js dans cet ordre : une variable
+d'environnement `NODE_VERSION`, un fichier `.node-version` ou `.nvmrc`, ou le
+champ `engines` de `package.json`. Les nouveaux services utilisent par défaut
+une version qui répond à l'exigence ci-dessus. Pour fixer une version, ajoutez
+`NODE_VERSION`, par exemple avec la valeur `24`.
+
+## Étape 5 : Déployer {#step-5-deploy}
+
+<Steps>
+
+### Choisir un type d'instance
+
+Choisissez le type d'instance du service web. Le type d'instance Free suffit
+pour essayer l'application. Choisissez un type d'instance payant si
+l'application doit répondre immédiatement ou si vous voulez utiliser le
+Pre-Deploy Command de l'étape 3.
+
+### Créer le service web
+
+Créez le service web. Render construit l'application à partir de votre dépôt et
+la démarre. Le premier build prend quelques minutes, et vous pouvez le suivre
+dans les logs du service.
+
+### Ouvrir l'application
+
+Lorsque le déploiement se termine, le tableau de bord affiche l'adresse de
+l'application, qui se termine par `onrender.com`. Ouvrez-la et créez le premier
+compte.
+
+</Steps>
+
+Avec le type d'instance Free, Render met le service en pause après 15 minutes
+sans trafic. La visite suivante attend alors environ une minute, le temps que le
+service redémarre.
+
+## Déployer les mises à jour {#deploy-updates}
+
+Render redéploie chaque fois que vous poussez vers la branche choisie à
+l'étape 4. Pour publier une nouvelle version, exécutez d'abord les migrations,
+puis poussez :
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+Les paramètres du service et les variables enregistrées restent en place. Vous
+n'avez donc pas besoin de répéter l'étape 4.
+
+## Et ensuite {#whats-next}
+
+- [**Node.js**](/docs/node-js) - exécuter le même serveur sur une machine que vous gérez
+- [**Variables d'environnement de déploiement**](/docs/deployment-environment-variables) - la liste complète des paramètres de production
+- [**Déploiement**](/docs/deployment) - comparer les cibles d'hébergement et les prérequis

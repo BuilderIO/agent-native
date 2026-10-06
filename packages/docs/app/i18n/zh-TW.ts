@@ -2529,6 +2529,7 @@ const messages = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 快取",
     deploymentEnvironmentVariables: "部署：環境變數",

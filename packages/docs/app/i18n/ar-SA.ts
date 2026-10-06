@@ -2572,6 +2572,7 @@ const arSA = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "منصات أخرى",
     ssrCaching: "تخزين SSR المؤقت",
     deploymentEnvironmentVariables: "النشر: متغيرات البيئة",

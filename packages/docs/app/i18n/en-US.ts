@@ -2586,6 +2586,7 @@ const enUS = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "Other Platforms",
     ssrCaching: "SSR Caching",
     deploymentEnvironmentVariables: "Deployment: Environment Variables",

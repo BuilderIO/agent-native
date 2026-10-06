@@ -114,6 +114,7 @@ describe("DocsSidebar", () => {
       "vercel",
       "netlify",
       "cloudflare",
+      "render",
     ]);
     const databaseGroup = deployment?.items.find(
       (item) => item.id === "database-providers",

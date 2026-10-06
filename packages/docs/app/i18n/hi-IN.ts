@@ -2576,6 +2576,7 @@ const hiIN = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "अन्य Platforms",
     ssrCaching: "SSR कैशिंग",
     deploymentEnvironmentVariables: "Deployment: पर्यावरण चर",

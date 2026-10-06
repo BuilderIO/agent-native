@@ -2626,6 +2626,7 @@ const deDE = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "Weitere Plattformen",
     ssrCaching: "SSR-Caching",
     deploymentEnvironmentVariables: "Deployment: Umgebungsvariablen",

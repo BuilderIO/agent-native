@@ -2611,6 +2611,7 @@ const ptBR = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "Outras Plataformas",
     ssrCaching: "Cache de SSR",
     deploymentEnvironmentVariables: "Deploy: Variáveis de Ambiente",

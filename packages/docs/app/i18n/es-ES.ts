@@ -2619,6 +2619,7 @@ const esES = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "Otras Plataformas",
     ssrCaching: "Caché de SSR",
     deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",

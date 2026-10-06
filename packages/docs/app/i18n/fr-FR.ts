@@ -2630,6 +2630,7 @@ const frFR = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "Autres Plateformes",
     ssrCaching: "Mise en Cache SSR",
     deploymentEnvironmentVariables: "Déploiement : Variables d'Environnement",

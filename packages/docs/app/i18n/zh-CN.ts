@@ -2529,6 +2529,7 @@ const zhCN = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
+    deploymentRender: "Render",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 缓存",
     deploymentEnvironmentVariables: "部署：环境变量",

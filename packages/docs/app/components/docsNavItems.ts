@@ -97,6 +97,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "deploymentCloudflare",
             slug: "cloudflare",
           },
+          {
+            id: "render",
+            labelKey: "deploymentRender",
+            slug: "render",
+          },
         ],
       },
       {

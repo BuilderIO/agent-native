@@ -6,7 +6,6 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "deno-deploy": "deployment",
   "azure-static-web-apps": "deployment",
   koyeb: "deployment",
-  render: "deployment",
   "other-platforms": "deployment",
   "aws-amplify": "deployment",
   database: "server-database",
