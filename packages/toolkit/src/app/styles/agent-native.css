@@ -1267,7 +1267,10 @@
   min-height: var(--agent-kit-composer-min-height);
   border-radius: var(--agent-kit-composer-radius);
   border-color: var(--agent-kit-composer-border-color);
-  background: var(--agent-kit-raised-surface);
+  background: var(
+    --agent-kit-composer-surface,
+    var(--agent-kit-raised-surface)
+  );
   box-shadow: var(--agent-kit-composer-elevation);
 }
 
