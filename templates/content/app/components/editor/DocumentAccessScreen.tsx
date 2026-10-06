@@ -90,20 +90,37 @@ export function DocumentAccessScreen({
       <Link to={CONTENT_LANDING_PATH}>{t("empty.goToMyPages")}</Link>
     </Button>
   );
-  const { state, role } = gate.status;
+  const { state, role, canRequest, request } = gate.status;
 
   if (state === "signed-out") {
-    return <ResourceAccessScreen state="signed-out" header={header} />;
+    return (
+      <ResourceAccessScreen
+        state="signed-out"
+        header={header}
+        acceptsRequests
+      />
+    );
   }
 
   if (state === "denied") {
+    const offersRequest = Boolean(canRequest || request);
     return (
       <ResourceAccessScreen
         state="denied"
         header={header}
         title={t("empty.pageNoAccess")}
         signedInEmail={session?.email ?? null}
-        actions={goToMyPages}
+        request={
+          offersRequest
+            ? {
+                sent: Boolean(request),
+                onRequest: gate.requestAccess,
+                sending: gate.isRequesting,
+                error: gate.requestError,
+              }
+            : undefined
+        }
+        actions={offersRequest ? undefined : goToMyPages}
         onSwitchAccount={() => void signOut()}
       />
     );
