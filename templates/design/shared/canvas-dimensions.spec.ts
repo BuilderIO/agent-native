@@ -17,6 +17,8 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     ["Create an Instagram post: 1080x1080", { width: 1080, height: 1080 }],
     ["Make a banner, 728x90", { width: 728, height: 90 }],
     ["Create an image at 1080x1080", { width: 1080, height: 1080 }],
+    ["Create an image of 1200x800", { width: 1200, height: 800 }],
+    ["Make an image 1200x800", { width: 1200, height: 800 }],
     ["Create a 1080x1080 image", { width: 1080, height: 1080 }],
     ["Create a screen at 1080px × 1080px", { width: 1080, height: 1080 }],
     [
@@ -75,6 +77,11 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
         "Create a screen with an image at 300x250",
       ),
     ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt(
+        "Create a 1200x800 screen with image 300x250",
+      ),
+    ).toEqual({ width: 1200, height: 800 });
     expect(
       explicitCanvasDimensionsFromPrompt(
         "Create a responsive landing page with a hero image at 1200x600 pixels",

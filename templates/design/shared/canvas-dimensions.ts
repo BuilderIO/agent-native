@@ -26,7 +26,7 @@ const ASPECT_RATIO_CONTEXT_BEFORE =
 const OUTPUT_LAYOUT_AT_SIZE_CONTEXT_BEFORE =
   /\b(?:card\s+)?(?:grid|matrix|layout)\s+at\s*$/i;
 const IMAGE_OUTPUT_CONTEXT_BEFORE =
-  /\bimage\s+(?:(?:at|with\s+(?:exact(?:ly)?\s+)?(?:dimensions?|size))\s*)$/i;
+  /\bimage\s+(?:(?:at|of)\s*|with\s+(?:exact(?:ly)?\s+)?(?:dimensions?|size)\s*)?$/i;
 const ASSET_CONTEXT_AFTER =
   /^\s*(?:(?:hero|background|header|main|featured|product|profile|thumbnail|preview)\s+)*(?:image|asset|icon|logo|favicon|avatar|illustration)\b/i;
 const OUTPUT_CONTAINER_CONTEXT =
@@ -38,7 +38,7 @@ const NESTED_OUTPUT_RELATIONSHIP_BEFORE = new RegExp(
   "i",
 );
 const NESTED_OUTPUT_ASSET_CONTEXT_BEFORE = new RegExp(
-  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring|(?:that|which)\\s+(?:includes|contains|features|has))\\s+(?:an?|the)?\\s*(?:(?:embedded|nested|hero|background|header|main|featured|product|profile|thumbnail|preview)\\s+)*(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at|exact(?:ly)?)\\s*$`,
+  `\\b${OUTPUT_CONTAINER_CONTEXT}\\b[\\s\\S]{0,48}\\b(?:with|including|containing|inside|featuring|(?:that|which)\\s+(?:includes|contains|features|has))\\s+(?:an?|the)?\\s*(?:(?:embedded|nested|hero|background|header|main|featured|product|profile|thumbnail|preview)\\s+)*(?:image|asset|icon|logo|favicon|avatar|illustration|ad|advertisement|banner|leaderboard|rectangle|skyscraper|billboard)\\s+(?:(?:with\\s+)?(?:exact(?:ly)?\\s+)?(?:dimensions?|size)(?:\\s+(?:of|is|at|to))?|at|exact(?:ly)?)?\\s*$`,
   "i",
 );
 const NON_PIXEL_UNIT_CONTEXT_AFTER =
