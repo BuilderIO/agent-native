@@ -2182,7 +2182,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const openSignIn = useCallback((returnOverride?: string) => {
     window.location.href = buildSignInReturnHref({
-      returnTo: returnOverride ?? planReturnPathFromLocation(window.location),
+      returnTo: appPath(
+        returnOverride ?? planReturnPathFromLocation(window.location),
+      ),
     });
   }, []);
   const requestCreatePlan = useCallback(() => {

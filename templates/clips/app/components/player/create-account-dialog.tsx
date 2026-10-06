@@ -148,7 +148,7 @@ export function AccountGateDialog({
   const [googleBusy, setGoogleBusy] = useState(false);
   const oauthRunRef = useRef(0);
   const oauthPopupRef = useRef<Window | null>(null);
-  const signInHref = buildSignInReturnHref({ returnTo });
+  const signInHref = buildSignInReturnHref({ returnTo: appPath(returnTo) });
   const closeOAuthPopup = useCallback(() => {
     const popup = oauthPopupRef.current;
     oauthPopupRef.current = null;
@@ -207,7 +207,7 @@ export function AccountGateDialog({
         appPath("/_agent-native/google/auth-url"),
         window.location.origin,
       );
-      authUrl.searchParams.set("return", returnTo);
+      authUrl.searchParams.set("return", appPath(returnTo));
       authUrl.searchParams.set("desktop", "1");
       authUrl.searchParams.set("flow_id", flowId);
       const authResponse = await fetch(authUrl.toString(), {
@@ -326,7 +326,10 @@ export function AccountGateDialog({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: normalizedEmail, callbackURL: returnTo }),
+        body: JSON.stringify({
+          email: normalizedEmail,
+          callbackURL: appPath(returnTo),
+        }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -719,6 +722,6 @@ export function AccountGateDialog({
 export const CreateAccountDialog = AccountGateDialog;
 
 export function buildCreateAccountHref(returnTo: string): string {
-  const href = buildSignInReturnHref({ returnTo });
+  const href = buildSignInReturnHref({ returnTo: appPath(returnTo) });
   return `${href}${href.includes("?") ? "&" : "?"}tab=signup&initialPrompt=1&embedded=1`;
 }

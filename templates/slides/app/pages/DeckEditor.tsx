@@ -7,7 +7,7 @@ import {
   getAnalyticsSessionId,
   trackEvent,
 } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -2056,7 +2056,7 @@ export default function DeckEditor() {
 
   const openSignIn = useCallback(() => {
     window.location.href = buildSignInReturnHref({
-      returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/home",
+      returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
     });
   }, [id]);
 
@@ -3633,7 +3633,7 @@ export default function DeckEditor() {
         requestAccessDialogError={requestAccessDialogError}
         signedIn={Boolean(session) && !sessionLoading}
         signInHref={buildSignInReturnHref({
-          returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/home",
+          returnTo: appPath(id ? `/deck/${encodeURIComponent(id)}` : "/home"),
         })}
         viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
         refreshing={retryingMissingDeck}

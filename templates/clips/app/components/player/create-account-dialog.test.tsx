@@ -15,9 +15,22 @@ vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: vi.fn(),
 }));
 
+const appBasePathState = vi.hoisted(() => ({ value: "" }));
+
 vi.mock("@agent-native/core/client/api-path", () => ({
-  appBasePath: () => "",
-  appPath: (path: string) => path,
+  appBasePath: () => appBasePathState.value,
+  appPath: (path: string) => {
+    const basePath = appBasePathState.value;
+    if (
+      !basePath ||
+      path === basePath ||
+      path.startsWith(`${basePath}/`) ||
+      !path.startsWith("/")
+    ) {
+      return path;
+    }
+    return `${basePath}${path}`;
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -50,6 +63,7 @@ let portalContainer: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  appBasePathState.value = "";
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mountPoint = document.createElement("div");
   portalContainer = document.createElement("div");
@@ -141,8 +155,10 @@ describe("create account dialog", () => {
   });
 
   it("keeps unverified signup in the shared return flow and can resend verification", async () => {
+    appBasePathState.value = "/clips";
     const returnTo = "/share/clip-1?at=90&ref=clip_share";
     const callbackURL = buildCreateAccountHref(returnTo);
+    const mountedReturnTo = `/clips${returnTo}`;
     const email = "viewer@example.com";
     const fetchMock = vi
       .fn()
@@ -219,7 +235,7 @@ describe("create account dialog", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "/_agent-native/auth/register",
+      "/clips/_agent-native/auth/register",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
@@ -231,7 +247,7 @@ describe("create account dialog", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "/_agent-native/auth/login",
+      "/clips/_agent-native/auth/login",
       expect.objectContaining({ method: "POST" }),
     );
     expect(portalContainer.textContent).toContain(
@@ -240,7 +256,7 @@ describe("create account dialog", () => {
     expect(portalContainer.textContent).toContain(email);
 
     const signInLink = portalContainer.querySelector<HTMLAnchorElement>(
-      'a[href^="/sign-in?"]',
+      'a[href^="/clips/sign-in?"]',
     );
     expect(signInLink).not.toBeNull();
     const signInUrl = new URL(signInLink!.href, "https://clips.example.test");
@@ -253,7 +269,7 @@ describe("create account dialog", () => {
             .replace(/_/g, "/"),
         ),
       ),
-    ).toBe(returnTo);
+    ).toBe(mountedReturnTo);
 
     const resendButton = Array.from(
       portalContainer.querySelectorAll("button"),
@@ -267,7 +283,7 @@ describe("create account dialog", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      "/_agent-native/auth/ba/send-verification-email",
+      "/clips/_agent-native/auth/ba/send-verification-email",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ email, callbackURL }),
@@ -288,7 +304,7 @@ describe("create account dialog", () => {
     });
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      "/_agent-native/auth/ba/send-verification-email",
+      "/clips/_agent-native/auth/ba/send-verification-email",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ email, callbackURL }),
