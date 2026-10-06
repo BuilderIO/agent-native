@@ -596,8 +596,11 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
 
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
-    expect(agents).toContain("This is a headless Agent-Native app");
-    expect(agents).toContain("This app is not stateless");
+    expect(agents).toContain(
+      "This headless app starts with callable actions, not a browser UI.",
+    );
+    expect(agents).toContain("Runtime state");
+    expect(agents).toMatch(/hosted deployments need persistent\s+PostgreSQL/);
     expect(agents).toContain("Chat template");
     expect(agents).toContain("integration blueprints");
 

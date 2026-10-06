@@ -4,7 +4,7 @@ description: >-
   Using the app's local UI adapter and Toolkit or shadcn primitives. Use when
   choosing or composing standard controls, implementing dialogs, menus, or
   forms, or changing component variants and theme tokens.
-scope: both
+scope: dev
 ---
 
 # shadcn/ui and Local UI Adapters

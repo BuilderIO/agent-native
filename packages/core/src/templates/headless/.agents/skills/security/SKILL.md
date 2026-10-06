@@ -4,7 +4,7 @@ description: >-
   Secure app data, actions, routes, and external input. Use when changing
   authentication, authorization, database access, uploads, untrusted content,
   or server-side requests to user-provided URLs.
-scope: both
+scope: dev
 ---
 
 # Security

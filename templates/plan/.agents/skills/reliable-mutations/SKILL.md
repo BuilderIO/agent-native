@@ -5,6 +5,7 @@ description: >-
   foreground run budget and long-running background handoffs. Use whenever you
   create, update, delete, or batch-write app data — especially "do this for many
   items" loops, or any task where the user expects N things to end up saved.
+scope: dev
 ---
 
 # Reliable Mutations

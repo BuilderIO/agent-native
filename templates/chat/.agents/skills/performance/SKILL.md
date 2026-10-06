@@ -4,7 +4,7 @@ description: >-
   Keep app loads and interactions responsive as data grows. Use when a page
   feels slow, jumps, or lags, or when changing a data read, list, polling path,
   startup path, or performance-sensitive UI.
-scope: both
+scope: dev
 ---
 
 # Performance

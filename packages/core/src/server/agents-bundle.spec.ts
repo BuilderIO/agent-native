@@ -241,6 +241,47 @@ describe("getRuntimeSkills", () => {
       .sort();
     expect(names).toEqual(["b", "r"]);
   });
+
+  it.each([
+    "templates/analytics",
+    "templates/assets",
+    "templates/brain",
+    "templates/calendar",
+    "templates/chat",
+    "templates/clips",
+    "templates/content",
+    "templates/crm",
+    "templates/design",
+    "templates/dispatch",
+    "templates/factory",
+    "templates/forms",
+    "templates/mail",
+    "templates/plan",
+    "templates/slides",
+    "templates/tasks",
+    "packages/core/src/templates/chat",
+    "packages/core/src/templates/default",
+    "packages/core/src/templates/factory",
+    "packages/core/src/templates/headless",
+    "packages/core/src/templates/workspace-core",
+    "packages/core/src/templates/workspace-root",
+  ])("keeps implementation guidance out of runtime skills for %s", (root) => {
+    const implementationSkills = [
+      "delegate-to-agent",
+      "performance",
+      "reliable-mutations",
+      "secrets",
+      "security",
+      "shadcn-ui",
+    ];
+    const runtimeNames = getRuntimeSkills(
+      readAgentsBundleFromFs(repoPath(root)),
+    ).map((item) => item.meta.name);
+
+    expect(runtimeNames).not.toEqual(
+      expect.arrayContaining(implementationSkills),
+    );
+  });
 });
 
 describe("getDevelopmentSkills", () => {
