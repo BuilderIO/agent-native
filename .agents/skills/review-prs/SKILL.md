@@ -438,8 +438,8 @@ using the exact GitHub `author.login` from the live PR metadata, for example:
 ```text
 Thanks for the contribution @username!
 
-Couple requests. Can you please [make the specific change], and add a
-regression test for [the affected behavior or path]?
+Couple requests. Can you please [make the specific update] so [the intended
+behavior or outcome] is preserved?
 ```
 
 Replace `username` with the PR author's actual login and the bracketed text with
@@ -447,11 +447,12 @@ the evidence-backed request; do not use a display name, guess the handle, or
 leave placeholders in the draft. Put the thank-you on its own line, then state
 the concrete request in a friendly, conversational way (for example, "Couple
 requests. Can you please ...?"). Keep the technical request specific,
-actionable, and supported by the diff or source evidence. Do not repeat a
-thank-you on a follow-up. Do not draft a duplicate request when an existing
-Steve comment already covers it; link or summarize that request instead.
-Drafts are for the user to review and are never posted by this skill unless the
-current invocation explicitly authorizes posting.
+actionable, and supported by the diff or source evidence; ask for a regression
+test when appropriate to the code change rather than as a blanket requirement.
+Do not repeat a thank-you on a follow-up. Do not draft a duplicate request when
+an existing Steve comment already covers it; link or summarize that request
+instead. Drafts are for the user to review and are never posted by this skill
+unless the current invocation explicitly authorizes posting.
 
 For a material UX change, inspect the PR body and conversation for screenshots
 of the changed product UI and report which surface changed. A missing screenshot
