@@ -68,6 +68,8 @@ async function guide(page: Page) {
             const r = el.getBoundingClientRect();
             return {
               display: s.display,
+              left: r.left,
+              top: r.top,
               width: r.width,
               height: r.height,
               borderTop: s.borderTopColor,
@@ -127,7 +129,7 @@ async function cleanup(page: Page, id: string) {
   await postAction(page, "delete-design", { id }).catch(() => {});
 }
 
-test("cross-axis oversized drop rejects nested insertion despite main-axis fit", async ({
+test("width-only oversized drop previews the outer fallback insertion slot", async ({
   page,
 }) => {
   const id = await newDesign(page, FIXTURE);
@@ -139,8 +141,70 @@ test("cross-axis oversized drop rejects nested insertion despite main-axis fit",
       .first()
       .click({ force: true });
     const target = node(page, "nested");
+    const sizeGate = await body(page).evaluate((frameBody) => {
+      const source = frameBody.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="source"]',
+      )!;
+      const nested = frameBody.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="nested"]',
+      )!;
+      const sourceRect = source.getBoundingClientRect();
+      const nestedRect = nested.getBoundingClientRect();
+      const nestedStyle = getComputedStyle(nested);
+      return {
+        sourceWidth: sourceRect.width,
+        sourceHeight: sourceRect.height,
+        nestedLeft: nestedRect.left,
+        nestedTop: nestedRect.top,
+        nestedWidth: nestedRect.width,
+        nestedContentWidth:
+          nestedRect.width -
+          Number.parseFloat(nestedStyle.paddingLeft) -
+          Number.parseFloat(nestedStyle.paddingRight),
+        nestedContentHeight:
+          nestedRect.height -
+          Number.parseFloat(nestedStyle.paddingTop) -
+          Number.parseFloat(nestedStyle.paddingBottom),
+      };
+    });
+    expect(sizeGate.sourceWidth).toBeGreaterThan(sizeGate.nestedContentWidth);
+    expect(sizeGate.sourceHeight).toBeLessThanOrEqual(
+      sizeGate.nestedContentHeight,
+    );
+    const sourceParentBefore = await body(page)
+      .locator('[data-agent-native-node-id="source"]')
+      .evaluate(
+        (el) =>
+          el.parentElement?.getAttribute("data-agent-native-node-id") ??
+          el.parentElement?.tagName,
+      );
     const before = await indexHtml(page, id);
-    await drag(page, "source", target, undefined, false);
+    await drag(page, "source", target, undefined, true, async (held) => {
+      expect(held).toBeTruthy();
+      expect(held?.height).toBeLessThan(16);
+      expect(held?.width).toBeGreaterThan(sizeGate.nestedWidth - 2);
+      expect(Math.abs(held!.left - sizeGate.nestedLeft)).toBeLessThan(2);
+      expect(
+        Math.abs(held!.top + held!.height / 2 - sizeGate.nestedTop),
+      ).toBeLessThan(3);
+      expect(await indexHtml(page, id)).toBe(before);
+      await expect
+        .poll(() =>
+          body(page)
+            .locator('[data-agent-native-node-id="source"]')
+            .evaluate(
+              (el) =>
+                el.parentElement?.getAttribute("data-agent-native-node-id") ??
+                el.parentElement?.tagName,
+            ),
+        )
+        .toBe(sourceParentBefore);
+      await expect(
+        body(page).locator(
+          '[data-agent-native-node-id="nested"] [data-agent-native-node-id="source"]',
+        ),
+      ).toHaveCount(0);
+    });
     await expect
       .poll(() => indexHtml(page, id), { timeout: 5_000 })
       .not.toBe(before);
@@ -161,6 +225,17 @@ test("cross-axis oversized drop rejects nested insertion despite main-axis fit",
           ),
       )
       .toBe("outer");
+    await expect
+      .poll(() =>
+        body(page)
+          .locator('[data-agent-native-node-id="outer"]')
+          .evaluate((outer) =>
+            Array.from(outer.children).map((child) =>
+              child.getAttribute("data-agent-native-node-id"),
+            ),
+          ),
+      )
+      .toEqual(["source", "nested"]);
   } finally {
     await cleanup(page, id);
   }
