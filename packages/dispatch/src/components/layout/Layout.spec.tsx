@@ -34,6 +34,7 @@ const clientState = vi.hoisted(() => ({
   connectedAppsError: null as Error | null,
   connectedAppsLoading: false,
   appState: {} as Record<string, unknown>,
+  appStatePromises: {} as Record<string, Promise<unknown>>,
   basePath: "",
   createEmbedSessionMutateAsync: vi
     .fn()
@@ -150,7 +151,9 @@ vi.mock(
       typeof import("@agent-native/core/client/application-state")
     >()),
     readClientAppState: async (key: string) =>
-      clientState.appState[key] ?? null,
+      (await clientState.appStatePromises[key]) ??
+      clientState.appState[key] ??
+      null,
     writeClientAppState: async (key: string, value: unknown) => {
       clientState.appState[key] = value;
       return value;
@@ -368,6 +371,7 @@ describe("Dispatch NavContent", () => {
     clientState.connectedAppsError = null;
     clientState.connectedAppsLoading = false;
     clientState.appState = {};
+    clientState.appStatePromises = {};
     workspaceAppNavigation.navigateToWorkspaceApp.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -634,6 +638,48 @@ describe("Dispatch NavContent", () => {
     ];
     await act(async () => {
       root.render(renderLayout());
+    });
+
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+  });
+
+  it("ignores pane hydration that finishes after switching chats", async () => {
+    let resolvePaneState!: (value: unknown) => void;
+    clientState.appStatePromises[CHAT_FIRST_PANE_STATE_KEY] = new Promise(
+      (resolve) => {
+        resolvePaneState = resolve;
+      },
+    );
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    const onPathChange = vi.fn();
+    const renderLayout = () => (
+      <MemoryRouter initialEntries={["/chat/pane-read-hydration"]}>
+        <Layout extensions={{ chatFirst: true }}>
+          <ChatRouteSwitcher target="/chat/new-scope" />
+        </Layout>
+        <LocationProbe onChange={onPathChange} />
+      </MemoryRouter>
+    );
+
+    await act(async () => {
+      root.render(renderLayout());
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch chat")
+        ?.click();
+    });
+    expect(onPathChange).toHaveBeenLastCalledWith("/chat/new-scope");
+
+    await act(async () => {
+      resolvePaneState({ appId: "clips", path: "/inbox" });
     });
 
     expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();

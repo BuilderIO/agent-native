@@ -115,6 +115,7 @@ function AppsRoute() {
     (appsLoading || connectedAppsQuery.isLoading) &&
     allApps.length === 0 &&
     defaultApps.length === 0;
+  const appDiscoveryFailed = appsQuery.isError || connectedAppsQuery.isError;
 
   return (
     <DispatchShell
@@ -193,11 +194,6 @@ function AppsRoute() {
           ) : null}
           {showAppSkeletons ? (
             <AppsSkeletonGrid />
-          ) : !hasSearchResults && searchQuery.trim() ? (
-            <WorkspaceAppSearchEmpty
-              query={searchQuery}
-              onClear={() => setSearchQuery("")}
-            />
           ) : filteredActiveApps.length > 0 ||
             filteredDefaultApps.length > 0 ? (
             <AppList className={APP_LIST_GRID_CLASS}>
@@ -218,6 +214,12 @@ function AppsRoute() {
                 />
               ))}
             </AppList>
+          ) : appDiscoveryFailed ? null : !hasSearchResults &&
+            searchQuery.trim() ? (
+            <WorkspaceAppSearchEmpty
+              query={searchQuery}
+              onClear={() => setSearchQuery("")}
+            />
           ) : searchQuery.trim() ? null : pendingApps.length > 0 ? (
             <EmptyActiveAppsState />
           ) : (

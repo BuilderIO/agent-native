@@ -1954,7 +1954,7 @@ function DispatchLayout({
     return () => {
       active = false;
     };
-  }, [chatFirstMode, chatFirstPane, isChatRoute]);
+  }, [chatFirstMode, chatFirstPane, chatFirstSurfaceScope, isChatRoute]);
 
   useEffect(() => {
     if (!chatFirstMode || !isChatRoute || !pendingChatFirstPaneRestore) return;
