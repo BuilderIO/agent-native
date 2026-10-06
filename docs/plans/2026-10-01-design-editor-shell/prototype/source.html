@@ -720,8 +720,20 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .row.tk .tk-val.word { font-family: var(--font); max-width: 112px; }
 /* Curve editor (Easing and Spring tokens): the color picker's 272px popover, 12px padding, one 248px column.
    A square graph with left and bottom axes; handles sit on dashed tethers to the curve's ends. */
-.cpk.curve { padding: 12px; display: grid; gap: 8px; }
-.curve-preset { height: 24px; }
+.cpk.curve { display: grid; }
+.curve-name { font-size: 12px; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.curve-name.custom { color: var(--muted-fg); font-weight: 400; }
+.curve-body { padding: 12px; display: grid; gap: 8px; }
+.curve-fields .curve-mode { grid-column: 2 / 4; height: 24px; }
+/* Spring rows: label 64 · slider 112 · value 56, on the 248px column. */
+.curve-fields.springs { grid-template-columns: 64px 112px 56px; align-items: center; row-gap: 8px; column-gap: 8px; }
+.cs-l { font-size: 11px; color: var(--muted-fg); }
+.cs-track { --t: 0; height: 16px; border-radius: 8px; background: var(--hover); position: relative; cursor: ew-resize; touch-action: none; }
+.cs-track::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: calc(8px + var(--t) * (100% - 16px)); border-radius: 8px; background: var(--accent-soft); }
+.cs-knob { position: absolute; top: 0; left: calc(var(--t) * (100% - 16px)); width: 16px; height: 16px; border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgb(0 0 0 / 16%); }
+.cs-v { height: 24px; }
+.cs-v input { text-align: right; padding-right: 6px; }
+.cs-calc { grid-column: 2 / 4; justify-self: end; padding-right: 6px; font-size: 11px; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
 .curve-graph { display: block; overflow: visible; touch-action: none; }
 .curve-graph .axis { stroke: var(--border); stroke-width: 1; }
 .curve-graph .guide { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
@@ -735,8 +747,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .curve-dot { position: absolute; left: 4px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .curve-fields { display: grid; grid-template-columns: repeat(4, 56px); gap: 8px; }
 .curve-fields .inp { height: 24px; }
-.curve-fields .inp.span2 { grid-column: span 2; }
-.curve-fields .inp.span2 .pre { width: auto; padding-right: 8px; }
+
 .row.tk .tk-val { margin-left: 8px; font: 11px/16px var(--mono); color: var(--muted-fg); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; text-align: right; }
 .row.tk:hover .tk-val { color: var(--fg); }
 .row.tk input.tk-edit { margin-left: 8px; width: 104px; height: 20px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 4px; color: var(--fg); flex: none; }
@@ -3295,38 +3306,76 @@ function parseEase(v) {
   const n = s.match(/^cubic-bezier\(([^)]+)\)$/)?.[1].split(",").map(Number);
   return n?.length === 4 && n.every(Number.isFinite) && n[0] >= 0 && n[0] <= 1 && n[2] >= 0 && n[2] <= 1 ? n : null;
 }
-const parseSpring = v => { const m = String(v).trim().match(/^spring\(\s*([\d.]+)(ms|s)\s*,\s*([\d.]+)\s*\)$/i); return m ? { ms: +m[1] * (m[2].toLowerCase() === "s" ? 1000 : 1), bounce: Math.min(1, +m[3]) } : null; };
+// A spring is written in the form it was authored in, the way the color picker keeps typed OKLCH:
+// spring(240ms, 0.12) by duration and bounce, or spring(mass 1, stiffness 170, damping 26, velocity 0) by physics.
+function parseSpring(v) {
+  const s = String(v).trim().toLowerCase(), d = s.match(/^spring\(\s*([\d.]+)(ms|s)\s*,\s*([\d.]+)\s*\)$/);
+  if (d) return { form: "duration", ms: +d[1] * (d[2] === "s" ? 1000 : 1), bounce: Math.min(1, +d[3]) };
+  const body = s.match(/^spring\((.+)\)$/)?.[1]; if (!body) return null;
+  const kv = Object.fromEntries(body.split(",").map(x => x.trim().split(/\s+/)).filter(x => x.length === 2).map(([k, n]) => [k, +n]));
+  return kv.stiffness > 0 && kv.damping >= 0 ? { form: "physics", mass: kv.mass > 0 ? kv.mass : 1, stiffness: kv.stiffness, damping: kv.damping, velocity: kv.velocity || 0 } : null;
+}
 const r2 = n => Math.round(n * 100) / 100;
 const samePts = (a, b) => !!a && !!b && a.every((n, i) => Math.abs(n - b[i]) < 0.005);
-const springCss = ({ ms, bounce }) => `spring(${Math.round(ms)}ms, ${r2(bounce)})`;
-const curvePreset = v => { const e = parseEase(v), sp = parseSpring(v);
-  return e ? EASE_PRESETS.find(x => x !== "-" && samePts(parseEase(x[1]), e)) : sp ? SPRING_PRESETS.find(([, x]) => springCss(parseSpring(x)) === springCss(sp)) : null; };
+const springCss = sp => sp.form === "physics" ? `spring(mass ${r2(sp.mass)}, stiffness ${r2(sp.stiffness)}, damping ${r2(sp.damping)}, velocity ${r2(sp.velocity)})` : `spring(${Math.round(sp.ms)}ms, ${r2(sp.bounce)})`;
+// Both forms are one spring. Motion's duration and bounce become stiffness and damping at mass 1, with bounce
+// 1 − damping ratio and the duration as the time its envelope takes to fall to 0.1%; the physics form also carries an
+// initial velocity and can be overdamped, which duration and bounce can't say. at(u) is the value over that duration.
+const LN1000 = Math.log(1000);
+function springFull(sp) {
+  let { mass = 1, stiffness, damping, velocity = 0 } = sp;
+  if (sp.form === "duration") { const z0 = Math.min(1, Math.max(0.02, 1 - sp.bounce)), w0 = LN1000 / (z0 * sp.ms / 1000); stiffness = w0 * w0; damping = 2 * z0 * w0; mass = 1; velocity = 0; }
+  const w = Math.sqrt(stiffness / mass), z = Math.max(0.02, damping / (2 * Math.sqrt(stiffness * mass)));
+  const T = LN1000 / (z < 1 ? z * w : w * (z - Math.sqrt(z * z - 1)));
+  const e = t => {
+    if (Math.abs(z - 1) < 1e-6) return Math.exp(-w * t) * (-1 + (velocity - w) * t);
+    if (z < 1) { const wd = w * Math.sqrt(1 - z * z); return Math.exp(-z * w * t) * (-Math.cos(wd * t) + (velocity - z * w) / wd * Math.sin(wd * t)); }
+    const q = Math.sqrt(z * z - 1), a = -w * (z - q), b = -w * (z + q), c = (velocity + a) / (b - a); return (-1 - c) * Math.exp(a * t) + c * Math.exp(b * t);
+  };
+  return { mass, stiffness, damping, velocity, ms: sp.form === "duration" ? sp.ms : T * 1000, bounce: sp.form === "duration" ? sp.bounce : Math.max(0, 1 - z), at: u => u <= 0 ? 0 : u >= 1 ? 1 : 1 + e(u * T) };
+}
+const springPreset = sp => { const f = springFull(sp); return f.velocity ? null : SPRING_PRESETS.find(([, x]) => { const p = parseSpring(x); return Math.abs(p.ms - f.ms) < 1 && Math.abs(p.bounce - f.bounce) < 0.01; }); };
+const curvePreset = v => { const e = parseEase(v), sp = parseSpring(v); return e ? EASE_PRESETS.find(x => x !== "-" && samePts(parseEase(x[1]), e)) : sp ? springPreset(sp) : null; };
 const easeCss = p => curvePreset(`cubic-bezier(${p.join(", ")})`)?.[1] || `cubic-bezier(${p.map(r2).join(", ")})`;
 // Springs read as their numbers, since two tiers can share a curve and differ only in duration.
-const curveLabel = v => parseSpring(v) ? `${Math.round(parseSpring(v).ms)}ms · ${r2(parseSpring(v).bounce)}` : curvePreset(v)?.[0] || parseEase(v).map(r2).join(", ");
-// Motion's spring by bounce over normalized time, as shared/motion-easing.ts sampleSpring does: bounce 0 is
-// critically damped, and the spring settles by the end of its duration.
-function springAt(bounce, u) {
-  if (u <= 0) return 0; if (u >= 1) return 1;
-  const z = Math.min(1, Math.max(0.02, 1 - bounce)), w = Math.log(1000) / z;
-  if (z >= 1) return 1 - Math.exp(-w * u) * (1 + w * u);
-  const wd = w * Math.sqrt(1 - z * z);
-  return 1 - Math.exp(-z * w * u) * (Math.cos(wd * u) + (z * w / wd) * Math.sin(wd * u));
-}
+const curveLabel = v => { const sp = parseSpring(v); if (!sp) return curvePreset(v)?.[0] || parseEase(v).map(r2).join(", "); const f = springFull(sp); return `${Math.round(f.ms)}ms · ${r2(f.bounce)}`; };
 // CSS can't say spring(), so the canvas gets the duration and the spring sampled as linear().
-const springToCss = ({ ms, bounce }) => `${Math.round(ms)}ms linear(${Array.from({ length: 41 }, (_, i) => +springAt(bounce, i / 40).toFixed(3)).join(", ")})`;
+const springSamples = (sp, n = 60) => { const f = springFull(sp); return Array.from({ length: n + 1 }, (_, i) => +f.at(i / n).toFixed(3)); };
+const springToCss = (sp, ms = springFull(sp).ms) => `${Math.round(ms)}ms linear(${springSamples(sp).join(", ")})`;
 const cssValue = t => parseSpring(t.value) ? springToCss(parseSpring(t.value)) : t.value;
 // Points along a curve, for the glyph, the graph, and the DTCG fallback.
 const bezierPts = ([a, b, c, d], n = 48) => Array.from({ length: n + 1 }, (_, i) => { const u = i / n, k = 1 - u; return [3 * k * k * u * a + 3 * k * u * u * c + u ** 3, 3 * k * k * u * b + 3 * k * u * u * d + u ** 3]; });
-const curvePts = v => parseEase(v) ? bezierPts(parseEase(v)) : Array.from({ length: 49 }, (_, i) => [i / 48, springAt(parseSpring(v).bounce, i / 48)]);
+const curvePts = v => parseEase(v) ? bezierPts(parseEase(v)) : springSamples(parseSpring(v), 96).map((y, i) => [i / 96, y]);
 // The row's lead draws the curve itself, the way a color row shows its swatch.
 function curveGlyph(v) {
   const d = curvePts(v).map(([x, y], i) => `${i ? "L" : "M"}${(2 + x * 12).toFixed(2)} ${(14 - y * 12).toFixed(2)}`).join("");
   return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
-// The color picker's popover (272px, 12px padding, a 248px column, Esc puts the old value back, click-away keeps it):
-// the preset select, a square graph, a dot that replays the motion, then the curve's numbers. A cubic-bézier has two
-// handles on dashed tethers; a spring has none, so its graph is the response and its fields are duration and bounce.
+// Copy writes the curve for where it'll be pasted. Each target takes its own form: Motion and SwiftUI have both spring
+// forms, Compose's spring has no mass (stiffness is per unit mass) and takes its velocity from the animation.
+function curveCopies(c) {
+  const n = x => String(r2(x)), f = x => `${r2(x)}f`;
+  if (Array.isArray(c)) return [["Copy CSS", easeCss(c)], ["Copy for Motion", `[${c.map(n).join(", ")}]`], ["Copy for SwiftUI", `.timingCurve(${c.map(n).join(", ")})`], ["Copy for Compose", `CubicBezierEasing(${c.map(f).join(", ")})`]];
+  const s = springFull(c), sec = x => String(+(x / 1000).toFixed(3)), z = s.damping / (2 * Math.sqrt(s.stiffness * s.mass));
+  return [["Copy CSS", springToCss(c)],
+    ["Copy for Motion", c.form === "physics" ? `{ type: "spring", mass: ${n(s.mass)}, stiffness: ${n(s.stiffness)}, damping: ${n(s.damping)}, velocity: ${n(s.velocity)} }` : `{ type: "spring", duration: ${sec(c.ms)}, bounce: ${n(c.bounce)} }`],
+    ["Copy for SwiftUI", c.form === "physics" ? `.interpolatingSpring(mass: ${n(s.mass)}, stiffness: ${n(s.stiffness)}, damping: ${n(s.damping)}, initialVelocity: ${n(s.velocity)})` : `.spring(duration: ${sec(c.ms)}, bounce: ${n(c.bounce)})`],
+    ["Copy for Compose", `spring(dampingRatio = ${f(z)}, stiffness = ${f(s.stiffness / s.mass)})`]];
+}
+// Spring controls: label, slider, value, as in easing.tools. Sliders cover the usual range; the field takes any value.
+// Mass, stiffness, and damping slide on a log scale: an interface spring of 80–240ms is stiffness 1,000–7,500 at mass 1,
+// while a slow, heavy one is near 100, and a linear track would crowd one end.
+const SPRING_CONTROLS = {
+  duration: [["ms", "Duration", 50, 2000, 1], ["bounce", "Bounce", 0, 1, 0.01]],
+  physics: [["mass", "Mass", 0.01, 10, 0.01, true], ["stiffness", "Stiffness", 1, 10000, 0.01, true], ["damping", "Damping", 0.1, 1000, 0.01, true], ["velocity", "Velocity", -20, 20, 0.1]],
+};
+const sliderT = ([, , min, max, , log], v) => Math.min(1, Math.max(0, log ? Math.log(Math.max(v, min) / min) / Math.log(max / min) : (v - min) / (max - min)));
+const sliderV = ([, , min, max, step, log], t) => Math.round((log ? min * (max / min) ** t : min + t * (max - min)) / step) * step;
+// The color picker's popover (272px, a 248px column, Esc puts the old value back, click-away keeps it). Its header
+// names the preset (or Custom) with Presets and Copy as icon menus, like the picker's + and Aa; then a square graph,
+// a dot that replays the motion, and the curve's numbers. A cubic-bézier has two handles on dashed tethers. A spring
+// has none: its graph is the response over its duration, and its Mode row switches the controls between Duration
+// (duration, bounce) and Physics (mass, stiffness, damping, velocity).
 // The graph shows 0–1 with a little room either side, and grows to fit a handle you drag to its edge once you let go.
 function curveEditor(anchor, value, { onInput, onClose = () => {} }) {
   document.querySelector(".cpk")?._close();
@@ -3334,30 +3383,43 @@ function curveEditor(anchor, value, { onInput, onClose = () => {} }) {
   let P = spring ? null : parseEase(value) || [0.2, 0, 0, 1], SP = spring ? parseSpring(value) : null, done = false, lo = -0.1, hi = 1.1;
   const S = 248, X = x => 16 + x * 216, Y = y => 232 - (y - lo) / (hi - lo) * 216;
   const css = () => spring ? springCss(SP) : easeCss(P);
-  const fit = () => { const ys = spring ? curvePts(css()).map(p => p[1]) : [P[1], P[3]]; lo = Math.min(-0.1, ...ys.map(y => y - (spring ? 0.05 : 0.15))); hi = Math.max(1.1, ...ys.map(y => y + (spring ? 0.05 : 0.15))); };
+  const fit = () => { const ys = spring ? springSamples(SP, 96) : [P[1], P[3]]; lo = Math.min(-0.1, ...ys.map(y => y - (spring ? 0.05 : 0.15))); hi = Math.max(1.1, ...ys.map(y => y + (spring ? 0.05 : 0.15))); };
   const pop = document.createElement("div"); pop.className = "cpk curve"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", spring ? "Spring" : "Easing");
-  const field = (l, i, cls = "") => `<label class="inp ${cls}"><span class="pre">${l}</span><input data-i="${i}" aria-label="${l}" inputmode="decimal" spellcheck="false">${i === "ms" ? `<span class="post">ms</span>` : ""}</label>`;
-  pop.innerHTML = `<button class="inp sel curve-preset" aria-haspopup="menu" aria-expanded="false"><span class="v"></span>${ic("chevron-down", "s12")}</button>
-    <svg class="curve-graph" viewBox="0 0 ${S} ${S}" width="${S}" height="${S}" role="group" aria-label="Curve"><line class="axis y"/><line class="axis x"/><line class="guide"/>
+  const field = (l, i) => `<label class="inp"><span class="pre">${l}</span><input data-i="${i}" aria-label="${l}" inputmode="decimal" spellcheck="false"></label>`;
+  pop.innerHTML = `<div class="cpk-head"><span class="curve-name"></span><span class="acts"><button class="icon-btn curve-presets" aria-haspopup="menu" aria-expanded="false" title="Presets">${ic("layout-grid")}</button><button class="icon-btn curve-copy" aria-haspopup="menu" aria-expanded="false" title="Copy">${ic("copy")}</button></span></div>
+    <div class="curve-body"><svg class="curve-graph" viewBox="0 0 ${S} ${S}" width="${S}" height="${S}" role="group" aria-label="Curve"><line class="axis y"/><line class="axis x"/><line class="guide"/>
       ${spring ? "" : `<line class="tether t1"/><line class="tether t2"/>`}<path class="line"/><circle class="end e0" r="4"/><circle class="end e1" r="4"/>
       ${spring ? "" : `<circle class="h" data-h="0" r="6" tabindex="0" aria-label="First handle"/><circle class="h" data-h="1" r="6" tabindex="0" aria-label="Second handle"/>`}</svg>
     <div class="curve-track" aria-hidden="true"><span class="curve-dot"></span></div>
-    <div class="curve-fields">${spring ? field("Duration", "ms", "span2") + field("Bounce", "b", "span2") : ["X1", "Y1", "X2", "Y2"].map((l, i) => field(l, i)).join("")}</div>`;
+    <div class="curve-fields">${spring ? "" : ["X1", "Y1", "X2", "Y2"].map((l, i) => field(l, i)).join("")}</div></div>`;
   document.body.append(pop);
   const q = sel => pop.querySelector(sel), attrs = (el, o) => Object.entries(o).forEach(([k, v]) => el.setAttribute(k, v));
-  const replay = () => { const d = q(".curve-dot"); d.style.transition = "none"; d.style.transform = ""; d.offsetWidth; d.style.transition = `transform ${spring ? springToCss({ ...SP, ms: Math.max(SP.ms, 600) }) : `600ms ${css()}`}`; d.style.transform = "translateX(232px)"; };
+  const controls = () => SPRING_CONTROLS[SP.form];
+  const knobAt = (key, v) => sliderT(controls().find(c => c[0] === key), v);
+  // Each slider's knob travels inside its track, as in the color picker, so 0 and 100% stay on the track.
+  const springRows = () => { q(".curve-fields").className = "curve-fields springs"; q(".curve-fields").innerHTML = `<span class="cs-l">Mode</span><button class="inp sel curve-mode" aria-haspopup="menu" aria-expanded="false"><span class="v"></span>${ic("chevron-down", "s12")}</button>` + controls().map(([key, label]) => `<span class="cs-l">${label}</span><div class="cs-track" data-k="${key}" role="slider" aria-label="${label}"><span class="cs-knob"></span></div><label class="inp cs-v"><input data-k="${key}" aria-label="${label}" inputmode="decimal" spellcheck="false"></label>`).join("")
+    + (SP.form === "physics" ? `<span class="cs-l">Duration</span><span class="cs-calc" title="How long it takes to settle"></span>` : ""); };
+  const replay = () => { const d = q(".curve-dot"); d.style.transition = "none"; d.style.transform = ""; d.offsetWidth; d.style.transition = `transform ${spring ? springToCss(SP, Math.min(3000, Math.max(600, springFull(SP).ms))) : `600ms ${css()}`}`; d.style.transform = "translateX(232px)"; };
   const draw = (fields = true) => {
     attrs(q(".axis.y"), { x1: X(0), y1: 16, x2: X(0), y2: 232 }); attrs(q(".axis.x"), { x1: X(0), y1: Y(0), x2: X(1), y2: Y(0) }); attrs(q(".guide"), { x1: X(0), y1: Y(1), x2: X(1), y2: Y(1) });
     attrs(q(".e0"), { cx: X(0), cy: Y(0) }); attrs(q(".e1"), { cx: X(1), cy: Y(1) });
-    q(".line").setAttribute("d", spring ? curvePts(css()).map(([x, y], i) => `${i ? "L" : "M"}${X(x).toFixed(1)} ${Y(y).toFixed(1)}`).join("") : `M${X(0)} ${Y(0)}C${X(P[0])} ${Y(P[1])} ${X(P[2])} ${Y(P[3])} ${X(1)} ${Y(1)}`);
+    q(".line").setAttribute("d", spring ? springSamples(SP, 96).map((y, i) => `${i ? "L" : "M"}${X(i / 96).toFixed(1)} ${Y(y).toFixed(1)}`).join("") : `M${X(0)} ${Y(0)}C${X(P[0])} ${Y(P[1])} ${X(P[2])} ${Y(P[3])} ${X(1)} ${Y(1)}`);
     if (!spring) { attrs(q(".t1"), { x1: X(0), y1: Y(0), x2: X(P[0]), y2: Y(P[1]) }); attrs(q(".t2"), { x1: X(1), y1: Y(1), x2: X(P[2]), y2: Y(P[3]) });
       pop.querySelectorAll(".h").forEach((h, i) => attrs(h, { cx: X(P[i * 2]), cy: Y(P[i * 2 + 1]) })); }
-    q(".curve-preset .v").textContent = curvePreset(css())?.[0] || "Custom";
-    if (fields) pop.querySelectorAll(".curve-fields input").forEach(inp => { const i = inp.dataset.i; inp.value = i === "ms" ? Math.round(SP.ms) : i === "b" ? r2(SP.bounce) : r2(P[+i]); });
+    const name = curvePreset(css())?.[0]; q(".curve-name").textContent = name || "Custom"; q(".curve-name").classList.toggle("custom", !name);
+    if (spring) {
+      q(".curve-mode .v").textContent = SP.form === "physics" ? "Physics" : "Duration";
+      controls().forEach(([key]) => { const v = SP[key]; q(`.cs-track[data-k="${key}"]`).style.setProperty("--t", knobAt(key, v)); const inp = q(`input[data-k="${key}"]`); if (fields || document.activeElement !== inp) inp.value = key === "ms" ? Math.round(v) : r2(v); });
+      const calc = q(".cs-calc"); if (calc) calc.textContent = `${Math.round(springFull(SP).ms)}ms`;
+    } else if (fields) pop.querySelectorAll(".curve-fields input").forEach(inp => { inp.value = r2(P[+inp.dataset.i]); });
   };
   const set = ({ fields = true, play = true, refit = true } = {}) => { if (refit) fit(); draw(fields); onInput(css()); if (play) replay(); };
-  q(".curve-preset").addEventListener("click", e => openMenu(e.currentTarget, (spring ? SPRING_PRESETS : EASE_PRESETS).map(x => x === "-" ? x : { t: x[0], radio: true, on: curvePreset(css()) === x,
-    run: () => { if (spring) SP = parseSpring(x[1]); else P = parseEase(x[1]); set(); } })));
+  // Switching forms converts the numbers; Physics to Duration drops velocity and treats an overdamped spring as bounce 0.
+  const toForm = form => { const f = springFull(SP); SP = form === "physics" ? { form, mass: r2(f.mass), stiffness: r2(f.stiffness), damping: r2(f.damping), velocity: r2(f.velocity) } : { form, ms: Math.round(f.ms), bounce: r2(f.bounce) }; springRows(); set(); };
+  pop.addEventListener("click", e => { const m = e.target.closest(".curve-mode"); if (m) openMenu(m, [["duration", "Duration"], ["physics", "Physics"]].map(([k, t]) => ({ t, radio: true, on: SP.form === k, run: () => { if (SP.form !== k) toForm(k); } }))); });
+  q(".curve-presets").addEventListener("click", e => openMenu(e.currentTarget, (spring ? SPRING_PRESETS : EASE_PRESETS).map(x => x === "-" ? x : { t: x[0], radio: true, on: curvePreset(css()) === x,
+    run: () => { if (spring) { const form = SP.form; SP = parseSpring(x[1]); if (form === "physics") return toForm("physics"); } else P = parseEase(x[1]); set(); } }), { align: "right" }));
+  q(".curve-copy").addEventListener("click", e => openMenu(e.currentTarget, curveCopies(spring ? SP : P).map(([t, text]) => ({ t, run: () => copyText(text, `Copied ${text.length > 40 ? text.slice(0, 40) + "…" : text}`) })), { align: "right" }));
   pop.querySelectorAll(".h").forEach((h, i) => h.addEventListener("pointerdown", e => {
     e.preventDefault(); h.setPointerCapture(e.pointerId);
     const g = q(".curve-graph").getBoundingClientRect();
@@ -3366,17 +3428,26 @@ function curveEditor(anchor, value, { onInput, onClose = () => {} }) {
     const up = () => { h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up); set({ fields: false }); };
     h.addEventListener("pointermove", move); h.addEventListener("pointerup", up);
   }));
+  // Dragging a spring slider refits and redraws live, and replays the dot once you let go.
+  pop.addEventListener("pointerdown", e => {
+    const tr = e.target.closest(".cs-track"); if (!tr) return; e.preventDefault(); tr.setPointerCapture(e.pointerId);
+    const key = tr.dataset.k, ctl = controls().find(c => c[0] === key);
+    const move = ev => { const r = tr.getBoundingClientRect(), t = Math.min(1, Math.max(0, (ev.clientX - r.left - 8) / (r.width - 16))); SP = { ...SP, [key]: r2(sliderV(ctl, t)) }; set({ play: false }); };
+    const up = () => { tr.removeEventListener("pointermove", move); tr.removeEventListener("pointerup", up); replay(); };
+    move(e); tr.addEventListener("pointermove", move); tr.addEventListener("pointerup", up);
+  });
   pop.addEventListener("input", e => {
-    const i = e.target.dataset.i; if (i == null) return; const v = parseFloat(e.target.value); if (!Number.isFinite(v)) return;
-    if (i === "ms") { if (v <= 0) return; SP = { ...SP, ms: v }; } else if (i === "b") { if (v < 0 || v > 1) return; SP = { ...SP, bounce: v }; }
-    else { if ((i === "0" || i === "2") && (v < 0 || v > 1)) return; P = P.slice(); P[+i] = v; }
-    set({ fields: false });
+    const v = parseFloat(e.target.value); if (!Number.isFinite(v)) return;
+    const k = e.target.dataset.k; if (k) { if ((k === "ms" || k === "mass" || k === "stiffness") && v <= 0) return; if (k === "bounce" && (v < 0 || v > 1)) return; if (k === "damping" && v < 0) return; SP = { ...SP, [k]: v }; return set({ fields: false }); }
+    const i = e.target.dataset.i; if (i == null) return;
+    if ((i === "0" || i === "2") && (v < 0 || v > 1)) return; P = P.slice(); P[+i] = v; set({ fields: false });
   });
   const close = cancelled => { if (done) return; done = true; pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); if (cancelled) onInput(before); onClose(cancelled); };
   const outside = e => { if (!pop.contains(e.target) && !e.target.closest?.(".menu, .scrim")) close(false); };
   const key = e => { if (e.key === "Escape" && !document.querySelector(".menu")) { e.preventDefault(); e.stopPropagation(); close(true); } };
   document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key, true);
   pop._close = () => close(false);
+  if (spring) springRows();
   fit(); draw();
   const host = (anchor.closest("#tokens, #insp") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
   pop.style.maxHeight = innerHeight - 16 + "px"; pop.style.overflowY = pop.scrollHeight > innerHeight - 16 ? "auto" : "";
@@ -3395,7 +3466,7 @@ function pickTokenCurve(t, row) {
 // DTCG has no spring type, so a spring exports as a transition: its duration, and the cubic-bézier nearest its
 // response as timingFunction, with the spring itself under $extensions so a round trip keeps it.
 function springToBezier(sp) {
-  const target = Array.from({ length: 13 }, (_, i) => springAt(sp.bounce, i / 12)), grid = [];
+  const f = springFull(sp), target = Array.from({ length: 13 }, (_, i) => f.at(i / 12)), grid = [];
   for (let v = -0.6; v <= 1.6001; v += 0.1) grid.push(r2(v));
   let best = null, err = Infinity;
   for (let a = 0; a <= 1.0001; a += 0.1) for (const b of grid) for (let c = 0; c <= 1.0001; c += 0.1) for (const d of grid) {
@@ -3486,7 +3557,8 @@ function dtcgValue(t) {
   const v = t.value.trim();
   if (t.type === "color" && /^#([0-9a-f]{6})$/i.test(v)) { const n = v.slice(1).match(/../g).map(h => +(parseInt(h, 16) / 255).toFixed(4)); return ["color", { colorSpace: "srgb", components: n, hex: v.toLowerCase() }]; }
   const pts = tokenKind(t) === "easing" && parseEase(v); if (pts) return ["cubicBezier", pts];
-  const sp = parseSpring(v); if (sp) return ["transition", { duration: { value: Math.round(sp.ms), unit: "ms" }, delay: { value: 0, unit: "ms" }, timingFunction: springToBezier(sp) }, { "com.agent-native.spring": { duration: { value: Math.round(sp.ms), unit: "ms" }, bounce: sp.bounce } }];
+  const sp = parseSpring(v); if (sp) { const f = springFull(sp), ms = { value: Math.round(f.ms), unit: "ms" };
+    return ["transition", { duration: ms, delay: { value: 0, unit: "ms" }, timingFunction: springToBezier(sp) }, { "com.agent-native.spring": sp.form === "physics" ? { mass: sp.mass, stiffness: sp.stiffness, damping: sp.damping, velocity: sp.velocity } : { duration: ms, bounce: sp.bounce } }]; }
   const dur = v.match(/^([\d.]+)(ms|s)$/); if (dur) return ["duration", { value: +dur[1], unit: dur[2] }];
   const dim = v.match(/^(-?[\d.]+)(px|rem)$/); if (dim) return ["dimension", { value: +dim[1], unit: dim[2] }];
   if (/weight/.test(t.cssVar) && /^\d+$/.test(v)) return ["fontWeight", +v];
@@ -3550,7 +3622,7 @@ function parseDtcg(text) {
   };
   return Object.values(flat).map(tok => {
     const sp = tok.ext["com.agent-native.spring"];
-    const value = sp ? springCss({ ms: sp.duration.unit === "s" ? sp.duration.value * 1000 : sp.duration.value, bounce: sp.bounce }) : resolve(tok); if (value == null) return null;
+    const value = sp ? springCss(sp.stiffness ? { form: "physics", mass: sp.mass ?? 1, stiffness: sp.stiffness, damping: sp.damping, velocity: sp.velocity ?? 0 } : { form: "duration", ms: sp.duration.unit === "s" ? sp.duration.value * 1000 : sp.duration.value, bounce: sp.bounce }) : resolve(tok); if (value == null) return null;
     const cssVar = tok.ext["com.agent-native.cssVar"] || "--" + tok.path.join("-");
     const panelType = tok.type === "dimension" ? guessType(cssVar, value) : (DTCG_PANEL_TYPE[tok.type] || guessType(cssVar, value));
     return { cssVar, value, type: panelType, name: friendly(cssVar) };
