@@ -203,6 +203,30 @@ async function listZoomRecordingPages(
   return meetings;
 }
 
+export function isReadyZoomTranscript(file: ZoomRecordingFile): boolean {
+  return file.file_type === "TRANSCRIPT" && file.status !== "processing";
+}
+
+// Zoom requires a UUID that starts with "/" or contains "//" to be encoded twice.
+export function zoomMeetingUuidPath(uuid: string): string {
+  const encoded = encodeURIComponent(uuid);
+  return uuid.startsWith("/") || uuid.includes("//")
+    ? encodeURIComponent(encoded)
+    : encoded;
+}
+
+// The account-wide list omits download_url; this per-meeting lookup includes it.
+export function getZoomMeetingRecordings(
+  token: string,
+  meetingUuid: string,
+): Promise<ZoomMeeting> {
+  return zoomApiJson<ZoomMeeting>(
+    token,
+    `${ZOOM_API_BASE}/meetings/${zoomMeetingUuidPath(meetingUuid)}/recordings`,
+    "meeting recording lookup",
+  );
+}
+
 /**
  * Redirects are followed by hand: the bearer token may only ride along to
  * Zoom hosts, so a hop to a CDN or any other origin is fetched without it.

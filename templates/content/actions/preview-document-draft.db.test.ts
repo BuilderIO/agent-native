@@ -1569,6 +1569,42 @@ describe("private preview document drafts", () => {
     expect(deleted).toEqual({ status: "deleted", draft: null });
   });
 
+  it("deletes a draft the page holds only while the stored page still holds it", async () => {
+    const documentId = await createDocument();
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: payload("Server body"),
+      }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Server body, then another tab's edit" })
+      .where(eq(schema.documents.id, documentId));
+    const held = {
+      operation: "delete" as const,
+      documentId,
+      expectedVersion: 1,
+      expectedTitle: "Builder row",
+      expectedContent: "Server body",
+      ifPageHoldsDraft: true as const,
+    };
+    const refused = await asUser(OWNER, () => updateDraft.run(held));
+    expect(refused).toMatchObject({
+      status: "conflict",
+      draft: { content: "Server body", version: 1 },
+    });
+
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Server body" })
+      .where(eq(schema.documents.id, documentId));
+    const deleted = await asUser(OWNER, () => updateDraft.run(held));
+    expect(deleted).toEqual({ status: "deleted", draft: null });
+  });
+
   it("keeps C2 recoverable when older C1 persistence finishes after the C2 draft", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>
