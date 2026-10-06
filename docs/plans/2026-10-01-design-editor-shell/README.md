@@ -258,7 +258,8 @@ Not started · COLOR · PR —
 Redesign `DesignColorPicker` in place at 272px on the 8pt grid: Previous and
 New swatches, one Mode property (Hex, RGB, HSL, HSB, Display P3, OKLCH) that
 changes only the numbers and the CSS written, the same square in every mode,
-fallbacks named in New's tooltip, and a Libraries tab of tokens. The
+fallbacks named in New's tooltip, a Libraries tab of tokens, and a paint row
+(Solid, Gradient, Image, Shader, then Blend and a Contrast mode). The
 inspector's fills and strokes and the Tokens panel (TOK-20) use it.
 
 ### Every step
@@ -297,6 +298,7 @@ where it names Annotate or the old toolbar.
 - 2026-10-05: Springs are their own token kind beside Easing, set by duration and bounce or by mass, stiffness, damping, and velocity, and kept in the form authored; Fluid Functionalism's Fast, Moderate, and Slow are the spring presets and Material 3's curves the easing presets. TOK-24.
 - 2026-10-05: The color picker sits on the 8pt grid (272px, columns 64 · 64 · 64 · 32), and slider knobs stay inside their tracks, filled with their value. COLOR-09.
 - 2026-10-06: Import leaves the top bar for File › Import…, the system file panel scoped to .fig and HTML, the inputs that become screens; home's Import opens the same panel; an empty canvas offers Import…, From your app…, and Blank screen. Figma links become agent-only, Paste from Figma is ⌘V, Local app stays in Screens' +, and GitHub goes. TOP-09, FILE-01, FILE-04, FILE-05, FILE-06, FILE-07.
+- 2026-10-06: The color picker gets a paint row (Solid · Gradient · Image · Shader, then Blend and Contrast), with the gradients as one tab and a Type select, and None gone. Contrast is a mode like Figma's: a ratio chip with its level, and the AA line drawn on the square, instead of the Aa header button. COLOR-10, COLOR-12, COLOR-13, COLOR-14.
 
 ## Open questions
 

@@ -1413,14 +1413,45 @@
         {
           "id": "COLOR-10",
           "status": "proposed",
-          "change": "On a text layer's fill, the header gets an Aa button beside +, styled like it and the same in every state; its tooltip gives the WCAG 2.2 ratio on what's behind the text (rounded down, so it never overstates). Clicking it opens a menu with no label row: Fix for AA and Fix for AAA, each showing its status on the right (Passes, or Needs 3:1 / 4.5:1 / 7:1 for body or large text, which is 24px or 18.66px bold) and off once met, then Ask Agent to fix contrast, which hands the agent the text, background, ratio, and target so it can fix the same pairing on every screen. A fix moves OKLCH lightness to the passing value nearest the current one, keeping hue and chroma, and steps past rounding so the value as written in the current mode (a hex code, say) still passes. Each action sits next to what it acts on: eyedropper by the sliders, copy by the value, + and contrast in the header, and swapping on the Fill field (COLOR-11).",
-          "prototype": "Select the headline, open its Fill, type AAAAAA, click Aa, and choose Fix for AA: it lands on 949494, which still passes when retyped."
+          "change": "Contrast is a mode, as in Figma, not a header button: on a text layer's fill, the paint row's Contrast toggle (COLOR-12) turns it on, for solid fills only, since a gradient or an image has no single ratio. On, a row above the square shows the WCAG 2.2 ratio chip (2.67 : 1, rounded down so it never overstates) and the level it reaches (✓ AA or ✓ AAA, or the amber warning mark and AA when it misses); the chip's tooltip names the pair it measures (Foreground 9E9E9E · Background FFFFFF). The square draws the line where the color meets AA on that background (3:1 for large text, which is 24px or 18.66px bold; 4.5:1 for body) and dots the side that misses it, so you can see where passing colors are before you drag. Clicking the chip opens the menu: Fix for AA and Fix for AAA, each with its status on the right (Passes, or Needs n:1) and off once met, then Ask Agent to fix contrast, which hands the agent the text, background, ratio, and target. A fix moves OKLCH lightness to the passing value nearest the current one, keeping hue and chroma, and steps past rounding so the CSS it writes still passes.",
+          "prototype": "Select the subtitle, open its Fill, set HSL 0 0 62, and turn on Contrast: the chip reads 2.67 : 1 with the amber AA mark, and the square shows the AA line."
         },
         {
           "id": "COLOR-11",
           "status": "proposed",
           "change": "The inspector's Fill field gets a ▾ like W's width tokens (RESP-05): the design's color tokens with their values, to apply or to swap to, with Detach token first on ⌫ while one is bound. Swapping keeps the fill bound; detaching keeps its color as a plain value. A bound fill shows the token as a chip in the field, beside its swatch.",
           "prototype": "Open the Fill's ▾ and pick Link, then pick Primary, then press ⌫ with the menu open."
+        },
+        {
+          "id": "COLOR-12",
+          "status": "decided",
+          "today": "`DesignColorPicker` shows up to eight paint types in a grid capped at six columns with the active type's name under it: Solid, Linear, Radial, Angular, Diamond, Image, Shader, None. Blend is a select at the bottom, shown with `showBlendMode`. `supportedPaintTypes` limits strokes to solid.",
+          "change": "A 40px paint row under the Custom | Libraries header, in two groups so the types and the tools don't blur together: on the left the paint types as 24px icon toggles, Solid · Gradient · Image · Shader; on the right Blend and, on text fills, Contrast (COLOR-10). The four gradients are one Gradient tab with a Type select (COLOR-13), as color Mode is one select. None goes, since the Fill row's − removes a fill, and so does the label under the icons; tooltips name them. Shader opens the shader panel as today. Blend opens a menu of the blend modes in Figma's groups (Normal · Darken, Multiply, Color burn · Lighten, Screen, Color dodge · Overlay, Soft light, Hard light · Difference, Exclusion · Hue, Saturation, Color, Luminosity) and reads pressed when not Normal, replacing the select at the bottom. Where only solid is supported (strokes, the Tokens panel's picker) the row doesn't render. The Fill field names the paint (Linear, Image) in its own case; only a hex reads in capitals.",
+          "refs": [
+            "templates/design/app/components/design/inspector/DesignColorPicker.tsx#PAINT_TYPES",
+            "templates/design/app/components/design/inspector/DesignColorPicker.tsx#supportedPaintTypes",
+            "templates/design/app/components/design/inspector/DesignColorPicker.tsx#BLEND_MODE_OPTIONS"
+          ],
+          "prototype": "Select the headline and open its Fill: the paint row sits under the header."
+        },
+        {
+          "id": "COLOR-13",
+          "status": "decided",
+          "change": "Gradient (`GradientEditor`): under the paint row, Type (Linear, Radial, Angular, Diamond) and Angle (for Linear and Angular; off for the others) on the value grid's columns (136 · 104), then a 16px stop bar over the checker. Click the bar to add a stop with the selected stop's color, drag a stop to move it (knobs travel inside the bar, like the sliders), and ⌫ removes the selected stop while two remain. The selected stop is edited with the same square, sliders, and fields as a solid. A new gradient runs from the solid's color to the same color at 0% opacity. On text it paints through `background-clip: text`. CSS has no diamond gradient, so Diamond is written as four corner-to-center linear gradients, one per quadrant.",
+          "refs": [
+            "templates/design/app/components/design/inspector/GradientEditor.tsx#Gradient stops",
+            "templates/design/app/components/design/inspector/DesignColorPicker.tsx#DesignGradientType"
+          ],
+          "prototype": "In the headline's Fill, choose Gradient, click the middle of the stop bar, type FF0000, then try Type › Diamond."
+        },
+        {
+          "id": "COLOR-14",
+          "status": "decided",
+          "change": "Image (`ImageFillControls`): the square, sliders, values, and document colors give way to a 248 × 160 preview, Choose image… (an image file panel), and Fit (Fill, Fit, Crop, Tile) on the same two columns. Choosing Image with no image opens the file panel straight away.",
+          "refs": [
+            "templates/design/app/components/design/inspector/ImageFillControls.tsx#FIT_MODES"
+          ],
+          "prototype": "In a Fill, choose Image: the file panel opens; pick an image, then change Fit."
         }
       ]
     }

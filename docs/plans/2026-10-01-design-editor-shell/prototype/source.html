@@ -567,7 +567,9 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .fillrow .fillfield { gap: 0; padding-right: 0; }
 .fillrow .fill-main { flex: 1; min-width: 0; height: 22px; display: flex; align-items: center; gap: 6px; text-align: left; }
 .fillrow .fill-main .tok-chip { margin-right: auto; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fillrow .inp .hex { flex: 1; text-align: left; text-transform: uppercase; font-size: 11px; }
+.fillrow .inp .hex { flex: 1; min-width: 0; text-align: left; text-transform: uppercase; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Only a hex reads in capitals; a gradient's type, Image, or a CSS color keeps its own case. */
+.fillrow .inp .hex.name { text-transform: none; }
 .fillrow .inp .pct { color: var(--muted-fg); font-size: 11px; padding-right: 8px; }
 .wide-btn { height: 24px; border-radius: 6px; background: var(--muted); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11px; font-weight: 500; width: 100%; }
 .wide-btn:hover { background: var(--border); }
@@ -761,7 +763,29 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); }
 .cpk-head .tabs { display: flex; gap: 4px; margin-left: -8px; }
 .cpk-head .acts { display: flex; align-items: center; gap: 4px; }
-.cpk-contrast { font-size: 11px; line-height: 1; font-weight: 600; }
+/* Paint row: the paint types on the left, Blend and Contrast on the right. 24px buttons at 8px, so glyphs line up on the 12px column. */
+.cpk-types { height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; border-bottom: 1px solid var(--border); }
+.cpk-types .grp { display: flex; gap: 4px; }
+.cpk-types .icon-btn { width: 24px; height: 24px; }
+/* Gradient: Type and Angle on the value grid's columns (136 · 104), then the stop bar; the selected stop is edited below. */
+.cpk-grad, .cpk-image { padding: 12px 12px 0; display: grid; grid-template-columns: 136px 104px; gap: 8px; }
+.cpk-grad .inp, .cpk-image .inp, .cpk-image .btn { height: 24px; }
+.cpk-image .btn { font-size: 11px; border-radius: 6px; justify-content: center; }
+.cpk-gangle input:disabled { color: var(--muted-fg); }
+.cpk-stops { grid-column: 1 / -1; position: relative; height: 16px; border-radius: 8px; cursor: copy; touch-action: none; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%); background-image: var(--cpk-fill), repeating-conic-gradient(#ddd 0 25%, #fff 0 50%); background-size: auto, 8px 8px; }
+.cpk-stop { position: absolute; top: 50%; width: 16px; height: 16px; translate: -50% -50%; border-radius: 50%; border: 2px solid #fff; background: var(--c); box-shadow: 0 0 0 1px rgb(0 0 0 / 22%), 0 1px 3px rgb(0 0 0 / 25%); cursor: grab; }
+.cpk-stop[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--accent), 0 1px 3px rgb(0 0 0 / 25%); z-index: 1; }
+.cpk-img { grid-column: 1 / -1; height: 160px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%); background-color: var(--hover); }
+.cpk-img.empty { background-image: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%); background-size: 8px 8px; }
+.cpk[data-paint="image"] :is(.cpk-sv, .cpk-ctl, .cpk-val, .cpk-doc) { display: none; }
+.cpk[data-paint="image"] .cpk-image { padding-bottom: 12px; }
+.cpk:not([data-paint="gradient"]) .cpk-grad, .cpk:not([data-paint="image"]) .cpk-image, .cpk:not(.contrast-on) .cpk-cbar { display: none; }
+/* Contrast mode: the ratio chip (Figma's) and the level it reaches; the square gets the line where it's met. */
+.cpk-cbar { padding: 12px 12px 0; display: flex; align-items: center; justify-content: space-between; }
+.cpk-chip { height: 24px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent); font: 500 11px/16px var(--font); font-variant-numeric: tabular-nums; }
+.cpk-level { display: inline-flex; align-items: center; gap: 4px; padding-right: 4px; font-weight: 600; }
+.cpk-level.fail { color: var(--warning); }
+.cpk-cov { position: absolute; left: 12px; top: 12px; width: 248px; height: 248px; border-radius: 4px; pointer-events: none; }
 .cpk .icon-btn { width: 24px; height: 24px; padding: 0; border-radius: 6px; }
 .cpk .icon-btn:hover { background: var(--hover); }
 .cpk-head .tabs button { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted-fg); }
@@ -1775,7 +1799,7 @@ function renderInspector() {
       <div class="g5">${field("Line height", inp(ic("line-height", "s12"), p.lh))}${field("Letter spacing", inp(ic("letter-spacing", "s12"), p.ls), "c3")}</div>
       <div class="g5">${field("Align", segc(["align-left", "align-center", "align-right"], 1))}${field("&nbsp;", segc(["layout-align-top", "layout-align-middle", "layout-align-bottom"], 0), "c3")}<div class="c5" style="align-self:end">${act("adjustments-horizontal", "More type options")}</div></div>`) : ""}
     ${sec("fill", "Fill", act("layout-grid", "Styles") + act("plus", "Add fill"), `
-      <div class="fillrow"><div class="inp fillfield"><button class="fill-main" data-fill aria-haspopup="dialog" title="Edit fill"><span class="swatch" style="background:${fillSwatch(p)}"></span>${p.fillToken ? `<span class="tok-chip">${fillLabel(p)}</span>` : `<span class="hex">${fillLabel(p)}</span>`}<span class="pct">100%</span></button><button class="post" data-fill-menu aria-haspopup="menu" title="Color tokens">${ic("chevron-down", "s12")}</button></div>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
+      <div class="fillrow"><div class="inp fillfield"><button class="fill-main" data-fill aria-haspopup="dialog" title="Edit fill"><span class="swatch" style="background:${fillSwatch(p)}"></span>${p.fillToken ? `<span class="tok-chip">${fillLabel(p)}</span>` : `<span class="hex${/^[0-9A-F]{6}$/i.test(fillLabel(p)) ? "" : " name"}">${fillLabel(p)}</span>`}<span class="pct">100%</span></button><button class="post" data-fill-menu aria-haspopup="menu" title="Color tokens">${ic("chevron-down", "s12")}</button></div>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
     ${sec("stroke", "Stroke", act("layout-grid", "Styles") + act("plus", "Add stroke"), "", { empty: true })}
     ${sec("effects", "Effects", act("layout-grid", "Styles") + act("plus", "Add effect"), "", { empty: true })}
     ${responsiveSection(id)}
@@ -2157,9 +2181,27 @@ const CPK_CHANNELS = {
   p3: [["R", "Red", 0.004, 0, 1], ["G", "Green", 0.004, 0, 1], ["B", "Blue", 0.004, 0, 1]],
   oklch: [["L", "Lightness", 0.5, 0, 100], ["C", "Chroma", 0.002, 0, 0.4], ["H", "Hue", 1, 0, 360]],
 };
-function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = null, onPickToken = null, current = null, canCreate = false, contrast = null }) {
+// Paint types the inspector's fill takes (DesignColorPicker PAINT_TYPES). The four gradients are one tab with a Type
+// select, as color Mode is one select; None goes, since the Fill row's − removes a fill.
+const PAINT_TABS = [["solid", "Solid", "paint-solid"], ["gradient", "Gradient", "paint-gradient"], ["image", "Image", "photo"], ["shader", "Shader", "droplet"]];
+const GRADIENT_KINDS = [["linear", "Linear"], ["radial", "Radial"], ["angular", "Angular"], ["diamond", "Diamond"]];
+const IMAGE_FITS = [["fill", "Fill"], ["fit", "Fit"], ["crop", "Crop"], ["tile", "Tile"]];
+// BLEND_MODE_OPTIONS, grouped as Figma's blend menu is: darken, lighten, contrast, inversion, then component modes.
+const BLEND_MODES = [["normal", "Normal"], "-", ["darken", "Darken"], ["multiply", "Multiply"], ["color-burn", "Color burn"], "-", ["lighten", "Lighten"], ["screen", "Screen"], ["color-dodge", "Color dodge"], "-",
+  ["overlay", "Overlay"], ["soft-light", "Soft light"], ["hard-light", "Hard light"], "-", ["difference", "Difference"], ["exclusion", "Exclusion"], "-", ["hue", "Hue"], ["saturation", "Saturation"], ["color", "Color"], ["luminosity", "Luminosity"]];
+const stopsCss = g => g.stops.slice().sort((a, b) => a.pos - b.pos).map(st => `${st.color} ${Math.round(st.pos)}%`).join(", ");
+// CSS has no diamond gradient, so it's four corner-to-center linear gradients, one per quadrant.
+const gradientCss = g => g.kind === "linear" ? `linear-gradient(${g.angle}deg, ${stopsCss(g)})` : g.kind === "radial" ? `radial-gradient(circle, ${stopsCss(g)})`
+  : g.kind === "angular" ? `conic-gradient(from ${g.angle}deg, ${stopsCss(g)})`
+  : ["top left", "top right", "bottom left", "bottom right"].map(c => `linear-gradient(to ${c}, ${stopsCss(g)}) ${c} / 50% 50% no-repeat`).join(", ");
+const imageCss = im => `url(${im.url}) ${im.fit === "tile" ? "top left / auto repeat" : `center / ${im.fit === "fit" ? "contain" : "cover"} no-repeat`}`;
+const isPaintCss = v => /gradient\(|url\(/.test(String(v));
+function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = null, onPickToken = null, current = null, canCreate = false, contrast = null, paint: fillPaint = null }) {
   document.querySelector(".cpk")?._close();
-  const start = parseColor(value) || { lin: [0, 0, 0], a: 1, mode: "hex" };
+  // A gradient edits its selected stop with the same square, sliders, and fields; an image hides them.
+  const P = fillPaint; if (P) { P.type ||= "solid"; P.blend ||= "normal"; }
+  const G = () => P.gradient ||= { kind: "linear", angle: 90, stops: [{ pos: 0, color: css(1) }, { pos: 100, color: formatColor(C.lin, 0, C.mode, C.okHue) }], sel: 0 };
+  const start = parseColor(P?.type === "gradient" ? P.gradient.stops[P.gradient.sel].color : value) || { lin: [0, 0, 0], a: 1, mode: "hex" };
   // In OKLCH the authored L, C, and H are written verbatim (a palette keeps C 0.1234 on every hue). They hold only while
   // C.lin is the color they produced: any other edit assigns a new C.lin, so stale authored values can't leak out.
   const C = { lin: start.lin, a: start.a, mode: start.mode, hue: 0, okHue: start.hue ?? 0, auth: start.auth || null, authLin: start.auth ? start.lin : null };
@@ -2170,9 +2212,14 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const docs = [...new Set(TOKENS.filter(t => t.type === "color" && parseColor(t.value)).map(t => t.value.toLowerCase()))].slice(0, 16);
   const libs = libraries || [];
   const pop = document.createElement("div"); pop.className = "cpk"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Color");
-  pop.innerHTML = `${libraries ? `<div class="cpk-head"><span class="tabs" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></span><span class="acts">${contrast ? `<button class="icon-btn cpk-contrast" aria-haspopup="menu" aria-label="Contrast">Aa</button>` : ""}${canCreate ? `<button class="icon-btn cpk-create" title="Create a color token from this color">${ic("plus")}</button>` : ""}</span></div>` : ""}
+  pop.innerHTML = `${libraries ? `<div class="cpk-head"><span class="tabs" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></span><span class="acts">${canCreate ? `<button class="icon-btn cpk-create" title="Create a color token from this color">${ic("plus")}</button>` : ""}</span></div>` : ""}
     <div class="cpk-panes">
       <div class="cpk-pane" data-cpk-pane="custom">
+        ${P ? `<div class="cpk-types"><span class="grp" role="group" aria-label="Paint type">${PAINT_TABS.map(([k, t, icon]) => `<button class="icon-btn" data-cpk-type="${k}" aria-pressed="false" title="${t}" aria-label="${t}">${ic(icon)}</button>`).join("")}</span>
+          <span class="grp"><button class="icon-btn cpk-blend" aria-haspopup="menu" aria-expanded="false" aria-label="Blend">${ic("blend-mode")}</button>${contrast ? `<button class="icon-btn cpk-cmode" aria-pressed="false" title="Contrast" aria-label="Contrast">${ic("contrast")}</button>` : ""}</span></div>
+        <div class="cpk-grad"><button class="inp sel cpk-gkind" aria-haspopup="menu" aria-expanded="false" title="Gradient type"></button><label class="inp cpk-gangle" title="Angle"><span class="pre">${ic("angle", "s12")}</span><input aria-label="Angle" inputmode="numeric"></label><div class="cpk-stops" role="group" aria-label="Gradient stops" title="Click to add a stop"></div></div>
+        <div class="cpk-image"><div class="cpk-img" aria-label="Image"></div><button class="btn secondary cpk-ichoose">Choose image…</button><button class="inp sel cpk-fit" aria-haspopup="menu" aria-expanded="false" title="Fit"></button></div>` : ""}
+        ${contrast ? `<div class="cpk-cbar"><button class="cpk-chip" aria-haspopup="menu" aria-expanded="false">${ic("contrast", "s14")}<span class="r"></span></button><span class="cpk-level"></span></div>` : ""}
         <div class="cpk-sv" role="slider" aria-label="Saturation and brightness"></div>
         <div class="cpk-ctl"><button class="cpk-eye" ${canEye ? "" : "disabled"} title="${canEye ? "Pick a color from the screen" : "This browser can't pick colors from the screen"}" aria-label="Pick a color from the screen">${ic("eyedropper")}</button>
           <div class="cpk-track cpk-hue" role="slider" aria-label="Hue" title="Hue"><span class="cpk-knob"></span></div>
@@ -2186,9 +2233,12 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   document.body.append(pop);
   // Placed after the first paint (below), once its full height is known: level with the anchor, kept on screen,
   // and scrolling inside itself when the window is shorter than the picker.
+  // Re-placed when the paint type or contrast mode changes its height. The inspector re-renders on every edit, so by
+  // then the anchor may be gone: the picker keeps its column and only moves up as far as it must to stay on screen.
   const place = () => {
-    const host = (anchor.closest("#tokens, #insp") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
     pop.style.maxHeight = innerHeight - 16 + "px"; pop.style.overflowY = pop.scrollHeight > innerHeight - 16 ? "auto" : "";
+    if (!anchor.isConnected) { pop.style.top = Math.max(8, Math.min(pop.offsetTop, innerHeight - pop.offsetHeight - 8)) + "px"; return; }
+    const host = (anchor.closest("#tokens, #insp") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
     pop.style.left = (anchor.closest("#insp") ? Math.max(8, host.left - 8 - pop.offsetWidth) : Math.min(innerWidth - pop.offsetWidth - 8, host.right + 8)) + "px";
     pop.style.top = Math.max(8, Math.min(ar.top, innerHeight - pop.offsetHeight - 8)) + "px";
   };
@@ -2258,12 +2308,34 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     hideTip();
     const r = ratioFor(C.lin), [aa, aaa] = need();
     // Each fix shows its level's status on the right and is off once that level passes.
-    openMenu(q(".cpk-contrast"), [
+    openMenu(q(".cpk-chip"), [
       { t: "Fix for AA", k: r >= aa ? "Passes" : `Needs ${aa}:1`, disabled: r >= aa, run: () => fixContrast(aa) },
       { t: "Fix for AAA", k: r >= aaa ? "Passes" : `Needs ${aaa}:1`, disabled: r >= aaa, run: () => fixContrast(aaa) },
       "-",
       { t: "Ask Agent to fix contrast", run: () => { close(false); askAgentContrast({ ratio: r, aa, bg: contrast.bg, large: contrast.large }); } },
-    ], { align: "right" });
+    ]);
+  };
+  // Contrast mode draws the line where the color meets the target on this background and dots the side that misses it,
+  // as Figma does. It's for solid text fills: a gradient or an image has no single ratio.
+  const contrastOn = () => !!(contrast && S.cpkContrast && (!P || P.type === "solid"));
+  let coverFor = null;
+  const drawContrast = () => {
+    const sv = q(".cpk-sv"); let cv = sv.querySelector(".cpk-cov");
+    if (!contrastOn()) { cv?.remove(); coverFor = null; return; }
+    const key = `${wide()}|${C.hue.toFixed(1)}|${C.a}`; if (cv && coverFor === key) return; coverFor = key;
+    if (!cv) { sv.insertAdjacentHTML("beforeend", `<canvas class="cpk-cov" width="${SQ * 2}" height="${SQ * 2}" aria-hidden="true"></canvas>`); cv = sv.querySelector(".cpk-cov"); }
+    const ctx = cv.getContext("2d"), aa = need()[0], h = C.hue, cols = 63, rows = 125;
+    ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.clearRect(0, 0, SQ, SQ);
+    const pass = (s, v) => ratioFor(fromHsv(s, v, h)) >= aa;
+    const grid = Array.from({ length: cols }, (_, i) => Array.from({ length: rows }, (_, j) => pass(i / (cols - 1), 1 - j / (rows - 1))));
+    ctx.fillStyle = "rgba(255,255,255,.55)";
+    for (let y = 3; y < SQ; y += 6) for (let x = 3; x < SQ; x += 6) if (!grid[Math.round(x / SQ * (cols - 1))][Math.round(y / SQ * (rows - 1))]) { ctx.beginPath(); ctx.arc(x, y, 0.9, 0, 7); ctx.fill(); }
+    // Each place a column changes from pass to fail is a point on the line; the k-th change in each column joins up.
+    const cuts = grid.map(col => col.map((p, j) => j && p !== col[j - 1] ? j : -1).filter(j => j > 0));
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 2;
+    for (let k = 0; k < Math.max(0, ...cuts.map(c => c.length)); k++) { ctx.beginPath(); let on = false;
+      cuts.forEach((c, i) => { if (c[k] === undefined) { on = false; return; } const x = i / (cols - 1) * SQ, y = (c[k] - 0.5) / (rows - 1) * SQ; on ? ctx.lineTo(x, y) : ctx.moveTo(x, y); on = true; }); ctx.stroke(); }
+    ctx.shadowBlur = 0;
   };
   // Fix moves OKLCH lightness, keeping hue and chroma, to the passing value nearest the current one.
   const fixContrast = aa => {
@@ -2301,7 +2373,27 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const at = t => `calc(8px + (100% - 16px) * ${t})`;
   const hueAt = h => C.mode === "oklch" ? `oklch(75% 0.18 ${h})` : wide() ? `color(display-p3 ${(c => [c.r, c.g, c.b].map(v => r3(v / 255)).join(" "))(hsvToRgb({ h, s: 1, v: 1 }))})` : `hsl(${h} 100% 50%)`;
   const hueBg = () => inset(Array.from({ length: 13 }, (_, n) => hueAt(n * 30)));
+  const stopAt = t => `calc(8px + (100% - 16px) * ${t / 100})`;
+  const paintRows = () => {
+    if (!P) return;
+    pop.dataset.paint = P.type; pop.classList.toggle("contrast-on", contrastOn());
+    pop.querySelectorAll("[data-cpk-type]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkType === P.type));
+    const bl = q(".cpk-blend"), bname = BLEND_MODES.find(x => x[0] === P.blend)[1]; bl.title = `Blend · ${bname}`; bl.setAttribute("aria-pressed", P.blend !== "normal");
+    q(".cpk-cmode")?.setAttribute("aria-pressed", !!S.cpkContrast);
+    if (P.type === "gradient") {
+      const g = G(); q(".cpk-gkind").innerHTML = `<span class="v">${GRADIENT_KINDS.find(k => k[0] === g.kind)[1]}</span>${ic("chevron-down", "s12")}`;
+      const ang = q(".cpk-gangle input"), turns = g.kind === "linear" || g.kind === "angular"; ang.disabled = !turns; if (document.activeElement !== ang) ang.value = turns ? `${g.angle}°` : "";
+      q(".cpk-stops").style.setProperty("--cpk-fill", `linear-gradient(to right, ${stopsCss(g)})`);
+      q(".cpk-stops").innerHTML = g.stops.map((st, i) => `<button class="cpk-stop" data-stop="${i}" aria-pressed="${i === g.sel}" aria-label="Stop at ${Math.round(st.pos)}%" title="${st.color} · ${Math.round(st.pos)}%" style="left:${stopAt(st.pos)};--c:${st.color}"></button>`).join("");
+    }
+    if (P.type === "image") {
+      const im = P.image ||= { url: null, fit: "fill" };
+      q(".cpk-img").style.background = im.url ? imageCss(im) : ""; q(".cpk-img").classList.toggle("empty", !im.url);
+      q(".cpk-fit").innerHTML = `<span class="v">${IMAGE_FITS.find(f => f[0] === im.fit)[1]}</span>${ic("chevron-down", "s12")}`;
+    }
+  };
   const paint = (fields = true) => {
+    paintRows();
     const c = hsv();
     drawSquare();
     const sq = q(".cpk-sv .cpk-knob"); Object.assign(sq.style, { left: 12 + c.s * SQ + "px", top: 12 + (1 - c.v) * SQ + "px" }); sq.style.setProperty("--knob", css(1));
@@ -2310,7 +2402,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     const ak = q(".cpk-alpha .cpk-knob"); ak.style.left = at(C.a); ak.style.setProperty("--cpk-fill", `linear-gradient(${css()}, ${css()})`);
     q(".cpk-alpha").style.setProperty("--cpk-fill", inset(["transparent", css(1)]));
     q(".cpk-new").style.setProperty("--cpk-fill", `linear-gradient(${css()}, ${css()})`);
-    q(".cpk-prev").style.setProperty("--cpk-fill", `linear-gradient(${before}, ${before})`);
+    q(".cpk-prev").style.setProperty("--cpk-fill", isPaintCss(before) ? before : `linear-gradient(${before}, ${before})`);
     q(".cpk-mode").innerHTML = `<span class="v">${CPK_MODES.find(m => m[0] === C.mode)[1]}</span>${ic("chevron-down", "s12")}`;
     if (document.activeElement !== q(".cpk-a")) q(".cpk-a").value = Math.round(C.a * 100) + "%";
     if (fields) {
@@ -2321,12 +2413,49 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
         + `<button class="icon-btn cpk-copy" aria-label="Copy color"></button>`;
     }
     const cp = q(".cpk-copy"); if (cp) { cp.title = `Copy ${css()}`; cp.innerHTML = ic("copy"); }
-    const cb = q(".cpk-contrast"); if (cb) cb.title = `Contrast ${(Math.floor(ratioFor(C.lin) * 10) / 10).toFixed(1)}:1 on ${contrast.bg.toUpperCase()}`;
+    // The chip gives the ratio (rounded down, so it never overstates); its tooltip names the pair it's measured on.
+    if (contrastOn()) {
+      const r = ratioFor(C.lin), [aa, aaa] = need(), fgHex = formatColor(C.lin, 1, "hex").slice(1).toUpperCase();
+      q(".cpk-chip .r").textContent = `${(Math.floor(r * 100) / 100).toFixed(2)} : 1`;
+      q(".cpk-chip").title = `Foreground ${fgHex} · Background ${contrast.bg.replace("#", "").toUpperCase()}`;
+      const lvl = q(".cpk-level"), ok = r >= aaa ? "AAA" : r >= aa ? "AA" : null;
+      lvl.classList.toggle("fail", !ok); lvl.innerHTML = ok ? `${ic("check", "s14")}${ok}` : `${ic("alert-triangle", "s14")}AA`;
+      lvl.title = ok ? `Passes ${ok} for ${contrast.large ? "large" : "body"} text` : `Needs ${aa}:1 for AA`;
+    }
+    drawContrast();
     if (tip) tip.innerHTML = newTipHTML();
     const now = css().toLowerCase();
     pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
   };
-  const update = (fields = true) => { paint(fields); onInput(css()); };
+  // What the fill becomes: the color, the gradient with this stop's new color, or the image.
+  const out = () => !P || P.type === "solid" ? css() : P.type === "gradient" ? (G().stops[G().sel].color = css(), gradientCss(G())) : P.image?.url ? imageCss(P.image) : null;
+  const emit = () => { const v = out(); if (v !== null) onInput(v); };
+  const update = (fields = true) => { paint(fields); emit(); };
+  const loadStop = i => { const g = G(); g.sel = i; const pc = parseColor(g.stops[i].color); if (pc) Object.assign(C, { lin: pc.lin, a: pc.a }); };
+  const setType = k => {
+    if (k === "shader") return toast("Shader opens the shader panel (GlslShaderPanel)");
+    if (k === P.type) return;
+    if (P.type === "gradient" && k === "solid") C.a = 1;
+    P.type = k; if (k === "gradient") { G(); loadStop(G().sel); }
+    if (k === "image" && !P.image?.url) { paint(); place(); return chooseImage(); }
+    update(); place();
+  };
+  const chooseImage = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+    inp.onchange = () => { const f = inp.files[0]; if (!f) return; (P.image ||= { fit: "fill" }).url = URL.createObjectURL(f); update(); }; inp.click(); };
+  // Stops: click the bar to add one with the selected stop's color, drag one to move it, ⌫ removes the selected one.
+  pop.addEventListener("pointerdown", e => {
+    const bar = e.target.closest(".cpk-stops"); if (!bar) return;
+    const g = G(), r = bar.getBoundingClientRect(), posAt = ev => Math.round(clamp01((ev.clientX - r.left - 8) / (r.width - 16)) * 100);
+    let i = e.target.closest("[data-stop]") ? +e.target.closest("[data-stop]").dataset.stop : -1;
+    if (i < 0) { g.stops.push({ pos: posAt(e), color: css() }); i = g.stops.length - 1; }
+    loadStop(i); update(); e.preventDefault(); bar.setPointerCapture(e.pointerId);
+    bar.onpointermove = ev => { g.stops[i].pos = posAt(ev); update(false); }; bar.onpointerup = () => { bar.onpointermove = null; bar.querySelector(`[data-stop="${i}"]`)?.focus(); };
+  });
+  pop.addEventListener("keydown", e => {
+    if (!e.target.matches?.(".cpk-stop") || !["Backspace", "Delete"].includes(e.key)) return;
+    const g = G(); if (g.stops.length <= 2) return toast("A gradient needs two stops");
+    e.preventDefault(); g.stops.splice(+e.target.dataset.stop, 1); loadStop(Math.min(g.sel, g.stops.length - 1)); update();
+  });
   const drag = (el, fn) => el.addEventListener("pointerdown", e => {
     if (e.target.closest("input")) return;
     e.preventDefault();
@@ -2338,6 +2467,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   // Hue holds what the mode holds: HSB keeps saturation and brightness; OKLCH keeps lightness and the chroma you set,
   // so every hue reads equally light and the square's knob moves to wherever that color sits.
   const along = (ev, r) => clamp01((ev.clientX - r.left - 8) / (r.width - 16));
+  // Scrubbing and dragging write through emit(), so a gradient stop changes with them.
   drag(q(".cpk-hue"), (ev, r) => {
     const h = Math.min(359.9, along(ev, r) * 360);
     if (C.mode === "oklch") { const [L, Ch] = exact(); setAuthored(L, Ch, +h.toFixed(1)); return; }
@@ -2355,12 +2485,13 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
       v[i] = +(max === 360 && i !== 1 ? ((raw % 360) + 360) % 360 : Math.min(max, Math.max(min, raw))).toFixed(dec);
       write(v); paint(false);
       const ins = pop.querySelectorAll(".cpk-fields input"); read().forEach((x, k) => { if (ins[k]) ins[k].value = x; });
-      onInput(css());
+      emit();
     };
     pre.setPointerCapture(e.pointerId); pre.onpointermove = move; pre.onpointerup = () => { pre.onpointermove = null; };
   });
   pop.addEventListener("change", e => {
     if (e.target.matches(".cpk-a")) { const n = parseFloat(e.target.value); if (!isNaN(n)) C.a = clamp01(n / 100); return update(); }
+    if (e.target.closest(".cpk-gangle")) { const n = parseFloat(e.target.value); if (!isNaN(n)) G().angle = ((Math.round(n) % 360) + 360) % 360; return update(); }
     if (!e.target.closest(".cpk-fields")) return;
    
     // Any CSS color pasted into any field is read as the color, then shown in the current mode.
@@ -2374,7 +2505,13 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   pop.addEventListener("click", e => {
     const tab = e.target.closest("[data-cpk-tab]"); if (tab) return setTab(tab.dataset.cpkTab);
     if (e.target.closest(".cpk-copy")) return copyText(css(), `Copied ${css()}`);
-    if (e.target.closest(".cpk-contrast")) return contrastMenu();
+    if (e.target.closest(".cpk-chip")) return contrastMenu();
+    const ty = e.target.closest("[data-cpk-type]"); if (ty) return setType(ty.dataset.cpkType);
+    if (e.target.closest(".cpk-cmode")) { S.cpkContrast = !S.cpkContrast; paint(); return place(); }
+    const bl = e.target.closest(".cpk-blend"); if (bl) return openMenu(bl, BLEND_MODES.map(x => x === "-" ? x : { t: x[1], radio: true, on: P.blend === x[0], run: () => { P.blend = x[0]; paint(); emit(); } }), { align: "right" });
+    const gk = e.target.closest(".cpk-gkind"); if (gk) return openMenu(gk, GRADIENT_KINDS.map(([k, t]) => ({ t, radio: true, on: G().kind === k, run: () => { G().kind = k; update(); } })));
+    const fit = e.target.closest(".cpk-fit"); if (fit) return openMenu(fit, IMAGE_FITS.map(([k, t]) => ({ t, radio: true, on: P.image.fit === k, run: () => { P.image.fit = k; update(); } })));
+    if (e.target.closest(".cpk-ichoose")) return chooseImage();
     if (e.target.closest(".cpk-create")) return startCreate();
     const tok = e.target.closest("[data-cpk-token]"); if (tok) { onPickToken?.(libs.find(t => t.cssVar === tok.dataset.cpkToken)); return close(false); }
     if (e.target.closest(".cpk-prev")) { const p = parseColor(before); if (p) { Object.assign(C, { lin: p.lin, a: p.a, mode: p.mode, okHue: p.hue ?? C.okHue }); if (p.auth) { C.auth = p.auth; C.authLin = p.lin; } } return update(); }
@@ -3253,8 +3390,10 @@ const tokenConflict = t => { const e = Object.entries(t.sourceValues || {}); ret
 const fillCss = p => p.fillToken ? `var(${p.fillToken})` : parseHex(p.fill) && !String(p.fill).startsWith("#") ? "#" + p.fill : p.fill;
 // Token variables live on the page, not in the inspector, so the inspector's swatch shows the token's own value.
 const fillSwatch = p => p.fillToken ? (TOKENS.find(t => t.cssVar === p.fillToken)?.value || "transparent") : fillCss(p);
-const fillLabel = p => p.fillToken ? (TOKENS.find(t => t.cssVar === p.fillToken)?.name || p.fillToken) : /^[0-9a-f]{6}$/i.test(p.fill) ? p.fill.toUpperCase() : p.fill;
-function applyFills() { Object.entries(PROPS).forEach(([id, p]) => { if (!p.fillEdited) return; const el = document.querySelector(`.page [data-node="${id}"]`); if (el) el.style.color = fillCss(p); }); }
+const fillLabel = p => p.fillToken ? (TOKENS.find(t => t.cssVar === p.fillToken)?.name || p.fillToken) : p.paint?.type === "gradient" && isPaintCss(p.fill) ? GRADIENT_KINDS.find(k => k[0] === p.paint.gradient.kind)[1] : p.paint?.type === "image" && isPaintCss(p.fill) ? "Image" : /^[0-9a-f]{6}$/i.test(p.fill) ? p.fill.toUpperCase() : p.fill;
+// A gradient or image on text paints the glyphs through background-clip, as the editor writes it.
+function applyFills() { Object.entries(PROPS).forEach(([id, p]) => { if (!p.fillEdited) return; const el = document.querySelector(`.page [data-node="${id}"]`); if (!el) return; const v = fillCss(p), pt = isPaintCss(v);
+  Object.assign(el.style, { color: pt ? "transparent" : v, background: pt ? v : "", backgroundClip: pt ? "text" : "", webkitBackgroundClip: pt ? "text" : "" }); }); }
 // Hands contrast to the agent with the context it needs; it can fix this text and the same pairing elsewhere.
 function askAgentContrast({ ratio, aa, bg, large }) {
   const node = FLAT[S.selected]?.name || "this text", title = `Fix contrast · ${selectionLabel()}`;
@@ -3272,14 +3411,14 @@ function textContrastContext(id) {
   return { bg: bg || "#ffffff", large: px >= 24 || (bold && px >= 18.66) };
 }
 function pickFill(btn) {
-  const p = PROPS[S.selected], before = { fill: p.fill, fillToken: p.fillToken, fillEdited: p.fillEdited };
+  const p = PROPS[S.selected], before = { fill: p.fill, fillToken: p.fillToken, fillEdited: p.fillEdited, paint: structuredClone(p.paint || null) };
   // The label switches between hex and token chip, so re-render the inspector rather than patch one span.
   const sync = () => { applyFills(); renderInspector(); };
   colorPicker(btn, p.fillToken ? TOKENS.find(t => t.cssVar === p.fillToken)?.value : fillCss(p), {
-    libraries: TOKENS.filter(t => t.type === "color"), current: p.fillToken, canCreate: S.labsTokens, contrast: p.text ? textContrastContext(S.selected) : null,
+    libraries: TOKENS.filter(t => t.type === "color"), current: p.fillToken, canCreate: S.labsTokens, contrast: p.text ? textContrastContext(S.selected) : null, paint: p.paint ||= { type: "solid" },
     onInput: v => { p.fill = /^#[0-9a-f]{6}$/i.test(v) ? v.slice(1) : v; p.fillToken = null; p.fillEdited = true; sync(); },
     onPickToken: (t, created) => { p.fillToken = t.cssVar; p.fillEdited = true; sync(); toast(created ? `Created ${t.name} and applied it` : `Fill uses ${t.name}`); },
-    onClose: cancelled => { if (cancelled) { Object.assign(p, before); sync(); if (!p.fillEdited) { const el = document.querySelector(`.page [data-node="${S.selected}"]`); if (el) el.style.color = ""; } } },
+    onClose: cancelled => { if (cancelled) { Object.assign(p, before); sync(); if (!p.fillEdited) { const el = document.querySelector(`.page [data-node="${S.selected}"]`); if (el) Object.assign(el.style, { color: "", background: "", backgroundClip: "", webkitBackgroundClip: "" }); } } },
   });
 }
 // The Fill field's ▾: the design's color tokens to apply or swap to, and Detach token first while one is bound,
