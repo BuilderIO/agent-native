@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   zoomMeetingFilterFromConfig,
+  zoomMeetingFilterKey,
   zoomMeetingMatchesFilter,
   type ZoomMeeting,
 } from "./zoom.js";
@@ -51,5 +52,18 @@ describe("Zoom meeting filter", () => {
       zoomMeetingMatchesFilter(meeting(2, "Marketing Standup"), filter),
     ).toBe(true);
     expect(zoomMeetingMatchesFilter(meeting(2, "Other"), filter)).toBe(false);
+  });
+
+  it("builds the same filter key regardless of entry order or spacing", () => {
+    const a = zoomMeetingFilterFromConfig({
+      meetingIds: ["123 4567 8901", "222222222"],
+      meetingTopics: ["B", "a"],
+    });
+    const b = zoomMeetingFilterFromConfig({
+      meetingIds: ["222222222", "12345678901"],
+      meetingTopics: ["A", " b "],
+    });
+    expect(zoomMeetingFilterKey(a)).toBe(zoomMeetingFilterKey(b));
+    expect(zoomMeetingFilterKey(null)).toBeNull();
   });
 });

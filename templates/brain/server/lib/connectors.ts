@@ -40,6 +40,7 @@ import {
   normalizeZoomRecording,
   zoomExternalId,
   zoomMeetingFilterFromConfig,
+  zoomMeetingFilterKey,
   zoomMeetingMatchesFilter,
 } from "./zoom.js";
 
@@ -200,6 +201,7 @@ interface GranolaSyncCursor {
 
 interface ZoomSyncCursor {
   from?: string;
+  filterKey?: string | null;
   retry?: RetryCursor;
   transientRetryAt?: string;
   lastRunAt?: string;
@@ -3110,13 +3112,15 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const dayMs = 24 * 60 * 60 * 1000;
   const to = utcDate(runStartedAt);
   const earliest = utcDate(runStartedAt - ZOOM_MAX_LOOKBACK_DAYS * dayMs);
+  const meetingFilter = zoomMeetingFilterFromConfig(objectValue(config.zoom));
+  const filterKey = zoomMeetingFilterKey(meetingFilter);
+  // A changed filter can include meetings the cursor has already moved past.
+  const filterChanged = (cursor.filterKey ?? null) !== filterKey;
   const requestedFrom =
-    cursor.from && ZOOM_DATE.test(cursor.from)
+    !filterChanged && cursor.from && ZOOM_DATE.test(cursor.from)
       ? cursor.from
       : utcDate(runStartedAt - lookbackDays * dayMs);
   const from = requestedFrom < earliest ? earliest : requestedFrom;
-
-  const meetingFilter = zoomMeetingFilterFromConfig(objectValue(config.zoom));
 
   const captures = [];
   const stats: Record<string, unknown> = {
@@ -3125,6 +3129,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     recordingListsScanned: 0,
     meetingsSeen: 0,
     meetingsSkippedByFilter: 0,
+    filterChanged,
     transcriptsDownloaded: 0,
     emptyTranscripts: 0,
     alreadyImported: 0,
@@ -3239,6 +3244,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         pendingMeetingStarts,
         earliest,
       }),
+      filterKey,
       retry: undefined,
       lastRunAt: nowIso(),
     };

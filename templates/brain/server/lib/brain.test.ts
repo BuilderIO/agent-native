@@ -4355,6 +4355,47 @@ describe("Brain connector smoke coverage", () => {
     ]);
   });
 
+  it("rewinds the Zoom window when the meeting filter changes", async () => {
+    const listFromDates: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/test-token/recordings") {
+          listFromDates.push(url.searchParams.get("from") ?? "");
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const dayMs = 24 * 60 * 60 * 1000;
+    const yesterday = new Date(Date.now() - dayMs).toISOString().slice(0, 10);
+    const lookbackStart = new Date(Date.now() - 10 * dayMs)
+      .toISOString()
+      .slice(0, 10);
+    const source = seedSource({
+      id: "zoom-filter-change-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { lookbackDays: 10, meetingTopics: ["Marketing Standup"] },
+      }),
+      cursorJson: JSON.stringify({ from: yesterday }),
+    });
+
+    const first = await runConnectorSync(source as never);
+    const savedCursor = JSON.parse(String(source.cursorJson));
+    source.cursorJson = JSON.stringify({ ...savedCursor, from: yesterday });
+    const second = await runConnectorSync(source as never);
+
+    expect(first).toMatchObject({ stats: { filterChanged: true } });
+    expect(second).toMatchObject({ stats: { filterChanged: false } });
+    expect(savedCursor.filterKey).toContain("marketing standup");
+    expect(listFromDates).toEqual([lookbackStart, yesterday]);
+  });
+
   it("dedupes account-wide Zoom recordings across query chunks", async () => {
     const meetings = Array.from({ length: 1_001 }, (_, index) => ({
       uuid: `meeting-${index}`,

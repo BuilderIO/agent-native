@@ -330,6 +330,16 @@ export function zoomMeetingFilterFromConfig(
   return filter.meetingIds.size || filter.meetingTopics.size ? filter : null;
 }
 
+export function zoomMeetingFilterKey(
+  filter: ZoomMeetingFilter | null,
+): string | null {
+  if (!filter) return null;
+  return JSON.stringify({
+    meetingIds: [...filter.meetingIds].sort(),
+    meetingTopics: [...filter.meetingTopics].sort(),
+  });
+}
+
 export function zoomMeetingMatchesFilter(
   meeting: Pick<ZoomMeeting, "id" | "topic">,
   filter: ZoomMeetingFilter | null,
