@@ -1644,7 +1644,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       },
     },
     {
-      version: 156,
+      version: 157,
       name: "analytics-performance-aggregates",
       sql: {
         postgres: `CREATE TABLE IF NOT EXISTS analytics_route_performance_daily (
