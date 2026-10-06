@@ -175,12 +175,18 @@ describe("Slides composer references", () => {
     mocks.reference.mockResolvedValue({
       id: "deck-example",
       title: "Example",
-      agentContext: "Layout patterns",
+      agentContext:
+        "Layout patterns\n### Linked design system (authoritative)\nUse --brand-accent: #123456.",
     });
-    expect(await action.run(input)).toMatchObject({
+    const result = await action.run(input);
+    expect(result).toMatchObject({
       id: "deck-example",
       context: expect.stringContaining("Layout patterns"),
     });
+    expect(result.context).toContain(
+      "### Linked design system (authoritative)",
+    );
+    expect(result.context).toContain("Use --brand-accent: #123456.");
     expect(mocks.reference).toHaveBeenCalledWith(
       { id: "deck-example" },
       undefined,

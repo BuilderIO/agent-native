@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
+import {
+  formatAgentDesignSystemContext,
+  loadAgentDesignSystemContext,
+  type AgentDesignSystemContext,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -44,12 +48,14 @@ export function buildReferenceDeckContext({
   title,
   aspectRatio,
   designSystemId,
+  designSystem,
   slides,
 }: {
   id: string;
   title: string;
   aspectRatio: string | null;
   designSystemId: string | null;
+  designSystem?: AgentDesignSystemContext | null;
   slides: ReferenceSlide[];
 }): string {
   const lines: string[] = [
@@ -71,6 +77,14 @@ export function buildReferenceDeckContext({
       ? `Linked design system id: ${designSystemId}`
       : "No design system linked to the reference deck.",
   ];
+
+  if (designSystemId) {
+    lines.push(
+      "",
+      "The linked design system controls tokens and slide defaults; these deck samples control composition and markup. Follow both when authoring.",
+      ...formatAgentDesignSystemContext(designSystem ?? null),
+    );
+  }
 
   const patterns = pickLayoutPatterns(slides);
   if (patterns.length > 0) {
@@ -101,7 +115,7 @@ export function buildReferenceDeckContext({
 export default defineAction({
   description:
     "Get an existing deck's visual language as a reusable pattern library so a new deck can be written in the same style. " +
-    "Returns one worked HTML example per layout as `agentContext`, deliberately without the deck's slide order — the new deck's structure comes from its own content. " +
+    "Returns linked design-system guidance when present and one worked HTML example per layout as `agentContext`, deliberately without the deck's slide order — the new deck's structure comes from its own content. " +
     "Use `get-deck` with compact=false when you need full slide content instead.",
   schema: z.object({
     id: z.string().describe("Deck ID to use as the reference"),
@@ -143,6 +157,7 @@ export default defineAction({
         title,
         aspectRatio: data?.aspectRatio ?? null,
         designSystemId,
+        designSystem,
         slides,
       }),
     };

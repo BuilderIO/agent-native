@@ -355,10 +355,13 @@ describe("startDeckGeneration", () => {
     );
   });
 
-  it("lets a selected reference deck control styling without a design system", async () => {
+  it("passes linked design-system guidance from a selected reference deck", async () => {
     mockCallAction.mockImplementation(async (name: string) =>
       name === "get-deck-reference-context"
-        ? { agentContext: "REFERENCE_STYLE_CONTEXT" }
+        ? {
+            agentContext:
+              "REFERENCE_STYLE_CONTEXT\n### Linked design system (authoritative)\nUse --brand-accent: #123456.",
+          }
         : undefined,
     );
     const deck = {
@@ -390,6 +393,8 @@ describe("startDeckGeneration", () => {
 
     const context = agentSubmit.mock.calls[0]?.[1] as string;
     expect(context).toContain("REFERENCE_STYLE_CONTEXT");
+    expect(context).toContain("### Linked design system (authoritative)");
+    expect(context).toContain("Use --brand-accent: #123456.");
     expect(context).toContain("Follow its measured visual language");
     expect(context).not.toContain("Before generating a bare or on-brand deck");
     expect(context).not.toContain("use a light warm-neutral canvas");

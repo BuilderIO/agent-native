@@ -102,5 +102,12 @@ describe("get-deck-reference-context action", () => {
       status: "available",
       id: "ds-in-data",
     });
+    expect(result.agentContext).toContain(
+      "### Linked design system (authoritative)",
+    );
+    expect(result.agentContext).toContain("Use --brand-accent: #123456.");
+    expect(result.agentContext).toContain(
+      'Call get-design-system { id: "ds-in-data" } once before the first slide',
+    );
   });
 });
