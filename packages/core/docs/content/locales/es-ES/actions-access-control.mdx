@@ -290,19 +290,19 @@ export default defineAction({
 - **idFrom**: el campo de entrada que contiene el id del recurso. Una ruta con puntos como `"target.formId"` lee un campo anidado. Si el valor falta o no es una cadena no vacía, la llamada se deniega.
 - **level**: el rol mínimo que necesita el invocador, uno de `"viewer"`, `"commenter"`, `"editor"`, `"admin"` o `"owner"`. Por defecto es `"viewer"`.
 
-Igual que `authorize`, la comprobación envuelve al propio `run()`, así que la UI, los invocadores HTTP, el agente dentro de la app, los clientes MCP, los invocadores A2A y la CLI pasan todos la misma comprobación antes de que se ejecute el cuerpo. Resuelve el rol del invocador igual que `assertAccess()`, así que cuentan la propiedad, los permisos compartidos y la visibilidad. Un invocador por debajo de `level` recibe un 403 como `Requires editor access to form <id>.` Un recurso que no existe recibe el mismo 403, de modo que el rechazo no revela si el id es real.
+Igual que `authorize`, la comprobación envuelve al propio `run()`, así que la UI, los invocadores HTTP, el agente dentro de la app, los clientes MCP, los invocadores A2A y la CLI pasan todos la misma comprobación antes de que se ejecute el cuerpo. Resuelve el rol del invocador igual que `assertAccess()`, así que cuentan la propiedad, las concesiones de acceso compartido y la visibilidad. Un invocador por debajo de `level` recibe un 403 como `Requires editor access to form <id>.` Un recurso que no existe recibe el mismo 403, de modo que el rechazo no revela si el id es real.
 
-Usa `access` cuando un campo de entrada nombra el único recurso que toca la acción. Usa `assertAccess()` dentro de `run()` cuando el id viene de otro lugar, como una fila que cargas primero, o cuando una sola llamada toca varios recursos. Las consultas de lista no tienen un único id que comprobar, así que usan `accessFilter()`. Consulta [Control de acceso en acciones](#access-control) más abajo. La comprobación `resource-action-access` de [doctor](/docs/doctor) acepta tanto un `access` declarado como una llamada a `assertAccess()`.
+Usa `access` cuando un campo de entrada nombra el único recurso que toca la acción. Usa `assertAccess()` dentro de `run()` cuando el id viene de otro lugar, como una fila que cargas primero, o cuando una sola llamada toca varios recursos. Las consultas de lista no tienen un único id que comprobar, así que usan `accessFilter()`. Consulta [Control de acceso en acciones](#access-control) más abajo. La comprobación `resource-action-access` de [doctor](/docs/doctor) acepta un `access` declarado o una llamada a `assertAccess()`.
 
 ### Alcances de organización y de app {#access-scopes}
 
 Los demás campos comprueban la membresía en lugar de un único recurso. Todos los campos que configures deben pasar la comprobación.
 
 - **`scope: "org"`**: el invocador debe ser miembro activo de su organización actual.
-- **`scope: "app"`**: el invocador debe haber iniciado sesión, y el workspace debe haber puesto esta app a su disposición.
+- **`scope: "app"`**: el invocador debe haber iniciado sesión, y el espacio de trabajo debe haber puesto esta app a su disposición.
 - **`permission`**: una clave de permiso del mapa `permissions` de `defineAppRoles()` de esta app. El invocador debe tener un rol de app que la conceda. Primero ejecuta la comprobación de `scope: "app"`.
 
-`scope: "app"` y `permission` leen el registro de apps del workspace, así que son adecuados para apps desplegadas como parte de un workspace. En una app independiente, protege un permiso de app con `authorize` y `requirePermission()` en su lugar, como se muestra en [Roles de app](/docs/organizations-teams-permissions#app-roles-per-app-rbac). Esa guarda también rechaza una clave de permiso no declarada cuando se carga el módulo. `access.permission` solo la deniega en el momento de la petición.
+`scope: "app"` y `permission` leen el registro de apps del espacio de trabajo, así que son adecuados para apps desplegadas como parte de un espacio de trabajo. En una app independiente, protege un permiso de app con `authorize` y `requirePermission()` en su lugar, como se muestra en [Roles de app](/docs/organizations-teams-permissions#app-roles-per-app-rbac). Esa guarda también rechaza una clave de permiso no declarada cuando se carga el módulo. `access.permission` solo la deniega en el momento de la petición.
 
 ## Restringir invocadores por rol {#authorize}
 

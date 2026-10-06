@@ -261,7 +261,7 @@ Mail 模板中的 `send-email` action,是框架里这个门控机制的典范用
 
 ## 要求具备资源访问权限 {#access}
 
-`access` 声明调用者在 action 运行之前必须具备什么。它是定义上的数据,而不是 `run()` 内部的代码。它最常见的形式是指明一个共享资源,以及调用者在该资源上至少需要的角色。Forms 模板的 `update-form` action 用它来保证只有某个表单的编辑者才能修改这个表单:
+`access` 声明调用者在 action 运行之前必须具备什么。它是写在 action 定义里的数据,而不是 `run()` 内部的代码。它最常见的形式是指明一个共享资源,以及调用者在该资源上至少需要的角色。Forms 模板的 `update-form` action 用它来保证只有某个表单的编辑者才能修改这个表单:
 
 ```ts
 // actions/update-form.ts

@@ -262,7 +262,7 @@ Mail 範本的 `send-email` action，是框架中這道關卡的標準用例，�
 
 ## 要求資源的存取權 {#access}
 
-`access` 宣告呼叫者在 action 執行之前必須具備什麼。它是定義上的資料，而不是 `run()` 內部的程式碼。它最常見的形式是指定一個共用資源，以及呼叫者在該資源上至少需要的角色。Forms 範本的 `update-form` action 就用它來確保只有某份表單的編輯者才能變更該表單：
+`access` 宣告呼叫者在 action 執行之前必須具備什麼。它是寫在定義中的資料，而不是 `run()` 內部的程式碼。它最常見的形式是指定一個共用資源，以及呼叫者在該資源上至少需要的角色。Forms 範本的 `update-form` action 就用它來確保只有某份表單的編輯者才能變更該表單：
 
 ```ts
 // actions/update-form.ts
@@ -288,9 +288,9 @@ export default defineAction({
 - **idFrom**：存放該資源 id 的輸入欄位。像 `"target.formId"` 這樣以點分隔的路徑會讀取巢狀欄位。如果該值缺少或不是非空字串，這次呼叫就會被拒絕。
 - **level**：呼叫者至少需要的角色，為 `"viewer"`、`"commenter"`、`"editor"`、`"admin"` 或 `"owner"` 其中之一。預設值是 `"viewer"`。
 
-和 `authorize` 一樣，這項檢查包裝的是 `run()` 本身，因此 UI、HTTP 呼叫者、應用程式內的代理、MCP 用戶端、A2A 呼叫者與 CLI，在函式主體執行之前都會通過同一項檢查。它解析呼叫者角色的方式與 `assertAccess()` 相同，因此擁有權、分享與可見性都會納入計算。角色低於 `level` 的呼叫者會收到 403，例如 `Requires editor access to form <id>.`。不存在的資源也會收到相同的 403，因此這次拒絕不會透露該 id 是否真的存在。
+和 `authorize` 一樣，這項檢查包裝的是 `run()` 本身，因此 UI、HTTP 呼叫者、應用程式內的代理、MCP 用戶端、A2A 呼叫者與 CLI，在函式主體執行之前都會通過同一項檢查。它解析呼叫者角色的方式與 `assertAccess()` 相同，因此所有權、分享與可見性都會納入計算。角色低於 `level` 的呼叫者會收到 403，例如 `Requires editor access to form <id>.`。不存在的資源也會收到相同的 403，因此這次拒絕不會透露該 id 是否真的存在。
 
-當單一輸入欄位就指定了 action 所觸及的那一個資源時，請使用 `access`。當 id 來自其他地方（例如你先載入的某個資料列），或一次呼叫會觸及多個資源時，請在 `run()` 內使用 `assertAccess()`。列表查詢沒有單一 id 可以檢查，因此會使用 `accessFilter()`。請參閱下方的 [Action 中的存取控制](#access-control)。[doctor](/docs/doctor) 的 `resource-action-access` 檢查，宣告的 `access` 或 `assertAccess()` 呼叫兩者皆可接受。
+當單一輸入欄位就指定了 action 所觸及的那一個資源時，請使用 `access`。當 id 來自其他地方（例如你先載入的某個資料列），或一次呼叫會觸及多個資源時，請在 `run()` 內使用 `assertAccess()`。列表查詢沒有單一 id 可以檢查，因此會使用 `accessFilter()`。請參閱下方的 [Action 中的存取控制](#access-control)。宣告的 `access` 或 `assertAccess()` 呼叫，任一種都能通過 [doctor](/docs/doctor) 的 `resource-action-access` 檢查。
 
 ### 組織與應用程式範圍 {#access-scopes}
 
@@ -300,7 +300,7 @@ export default defineAction({
 - **`scope: "app"`**：呼叫者必須已登入，且工作區必須已將這個應用程式開放給他們使用。
 - **`permission`**：此應用程式 `defineAppRoles()` 的 `permissions` 對應中的一個權限鍵。呼叫者必須具備授予該權限的應用程式角色。它會先執行 `scope: "app"` 檢查。
 
-`scope: "app"` 與 `permission` 會讀取工作區的應用程式登錄，因此適合作為工作區一部分部署的應用程式。在獨立的應用程式中，請改用 `authorize` 搭配 `requirePermission()` 來守衛應用程式權限，如[應用程式角色](/docs/organizations-teams-permissions#app-roles-per-app-rbac)所示。該守衛也會在模組載入時就拒絕未宣告的權限鍵，而 `access.permission` 只會在請求時才拒絕它。
+`scope: "app"` 與 `permission` 會讀取工作區的應用程式登錄表，因此適合作為工作區一部分部署的應用程式。在獨立的應用程式中，請改用 `authorize` 搭配 `requirePermission()` 來守衛應用程式權限，如[應用程式角色](/docs/organizations-teams-permissions#app-roles-per-app-rbac)所示。該守衛也會在模組載入時就拒絕未宣告的權限鍵，而 `access.permission` 只會在請求時才拒絕它。
 
 ## 依角色限制呼叫者 {#authorize}
 
@@ -396,7 +396,7 @@ export default defineAction({
 });
 ```
 
-當 id 像這裡的 `id` 一樣直接來自輸入時，宣告的 [`access`](#access) 政策可以從 action 定義執行相同的檢查。
+當 id 像這裡的 `id` 一樣直接來自輸入時，宣告的 [`access`](#access) 政策會從 action 定義執行相同的檢查。
 
 建立用的 action 兩個輔助函式都不需要呼叫。它只需要在插入新資料列時，從請求情境中蓋上 `ownerEmail`（與 `orgId`）即可，因為此時還沒有既有的資料列可供檢查存取權。完整的註冊與建立模式請參閱[分享](/docs/sharing#building)，上方所用的第二個引數 `ctx` 的完整結構請參閱[執行情境](/docs/actions-run-context)。
 

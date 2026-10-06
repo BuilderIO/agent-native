@@ -301,7 +301,7 @@ Os outros campos verificam associação em vez de um único recurso. Todo campo 
 - **`scope: "app"`**: o chamador precisa ter feito login, e o workspace precisa ter disponibilizado este app para ele.
 - **`permission`**: uma chave de permissão do mapa `permissions` do `defineAppRoles()` deste app. O chamador precisa ter uma função do app que a conceda. Ela executa primeiro a verificação de `scope: "app"`.
 
-`scope: "app"` e `permission` leem o registro de apps do workspace, então servem para apps implantados como parte de um workspace. Em um app independente, proteja uma permissão de app com `authorize` e `requirePermission()`, como mostrado em [App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac). Essa guarda também rejeita uma chave de permissão não declarada quando o módulo carrega. `access.permission` só a nega em tempo de requisição.
+`scope: "app"` e `permission` leem o registro de apps do workspace, então servem para apps implantados como parte de um workspace. Em um app independente, proteja uma permissão de app com `authorize` e `requirePermission()` em vez disso, como mostrado em [App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac). Essa guarda também rejeita uma chave de permissão não declarada quando o módulo carrega. `access.permission` só a nega em tempo de requisição.
 
 ## Restringir chamadores por função {#authorize}
 
