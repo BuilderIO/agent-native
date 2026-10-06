@@ -2581,6 +2581,7 @@ const enUS = {
     deploymentProduction: "Production & advanced",
     deployAnApp: "Deploy an app",
     workspaceDeployment: "Workspace Deployment",
+    localProviderBuilds: "Reproduce Your Provider Build Locally",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

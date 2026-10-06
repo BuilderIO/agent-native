@@ -2567,6 +2567,7 @@ const arSA = {
     deploymentProduction: "الإنتاج والمتقدم",
     deployAnApp: "نشر تطبيق",
     workspaceDeployment: "نشر مساحة العمل",
+    localProviderBuilds: "استنساخ بناء المزوّد محليًا",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

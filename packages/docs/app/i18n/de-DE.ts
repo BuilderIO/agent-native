@@ -2621,6 +2621,7 @@ const deDE = {
     deploymentProduction: "Produktion & erweitert",
     deployAnApp: "Eine App bereitstellen",
     workspaceDeployment: "Workspace-Deployment",
+    localProviderBuilds: "Provider-Build lokal reproduzieren",
     deploymentNodeDocker: "Node.js",
     deploymentDocker: "Docker",
     deploymentVercel: "Vercel",

@@ -101,6 +101,7 @@ describe("DocsSidebar", () => {
       "deployment",
       "deploy-an-app",
       "workspace-deployment",
+      "local-provider-builds",
       "deployment-providers",
       "database-providers",
       "deployment-production",

@@ -1,0 +1,200 @@
+---
+title: "Reproduire le build du fournisseur en local"
+description: "Exécutez sur votre propre machine le même build Linux que la commande de build de votre fournisseur Vercel ou Netlify, pour déboguer un déploiement en échec ou l'envoyer via le flux prebuilt du fournisseur."
+---
+
+# Reproduire le build du fournisseur en local
+
+Quand la commande de build d'un déploiement hébergé est `npx @agent-native/core@latest deploy --preset vercel --build-only` (ou `--preset netlify`), le fournisseur exécute exactement cette commande dans son propre conteneur de build Linux. Cette page explique comment exécuter vous-même cette même commande, sur votre propre machine, pour déboguer un build en échec, inspecter les artefacts avant de les publier, ou compiler une fois et envoyer le résultat via le flux prebuilt du fournisseur — `vercel deploy --prebuilt` pour Vercel, `netlify deploy --prod --dir=... --functions=...` pour Netlify.
+
+Sur un Mac Apple Silicon, rien de tout cela n'est un simple `pnpm build`. Les écarts ci-dessous sont concrets, pas théoriques : ils viennent de la compilation en local d'un workspace réel comportant plusieurs applications.
+
+## Faire correspondre l'architecture d'exécution {#match-architecture}
+
+Les Functions Node.js de Vercel se compilent et s'exécutent sur Linux avec une architecture CPU `x64` ; [la documentation de Vercel prévient elle-même](https://vercel.com/docs/build-output-api) qu'« en compilant en local, vos outils de build compileront des dépendances natives ciblant l'architecture de votre machine. Cela ne correspondra pas nécessairement à ce qui s'exécute en production. » Les Functions Netlify reposent elles aussi sur AWS Lambda et s'exécutent sur Linux `x64`. Aucune des deux ne correspond à l'`arm64` d'un Mac Apple Silicon.
+
+Des paquets comme `@resvg/resvg-js`, `sharp` et `ffmpeg-static` livrent des binaires natifs précompilés, choisis selon l'OS/l'architecture/la libc au **moment de l'installation** — `pnpm install` sur votre Mac résout le build `darwin-arm64`, pas le `linux-x64` dont le fournisseur a besoin. Compilez plutôt dans un conteneur correspondant :
+
+```bash
+docker build --platform linux/amd64 -t workspace-build .
+```
+
+Utilisez une image de base basée sur glibc (`node:24-bookworm`, pas une image `-alpine`/musl). L'image de build de Vercel et le runtime Lambda de Netlify sont tous deux basés sur glibc, et les installateurs de modules natifs publient des binaires glibc et musl séparés — un build Alpine résoudrait le mauvais. Faites aussi correspondre la version majeure de Node.js du fournisseur ; les addons natifs sont sensibles à l'ABI d'une version majeure de Node à l'autre, pas seulement à l'OS et à l'architecture.
+
+<Callout tone="warning">
+
+Ne copiez jamais le `node_modules` de votre Mac dans le conteneur. Les binaires qu'il contient ont été résolus pour `darwin-arm64` et, sous Linux, échoueront au chargement ou resteront silencieusement inopérants. Envoyez au conteneur uniquement le **code source** et exécutez `pnpm install` à l'intérieur, afin que la détection de plateforme au moment de l'installation résolve le build `linux-x64`.
+
+</Callout>
+
+## Apple Silicon et Rosetta {#apple-silicon-rosetta}
+
+Docker Desktop sur Apple Silicon exécute les conteneurs `linux/amd64` via la traduction Rosetta 2. En pratique, le coût est modéré, pas prohibitif — environ 1,2x le temps CPU d'un build natif, selon une mesure informelle.
+
+Une interaction précise mérite d'être signalée à part : `tsc` de TypeScript 7 est livré sous forme de binaire Go natif, et la préemption asynchrone des goroutines de Go, basée sur des signaux, peut mal se comporter sous la traduction binaire de Rosetta — le processus tourne alors indéfiniment à 100 % de CPU au lieu de se terminer. Désactivez la préemption asynchrone dans le conteneur de build pour l'éviter :
+
+```dockerfile
+ENV GODEBUG=asyncpreemptoff=1
+```
+
+## Archives sûres de macOS vers Linux {#macos-tar-metadata}
+
+Si vous archivez le code source sous macOS avec `tar` pour l'envoyer dans le conteneur, faites-le de façon défensive. Les fichiers portant des attributs étendus macOS — y compris ceux déposés par des outils de synchronisation comme Dropbox pour les fichiers dont ils suivent les métadonnées ou la provenance — peuvent se retrouver archivés avec des données annexes AppleDouble `._*`. Une fois extrait sous Linux, un fichier annexe `._auth.ts` se trouve juste à côté du vrai `auth.ts` et ressemble à un fichier source ; un bundler qui fait un glob sur `server/plugins/*.ts` essaiera de le charger aussi, et échouera avec quelque chose comme « stream did not contain valid UTF-8 ».
+
+Retirez les métadonnées Mac et les xattrs à l'archivage, et envoyez une liste séparée par NUL des seuls fichiers suivis et non ignorés — pas un parcours brut du répertoire, qui enverrait aussi les caches de build et les fichiers `.env` locaux, ni `$(git ls-files ...)`, qui échoue sur un workspace comportant assez de fichiers pour atteindre la limite de longueur d'arguments de votre shell :
+
+```bash
+git ls-files -z --cached --others --exclude-standard \
+  | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - \
+  | docker exec -i workspace-build tar -xf - -C /workspace
+```
+
+<Callout tone="info">
+
+`COPYFILE_DISABLE` (une variable d'environnement) et `--no-mac-metadata` sont des spécificités du `tar`(1)/`bsdtar` de macOS, sans équivalent sous GNU tar. `--no-xattrs` existe sur les deux, mais c'est bien la gestion `--mac-metadata` de macOS qui transforme les attributs étendus en ces données AppleDouble qui font trébucher un build Linux — définissez les trois du côté macOS qui crée l'archive, pas dans le conteneur Linux qui l'extrait.
+
+</Callout>
+
+## Secrets et migrations {#secrets-and-migrations}
+
+`vercel pull` écrit toute variable d'environnement marquée **Sensitive** avec le littéral `[SENSITIVE]`, pas sa valeur réelle. Le build lui-même n'a pas besoin de secrets d'exécution — le fournisseur injecte les vraies valeurs au moment de la requête —, donc un build local affichant des avertissements de configuration non fatals du type « trop court » ou secret faible est normal, pas un signe de problème.
+
+Si votre build du fournisseur exécute aussi une étape de migration — le scaffold câble le build command propre à `netlify.toml`/`vercel.json` de chaque application pour exécuter `pnpm --filter <app> migrate:production` (voir [Server: Database](/docs/server-database#production)) dès que l'environnement cible est la production —, cette étape a besoin d'une vraie connexion de base de données fonctionnelle, pas d'une valeur masquée par `vercel pull`. Récupérez la vraie chaîne de connexion auprès de votre fournisseur de base de données et passez-la au conteneur comme variable d'environnement pour cette exécution.
+
+<Callout tone="risk">
+
+N'écrivez jamais un vrai secret dans le dépôt, dans une couche d'image ou dans un log de build. Passez-le comme variable d'environnement du conteneur, limitée à la seule commande qui en a besoin.
+
+</Callout>
+
+## Où passe le temps {#where-the-time-goes}
+
+Aujourd'hui, les builds des applications d'un workspace s'exécutent l'un après l'autre ; comptez environ une minute par application de template typique, multipliée par le nombre d'applications.
+
+<Callout tone="info">
+
+Si votre version installée prend en charge un flag `--concurrency <n|auto>` sur `deploy` — vérifiez `npx @agent-native/core@latest --help` pour la liste actuelle des flags —, les builds d'applications peuvent s'exécuter en parallèle plutôt que séquentiellement.
+
+</Callout>
+
+Exécuter `migrate:production` depuis votre propre machine contre une base de données distante paie un aller-retour réseau par application pour la vérification du schéma (environ 13 secondes par application sans rien à appliquer, dans une mesure) — souvent plus que ce que paie le fournisseur, puisque son build s'exécute juste à côté de la base de données. Préférez laisser les migrations dans l'étape de build du fournisseur, ou les exécuter depuis une machine proche de la base de données, plutôt que depuis un portable qui reproduit le build.
+
+## Exemple complet {#worked-example}
+
+Un conteneur et un script minimaux pour compiler en local un déploiement de workspace Vercel ou Netlify et publier le résultat :
+
+<Steps>
+
+### Écrire le conteneur de build
+
+```dockerfile filename="Dockerfile"
+FROM node:24-bookworm
+WORKDIR /workspace
+RUN corepack enable && npm install -g vercel
+ENV GODEBUG=asyncpreemptoff=1
+CMD ["sleep", "infinity"]
+```
+
+### Démarrer le conteneur et y envoyer le code source
+
+```bash
+docker build --platform linux/amd64 -t workspace-build .
+docker run -d --rm --platform linux/amd64 --name workspace-build workspace-build
+
+git ls-files -z --cached --others --exclude-standard \
+  | COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --null -T - -cf - \
+  | docker exec -i workspace-build tar -xf - -C /workspace
+```
+
+### Installer et exécuter la commande de build du fournisseur
+
+Pour Vercel, récupérez avec `pull` les vrais réglages du projet lié et exécutez son Build Command configuré via `vercel build`, exactement comme le fait le build distant de Vercel lui-même. Exportez d'abord `VERCEL_TOKEN`, `VERCEL_ORG_ID` et `VERCEL_PROJECT_ID` (depuis votre compte Vercel et les Project Settings) dans votre shell — cela permet à la CLI de fonctionner sans `vercel link` interactif, et permet au `docker exec -e VAR` nu ci-dessous de transmettre chacun d'eux au conteneur :
+
+<TabsBlock
+  id="doc-block-localbuildtabs1"
+  tabs={[
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-vercel-build",
+          data: {
+            code: 'docker exec -e VERCEL_TOKEN -e VERCEL_ORG_ID -e VERCEL_PROJECT_ID workspace-build sh -c "\n  pnpm install --frozen-lockfile &&\n  vercel pull --yes --environment=preview &&\n  vercel build\n"\nrm -rf .vercel/output\nmkdir -p .vercel\ndocker cp workspace-build:/workspace/.vercel/output .vercel/output\ndocker stop workspace-build',
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-netlify-build",
+          data: {
+            code: 'docker exec workspace-build sh -c "\n  pnpm install --frozen-lockfile &&\n  npx @agent-native/core@latest deploy --preset netlify --build-only\n"\nrm -rf dist .netlify/functions-internal\nmkdir -p .netlify\ndocker cp workspace-build:/workspace/dist dist\ndocker cp workspace-build:/workspace/.netlify/functions-internal .netlify/functions-internal\ndocker stop workspace-build',
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="info">
+
+`docker cp` refuse de créer un répertoire parent manquant, et copie _dans_ un répertoire de destination déjà existant au lieu de le remplacer — la paire `rm -rf` / `mkdir -p` ci-dessus évite qu'une seconde exécution n'imbrique le résultat un niveau plus bas.
+
+</Callout>
+
+### Publier via le flux prebuilt du fournisseur
+
+Restez dans le même environnement que le build ci-dessus — un build preview se publie comme un déploiement preview, un build de production (`--prod`/`--environment=production` sur chaque commande de l'étape précédente) se publie avec `--prod` ici aussi :
+
+<TabsBlock
+  id="doc-block-localbuildtabs2"
+  tabs={[
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-vercel-publish",
+          data: { code: "vercel deploy --prebuilt", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "lb-netlify-publish",
+          data: {
+            code: "netlify deploy --dir=dist --functions=.netlify/functions-internal",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+</Steps>
+
+<Callout tone="info">
+
+Vous ne voulez pas gérer l'authentification de la CLI Vercel dans le conteneur ? Passez `vercel pull`/`vercel build` et exécutez directement `npx @agent-native/core@latest deploy --preset vercel --build-only`, comme dans l'onglet Netlify ci-dessus — il écrit lui-même `.vercel/output` sans projet lié. Vous perdez la fidélité « vrais Project Settings, récupérés exactement comme Vercel les récupère », et le comportement du placeholder `[SENSITIVE]` ci-dessus ne s'applique plus, puisque rien n'est récupéré.
+
+</Callout>
+
+## Et ensuite
+
+- [**Déploiement de workspace**](/docs/workspace-deployment) — la commande `deploy` que cette page reproduit en local
+- [**Vercel**](/docs/vercel) et [**Netlify**](/docs/netlify) — la commande de build du fournisseur et le flux de publication en détail
+- [**Déploiement : Variables d'environnement**](/docs/deployment-environment-variables) — les secrets de production et les variables dont un build local a, ou n'a pas, besoin
