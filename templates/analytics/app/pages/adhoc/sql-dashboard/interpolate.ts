@@ -2,9 +2,31 @@ function escapeSqlValue(value: string): string {
   return value.replace(/'/g, "''");
 }
 
+// GoogleSQL has no doubled-quote escape: 'o''brien' is a syntax error, and an
+// unescaped backslash would swallow the closing quote.
+function escapeGoogleSqlValue(value: string): string {
+  const escapes: Record<string, string> = {
+    "\\": "\\\\",
+    "'": "\\'",
+    '"': '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+    "\b": "\\b",
+    "\f": "\\f",
+  };
+  return value.replace(
+    /[\\'"\x00-\x1f\x7f]/g,
+    (character) =>
+      escapes[character] ??
+      `\\x${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  );
+}
+
 export interface InterpolateOptions {
   failClosedTimeVariables?: boolean;
   customDateRangeSupport?: boolean;
+  googleSqlValues?: boolean;
 }
 
 // ponytail: daily date spines cap custom ranges at roughly ten years; use per-query budgets if wider history becomes a supported need.
@@ -29,6 +51,8 @@ export function interpolateDashboardPanelSql(
       config.timeScope !== "fixed-window" &&
       config.timeScope !== "cohort-history" &&
       config.timeScope !== "all-time",
+    // First-party panels are PostgreSQL SQL that the BigQuery binder re-quotes.
+    googleSqlValues: panel.source === "bigquery",
   });
 }
 
@@ -169,6 +193,8 @@ export function interpolate(
       return "__missing_dashboard_time_filter__";
     }
     if (value == null) return "";
-    return escapeSqlValue(String(value));
+    return options.googleSqlValues
+      ? escapeGoogleSqlValue(String(value))
+      : escapeSqlValue(String(value));
   });
 }

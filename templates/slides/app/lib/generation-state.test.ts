@@ -52,6 +52,23 @@ describe("new deck generation state", () => {
     ).toBe(false);
   });
 
+  it("keeps stale failure metadata from hiding active or question-waiting progress", () => {
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        failureCode: "agent_error",
+        generating: true,
+      }),
+    ).toBe(false);
+    expect(
+      isNewDeckGenerationFailed({
+        ...base,
+        failureCode: "agent_error",
+        waitingOnQuestions: true,
+      }),
+    ).toBe(false);
+  });
+
   it("does not call a reopened, unprompted empty deck a failure", () => {
     expect(isNewDeckGenerationFailed({ ...base, phase: "pending" })).toBe(
       false,

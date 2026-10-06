@@ -1,6 +1,10 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appApiPath } from "@agent-native/core/client/api-path";
-import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import {
@@ -76,12 +80,24 @@ import { cn } from "@/lib/utils";
 
 import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
 import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../../shared/session-events";
+import type { SessionRecordingFriction } from "../../../shared/session-friction";
+import {
+  formatPerformanceValue,
+  rateWebVital,
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+} from "../../../shared/session-performance";
+import {
+  isSlowRequest,
+  isWaitedActionResponse,
+} from "../../../shared/slow-request";
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
   type SessionIssueMatch,
   SessionDevToolsPanel,
 } from "./SessionDevToolsPanel";
+import { SessionFrictionPanel } from "./SessionFriction";
 
 type SessionRecordingSummary = {
   id: string;
@@ -169,6 +185,8 @@ type ReplayMarker = {
 export type ReplayMarkerOptions = {
   /** Show tracked app events and failed actions (Sessions triage Lab). */
   appEvents?: boolean;
+  /** Mark page-view Web Vitals and slow requests (Sessions triage Lab). */
+  performance?: { pageVitals: string; slowRequest: string };
 };
 
 type SkipRange = {
@@ -448,12 +466,21 @@ function ReplayWorkbench({
   response: SessionReplayPlaybackResponse;
   initialSeekMs: number;
 }) {
+  const t = useT();
   const events = useReplayEvents(response);
   const appEvents = useLab(ANALYTICS_SESSIONS_TRIAGE_LAB);
   const [pageChangesCollapsed, setPageChangesCollapsed] = useState(false);
+  const pageVitalsLabel = t("sessions.markerPageVitals");
+  const slowRequestLabel = t("sessions.markerSlowRequest");
   const allMarkers = useMemo(
-    () => buildReplayMarkers(events, { appEvents }),
-    [events, appEvents],
+    () =>
+      buildReplayMarkers(events, {
+        appEvents,
+        performance: appEvents
+          ? { pageVitals: pageVitalsLabel, slowRequest: slowRequestLabel }
+          : undefined,
+      }),
+    [events, appEvents, pageVitalsLabel, slowRequestLabel],
   );
   const markers = useMemo(
     () =>
@@ -490,6 +517,7 @@ function ReplayWorkbench({
         initialSeekMs={initialSeekMs}
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
+        frictionLab={appEvents}
       />
       <ReplayTimeline
         markers={markers}
@@ -516,6 +544,7 @@ function ReplayPlayer({
   initialSeekMs,
   onTimeUpdate,
   registerSeek,
+  frictionLab,
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
@@ -523,6 +552,7 @@ function ReplayPlayer({
   initialSeekMs: number;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
+  frictionLab: boolean;
 }) {
   const t = useT();
   const stageAreaRef = useRef<HTMLDivElement>(null);
@@ -613,6 +643,12 @@ function ReplayPlayer({
     enabled: devToolsOpen && errorSignatures.length > 0,
     staleTime: 60_000,
   });
+  const frictionQuery = useActionQuery<SessionRecordingFriction>(
+    "list-session-friction",
+    { recordingIds: [recordingId] },
+    { enabled: frictionLab && devToolsOpen, staleTime: 30_000 },
+  );
+  const friction = frictionQuery.data?.friction[recordingId];
   const issueMatches = useMemo(() => {
     const map = new Map<string, SessionIssueMatch>();
     const data = issueMatchQuery.data;
@@ -1198,6 +1234,19 @@ function ReplayPlayer({
                 onSeek={(ms) => seek(ms, true)}
                 issueMatches={issueMatches}
                 issueMatching={issueMatchQuery.isFetching}
+                friction={
+                  frictionLab ? (
+                    <SessionFrictionPanel
+                      friction={friction}
+                      failed={
+                        frictionQuery.isError ||
+                        (frictionQuery.data !== undefined && !friction)
+                      }
+                      fetching={frictionQuery.isFetching}
+                      onRetry={() => void frictionQuery.refetch()}
+                    />
+                  ) : undefined
+                }
               />
             ) : null}
 
@@ -2213,6 +2262,17 @@ function customReplayMarker(
     };
   }
 
+  if (tag === SESSION_REPLAY_VITALS_EVENT_TAG) {
+    if (!options.performance) return null;
+    return vitalsReplayMarker(
+      payload,
+      timestamp,
+      offsetMs,
+      index,
+      options.performance.pageVitals,
+    );
+  }
+
   if (tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
     const level = typeof payload.level === "string" ? payload.level : "log";
     if (level !== "error" && level !== "warn") return null;
@@ -2237,17 +2297,50 @@ function customReplayMarker(
     };
   }
 
+  if (tag === SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG) {
+    const durationMs = Number(payload.duration_ms);
+    // Mark exactly what the row's slow-request count counts: the same
+    // action.response timing, under the same rule.
+    if (
+      !options.performance ||
+      !isWaitedActionResponse(payload) ||
+      !isSlowRequest(durationMs)
+    ) {
+      return null;
+    }
+    const action =
+      typeof payload.action === "string" ? payload.action : undefined;
+    const status = Number(payload.status_code);
+    return {
+      id: `slow-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "event",
+      label: options.performance.slowRequest,
+      detail: [action, formatPerformanceValue("request", durationMs)]
+        .filter(Boolean)
+        .join(" · "),
+      severity: "warn",
+      fields: markerFields([
+        ["Action", action],
+        ["Method", payload.method],
+        ["Status", Number.isFinite(status) && status ? status : undefined],
+        ["Duration", formatPerformanceValue("request", durationMs)],
+      ]),
+    };
+  }
+
   if (tag === SESSION_REPLAY_NETWORK_EVENT_TAG) {
     const status = Number(payload.status ?? 0);
+    const method =
+      typeof payload.method === "string" ? payload.method : undefined;
+    const url = typeof payload.url === "string" ? payload.url : undefined;
     if (
       payload.ok !== false &&
       (!Number.isFinite(status) || !isFailedSessionReplayNetworkStatus(status))
     ) {
       return null;
     }
-    const method =
-      typeof payload.method === "string" ? payload.method : undefined;
-    const url = typeof payload.url === "string" ? payload.url : undefined;
     const error = typeof payload.error === "string" ? payload.error : undefined;
     const actionName = options.appEvents ? replayActionName(url) : null;
     if (actionName) {
@@ -2684,6 +2777,52 @@ function pointerDetail(data: AnyRecord): string | undefined {
     return `x ${Math.round(x)}, y ${Math.round(y)}`;
   }
   return undefined;
+}
+
+const VITAL_MARKER_METRICS = [
+  ["lcp", "lcpMs", "LCP"],
+  ["inp", "inpMs", "INP"],
+  ["cls", "cls", "CLS"],
+  ["ttfb", "ttfbMs", "TTFB"],
+] as const;
+
+function vitalsReplayMarker(
+  payload: AnyRecord,
+  timestamp: number,
+  offsetMs: number,
+  index: number,
+  label: string,
+): ReplayMarker | null {
+  const measured = VITAL_MARKER_METRICS.flatMap(([metric, key, name]) => {
+    const value = payload[key];
+    return typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? [{ metric, name, value }]
+      : [];
+  });
+  if (!measured.length) return null;
+  const poor = measured.some(
+    ({ metric, value }) => rateWebVital(metric, value) === "poor",
+  );
+  const summary = measured.map(
+    ({ metric, name, value }) =>
+      `${name} ${formatPerformanceValue(metric, value)}`,
+  );
+  return {
+    id: `vitals-${timestamp}-${index}`,
+    timestamp,
+    offsetMs,
+    kind: "event",
+    label,
+    detail: summary.join(" · "),
+    severity: poor ? "warn" : "info",
+    fields: markerFields([
+      ["Route", typeof payload.route === "string" ? payload.route : undefined],
+      ...measured.map(({ metric, name, value }): [string, unknown] => [
+        name,
+        formatPerformanceValue(metric, value),
+      ]),
+    ]),
+  };
 }
 
 function markerFields(

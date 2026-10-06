@@ -106,6 +106,8 @@ function harness(args: {
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
     renderedElementInfoByLayerKeyRef: { current: renderedElementInfo },
+    revealLayer: () => {},
+    selectedElementRef: { current: null },
     selectedLayerIdsState: args.selectedLayerIds ?? [node.id],
     setActiveFileId: vi.fn(),
     setActiveTool: vi.fn(),

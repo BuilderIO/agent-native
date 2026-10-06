@@ -21,7 +21,7 @@ const workflow = parse(
     e2e?: {
       name?: unknown;
       "timeout-minutes"?: unknown;
-      strategy?: { matrix?: { shard?: unknown } };
+      strategy?: { matrix?: { shard?: unknown; include?: unknown } };
       steps?: Array<{
         id?: unknown;
         name?: unknown;
@@ -72,16 +72,20 @@ const jobTimeout = workflow.jobs?.e2e?.["timeout-minutes"];
 assert.equal(jobTimeout, 55);
 assert.equal(
   workflow.jobs?.e2e?.name,
-  "${{ github.event_name == 'pull_request' && 'Export pixel fidelity' || format('Shard {0}/8', matrix.shard) }}",
+  "${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Export pixel fidelity' || format('Shard {0}/8', matrix.shard) }}",
 );
 assert.equal(
   workflow.jobs?.e2e?.strategy?.matrix?.shard,
   "${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8]') }}",
 );
+assert.deepEqual(workflow.jobs?.e2e?.strategy?.matrix?.include, [
+  { shard: "runtime-budget" },
+]);
 const steps = workflow.jobs?.e2e?.steps ?? [];
 const shardIndex = steps.findIndex((step) => step.name === "Run shard");
 const shardStep = steps.find((step) => step.name === "Run shard");
 assert.equal(shardStep?.id, "run-shard");
+assert.equal(shardStep?.if, "matrix.shard != 'runtime-budget'");
 assert.equal(
   shardStep?.run,
   [
@@ -114,8 +118,30 @@ assert.equal(
 );
 assert.equal(
   reportStep?.if,
-  "${{ !cancelled() && steps.run-shard.outcome != 'success' }}",
+  "${{ !cancelled() && matrix.shard != 'runtime-budget' && steps.run-shard.outcome != 'success' }}",
 );
 assert.equal(reportStep?.with?.path, "templates/design/test-results");
 assert.equal(reportStep?.with?.["retention-days"], 7);
 assert.equal(reportStep?.with?.["if-no-files-found"], "warn");
+
+const budgetBuild = steps.find(
+  (step) => step.name === "Build Design for production",
+);
+const budgetMeasure = steps.find(
+  (step) => step.name === "Measure the runtime budget",
+);
+for (const step of [budgetBuild, budgetMeasure]) {
+  assert.equal(step?.if, "matrix.shard == 'runtime-budget'");
+}
+assert.equal(budgetBuild?.run, "pnpm build");
+assert.ok(
+  typeof budgetMeasure?.run === "string" &&
+    budgetMeasure.run.includes("pnpm perf:runtime-budget"),
+);
+const budgetTimeout =
+  Number(budgetBuild?.["timeout-minutes"]) +
+  Number(budgetMeasure?.["timeout-minutes"]);
+assert.ok(
+  typeof jobTimeout === "number" && jobTimeout - budgetTimeout >= 10,
+  "leave at least 10 minutes for setup and upload after the runtime budget steps",
+);

@@ -474,6 +474,12 @@ function readOpenAiBridge(): OpenAiAppBridge | null {
     : null;
 }
 
+export function isOpenAiMcpAppHost(): boolean {
+  return (
+    isInChildFrame() && isMcpAppBridgeEnabled() && readOpenAiBridge() !== null
+  );
+}
+
 function objectValue(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }

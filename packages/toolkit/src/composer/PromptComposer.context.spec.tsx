@@ -1511,6 +1511,49 @@ describe("controlled composer context", () => {
     expect(container.textContent).not.toContain("Submitted reference");
   });
 
+  it("deduplicates a same-content follow-up after a rejected submission", async () => {
+    let rejectSubmit!: (error: Error) => void;
+    const submission = new Promise<void>((_resolve, reject) => {
+      rejectSubmit = reject;
+    });
+    let resolveSubmissionSettled!: () => void;
+    const submissionSettled = new Promise<void>((resolve) => {
+      resolveSubmissionSettled = resolve;
+    });
+    let submissionStarted = false;
+    let currentFiles: File[] = [];
+    const { onSubmit } = await mount({
+      onAttachmentsChange: (files) => {
+        currentFiles = files;
+      },
+      onSubmissionPendingChange: (pending) => {
+        if (!pending && submissionStarted) resolveSubmissionSettled();
+      },
+    });
+    onSubmit.mockImplementation(() => {
+      submissionStarted = true;
+      return submission;
+    });
+    const originalFile = await attachFile();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    });
+
+    await attachFile();
+    rejectSubmit(new Error("send failed"));
+    await act(async () => {
+      await submission.catch(() => undefined);
+      await submissionSettled;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(currentFiles).toEqual([originalFile]);
+  });
+
   it.each(["click", "enter"])(
     "allows %s steering past a nonremovable failed persisted source",
     async (method) => {

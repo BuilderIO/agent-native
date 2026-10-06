@@ -20,6 +20,7 @@ describe("embedApp", () => {
         : resource.csp;
 
     expect(html).toContain("create_embed_session");
+    expect(html).toContain('frame.allow = "clipboard-read; clipboard-write";');
     expect(html).toContain("app.callServerTool");
     expect(html).toContain("app.updateModelContext");
     expect(html).toContain("app.sendMessage");
@@ -423,8 +424,11 @@ describe("embedApp", () => {
         ? await resource.csp(context)
         : resource.csp;
 
-    expect(html).toContain("const remoteBridgeFallbackEnabled = false");
-    expect(html).toContain("if (!remoteBridgeFallbackEnabled) throw nativeErr");
+    expect(html).not.toContain("startMcpAppsBridge");
+    expect(html).not.toContain("https://esm.sh");
+    expect(html).not.toContain(
+      'frame.allow = "clipboard-read; clipboard-write";',
+    );
     expect(html.endsWith("</body>\n</html>")).toBe(true);
     expect(csp?.connectDomains).not.toContain("https://esm.sh");
     expect(csp?.resourceDomains).not.toContain("https://esm.sh");
