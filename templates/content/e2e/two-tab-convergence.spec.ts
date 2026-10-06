@@ -151,41 +151,37 @@ async function alternate(s: Scenario) {
 }
 
 test.describe("two tabs editing one page at beta cadence", () => {
-  test(
-    "both tabs fall back to the 12 s poll when the stream answers 204",
-    KNOWN_LOSS,
-    async ({ context }, testInfo) => {
-      await runScenario("poll-cadence", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s, 0);
-        await s.tabs.showAll();
-        await delay(5_000);
-        const windowStart = Date.now();
-        await delay(30_000);
-        for (const page of [first, second]) {
-          const polls = s.tabs
-            .record(page)
-            .collabPollTimes.filter((at) => at >= windowStart).length;
-          s.notes[`collabPolls30s${s.tabs.record(page).label}`] = polls;
-          // 12 s polling makes two or three requests in 30 s; the 2 s
-          // fallback would make fifteen.
-          expect(polls, "collaboration polls in 30 s").toBeGreaterThanOrEqual(
-            1,
-          );
-          expect(polls, "collaboration polls in 30 s").toBeLessThanOrEqual(4);
-        }
-        await typeAtParagraphEnd(
-          first,
-          "Alpha paragraph",
-          ` ${s.markers.next("A")}`,
-        );
-        await typeAtParagraphEnd(
-          second,
-          "Charlie paragraph",
-          ` ${s.markers.next("B")}`,
-        );
-      });
-    },
-  );
+  test("both tabs fall back to the 12 s poll when the stream answers 204", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("poll-cadence", testInfo, context, async (s) => {
+      const { first, second } = await openPair(s, 0);
+      await s.tabs.showAll();
+      await delay(5_000);
+      const windowStart = Date.now();
+      await delay(30_000);
+      for (const page of [first, second]) {
+        const polls = s.tabs
+          .record(page)
+          .collabPollTimes.filter((at) => at >= windowStart).length;
+        s.notes[`collabPolls30s${s.tabs.record(page).label}`] = polls;
+        // 12 s polling makes two or three requests in 30 s; the 2 s
+        // fallback would make fifteen.
+        expect(polls, "collaboration polls in 30 s").toBeGreaterThanOrEqual(1);
+        expect(polls, "collaboration polls in 30 s").toBeLessThanOrEqual(4);
+      }
+      await typeAtParagraphEnd(
+        first,
+        "Alpha paragraph",
+        ` ${s.markers.next("A")}`,
+      );
+      await typeAtParagraphEnd(
+        second,
+        "Charlie paragraph",
+        ` ${s.markers.next("B")}`,
+      );
+    });
+  });
 
   test("a save landing in one tab keeps the other tab's newer unsaved edit", async ({
     context,
@@ -339,31 +335,29 @@ test.describe("two tabs editing one page at beta cadence", () => {
     },
   );
 
-  test(
-    "simultaneous edits in different paragraphs keep both tabs' text",
-    KNOWN_LOSS,
-    async ({ context }, testInfo) => {
-      await runScenario("simultaneous", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s);
-        await s.tabs.showAll();
-        for (let cycle = 1; cycle <= 4; cycle++) {
-          await Promise.all([
-            typeAtParagraphEnd(
-              first,
-              "Alpha paragraph",
-              ` ${s.markers.next("A")}`,
-            ),
-            typeAtParagraphEnd(
-              second,
-              "Charlie paragraph",
-              ` ${s.markers.next("B")}`,
-            ),
-          ]);
-          await first.waitForTimeout(400);
-        }
-      });
-    },
-  );
+  test("simultaneous edits in different paragraphs keep both tabs' text", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("simultaneous", testInfo, context, async (s) => {
+      const { first, second } = await openPair(s);
+      await s.tabs.showAll();
+      for (let cycle = 1; cycle <= 4; cycle++) {
+        await Promise.all([
+          typeAtParagraphEnd(
+            first,
+            "Alpha paragraph",
+            ` ${s.markers.next("A")}`,
+          ),
+          typeAtParagraphEnd(
+            second,
+            "Charlie paragraph",
+            ` ${s.markers.next("B")}`,
+          ),
+        ]);
+        await first.waitForTimeout(400);
+      }
+    });
+  });
 
   test("typing across the 500 ms autosave pause keeps every word", async ({
     context,
@@ -414,26 +408,24 @@ test.describe("two tabs editing one page at beta cadence", () => {
     });
   });
 
-  test(
-    "switching away and back ten times while typing keeps every word",
-    KNOWN_LOSS,
-    async ({ context }, testInfo) => {
-      await runScenario("switch-back-cycles", testInfo, context, async (s) => {
-        const { first, second } = await openPair(s);
-        for (let cycle = 1; cycle <= 10; cycle++) {
-          await s.tabs.showOnly(first);
-          await typeAtParagraphEnd(
-            first,
-            "Alpha paragraph",
-            ` ${s.markers.next("A")}`,
-          );
-          await s.tabs.showOnly(second);
-          await second.waitForTimeout(300);
-        }
+  test("switching away and back ten times while typing keeps every word", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("switch-back-cycles", testInfo, context, async (s) => {
+      const { first, second } = await openPair(s);
+      for (let cycle = 1; cycle <= 10; cycle++) {
         await s.tabs.showOnly(first);
-      });
-    },
-  );
+        await typeAtParagraphEnd(
+          first,
+          "Alpha paragraph",
+          ` ${s.markers.next("A")}`,
+        );
+        await s.tabs.showOnly(second);
+        await second.waitForTimeout(300);
+      }
+      await s.tabs.showOnly(first);
+    });
+  });
 
   test("an agent edit between two open tabs keeps every author's text", async ({
     context,
