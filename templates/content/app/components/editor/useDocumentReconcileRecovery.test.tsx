@@ -161,6 +161,40 @@ describe("document reconcile recovery", () => {
     expect(recovery.state).toBeNull();
   });
 
+  it("retries against a newer page handed over while a refused save is retained", async () => {
+    const retention = deferred();
+    const retain = vi.fn(() => retention.promise.then(() => undefined));
+    const save = vi.fn(async () => false);
+    draft = "first merge";
+    mount(save, undefined, retain, false);
+    const newerBase = { ...base, content: "edited by a peer", revision: "r2" };
+
+    let first!: Promise<boolean>;
+    await act(async () => {
+      first = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+    });
+    expect(retain).toHaveBeenCalledTimes(1);
+    save.mockImplementation(async () => true);
+    act(() => {
+      draft = "second merge";
+      void recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        newerBase,
+      );
+    });
+
+    await act(async () => retention.resolve(true));
+    expect(await first).toBe(true);
+    expect(save).toHaveBeenLastCalledWith(
+      { localDraft: "second merge", localTitle: "" },
+      newerBase,
+    );
+    expect(recovery.state).toBeNull();
+  });
+
   it("publishes recovery only after an automatic merge cannot be saved", async () => {
     draft = "latest merged draft";
     mount(async () => false, undefined, undefined, false);

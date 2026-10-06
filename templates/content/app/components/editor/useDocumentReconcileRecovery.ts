@@ -191,12 +191,26 @@ export function useDocumentReconcileRecovery({
       let saveBase: ReconcileSaveBase | undefined = base;
       let draft = initialDraft;
       let attempts = 0;
+      let refused = false;
       try {
-        while (
-          generation.current === started &&
-          !current.current &&
-          attempts < 3
-        ) {
+        while (generation.current === started && !current.current) {
+          if (run.newerBase) {
+            // A refusal can come from the page a newer merge handed over,
+            // which the editor already holds, so that page gets the next
+            // attempt.
+            draft = latestDraft();
+            saveBase = run.newerBase;
+            run.newerBase = null;
+            attempts = 0;
+          } else if (refused || attempts === 3) {
+            await retainLatest();
+            // A newer merge can hand its page over while the draft is retained.
+            if (run.newerBase) continue;
+            if (generation.current === started && !current.current) {
+              publish({ reason: "conflict", ...latestDraft(), saving: false });
+            }
+            return false;
+          }
           attempts += 1;
           const identity = callbacks.current.getSaveIdentity();
           const persisted = await callbacks.current.save(draft, saveBase);
@@ -204,28 +218,13 @@ export function useDocumentReconcileRecovery({
             await retainLatest();
             return false;
           }
-          // A refusal can come from the page a newer merge handed over, which
-          // the editor already holds, so that page gets the next attempt.
-          if (!persisted && !run.newerBase) {
-            await retainLatest();
-            publish({
-              reason: "conflict",
-              ...latestDraft(),
-              saving: false,
-            });
-            return false;
-          }
           if (persisted && callbacks.current.getSaveIdentity() === identity)
             return true;
+          refused = !persisted;
           draft = latestDraft();
-          saveBase = run.newerBase ?? undefined;
-          if (run.newerBase) attempts = 0;
-          run.newerBase = null;
+          saveBase = undefined;
         }
         await retainLatest();
-        if (generation.current === started && !current.current) {
-          publish({ reason: "conflict", ...latestDraft(), saving: false });
-        }
         return false;
       } catch {
         if (generation.current === started && !current.current) {
