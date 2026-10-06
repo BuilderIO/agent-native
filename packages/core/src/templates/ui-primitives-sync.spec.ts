@@ -56,7 +56,6 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "design",
     "line-variant tabs with underline active state for Design home filters",
   ],
-
   [
     "tabs.tsx",
     "slides",
@@ -106,12 +105,12 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
   [
     "design",
     "tabs.tsx",
-    "uses line-variant tabs with an underline for Design home filters",
+    "uses the shadcn line variant with an underline active state for Design home filters and library tabs",
   ],
   [
     "slides",
     "tabs.tsx",
-    "uses line-variant tabs with an underline for Slides home filters",
+    "uses the shadcn line variant with an underline active state for Slides home filters and library tabs",
   ],
   ["design", "tabs.tsx", "uses line-variant tabs in the Design home library"],
   ["slides", "tabs.tsx", "uses line-variant tabs in the Slides home library"],

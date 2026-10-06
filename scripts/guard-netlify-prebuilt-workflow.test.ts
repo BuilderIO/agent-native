@@ -2633,11 +2633,13 @@ describe("production Netlify site concurrency guard", () => {
     );
     const restore = jobs["restore-netlify-builds"];
     assert.deepEqual(restore?.needs, [
+      "verify-stable-release",
       "pause-netlify-builds",
       "migrate",
       "deploy",
     ]);
     assert.match(String(restore?.if), /always\(\)/);
+    assert.match(String(restore?.if), /!cancelled\(\)/);
     assert.equal(
       (restore?.concurrency as Workflow)?.group,
       "agent-native-production-site-fw",

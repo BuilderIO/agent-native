@@ -18,6 +18,9 @@ const desktopWorkflow = parse(
 const clipsWorkflow = parse(
   readFileSync(".github/workflows/clips-desktop-release.yml", "utf8"),
 ) as Workflow;
+const docsWorkflow = parse(
+  readFileSync(".github/workflows/deploy-docs-production.yml", "utf8"),
+) as Workflow;
 const trigger = workflow.on as Workflow;
 const schedules = trigger.schedule as Workflow[];
 const dispatch = trigger.workflow_dispatch as Workflow;
@@ -49,6 +52,7 @@ describe("release everything workflow", () => {
     });
     assert.deepEqual(workflow.permissions, {
       actions: "write",
+      checks: "read",
       contents: "write",
       "pull-requests": "read",
     });
@@ -112,6 +116,7 @@ describe("release everything workflow", () => {
     assert.match(source, /desktop-release\.yml/);
     assert.match(source, /clips-desktop-release\.yml/);
     assert.match(source, /deploy-production-sites-prebuilt\.yml/);
+    assert.match(source, /deploy-docs-production\.yml/);
     assert.match(source, /channel: "production"/);
     assert.match(
       source,
@@ -132,6 +137,165 @@ describe("release everything workflow", () => {
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
     assert.match(source, /Promise\.allSettled/);
+  });
+
+  it("uses the docs publisher for www instead of the app-site fleet", () => {
+    const source = String((coordinator.with as Workflow).script);
+    const docsDispatch = (docsWorkflow.on as Workflow)
+      .workflow_dispatch as Workflow;
+    const docsInputs = docsDispatch.inputs as Workflow;
+    const docsJobs = docsWorkflow.jobs as Workflow;
+    const verifyStableRelease = docsJobs["verify-stable-release"] as Workflow;
+    const pauseDocsBuilds = docsJobs["pause-netlify-builds"] as Workflow;
+    const restoreDocsBuilds = docsJobs["restore-netlify-builds"] as Workflow;
+    const verifyStep = (verifyStableRelease.steps as Workflow[])[0];
+    const verifySource = String((verifyStep.with as Workflow).script);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+
+    assert.match(source, /const docsSite = sitesManifest\.fw/);
+    assert.match(source, /docsSite\?\.host !== "www\.agent-native\.com"/);
+    assert.match(source, /name !== "fw"/);
+    assert.match(
+      source,
+      /dispatch\("deploy-docs-production\.yml", siteWorkflowRef/,
+    );
+    assert.match(
+      source,
+      /waitForRun\(docs, "Agent-Native docs production site", 120 \* 60_000\)/,
+    );
+    assert.match(
+      source,
+      /\["Docs site", `\$\{outcomes\[3\]\}: \$\{docsSite\.host\}`\]/,
+    );
+    assert.deepEqual(docsWorkflow.permissions, {
+      contents: "read",
+      "pull-requests": "read",
+    });
+    assert.match(
+      String(verifyStableRelease.if),
+      /github\.event_name == 'push'.*contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+    );
+    assert.deepEqual(verifyStableRelease.permissions, {
+      contents: "read",
+      "pull-requests": "read",
+    });
+    assert.doesNotThrow(() => new AsyncFunction(verifySource));
+    assert.match(
+      verifySource,
+      /context\.actor !== "builder-io-integration\[bot\]"/,
+    );
+    assert.match(verifySource, /commits\/\{commit_sha\}\/pulls/);
+    assert.match(verifySource, /pullRequest\.base\?\.ref === "main"/);
+    assert.match(
+      verifySource,
+      /pullRequest\.head\?\.ref === "changeset-release\/main"/,
+    );
+    assert.match(
+      verifySource,
+      /pullRequest\.merge_commit_sha === context\.sha/,
+    );
+    assert.match(
+      verifySource,
+      /pullRequest\.title\.includes\("\[stable-release\]"\)/,
+    );
+    assert.match(String(pauseDocsBuilds.needs), /verify-stable-release/);
+    assert.match(
+      String(pauseDocsBuilds.if),
+      /!cancelled\(\).*needs\.verify-stable-release\.outputs\.verified != 'true'/,
+    );
+    assert.match(
+      String(restoreDocsBuilds.if),
+      /!cancelled\(\).*needs\.verify-stable-release\.outputs\.verified != 'true'/,
+    );
+    assert.doesNotMatch(
+      String(pauseDocsBuilds.if),
+      /needs\.verify-stable-release\.result/,
+    );
+    assert.doesNotMatch(
+      String(restoreDocsBuilds.if),
+      /needs\.verify-stable-release\.result/,
+    );
+    assert.deepEqual(docsInputs, {
+      source_ref: {
+        description: "Optional exact commit SHA; blank uses the selected ref",
+        required: false,
+        type: "string",
+        default: "",
+      },
+      smoke: {
+        description: "Probe www.agent-native.com after publishing",
+        required: true,
+        type: "boolean",
+        default: true,
+      },
+    });
+  });
+
+  it("recovers only a hosted-runner failure after stable npm publication", () => {
+    const source = String((coordinator.with as Workflow).script);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const stablePublishStart = source.indexOf(
+      "async function waitForStablePackagePublish",
+    );
+    const failureGate = source.indexOf(
+      "await requireRecoverableStablePublishFailure(completed)",
+    );
+    const packageTagCheck = source.indexOf(
+      "const tagSha = await getRemoteTagSha(packageTag)",
+    );
+    const retryDispatch = source.indexOf(
+      "await recoverDownstreamNotification()",
+      packageTagCheck,
+    );
+    const downstreamSettled = source.indexOf(
+      "const downstream = await Promise.allSettled",
+    );
+    const notificationFailure = source.indexOf(
+      "if (downstreamNotificationFailureUrl)",
+      downstreamSettled,
+    );
+    const completionLog = source.indexOf("Release everything completed");
+
+    assert.doesNotThrow(() => new AsyncFunction(source));
+    assert.match(source, /allowCompletedFailure = false/);
+    assert.match(
+      source,
+      /allowCompletedFailure &&\s*current\.conclusion === "failure"/,
+    );
+    assert.match(
+      source,
+      /async function requireRecoverableStablePublishFailure\(run\)/,
+    );
+    assert.match(source, /Verify stable release merge/);
+    assert.match(source, /Prepare or publish stable npm packages/);
+    assert.match(source, /Notify downstream repos/);
+    assert.match(
+      source,
+      /The job was not acquired by Runner of type hosted even after multiple attempts/,
+    );
+    assert.match(source, /annotation\.annotation_level === "failure"/);
+    assert.match(source, /async function recoverDownstreamNotification\(\)/);
+    assert.match(source, /redispatchDownstream: "true"/);
+    assert.match(source, /releaseType: "patch"/);
+    assert.match(source, /publish\.conclusion !== "skipped"/);
+    assert.match(source, /notify\.conclusion === "success"/);
+    assert.match(source, /continuing the desktop and production release/);
+    assert.match(source, /downstreamNotificationFailureUrl = recovery\.url/);
+    assert.match(
+      source,
+      /Production releases completed, but downstream package notifications were not delivered/,
+    );
+    assert.ok(stablePublishStart >= 0);
+    assert.ok(failureGate > stablePublishStart);
+    assert.ok(packageTagCheck > failureGate);
+    assert.ok(retryDispatch > packageTagCheck);
+    assert.ok(downstreamSettled >= 0);
+    assert.ok(notificationFailure > downstreamSettled);
+    assert.ok(completionLog > notificationFailure);
   });
 
   it("isolates stable auto-publish lanes from nightly pushes", () => {
@@ -158,12 +322,14 @@ describe("release everything workflow", () => {
     );
     assert.match(source, /async function waitForAutoPublishIdle\(deadline\)/);
     assert.match(source, /if \(activeRuns\.length === 0\) return true/);
-    assert.match(
+    assert.match(source, /listJobsForWorkflowRun/);
+    assert.match(source, /listJobsForWorkflowRun\(\{/);
+    assert.match(source, /per_page: 1/);
+    assert.doesNotMatch(
       source,
       /github\.paginate\(github\.rest\.actions\.listJobsForWorkflowRun/,
     );
-    assert.match(source, /wasSupersededPendingRun\(current, jobs\)/);
-    assert.match(source, /if \(jobs\.length > 0\) return false/);
+    assert.match(source, /wasSupersededPendingRun/);
     assert.match(source, /retryIfSupersededPending/);
     assert.match(source, /candidate\.id !== run\.id/);
     assert.match(source, /candidate\.event === run\.event/);
@@ -187,100 +353,22 @@ describe("release everything workflow", () => {
     );
   });
 
-  it("judges stages by the jobs that ran, re-running never-started jobs once", () => {
+  it("re-runs a stage once when its only failures never ran a step", () => {
     const source = String((coordinator.with as Workflow).script);
-    const start = source.indexOf("function neverStarted");
+    const start = source.indexOf("function neverStartedFailures");
     const end = source.indexOf("async function waitForRun", start);
     assert(start >= 0 && end > start);
-    type Job = {
-      name: string;
-      status: string;
-      conclusion: string | null;
-      steps: unknown[];
-    };
-    const judgeRun = new Function(
-      `${source.slice(start, end)}; return judgeRun;`,
-    )() as (
-      run: { status: string; conclusion: string | null },
-      jobs: Job[],
-      gateJob?: string,
-    ) => { verdict: string; others: Job[] };
-
-    const ran = [{ name: "Set up job" }];
+    type Job = { name: string; conclusion: string; steps: unknown[] };
+    const neverStartedFailures = new Function(
+      `${source.slice(start, end)}; return neverStartedFailures;`,
+    )() as (jobs: Job[]) => Job[];
     const job = (
       name: string,
-      conclusion: string | null,
-      started = conclusion !== "skipped",
-    ): Job => ({
-      name,
-      status: conclusion ? "completed" : "queued",
-      conclusion,
-      steps: started ? ran : [],
-    });
-    const gate = String(
-      ((autoPublishWorkflow.jobs as Workflow).release as Workflow).name,
-    );
-    assert.match(source, new RegExp(`gateJob: "${gate}"`));
-    const verdict = (
-      run: { status: string; conclusion: string | null },
-      jobs: Job[],
-      gateJob?: string,
-    ) => {
-      const result = judgeRun(run, jobs, gateJob);
-      return [result.verdict, result.others.map((other) => other.name)];
-    };
-
-    // Publication run 37361489204 (10/5): npm published, then the notify job
-    // was never acquired by a runner and GitHub failed the run.
-    const published = [
-      job("Verify stable release merge", "success"),
-      job("Publish nightly snapshot", "skipped"),
-      job(gate, "success"),
-    ];
-    assert.deepEqual(
-      verdict(
-        { status: "completed", conclusion: "failure" },
-        [...published, job("Notify downstream repos", "cancelled", false)],
-        gate,
-      ),
-      ["success", ["Notify downstream repos"]],
-    );
-    assert.deepEqual(
-      verdict(
-        { status: "in_progress", conclusion: null },
-        [...published, job("Notify downstream repos", null, false)],
-        gate,
-      ),
-      ["success", ["Notify downstream repos"]],
-    );
-    assert.deepEqual(
-      verdict(
-        { status: "in_progress", conclusion: null },
-        [job(gate, null)],
-        gate,
-      ),
-      ["pending", []],
-    );
-    // Publication run 36763352925 (9/30): the publish job itself failed.
-    assert.deepEqual(
-      verdict(
-        { status: "completed", conclusion: "failure" },
-        [job(gate, "failure"), job("Notify downstream repos", "success")],
-        gate,
-      ),
-      ["failure", [gate]],
-    );
-    assert.deepEqual(
-      verdict(
-        { status: "completed", conclusion: "cancelled" },
-        [
-          job(gate, "cancelled", false),
-          job("Notify downstream repos", "success"),
-        ],
-        gate,
-      ),
-      ["rerun", [gate]],
-    );
+      conclusion: string,
+      ranSteps = conclusion !== "skipped",
+    ): Job => ({ name, conclusion, steps: ranSteps ? [{}] : [] });
+    const names = (jobs: Job[]) =>
+      neverStartedFailures(jobs).map((failed) => failed.name);
 
     // Production fleet run 36627218071 (9/29): two site jobs were cancelled
     // while queued after sixteen deployed.
@@ -292,39 +380,31 @@ describe("release everything workflow", () => {
       job("design production prebuilt deploy", "cancelled", false),
       job("slides production prebuilt deploy", "cancelled", false),
     ];
-    assert.deepEqual(
-      verdict({ status: "completed", conclusion: "cancelled" }, fleet),
-      [
-        "rerun",
-        [
-          "design production prebuilt deploy",
-          "slides production prebuilt deploy",
-        ],
-      ],
-    );
-    assert.deepEqual(
-      verdict({ status: "completed", conclusion: "cancelled" }, [
-        ...fleet,
-        job("docs production prebuilt deploy", "cancelled"),
-      ])[0],
-      "failure",
-    );
-    assert.deepEqual(
-      verdict({ status: "completed", conclusion: "failure" }, [])[0],
-      "failure",
-    );
-    assert.deepEqual(
-      verdict({ status: "completed", conclusion: "success" }, fleet),
-      ["success", []],
-    );
-    assert.deepEqual(verdict({ status: "queued", conclusion: null }, fleet), [
-      "pending",
-      [],
+    assert.deepEqual(names(fleet), [
+      "design production prebuilt deploy",
+      "slides production prebuilt deploy",
     ]);
+    assert.deepEqual(
+      names([...fleet, job("docs production prebuilt deploy", "cancelled")]),
+      [],
+    );
+    assert.deepEqual(
+      names([...fleet, job("docs production prebuilt deploy", "failure")]),
+      [],
+    );
+    assert.deepEqual(names([]), []);
+    assert.deepEqual(names([job("site", "success")]), []);
 
+    assert.match(
+      source,
+      /current\.status === "completed" && current\.run_attempt > rerunFromAttempt/,
+    );
+    assert.match(
+      source,
+      /const neverStarted = rerunFromAttempt\s*\? \[\]\s*: neverStartedFailures\(await listWorkflowRunJobs\(run\.id\)\)/,
+    );
     assert.match(source, /reRunWorkflowFailedJobs/);
-    assert.match(source, /verdict === "rerun" && rerunFromAttempt === 0/);
-    assert.match(source, /current\.run_attempt <= rerunFromAttempt/);
+    assert.match(source, /rerunFromAttempt = current\.run_attempt/);
   });
 
   it("releases production sites even when npm publication fails", () => {
@@ -335,7 +415,11 @@ describe("release everything workflow", () => {
     );
     assert.match(
       source,
-      /dispatch\("deploy-production-sites-prebuilt\.yml", publicationError \? "main" : workflowRef, \{\s*sites: productionSites\.join\(","\),\s*source_ref: releaseSha,/,
+      /const siteWorkflowRef = publicationError \? "main" : workflowRef/,
+    );
+    assert.match(
+      source,
+      /dispatch\("deploy-production-sites-prebuilt\.yml", siteWorkflowRef, \{\s*sites: productionSites\.join\(","\),\s*source_ref: releaseSha,/,
     );
     assert.match(
       source,
@@ -345,7 +429,10 @@ describe("release everything workflow", () => {
       source,
       /publicationError\s*\? null\s*: dispatch\("clips-desktop-release\.yml"/,
     );
-    assert.match(source, /\^\[0-9a-f\]\{40\}\$/);
+    assert.match(
+      source,
+      /!\/\^\[0-9a-f\]\{40\}\$\/\.test\(current\.merge_commit_sha \|\| ""\)/,
+    );
     assert.match(
       source,
       /const failures = publicationError \? \[publicationError\.message\] : \[\]/,
