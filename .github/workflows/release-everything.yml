@@ -383,7 +383,17 @@ jobs:
                     const neverStarted = rerunFromAttempt
                       ? []
                       : neverStartedFailures(await listWorkflowRunJobs(run.id));
-                    if (neverStarted.length === 0) {
+                    let cancelledByGitHub = false;
+                    if (neverStarted.length > 0) {
+                      try {
+                        cancelledByGitHub = await cancelledOnlyByGitHub(neverStarted);
+                      } catch (error) {
+                        core.warning(
+                          `${label}: could not read why its jobs were cancelled, so it is not re-run: ${error instanceof Error ? error.message : String(error)}`,
+                        );
+                      }
+                    }
+                    if (!cancelledByGitHub) {
                       throw new Error(
                         `${label} ended ${current.conclusion || "without a conclusion"}${rerunFromAttempt ? " after one re-run" : ""}: ${run.url}`,
                       );
@@ -422,20 +432,43 @@ jobs:
               return response.data.jobs;
             }
 
-            async function hasOnlyHostedRunnerFailure(job) {
+            async function failureAnnotations(job) {
               const response = await github.rest.checks.listAnnotations({
                 owner,
                 repo,
                 check_run_id: job.id,
                 per_page: 100,
               });
-              const failures = response.data.filter(
-                (annotation) => annotation.annotation_level === "failure",
-              );
-              return (
-                failures.length === 1 &&
-                failures[0].message === hostedRunnerFailure
-              );
+              return response.data
+                .filter((annotation) => annotation.annotation_level === "failure")
+                .map((annotation) => annotation.message);
+            }
+
+            async function hasOnlyHostedRunnerFailure(job) {
+              const failures = await failureAnnotations(job);
+              return failures.length === 1 && failures[0] === hostedRunnerFailure;
+            }
+
+            const supersededByNewerRequest =
+              /^Canceling since a higher priority waiting request for .+ exists$/;
+
+            // An operator's cancel ("The run was canceled by @...") looks like
+            // GitHub's in job state; only GitHub's own annotation tells them apart.
+            async function cancelledOnlyByGitHub(jobs) {
+              for (const job of jobs) {
+                const failures = await failureAnnotations(job);
+                if (
+                  failures.length === 0 ||
+                  !failures.every(
+                    (message) =>
+                      message === hostedRunnerFailure ||
+                      supersededByNewerRequest.test(message),
+                  )
+                ) {
+                  return false;
+                }
+              }
+              return true;
             }
 
             function requireSingleJob(jobs, name) {

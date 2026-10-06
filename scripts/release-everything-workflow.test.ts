@@ -407,28 +407,48 @@ describe("release everything workflow", () => {
     assert.match(source, /rerunFromAttempt = current\.run_attempt/);
   });
 
-  it("judges a re-run stage by its new attempt, not a stale read of the old one", async () => {
+  it("re-runs a stage only after GitHub itself cancelled its unstarted jobs", async () => {
     const source = String((coordinator.with as Workflow).script);
     const start = source.indexOf("function neverStartedFailures");
-    const end = source.indexOf("const hostedRunnerFailure", start);
+    const end = source.indexOf("function requireSingleJob", start);
     assert(start >= 0 && end > start);
     type Run = {
       run_attempt: number;
       status: string;
       conclusion: string | null;
     };
+    type Annotation = { annotation_level: string; message: string };
     const run = (
       run_attempt: number,
       status: string,
       conclusion: string | null = null,
     ): Run => ({ run_attempt, status, conclusion });
+    const failure = (message: string): Annotation => ({
+      annotation_level: "failure",
+      message,
+    });
+    // Annotation texts recorded on BuilderIO/agent-native jobs.
+    const superseded = failure(
+      "Canceling since a higher priority waiting request for ci-6360 exists",
+    );
+    const noRunner = failure(
+      "The job was not acquired by Runner of type hosted even after multiple attempts",
+    );
+    const operator = failure("The run was canceled by @steve8708.");
+    const labelNotice = {
+      annotation_level: "notice",
+      message: "The ubuntu-latest label will migrate to Ubuntu 26",
+    };
 
-    const waitFor = async (reads: Run[]) => {
+    const runStage = (
+      reads: Run[],
+      annotations: Record<number, Annotation[] | Error>,
+    ) => {
       let polls = 0;
       let reruns = 0;
+      const warnings: string[] = [];
       const waitForRun = new Function(
         "getRun",
-        "listWorkflowRunJobs",
         "github",
         "core",
         "sleep",
@@ -440,17 +460,40 @@ describe("release everything workflow", () => {
         `${source.slice(start, end)}; return waitForRun;`,
       )(
         async () => reads[Math.min(polls++, reads.length - 1)],
-        async () => [{ name: "design", conclusion: "cancelled", steps: [] }],
         {
           rest: {
             actions: {
+              listJobsForWorkflowRun: async () => ({
+                data: {
+                  jobs: [
+                    { id: 0, name: "fw", conclusion: "success", steps: [{}] },
+                    ...Object.keys(annotations).map((id) => ({
+                      id: Number(id),
+                      name: `site ${id}`,
+                      conclusion: "cancelled",
+                      steps: [],
+                    })),
+                  ],
+                },
+              }),
               reRunWorkflowFailedJobs: async () => {
                 reruns += 1;
               },
             },
+            checks: {
+              listAnnotations: async ({
+                check_run_id,
+              }: {
+                check_run_id: number;
+              }) => {
+                const result = annotations[check_run_id];
+                if (result instanceof Error) throw result;
+                return { data: result };
+              },
+            },
           },
         },
-        { info() {}, warning() {} },
+        { info() {}, warning: (message: string) => warnings.push(message) },
         async () => {},
         () => Date.now() + 60_000,
         15_000,
@@ -467,34 +510,61 @@ describe("release everything workflow", () => {
         "Production site fleet",
         60_000,
       );
-      return { result, counts: () => ({ polls, reruns }) };
+      return { result, counts: () => ({ polls, reruns }), warnings };
     };
 
-    // The first read triggers the re-run; the next three still return the
-    // re-run attempt before GitHub reports the new one.
-    const stale = Array.from({ length: 3 }, () =>
-      run(1, "completed", "cancelled"),
-    );
-    const succeeded = await waitFor([
-      run(1, "completed", "cancelled"),
-      ...stale,
-      run(2, "in_progress"),
-      run(2, "completed", "success"),
-    ]);
-    assert.deepEqual(await succeeded.result, run(2, "completed", "success"));
-    assert.deepEqual(succeeded.counts(), { polls: 6, reruns: 1 });
+    // After the re-run request GitHub can keep returning the old completed
+    // attempt for a few polls before it reports the new one.
+    const cancelled = run(1, "completed", "cancelled");
+    const stale = [cancelled, cancelled, cancelled];
 
-    const failed = await waitFor([
-      run(1, "completed", "cancelled"),
-      ...stale,
-      run(2, "queued"),
-      run(2, "completed", "failure"),
-    ]);
+    const supersededStage = runStage(
+      [
+        cancelled,
+        ...stale,
+        run(2, "in_progress"),
+        run(2, "completed", "success"),
+      ],
+      { 1: [labelNotice, superseded], 2: [superseded] },
+    );
+    assert.deepEqual(
+      await supersededStage.result,
+      run(2, "completed", "success"),
+    );
+    assert.deepEqual(supersededStage.counts(), { polls: 6, reruns: 1 });
+
+    const noRunnerStage = runStage(
+      [cancelled, ...stale, run(2, "queued"), run(2, "completed", "failure")],
+      { 1: [noRunner] },
+    );
     await assert.rejects(
-      failed.result,
+      noRunnerStage.result,
       /Production site fleet ended failure after one re-run: run/,
     );
-    assert.deepEqual(failed.counts(), { polls: 6, reruns: 1 });
+    assert.deepEqual(noRunnerStage.counts(), { polls: 6, reruns: 1 });
+
+    // Run 36645799548: an operator's cancel annotates one queued job and
+    // leaves the others without a reason.
+    for (const annotations of [
+      { 1: [operator], 2: [] },
+      { 1: [superseded], 2: [operator] },
+      // Production fleet run 36627218071 (9/29) recorded no reason at all.
+      { 1: [], 2: [] },
+      { 1: [superseded], 2: new Error("HTTP 502") },
+    ]) {
+      const stage = runStage([cancelled], annotations);
+      await assert.rejects(
+        stage.result,
+        /^Error: Production site fleet ended cancelled: run$/,
+      );
+      assert.equal(stage.counts().reruns, 0);
+    }
+    const unreadable = runStage([cancelled], { 1: new Error("HTTP 502") });
+    await assert.rejects(unreadable.result, /ended cancelled: run/);
+    assert.match(
+      unreadable.warnings.join("\n"),
+      /could not read why its jobs were cancelled, so it is not re-run: HTTP 502/,
+    );
   });
 
   it("releases production sites even when npm publication fails", () => {
