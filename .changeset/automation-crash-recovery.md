@@ -9,3 +9,5 @@ Bind recovery to an app-scoped firing history, stop dispatch after scheduler lea
 Preserve interrupted firings during temporary identity lookup failures, settle permanent identity rejection with confirmed delivery evidence, and retain manual-run scheduling and pause policy during recovery.
 
 Keep interrupted firings retryable when the scheduler loses its lease during setup, and release any unstarted successor before retrying the same turn.
+
+Synchronize packaged Factory feedback guidance with its canonical skill.
