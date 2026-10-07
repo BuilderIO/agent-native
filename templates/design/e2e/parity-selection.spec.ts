@@ -310,7 +310,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     (testInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
 });
 
-test("G10: dropping a board Frame into an overlapping Frame persists its board position", async ({
+test("board regression: an overlapping Frame drop into another board Frame persists after reload", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -448,7 +448,7 @@ test("G10: dropping a board Frame into an overlapping Frame persists its board p
     });
 });
 
-test("G11: overlapping board Frames keep the dragged Frame at the drop position", async ({
+test("board regression: overlapping board Frames keep the pointer drop without cancel or revert", async ({
   page,
 }) => {
   test.setTimeout(120_000);

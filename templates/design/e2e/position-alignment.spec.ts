@@ -423,7 +423,8 @@ test("canvas and Layers selection show parent-relative position after iframe scr
   );
 });
 
-// Native Figma O-06: Position skips Groups and resets at the nearest Frame.
+// Native oracle O-06 (Claude, desktop Figma, 2026-10-06, O06-*.jpg): Position
+// skips Groups and resets at the nearest Frame.
 test("Position stays Frame-relative through Groups and resets at nested Frames", async ({
   page,
   request,
@@ -469,7 +470,9 @@ test("Position stays Frame-relative through Groups and resets at nested Frames",
   await expect(y).toHaveValue("10px");
 });
 
-// Native Figma O-09/O-10: alignment uses Group bounds; Position remains Frame-relative.
+// Native oracle O-09/O-10 (Claude, desktop Figma, 2026-10-06,
+// O09-*.jpg/O10-*.jpg): alignment uses Group bounds; Position remains
+// Frame-relative.
 test("Align uses a Group's bounds while Position stays Frame-relative", async ({
   page,
   request,

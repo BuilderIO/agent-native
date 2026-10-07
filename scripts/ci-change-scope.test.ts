@@ -524,12 +524,12 @@ test("the Design interaction gate runs G7 and every changed Design E2E spec", ()
   );
   assert.ok(
     String(fixedMatrix?.run).includes(
-      "G10: dropping a board Frame into an overlapping Frame persists its board position",
+      "board regression: an overlapping Frame drop into another board Frame persists after reload",
     ),
   );
   assert.ok(
     String(fixedMatrix?.run).includes(
-      "G11: overlapping board Frames keep the dragged Frame at the drop position",
+      "board regression: overlapping board Frames keep the pointer drop without cancel or revert",
     ),
   );
 
