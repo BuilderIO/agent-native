@@ -20,8 +20,6 @@ const MAX_REQUEST_EVENT_ROWS = 16;
 /** A request nothing can re-check outlives only this many runs. */
 const UNVERIFIABLE_REQUEST_RUNS = 2;
 const MAX_NOTE_PROVIDERS = 3;
-const MAX_NAME_CHARS = 80;
-const MAX_DETAIL_CHARS = 200;
 /** Longer than this and the read costs the user more than the note saves. */
 const PRIOR_CONNECTION_READ_TIMEOUT_MS = 400;
 
@@ -46,18 +44,19 @@ export function connectionRequiredMessage(
 }
 
 /**
- * Provider, label and detail are supplied by A2A peers and provider adapters,
- * and the note lands in the user turn: nothing that can open or close a tag or
- * start a new line of instructions gets through.
+ * Provider ids come from provider adapters and A2A peers, and the note lands in
+ * the user turn. Quoting or stripping a free-text name makes the note's shape
+ * safe, not its content, so only a plain identifier is ever echoed; anything
+ * else is "an external provider".
  */
-function sanitizeNoteText(value: unknown, maxChars: number): string {
-  if (typeof value !== "string") return "";
-  return value
-    .replace(/[<>]/g, "")
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxChars);
+const PROVIDER_ID = /^[A-Za-z0-9][\w.:-]{0,63}$/;
+const UNNAMED_PROVIDER = "an external provider";
+
+function noteProviderName(request: ConnectionRequired): string {
+  return typeof request.provider === "string" &&
+    PROVIDER_ID.test(request.provider)
+    ? `"${request.provider}"`
+    : UNNAMED_PROVIDER;
 }
 
 export interface ThreadConnectionRequest {
@@ -116,10 +115,7 @@ export async function readThreadConnectionRequests(
   for (const row of rows as Array<{ run_id: string; event_data?: string }>) {
     if (!row.event_data) continue;
     const request = JSON.parse(row.event_data) as ConnectionRequired;
-    if (
-      request.type === "connection_required" &&
-      sanitizeNoteText(request.provider, MAX_NAME_CHARS)
-    ) {
+    if (request.type === "connection_required") {
       found.push({ request, runsAgo: runIds.indexOf(row.run_id) });
     }
   }
@@ -142,34 +138,12 @@ export function priorConnectionContextNote(prior: PriorConnectionNote): string {
   return "";
 }
 
-function describeRequest(request: ConnectionRequired): {
-  name: string;
-  detail: string;
-} {
-  const provider = sanitizeNoteText(request.provider, MAX_NAME_CHARS);
-  const label = sanitizeNoteText(request.source?.label, MAX_NAME_CHARS);
-  // A label can name an agent or a connection; the provider is always said.
-  const name = !label
-    ? provider
-    : label.toLowerCase() === provider.toLowerCase()
-      ? label
-      : `${provider} (${label})`;
-  return { name, detail: sanitizeNoteText(request.detail, MAX_DETAIL_CHARS) };
-}
-
+// `request.detail` and `source.label` are peer-supplied free text: stripping
+// characters does not make an instruction inert, so neither reaches the note.
 function priorConnectionNote(requests: ConnectionRequired[]): string {
   const many = requests.length > 1;
-  const described = requests.map(describeRequest);
-  const details = described.filter(({ detail }) => detail);
-  const detailText = details.length
-    ? ` (${
-        many
-          ? details.map(({ name, detail }) => `${name}: ${detail}`).join("; ")
-          : details[0].detail
-      })`
-    : "";
   return (
-    `\n\n<context-note>${described.map(({ name }) => name).join(", ")} ${many ? "were" : "was"} not connected for this workspace when last tried in this thread${detailText}. ` +
+    `\n\n<context-note>${requests.map(noteProviderName).join(", ")} ${many ? "were" : "was"} not connected for this workspace when last tried in this thread. ` +
     `Do not call ${many ? "them" : "it"} again unless the user says ${many ? "they are" : "it is"} now connected; use another connected source that can answer the request, or tell the user who can connect ${many ? "them" : "it"}.</context-note>`
   );
 }
@@ -185,9 +159,9 @@ async function resolveNote(input: {
   const canRecheck = (request: ConnectionRequired) =>
     request.source?.kind === "workspace_connection" && !!appIdFor(request);
 
-  // One entry per provider, newest first: each run's failure names a
+  // One entry per named provider, newest first: each run's failure names a
   // different provider, and a note about only the latest sends the model to
-  // the one before it.
+  // the one before it. Providers with no plain id share one unnamed entry.
   const seen = new Set<string>();
   const candidates = (
     await readThreadConnectionRequests(input.threadId, {
@@ -196,10 +170,7 @@ async function resolveNote(input: {
     })
   )
     .filter(({ request }) => {
-      const key = sanitizeNoteText(
-        request.provider,
-        MAX_NAME_CHARS,
-      ).toLowerCase();
+      const key = noteProviderName(request).toLowerCase();
       if (seen.has(key)) return false;
       seen.add(key);
       return true;

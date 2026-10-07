@@ -1806,6 +1806,8 @@ describe("realDataFinalGuard turn classification", () => {
     "are we on track for the quarter",
     "rank sales reps by closed won",
     "biggest drop in activation last week",
+    "update me on page views",
+    "update me on tab usage",
     "先月のサインアップ数は？",
     "Сколько регистраций за прошлую неделю?",
   ])("judges an unqueried draft of figures for %j", (userText) => {
@@ -1918,6 +1920,56 @@ describe("realDataFinalGuard turn classification", () => {
       "rename the chart to Revenue by Region",
       "Renamed the chart to Revenue by Region; it still shows 2 accounts.",
     ],
+    ["remove the legend", "Done. The legend now lists 2 accounts."],
+    [
+      "remove the legend completely",
+      "Done. I removed the legend; the chart still shows 2 accounts.",
+    ],
+    [
+      "delete the chart called Revenue",
+      "Done. I deleted the chart; the dashboard still lists 2 accounts.",
+    ],
+    ["hide the gridlines", "Done. The chart still shows 2 accounts."],
+    ["delete this panel", "Done. The dashboard still lists 2 accounts."],
+    ["remove this chart", "Done. The dashboard still lists 2 accounts."],
+    ["delete the old dashboard", "Done. Deleted it; 2 accounts had access."],
+    [
+      "remove the x-axis",
+      "Done. I removed the x-axis; the chart still shows 2 accounts.",
+    ],
+    ["hide the y-axis", "Done. The chart still shows 2 accounts."],
+    [
+      "remove the shadow from the panel",
+      "Done. The panel still lists 2 accounts.",
+    ],
+    [
+      "remove the footer from this dashboard",
+      "Done. The dashboard still lists 2 accounts.",
+    ],
+    [
+      "remove the margin around the chart",
+      "Done. The chart still shows 2 accounts.",
+    ],
+    [
+      "turn off the animation on this chart",
+      "Done. The chart still shows 2 accounts.",
+    ],
+    [
+      "disable animations on the dashboard",
+      "Done. The dashboard still lists 2 accounts.",
+    ],
+    [
+      "remove everything from this page",
+      "Done. The page is empty; it listed 2 accounts.",
+    ],
+    [
+      "move this chart to another tab",
+      "Done. Moved the chart to the Overview tab; it still shows 2 accounts.",
+    ],
+    [
+      "move this panel into a new section",
+      "Done. Moved the panel into the Growth section; it still lists 2 accounts.",
+    ],
   ])(
     "does not retry a confirmation of the look edit %j",
     (userText, draftText) => {
@@ -1940,6 +1992,25 @@ describe("realDataFinalGuard turn classification", () => {
     "turn this chart into a funnel",
     "change this chart for mobile users",
     "change this chart for 2024",
+    "remove EMEA from this chart",
+    "remove EMEA from chart",
+    "remove refunds from chart",
+    "hide churn on dashboard",
+    "remove page views from this chart",
+    "remove views from this chart",
+    "remove tab views from this chart",
+    "remove label clicks from this chart",
+    "remove test accounts from this chart",
+    "remove internal users from the dashboard",
+    "hide trial accounts on this dashboard",
+    "delete the churned customers from this panel",
+    "exclude refunds from this chart",
+    "turn off bot traffic on this chart",
+    "make the chart ignore test accounts",
+    "update the dashboard to ignore refunds",
+    "remove users who opened the settings page from this chart",
+    "delete sessions that reached the checkout page",
+    "add a tab about retention",
   ])(
     "judges an unqueried draft of figures for the data edit %j",
     (userText) => {

@@ -634,44 +634,103 @@ const GREETING_OR_THANKS =
   /^(?:(?:hi|hello|hey|yo|there|thanks?|thank you|thx|ty|cheers|so much|a lot|again|great|nice|awesome|perfect|cool|got it|sounds good|lgtm|good (?:morning|afternoon|evening)|how(?:['’]?s| is) it going|what['’]?s up)\b[\s,.!?]*)+$/;
 
 const UI_EDIT_OPENER =
-  /^(?:(?:please|can you|could you|would you|go ahead and|just)\s+)*(?:make|turn|set|change|switch|toggle|enable|disable|recolou?r|color|resize|rename|retitle|move|reorder|hide|unhide|delete|remove|duplicate|open|navigate to|go to|share|favorite|unfavorite|fix|debug|refactor|update|edit|add)\b\s*/;
+  /^(?:(?:please|can you|could you|would you|go ahead and|just)\s+)*(?:make|turn|set|change|switch|toggle|enable|disable|recolou?r|color|resize|rename|retitle|move|reorder|hide|unhide|delete|remove|duplicate|open|navigate to|go to|share|favorite|unfavorite|fix|debug|refactor|update(?!\s+(?:me|us)\b)|edit|add|put|place|drag|swap|increase|decrease)\b\s*/;
 
 // Things a user edits or navigates rather than measures. A metric word inside
 // the name of one ("revenue dashboard", "tickets route") does not make the
-// ask a lookup.
+// ask a lookup. Only the singular `view` is one: "page views" is a metric.
 const ARTIFACT_NOUNS =
-  "dashboards?|panels?|charts?|pages?|reports?|views?|extensions?|folders?|routes?|components?|layouts?|code|themes?|legends?|bars?|axes|axis|labels?|titles?|tooltips?";
-const ARTIFACT_NOUN = new RegExp(`\\b(?:${ARTIFACT_NOUNS})\\b`);
-// Creating an artifact is a request for its contents ("add a chart of signups").
+  "dashboards?|panels?|charts?|cards?|tables?|tiles?|widgets?|graphs?|pages?|reports?|view|extensions?|folders?|routes?|components?|layouts?|code|themes?|legends?|bars?|axes|axis|labels?|titles?|tooltips?";
+// How an artifact looks, is laid out, or behaves. Editing, moving, or removing
+// one is an artifact edit, but naming one adds nothing to fill with data ("add a
+// border to the panel", "move the chart to a new tab"), so none of these makes a
+// new artifact.
+const LOOK_PART_NOUNS =
+  "colou?rs?|backgrounds?|borders?|grid(?:lines?)?|tabs?|sections?|animations?|shadows?|headers?|footers?|sidebars?|sub-?titles?|fonts?|padding|spacing|auto[- ]?refresh|images?|captions?|trend ?lines?|buttons?|logos?|headings?|toolbars?|text ?box(?:es)?|pickers?";
+const ARTIFACT_NOUN = new RegExp(
+  `\\b(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS})\\b`,
+);
+// A word that can head an artifact's name. A table is also what a panel reads
+// ("the sessions table"), so it never does.
+const ARTIFACT_HEAD = `(?!tables?\\b)(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS})\\b`;
+// Creating an artifact is a request for its contents ("add a chart of signups"),
+// and so is giving a new tab or section a topic ("add a tab about retention");
+// placing something in one ("move this chart to a new tab") is not.
 const NEW_ARTIFACT = new RegExp(
-  `\\b(?:an?|new|another)\\s+(?:[\\w-]+\\s+){0,2}(?:${ARTIFACT_NOUNS})\\b`,
+  `\\b(?:an?|new|another)\\s+(?:[\\w-]+\\s+){0,2}(?:(?:${ARTIFACT_NOUNS})\\b|(?:tabs?|sections?)\\s+(?:about|on|with|of|covering)\\s+(?!(?:the|this|that|my|our)\\s+(?:[\\w-]+\\s+){0,2}?${ARTIFACT_HEAD})\\w)`,
 );
 const ARTIFACT_FAULT =
   /\b(?:broken|bugs?|buggy|crash\w*|glitch\w*|misaligned|not (?:working|loading|rendering))\b|n['’]t (?:work|load|render)/;
 // After a UI verb, "it" and "this" are the open dashboard or selected panel.
 const ARTIFACT_PRONOUN = /^(?:it|this|that|these|those|them)\b/;
-const ARTIFACT_HEAD = `(?:${ARTIFACT_NOUNS})\\b`;
 // After "by" or "for", a size ("by 20%", "by 10px"; a four-digit year still
 // scopes), a device or theme ("for mobile", "for dark mode"), or an audience
 // ("for review", "for the team") says how the edit looks, not what it measures.
 const PRESENTATION_OPERAND =
-  "(?:\\d{1,3}(?:\\.\\d+)?(?!\\d)|(?:the\\s+)?(?:mobile|desktop|tablet|phones?|print(?:ing)?|dark mode|light mode|review|readability|accessibility|clarity|presentations?|team|me|us|everyone)\\b(?!\\s+(?:users?|visitors?|traffic|sessions?|customers?|accounts?|signups?)))";
+  "(?:\\d{1,3}(?:\\.\\d+)?(?!\\d)|(?:the\\s+)?(?:mobile|desktop|tablet|phones?|print(?:ing)?|dark mode|light mode|review|readability|accessibility|clarity|presentations?|team|me|us|everyone|good)\\b(?!\\s+(?:users?|visitors?|traffic|sessions?|customers?|accounts?|signups?)))";
 // What an edit changes about the data instead of the look: it puts something on
 // the artifact that is not a part of it ("show the legend" is a part), narrows
 // or splits what it shows, scopes it ("by region", "for EMEA"), names a
 // data-model noun, or applies a metric ("add ARR", "change this chart to
 // revenue"). A word that heads an artifact's name ("the revenue dashboard",
-// "the sources page") is none of these.
+// "the sources page") is none of these. Taking something out is `removesValue`.
 const DATA_EDIT_OBJECT = new RegExp(
   [
     `\\b(?:show|display|list)\\w*\\b(?!\\s+(?:(?:the|its|this|that|a|an|my|our)\\s+)?(?:[\\w-]+\\s+){0,2}?${ARTIFACT_HEAD})`,
-    "\\b(?:plot|graph|track|visuali[sz]|compar|includ|exclud|group|split|segment|filter|break(?:s|ing)? down)\\w*\\b",
+    "\\b(?:plot|track|visuali[sz]|compar|includ|exclud|group|split|segment|filter|break(?:s|ing)? down)\\w*\\b|(?<!\\b(?:the|this|that|these|those|an?|my|our)\\s+)\\bgraph\\w*\\b",
     `\\b(?:by|for)\\s+(?!${PRESENTATION_OPERAND})\\w`,
     `\\b(?:series|metrics?|measures?|dimensions?|breakdowns?|cohorts?|datasets?|data ?sources?|sources?|queries|query|sql)\\b(?!\\s+${ARTIFACT_HEAD})`,
     "\\badd(?:ing)?\\b[^.!?;]*?\\b(?:lines?|columns?|trend ?lines?|filters?|groupings?)\\b",
     `\\b(?:(?:add(?:ing)?|swap in|use|using)\\s+(?:(?:the|a|an|some|more|new|our)\\s+)?(?:[\\w-]+\\s+)?|(?:to|into)\\s+(?:(?:the|an?)\\s+)?)${ANALYTICS_RESULT_TERMS.source}(?!\\s+${ARTIFACT_HEAD})`,
   ].join("|"),
 );
+const REMOVAL_VERB =
+  "(?:(?:remov|delet|ignor|omit|disabl)\\w*|drop(?:s|ped|ping)?|hid(?:e|es|ing)|(?:turn|switch)\\w*\\s+off|tak\\w*\\s+out)";
+// What a removal verb takes out: the words up to the preposition or clause end
+// after them ("the legend" in "remove the legend from this chart"). "around"
+// does not end it: "margin" is also a metric, so "the margin around the chart"
+// is judged by the chart.
+const REMOVAL_OBJECT_WORD =
+  "(?!(?:from|on|in|off|out|at|across|between|inside|within|for|by|to|into|then|but|so|please)\\b)[\\w'’,&-]+";
+const REMOVAL_OBJECT = new RegExp(
+  `\\b${REMOVAL_VERB}\\s+(${REMOVAL_OBJECT_WORD}(?:\\s+${REMOVAL_OBJECT_WORD})*)`,
+  "g",
+);
+// A part of the artifact, or the artifact itself ("it", "everything"), by its
+// last word: "page views" and "label clicks" are metrics that start with one.
+const REMOVED_PART = new RegExp(
+  `\\b(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS}|it|them|this|that|these|those|everything|anything|all)$`,
+);
+// A clause after the thing removed. Naming it ("the chart called Revenue") leaves
+// the head to decide; any other clause narrows a group of records ("users who
+// opened the settings page"), whatever noun it ends in.
+const REMOVAL_QUALIFIER =
+  /\s+(who|whom|whose|that|which|using|with|about|tagged|filed|called|named|titled)\b/;
+const REMOVAL_NAMING = /^(?:called|named|titled)$/;
+// How or when it goes, not what: "remove the legend completely, thanks".
+const REMOVAL_FILLER =
+  /(?:[\s,]+(?:completely|entirely|altogether|permanently|too|also|again|right now|real quick|now|asap|thank(?:s| you)|and (?:save|publish|rerun|refresh|reload)))+$/;
+
+/** Whether an edit takes a value, segment, series, or metric out of what the
+ *  artifact shows ("remove EMEA from this chart", "make it ignore refunds"), as
+ *  opposed to a part of the artifact out ("hide the legend", "delete this
+ *  panel"). Any object that is not a part is a value. The part vocabulary is a
+ *  deliberate best-effort heuristic, not a parser: it fails toward data, which
+ *  only costs the final guard a look, so do not keep extending it. */
+function removesValue(lower: string): boolean {
+  return [...lower.matchAll(REMOVAL_OBJECT)].some(([, object]) => {
+    const [head, qualifier] = object.split(REMOVAL_QUALIFIER);
+    if (qualifier && !REMOVAL_NAMING.test(qualifier)) return true;
+    return head
+      .replace(REMOVAL_FILLER, "")
+      .split(/,|&|\b(?:and|or)\b/)
+      .some((item) => {
+        const phrase = item.trim();
+        return phrase !== "" && !REMOVED_PART.test(phrase);
+      });
+  });
+}
+
 // What a rename sets is a name, whatever words it uses: "rename the chart to
 // Revenue by Region" scopes nothing.
 const NEW_NAME =
@@ -681,22 +740,22 @@ const NEW_NAME =
  *  nothing to be measured. */
 function isArtifactRequest(text: string): boolean {
   const lower = text.replace(NEW_NAME, " ");
+  const edit = UI_EDIT_OPENER.exec(lower);
+  // The opener is a command, not a metric: "increase the padding" asks for no
+  // increase to be measured.
+  const object = lower.slice(edit?.[0].length ?? 0);
   if (
     lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase()) ||
     DATA_ASK_SHAPE.test(lower) ||
-    METRIC_RESULT_INTENT.test(lower) ||
+    METRIC_RESULT_INTENT.test(object) ||
     NEW_ARTIFACT.test(lower)
   ) {
     return false;
   }
-  const edit = UI_EDIT_OPENER.exec(lower);
   if (!edit) return ARTIFACT_FAULT.test(lower) && ARTIFACT_NOUN.test(lower);
   // The artifact is only what the edit acts on; its object decides.
-  if (DATA_EDIT_OBJECT.test(lower)) return false;
-  return (
-    ARTIFACT_NOUN.test(lower) ||
-    ARTIFACT_PRONOUN.test(lower.slice(edit[0].length))
-  );
+  if (DATA_EDIT_OBJECT.test(lower) || removesValue(lower)) return false;
+  return ARTIFACT_NOUN.test(lower) || ARTIFACT_PRONOUN.test(object);
 }
 
 function askText(text: string): string {

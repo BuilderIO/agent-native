@@ -33,7 +33,8 @@ export interface AnalyticsPromptCandidate {
 }
 
 /** `empty` is a completed lookup that found nothing; `timed_out` and `failed`
- *  are lookups that did not complete, so "nothing relevant" is never inferred. */
+ *  are lookups that did not complete (`failed` includes one that returned hits
+ *  while a source was unavailable), so "nothing relevant" is never inferred. */
 export type AnalyticsPrefetchStatus = "ok" | "empty" | "timed_out" | "failed";
 
 /** What the outcome event records; `unrecorded` is a run that reported no status. */
@@ -518,6 +519,11 @@ export async function retrieveAnalyticsPromptReferences(input: {
   const request = retrievalQuery(input.request);
   let cacheAllowed = true;
   let searchResults: AnalyticsQueryCatalogCandidate[];
+  // A source that is unavailable, or partial because one scope's lookup failed,
+  // hides references the other source's hits cannot stand in for, so neither
+  // "empty" nor "ok" holds. A search capped at its row limit still works, and
+  // large orgs always hit the cap, so truncation does not degrade the status.
+  let catalogComplete: boolean;
   try {
     const search = await beforeDeadline(
       (signal) =>
@@ -537,13 +543,9 @@ export async function retrieveAnalyticsPromptReferences(input: {
       return noPromptReferences("timed_out");
     }
     searchResults = search.value.candidates;
-    if (
-      searchResults.length === 0 &&
-      (search.value.dashboardSearchStatus === "unavailable" ||
-        search.value.dictionarySearchStatus === "unavailable")
-    ) {
-      return noPromptReferences("failed");
-    }
+    catalogComplete =
+      search.value.dashboardSearchStatus === "available" &&
+      search.value.dictionarySearchStatus === "available";
   } catch (error) {
     console.warn(
       "[analytics] Reference catalog unavailable; continuing without preload.",
@@ -552,7 +554,7 @@ export async function retrieveAnalyticsPromptReferences(input: {
     return noPromptReferences("failed");
   }
   if (searchResults.length === 0) {
-    return noPromptReferences("empty");
+    return noPromptReferences(catalogComplete ? "empty" : "failed");
   }
 
   let ranked: RankedCandidate[] = searchResults.map((candidate) => ({
@@ -615,6 +617,6 @@ export async function retrieveAnalyticsPromptReferences(input: {
       .filter((_, index) => clearsRelevanceBar(shortlisted[index]!, terms))
       .slice(0, FALLBACK_CANDIDATE_LIMIT)
       .map((candidate) => candidate.id),
-    prefetchStatus: "ok",
+    prefetchStatus: catalogComplete ? "ok" : "failed",
   };
 }

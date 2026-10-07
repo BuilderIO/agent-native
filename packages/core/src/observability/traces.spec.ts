@@ -5475,4 +5475,48 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("does not let a run whose summary was not written claim a thread's org", async () => {
+    vi.stubEnv("AGENT_ORG_ID", "org-a");
+    vi.spyOn(traceStore, "insertTraceSpan").mockResolvedValue(undefined);
+    vi.spyOn(traceStore, "upsertTraceSummary").mockRejectedValue(
+      new Error("summary upsert failed"),
+    );
+    const adopt = vi
+      .spyOn(traceStore, "adoptTraceOrgForThread")
+      .mockResolvedValue(undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async () => ({
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        }),
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-summary-lost",
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(adopt).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

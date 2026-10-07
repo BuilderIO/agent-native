@@ -518,6 +518,100 @@ describe("retrieveAnalyticsPromptReferences", () => {
     expect(result.prefetchStatus).toBe("failed");
   });
 
+  describe("when a catalog source is unavailable, partial, or truncated", () => {
+    const complete = {
+      searchedDashboardCount: 2,
+      dashboardSearchTruncated: false,
+      dashboardSearchStatus: "available",
+      searchedDictionaryEntryCount: 1,
+      dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
+    };
+    const retrieve = () =>
+      retrieveAnalyticsPromptReferences({
+        request: "How many active users were there last month?",
+        email: "owner@example.com",
+        orgId: null,
+      });
+
+    it("reports complete sources with hits as ok", async () => {
+      mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+        ...complete,
+        candidates: [candidates[0]],
+      });
+
+      const result = await retrieve();
+
+      expect(result.prefetchStatus).toBe("ok");
+      expect(result.jevPromptCandidates).toHaveLength(1);
+    });
+
+    it("keeps the other source's hits but reports failed when a source is unavailable", async () => {
+      mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+        ...complete,
+        candidates: [candidates[0]],
+        dashboardSearchStatus: "unavailable",
+      });
+
+      const result = await retrieve();
+
+      expect(result.prefetchStatus).toBe("failed");
+      expect(result.jevPromptCandidates).toHaveLength(1);
+    });
+
+    it("reports a partial dictionary with no hits as failed, not empty", async () => {
+      mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+        ...complete,
+        candidates: [],
+        dictionarySearchStatus: "partial",
+      });
+
+      const result = await retrieve();
+
+      expect(result.prefetchStatus).toBe("failed");
+      expect(result.jevPromptCandidates).toEqual([]);
+    });
+
+    it("keeps the hits but reports failed when a dictionary scope failed to load", async () => {
+      mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+        ...complete,
+        candidates: [candidates[0]],
+        dictionarySearchStatus: "partial",
+      });
+
+      const result = await retrieve();
+
+      expect(result.prefetchStatus).toBe("failed");
+      expect(result.jevPromptCandidates).toHaveLength(1);
+    });
+
+    // An org past the catalog's row cap is truncated on every turn; a cap that
+    // read as a failure would put the unavailable-context note on all of them.
+    it.each([
+      ["dashboard", { dashboardSearchTruncated: true }],
+      ["dictionary", { dictionarySearchTruncated: true }],
+    ])(
+      "reports a truncated %s search as ok with hits and empty without",
+      async (_source, truncation) => {
+        mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+          ...complete,
+          ...truncation,
+          candidates: [candidates[0]],
+        });
+        const withHits = await retrieve();
+        expect(withHits.prefetchStatus).toBe("ok");
+        expect(withHits.jevPromptCandidates).toHaveLength(1);
+
+        mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+          ...complete,
+          ...truncation,
+          candidates: [],
+        });
+        expect((await retrieve()).prefetchStatus).toBe("empty");
+      },
+    );
+  });
+
   it("reports a catalog lookup that outlives the budget as timed out", async () => {
     mocks.searchAnalyticsQueryCatalog.mockImplementation(
       () => new Promise(() => {}),

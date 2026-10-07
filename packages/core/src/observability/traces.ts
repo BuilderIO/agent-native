@@ -1958,12 +1958,20 @@ async function writeTraceData(
       total: spans.length,
     });
   }
-  await upsertTraceSummary(summary).catch((error) =>
-    reportTraceWriteFailure(runId, "summary", error),
+  // Adoption reads other runs' summaries to detect a thread spanning orgs, so
+  // it is only sound once this run's own org is on record too.
+  const summaryWritten = await upsertTraceSummary(summary).then(
+    () => true,
+    (error) => {
+      reportTraceWriteFailure(runId, "summary", error);
+      return false;
+    },
   );
-  await adoptTraceOrgForThread(summary).catch((error) =>
-    reportTraceWriteFailure(runId, "thread_org", error),
-  );
+  if (summaryWritten) {
+    await adoptTraceOrgForThread(summary).catch((error) =>
+      reportTraceWriteFailure(runId, "thread_org", error),
+    );
+  }
 
   try {
     const { evaluateRun } = await import("./evals.js");

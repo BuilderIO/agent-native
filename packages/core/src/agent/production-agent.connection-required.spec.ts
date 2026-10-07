@@ -235,9 +235,15 @@ describe("a thread whose run ended in a connection request", () => {
     const { provider, warehouse, seenSecond, second } = await twoRuns();
 
     const firstPrompt = lastUserText(seenSecond[0]);
-    expect(firstPrompt).toContain("<context-note>Google was not connected");
+    expect(firstPrompt).toContain('<context-note>"google" was not connected');
     expect(firstPrompt).toContain("Do not call it again");
-    expect(firstPrompt).toContain("ask a workspace admin to connect it");
+    expect(firstPrompt).toContain("tell the user who can connect it");
+    // The card's detail and the source label are free text from adapters and
+    // peers; neither reaches the note.
+    expect(firstPrompt).not.toContain("Google OAuth token requires");
+    expect(
+      firstPrompt.match(/<context-note>.*<\/context-note>/s)?.[0],
+    ).not.toContain("Google");
     expect(provider).toHaveBeenCalledTimes(1);
     expect(warehouse).toHaveBeenCalledTimes(1);
     expect(second).not.toContainEqual(
@@ -252,7 +258,7 @@ describe("a thread whose run ended in a connection request", () => {
     });
 
     expect(lastUserText(seenSecond[0])).toContain(
-      "<context-note>Google was not connected",
+      '<context-note>"google" was not connected',
     );
   });
 
