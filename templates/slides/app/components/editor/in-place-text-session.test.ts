@@ -1849,6 +1849,35 @@ describe("in-place text session: deleting", () => {
     );
   });
 
+  it("keeps the caret after a trailing soft break when merging on Delete", () => {
+    const el = mount('<div id="t"><p>Alpha<br></p><p>Beta</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstElementChild!, el.firstElementChild!.childNodes.length);
+
+    expect(beforeInput(el, "deleteContentForward").defaultPrevented).toBe(true);
+    type(el, "x");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(el, "xBeta"));
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+    session.end();
+    expect(el.innerHTML).toBe("<p>Alpha<br>xBeta</p>");
+  });
+
+  it("keeps the caret after a trailing soft break when merging on Backspace", () => {
+    const el = mount('<div id="t"><p>Alpha<br></p><p>Beta</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Beta"), 0);
+
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    type(el, "x");
+    expect(window.getSelection()?.anchorNode).toBe(textOf(el, "xBeta"));
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+    session.end();
+
+    expect(el.innerHTML).toBe("<p>Alpha<br>xBeta</p>");
+  });
+
   it("leaves trailing paragraph whitespace to native Delete", () => {
     const el = mount('<div id="t"><p>Alpha </p><p>Beta</p></div>');
     session = startInPlaceTextSession(el);

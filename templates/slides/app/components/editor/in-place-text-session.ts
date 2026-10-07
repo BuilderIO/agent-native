@@ -2465,7 +2465,7 @@ export function startInPlaceTextSession(
                 ),
             ) as HTMLElement | undefined) ?? into)
         : into;
-    const join = textOffset(target, target, target.childNodes.length);
+    const join = textOffset(target, target, target.childNodes.length, true);
     if (hasRenderedContent(from)) {
       if (
         from.tagName === "P" &&
@@ -2478,7 +2478,7 @@ export function startInPlaceTextSession(
       }
     }
     if (from.parentNode !== target) from.remove();
-    placeCaret(...textPoint(target, join, true));
+    placeCaret(...textPoint(target, join, true, true));
   }
 
   function plainifyQuote(quote: HTMLElement) {

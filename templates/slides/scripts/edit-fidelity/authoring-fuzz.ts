@@ -1075,7 +1075,7 @@ export async function runAuthoringFuzz(
         const merge =
           phase === "capture"
             ? (() => {
-                const direction =
+                const direction: "backward" | "forward" | null =
                   operation.kind === "backspace-block-edge"
                     ? "backward"
                     : operation.kind === "delete-block-edge"
@@ -1103,7 +1103,7 @@ export async function runAuthoringFuzz(
                       direction,
                       source,
                       receiver,
-                      parent: receiver.parentNode!,
+                      parent: receiver.parentNode as Node,
                       receiverText: receiver.textContent ?? "",
                       sourceText: source.textContent ?? "",
                     }
@@ -1304,6 +1304,7 @@ export async function runAuthoringFuzz(
         if (!baseline) {
           throw new Error("editor sibling snapshot was not captured");
         }
+        const failures: string[] = [];
         const mergeAssertion =
           baseline.merge &&
           ((operation.kind === "backspace-block-edge" &&
@@ -1337,7 +1338,6 @@ export async function runAuthoringFuzz(
           return parts.join("/");
         };
         const targetPaths = targets.map(path).join(", ");
-        const failures: string[] = [];
         const equivalentReplacements = new Set<Element>();
         for (const record of baseline.records) {
           if (isTarget(record.node)) continue;
