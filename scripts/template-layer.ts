@@ -26,6 +26,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   _copyDir,
@@ -227,7 +228,7 @@ function rebase(template: string, out: string, baseRef: string): void {
 
 function check(): number {
   const templatesDir = path.join(
-    path.dirname(new URL(import.meta.url).pathname),
+    path.dirname(fileURLToPath(import.meta.url)),
     "../packages/core/src/templates",
   );
   const layers = fs

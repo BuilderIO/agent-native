@@ -4,6 +4,7 @@ import path from "path";
 import { isMap, parseDocument } from "yaml";
 
 import {
+  BUILDER_CODE_STARTER_LOCAL_SKILLS,
   FACTORY_TEMPLATE_LOCAL_SKILLS,
   FRAMEWORK_TEMPLATE_SHARED_SKILLS,
   WORKSPACE_SKILLS,
@@ -222,14 +223,19 @@ function renameInheritedChatAppId(appDir: string, appId: string): void {
   if (next !== content) fs.writeFileSync(pluginPath, next);
 }
 
+// Skills a template ships as its own; workspace linking must not prune them.
+const TEMPLATE_LOCAL_SKILLS: Record<string, readonly string[]> = {
+  factory: FACTORY_TEMPLATE_LOCAL_SKILLS,
+  "builder-code-starter": BUILDER_CODE_STARTER_LOCAL_SKILLS,
+};
+
 function linkInheritedWorkspaceSkills(opts: WorkspacifyOptions): void {
   const workspaceSkillsDir = path.join(opts.workspaceRoot, ".agents", "skills");
   if (!fs.existsSync(workspaceSkillsDir)) return;
 
   removeCopiedFrameworkSkills(opts.appDir, {
     allowUnverified: true,
-    preserveLocalSkills:
-      opts.templateName === "factory" ? FACTORY_TEMPLATE_LOCAL_SKILLS : [],
+    preserveLocalSkills: TEMPLATE_LOCAL_SKILLS[opts.templateName ?? ""] ?? [],
   });
   linkWorkspaceSkills(opts.appDir, opts.workspaceRoot);
 }

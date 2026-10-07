@@ -494,4 +494,33 @@ describe("workspacifyApp core pinning", () => {
       'export default createAgentChatPlugin({\n  appId: "mail",\n  finalResponseGuard: guard,\n});\n',
     );
   });
+
+  it("keeps the Builder Code starter's own skills when workspacifying", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.mkdirSync(path.join(root, ".agents", "skills", "actions"), {
+      recursive: true,
+    });
+    const appSkillsDir = path.join(appDir, ".agents", "skills");
+    for (const skill of ["internationalization", "authentication"]) {
+      fs.mkdirSync(path.join(appSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(appSkillsDir, skill, "SKILL.md"),
+        `starter ${skill}\n`,
+      );
+    }
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      templateName: "builder-code-starter",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    for (const skill of ["internationalization", "authentication"]) {
+      expect(
+        fs.readFileSync(path.join(appSkillsDir, skill, "SKILL.md"), "utf8"),
+      ).toBe(`starter ${skill}\n`);
+    }
+  });
 });
