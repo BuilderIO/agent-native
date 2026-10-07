@@ -2944,6 +2944,123 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
+  it("keeps the pending approval pair ahead of oversized continuation history", async () => {
+    const approvalInput = {
+      release: "agentkit-acceptance",
+      environment: "production",
+    };
+    const approvalKey =
+      'accept-agentkit-release:{"environment":"production","release":"agentkit-acceptance"}';
+    const approvalResult =
+      "Awaiting human approval. This action did NOT execute.";
+    const trailingText = "x".repeat(256 * 1024 - 300);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "Waiting for approval." },
+          {
+            type: "tool_start",
+            id: "call-approved-release",
+            tool: "accept-agentkit-release",
+            input: approvalInput,
+          },
+          {
+            type: "approval_required",
+            tool: "accept-agentkit-release",
+            input: approvalInput,
+            approvalKey,
+            toolCallId: "call-approved-release",
+          },
+          {
+            type: "tool_done",
+            id: "call-approved-release",
+            tool: "accept-agentkit-release",
+            result: approvalResult,
+          },
+          { type: "text", text: trailingText },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-prioritized-approval-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-prioritized-approval-history",
+      threadId: "thread-prioritized-approval-history",
+    });
+    const first = await session.startTurn({ prompt: "Accept the release" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalKey, approved: true },
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const request = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    const structuredHistory = request.structuredHistory as Array<{
+      content: Array<{
+        type: string;
+        id?: string;
+        name?: string;
+        toolCallId?: string;
+        content?: string;
+      }>;
+    }>;
+    const parts = structuredHistory.flatMap((message) => message.content);
+    const toolResultIds = parts
+      .filter((part) => part.type === "tool-result")
+      .map((part) => part.toolCallId);
+    const {
+      findApprovedStructuredToolCall,
+      structuredHistoryToEngineMessages,
+    } = await import("../../agent/production-agent.js");
+    const providerMessages = structuredHistoryToEngineMessages(
+      request.structuredHistory,
+    );
+    const providerToolResultIds = providerMessages
+      ?.flatMap((message) => message.content)
+      .filter((part) => part.type === "tool-result")
+      .map((part) => part.toolCallId);
+
+    expect(request).toMatchObject({
+      message: "Approved. Go ahead and run the requested action.",
+      approvedToolCalls: [approvalKey],
+    });
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        id: "call-approved-release",
+        name: "accept-agentkit-release",
+      }),
+    );
+    expect(toolResultIds).toContain("call-approved-release");
+    expect(providerToolResultIds).toContain("call-approved-release");
+    expect(
+      findApprovedStructuredToolCall(
+        request.structuredHistory,
+        request.approvedToolCalls,
+      ),
+    ).toEqual({
+      name: "accept-agentkit-release",
+      input: approvalInput,
+      callId: "call-approved-release",
+    });
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "call-approved-release",
+        content: approvalResult,
+      }),
+    );
+    expect(parts).not.toContainEqual({ type: "text", text: trailingText });
+  });
+
   it("bounds supplemental approval history and omits oversized metadata", async () => {
     const oversizedToolCallId = "i".repeat(64 * 1024 + 1);
     const oversizedToolName = "n".repeat(64 * 1024 + 1);

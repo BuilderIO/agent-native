@@ -1706,12 +1706,14 @@ interface StructuredToolHistoryCandidate {
   assistantParts: StructuredToolHistoryPart[];
   resultParts: StructuredToolHistoryPart[];
   isToolCall: boolean;
+  priority: boolean;
 }
 
 interface StructuredToolHistoryResultReference {
   position: number;
   toolCallId: string;
   part: StructuredToolHistoryPart;
+  priority: boolean;
 }
 
 interface StructuredTextHistoryCandidate {
@@ -2228,6 +2230,7 @@ function boundStructuredToolHistory(
     }
     if (matchingCall) {
       matchingCall.resultParts.push(result.part);
+      matchingCall.priority ||= result.priority;
       continue;
     }
     candidates.push({
@@ -2239,6 +2242,7 @@ function boundStructuredToolHistory(
         assistantParts: [],
         resultParts: [result.part],
         isToolCall: false,
+        priority: result.priority,
       },
     });
   }
@@ -2249,7 +2253,13 @@ function boundStructuredToolHistory(
       candidate,
     })),
   );
-  candidates.sort((left, right) => left.position - right.position);
+  candidates.sort((left, right) => {
+    const leftPriority =
+      left.kind === "tool" && left.candidate.priority ? 1 : 0;
+    const rightPriority =
+      right.kind === "tool" && right.candidate.priority ? 1 : 0;
+    return leftPriority - rightPriority || left.position - right.position;
+  });
 
   const retainedParts = new Set<StructuredToolHistoryPart>();
   let selectedToolHistoryCount = 0;
@@ -2307,6 +2317,7 @@ type StructuredHistorySourcePart = AgentChatRuntimeMessage["content"][number];
 interface StructuredHistorySourceMessage {
   message: AgentChatRuntimeMessage;
   parts: StructuredHistorySourcePart[];
+  priority: boolean;
 }
 
 interface StructuredHistorySourceBoundary {
@@ -2459,7 +2470,11 @@ function boundedStructuredHistorySources(
       partsReversed.push(part);
     }
     if (partsReversed.length) {
-      selectedReversed.push({ message, parts: partsReversed.reverse() });
+      selectedReversed.push({
+        message,
+        parts: partsReversed.reverse(),
+        priority: list === "supplemental",
+      });
     }
   };
 
@@ -2671,7 +2686,7 @@ function nativeStructuredHistoryFromMessages(
     supplementalToolHistoryOmitted,
   );
 
-  for (const { message, parts } of sources.messages) {
+  for (const { message, parts, priority } of sources.messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
     const role = message.role;
     let content: AgentChatStructuredMessage["content"] = [];
@@ -2762,6 +2777,7 @@ function nativeStructuredHistoryFromMessages(
           assistantParts: candidateAssistantParts,
           resultParts: [],
           isToolCall: true,
+          priority,
         });
       } else if (part.type === "tool-result") {
         hasToolHistory = true;
@@ -2794,6 +2810,7 @@ function nativeStructuredHistoryFromMessages(
           position: toolHistoryPosition++,
           toolCallId: part.toolCallId,
           part: resultPart,
+          priority,
         });
       }
     }
