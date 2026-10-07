@@ -2859,6 +2859,7 @@ function PageEditorSessionBody({
   if (editorSessionIdRef.current === null) {
     editorSessionIdRef.current = `${TAB_ID}:${documentId}:${crypto.randomUUID()}`;
   }
+  const editorSessionActiveRef = useRef(true);
   useRegisterLiveEditorSession(editorSessionIdRef.current);
   localContentRef.current = localContent;
   const reconcileRecovery = useDocumentReconcileRecovery({
@@ -4335,6 +4336,7 @@ function PageEditorSessionBody({
   const retryPendingSaveDelayRef = useRef(800);
   retryPendingSaveRef.current = (result, pending) => {
     const currentRetryState = () => ({
+      active: editorSessionActiveRef.current,
       canEdit: canEditRef.current,
       contentEditVersion: contentEditVersionRef.current,
       editGeneration: editorEditGenerationRef.current,
@@ -4414,13 +4416,15 @@ function PageEditorSessionBody({
     },
     [handleBackgroundSaveError],
   );
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    editorSessionActiveRef.current = true;
+    return () => {
+      editorSessionActiveRef.current = false;
       if (retryPendingSaveTimerRef.current)
         clearTimeout(retryPendingSaveTimerRef.current);
-    },
-    [],
-  );
+      retryPendingSaveTimerRef.current = null;
+    };
+  }, []);
   const prepareHistoryRestore = useCallback(async (): Promise<string> => {
     if (
       suggestionBaseRef.current !== null ||
