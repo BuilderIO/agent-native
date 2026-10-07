@@ -746,15 +746,6 @@ export function FirstRunOnboarding({
                     {t("agentChat.onboarding.builderSignInWithAccount")}
                   </button>
                 </div>
-                {connectFlow.error && !connectFlow.statusResolved && (
-                  <p
-                    role="status"
-                    data-testid="first-run-builder-status-error"
-                    className="text-center text-xs text-destructive"
-                  >
-                    {connectFlow.error}
-                  </p>
-                )}
               </section>
 
               <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">

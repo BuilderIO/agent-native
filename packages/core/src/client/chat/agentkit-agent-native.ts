@@ -575,6 +575,98 @@ function withRefusedTurnMetadata(
   };
 }
 
+function orderMessagesByDurableSequence(
+  snapshotMessages: AgentMessage[],
+  missingMessages: AgentMessage[],
+  durableMessages: AgentMessage[],
+  durableIndexById: Map<string, number>,
+  durableIdBySnapshotId: Map<string, string>,
+): AgentMessage[] {
+  const messageByDurableId = new Map(
+    missingMessages.map((message) => [message.id, message]),
+  );
+  const snapshotIdByDurableId = new Map<string, string>();
+  const durableIndexBySnapshotId = new Map<string, number>();
+  for (const message of snapshotMessages) {
+    const durableId =
+      durableIdBySnapshotId.get(message.id) ??
+      (durableIndexById.has(message.id) ? message.id : undefined);
+    const durableIndex = durableId
+      ? durableIndexById.get(durableId)
+      : undefined;
+    if (
+      !durableId ||
+      durableIndex === undefined ||
+      snapshotIdByDurableId.has(durableId)
+    ) {
+      continue;
+    }
+    snapshotIdByDurableId.set(durableId, message.id);
+    durableIndexBySnapshotId.set(message.id, durableIndex);
+    messageByDurableId.set(durableId, message);
+  }
+
+  if (snapshotIdByDurableId.size === 0) {
+    return [...snapshotMessages, ...missingMessages]
+      .map((message, index) => ({ message, index }))
+      .sort((left, right) => {
+        const leftCreatedAt = Date.parse(left.message.createdAt ?? "");
+        const rightCreatedAt = Date.parse(right.message.createdAt ?? "");
+        if (
+          Number.isFinite(leftCreatedAt) &&
+          Number.isFinite(rightCreatedAt) &&
+          leftCreatedAt !== rightCreatedAt
+        ) {
+          return leftCreatedAt - rightCreatedAt;
+        }
+        return left.index - right.index;
+      })
+      .map(({ message }) => message);
+  }
+
+  const insertions = new Map<number, AgentMessage[]>();
+  for (let index = 0; index < snapshotMessages.length; index += 1) {
+    const message = snapshotMessages[index]!;
+    if (durableIndexBySnapshotId.has(message.id)) continue;
+
+    let insertionIndex: number | undefined;
+    for (let next = index + 1; next < snapshotMessages.length; next += 1) {
+      const durableIndex = durableIndexBySnapshotId.get(
+        snapshotMessages[next]!.id,
+      );
+      if (durableIndex !== undefined) {
+        insertionIndex = durableIndex;
+        break;
+      }
+    }
+    if (insertionIndex === undefined) {
+      for (let previous = index - 1; previous >= 0; previous -= 1) {
+        const durableIndex = durableIndexBySnapshotId.get(
+          snapshotMessages[previous]!.id,
+        );
+        if (durableIndex !== undefined) {
+          insertionIndex = durableIndex + 1;
+          break;
+        }
+      }
+    }
+    if (insertionIndex === undefined) continue;
+    const messages = insertions.get(insertionIndex) ?? [];
+    messages.push(message);
+    insertions.set(insertionIndex, messages);
+  }
+
+  const ordered: AgentMessage[] = [];
+  for (let index = 0; index <= durableMessages.length; index += 1) {
+    ordered.push(...(insertions.get(index) ?? []));
+    const durableMessage = durableMessages[index];
+    if (!durableMessage) continue;
+    const projected = messageByDurableId.get(durableMessage.id);
+    if (projected) ordered.push(projected);
+  }
+  return ordered;
+}
+
 function reconcileDurableMessages(
   messages: AgentMessage[],
   durable: AgentMessage[],
@@ -689,6 +781,8 @@ function reconcileDurableMessages(
   });
   const representedDurableAssistantIds =
     rootAssistantProjection.representedRootMessageIds;
+  const snapshotRunIdsByMessageId =
+    rootAssistantProjection.snapshotRunIdsByMessageId;
   const rootMessageIdsBySnapshotMessageId = new Map(
     [...rootAssistantProjection.snapshotMessageIdsByRootMessageId].map(
       ([rootId, snapshotId]) => [snapshotId, rootId],
@@ -734,7 +828,8 @@ function reconcileDurableMessages(
       const runId =
         typeof metadataRunId === "string"
           ? metadataRunId
-          : runByAssistantId.get(message.id);
+          : (snapshotRunIdsByMessageId.get(message.id) ??
+            runByAssistantId.get(message.id));
       if (runId) snapshotAssistantRunIds.add(runId);
     }
   }
@@ -781,6 +876,12 @@ function reconcileDurableMessages(
     for (const message of matchingSnapshots) {
       matchedSnapshotUserIds.add(message.id);
     }
+    for (let index = 0; index < matchingSnapshots.length; index += 1) {
+      storedUserBySnapshotId.set(
+        matchingSnapshots[index]!.id,
+        candidates[index]!,
+      );
+    }
   }
 
   const missingMessages: AgentMessage[] = submittedUsers.filter(
@@ -826,36 +927,29 @@ function reconcileDurableMessages(
     representedAssistantIds.add(message.id);
   }
 
-  const projectedMessages = [
-    ...deduplicatedMessages,
-    ...missingMessages.sort(
+  const durableIdBySnapshotId = new Map<string, string>();
+  for (const [snapshotId, stored] of storedUserBySnapshotId) {
+    durableIdBySnapshotId.set(snapshotId, stored.id);
+  }
+  for (const [snapshotId, rootId] of rootMessageIdsBySnapshotMessageId) {
+    durableIdBySnapshotId.set(snapshotId, rootId);
+  }
+  const projectedMessages = orderMessagesByDurableSequence(
+    deduplicatedMessages,
+    missingMessages.sort(
       (left, right) =>
         (durableIndexById.get(left.id) ?? 0) -
         (durableIndexById.get(right.id) ?? 0),
     ),
-  ]
-    .map((message, index) => ({
-      message,
-      index,
-    }))
-    .sort((left, right) => {
-      const leftCreatedAt = Date.parse(left.message.createdAt ?? "");
-      const rightCreatedAt = Date.parse(right.message.createdAt ?? "");
-      if (
-        Number.isFinite(leftCreatedAt) &&
-        Number.isFinite(rightCreatedAt) &&
-        leftCreatedAt !== rightCreatedAt
-      ) {
-        return leftCreatedAt - rightCreatedAt;
-      }
-      return left.index - right.index;
-    })
-    .map(({ message }) => message);
-
+    durable,
+    durableIndexById,
+    durableIdBySnapshotId,
+  );
   const snapshotRunId = (message: AgentMessage) => {
     const metadataRunId = asRecord(message.metadata)?.runId;
     return (
       runByAssistantId.get(message.id) ??
+      snapshotRunIdsByMessageId.get(message.id) ??
       (typeof metadataRunId === "string" ? metadataRunId : undefined)
     );
   };
@@ -865,10 +959,16 @@ function reconcileDurableMessages(
       .map((part) => part.text)
       .join("");
 
-  return projectedMessages.map((message) => {
+  const reconciledMessages = projectedMessages.map((message) => {
     if (message.role === "user") {
       const stored = storedUserBySnapshotId.get(message.id);
-      return stored ? withRefusedTurnMetadata(message, stored) : message;
+      if (!stored) return message;
+      const createdAt = message.createdAt ?? stored.createdAt;
+      const reconciled =
+        createdAt === message.createdAt
+          ? message
+          : { ...message, ...(createdAt ? { createdAt } : {}) };
+      return withRefusedTurnMetadata(reconciled, stored);
     }
     if (message.role !== "assistant") return message;
     const representedRootId = rootMessageIdsBySnapshotMessageId.get(message.id);
@@ -885,10 +985,16 @@ function reconcileDurableMessages(
         representedRoot.status === "error"
           ? representedRoot.status
           : undefined;
-      if (parts !== message.parts || terminalStatus !== undefined) {
+      const createdAt = message.createdAt ?? representedRoot.createdAt;
+      if (
+        parts !== message.parts ||
+        terminalStatus !== undefined ||
+        createdAt !== message.createdAt
+      ) {
         message = {
           ...message,
           ...(parts !== message.parts ? { parts } : {}),
+          ...(createdAt ? { createdAt } : {}),
           ...(terminalStatus ? { status: terminalStatus } : {}),
         };
       }
@@ -1005,6 +1111,7 @@ function reconcileDurableMessages(
     }
     return { ...reconciled, parts };
   });
+  return reconciledMessages;
 }
 
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {

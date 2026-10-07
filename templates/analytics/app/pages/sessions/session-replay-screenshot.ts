@@ -16,6 +16,7 @@ const MAX_IMAGE_RESPONSE_BYTES = 12_000_000;
 const MAX_SCREENSHOT_DIMENSION = 8_192;
 const MAX_SCREENSHOT_PIXELS = 16_000_000;
 const MAX_REPLAY_IFRAME_DEPTH = 8;
+const VIDEO_READY_STATE_HAVE_CURRENT_DATA = 2;
 const REPLAY_SCREENSHOT_MARKER = "data-replay-screenshot-map";
 
 type ReplayImageResource = { document: Document; url: string };
@@ -567,8 +568,12 @@ function imageResourcesInDocuments(
       (element): element is HTMLVideoElement => element.tagName === "VIDEO",
     )) {
       if (!isElementRendered(video, current)) continue;
-      if (
-        video.poster ||
+      if (video.controls) throw new ReplayScreenshotAssetError();
+      if (hasCurrentVideoFrame(video)) {
+        assertVideoFrameReadable(video);
+      } else if (video.poster) {
+        addUrl(video.poster, current.baseURI, current);
+      } else if (
         video.currentSrc ||
         video.hasAttribute("src") ||
         video.srcObject ||
@@ -629,6 +634,68 @@ function imageResourcesInDocuments(
   return [...urlsByDocument].flatMap(([document, urls]) =>
     [...urls].map((url) => ({ document, url })),
   );
+}
+
+function hasCurrentVideoFrame(video: HTMLVideoElement): boolean {
+  return (
+    video.readyState >= VIDEO_READY_STATE_HAVE_CURRENT_DATA &&
+    video.videoWidth > 0 &&
+    video.videoHeight > 0
+  );
+}
+
+function assertVideoFrameReadable(video: HTMLVideoElement): void {
+  const probe = video.ownerDocument.createElement("canvas");
+  probe.width = 1;
+  probe.height = 1;
+  const context = probe.getContext("2d");
+  if (!context) throw new ReplayScreenshotAssetError();
+  try {
+    context.drawImage(video, 0, 0, 1, 1);
+    context.getImageData(0, 0, 1, 1);
+  } catch {
+    throw new ReplayScreenshotAssetError();
+  }
+}
+
+function copyComputedStyles(
+  source: Element,
+  target: HTMLElement,
+  view: Window,
+): void {
+  const styles = view.getComputedStyle(source);
+  for (let index = 0; index < styles.length; index += 1) {
+    const property = styles.item(index);
+    target.style.setProperty(
+      property,
+      styles.getPropertyValue(property),
+      styles.getPropertyPriority(property),
+    );
+  }
+}
+
+function html2CanvasVideoClone(
+  video: HTMLVideoElement,
+  clonesByMarker: Map<string, Element>,
+): Element | undefined {
+  const parent = video.parentElement;
+  const parentMarker = parent?.getAttribute(REPLAY_SCREENSHOT_MARKER);
+  const clonedParent = parentMarker ? clonesByMarker.get(parentMarker) : null;
+  if (!parent || !clonedParent) return undefined;
+
+  const originalChildren = Array.from(parent.children).filter(
+    (element) => element.tagName !== "SCRIPT",
+  );
+  const videoIndex = originalChildren.indexOf(video);
+  if (videoIndex === -1) return undefined;
+
+  const clonedChildren = Array.from(clonedParent.children).filter(
+    (element) =>
+      element.tagName !== "SCRIPT" &&
+      element.localName !== "html2canvaspseudoelement",
+  );
+  const clone = clonedChildren[videoIndex];
+  return clone?.tagName === "CANVAS" ? clone : undefined;
 }
 
 function imageUrlsInDocuments(documents: Document[]): string[] {
@@ -859,6 +926,17 @@ export function inlineReplayAssets(
     }
   }
 
+  for (const originalElement of originalElements) {
+    if (originalElement.tagName !== "VIDEO") continue;
+    const marker = originalElement.getAttribute(REPLAY_SCREENSHOT_MARKER);
+    if (!marker || clonesByMarker.has(marker)) continue;
+    const clone = html2CanvasVideoClone(
+      originalElement as HTMLVideoElement,
+      clonesByMarker,
+    );
+    if (clone) clonesByMarker.set(marker, clone);
+  }
+
   for (const [documentIndex, original] of originalDocuments.entries()) {
     const rootMarker = original.documentElement.getAttribute(
       REPLAY_SCREENSHOT_MARKER,
@@ -878,9 +956,13 @@ export function inlineReplayAssets(
       if (originalElement.tagName === "SCRIPT") continue;
       const marker = originalElement.getAttribute(REPLAY_SCREENSHOT_MARKER);
       let clonedElement = marker ? clonesByMarker.get(marker) : undefined;
+      const isHtml2CanvasVideoClone =
+        originalElement.tagName === "VIDEO" &&
+        clonedElement?.tagName === "CANVAS";
       if (
         !clonedElement ||
-        (originalElement.tagName !== clonedElement.tagName &&
+        (!isHtml2CanvasVideoClone &&
+          originalElement.tagName !== clonedElement.tagName &&
           !originalElement.localName.includes("-"))
       ) {
         throw new ReplayScreenshotAssetError();
@@ -894,16 +976,29 @@ export function inlineReplayAssets(
           const image = cloned.createElement("img");
           image.alt = "";
           image.src = screenshot;
-          const frameStyles = view.getComputedStyle(originalElement);
-          for (let index = 0; index < frameStyles.length; index += 1) {
-            const property = frameStyles.item(index);
-            image.style.setProperty(
-              property,
-              frameStyles.getPropertyValue(property),
-              frameStyles.getPropertyPriority(property),
-            );
-          }
+          copyComputedStyles(originalElement, image, view);
           image.style.setProperty("object-fit", "fill", "important");
+          clonedElement.replaceWith(image);
+          clonedElement = image;
+          if (marker) clonesByMarker.set(marker, image);
+        }
+      }
+      if (originalElement.tagName === "VIDEO") {
+        const video = originalElement as HTMLVideoElement;
+        if (!hasCurrentVideoFrame(video) && video.poster) {
+          const posterUrl = new URL(video.poster, original.baseURI).href;
+          const poster = documentAssets.get(posterUrl);
+          if (!poster) throw new ReplayScreenshotAssetError();
+          const image = cloned.createElement("img");
+          image.alt = "";
+          image.src = poster;
+          const videoStyles = view.getComputedStyle(video);
+          copyComputedStyles(video, image, view);
+          image.style.setProperty(
+            "object-fit",
+            videoStyles.objectFit || "contain",
+            "important",
+          );
           clonedElement.replaceWith(image);
           clonedElement = image;
           if (marker) clonesByMarker.set(marker, image);

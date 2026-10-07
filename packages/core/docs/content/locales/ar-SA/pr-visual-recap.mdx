@@ -269,8 +269,10 @@ GitHub مُشغِّلًا متصلاً يطابق كل تسمية مهيَّأة
 إلغاءه. أصدِر واحدًا (لمالكي/مسؤولي المؤسسة فقط):
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap --ttl-days 3650
 ```
+
+يمنح ذلك CI صلاحية لمدة 10 سنوات مع إمكانية إلغاء الرمز في أي وقت.
 
 يصادق عليك الأمر في المتصفح، ثم يطبع رمز الخدمة مرة واحدة بالضبط — خزّنه
 كسر `PLAN_RECAP_TOKEN`. أدِره لاحقًا باستخدام إجراءَي `list-org-service-tokens`

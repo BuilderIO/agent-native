@@ -908,14 +908,36 @@ test("resizing a selected element emits a visual-style-change payload", async ({
     (window as any).__bridge = [];
   });
 
+  const originalPaddingRight = await selectedElementStyle(
+    page,
+    "Alpha Button",
+    "padding-right",
+  );
+  const southeastHandle = designFrame(page).locator(
+    '[data-agent-native-edit-handle="se"]',
+  );
+  await expect(southeastHandle).toBeVisible();
+  expect(
+    await southeastHandle.evaluate((handle) => {
+      const rect = handle.getBoundingClientRect();
+      return document
+        .elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+        ?.getAttribute("data-agent-native-edit-handle");
+    }),
+  ).toBe("se");
+
   await resizeSelectedElement(page, "se", 32, 18);
   const message = await waitForBridge(page, "visual-style-change");
   const styles = message?.styles ?? {};
 
+  expect(message.phase).toBe("commit");
   expect(message.selector ?? "").toContain("data-agent-native-node-id");
   expect(styles.width ?? "").not.toBe("");
   expect(styles.height ?? "").not.toBe("");
   expect(styles.position ?? "").not.toBe("");
+  expect(
+    await selectedElementStyle(page, "Alpha Button", "padding-right"),
+  ).toBe(originalPaddingRight);
   expect((message.payload?.tagName ?? "").toUpperCase()).toBe("BUTTON");
   expect(String(message.payload?.textContent ?? "")).toContain("Alpha Button");
 });

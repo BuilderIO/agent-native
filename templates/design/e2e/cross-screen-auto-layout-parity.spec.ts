@@ -399,6 +399,7 @@ async function dragScreenNode(
       timeout: 5_000,
     })
     .toBeGreaterThan(0);
+  await onHeld?.();
   const guide = page.locator("[data-cross-screen-drop-guide]");
   const guideCount = await guide.count();
   const evidence = {
@@ -415,7 +416,6 @@ async function dragScreenNode(
       .locator("[data-cross-screen-drag-ghost]")
       .boundingBox(),
   };
-  await onHeld?.();
   await page.mouse.up();
   return evidence;
 }
@@ -729,10 +729,22 @@ test.describe("physical cross-screen auto-layout parity", () => {
       design.destinationId,
       "destination-anchor",
     );
-    const held = await dragScreenNode(page, design.sourceId, "screen-source", {
-      x: destination.x + destination.width / 2,
-      y: destination.y + destination.height / 2,
-    });
+    const held = await dragScreenNode(
+      page,
+      design.sourceId,
+      "screen-source",
+      {
+        x: destination.x + destination.width / 2,
+        y: destination.y + destination.height / 2,
+      },
+      async () => {
+        await expect
+          .poll(() => page.locator("[data-cross-screen-drop-guide]").count(), {
+            timeout: 5_000,
+          })
+          .toBeGreaterThan(0);
+      },
+    );
     expect(held.guide).toBeGreaterThan(0);
     expect(held.ghost).toBeGreaterThan(0);
     expect(held.sourceVisible).toBe(true);

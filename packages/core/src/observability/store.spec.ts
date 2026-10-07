@@ -1225,13 +1225,16 @@ describe("observability store: per-user isolation", () => {
         errorMessage: null,
         metadata: null,
         createdAt: 1,
+        endedAt: 5,
       });
       const call = execCalls.find((c) =>
         /INSERT INTO agent_trace_spans/.test(c.sql),
       );
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
+      expect(call!.sql).toMatch(/\bended_at\b/);
       expect(call!.args).toContain("alice");
+      expect(call!.args).toContain(5);
     });
 
     it("upsertTraceSummary persists user_id", async () => {
