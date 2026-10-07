@@ -779,7 +779,7 @@ test.describe("two tabs editing one page at beta cadence", () => {
         s.notes.recoveredTitle = peerTitle;
         s.expectedNoise = [
           'A showed "Unsaved page draft"',
-          'A toasted "Your latest page edits could not be saved. Try again before leaving this page."',
+          'A showed "Your latest page edits could not be saved."',
         ];
       },
     );
