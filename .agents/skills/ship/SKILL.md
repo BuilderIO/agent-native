@@ -190,10 +190,12 @@ unchanged scan produce status-only messages. For each PR:
 - In `ready-only` mode, keep fixing CI and review feedback until the ready-PR
   gate in `/babysit-pr` holds; then leave the PR open without merging or rotating.
 - While remote checks or the soak are pending, keep the task heartbeat active
-  and produce no status-only messages. If fresh evidence shows that progress
-  now requires a human-only change or no authorized action remains, pause the
-  heartbeat, record the exact blocker once, and state the next required action.
-  Do not send repeated "continue" prompts that restate CI status.
+  and produce no status-only messages. A pending check or transient provider
+  outage that may resolve without the user is not a reason to pause it; after
+  three unchanged wakes, back off to a 30-minute cadence and keep checking.
+  Pause only when fresh evidence identifies a specific human-only action, then
+  report that action once. Do not send repeated "continue" prompts that
+  restate CI status.
 
 The heartbeat is a wake-up trigger, not the work. Every wake resumes the
 original task's goal and ledger, refreshes live evidence, and takes the next

@@ -101,9 +101,10 @@ gh pr view <number> --json state,mergedAt,closedAt,author,headRepository,headRep
 ```
 
 If the query fails or is ambiguous, do not act on cached evidence. Retry only
-after live state is available; under `/ship`, keep its same-thread heartbeat
-as the sole reentry path while state is unresolved. A closed, unmerged PR ends
-babysitting and is reported as unsuccessful.
+after live state is available. Keep retrying the live query in the foreground
+at a short, interruptible cadence; under `/ship`, the verified same-thread
+heartbeat is an additional reentry path, not a replacement for that retry.
+A closed, unmerged PR ends babysitting and is reported as unsuccessful.
 If a PR is already merged under inherited `ship_mode=merge-authorized`,
 continue the post-merge path here. Standalone and ready-only invocations report
 an unexpected merge without rotating.
