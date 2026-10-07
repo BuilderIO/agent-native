@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   buildCiRedRows,
   parseFailedTestNames,
+  renderCiRedReport,
   runCiRedReportCli,
   type WorkflowJob,
   type WorkflowRun,
@@ -157,27 +158,40 @@ describe("ci-red-report", () => {
     const lines = stdout[0].trimEnd().split("\n");
     assert.equal(
       lines[0],
-      "run_id\tattempt\tcreated_at\tconcluded_at\tworkflow\tworkflow_path\tjob\tstep\ttest\tfingerprint_grain\tfingerprint\turl",
+      "workflow\tworkflow_path\tjob\tstep\ttest\tfingerprint_grain\tfingerprint\trun_count\truns_json",
     );
-    assert.deepEqual(
-      lines.slice(1).map((line) => [line.split("\t")[0], line.split("\t")[7]]),
-      [
-        ["10", "Run shard"],
-        ["10", "Run shard"],
-        ["15", "Run Design E2E"],
-        ["16", "(workflow-level failure)"],
-        ["19", "Run Design E2E"],
-      ],
+    const columns = Object.fromEntries(
+      lines[0].split("\t").map((name, index) => [name, index]),
     );
-    assert.match(
-      lines[1].split("\t")[8],
-      /canvas-invariants\.spec\.ts.*group fill persists/,
+    const reportRows = lines.slice(1).map((line) => line.split("\t"));
+    assert.equal(reportRows.length, 4);
+    const testRow = reportRows.find((row) =>
+      /canvas-invariants\.spec\.ts.*group fill persists/.test(
+        row[columns.test],
+      ),
     );
-    assert.equal(lines[1].split("\t")[9], "test");
-    assert.equal(lines[3].split("\t")[9], "job-step");
-    for (const line of lines.slice(1)) {
-      assert.match(line.split("\t")[10], /^sha256:[a-f0-9]{64}$/);
+    assert.ok(testRow);
+    assert.equal(testRow[columns.fingerprint_grain], "test");
+    for (const row of reportRows) {
+      assert.match(row[columns.fingerprint], /^sha256:[a-f0-9]{64}$/);
     }
+    const repeatedStep = reportRows.find(
+      (row) =>
+        row[columns.job].startsWith("chromium / design editor") &&
+        row[columns.step] === "Run Design E2E",
+    );
+    assert.ok(repeatedStep);
+    assert.equal(repeatedStep[columns.run_count], "2");
+    assert.deepEqual(
+      JSON.parse(repeatedStep[columns.runs_json]).map(
+        ({ runId }: { runId: number }) => runId,
+      ),
+      [15, 19],
+    );
+    const workflowFailure = reportRows.find(
+      (row) => row[columns.fingerprint_grain] === "workflow",
+    );
+    assert.ok(workflowFailure);
     assert.equal(endpoints.length, 7);
     assert.match(
       endpoints[0],
@@ -195,11 +209,63 @@ describe("ci-red-report", () => {
     );
     assert.ok(!endpoints.some((endpoint) => endpoint.includes("runs/20/jobs")));
     assert.ok(
-      lines.some(
-        (line) =>
-          line.startsWith("15\t1\t2026-09-30") &&
-          line.includes("\t2026-10-02T00:00:00.000Z\t"),
+      JSON.parse(repeatedStep[columns.runs_json]).some(
+        ({ runId, concludedAt }: { runId: number; concludedAt: string }) =>
+          runId === 15 && concludedAt === "2026-10-02T00:00:00.000Z",
       ),
+    );
+  });
+
+  it("groups by fingerprint and orders Design E2E and product workflows first", () => {
+    const runs = [
+      run(30),
+      run(31),
+      run(32, { name: "CI", path: ".github/workflows/ci.yml@main" }),
+      run(33, {
+        name: "Beta deploy",
+        path: ".github/workflows/deploy-beta-sites.yml@main",
+      }),
+    ];
+    const rows = buildCiRedRows(
+      runs,
+      new Map(
+        runs.map((workflowRun) => [
+          workflowRun.id,
+          [
+            job(workflowRun.id, workflowRun.id * 10, {
+              steps: [
+                step(
+                  workflowRun.id === 33 ? "Publish artifacts" : "Run checks",
+                  "failure",
+                ),
+              ],
+            }),
+          ],
+        ]),
+      ),
+      since,
+      now,
+    );
+    const lines = renderCiRedReport([...rows, rows[0]!])
+      .trimEnd()
+      .split("\n");
+    const headers = lines[0].split("\t");
+    const records = lines.slice(1).map((line) => {
+      const cells = line.split("\t");
+      return Object.fromEntries(headers.map((header, i) => [header, cells[i]]));
+    });
+
+    assert.equal(records.length, 3);
+    assert.deepEqual(
+      records.map((record) => record.workflow),
+      ["Design E2E", "CI", "Beta deploy"],
+    );
+    assert.equal(records[0].run_count, "2");
+    assert.deepEqual(
+      JSON.parse(records[0].runs_json).map(
+        ({ runId }: { runId: number }) => runId,
+      ),
+      [31, 30],
     );
   });
 
@@ -435,7 +501,14 @@ describe("ci-red-report", () => {
     assert.equal(exitCode, 0);
     assert.equal(pushQueries, 2);
     assert.deepEqual(stderr, []);
-    assert.match(stdout[0], /^10\t1\t/m);
+    const [header, line] = stdout[0].trimEnd().split("\n");
+    const runsJsonIndex = header.split("\t").indexOf("runs_json");
+    assert.deepEqual(
+      JSON.parse(line.split("\t")[runsJsonIndex]).map(
+        ({ runId }: { runId: number }) => runId,
+      ),
+      [10],
+    );
   });
 
   it("exits 2 when gh returns malformed API JSON", async () => {

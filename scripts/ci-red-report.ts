@@ -731,13 +731,38 @@ function tsvField(value: string): string {
 
 export function renderCiRedReport(rows: CiRedRow[]): string {
   const header =
-    "run_id\tattempt\tcreated_at\tconcluded_at\tworkflow\tworkflow_path\tjob\tstep\ttest\tfingerprint_grain\tfingerprint\turl";
-  const body = rows.map((row) =>
+    "workflow\tworkflow_path\tjob\tstep\ttest\tfingerprint_grain\tfingerprint\trun_count\truns_json";
+  const grouped = new Map<string, Map<string, CiRedRow>>();
+  for (const row of rows) {
+    const key = `${row.workflowPath}\u0000${row.fingerprint}`;
+    const attempts = grouped.get(key) ?? new Map<string, CiRedRow>();
+    attempts.set(`${row.runId}\u0000${row.attempt}`, row);
+    grouped.set(key, attempts);
+  }
+  const groups = [...grouped.values()].map((attempts) => {
+    const orderedRuns = [...attempts.values()].sort(
+      (left, right) =>
+        Date.parse(right.concludedAt) - Date.parse(left.concludedAt) ||
+        right.runId - left.runId ||
+        right.attempt - left.attempt,
+    );
+    return { row: orderedRuns[0], runs: orderedRuns };
+  });
+  const workflowPriority = (row: CiRedRow): number => {
+    const workflow = `${row.workflow} ${row.workflowPath}`.toLowerCase();
+    if (workflow.includes("design-e2e")) return 0;
+    if (/\b(e2e|ci|test|build|lint|typecheck)\b/.test(workflow)) return 1;
+    return 2;
+  };
+  groups.sort(
+    (left, right) =>
+      workflowPriority(left.row) - workflowPriority(right.row) ||
+      right.runs.length - left.runs.length ||
+      left.row.workflowPath.localeCompare(right.row.workflowPath) ||
+      left.row.fingerprint.localeCompare(right.row.fingerprint),
+  );
+  const body = groups.map(({ row, runs }) =>
     [
-      String(row.runId),
-      String(row.attempt),
-      tsvField(row.createdAt),
-      tsvField(row.concludedAt),
       tsvField(row.workflow),
       tsvField(row.workflowPath),
       tsvField(row.job),
@@ -745,10 +770,21 @@ export function renderCiRedReport(rows: CiRedRow[]): string {
       tsvField(row.test),
       row.fingerprintGrain,
       tsvField(row.fingerprint),
-      tsvField(row.url),
+      String(runs.length),
+      tsvField(
+        JSON.stringify(
+          runs.map((run) => ({
+            runId: run.runId,
+            attempt: run.attempt,
+            createdAt: run.createdAt,
+            concludedAt: run.concludedAt,
+            url: run.url,
+          })),
+        ),
+      ),
     ].join("\t"),
   );
-  if (rows.length === 0) {
+  if (groups.length === 0) {
     body.push(
       "# no push-to-main or scheduled failures concluded in the last 5 days",
     );

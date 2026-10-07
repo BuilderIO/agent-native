@@ -1,10 +1,10 @@
 ---
 name: review-latest-feedback
 description: >-
-  Review Slack, GitHub, CI, Sentry, first-party Agent-Native Analytics,
-  diagnostics, and linked trackers. Answer reporters first, fix verified bugs
-  and objective UI defects, require signoff for subjective changes, build
-  upvoted features, and recap dispositions. Use for scheduled or manual sweeps.
+  Review Slack, GitHub, CI, Sentry, Agent-Native Analytics, diagnostics, and
+  linked trackers. Answer reporters first; fix verified bugs and objective UI
+  defects; require signoff for subjective changes; build upvoted features;
+  recap dispositions. Use for scheduled or manual sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -267,13 +267,12 @@ the query also returns ordinary replies and old polls that happen to carry the
 reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
-An upvoted item is a **feature or UX change**: it skips only the clear-bug bar,
-not `👀`, fix-altitude, verification, or question-budget requirements. The
-upvote overrides the bug gate, not ownership; build the smallest endorsed
-version and name Sid or Alice in the recap. Add `👀` before investigation or
-delegation and read it back. Keep an evidence-limited disposition until Phase
-2's four bars hold; then use **Shipped**, adding `✅` only if it also meets
-**Fixed**.
+An upvote endorses a **feature or UX change** and skips only the clear-bug bar;
+it does not change ownership, reaction, verification, or question-budget rules.
+Build the smallest endorsed version, name Sid or Alice, and state requested
+versus actual behavior in the recap. Add `👀` before investigation or
+delegation and read it back. Keep it evidence-limited until Phase 2's four bars
+hold; then use **Shipped**, adding `✅` only if it meets **Fixed**.
 
 Do not search `has::eyes:` to resume work.
 
@@ -576,7 +575,7 @@ Upvoted items in scope: N (built: N)
 | Tracker/source | Reporter | Status | Repro (expected/actual) | Pre/post | Runtime proof | Locales | Handoff (action/owner/ticket) | Replied | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) | ... | <disposition> | steps; expected/actual | before/after | source/tests/build/URL | updated/N/A/pending | none or action/owner/[ticket](...) | yes/no | 👀 claim; ✅ Fixed; 🎫 ticketed only |
-| CI [run](...) · fingerprint | N/A | class · disposition | failed job/step | pre/post | fix/quarantine proof | N/A | owner/[issue](...) | N/A | N/A |
+| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | fix/quarantine proof | N/A | owner/[issue](...) | N/A | N/A |
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

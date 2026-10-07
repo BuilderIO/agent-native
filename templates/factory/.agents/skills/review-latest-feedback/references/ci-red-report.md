@@ -3,17 +3,22 @@
 `pnpm ci:red-report` lists failed `push` and `schedule` workflows on `main`
 whose jobs completed during the last five days. It searches up to 35 days back
 for long-running workflows and ignores cancellations. Rows include the run,
-workflow, failed job/step, and stable fingerprint. If logs name Playwright
+workflow, failed job/step, stable fingerprint, and the count plus JSON evidence
+for every matching run ID, attempt, timestamp, and URL. The report groups
+repeated failures by workflow and fingerprint, orders Design E2E and product
+workflows first, and preserves every fingerprint. If logs name Playwright
 cases, the fingerprint is test-level; otherwise `job-step` is broader and
 requires logs or artifacts for case-level diagnosis. An incomplete or failed
 API query exits 2 and means **CI unavailable**, never an empty result.
 
-Keep every row in the recap. Search open PRs and tracking issues for its run id,
-workflow, or fingerprint. Mark **Owned elsewhere** only when an open item names
-one of those identifiers, and link it. Classify other rows as **product
-regression**, **stale spec**, **harness flake**, or **infrastructure**. Reproduce
-locally and fix the owning boundary. Keep one tracking issue per fingerprint
-and close it on fix.
+Keep every fingerprint in the recap, including its run count and run links.
+Search open PRs and tracking issues for every run id, workflow, or fingerprint.
+A run-ID-only match owns only that occurrence; keep other unowned run IDs
+actionable. Mark the aggregate **Owned elsewhere** only when an open item names
+its workflow or fingerprint, and link it. Classify other fingerprints as
+**product regression**, **stale spec**, **harness flake**, or **infrastructure**.
+Reproduce locally and fix the owning boundary. Keep one tracking issue per
+fingerprint and close it on fix.
 
 Quarantine only with a named owner, expiry, and linked tracking issue. A green
 result produced by quarantine is a defect. Follow quarantined rows until fixed

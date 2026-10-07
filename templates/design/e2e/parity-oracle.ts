@@ -40,9 +40,9 @@ export function oracle(id: string, repoRoot = REPO_ROOT): ParityOracle {
     record = JSON.parse(readFileSync(entryPath, "utf8")) as OracleRecord;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`cannot read Design oracle ${id}: ${detail}`, {
-      cause: error,
-    });
+    const wrapped = new Error(`cannot read Design oracle ${id}: ${detail}`);
+    Object.defineProperty(wrapped, "cause", { value: error });
+    throw wrapped;
   }
   if (record.schemaVersion !== 1 || record.id !== id) {
     throw new Error(`Design oracle ${id} has an invalid schema or id`);
@@ -108,9 +108,11 @@ export function oracle(id: string, repoRoot = REPO_ROOT): ParityOracle {
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`Design oracle ${id} artifact check failed: ${detail}`, {
-        cause: error,
-      });
+      const wrapped = new Error(
+        `Design oracle ${id} artifact check failed: ${detail}`,
+      );
+      Object.defineProperty(wrapped, "cause", { value: error });
+      throw wrapped;
     }
   }
   if (
