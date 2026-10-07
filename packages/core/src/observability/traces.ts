@@ -633,6 +633,7 @@ export async function instrumentAgentLoop(opts: {
     end: number;
     usage?: AgentLoopUsage;
     stopReason?: string;
+    errorMessage?: string | null;
     input?: unknown[];
     assistantText: BoundedAssistantText;
   }> = [];
@@ -740,12 +741,29 @@ export async function instrumentAgentLoop(opts: {
   };
   const finishAwaitingOtelModelSpans = (
     finalErrorMessage: string | null = null,
+    markUnresolvedFailed = false,
   ): void => {
     for (const tripIndex of modelSpansAwaitingFinalError) {
+      const trip = modelRoundTrips[tripIndex];
+      const modelCallFailed =
+        trip?.stopReason === "error" ||
+        markUnresolvedFailed ||
+        (finalErrorMessage !== null &&
+          runStatus === "error" &&
+          reportedToolFailures === 0 &&
+          pendingTools.size === 0);
+      const modelErrorMessage = modelCallFailed
+        ? (trip?.errorMessage ??
+          finalErrorMessage ??
+          "Model stream ended before completion.")
+        : null;
+      if (trip && modelCallFailed) {
+        trip.stopReason = "error";
+        trip.errorMessage ??= modelErrorMessage;
+      }
       finishOtelModelSpan(tripIndex, {
-        status: "error",
-        errorMessage:
-          finalErrorMessage ?? "Model stream ended before completion.",
+        status: modelCallFailed ? "error" : "success",
+        errorMessage: modelErrorMessage,
         attributes: modelSpanAttributes(tripIndex),
         endTime: modelRoundTrips[tripIndex]?.end,
       });
@@ -811,7 +829,7 @@ export async function instrumentAgentLoop(opts: {
         }
       }
       if (event.type === "clear" || event.type === "done") {
-        finishAwaitingOtelModelSpans();
+        finishAwaitingOtelModelSpans(null, event.type === "clear");
         runStatus = "success";
         errorMessage = null;
         cutOffReason = null;
@@ -837,7 +855,7 @@ export async function instrumentAgentLoop(opts: {
       }
       if (event.type === "model_stream") {
         if (event.status === "start") {
-          finishAwaitingOtelModelSpans();
+          finishAwaitingOtelModelSpans(null, true);
           if (modelStreamOpenedAt === null) {
             modelStreamOpenedAt = Date.now();
             const tripIndex = modelRoundTrips.length;
@@ -1083,11 +1101,26 @@ export async function instrumentAgentLoop(opts: {
           ? {
               onModelInput: (messages: readonly unknown[]) => {
                 if (config.capturePrompts) {
+                  const attemptStartedAt = Date.now();
+                  if (pendingModelInputStartedAt !== undefined) {
+                    modelRoundTrips.push({
+                      spanId: spanId(),
+                      start: pendingModelInputStartedAt,
+                      end: attemptStartedAt,
+                      stopReason: "error",
+                      errorMessage:
+                        "Model attempt failed before streaming and was retried.",
+                      ...(pendingModelInput !== undefined
+                        ? { input: pendingModelInput }
+                        : {}),
+                      assistantText: createBoundedAssistantText(),
+                    });
+                  }
                   const capturedMessages = prepareCapturedModelInput(messages);
                   pendingModelInput = Array.isArray(capturedMessages)
                     ? capturedMessages
                     : undefined;
-                  pendingModelInputStartedAt = Date.now();
+                  pendingModelInputStartedAt = attemptStartedAt;
                 }
                 return loopOpts.onModelInput?.(messages);
               },
@@ -1127,9 +1160,15 @@ export async function instrumentAgentLoop(opts: {
       if (modelStreamOpenedAt !== null) {
         modelStreamIntervals.push({ start: modelStreamOpenedAt, end: runEnd });
         const trip = currentRoundTrip();
-        if (trip) trip.end = runEnd;
+        if (trip) {
+          trip.end = runEnd;
+          trip.stopReason ??= "error";
+          trip.errorMessage ??=
+            errorMessage ?? "Model stream interrupted before completion.";
+        }
         modelStreamOpenedAt = null;
       }
+      finishAwaitingOtelModelSpans(errorMessage);
       const measuredModelDurationMs = modelStreamIntervals.length
         ? coveredDurationMs(modelStreamIntervals)
         : undefined;
@@ -1296,6 +1335,7 @@ export async function instrumentAgentLoop(opts: {
                 latencyMs: Math.max(0, trip.end - trip.start),
                 callUsage: trip.usage,
                 stopReason: trip.stopReason,
+                errorMessage: trip.errorMessage,
                 tokensKnown: trip.usage !== undefined,
                 input: trip.input,
                 assistantText: trip.assistantText.parts.join(""),
@@ -1330,6 +1370,7 @@ export async function instrumentAgentLoop(opts: {
                       : requestMessages),
                   assistantText: assistantTextCapture.parts.join(""),
                   assistantTextTruncated: assistantTextCapture.truncated,
+                  errorMessage: undefined,
                   toolSpans: collectedToolSpans,
                   toolDetails: [...generationToolCalls.entries()]
                     .sort(([a], [b]) => a - b)
@@ -1354,6 +1395,7 @@ export async function instrumentAgentLoop(opts: {
             input: pendingModelInput,
             assistantText: "",
             assistantTextTruncated: false,
+            errorMessage: undefined,
             toolSpans: [],
             toolDetails: [],
             isFirst: false,
@@ -1383,12 +1425,17 @@ export async function instrumentAgentLoop(opts: {
               ? "error"
               : "success";
           const generationError =
-            generationStatus === "error" ? errorMessage : null;
+            generationStatus === "error"
+              ? (generation.errorMessage ?? errorMessage)
+              : null;
+          const assistantTextIncomplete =
+            generationStatus === "error" && generation.assistantText.length > 0;
           const generationContent = buildGenerationContent({
             config,
             messages: generation.input,
             assistantText: generation.assistantText,
-            assistantTextTruncated: generation.assistantTextTruncated,
+            assistantTextTruncated:
+              generation.assistantTextTruncated || assistantTextIncomplete,
             toolSpans: generation.toolSpans,
             toolCallIds: toolSpanCallId,
           });

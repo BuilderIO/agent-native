@@ -2,7 +2,32 @@ import { describe, expect, it } from "vitest";
 
 import { redactToolErrorMessage, toolErrorSignature } from "./trace-error.js";
 
+const fakeAwsAccessKeyId = (prefix: "AKIA" | "ASIA") =>
+  `${prefix}${"0".repeat(16)}`;
+
 describe("redactToolErrorMessage", () => {
+  it("redacts AWS access key IDs from captured user input and output", () => {
+    const inputKey = fakeAwsAccessKeyId("AKIA");
+    const outputKey = fakeAwsAccessKeyId("ASIA");
+    expect(redactToolErrorMessage(`User input included ${inputKey}.`)).toBe(
+      "User input included [REDACTED].",
+    );
+    expect(
+      redactToolErrorMessage(`Assistant output included ${outputKey}.`),
+    ).toBe("Assistant output included [REDACTED].");
+  });
+
+  it("redacts AWS access key IDs cut off at the end of captured text", () => {
+    const inputKeyPrefix = `${"AKIA"}${"0".repeat(7)}`;
+    const outputKeyPrefix = `${"ASIA"}${"0".repeat(7)}`;
+    expect(
+      redactToolErrorMessage(`User input ended at ${inputKeyPrefix}`),
+    ).toBe("User input ended at [REDACTED]");
+    expect(
+      redactToolErrorMessage(`Assistant output ended at ${outputKeyPrefix}`),
+    ).toBe("Assistant output ended at [REDACTED]");
+  });
+
   it("redacts a quoted credential when capture ends before its closing quote", () => {
     const redacted = redactToolErrorMessage(
       '{"client_secret": "partial secret value',

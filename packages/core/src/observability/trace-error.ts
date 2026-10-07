@@ -1,9 +1,9 @@
 const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
 
 const STANDALONE_API_KEY_PATTERN =
-  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
 const INCOMPLETE_STANDALONE_API_KEY_PATTERN =
-  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{0,7}|(?:sk|rk)_[A-Za-z0-9_]{0,12}|AIza[A-Za-z0-9_-]{0,15}|gh[pousr]_[A-Za-z0-9]{0,15})$/g;
+  /\b(?:(?:AKIA|ASIA)[A-Z0-9]{0,15}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{0,7}|(?:sk|rk)_[A-Za-z0-9_]{0,12}|AIza[A-Za-z0-9_-]{0,15}|gh[pousr]_[A-Za-z0-9]{0,15})$/g;
 const CONNECTION_FIELD =
   "(?:database[_ -]?(?:url|uri|dsn)|db[_ -]?(?:url|uri|dsn)|connection[_ -]?(?:string|url|uri)|dsn|(?:postgres(?:ql)?|mysql|mariadb|mongodb|mongo|redis|rediss|amqp|mssql|cockroachdb)[_ -]?(?:url|uri|dsn|connection[_ -]?string))";
 const COMPOUND_CREDENTIAL_FIELD = `(?:api[_ -]?key|access[_ -]?(?:token|key(?:[_ -]?id)?)|refresh[_ -]?token|client[_ -]?secret|private[_ -]?key|secret[_ -]?key|signing[_ -]?key|encryption[_ -]?key|${CONNECTION_FIELD})`;

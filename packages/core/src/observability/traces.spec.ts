@@ -26,6 +26,8 @@ const DEFAULT_OBSERVABILITY_CONFIG: ObservabilityConfig = {
   inferredSentimentEnabled: false,
   inferredSentimentSampleRate: 0,
 };
+const fakeAwsAccessKeyId = (prefix: "AKIA" | "ASIA") =>
+  `${prefix}${"0".repeat(16)}`;
 
 describe("redactSensitiveFields", () => {
   it("redacts top-level sensitive keys", () => {
@@ -651,16 +653,21 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       tools: [
         { name: "search", description: "Search the docs", inputSchema: {} },
       ],
-      messages: [{ role: "user", content: "how do I deploy?" }],
+      messages: [{ role: "user", content: "original request" }],
       actions: {},
       send: () => {},
       signal: new AbortController().signal,
     };
+    const userPrompt = `how do I deploy? ${fakeAwsAccessKeyId("AKIA")}`;
 
     await instrumentAgentLoop({
-      runAgentLoop: async ({ send }) => {
+      runAgentLoop: async ({ send, onModelInput }) => {
+        onModelInput?.([{ role: "user", content: userPrompt }]);
         send({ type: "text", text: "Run " });
-        send({ type: "text", text: "pnpm deploy." });
+        send({
+          type: "text",
+          text: `pnpm deploy. ${fakeAwsAccessKeyId("ASIA")}`,
+        });
         return {
           inputTokens: 5,
           outputTokens: 3,
@@ -685,16 +692,16 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.properties?.["$ai_input"]).toEqual([
-      { role: "user", content: "how do I deploy?" },
+      { role: "user", content: "how do I deploy? [REDACTED]" },
     ]);
     expect(events[0]?.properties?.["$ai_output_choices"]).toEqual([
-      { role: "assistant", content: "Run pnpm deploy." },
+      { role: "assistant", content: "Run pnpm deploy. [REDACTED]" },
     ]);
     expect(events[0]?.properties).not.toHaveProperty("$ai_tools");
     const llmSpan = persistedSpans.find((span) => span.spanType === "llm_call");
     expect(llmSpan?.metadata).toEqual({
-      input: [{ role: "user", content: "how do I deploy?" }],
-      output: [{ role: "assistant", content: "Run pnpm deploy." }],
+      input: [{ role: "user", content: "how do I deploy? [REDACTED]" }],
+      output: [{ role: "assistant", content: "Run pnpm deploy. [REDACTED]" }],
     });
     expect(JSON.stringify(llmSpan?.metadata)).not.toContain(
       "Do not persist this system instruction.",
@@ -3365,6 +3372,137 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         ?.message,
     ).toBe("second model call failed before streaming");
     expect(byName.get("$ai_trace")?.[0]?.properties?.llm_calls).toBe(2);
+  });
+
+  it("preserves each failed retry attempt before replacing its pending input", async () => {
+    const events: TrackingEvent[] = [];
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation" || event.name === "$ai_trace") {
+          events.push(event);
+        }
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ onModelInput, send, onUsage }) => {
+        onModelInput?.([{ role: "user", content: "first attempt prompt" }]);
+        onModelInput?.([{ role: "user", content: "retried prompt" }]);
+        send({ type: "model_stream", status: "start" });
+        onUsage?.({
+          inputTokens: 4,
+          outputTokens: 2,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          llmCalls: 2,
+        } as any);
+        send({ type: "text", text: "retried answer" });
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        return {
+          inputTokens: 4,
+          outputTokens: 2,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+          llmCalls: 2,
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-retried-model-input",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const llmSpans = persistedSpans.filter(
+      (span) => span.spanType === "llm_call",
+    );
+    expect(llmSpans).toHaveLength(2);
+    expect(llmSpans[0]).toMatchObject({
+      status: "error",
+      errorMessage: "Model attempt failed before streaming and was retried.",
+      metadata: { input: [{ role: "user", content: "first attempt prompt" }] },
+    });
+    expect(llmSpans[1]).toMatchObject({
+      status: "success",
+      metadata: { input: [{ role: "user", content: "retried prompt" }] },
+    });
+    expect(
+      events.filter((event) => event.name === "$ai_generation"),
+    ).toHaveLength(2);
+    expect(
+      events.find((event) => event.name === "$ai_trace")?.properties?.llm_calls,
+    ).toBe(2);
+  });
+
+  it("marks partial assistant output incomplete when a model stream is interrupted", async () => {
+    const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
+      [];
+    vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
+      persistedSpans.push(span);
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ onModelInput, send }) => {
+        onModelInput?.([{ role: "user", content: "finish the response" }]);
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "partial assistant output" });
+        throw new Error("provider disconnected");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-interrupted-assistant-output",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const llmSpan = persistedSpans.find((span) => span.spanType === "llm_call");
+    expect(llmSpan?.status).toBe("error");
+    expect(llmSpan?.metadata).toMatchObject({ output_truncated: true });
+    expect(llmSpan?.metadata?.output).toEqual([
+      {
+        role: "assistant",
+        content: "partial assistant output\n[truncated]",
+      },
+    ]);
   });
 
   it("marks the failing layer: the model call, the tool, or the run", async () => {

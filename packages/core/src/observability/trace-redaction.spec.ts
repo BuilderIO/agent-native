@@ -5,6 +5,8 @@ import { redactSensitiveFields } from "./trace-redaction.js";
 const slackWebhookUrl =
   "https://hooks.slack.com/services/T_FAKE/B_FAKE/FAKE_TOKEN";
 const providerWebhookUrl = "https://provider.example/hooks/FAKE_TOKEN";
+const fakeAwsAccessKeyId = (prefix: "AKIA" | "ASIA") =>
+  `${prefix}${"0".repeat(16)}`;
 
 describe("redactSensitiveFields", () => {
   it("redacts structured webhook URL fields", () => {
@@ -39,5 +41,14 @@ describe("redactSensitiveFields", () => {
     ).toEqual({
       prompt: "Retry posting to webhookUrl: [REDACTED].",
     });
+  });
+
+  it("redacts AWS access key IDs embedded in captured user input", () => {
+    const accessKeys = `${fakeAwsAccessKeyId("AKIA")} and ${fakeAwsAccessKeyId("ASIA")}`;
+    expect(
+      redactSensitiveFields({
+        prompt: `The user included ${accessKeys}.`,
+      }),
+    ).toEqual({ prompt: "The user included [REDACTED] and [REDACTED]." });
   });
 });
