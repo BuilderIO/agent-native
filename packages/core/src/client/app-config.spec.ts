@@ -30,6 +30,19 @@ describe("injectedAgentNativeAppId", () => {
     expect(injectedAgentNativeAppId()).toBe("configured-calendar");
   });
 
+  it("falls back to the server workspace app identity when the compiled value is blank", () => {
+    vi.stubGlobal("__AGENT_NATIVE_WORKSPACE_APP_ID__", "  ");
+    vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "package-calendar");
+    vi.stubGlobal("window", {
+      __AGENT_NATIVE_CONFIG__: {
+        appId: "configured-calendar",
+        workspaceAppId: "server-workspace-calendar",
+      },
+    });
+
+    expect(injectedAgentNativeAppId()).toBe("server-workspace-calendar");
+  });
+
   it("falls back to the compiled app identity when the server has no app id", () => {
     vi.stubGlobal("__AGENT_NATIVE_WORKSPACE_APP_ID__", "");
     vi.stubGlobal("__AGENT_NATIVE_APP_ID__", " Package-Calendar ");

@@ -4146,6 +4146,8 @@ describe("AgentEngine registry", () => {
       let fallbackAllowed = true;
       let authFailed = false;
       let ollamaEndpoint: string | undefined;
+      let openAiEndpoint: string | undefined;
+      let openAiApiKey: string | undefined;
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => undefined,
@@ -4163,9 +4165,13 @@ describe("AgentEngine registry", () => {
           readDeployCredentialEnv: vi.fn((key: string) =>
             key === "ANTHROPIC_API_KEY"
               ? process.env.ANTHROPIC_API_KEY // guard:allow-env-credential — reads this test's deployment fixture
-              : key === "OLLAMA_BASE_URL"
-                ? ollamaEndpoint
-                : undefined,
+              : key === "OPENAI_API_KEY"
+                ? openAiApiKey
+                : key === "OLLAMA_BASE_URL"
+                  ? ollamaEndpoint
+                  : key === "OPENAI_BASE_URL"
+                    ? openAiEndpoint
+                    : undefined,
           ),
           getProviderCredentialAuthFailure: vi.fn(async () =>
             authFailed ? { fingerprint: "test" } : null,
@@ -4226,6 +4232,38 @@ describe("AgentEngine registry", () => {
       } finally {
         warning.mockRestore();
       }
+
+      const openAiEntry = {
+        ...entry,
+        name: "ai-sdk:openai",
+        requiredEnvVars: ["OPENAI_API_KEY"],
+      };
+      authFailed = false;
+      openAiApiKey = "sk-test-deployment-openai";
+      openAiEndpoint = undefined;
+      await expect(
+        isDeploymentEngineUsableForRequest(openAiEntry),
+      ).resolves.toBe(true);
+      openAiEndpoint = "https://openai.example.test/v1";
+      await expect(
+        isDeploymentEngineUsableForRequest(openAiEntry),
+      ).resolves.toBe(true);
+      const openAiWarning = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => {});
+      try {
+        openAiEndpoint = "not-a-url";
+        await expect(
+          isDeploymentEngineUsableForRequest(openAiEntry),
+        ).resolves.toBe(false);
+        expect(openAiWarning).toHaveBeenCalledWith(
+          expect.stringContaining("Invalid deployment OpenAI endpoint"),
+          { error: expect.any(String) },
+        );
+      } finally {
+        openAiWarning.mockRestore();
+      }
+
       authFailed = false;
       fallbackAllowed = false;
       await expect(isDeploymentEngineUsableForRequest(entry)).resolves.toBe(

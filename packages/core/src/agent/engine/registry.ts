@@ -489,25 +489,7 @@ export async function isDeploymentEngineUsableForRequest(
 ): Promise<boolean> {
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.name === "ai-sdk:ollama") {
-    const endpoint = canUseDeployCredentialFallbackForRequest(
-      OLLAMA_BASE_URL_ENV_VAR,
-    )
-      ? readDeployCredentialEnv(OLLAMA_BASE_URL_ENV_VAR)
-      : undefined;
-    if (!endpoint) return false;
-    try {
-      await validateProviderBaseUrl(endpoint, {
-        allowPrivate: true,
-        isOllama: true,
-      });
-    } catch (error) {
-      console.warn(
-        "[agent-engine] Invalid deployment Ollama endpoint; provider unavailable.",
-        { error: error instanceof Error ? error.message : String(error) },
-      );
-      return false;
-    }
-    return true;
+    return isDeploymentProviderEndpointUsable(entry);
   }
   for (const set of envCredentialSetsForEntry(entry)) {
     if (
@@ -519,9 +501,54 @@ export async function isDeploymentEngineUsableForRequest(
     ) {
       continue;
     }
-    if (await isEnvCredentialSetUsable(set)) return true;
+    if (await isEnvCredentialSetUsable(set)) {
+      return isDeploymentProviderEndpointUsable(entry);
+    }
   }
   return false;
+}
+
+async function isDeploymentProviderEndpointUsable(
+  entry: Pick<AgentEngineEntry, "name">,
+): Promise<boolean> {
+  const endpointConfig =
+    entry.name === "ai-sdk:ollama"
+      ? {
+          envVar: OLLAMA_BASE_URL_ENV_VAR,
+          provider: "Ollama",
+          required: true,
+          isOllama: true,
+        }
+      : entry.name === "ai-sdk:openai"
+        ? {
+            envVar: OPENAI_BASE_URL_ENV_VAR,
+            provider: "OpenAI",
+            required: false,
+            isOllama: false,
+          }
+        : undefined;
+  if (!endpointConfig) return true;
+
+  const endpoint = canUseDeployCredentialFallbackForRequest(
+    endpointConfig.envVar,
+  )
+    ? readDeployCredentialEnv(endpointConfig.envVar)
+    : undefined;
+  if (!endpoint) return !endpointConfig.required;
+
+  try {
+    await validateProviderBaseUrl(endpoint, {
+      allowPrivate: true,
+      isOllama: endpointConfig.isOllama,
+    });
+  } catch (error) {
+    console.warn(
+      `[agent-engine] Invalid deployment ${endpointConfig.provider} endpoint; provider unavailable.`,
+      { error: error instanceof Error ? error.message : String(error) },
+    );
+    return false;
+  }
+  return true;
 }
 
 export async function detectEngineFromEnvForRequest(): Promise<AgentEngineEntry | null> {

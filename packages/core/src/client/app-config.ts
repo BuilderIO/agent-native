@@ -23,7 +23,8 @@ export function injectedAgentNativeAppId(): string | null {
         ).__AGENT_NATIVE_CONFIG__
       : undefined;
   const workspaceAppId =
-    typeof __AGENT_NATIVE_WORKSPACE_APP_ID__ === "string"
+    typeof __AGENT_NATIVE_WORKSPACE_APP_ID__ === "string" &&
+    __AGENT_NATIVE_WORKSPACE_APP_ID__.trim()
       ? __AGENT_NATIVE_WORKSPACE_APP_ID__
       : browserConfig?.workspaceAppId;
   const appId = browserConfig?.appId;
