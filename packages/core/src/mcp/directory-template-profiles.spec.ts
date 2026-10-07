@@ -20,6 +20,7 @@ import {
 import { resolveAgentChatMcpOptions } from "../server/agent-chat/mcp-options.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import {
+  createMCPServerForRequest,
   selectMcpDirectoryWidgetReadActions,
   validateMcpDirectoryProfile,
 } from "./build-server.js";
@@ -140,23 +141,30 @@ describe("ChatGPT directory template profiles", () => {
       const mcpOptions = resolveAgentChatMcpOptions({
         mcp: { directoryProfile: profile },
       });
+      const widgetReadActions = selectMcpDirectoryWidgetReadActions(
+        mcpOptions.directoryProfile,
+        actions,
+      );
+      const serverConfig = {
+        name: `agent-native-${appId}`,
+        appId,
+        description: "ChatGPT directory profile validation",
+        catalogMode: "directory" as const,
+        connectorCatalog: profile.connectorCatalog,
+        widgetDomain: profile.widgetDomain,
+        actions: productionActions,
+        productionActions,
+        widgetReadActions,
+        directoryProfile: mcpOptions.directoryProfile,
+      };
 
       expect(mcpOptions.catalog).toBeUndefined();
-      expect(() =>
-        validateMcpDirectoryProfile({
-          name: `agent-native-${appId}`,
-          appId,
-          description: "ChatGPT directory profile validation",
-          catalogMode: "directory",
-          actions,
-          productionActions,
-          widgetReadActions: selectMcpDirectoryWidgetReadActions(
-            mcpOptions.directoryProfile,
-            actions,
-          ),
-          directoryProfile: mcpOptions.directoryProfile,
+      await expect(
+        createMCPServerForRequest(serverConfig, {
+          userEmail: "reviewer@example.test",
+          orgId: null,
         }),
-      ).not.toThrow();
+      ).resolves.toBeDefined();
 
       if (appId === "content") {
         const privateRead = "query-content-database-items";
