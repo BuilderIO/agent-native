@@ -9,6 +9,7 @@ const SEARCH_RESULT_LIMIT = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
 const MAX_RUN_DURATION_MS = 35 * 24 * 60 * 60 * 1000;
+const WORKFLOW_RUN_QUERY_ATTEMPTS = 2;
 const EVENTS = ["push", "schedule"] as const;
 
 export type WorkflowRun = {
@@ -134,7 +135,10 @@ function paginatedItems(
     const page = asRecord(pageValue);
     if (!page) return invalid(context, `page ${index + 1} is not an object`);
     const total = requiredInteger(page.total_count, "total_count", context);
-    if (expectedTotal === undefined) expectedTotal = total;
+    if (expectedTotal === undefined) {
+      expectedTotal = total;
+      if (total >= SEARCH_RESULT_LIMIT) resultLimit(context);
+    }
     if (total !== expectedTotal) {
       return invalid(context, "total_count changed while pages were fetched");
     }
@@ -158,6 +162,35 @@ function paginatedItems(
     );
   }
   return items;
+}
+
+function isPaginationSnapshotRace(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("total_count changed while pages were fetched") ||
+    message.includes("pagination is incomplete (")
+  );
+}
+
+async function readStablePaginatedItems(
+  api: ApiReader,
+  endpoint: string,
+  itemKey: "workflow_runs" | "jobs",
+  context: string,
+): Promise<unknown[]> {
+  for (let attempt = 1; attempt <= WORKFLOW_RUN_QUERY_ATTEMPTS; attempt += 1) {
+    try {
+      return paginatedItems(await api(endpoint), itemKey, context);
+    } catch (error) {
+      if (
+        attempt === WORKFLOW_RUN_QUERY_ATTEMPTS ||
+        !isPaginationSnapshotRace(error)
+      ) {
+        throw error;
+      }
+    }
+  }
+  throw new Error(`${context}: pagination retry did not complete`);
 }
 
 function parseWorkflowRun(value: unknown, context: string): WorkflowRun {
@@ -284,7 +317,7 @@ function runListEndpoint(
   endDate: string,
 ): string {
   const created = `${startDate}..${endDate}`;
-  return `repos/{owner}/{repo}/actions/runs?branch=main&event=${event}&status=failure&created=${created}&per_page=${PAGE_SIZE}`;
+  return `repos/{owner}/{repo}/actions/runs?branch=main&event=${event}&created=${created}&per_page=${PAGE_SIZE}`;
 }
 
 function jobsEndpoint(runId: number): string {
@@ -303,13 +336,11 @@ function latestWindow(now: Date): {
   const earliestCreatedAt = new Date(since.getTime() - MAX_RUN_DURATION_MS);
   const firstDate = new Date(earliestCreatedAt);
   firstDate.setUTCHours(0, 0, 0, 0);
-  const lastDate = new Date(now);
-  lastDate.setUTCHours(0, 0, 0, 0);
   return {
     since,
     earliestCreatedAt,
     startDate: firstDate.toISOString().slice(0, 10),
-    endDate: lastDate.toISOString().slice(0, 10),
+    endDate: now.toISOString(),
   };
 }
 
@@ -549,28 +580,33 @@ async function readPaginatedRuns(
 ): Promise<WorkflowRun[]> {
   const context = `${event} main workflow runs`;
   try {
-    const raw = await api(runListEndpoint(event, startDate, endDate));
-    return paginatedItems(raw, "workflow_runs", context).map((run) =>
-      parseWorkflowRun(run, context),
-    );
+    const endpoint = runListEndpoint(event, startDate, endDate);
+    return (
+      await readStablePaginatedItems(api, endpoint, "workflow_runs", context)
+    ).map((run) => parseWorkflowRun(run, context));
   } catch (error) {
     const code = asRecord(error)?.code;
     if (code !== "GITHUB_RESULT_LIMIT") throw error;
-    if (startDate === endDate) {
+    const startMs = Date.parse(startDate);
+    const endMs = Date.parse(endDate);
+    const startDay = new Date(startMs);
+    startDay.setUTCHours(0, 0, 0, 0);
+    const endDay = new Date(endMs);
+    endDay.setUTCHours(0, 0, 0, 0);
+    if (startDay.getTime() === endDay.getTime()) {
       return invalid(
         context,
-        `single calendar day ${startDate} reached GitHub's ${SEARCH_RESULT_LIMIT}-row search limit; completeness cannot be proved`,
+        `single calendar day ${startDay.toISOString().slice(0, 10)} reached GitHub's ${SEARCH_RESULT_LIMIT}-row search limit; completeness cannot be proved`,
       );
     }
 
-    const startMs = Date.parse(`${startDate}T00:00:00.000Z`);
-    const endMs = Date.parse(`${endDate}T00:00:00.000Z`);
-    const days = Math.floor((endMs - startMs) / DAY_MS) + 1;
+    const days =
+      Math.floor((endDay.getTime() - startDay.getTime()) / DAY_MS) + 1;
     const leftDays = Math.floor(days / 2);
-    const splitDate = new Date(startMs + leftDays * DAY_MS)
+    const splitDate = new Date(startDay.getTime() + leftDays * DAY_MS)
       .toISOString()
       .slice(0, 10);
-    const leftEnd = new Date(startMs + (leftDays - 1) * DAY_MS)
+    const leftEnd = new Date(startDay.getTime() + (leftDays - 1) * DAY_MS)
       .toISOString()
       .slice(0, 10);
     const [left, right] = await Promise.all([

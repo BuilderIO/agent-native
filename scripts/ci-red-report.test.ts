@@ -59,6 +59,7 @@ const fixtureRuns: Record<"push" | "schedule", WorkflowRun[]> = {
     run(14, { created_at: "2026-10-01T00:00:00.000Z" }),
     run(15, { created_at: "2026-09-30T23:59:59.999Z" }),
     run(19, { created_at: "2026-08-27T00:00:00.000Z" }),
+    run(20, { created_at: "2026-10-06T00:00:00.001Z" }),
   ],
   schedule: [
     run(11, { event: "schedule", conclusion: "cancelled" }),
@@ -104,15 +105,20 @@ function fixtureApi(endpoints: string[]): (endpoint: string) => string {
     const runList = endpoint.match(/event=(push|schedule)/);
     if (runList) {
       const event = runList[1] as keyof typeof fixtureRuns;
-      const range = endpoint.match(
-        /created=(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})/,
-      );
-      if (!range) throw new Error(`missing created-date window in ${endpoint}`);
+      const range = endpoint.match(/created=([^&]+)&per_page=/)?.[1];
+      const [start, end] = range?.split("..") ?? [];
+      if (!start || !end)
+        throw new Error(`missing created-time window in ${endpoint}`);
+      const startMs = Date.parse(start);
+      const endMs = Date.parse(end);
+      const inclusiveEndMs = /^\d{4}-\d{2}-\d{2}$/.test(end)
+        ? endMs + 24 * 60 * 60 * 1000 - 1
+        : endMs;
       return paged(
         "workflow_runs",
         fixtureRuns[event].filter((workflowRun) => {
-          const created = String(workflowRun.created_at).slice(0, 10);
-          return created >= range[1] && created <= range[2];
+          const created = Date.parse(workflowRun.created_at);
+          return created >= startMs && created <= inclusiveEndMs;
         }),
       );
     }
@@ -175,17 +181,19 @@ describe("ci-red-report", () => {
     assert.equal(endpoints.length, 7);
     assert.match(
       endpoints[0],
-      /branch=main&event=push&status=failure&created=2026-08-27\.\.2026-10-06&per_page=100/,
+      /branch=main&event=push&created=2026-08-27\.\.2026-10-06T00:00:00\.000Z&per_page=100/,
     );
     assert.match(
       endpoints[1],
-      /branch=main&event=schedule&status=failure&created=2026-08-27\.\.2026-10-06&per_page=100/,
+      /branch=main&event=schedule&created=2026-08-27\.\.2026-10-06T00:00:00\.000Z&per_page=100/,
     );
+    assert.ok(!endpoints[0].includes("status="));
     assert.ok(
       endpoints
         .slice(2)
         .every((endpoint) => endpoint.includes("filter=latest&per_page=100")),
     );
+    assert.ok(!endpoints.some((endpoint) => endpoint.includes("runs/20/jobs")));
     assert.ok(
       lines.some(
         (line) =>
@@ -394,6 +402,42 @@ describe("ci-red-report", () => {
     assert.match(stderr.join(""), /pagination is incomplete \(1 of 101 rows/);
   });
 
+  it("retries a workflow query when the run count changes during pagination", async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    let pushQueries = 0;
+    const exitCode = await runCiRedReportCli({
+      api: (endpoint) => {
+        if (endpoint.includes("event=push")) {
+          pushQueries += 1;
+          if (pushQueries === 1) {
+            return JSON.stringify([
+              { total_count: 1, workflow_runs: [run(10)] },
+              { total_count: 2, workflow_runs: [run(15)] },
+            ]);
+          }
+          return paged("workflow_runs", [run(10)]);
+        }
+        if (endpoint.includes("event=schedule")) {
+          return paged("workflow_runs", []);
+        }
+        if (endpoint.includes("actions/runs/10/jobs")) {
+          return paged("jobs", [job(10, 101)]);
+        }
+        throw new Error(`unexpected endpoint ${endpoint}`);
+      },
+      failedRunLog: () => "captured failed-run log without test annotations",
+      now,
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+    });
+
+    assert.equal(exitCode, 0);
+    assert.equal(pushQueries, 2);
+    assert.deepEqual(stderr, []);
+    assert.match(stdout[0], /^10\t1\t/m);
+  });
+
   it("exits 2 when gh returns malformed API JSON", async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
@@ -418,17 +462,19 @@ describe("ci-red-report", () => {
     const cappedPages = Array.from({ length: 10 }, () => ({
       total_count: 1000,
       workflow_runs: Array.from({ length: 100 }, () => ({})),
-    }));
+    })).concat([{ total_count: 0, workflow_runs: [] }]);
     const exitCode = await runCiRedReportCli({
       api: (endpoint) => {
-        const range = endpoint.match(
-          /created=(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})/,
-        );
+        const range = endpoint.match(/created=([^&]+)&per_page=/)?.[1];
+        const [start, end] = range?.split("..") ?? [];
+        const startDay = start?.slice(0, 10);
+        const endDay = end?.slice(0, 10);
         if (
           endpoint.includes("event=push") &&
-          range &&
-          range[1] <= "2026-10-06" &&
-          range[2] >= "2026-10-06"
+          startDay &&
+          endDay &&
+          startDay <= "2026-10-06" &&
+          endDay >= "2026-10-06"
         ) {
           return JSON.stringify(cappedPages);
         }
@@ -454,7 +500,7 @@ describe("ci-red-report", () => {
     const cappedPages = Array.from({ length: 10 }, () => ({
       total_count: 1000,
       workflow_runs: Array.from({ length: 100 }, () => ({})),
-    }));
+    })).concat([{ total_count: 0, workflow_runs: [] }]);
     const exitCode = await runCiRedReportCli({
       api: (endpoint) => {
         endpoints.push(endpoint);
