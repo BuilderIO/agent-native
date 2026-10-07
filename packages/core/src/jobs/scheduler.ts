@@ -40,6 +40,7 @@ import {
   isBackgroundAutomationRunActive,
   resolveBackgroundAutomationIdentity,
   runBackgroundAutomation,
+  startBackgroundAutomationHistory,
   type BackgroundAutomationContext,
   type BackgroundAutomationDeps,
 } from "./background-automation-runner.js";
@@ -177,11 +178,25 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   });
   if (!leaseOwner) return;
 
+  const lease = new AbortController();
+  const assertCanStart = async () => {
+    lease.signal.throwIfAborted();
+    try {
+      if (
+        !(await renewAutomationSchedulerLease({
+          appId: deps.appId,
+          owner: leaseOwner,
+        }))
+      ) {
+        lease.abort();
+      }
+    } catch (error) {
+      lease.abort(error);
+    }
+    lease.signal.throwIfAborted();
+  };
   const leaseRenewal = setInterval(() => {
-    void renewAutomationSchedulerLease({
-      appId: deps.appId,
-      owner: leaseOwner,
-    }).catch((error) => {
+    void assertCanStart().catch((error) => {
       console.warn(
         "[recurring-jobs] Scheduler lease renewal failed:",
         error instanceof Error ? error.message : error,
@@ -193,7 +208,7 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   let shouldThrowReleaseError = false;
   let releaseErrorToThrow: unknown;
   try {
-    await processRecurringJobsWithLease(deps);
+    await processRecurringJobsWithLease(deps, lease.signal, assertCanStart);
   } catch (error) {
     primaryFailed = true;
     throw error;
@@ -220,6 +235,8 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
 
 async function processRecurringJobsWithLease(
   deps: SchedulerDeps,
+  leaseSignal: AbortSignal,
+  assertCanStart: () => Promise<void>,
 ): Promise<void> {
   subscribeToJobsResourceEvents();
 
@@ -287,6 +304,7 @@ async function processRecurringJobsWithLease(
     const pausedRechecks: PausedRecheck[] = [];
 
     for (const resource of jobResources) {
+      leaseSignal.throwIfAborted();
       if (!resource.path.endsWith(".md")) continue;
       if (resource.path.endsWith(".keep")) continue;
 
@@ -320,7 +338,7 @@ async function processRecurringJobsWithLease(
       if (meta.lastStatus === "running") {
         try {
           const recovery = meta.schedule
-            ? await inspectAutomationRecovery(resource, meta, now)
+            ? await inspectAutomationRecovery(resource, meta, now, deps.appId)
             : null;
           if (recovery?.state === "active") continue;
           if (recovery?.state === "resume") {
@@ -342,6 +360,7 @@ async function processRecurringJobsWithLease(
                 recovery.status,
                 recovery.error,
                 recovery.errorCode,
+                { requirePersisted: true },
               );
             await recordExecutionOutcome(
               resource,
@@ -350,6 +369,7 @@ async function processRecurringJobsWithLease(
                 lastStatus: recovery.status,
                 lastError: recovery.error,
                 expectedLastRun: meta.lastRun,
+                expectedHistoryId: meta.lastHistoryId,
               },
               recovery.status === "error"
                 ? {
@@ -454,6 +474,7 @@ async function processRecurringJobsWithLease(
 
     const dueJobs: typeof dueJobCandidates = [];
     for (const candidate of preflightCandidates) {
+      leaseSignal.throwIfAborted();
       _preflightingScheduledJobs.add(candidate.key);
       try {
         const identity = await resolveBackgroundAutomationIdentity({
@@ -464,6 +485,7 @@ async function processRecurringJobsWithLease(
           body: candidate.body,
           resource: candidate.resource,
         });
+        leaseSignal.throwIfAborted();
         if (!identity.ok) {
           // A gone owner or a broken identity config will not heal on its own,
           // so the job is disabled once with the reason. An owner that merely
@@ -507,6 +529,7 @@ async function processRecurringJobsWithLease(
       }
     }
 
+    leaseSignal.throwIfAborted();
     await resumeRecoveredPauses(pausedRechecks, deps, now);
 
     if (dueJobs.length > 0) dispatchedAt = Date.now();
@@ -519,14 +542,10 @@ async function processRecurringJobsWithLease(
     const outcomes = await Promise.allSettled(
       dueJobs.map(({ key, resource, meta, body, resume }) => {
         startedJobKeys.add(key);
-        return executeJob(
-          resource,
-          meta,
-          body,
-          deps,
-          now,
-          resume ? { historyId: resume.historyId, resume } : {},
-        ).finally(() => {
+        return executeJob(resource, meta, body, deps, now, {
+          ...(resume ? { historyId: resume.historyId, resume } : {}),
+          assertCanStart,
+        }).finally(() => {
           _activeScheduledJobs.delete(key);
         });
       }),
@@ -642,6 +661,7 @@ interface ExecuteJobOptions {
   advanceSchedule?: boolean;
   historyId?: string;
   manual?: boolean;
+  assertCanStart?: () => Promise<void>;
 }
 
 async function recordIdentityFailure(
@@ -958,6 +978,7 @@ async function executeJob(
       options.historyId,
     );
   }
+  await options.assertCanStart?.();
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
 
@@ -973,16 +994,30 @@ async function executeJob(
     return { status: "skipped", error };
   }
 
-  if (!options.resume) meta.lastRun = now.toISOString();
+  const historyId =
+    options.historyId ??
+    (meta.executionHostId
+      ? undefined
+      : await startBackgroundAutomationHistory(
+          jobContext,
+          jobUserEmail,
+          jobOrgId,
+          deps.appId,
+        ));
+  await options.assertCanStart?.();
+  if (!options.resume) {
+    meta.lastRun = new Date().toISOString();
+    meta.lastHistoryId = historyId;
+  }
   meta.lastStatus = "running";
   meta.lastError = undefined;
   if (!(await updateResource(resource, meta, body))) {
     console.log(
       `[recurring-jobs] "${resource.path}" changed before it could start; dropping this tick.`,
     );
-    if (options.historyId && !options.resume) {
+    if (historyId && !options.resume) {
       await finishAutomationRun(
-        options.historyId,
+        historyId,
         "error",
         "The automation changed before the run could start. No delivery was confirmed.",
       );
@@ -1097,7 +1132,8 @@ async function executeJob(
         runIdPrefix: `${options.manual ? "manual" : "job"}-${jobName}`,
         usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
         requestContext,
-        ...(options.historyId ? { historyId: options.historyId } : {}),
+        ...(historyId ? { historyId } : {}),
+        assertCanStart: options.assertCanStart,
         ...(options.resume
           ? {
               resume: options.resume,
@@ -1122,11 +1158,15 @@ async function executeJob(
       lastStatus: "success",
       lastError: undefined,
       advanceSchedule: options.advanceSchedule,
+      expectedLastRun: meta.lastRun,
+      expectedHistoryId: meta.lastHistoryId,
     });
     console.log(`[recurring-jobs] Job "${jobName}" completed.`);
     return { status: "success", runId: result.runId };
   } catch (err) {
     const failure = classifyAutomationFailure(err);
+    if (failure.code === "background_automation_history_write_failed")
+      throw err;
     if (failure.code === "background_automation_claim_lost")
       return { status: "skipped" };
     const reportedError = withDeliveryNote(
@@ -1140,8 +1180,10 @@ async function executeJob(
         lastStatus: "error",
         lastError: reportedError,
         advanceSchedule: options.advanceSchedule,
+        expectedLastRun: meta.lastRun,
+        expectedHistoryId: meta.lastHistoryId,
       },
-      { failure, countTowardPause: !options.manual },
+      { failure, countTowardPause: !options.manual, eventId: historyId },
     );
     console.error(
       `[recurring-jobs] Job "${jobName}" failed (${failure.code}):`,
@@ -1203,6 +1245,7 @@ async function updateResource(
 ): Promise<boolean> {
   const content = patchJobFrontmatterFields(resource.content, {
     lastRun: meta.lastRun,
+    lastHistoryId: meta.lastHistoryId,
     lastCheck: meta.lastCheck,
     lastStatus: meta.lastStatus,
     lastError: meta.lastError,
@@ -1236,7 +1279,11 @@ type ExecutionOutcome = Pick<
   | "remoteRunId"
   | "remoteAutomationRunId"
   | "remoteAdvanceSchedule"
-> & { advanceSchedule?: boolean; expectedLastRun?: string };
+> & {
+  advanceSchedule?: boolean;
+  expectedLastRun?: string;
+  expectedHistoryId?: string;
+};
 
 interface ExecutionFailure {
   failure: AutomationFailure;
@@ -1265,11 +1312,14 @@ async function recordExecutionOutcome(
   }
   const current = parseJobResource(latest.content);
 
-  const { advanceSchedule, expectedLastRun, ...execution } = outcome;
+  const { advanceSchedule, expectedLastRun, expectedHistoryId, ...execution } =
+    outcome;
   if (
     expectedLastRun !== undefined &&
     (current.meta.lastRun !== expectedLastRun ||
-      current.meta.lastStatus !== "running")
+      current.meta.lastStatus !== "running" ||
+      (expectedHistoryId !== undefined &&
+        current.meta.lastHistoryId !== expectedHistoryId))
   )
     return;
   const meta: JobFrontmatter = { ...current.meta, ...execution };

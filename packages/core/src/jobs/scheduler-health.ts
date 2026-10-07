@@ -221,12 +221,13 @@ export async function renewAutomationSchedulerLease(input: {
   const result = await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET lease_expires_at = ?, updated_at = ?
-          WHERE id = ? AND lease_owner = ?`,
+          WHERE id = ? AND lease_owner = ? AND lease_expires_at > ?`,
     args: [
       expiresAt,
       now,
       leaseRowId(normalizeAppId(input.appId)),
       input.owner,
+      now,
     ],
   });
   return Number(result.rowsAffected ?? 0) > 0;

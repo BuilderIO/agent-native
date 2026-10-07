@@ -10,13 +10,17 @@ import {
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
+  history: vi.fn(),
   reap: vi.fn(),
   get: vi.fn(),
   ref: vi.fn(),
   count: vi.fn(),
   events: vi.fn(),
 }));
-vi.mock("./run-history.js", () => ({ listAutomationRuns: mocks.list }));
+vi.mock("./run-history.js", () => ({
+  listAutomationRuns: mocks.list,
+  getAutomationRun: mocks.history,
+}));
 vi.mock("../agent/run-store.js", () => ({
   reapIfStale: mocks.reap,
   getRunById: mocks.get,
@@ -39,10 +43,13 @@ const meta = {
   enabled: true,
   schedule: "*/2 * * * *",
   lastStatus: "running",
+  lastHistoryId: "history-1",
   lastRun: new Date(startedAt).toISOString(),
 };
 const history = {
   id: "history-1",
+  owner: resource.owner,
+  appId: null,
   runId: "job-1",
   threadId: "thread-1",
   path: resource.path,
@@ -68,6 +75,7 @@ describe("automation worker recovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.list.mockResolvedValue([history]);
+    mocks.history.mockResolvedValue(history);
     mocks.reap.mockResolvedValue(true);
     mocks.get.mockResolvedValue({
       id: "job-1",
@@ -107,9 +115,11 @@ describe("automation worker recovery", () => {
       state: "settle",
       status: "success",
     });
-    mocks.list.mockResolvedValue([
-      { ...history, status: "success", finishedAt: now.getTime() - 1000 },
-    ]);
+    mocks.history.mockResolvedValue({
+      ...history,
+      status: "success",
+      finishedAt: now.getTime() - 1000,
+    });
     mocks.reap.mockClear();
     expect(await inspectAutomationRecovery(resource, meta, now)).toMatchObject({
       state: "settle",
@@ -140,10 +150,15 @@ describe("automation worker recovery", () => {
     expect(
       await inspectAutomationRecovery(
         { ...resource, owner: "__shared__" },
-        { ...meta, createdBy: "creator@example.com", runAs: "creator" },
+        {
+          ...meta,
+          lastHistoryId: undefined,
+          createdBy: "creator@example.com",
+          runAs: "creator",
+        },
         now,
       ),
-    ).toMatchObject({ state: "resume" });
+    ).toMatchObject({ state: "settle" });
     expect(mocks.list).toHaveBeenCalledWith(
       expect.objectContaining({ owners: ["creator@example.com"] }),
     );
@@ -151,7 +166,74 @@ describe("automation worker recovery", () => {
 
   it("does not recover history belonging to a previous firing", async () => {
     mocks.list.mockResolvedValue([{ ...history, startedAt: startedAt - 1 }]);
-    expect(await inspectAutomationRecovery(resource, meta, now)).toBeNull();
+    expect(
+      await inspectAutomationRecovery(
+        resource,
+        { ...meta, lastHistoryId: undefined },
+        now,
+      ),
+    ).toBeNull();
+    expect(mocks.reap).not.toHaveBeenCalled();
+  });
+
+  it("uses the exact firing even when Run now was queued before lastRun", async () => {
+    mocks.history.mockResolvedValue({
+      ...history,
+      startedAt: startedAt - 30 * 60_000,
+    });
+    mocks.list.mockResolvedValue([
+      {
+        ...history,
+        id: "newer-worker",
+        runId: "other-worker",
+        startedAt: now.getTime(),
+      },
+    ]);
+    expect(await inspectAutomationRecovery(resource, meta, now)).toMatchObject({
+      state: "resume",
+      resume: { historyId: history.id, previousRunId: history.runId },
+    });
+    expect(mocks.history).toHaveBeenCalledWith(history.id);
+    expect(mocks.reap).toHaveBeenCalledWith(history.runId);
+  });
+
+  it("rejects a firing history in another app before inspecting its worker", async () => {
+    mocks.history.mockResolvedValue({ ...history, appId: "another-app" });
+    await expect(
+      inspectAutomationRecovery(resource, meta, now, "scheduler-app"),
+    ).rejects.toThrow();
+    expect(mocks.reap).not.toHaveBeenCalled();
+  });
+
+  it("scopes the bounded legacy history lookup to the scheduler app", async () => {
+    await inspectAutomationRecovery(
+      resource,
+      { ...meta, lastHistoryId: undefined },
+      now,
+      "scheduler-app",
+    );
+    expect(mocks.list).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "scheduler-app", limit: 50 }),
+    );
+  });
+
+  it("fails closed on ambiguous legacy firing histories", async () => {
+    mocks.list.mockResolvedValue([
+      history,
+      {
+        ...history,
+        id: "other-firing",
+        runId: "other-worker",
+        startedAt: startedAt + 1,
+      },
+    ]);
+    await expect(
+      inspectAutomationRecovery(
+        resource,
+        { ...meta, lastHistoryId: undefined },
+        now,
+      ),
+    ).rejects.toThrow();
     expect(mocks.reap).not.toHaveBeenCalled();
   });
 

@@ -19,7 +19,11 @@ import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
-import { listAutomationRuns, type AutomationRun } from "./run-history.js";
+import {
+  getAutomationRun,
+  listAutomationRuns,
+  type AutomationRun,
+} from "./run-history.js";
 
 export interface AutomationResume {
   historyId: string;
@@ -89,34 +93,62 @@ export async function inspectAutomationRecovery(
   resource: Resource,
   meta: JobFrontmatter,
   now: Date,
+  appId?: string,
 ): Promise<AutomationRecovery | null> {
   const lastRun = meta.lastRun ? Date.parse(meta.lastRun) : Number.NaN;
   if (!Number.isFinite(lastRun)) return null;
-  const histories = await listAutomationRuns({
-    owners: [
-      automationHistoryOwner(
-        resource,
-        meta.runAs === "shared"
-          ? resource.owner
-          : meta.createdBy || resource.owner,
-        recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) ??
-          meta.orgId ??
-          undefined,
-      ),
-    ],
-    automation: resource.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
-    limit: 50,
-  });
-  // Queued Run now rows have no agent run yet and do not identify the worker
-  // holding this resource's lock. Never recover them by newest-row position.
-  const history = histories.find(
-    (run) =>
-      run.path === resource.path &&
-      run.runId &&
-      run.threadId &&
-      run.startedAt >= lastRun,
+  const owner = automationHistoryOwner(
+    resource,
+    meta.runAs === "shared" ? resource.owner : meta.createdBy || resource.owner,
+    recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) ??
+      meta.orgId ??
+      undefined,
   );
-  if (!history?.runId || !history.threadId) return null;
+  let history: AutomationRun | null;
+  if (meta.lastHistoryId) {
+    history = await getAutomationRun(meta.lastHistoryId);
+    if (
+      !history ||
+      history.owner !== owner ||
+      history.path !== resource.path ||
+      (history.appId && history.appId !== appId)
+    )
+      throw new Error(automationRecoveryMessagesForLocale().unreadable);
+  } else {
+    const histories = await listAutomationRuns({
+      owners: [owner],
+      automation: resource.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
+      appId,
+      limit: 50,
+    });
+    // Older running markers lack a firing id. Ambiguous history must never
+    // authorize replay or attribute another firing's deliveries to this one.
+    const candidates = histories.filter(
+      (run) =>
+        run.path === resource.path &&
+        (!run.appId || run.appId === appId) &&
+        run.runId &&
+        run.threadId &&
+        run.startedAt >= lastRun,
+    );
+    if (candidates.length > 1)
+      throw new Error(automationRecoveryMessagesForLocale().unreadable);
+    history = candidates[0] ?? null;
+  }
+  if (!history) return null;
+  if (!history.runId || !history.threadId) {
+    return {
+      state: "settle",
+      status: "error",
+      history,
+      error: withDeliveryNote(
+        automationRecoveryMessagesForLocale().stopped,
+        deliveryNoteForEvents([]),
+      ),
+      errorCode: "background_automation_interrupted",
+      deliveryNote: deliveryNoteForEvents([]),
+    };
+  }
   if (history.finishedAt !== null && history.status === "success")
     return {
       state: "settle",
@@ -142,9 +174,9 @@ export async function inspectAutomationRecovery(
   const ref = await getRunTurnRef(run.id);
   if (!ref || ref.threadId !== history.threadId)
     throw new Error(`Automation worker ${run.id} has no matching turn`);
-  const hardDeadlineAt =
-    history.startedAt + resolveBackgroundRunHardTimeoutMs();
+  const hardDeadlineAt = lastRun + resolveBackgroundRunHardTimeoutMs();
   if (
+    meta.lastHistoryId &&
     history.finishedAt === null &&
     run.errorCode === "stale_run" &&
     now.getTime() < hardDeadlineAt &&

@@ -33,6 +33,7 @@ vi.mock("../secrets/crypto.js", () => ({
 
 import {
   finishAutomationRun,
+  attachAutomationRunThread,
   listLatestAutomationRuns,
   listAutomationRuns,
   processPendingAutomationFailureAlerts,
@@ -74,6 +75,45 @@ describe("automation run history", () => {
         return { status: "sent", provider: "resend" };
       },
     );
+  });
+
+  it("reports a failed required thread attachment when no history row was written", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    await expect(
+      attachAutomationRunThread("missing", "thread", "worker", {
+        requirePersisted: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "background_automation_history_write_failed",
+    });
+  });
+
+  it("reports a failed required terminal write instead of a successful no-op", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    await expect(
+      finishAutomationRun("missing", "success", undefined, undefined, {
+        requirePersisted: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "background_automation_history_write_failed",
+    });
+  });
+
+  it("accepts an already durable terminal outcome on an idempotent retry", async () => {
+    executeMock.mockImplementation(async (input: DbExecStatement) =>
+      input.sql.startsWith("SELECT")
+        ? {
+            rows: [row({ status: "success", finished_at: Date.now() })],
+            rowsAffected: 0,
+          }
+        : { rows: [], rowsAffected: 0 },
+    );
+    await expect(
+      finishAutomationRun("run-1", "success", undefined, undefined, {
+        requirePersisted: true,
+      }),
+    ).resolves.toBeUndefined();
+    expect(emitMock).not.toHaveBeenCalled();
   });
 
   it("reports a run abandoned past the liveness ceiling as interrupted", async () => {

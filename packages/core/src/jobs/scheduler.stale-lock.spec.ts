@@ -8,6 +8,7 @@ import {
 } from "./automation-outcome.js";
 import { parseJobResource } from "./frontmatter.js";
 import * as runHistory from "./run-history.js";
+import * as schedulerHealth from "./scheduler-health.js";
 import { recordAutomationSchedulerHealth } from "./scheduler-health.js";
 import { processRecurringJobs, runJobNow } from "./scheduler.js";
 
@@ -28,6 +29,8 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  organizationResourceOwner: (orgId: string) =>
+    `__organization__:${encodeURIComponent(orgId)}`,
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
@@ -128,10 +131,12 @@ function interruptedScheduledJob(runCount = 1) {
     id: "recoverable-resource",
     owner: "alice+jobs@agent-native.test",
     path: "jobs/recoverable.md",
-    content: `---\nschedule: "*/2 * * * *"\nenabled: true\nlastStatus: running\nlastRun: ${lastRun}\n---\nSend an email, then open a ticket.`,
+    content: `---\nschedule: "*/2 * * * *"\nenabled: true\nlastStatus: running\nlastRun: ${lastRun}\nlastHistoryId: recoverable-history\n---\nSend an email, then open a ticket.`,
   };
   const history = {
     id: "recoverable-history",
+    owner: resource.owner,
+    appId: null,
     path: resource.path,
     runId: "killed-worker",
     threadId: "thread-1",
@@ -141,9 +146,7 @@ function interruptedScheduledJob(runCount = 1) {
   };
   resourceListAllOwnersMock.mockResolvedValue([resource]);
   const spies = [
-    vi
-      .spyOn(runHistory, "listAutomationRuns")
-      .mockResolvedValue([history] as any),
+    vi.spyOn(runHistory, "getAutomationRun").mockResolvedValue(history as any),
     vi.spyOn(runStore, "reapIfStale").mockResolvedValue(true),
     vi.spyOn(runStore, "getRunById").mockResolvedValue({
       id: "killed-worker",
@@ -250,6 +253,179 @@ describe("stale automation run-lock recovery across trigger types", () => {
       },
     );
     recordUsageMock.mockResolvedValue(undefined);
+  });
+
+  it.each(["lost", "unavailable"])(
+    "does not dispatch after lease renewal is %s during a slow tick",
+    async (problem) => {
+      vi.useFakeTimers();
+      let releaseList!: (resources: unknown[]) => void;
+      let listed!: () => void;
+      const listing = new Promise<void>((resolve) => {
+        listed = resolve;
+      });
+      resourceListAllOwnersMock.mockImplementationOnce(() => {
+        listed();
+        return new Promise((resolve) => {
+          releaseList = resolve;
+        });
+      });
+      const renewal = vi.spyOn(
+        schedulerHealth,
+        "renewAutomationSchedulerLease",
+      );
+      if (problem === "lost") renewal.mockResolvedValue(false);
+      else renewal.mockRejectedValue(new Error("lease database unavailable"));
+      try {
+        const tick = processRecurringJobs(recoveryDeps);
+        await listing;
+        await vi.advanceTimersByTimeAsync(60_000);
+        releaseList([
+          {
+            id: "resource-due",
+            owner: "owner@example.com",
+            path: "jobs/due.md",
+            content:
+              '---\nschedule: "* * * * *"\nenabled: true\nnextRun: 2026-01-01T00:00:00Z\n---\nRun work.',
+          },
+        ]);
+        await tick;
+        expect(renewal).toHaveBeenCalled();
+        expect(resourcePutMock).not.toHaveBeenCalled();
+        expect(runAgentLoopMock).not.toHaveBeenCalled();
+      } finally {
+        renewal.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("does not start tools if lease ownership is lost during worker setup", async () => {
+    const fixture = interruptedScheduledJob();
+    const renewal = vi
+      .spyOn(schedulerHealth, "renewAutomationSchedulerLease")
+      .mockResolvedValue(true);
+    vi.mocked(getThread).mockResolvedValueOnce({
+      id: "thread-1",
+      threadData: JSON.stringify({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Original request" }],
+            metadata: { custom: { submittedTurnId: "killed-worker" } },
+          },
+        ],
+      }),
+    } as any);
+    const finish = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockResolvedValue(undefined);
+    try {
+      await processRecurringJobs({
+        ...recoveryDeps,
+        getSystemPrompt: async () => {
+          renewal.mockResolvedValue(false);
+          return "system";
+        },
+      });
+      expect(runAgentLoopMock).not.toHaveBeenCalled();
+      expect(startRunMock).not.toHaveBeenCalled();
+    } finally {
+      renewal.mockRestore();
+      finish.mockRestore();
+      fixture.restore();
+    }
+  });
+
+  it.each(["success", "error"])(
+    "retains resumed recovery when its %s history write fails",
+    async (outcome) => {
+      const fixture = interruptedScheduledJob();
+      const finish = vi
+        .spyOn(runHistory, "finishAutomationRun")
+        .mockRejectedValueOnce(new Error("terminal history unavailable"))
+        .mockResolvedValue(undefined);
+      vi.mocked(getThread).mockResolvedValueOnce({
+        id: "thread-1",
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Original request" }],
+              metadata: { custom: { submittedTurnId: "killed-worker" } },
+            },
+          ],
+        }),
+      } as any);
+      if (outcome === "error")
+        runAgentLoopMock.mockRejectedValueOnce(new Error("provider failed"));
+      try {
+        await processRecurringJobs(recoveryDeps);
+        expect(runAgentLoopMock).toHaveBeenCalledOnce();
+        const pending = parseJobResource(
+          resourcePutMock.mock.calls.at(-1)![2],
+        ).meta;
+        expect(pending).toMatchObject({
+          lastStatus: "running",
+          lastHistoryId: fixture.history.id,
+        });
+        fixture.history.runId = startRunMock.mock.calls[0]![0];
+        vi.mocked(runStore.getRunById).mockResolvedValue({
+          id: fixture.history.runId,
+          status: outcome === "success" ? "completed" : "errored",
+          errorCode: outcome === "error" ? "http_502" : null,
+          errorDetail: outcome === "error" ? "provider failed" : null,
+        } as any);
+        await processRecurringJobs(recoveryDeps);
+        expect(runAgentLoopMock).toHaveBeenCalledOnce();
+        const settled = parseJobResource(
+          resourcePutMock.mock.calls.at(-1)![2],
+        ).meta;
+        expect(settled.lastStatus).toBe(outcome);
+        if (outcome === "error") {
+          expect(settled.lastError).toContain("send-test-email");
+          expect(settled.consecutiveFailures).toBe(1);
+        }
+      } finally {
+        finish.mockRestore();
+        fixture.restore();
+      }
+    },
+  );
+
+  it("persists a new local firing's exact history id before the worker starts", async () => {
+    const resource = {
+      id: "resource-due",
+      owner: "owner@example.com",
+      path: "jobs/due.md",
+      content:
+        '---\nschedule: "* * * * *"\nenabled: true\nnextRun: 2026-01-01T00:00:00Z\n---\nRun work.',
+    };
+    resourceListAllOwnersMock.mockResolvedValue([resource]);
+    const start = vi
+      .spyOn(runHistory, "startAutomationRun")
+      .mockResolvedValue("new-firing-id");
+    const attach = vi
+      .spyOn(runHistory, "attachAutomationRunThread")
+      .mockImplementation(async (id) => {
+        expect(
+          parseJobResource(resourcePutMock.mock.calls.at(-1)![2]).meta,
+        ).toMatchObject({ lastStatus: "running", lastHistoryId: id });
+      });
+    try {
+      await processRecurringJobs(recoveryDeps);
+      expect(start).toHaveBeenCalledOnce();
+      expect(attach).toHaveBeenCalledWith(
+        "new-firing-id",
+        "thread-1",
+        expect.any(String),
+        { requirePersisted: true },
+      );
+      expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    } finally {
+      start.mockRestore();
+      attach.mockRestore();
+    }
   });
 
   it("keeps a firing recoverable after losing the resume resource write", async () => {
@@ -538,6 +714,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
         "enabled: true",
         "lastStatus: running",
         `lastRun: ${lastRun}`,
+        "lastHistoryId: history-killed",
         "---",
         "Send the email, then open a ticket.",
       ].join("\n"),
@@ -559,24 +736,16 @@ describe("stale automation run-lock recovery across trigger types", () => {
       },
     ];
     const spies = [
-      vi.spyOn(runHistory, "listAutomationRuns").mockResolvedValue([
-        {
-          id: "queued-newer",
-          path: resource.path,
-          runId: null,
-          threadId: null,
-          startedAt: Date.now(),
-          finishedAt: null,
-        },
-        {
-          id: "history-killed",
-          path: resource.path,
-          runId: "job-killed",
-          threadId: "thread-1",
-          startedAt,
-          finishedAt: null,
-        },
-      ] as any),
+      vi.spyOn(runHistory, "getAutomationRun").mockResolvedValue({
+        id: "history-killed",
+        owner: resource.owner,
+        appId: null,
+        path: resource.path,
+        runId: "job-killed",
+        threadId: "thread-1",
+        startedAt,
+        finishedAt: null,
+      } as any),
       vi.spyOn(runStore, "reapIfStale").mockResolvedValue(true),
       vi.spyOn(runStore, "getRunById").mockResolvedValue({
         id: "job-killed",

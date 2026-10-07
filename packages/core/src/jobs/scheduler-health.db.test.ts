@@ -13,6 +13,29 @@ afterAll(async () => {
 });
 
 describe("scheduler lease after a worker stops", () => {
+  it("cannot revive an expired lease even before another scheduler acquires it", async () => {
+    await withDbExec(db, async () => {
+      const now = Date.now();
+      const owner = await acquireAutomationSchedulerLease({
+        appId: "expired",
+        now,
+      });
+      expect(owner).not.toBeNull();
+      expect(
+        await renewAutomationSchedulerLease({
+          appId: "expired",
+          owner: owner!,
+          now: now + 120_000,
+        }),
+      ).toBe(false);
+      expect(
+        await acquireAutomationSchedulerLease({
+          appId: "expired",
+          now: now + 120_000,
+        }),
+      ).not.toBeNull();
+    });
+  });
   it("lets a restarted scheduler take over in two minutes while renewals protect a live scheduler", async () => {
     await withDbExec(db, async () => {
       const now = Date.now();
@@ -32,6 +55,13 @@ describe("scheduler lease after a worker stops", () => {
         now: now + 120_000,
       });
       expect(restarted).not.toBeNull();
+      expect(
+        await renewAutomationSchedulerLease({
+          appId: "stopped",
+          owner: stopped!,
+          now: now + 120_001,
+        }),
+      ).toBe(false);
       await releaseAutomationSchedulerLease({
         appId: "stopped",
         owner: stopped!,

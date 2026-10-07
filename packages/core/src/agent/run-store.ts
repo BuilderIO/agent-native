@@ -10,6 +10,7 @@ import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { captureError } from "../server/capture-error.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
 import {
@@ -20,7 +21,7 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
-import { isContinuationTerminalReason } from "./types.js";
+import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, ContinuationReason } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -2543,6 +2544,123 @@ export interface CurrentTurnRunEvent {
   event: AgentChatEvent;
 }
 
+export class AgentRunJournalUnreadableError extends Error {
+  readonly errorCode = "tool_call_journal_unreadable";
+
+  constructor(
+    readonly threadId: string,
+    readonly turnId: string | undefined,
+    readonly rowIndex: number,
+    readonly reason:
+      | "invalid_turn"
+      | "invalid_row"
+      | "invalid_event_json"
+      | "invalid_event",
+    options?: ErrorOptions,
+  ) {
+    super(automationRecoveryMessagesForLocale().unreadable, options);
+    this.name = "AgentRunJournalUnreadableError";
+  }
+}
+
+function isJournalObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const JOURNAL_EVENT_STRING_FIELDS = {
+  text: ["text"],
+  thinking: ["text"],
+  suggestions: [],
+  rich_event: [],
+  activity: ["label"],
+  tool_input_start: [],
+  tool_input_delta: ["text"],
+  stream_keepalive: [],
+  model_stream: ["status"],
+  tool_start: ["tool"],
+  tool_done: ["tool", "result"],
+  approval_required: ["tool", "approvalKey"],
+  connection_required: ["requestId", "provider", "reason"],
+  agent_call: ["agent", "status"],
+  agent_call_progress: ["agent", "state"],
+  agent_call_text: ["agent", "text"],
+  agent_call_activity: ["agent"],
+  agent_task: ["taskId", "threadId", "description", "status"],
+  agent_task_update: ["taskId", "preview"],
+  agent_task_complete: ["taskId", "summary"],
+  done: [],
+  error: ["error"],
+  missing_api_key: [],
+  loop_limit: [],
+  tripwire: ["reason"],
+  auto_continue: ["reason"],
+  clear: [],
+} satisfies Record<AgentChatEvent["type"], readonly string[]>;
+
+function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
+  if (!isJournalObject(value) || typeof value.type !== "string") return false;
+  if (!Object.hasOwn(JOURNAL_EVENT_STRING_FIELDS, value.type)) return false;
+  const type = value.type as AgentChatEvent["type"];
+  if (
+    !JOURNAL_EVENT_STRING_FIELDS[type].every(
+      (field) => typeof value[field] === "string",
+    )
+  )
+    return false;
+  switch (type) {
+    case "tool_start":
+    case "tool_done":
+      // These fields determine whether a completed write is safe to replay.
+      return (
+        (value.tool as string).trim().length > 0 &&
+        (value.id === undefined ||
+          (typeof value.id === "string" && value.id.trim().length > 0)) &&
+        (type === "tool_start"
+          ? isJournalObject(value.input)
+          : (value.input === undefined || isJournalObject(value.input)) &&
+            ["isError", "completedSideEffect", "replayed"].every(
+              (field) =>
+                value[field] === undefined || typeof value[field] === "boolean",
+            ))
+      );
+    case "suggestions":
+      return Array.isArray(value.suggestions);
+    case "rich_event":
+      return (
+        isJournalObject(value.event) &&
+        typeof value.event.namespace === "string" &&
+        typeof value.event.name === "string"
+      );
+    case "approval_required":
+      return isJournalObject(value.input);
+    case "agent_call_activity":
+      return isJournalObject(value.snapshot);
+    case "agent_call_progress":
+      return (
+        typeof value.elapsedSeconds === "number" &&
+        Number.isFinite(value.elapsedSeconds)
+      );
+    case "model_stream":
+      return value.status === "start" || value.status === "end";
+    case "agent_call":
+      return ["start", "done", "pending", "error"].includes(
+        value.status as string,
+      );
+    case "agent_task":
+      return ["running", "completed", "errored"].includes(
+        value.status as string,
+      );
+    case "connection_required":
+      return ["connect", "grant", "reauthorize", "admin_required"].includes(
+        value.reason as string,
+      );
+    case "auto_continue":
+      return CONTINUATION_REASONS.includes(value.reason as ContinuationReason);
+    default:
+      return true;
+  }
+}
+
 async function getCurrentTurnRunEvents(
   threadId: string,
   knownTurnId?: string,
@@ -2556,8 +2674,25 @@ async function getCurrentTurnRunEvents(
       args: [threadId],
     });
     if (latest.rows.length === 0) return [];
-    const latestRow = latest.rows[0] as { id: string; turn_id: string | null };
-    turnId = latestRow.turn_id ?? latestRow.id;
+    const latestRow = latest.rows[0];
+    if (!isJournalObject(latestRow)) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        0,
+        "invalid_turn",
+      );
+    }
+    const currentTurnId = latestRow.turn_id ?? latestRow.id;
+    if (typeof currentTurnId !== "string" || !currentTurnId.trim()) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        0,
+        "invalid_turn",
+      );
+    }
+    turnId = currentTurnId;
   }
   const { rows } = await client.execute({
     sql: `SELECT e.run_id AS run_id, e.seq AS seq, e.event_data AS event_data
@@ -2573,24 +2708,56 @@ async function getCurrentTurnRunEvents(
     args: [threadId, turnId],
   });
   const events: CurrentTurnRunEvent[] = [];
-  for (const r of rows) {
-    const row = r as {
-      run_id?: string;
-      seq?: number | string;
-      event_data?: string;
-    };
-    const raw = row.event_data;
-    const seq = Number(row.seq);
-    if (!row.run_id || !Number.isFinite(seq) || !raw) continue;
-    try {
-      events.push({
-        runId: row.run_id,
-        seq,
-        event: JSON.parse(raw) as AgentChatEvent,
-      });
-    } catch {
-      // Skip malformed ledger rows — the journal is best-effort.
+  for (const [rowIndex, row] of rows.entries()) {
+    if (!isJournalObject(row)) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_row",
+      );
     }
+    const raw = row.event_data;
+    const validSeq =
+      typeof row.seq === "number" ||
+      (typeof row.seq === "string" && /^\d+$/.test(row.seq));
+    const seq = validSeq ? Number(row.seq) : Number.NaN;
+    if (
+      typeof row.run_id !== "string" ||
+      !row.run_id.trim() ||
+      !Number.isSafeInteger(seq) ||
+      seq < 0 ||
+      typeof raw !== "string" ||
+      !raw
+    ) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_row",
+      );
+    }
+    let event: unknown;
+    try {
+      event = JSON.parse(raw);
+    } catch (cause) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_event_json",
+        { cause },
+      );
+    }
+    if (!isReadableJournalEvent(event)) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_event",
+      );
+    }
+    events.push({ runId: row.run_id, seq, event });
   }
   return events;
 }

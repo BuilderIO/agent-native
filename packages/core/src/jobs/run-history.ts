@@ -11,6 +11,7 @@ import {
 } from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import {
   createAutomationFailureUnsubscribeToken,
@@ -762,7 +763,16 @@ export async function processPendingAutomationFailureAlerts(options?: {
   return { attempted, delivered, deferred, suppressed, uncertain, failed };
 }
 
+export class AutomationRunHistoryWriteError extends Error {
+  readonly errorCode = "background_automation_history_write_failed";
+  constructor(readonly historyId: string) {
+    super(automationRecoveryMessagesForLocale().unreadable);
+    this.name = "AutomationRunHistoryWriteError";
+  }
+}
+
 export interface FinishAutomationRunOptions {
+  requirePersisted?: boolean;
   /**
    * `notify: false` records the run without queueing the owner email. Used for
    * the early failures of a streak that will pause: the owner is told once,
@@ -814,6 +824,14 @@ export async function finishAutomationRun(
       ...(claimGuard ? [options.expectedClaimedAt] : []),
     ],
   });
+  if (
+    options.requirePersisted &&
+    (!row || Number(update.rowsAffected ?? 0) === 0)
+  ) {
+    const durable = await getAutomationRun(id);
+    if (!durable || durable.finishedAt === null || durable.status !== status)
+      throw new AutomationRunHistoryWriteError(id);
+  }
   if (!row || Number(update.rowsAffected ?? 0) === 0) return;
   const rawStartedAt = Number(row.started_at);
   const startedAt = Number.isFinite(rawStartedAt) ? rawStartedAt : null;
@@ -859,12 +877,15 @@ export async function attachAutomationRunThread(
   id: string,
   threadId: string,
   runId: string,
+  options: { requirePersisted?: boolean } = {},
 ): Promise<void> {
   await ensureTable();
-  await getDbExec().execute({
+  const update = await getDbExec().execute({
     sql: `UPDATE ${TABLE} SET thread_id = ?, run_id = ? WHERE id = ?`,
     args: [threadId, runId, id],
   });
+  if (options.requirePersisted && Number(update.rowsAffected ?? 0) !== 1)
+    throw new AutomationRunHistoryWriteError(id);
 }
 
 export async function deleteAutomationRuns(

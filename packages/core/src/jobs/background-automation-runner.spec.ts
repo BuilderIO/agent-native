@@ -1188,6 +1188,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
         "error",
         expect.stringContaining("send-test-email"),
         "background_automation_hard_timeout",
+        expect.objectContaining({ requirePersisted: true }),
       );
       expect(await countRowsWithPrefix("job-expired-recovery")).toBe(0);
     } finally {
@@ -1253,6 +1254,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
             "Completed steps confirmed by the run journal: send-test-email",
           ),
           expect.any(String),
+          expect.objectContaining({ requirePersisted: true }),
         );
       } finally {
         spies.forEach((spy) => spy.mockRestore());

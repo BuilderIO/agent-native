@@ -26,7 +26,10 @@ import type {
   ResolveRunSoftTimeoutOptions,
   RunChunkControl,
 } from "./run-manager.js";
-import { getCurrentTurnEventsForThread } from "./run-store.js";
+import {
+  AgentRunJournalUnreadableError,
+  getCurrentTurnEventsForThread,
+} from "./run-store.js";
 import {
   classifyToolCallJournal,
   buildResumeJournalNote,
@@ -45,6 +48,7 @@ async function readCurrentTurnEventsForResume(
       ? await getCurrentTurnEventsForThread(threadId, turnId)
       : [];
   } catch (err) {
+    if (err instanceof AgentRunJournalUnreadableError) throw err;
     persisted = false;
     console.warn(
       "[run-loop] current-turn ledger read failed:",

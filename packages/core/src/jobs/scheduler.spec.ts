@@ -42,6 +42,8 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  organizationResourceOwner: (orgId: string) =>
+    `__organization__:${encodeURIComponent(orgId)}`,
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
@@ -1563,19 +1565,25 @@ createdBy: alice+jobs@agent-native.test
 Post the digest.`,
       },
     ]);
-    resourceGetByPathMock.mockResolvedValue({
-      id: "resource-edited",
-      owner: "alice+jobs@agent-native.test",
-      path: "jobs/channel-digest.md",
-      content: `---
+    resourceGetByPathMock.mockImplementation(async () => {
+      const running = parseJobResource(resourcePutMock.mock.calls[0]![2]).meta;
+      return {
+        id: "resource-edited",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
 schedule: "0 21 * * *"
 timezone: Asia/Tokyo
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: alice+jobs@agent-native.test
+lastRun: ${running.lastRun}
+lastHistoryId: ${running.lastHistoryId}
+lastStatus: running
 ---
 
 Post the revised digest.`,
+      };
     });
 
     await processRecurringJobs({

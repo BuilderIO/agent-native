@@ -158,6 +158,7 @@ export interface BackgroundAutomationRunOptions {
   actionCaller?: ActionCaller;
   actionAutomation?: ActionAutomationContext;
   historyId?: string;
+  assertCanStart?: () => Promise<void>;
   hardTimeoutMs?: number;
   hardDeadlineAt?: number;
   noProgressTimeoutMs?: number;
@@ -519,6 +520,28 @@ function createRunId(prefix: string): string {
   return `${safePrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+export async function startBackgroundAutomationHistory(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+  orgId?: string,
+  appId?: string,
+): Promise<string> {
+  return startAutomationRun({
+    owner: automationHistoryOwner(automation.resource, ownerEmail, orgId),
+    automation: automation.name,
+    path: automation.resource.path,
+    scope: orgId ? "organization" : "personal",
+    orgId: orgId ?? null,
+    appId,
+    notificationEmail: await notificationEmailFor(
+      automation.name,
+      ownerEmail,
+      automation.meta.createdBy,
+      orgId,
+    ),
+  });
+}
+
 export async function runBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
@@ -529,25 +552,12 @@ export async function runBackgroundAutomation(
     historyId = options.historyId;
   } else {
     try {
-      const historyOwner = automationHistoryOwner(
-        automation.resource,
+      historyId = await startBackgroundAutomationHistory(
+        automation,
         options.ownerEmail,
         options.orgId,
+        deps.appId,
       );
-      historyId = await startAutomationRun({
-        owner: historyOwner,
-        automation: automation.name,
-        path: automation.resource.path,
-        scope: options.orgId ? "organization" : "personal",
-        orgId: options.orgId ?? null,
-        appId: deps.appId,
-        notificationEmail: await notificationEmailFor(
-          automation.name,
-          options.ownerEmail,
-          automation.meta.createdBy,
-          options.orgId,
-        ),
-      });
     } catch (err) {
       console.error(
         `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
@@ -637,6 +647,7 @@ export async function runBackgroundAutomation(
       // A precondition failure repeats identically until fixed, so only the
       // run that pauses the automation emails its owner.
       !(failure.precondition && !transition.pause),
+      Boolean(options.historyId),
     );
     throw new BackgroundAutomationRunError(
       failure.message,
@@ -644,7 +655,14 @@ export async function runBackgroundAutomation(
       failure.deliveryNote,
     );
   }
-  await recordRunOutcome(historyId, "success");
+  await recordRunOutcome(
+    historyId,
+    "success",
+    undefined,
+    undefined,
+    true,
+    Boolean(options.historyId),
+  );
   return result;
 }
 
@@ -652,11 +670,19 @@ async function recordRunThread(
   historyId: string | null,
   threadId: string,
   runId: string,
+  strict: boolean,
 ): Promise<void> {
   if (!historyId) return;
   try {
-    await attachAutomationRunThread(historyId, threadId, runId);
+    await attachAutomationRunThread(historyId, threadId, runId, {
+      requirePersisted: strict,
+    });
   } catch (err) {
+    if (strict)
+      throw new BackgroundAutomationRunError(
+        deliveryNoteForEvents(null),
+        "background_automation_history_write_failed",
+      );
     console.error(
       `[automations] Could not attach thread ${threadId} to run ${historyId}:`,
       err,
@@ -767,21 +793,34 @@ async function recordRunOutcome(
   error?: string,
   errorCode?: string,
   notify = true,
+  strict = false,
 ): Promise<void> {
   if (!historyId) return;
   try {
-    if (notify) {
-      await finishAutomationRun(historyId, status, error, errorCode);
-    } else {
-      await finishAutomationRun(historyId, status, error, errorCode, {
-        notify: false,
-      });
-    }
+    const writeOptions =
+      notify && !strict
+        ? undefined
+        : {
+            notify,
+            ...(strict ? { requirePersisted: true } : {}),
+          };
+    await finishAutomationRun(
+      historyId,
+      status,
+      error,
+      errorCode,
+      writeOptions,
+    );
   } catch (err) {
     console.error(
       `[automations] Could not record run ${historyId} as ${status}:`,
       err,
     );
+    if (strict)
+      throw new BackgroundAutomationRunError(
+        deliveryNoteForEvents(null),
+        "background_automation_history_write_failed",
+      );
   }
 }
 
@@ -992,6 +1031,7 @@ async function executeBackgroundAutomation(
       let hardTimedOut = false;
 
       assertHardDeadline(options.hardDeadlineAt);
+      await options.assertCanStart?.();
       if (options.resume) {
         const claim = await tryClaimRunSlot(thread.id, runId, undefined, {
           turnId,
@@ -1023,7 +1063,13 @@ async function executeBackgroundAutomation(
         prompt: executionPrompt,
         run: { runId, turnId, startedAt: Date.now(), events: [] },
       });
-      await recordRunThread(historyId, thread.id, runId);
+      await recordRunThread(
+        historyId,
+        thread.id,
+        runId,
+        Boolean(options.historyId),
+      );
+      await options.assertCanStart?.();
       const hardTimeoutMs = Math.min(
         maxHardTimeoutMs,
         options.hardDeadlineAt === undefined
