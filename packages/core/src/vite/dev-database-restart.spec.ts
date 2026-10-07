@@ -68,6 +68,44 @@ function suppressNextNitroAcknowledgement(
   };
 }
 
+function suppressNitroAcknowledgements(
+  hot: NitroHot,
+  event: string,
+): () => void {
+  if (!hot.on || !hot.off) {
+    throw new Error("Nitro dev environment cannot observe lifecycle events");
+  }
+
+  const hotOn = hot.on.bind(hot);
+  const hotOff = hot.off.bind(hot);
+  const wrappedListeners = new Map<
+    (payload: any) => void,
+    (payload: any) => void
+  >();
+  let suppress = true;
+  hot.on = (registeredEvent, listener) => {
+    if (registeredEvent !== event || !suppress) {
+      hotOn(registeredEvent, listener);
+      return;
+    }
+    const wrapped = (payload: any) => {
+      if (suppress) return;
+      listener(payload);
+    };
+    wrappedListeners.set(listener, wrapped);
+    hotOn(registeredEvent, wrapped);
+  };
+  hot.off = (registeredEvent, listener) => {
+    const wrapped = wrappedListeners.get(listener) ?? listener;
+    wrappedListeners.delete(listener);
+    hotOff(registeredEvent, wrapped);
+  };
+
+  return () => {
+    suppress = false;
+  };
+}
+
 async function waitForProbe(
   url: string,
   condition: (result: ProbeResult) => boolean,
@@ -209,6 +247,8 @@ describe("Nitro PGlite dev lifecycle", () => {
     let serverListens = 0;
     let databaseCloseAcknowledgements = 0;
     let suppressNextResumeAcknowledgement = false;
+    let restoreCloseAcknowledgements: (() => void) | undefined;
+    let restoreNitroSend: (() => void) | undefined;
 
     fs.mkdirSync(path.join(testRoot, "server", "plugins"), {
       recursive: true,
@@ -406,7 +446,63 @@ export default async () => {
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
         true,
       );
+
+      const restartsBeforeMissingAcknowledgement = serverRestarts;
+      const listensBeforeMissingAcknowledgement = serverListens;
+      const closeNitroHot = server.environments.nitro?.hot as NitroHot;
+      const closeRequests: string[] = [];
+      const send = closeNitroHot.send;
+      if (!send) throw new Error("Nitro dev environment cannot send events");
+      closeNitroHot.send = (payload) => {
+        if (payload?.event === "agent-native:dev-database-close") {
+          closeRequests.push(payload.data?.requestId);
+        }
+        send.call(closeNitroHot, payload);
+      };
+      restoreNitroSend = () => {
+        closeNitroHot.send = send;
+      };
+      restoreCloseAcknowledgements = suppressNitroAcknowledgements(
+        closeNitroHot,
+        "agent-native:dev-database-closed",
+      );
+      fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=missing-close-ack\n");
+      const closeRequestDeadline = Date.now() + 20_000;
+      while (closeRequests.length < 3 && Date.now() < closeRequestDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(closeRequests).toHaveLength(3);
+      expect(new Set(closeRequests).size).toBe(1);
+      await new Promise((resolve) => setTimeout(resolve, 5_500));
+      expect(serverRestarts).toBe(restartsBeforeMissingAcknowledgement);
+      expect(serverListens).toBe(listensBeforeMissingAcknowledgement);
+      expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
+        false,
+      );
+      const unacknowledgedResponse = await fetch(probeUrl);
+      const unacknowledgedBody = await unacknowledgedResponse.text();
+      expect(unacknowledgedResponse.status).toBe(503);
+      expect(unacknowledgedBody).toContain("PGlite access is paused");
+      expect(unacknowledgedBody).not.toContain("already owned by process");
+
+      restoreCloseAcknowledgements();
+      restoreCloseAcknowledgements = undefined;
+      restoreNitroSend();
+      restoreNitroSend = undefined;
+      fs.writeFileSync(envFile, "VITE_RESTART_TOKEN=after-missing-close-ack\n");
+      const recovered = await waitForProbe(
+        probeUrl,
+        () =>
+          serverRestarts > restartsBeforeMissingAcknowledgement &&
+          serverListens > listensBeforeMissingAcknowledgement,
+      );
+      expect(recovered.rows).toEqual([{ id: 1, value: "persisted" }]);
+      expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
+        true,
+      );
     } finally {
+      restoreCloseAcknowledgements?.();
+      restoreNitroSend?.();
       try {
         if (server) await closeServer(server);
       } finally {

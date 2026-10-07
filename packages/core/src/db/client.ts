@@ -313,6 +313,8 @@ export async function loadPgliteDrizzle(): Promise<{
 }
 
 type PgliteClientRegistry = Map<string, Promise<any>>;
+type PglitePendingClientClose = { client: any };
+type PglitePendingClientCloseRegistry = Map<string, PglitePendingClientClose>;
 type PgliteProcessLock = {
   fd: number;
   fs: typeof import("fs");
@@ -327,16 +329,29 @@ type PgliteClientOperationDrain = {
 
 const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteClients?: PgliteClientRegistry;
+  __agentNativePgliteClientsPendingClose?: PglitePendingClientCloseRegistry;
   __agentNativePgliteProcessLocks?: PgliteProcessLockRegistry;
   __agentNativePgliteClientOperationDrain?: PgliteClientOperationDrain;
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
   __agentNativePgliteClientShutdownRequested?: boolean;
+  __agentNativePgliteClientGeneration?: number;
+  __agentNativePgliteClientReadyGenerations?: Map<string, number>;
   __agentNativeDbClientsClosingHooks?: DbClientsClosingHooks;
 };
 const _pgliteClients = (pgliteProcess.__agentNativePgliteClients ??= new Map<
   string,
   Promise<any>
 >());
+const _pgliteClientsPendingClose =
+  (pgliteProcess.__agentNativePgliteClientsPendingClose ??= new Map<
+    string,
+    PglitePendingClientClose
+  >());
+const _pgliteClientReadyGenerations =
+  (pgliteProcess.__agentNativePgliteClientReadyGenerations ??= new Map<
+    string,
+    number
+  >());
 const _pgliteProcessLocks = (pgliteProcess.__agentNativePgliteProcessLocks ??=
   new Map<string, PgliteProcessLock>());
 const _pgliteClientOperationDrain =
@@ -352,6 +367,10 @@ export function onDbClientsClosing(hook: () => void): void {
 }
 
 export function beginPgliteClientShutdown(): void {
+  if (!pgliteProcess.__agentNativePgliteClientShutdownRequested) {
+    pgliteProcess.__agentNativePgliteClientGeneration =
+      (pgliteProcess.__agentNativePgliteClientGeneration ?? 0) + 1;
+  }
   pgliteProcess.__agentNativePgliteClientShutdownRequested = true;
 }
 
@@ -363,6 +382,19 @@ function assertPgliteClientAccessOpen(): void {
   if (!pgliteProcess.__agentNativePgliteClientShutdownRequested) return;
   const error = new Error(
     "PGlite access is paused while the development server restarts.",
+  ) as Error & { statusCode: number; statusMessage: string };
+  error.statusCode = 503;
+  error.statusMessage = "Service Unavailable";
+  throw error;
+}
+
+function assertPgliteClientGeneration(generation: number): void {
+  assertPgliteClientAccessOpen();
+  if ((pgliteProcess.__agentNativePgliteClientGeneration ?? 0) === generation) {
+    return;
+  }
+  const error = new Error(
+    "PGlite initialization was interrupted while the development server restarted.",
   ) as Error & { statusCode: number; statusMessage: string };
   error.statusCode = 503;
   error.statusMessage = "Service Unavailable";
@@ -587,18 +619,50 @@ async function acquirePgliteProcessLock(
 
 export async function getPgliteClient(url: string): Promise<any> {
   assertPgliteClientAccessOpen();
+  if (_dbExecClosePromise) await _dbExecClosePromise;
+  const generation = pgliteProcess.__agentNativePgliteClientGeneration ?? 0;
+  assertPgliteClientGeneration(generation);
   const dataDir = await preparePgliteDataDir(pgliteDataDirFromUrl(url));
-  assertPgliteClientAccessOpen();
+  assertPgliteClientGeneration(generation);
   const clientKey = pgliteClientKey(dataDir);
+  if (_pgliteClientsPendingClose.has(clientKey)) {
+    throw new Error(
+      `PGlite client for "${dataDir}" could not close during the previous database lifecycle. Retry database cleanup before reopening it.`,
+    );
+  }
   let ready = _pgliteClients.get(clientKey);
+  if (ready && _pgliteClientReadyGenerations.get(clientKey) !== generation) {
+    throw new Error(
+      `PGlite client initialization for "${dataDir}" belongs to an earlier database lifecycle.`,
+    );
+  }
   if (!ready) {
     ready = (async () => {
       const lock = await acquirePgliteProcessLock(dataDir);
+      let retainLockForPendingClose = false;
       try {
+        assertPgliteClientGeneration(generation);
         const { PGlite } = await loadPglitePackage();
-        return guardPgliteClientAccess(await PGlite.create(clientKey));
+        assertPgliteClientGeneration(generation);
+        const client = await PGlite.create(clientKey);
+        try {
+          assertPgliteClientGeneration(generation);
+        } catch (error) {
+          try {
+            await client.close();
+          } catch (closeError) {
+            _pgliteClientsPendingClose.set(clientKey, { client });
+            retainLockForPendingClose = true;
+            throw new AggregateError(
+              [error, closeError],
+              `PGlite client for "${dataDir}" could not close after its initialization was interrupted.`,
+            );
+          }
+          throw error;
+        }
+        return guardPgliteClientAccess(client);
       } catch (error) {
-        if (lock) {
+        if (lock && !retainLockForPendingClose) {
           _pgliteProcessLocks.delete(clientKey);
           releasePgliteProcessLock(lock);
         }
@@ -606,32 +670,60 @@ export async function getPgliteClient(url: string): Promise<any> {
       }
     })();
     _pgliteClients.set(clientKey, ready);
+    _pgliteClientReadyGenerations.set(clientKey, generation);
     ready.catch(() => {
       if (_pgliteClients.get(clientKey) === ready) {
         _pgliteClients.delete(clientKey);
+        _pgliteClientReadyGenerations.delete(clientKey);
       }
     });
   }
+  assertPgliteClientGeneration(generation);
   return ready;
 }
 
 export async function closePgliteClients(): Promise<void> {
   const clients = [..._pgliteClients.entries()];
   _pgliteClients.clear();
-  await Promise.allSettled(
+  _pgliteClientReadyGenerations.clear();
+  for (const [clientKey, pending] of _pgliteClientsPendingClose) {
+    if (!clients.some(([key]) => key === clientKey)) {
+      clients.push([clientKey, Promise.resolve(pending.client)]);
+    }
+  }
+  const results = await Promise.allSettled(
     clients.map(async ([clientKey, ready]) => {
+      let client: any;
       try {
-        const client = await ready;
-        await client.close().catch(() => {});
-      } finally {
-        const lock = _pgliteProcessLocks.get(clientKey);
-        if (lock) {
-          _pgliteProcessLocks.delete(clientKey);
-          releasePgliteProcessLock(lock);
-        }
+        client = await ready;
+      } catch (error) {
+        const pending = _pgliteClientsPendingClose.get(clientKey);
+        if (!pending) return;
+        client = pending.client;
+      }
+      try {
+        await client.close();
+      } catch (error) {
+        _pgliteClientsPendingClose.set(clientKey, { client });
+        throw error;
+      }
+      _pgliteClientsPendingClose.delete(clientKey);
+      const lock = _pgliteProcessLocks.get(clientKey);
+      if (lock) {
+        _pgliteProcessLocks.delete(clientKey);
+        releasePgliteProcessLock(lock);
       }
     }),
   );
+  const failures = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      "One or more PGlite clients could not close; their process locks remain held.",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1499,6 +1591,8 @@ function disposePostgresPoolEventually(
 
 let _exec: DbExec | undefined;
 let _initPromise: Promise<void> | undefined;
+let _dbExecGeneration = 0;
+let _dbExecClosePromise: Promise<void> | undefined;
 
 async function executePglite(
   client: {
@@ -2046,11 +2140,20 @@ function guardSchemaMutations(exec: DbExec): DbExec {
 
 async function initClient(): Promise<void> {
   if (_exec) return;
+  if (_dbExecClosePromise) await _dbExecClosePromise;
+  const generation = _dbExecGeneration;
 
   assertHostedRuntimeDatabase();
 
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
-  _exec = await createDbExecInternal({ url }, true);
+  const exec = await createDbExecInternal({ url }, true);
+  if (generation !== _dbExecGeneration) {
+    await exec.close?.();
+    throw new Error(
+      "Database client initialization was interrupted while database clients were closing.",
+    );
+  }
+  _exec = exec;
 }
 
 export function annotateMissingTable(err: unknown, sql: unknown): unknown {
@@ -2109,12 +2212,14 @@ export function getDbExec(): DbExec {
   const proxy: DbExec = {
     async execute(sql) {
       assertSchemaMutationAllowed(sql);
-      if (!_initPromise) _initPromise = initClient();
+      const initPromise = (_initPromise ??= initClient());
       try {
-        await _initPromise;
+        await initPromise;
       } catch (err) {
-        _initPromise = undefined;
-        _exec = undefined;
+        if (_initPromise === initPromise) {
+          _initPromise = undefined;
+          _exec = undefined;
+        }
         throw err;
       }
       const wrapper: DbExec = {
@@ -2144,12 +2249,14 @@ export function getDbExec(): DbExec {
       return execAnnotated(sql);
     },
     async transaction(fn) {
-      if (!_initPromise) _initPromise = initClient();
+      const initPromise = (_initPromise ??= initClient());
       try {
-        await _initPromise;
+        await initPromise;
       } catch (err) {
-        _initPromise = undefined;
-        _exec = undefined;
+        if (_initPromise === initPromise) {
+          _initPromise = undefined;
+          _exec = undefined;
+        }
         throw err;
       }
       const wrapper: DbExec = {
@@ -2198,12 +2305,14 @@ export function getDbExec(): DbExec {
       for (const statement of statements) {
         assertSchemaMutationAllowed(statement);
       }
-      if (!_initPromise) _initPromise = initClient();
+      const initPromise = (_initPromise ??= initClient());
       try {
-        await _initPromise;
+        await initPromise;
       } catch (err) {
-        _initPromise = undefined;
-        _exec = undefined;
+        if (_initPromise === initPromise) {
+          _initPromise = undefined;
+          _exec = undefined;
+        }
         throw err;
       }
       if (!_exec!.atomicBatch) {
@@ -2223,9 +2332,21 @@ export function getDbExec(): DbExec {
 }
 
 export async function closeDbExec(): Promise<void> {
+  if (_dbExecClosePromise) return _dbExecClosePromise;
+  _dbExecGeneration++;
+  pgliteProcess.__agentNativePgliteClientGeneration =
+    (pgliteProcess.__agentNativePgliteClientGeneration ?? 0) + 1;
   notifyDbClientsClosing();
-  await closeSharedDbPools();
-  await closePgliteClients();
   _exec = undefined;
   _initPromise = undefined;
+  const closePromise = (async () => {
+    await closeSharedDbPools();
+    await closePgliteClients();
+  })();
+  _dbExecClosePromise = closePromise;
+  try {
+    await closePromise;
+  } finally {
+    if (_dbExecClosePromise === closePromise) _dbExecClosePromise = undefined;
+  }
 }

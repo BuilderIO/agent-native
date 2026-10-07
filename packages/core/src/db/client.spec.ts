@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,15 +12,19 @@ async function resetAppConfig(): Promise<void> {
 describe("PGlite dev reloads", () => {
   const processState = process as NodeJS.Process & {
     __agentNativePgliteClients?: Map<string, Promise<unknown>>;
+    __agentNativePgliteClientsPendingClose?: Map<string, { client: unknown }>;
     __agentNativePgliteProcessLocks?: Map<string, unknown>;
     __agentNativePgliteProcessExitCleanupRegistered?: boolean;
   };
   let dataDir = "";
 
   afterEach(async () => {
-    const { closePgliteClients } = await import("./client.js");
+    const { closePgliteClients, resumePgliteClientAccess } =
+      await import("./client.js");
     await closePgliteClients();
+    resumePgliteClientAccess();
     delete processState.__agentNativePgliteClients;
+    delete processState.__agentNativePgliteClientsPendingClose;
     delete processState.__agentNativePgliteProcessLocks;
     delete processState.__agentNativePgliteProcessExitCleanupRegistered;
     vi.doUnmock("@electric-sql/pglite");
@@ -71,6 +75,59 @@ describe("PGlite dev reloads", () => {
 
     expect(reloaded).toBe(first);
     expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the process lock until an interrupted PGlite client closes", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "agent-native-pglite-stale-client-"));
+    let resolveCreate: ((client: unknown) => void) | undefined;
+    const create = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const client = {
+      close: vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(new Error("close still draining"))
+        .mockResolvedValue(undefined),
+    };
+    vi.doMock("@electric-sql/pglite", () => ({ PGlite: { create } }));
+
+    const {
+      beginPgliteClientShutdown,
+      closePgliteClients,
+      getPgliteClient,
+      resumePgliteClientAccess,
+    } = await import("./client.js");
+    const lockPath = `${dataDir}.agent-native-pglite.lock`;
+    const opening = getPgliteClient(`pglite:${dataDir}`);
+    try {
+      await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+      expect(existsSync(lockPath)).toBe(true);
+
+      beginPgliteClientShutdown();
+      resolveCreate?.(client);
+      await expect(opening).rejects.toThrow(
+        /could not close after its initialization was interrupted/,
+      );
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(existsSync(lockPath)).toBe(true);
+
+      resumePgliteClientAccess();
+      await expect(getPgliteClient(`pglite:${dataDir}`)).rejects.toThrow(
+        /could not close during the previous database lifecycle/,
+      );
+      await closePgliteClients();
+
+      expect(client.close).toHaveBeenCalledTimes(2);
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      resolveCreate?.(client);
+      await Promise.allSettled([opening]);
+      resumePgliteClientAccess();
+      await closePgliteClients();
+    }
   });
 });
 

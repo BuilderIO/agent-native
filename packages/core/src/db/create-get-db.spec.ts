@@ -1034,6 +1034,127 @@ describe("createGetDb — lazy proxy before init resolves", () => {
   });
 });
 
+describe("createGetDb — initialization reset races", () => {
+  afterEach(async () => {
+    const { closeDbExec } = await import("./client.js");
+    await closeDbExec();
+    vi.doUnmock("./client.js");
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+  }
+
+  async function setupPendingPgliteInitializations() {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+    const pending = [deferred<any>(), deferred<any>()];
+    let nextInitialization = 0;
+    const loadPgliteDrizzle = vi.fn(
+      () => pending[nextInitialization++].promise,
+    );
+    const getPgliteClient = vi.fn(async () => ({}));
+    vi.doMock("./client.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./client.js")>();
+      return {
+        ...actual,
+        assertHostedRuntimeDatabase: vi.fn(),
+        getRuntimeDatabaseUrl: vi.fn(() => "pglite:./data/pglite"),
+        isPgliteUrl: vi.fn(() => true),
+        loadPgliteDrizzle,
+        getPgliteClient,
+        pgliteDrizzleClient: vi.fn((_url: string, client: unknown) => client),
+      };
+    });
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
+
+    const { createGetDb } = await import("./create-get-db.js");
+    const client = await import("./client.js");
+    return { createGetDb, client, getPgliteClient, loadPgliteDrizzle, pending };
+  }
+
+  it("ignores a PGlite initialization that resolves after close and resume", async () => {
+    const { createGetDb, client, getPgliteClient, loadPgliteDrizzle, pending } =
+      await setupPendingPgliteInitializations();
+    const getDb = createGetDb({});
+    const staleInitialization = expect(getDb()).rejects.toThrow(/invalidated/i);
+    await Promise.resolve();
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(1);
+
+    client.beginPgliteClientShutdown();
+    await client.closeDbExec();
+    client.resumePgliteClientAccess();
+
+    const resumedDb = getDb();
+    await Promise.resolve();
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(2);
+
+    const resumedDrizzle = vi.fn(({ client: pgliteClient }) => ({
+      name: "resumed",
+      client: pgliteClient,
+    }));
+    pending[1].resolve({ drizzle: resumedDrizzle });
+    const currentDb = await resumedDb;
+
+    pending[0].resolve({
+      drizzle: vi.fn(({ client: pgliteClient }) => ({
+        name: "stale",
+        client: pgliteClient,
+      })),
+    });
+    await staleInitialization;
+
+    expect(getPgliteClient).toHaveBeenCalledTimes(1);
+    expect(currentDb.name).toBe("resumed");
+    expect(await getDb()).toBe(currentDb);
+  });
+
+  it("does not let a stale rejection clear a resumed initialization", async () => {
+    const { createGetDb, client, getPgliteClient, loadPgliteDrizzle, pending } =
+      await setupPendingPgliteInitializations();
+    const getDb = createGetDb({});
+    const staleError = new Error("stale PGlite initialization failed");
+    const staleResult = Promise.resolve(getDb()).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    await Promise.resolve();
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(1);
+
+    client.beginPgliteClientShutdown();
+    await client.closeDbExec();
+    client.resumePgliteClientAccess();
+
+    const resumedDb = getDb();
+    await Promise.resolve();
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(2);
+
+    pending[0].reject(staleError);
+    await expect(staleResult).resolves.toEqual({ error: staleError });
+    expect(getPgliteClient).not.toHaveBeenCalled();
+
+    const resumedDrizzle = vi.fn(({ client: pgliteClient }) => ({
+      name: "resumed",
+      client: pgliteClient,
+    }));
+    pending[1].resolve({ drizzle: resumedDrizzle });
+    const currentDb = await resumedDb;
+
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(2);
+    expect(getPgliteClient).toHaveBeenCalledTimes(1);
+    expect(currentDb.name).toBe("resumed");
+    expect(await getDb()).toBe(currentDb);
+  });
+});
+
 describe("createGetDb hosted-runtime local database guard", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

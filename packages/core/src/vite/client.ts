@@ -3845,7 +3845,8 @@ async function requestNitroDevDatabaseClose(
   onRetry: (error: NitroDevDatabaseLifecycleTimeout) => void,
 ): Promise<void> {
   const requestId = randomUUID();
-  while (true) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       await requestNitroDevDatabaseLifecycleEvent(
         environment,
@@ -3858,6 +3859,13 @@ async function requestNitroDevDatabaseClose(
     } catch (error) {
       if (!(error instanceof NitroDevDatabaseLifecycleTimeout)) throw error;
       onRetry(error);
+      if (attempt === maxAttempts) {
+        throw new Error(
+          `Nitro dev database cleanup was not acknowledged after ${maxAttempts} attempts. ` +
+            "The restart was aborted to avoid releasing the PGlite lock while the previous Nitro worker may still be active.",
+          { cause: error },
+        );
+      }
     }
   }
 }
