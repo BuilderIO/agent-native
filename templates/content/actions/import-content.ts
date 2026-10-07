@@ -68,7 +68,7 @@ export default defineAction({
       .max(200)
       .optional()
       .describe(
-        "Stable key for one import. Retrying with the same key returns the pages already created instead of duplicating them.",
+        "Stable key for one import of these files into this destination. Retrying with the same key returns the pages already created instead of duplicating them, and finishes an import that stopped partway (IMPORT_INCOMPLETE).",
       ),
   }),
   mcpAnnotations: {

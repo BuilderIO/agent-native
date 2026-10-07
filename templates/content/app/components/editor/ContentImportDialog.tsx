@@ -389,9 +389,21 @@ export function ContentImportDialog({
         actionErrorMessage(importError) ??
         (importError instanceof Error ? importError.message : null) ??
         t("contentImport.importFailed");
+      // An import that stopped partway names the pages it already created;
+      // importing again with the same key finishes it.
+      const recorded = (
+        importError as { details?: { documentIds?: unknown } } | null
+      )?.details?.documentIds;
       setPhase("previewing");
       setError(message);
-      publishState("failed", { files, plan, error: message });
+      publishState("failed", {
+        files,
+        plan,
+        error: message,
+        ...(Array.isArray(recorded)
+          ? { createdPageIds: recorded.map(String) }
+          : {}),
+      });
     }
   }, [
     files,

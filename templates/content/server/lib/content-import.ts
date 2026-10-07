@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { type ActionRunContext, fail } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  type ActionRunContext,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import {
   getActiveFileUploadProviderForRequest,
   uploadFile,
@@ -11,11 +16,13 @@ import {
   putPrivateBlob,
 } from "@agent-native/core/private-blob";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { resolveContentSpaceTarget } from "../../actions/_content-space-target.js";
 import { isUniqueConstraintError } from "../../actions/_database-row-mutation.js";
-import createDocument from "../../actions/create-document.js";
+import createDocument, {
+  withinDocumentCreation,
+} from "../../actions/create-document.js";
 import type {
   ImportContentArgs,
   ImportContentFileInput,
@@ -38,6 +45,7 @@ import {
   IMPORT_CONTENT_OPERATION,
   type ImportAssetRequest,
   type ImportedPage,
+  type ImportedPageReport,
   type ImportPageStatus,
 } from "../../shared/import/types.js";
 import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
@@ -136,64 +144,80 @@ export async function runContentImport(
   }
 
   const importId = importIdFor(actor, args.idempotencyKey);
-  const pageIds = new Map(
-    planned.map((page) => [page.path, importPageId(importId, page.path)]),
-  );
+  const requestSha256 = importRequestFingerprint(destination, markdown, images);
   const previous = await db
     .select({
       documentId: schema.documentImports.documentId,
-      sourceSha256: schema.documentImports.sourceSha256,
+      requestSha256: schema.documentImports.requestSha256,
+      reportJson: schema.documentImports.reportJson,
     })
     .from(schema.documentImports)
     .where(eq(schema.documentImports.importId, importId));
+  if (previous.some((row) => row.requestSha256 !== requestSha256)) {
+    idempotencyKeyReused();
+  }
   const previousById = new Map(previous.map((row) => [row.documentId, row]));
+  const pageIds = new Map(
+    planned.map((page) => [page.path, importPageId(importId, page.path)]),
+  );
 
   const dataUrlUploads = new Map<string, string>();
   const pages: ImportContentPageResult[] = [];
-  for (const page of planned) {
-    const source = markdown.find((file) => file.path === page.path)!;
-    const sourceSha256 = sha256(source.text);
-    const id = pageIds.get(page.path)!;
-    const earlier = previousById.get(id);
-    if (earlier && earlier.sourceSha256 !== sourceSha256) {
-      fail(
-        "This idempotencyKey was already used for a different import. Use a new key.",
-        { errorCode: "IDEMPOTENCY_KEY_REUSED", statusCode: 409 },
-      );
-    }
-
-    for (const request of page.uploads) {
-      if (request.kind !== "data-url") continue;
-      const key = assetKey(request);
-      if (!dataUrlUploads.has(key)) {
-        dataUrlUploads.set(key, await uploadDataUrl(request, actor));
+  try {
+    for (const page of planned) {
+      const id = pageIds.get(page.path)!;
+      const earlier = previousById.get(id);
+      if (earlier) {
+        pages.push(
+          pageResult(
+            page.path,
+            {
+              ...page.preview,
+              report: JSON.parse(earlier.reportJson) as ImportedPageReport,
+            },
+            id,
+          ),
+        );
+        continue;
       }
-    }
-    const stored = finalizePlannedPage(page, {
-      assetUrl: (request) =>
-        request.kind === "file"
-          ? (images.get(request.path)?.url ?? null)
-          : (dataUrlUploads.get(assetKey(request)) ?? null),
-      pageHref: (path) => {
-        const target = pageIds.get(path);
-        return target ? `/page/${target}` : null;
-      },
-    });
 
-    if (!earlier) {
-      await createImportedPage({
+      for (const request of page.uploads) {
+        if (request.kind !== "data-url") continue;
+        const key = assetKey(request);
+        if (!dataUrlUploads.has(key)) {
+          dataUrlUploads.set(key, await uploadDataUrl(request, actor));
+        }
+      }
+      const stored = finalizePlannedPage(page, {
+        assetUrl: (request) =>
+          request.kind === "file"
+            ? (images.get(request.path)?.url ?? null)
+            : (dataUrlUploads.get(assetKey(request)) ?? null),
+        pageHref: (path) => {
+          const target = pageIds.get(path);
+          return target ? `/page/${target}` : null;
+        },
+      });
+      const report = await createImportedPage({
         db,
         ctx,
         actor,
         id,
         importId,
+        requestSha256,
         destination,
-        source,
-        sourceSha256,
+        source: markdown.find((file) => file.path === page.path)!,
         page: stored,
       });
+      pages.push(pageResult(page.path, { ...stored, report }, id));
     }
-    pages.push(pageResult(page.path, stored, id));
+  } catch (error) {
+    throw await incompleteImportError(error, {
+      db,
+      importId,
+      requestSha256,
+      plannedPages: planned.length,
+    });
   }
 
   return importResult({
@@ -205,6 +229,45 @@ export async function runContentImport(
     skipped,
     uploads,
   });
+}
+
+/**
+ * Pages are written one at a time, so a failure can stop an import partway.
+ * The caller gets the import id and the pages already recorded, so it can
+ * retry with the same key to finish or undo what landed.
+ */
+async function incompleteImportError(
+  error: unknown,
+  input: {
+    db: ReturnType<typeof getDb>;
+    importId: string;
+    requestSha256: string;
+    plannedPages: number;
+  },
+): Promise<unknown> {
+  const recorded = await input.db
+    .select({ documentId: schema.documentImports.documentId })
+    .from(schema.documentImports)
+    .where(
+      and(
+        eq(schema.documentImports.importId, input.importId),
+        eq(schema.documentImports.requestSha256, input.requestSha256),
+      ),
+    );
+  if (recorded.length === 0) return error;
+  const reason = error instanceof Error ? error.message : String(error);
+  return new ActionContractError(
+    `Imported ${recorded.length} of ${input.plannedPages} pages, then stopped: ${reason} Import again with the same idempotencyKey to finish, or undo-content-import to move the imported pages to Trash.`,
+    {
+      errorCode: "IMPORT_INCOMPLETE",
+      statusCode: isActionContractError(error) ? error.statusCode : 500,
+      details: {
+        importId: input.importId,
+        documentIds: recorded.map((row) => row.documentId),
+        ...(isActionContractError(error) ? { cause: error.errorCode } : {}),
+      },
+    },
+  );
 }
 
 async function resolveImportDestination(
@@ -237,6 +300,7 @@ async function resolveImportDestination(
     userEmail: actor,
     spaceId: args.spaceId,
     spaceName: args.spaceName,
+    provision: !args.dryRun,
   });
   return { parentId: null, spaceId: target.spaceId, title: null };
 }
@@ -326,24 +390,34 @@ async function uploadDataUrl(
   return uploaded.url;
 }
 
+/**
+ * Creates one imported page. Its History entry and provenance row are written
+ * inside the transaction that inserts the page, so a page never exists
+ * without the record Undo and retries look it up by. Returns the report that
+ * was recorded, which is another attempt's when that attempt created the page
+ * first.
+ */
 async function createImportedPage(input: {
   db: ReturnType<typeof getDb>;
   ctx: ActionRunContext | undefined;
   actor: string;
   id: string;
   importId: string;
+  requestSha256: string;
   destination: ImportContentResult["destination"];
   source: IntakeMarkdown;
-  sourceSha256: string;
   page: ImportedPage;
-}) {
+}): Promise<ImportedPageReport> {
   const { db, ctx, actor, id, page, source } = input;
+  const sourceSha256 = sha256(source.text);
   const original = await putPrivateBlob({
     data: Buffer.from(source.text, "utf8"),
     filename: source.path.split("/").pop(),
     mimeType: "text/markdown",
     ownerEmail: actor,
-    key: `content-imports/${input.importId}/${id}/${input.sourceSha256}.md`,
+    // Unique per attempt, so a concurrent retry cannot overwrite the original
+    // the winning attempt records.
+    key: `content-imports/${input.importId}/${id}/${randomUUID()}.md`,
     metadata: {
       appId: "content",
       resourceType: "document-import",
@@ -352,107 +426,165 @@ async function createImportedPage(input: {
     },
   });
   if (!original) storageUnavailable();
+  const originalBlob = JSON.stringify(original);
 
+  const agentCaller =
+    ctx?.caller === "tool" ||
+    ctx?.caller === "mcp" ||
+    ctx?.caller === "webmcp" ||
+    ctx?.caller === "a2a";
   try {
-    await createDocument.run(
-      {
-        id,
-        title: page.title,
-        content: page.content,
-        preserveLeadingTitleHeading: true,
-        ...(page.description ? { description: page.description } : {}),
-        ...(page.icon ? { icon: page.icon } : {}),
-        ...(input.destination.parentId
-          ? { parentId: input.destination.parentId }
-          : { spaceId: input.destination.spaceId }),
-        reuseLabels: [],
+    await withinDocumentCreation(
+      id,
+      async (tx) => {
+        const [created] = await tx
+          .select({
+            ownerEmail: schema.documents.ownerEmail,
+            title: schema.documents.title,
+            content: schema.documents.content,
+            description: schema.documents.description,
+            icon: schema.documents.icon,
+            parentId: schema.documents.parentId,
+            spaceId: schema.documents.spaceId,
+            bodyRevision: schema.documents.bodyRevision,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id))
+          .limit(1);
+        const now = new Date().toISOString();
+        const state = { title: created.title, content: created.content };
+        await recordDocumentHistoryTransition({
+          db: tx,
+          ownerEmail: created.ownerEmail,
+          documentId: id,
+          before: state,
+          after: state,
+          afterBodyRevision: created.bodyRevision,
+          cause: {
+            ctx,
+            groupId: `import:${input.importId}:${id}`,
+            groupKind: "operation",
+            actorKind: agentCaller
+              ? "agent"
+              : ctx?.caller === "automation"
+                ? "automation"
+                : "human",
+            skipBeforeCheckpoint: true,
+            operation: IMPORT_CONTENT_OPERATION,
+          },
+          now,
+        });
+        await tx.insert(schema.documentImports).values({
+          documentId: id,
+          ownerEmail: created.ownerEmail,
+          importId: input.importId,
+          requestSha256: input.requestSha256,
+          sourceName: source.name,
+          sourceFormat: "markdown",
+          sourceBytes: Buffer.byteLength(source.text, "utf8"),
+          sourceSha256,
+          originalBlob,
+          importedTitle: created.title,
+          importedStateSha256: importedStateFingerprint(created),
+          reportJson: JSON.stringify(page.report),
+          createdAt: now,
+        });
       },
-      ctx,
+      async () =>
+        createDocument.run(
+          {
+            id,
+            title: page.title,
+            content: page.content,
+            preserveLeadingTitleHeading: true,
+            ...(page.description ? { description: page.description } : {}),
+            ...(page.icon ? { icon: page.icon } : {}),
+            ...(input.destination.parentId
+              ? { parentId: input.destination.parentId }
+              : { spaceId: input.destination.spaceId }),
+            reuseLabels: [],
+          },
+          ctx,
+        ),
     );
+    return page.report;
   } catch (error) {
-    // A retry that raced an earlier attempt finds the page already created.
-    if (!isUniqueConstraintError(error)) {
+    const [recorded] = await db
+      .select({
+        requestSha256: schema.documentImports.requestSha256,
+        originalBlob: schema.documentImports.originalBlob,
+        reportJson: schema.documentImports.reportJson,
+      })
+      .from(schema.documentImports)
+      .where(eq(schema.documentImports.documentId, id))
+      .limit(1);
+    if (recorded?.originalBlob !== originalBlob) {
       await deletePrivateBlob(original).catch((cleanupError: unknown) => {
         console.error(
           `[content] Original import file ${original.id} for unsaved page ${id} was not deleted:`,
           cleanupError,
         );
       });
-      throw error;
     }
+    // Another attempt with this key created the page first.
+    if (!recorded || !isUniqueConstraintError(error)) throw error;
+    if (recorded.requestSha256 !== input.requestSha256) idempotencyKeyReused();
+    return JSON.parse(recorded.reportJson) as ImportedPageReport;
   }
-
-  const [created] = await db
-    .select({
-      ownerEmail: schema.documents.ownerEmail,
-      createdBy: schema.documents.createdBy,
-      bodyRevision: schema.documents.bodyRevision,
-    })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, id))
-    .limit(1);
-  if (!created || created.createdBy?.toLowerCase() !== actor) {
-    throw new Error(`Imported page ${id} was not created by this import`);
-  }
-
-  const now = new Date().toISOString();
-  const state = { title: page.title, content: page.content };
-  const agentCaller =
-    ctx?.caller === "tool" ||
-    ctx?.caller === "mcp" ||
-    ctx?.caller === "webmcp" ||
-    ctx?.caller === "a2a";
-  await recordDocumentHistoryTransition({
-    db,
-    ownerEmail: created.ownerEmail,
-    documentId: id,
-    before: state,
-    after: state,
-    afterBodyRevision: created.bodyRevision ?? undefined,
-    cause: {
-      ctx,
-      groupId: `import:${input.importId}:${id}`,
-      groupKind: "operation",
-      actorKind: agentCaller
-        ? "agent"
-        : ctx?.caller === "automation"
-          ? "automation"
-          : "human",
-      skipBeforeCheckpoint: true,
-      operation: IMPORT_CONTENT_OPERATION,
-    },
-    now,
-  });
-
-  await db
-    .insert(schema.documentImports)
-    .values({
-      documentId: id,
-      ownerEmail: created.ownerEmail,
-      importId: input.importId,
-      sourceName: source.name,
-      sourceFormat: "markdown",
-      sourceBytes: Buffer.byteLength(source.text, "utf8"),
-      sourceSha256: input.sourceSha256,
-      originalBlob: JSON.stringify(original),
-      importedTitle: page.title,
-      importedContentSha256: importedBodyFingerprint(page.content),
-      frontmatterJson:
-        page.frontmatter.unmapped || page.frontmatter.unreadable
-          ? JSON.stringify(page.frontmatter)
-          : null,
-      reportJson: JSON.stringify(page.report),
-      createdAt: now,
-    })
-    .onConflictDoNothing();
 }
 
 /**
- * Fingerprint of a body as the editor stores it, so opening an imported page
- * without editing it does not count as an edit.
+ * Fingerprint of what Undo protects: the title, the body as the editor stores
+ * it, the description, the icon, and where the page lives. Opening an imported
+ * page without editing it leaves the fingerprint unchanged.
  */
-export function importedBodyFingerprint(content: string): string {
-  return sha256(docToNfm(nfmToDoc(content)));
+export function importedStateFingerprint(page: {
+  title: string;
+  content: string;
+  description: string;
+  icon: string | null;
+  parentId: string | null;
+  spaceId: string | null;
+}): string {
+  return sha256(
+    JSON.stringify([
+      page.title,
+      docToNfm(nfmToDoc(page.content)),
+      page.description,
+      page.icon,
+      page.parentId,
+      page.spaceId,
+    ]),
+  );
+}
+
+/**
+ * What a retry with the same key must repeat: the destination and every file
+ * by name, plus each Markdown file's text. Image URLs are left out because a
+ * retry uploads the images again.
+ */
+function importRequestFingerprint(
+  destination: ImportContentResult["destination"],
+  markdown: IntakeMarkdown[],
+  images: Map<string, IntakeImage>,
+): string {
+  return sha256(
+    JSON.stringify({
+      parentId: destination.parentId,
+      spaceId: destination.spaceId,
+      markdown: [...markdown]
+        .sort((a, b) => (a.path < b.path ? -1 : 1))
+        .map((file) => [file.path, sha256(file.text)]),
+      images: [...images.keys()].sort(),
+    }),
+  );
+}
+
+function idempotencyKeyReused(): never {
+  fail(
+    "This idempotencyKey was already used for a different import. Use a new key.",
+    { errorCode: "IDEMPOTENCY_KEY_REUSED", statusCode: 409 },
+  );
 }
 
 function pageResult(

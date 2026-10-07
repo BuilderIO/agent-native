@@ -452,6 +452,28 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["local-file-source-truth"],
   },
   {
+    id: "header.import-markdown-files",
+    surface: "header",
+    label: "Import Markdown files as pages and undo the import",
+    uiEntrypoints: [
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/VisualEditor.tsx",
+      "app/components/editor/ContentImportDialog.tsx",
+    ],
+    durableEffect:
+      "Imported pages with an import History entry, provenance, and the original file; undo moves unedited imports to Trash.",
+    uiImplementation:
+      "The page menu and a dropped .md file open one dialog that previews with dryRun, applies, and offers Undo through the import actions.",
+    status: "action-backed",
+    actions: ["import-content", "undo-content-import"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/import-content.db.test.ts"],
+  },
+  {
     id: "sharing.os-reveal-local-source",
     surface: "sharing",
     label: "Reveal a local source file in the system file manager",

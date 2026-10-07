@@ -75,6 +75,7 @@ let importContent: typeof import("./import-content.js").default;
 let undoContentImport: typeof import("./undo-content-import.js").default;
 let listDocumentHistory: typeof import("./list-document-history.js").default;
 let deleteDocumentRecursive: typeof import("./delete-document.js").deleteDocumentRecursive;
+let personalContentSpaceId: typeof import("./_content-spaces.js").personalContentSpaceId;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -84,6 +85,7 @@ beforeAll(async () => {
   undoContentImport = (await import("./undo-content-import.js")).default;
   listDocumentHistory = (await import("./list-document-history.js")).default;
   ({ deleteDocumentRecursive } = await import("./delete-document.js"));
+  ({ personalContentSpaceId } = await import("./_content-spaces.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
 }, 60_000);
@@ -93,7 +95,8 @@ let PARENT_ID = "";
 
 beforeEach(async () => {
   blobs.configured = true;
-  blobs.put.mockClear();
+  blobs.put.mockReset();
+  blobs.put.mockImplementation(storedBlob);
   blobs.delete.mockClear();
   writeAppStateMock.mockClear();
   PARENT_ID = `import-parent-${++parentNumber}`;
@@ -103,6 +106,16 @@ beforeEach(async () => {
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
+
+async function storedBlob(input: { key?: string; data: Uint8Array }) {
+  return {
+    id: input.key ?? "blob",
+    provider: "test",
+    opaque: true as const,
+    encrypted: false,
+    size: input.data.byteLength,
+  };
+}
 
 function asOwner<T>(run: () => Promise<T>): Promise<T> {
   return runWithRequestContext({ userEmail: OWNER }, run);
@@ -255,6 +268,8 @@ describe("import-content", () => {
       sourceName: "guide.md",
       sourceFormat: "markdown",
       importedTitle: "Setup guide",
+      requestSha256: expect.any(String),
+      importedStateSha256: expect.any(String),
     });
     expect(record.originalBlob).not.toContain("Read this first");
     expect(blobs.put).toHaveBeenCalledTimes(1);
@@ -293,6 +308,21 @@ describe("import-content", () => {
         }),
       ),
     ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
+
+    const otherParent = `${PARENT_ID}-other`;
+    await asOwner(() =>
+      createDocument.run({ id: otherParent, title: "Elsewhere" }),
+    );
+    await expect(
+      asOwner(() =>
+        importContent.run({
+          files: guideFiles("/uploads/diagram.png"),
+          parentId: otherParent,
+          dryRun: false,
+          idempotencyKey: "guide-1",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
   });
 
   it("links imported pages to each other", async () => {
@@ -317,6 +347,119 @@ describe("import-content", () => {
         ),
       );
     expect(guide.content).toContain(`/page/${faq.id}`);
+  });
+
+  it("previews a top-level import without creating the caller's workspaces", async () => {
+    const newcomer = "first-import@example.com";
+    const preview = await runWithRequestContext({ userEmail: newcomer }, () =>
+      importContent.run({
+        files: [{ name: "notes.md", text: "# Notes\n\nHello." }],
+        dryRun: true,
+      }),
+    );
+    expect(preview.destination.spaceId).toBe(personalContentSpaceId(newcomer));
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, personalContentSpaceId(newcomer))),
+    ).toEqual([]);
+  });
+
+  it("creates a page once when two applies with one key race", async () => {
+    const apply = () =>
+      asOwner(() =>
+        importContent.run({
+          files: guideFiles("/uploads/diagram.png"),
+          parentId: PARENT_ID,
+          dryRun: false,
+          idempotencyKey: "race-1",
+        }),
+      );
+    const [first, second] = await Promise.all([apply(), apply()]);
+    expect(second.pages.map((page) => page.id)).toEqual(
+      first.pages.map((page) => page.id),
+    );
+    expect(await importedChildren()).toHaveLength(1);
+    const records = await getDb()
+      .select()
+      .from(schema.documentImports)
+      .where(eq(schema.documentImports.importId, first.importId));
+    expect(records).toHaveLength(1);
+    const history = await asOwner(() =>
+      listDocumentHistory.run({ documentId: first.pages[0].id!, limit: 10 }),
+    );
+    expect(history.groups).toHaveLength(1);
+    // The losing attempt's original is removed; the recorded one is kept.
+    expect(blobs.put).toHaveBeenCalledTimes(2);
+    expect(blobs.delete).toHaveBeenCalledTimes(1);
+    expect(blobs.delete).not.toHaveBeenCalledWith(
+      JSON.parse(records[0].originalBlob),
+    );
+  });
+
+  it("names the pages it created when an import stops partway, and finishes on retry", async () => {
+    const files = [
+      { name: "a.md", text: "# A\n\nFirst." },
+      { name: "b.md", text: "# B\n\nSecond." },
+    ];
+    blobs.put.mockImplementationOnce(storedBlob);
+    blobs.put.mockImplementationOnce(async () => null as never);
+    const stopped = await asOwner(() =>
+      importContent.run({
+        files,
+        parentId: PARENT_ID,
+        dryRun: false,
+        idempotencyKey: "partial-1",
+      }),
+    ).catch((error: unknown) => error);
+    expect(stopped).toMatchObject({
+      errorCode: "IMPORT_INCOMPLETE",
+      message: expect.stringContaining("Imported 1 of 2 pages"),
+      details: {
+        importId: expect.any(String),
+        documentIds: [expect.any(String)],
+        cause: "IMPORT_STORAGE_UNAVAILABLE",
+      },
+    });
+    expect(await importedChildren()).toHaveLength(1);
+    const { details } = stopped as {
+      details: { importId: string; documentIds: string[] };
+    };
+
+    const finished = await asOwner(() =>
+      importContent.run({
+        files,
+        parentId: PARENT_ID,
+        dryRun: false,
+        idempotencyKey: "partial-1",
+      }),
+    );
+    expect(finished.importId).toBe(details.importId);
+    expect(finished.pages.map((page) => page.id)).toContain(
+      details.documentIds[0],
+    );
+    expect(await importedChildren()).toHaveLength(2);
+  });
+
+  it("keeps raw frontmatter values out of the import record", async () => {
+    const applied = await asOwner(() =>
+      importContent.run({
+        files: [
+          {
+            name: "embedded.md",
+            text: "---\nattachment: data:image/png;base64,UklTS1lQQVlMT0FE\n---\n# Embedded\n\nBody.",
+          },
+        ],
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    );
+    const [record] = await getDb()
+      .select()
+      .from(schema.documentImports)
+      .where(eq(schema.documentImports.documentId, applied.pages[0].id!));
+    expect(JSON.stringify(record)).not.toContain("UklTS1lQQVlMT0FE");
   });
 });
 
@@ -361,6 +504,45 @@ describe("undo-content-import", () => {
     });
     const [page] = await importedChildren();
     expect(page.trashedAt).toBeNull();
+  });
+
+  it("refuses when an imported page was moved, re-described, or given a child page", async () => {
+    const described = await importGuide();
+    await getDb()
+      .update(schema.documents)
+      .set({ description: "Added later." })
+      .where(eq(schema.documents.id, described.pages[0].id!));
+    await expect(
+      asOwner(() => undoContentImport.run({ importId: described.importId })),
+    ).rejects.toMatchObject({ errorCode: "IMPORT_PAGE_CHANGED" });
+
+    const moved = await importGuide();
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: null })
+      .where(eq(schema.documents.id, moved.pages[0].id!));
+    await expect(
+      asOwner(() => undoContentImport.run({ importId: moved.importId })),
+    ).rejects.toMatchObject({ errorCode: "IMPORT_PAGE_CHANGED" });
+
+    const nested = await importGuide();
+    const child = await asOwner(() =>
+      createDocument.run({
+        title: "My own notes",
+        parentId: nested.pages[0].id!,
+      }),
+    );
+    await expect(
+      asOwner(() => undoContentImport.run({ importId: nested.importId })),
+    ).rejects.toMatchObject({
+      errorCode: "IMPORT_PAGE_CHANGED",
+      details: { documentIds: [nested.pages[0].id] },
+    });
+    const [kept] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, child.id));
+    expect(kept.trashedAt).toBeNull();
   });
 
   it("refuses a caller without access to the imported pages", async () => {

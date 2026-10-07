@@ -1429,14 +1429,14 @@ export const runContentMigrations = runMigrations(
           document_id TEXT PRIMARY KEY,
           owner_email TEXT NOT NULL,
           import_id TEXT NOT NULL,
+          request_sha256 TEXT NOT NULL,
           source_name TEXT NOT NULL,
           source_format TEXT NOT NULL,
           source_bytes INTEGER NOT NULL,
           source_sha256 TEXT NOT NULL,
           original_blob TEXT NOT NULL,
           imported_title TEXT NOT NULL,
-          imported_content_sha256 TEXT NOT NULL,
-          frontmatter_json TEXT,
+          imported_state_sha256 TEXT NOT NULL,
           report_json TEXT NOT NULL,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );

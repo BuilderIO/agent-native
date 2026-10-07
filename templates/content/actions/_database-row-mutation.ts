@@ -1774,8 +1774,13 @@ interface RowPatchIssue {
   [detail: string]: unknown;
 }
 
+/** Drizzle wraps the driver's error, so the violation can sit in `cause`. */
 export function isUniqueConstraintError(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown };
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+    cause?: unknown;
+  };
   const code =
     typeof candidate?.code === "string"
       ? candidate.code
@@ -1786,7 +1791,10 @@ export function isUniqueConstraintError(error: unknown): boolean {
       : (JSON.stringify(candidate?.message) ?? "");
   return (
     code === "23505" ||
-    /unique constraint|primary key constraint|duplicate key/i.test(message)
+    /unique constraint|primary key constraint|duplicate key/i.test(message) ||
+    (candidate?.cause !== undefined &&
+      candidate.cause !== error &&
+      isUniqueConstraintError(candidate.cause))
   );
 }
 
