@@ -25,6 +25,17 @@ export const CHAT_STARTER_SKILLS = [
   BUILD_AN_APP_SKILL,
 ] as const;
 
+export const FUSION_STARTER_LOCAL_SKILLS = [
+  "authentication",
+  "internationalization",
+  "multi-app-workspace",
+] as const;
+
+export const FUSION_STARTER_SKILLS = [
+  ...CHAT_STARTER_SKILLS,
+  ...FUSION_STARTER_LOCAL_SKILLS,
+] as const;
+
 export const WORKSPACE_SKILLS = [
   ...STANDALONE_APP_SKILLS,
   "adding-workspace-apps",

@@ -34,6 +34,7 @@ import {
   resolveTargets,
   runTemplate,
 } from "./template-sync.js";
+import { FUSION_STARTER_SKILLS } from "./workspace-skill-policy.js";
 import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
@@ -381,6 +382,37 @@ describe("materializeTemplate", () => {
     }
     fs.rmSync(materialized.dir, { recursive: true, force: true });
   }, 180_000);
+
+  it("materializes fusion-starter with its overrides and inherited Chat skills", async () => {
+    const materialized = await materializeTemplate({
+      appName: "app",
+      template: "fusion-starter",
+      ref: null,
+      shape: "standalone",
+    });
+    const bundled = path.resolve(import.meta.dirname, "..", "templates");
+    const skillFile = (root: string, skill: string) =>
+      fs.readFileSync(path.join(root, ".agents/skills", skill, "SKILL.md"));
+
+    expect(
+      fs.readdirSync(path.join(materialized.dir, ".agents/skills")).sort(),
+    ).toEqual([...FUSION_STARTER_SKILLS].sort());
+    expect(skillFile(materialized.dir, "storing-data")).toEqual(
+      skillFile(path.join(bundled, "fusion-starter"), "storing-data"),
+    );
+    expect(skillFile(materialized.dir, "security")).toEqual(
+      skillFile(path.join(bundled, "chat"), "security"),
+    );
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(materialized.dir, "package.json"), "utf-8"),
+    );
+    expect(pkg.name).toBe("app");
+    expect(pkg["agent-native"].scaffold.template).toBe("fusion-starter");
+    expect(
+      fs.readFileSync(path.join(materialized.dir, "netlify.toml"), "utf-8"),
+    ).toContain("pnpm migrate:production && pnpm db:migrate");
+    fs.rmSync(materialized.dir, { recursive: true, force: true });
+  }, 120_000);
 
   it("records provenance the scaffolder can round-trip", async () => {
     const appDir = path.join(tmpDir, "prov");

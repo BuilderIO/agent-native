@@ -4348,6 +4348,11 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
+    // A template that already ships a standalone netlify.toml owns its build
+    // command; rewriting it would drop app-specific release steps.
+    if (mode === "standalone" && !/^\s*publish = "templates\//m.test(content)) {
+      return;
+    }
     const originalCommand = content.match(
       /^\s*command = "((?:[^"\\]|\\.)*)"$/m,
     )?.[1];

@@ -13,7 +13,10 @@ import {
   runSkills,
   VISUAL_RECAP_SKILL_MD,
 } from "./skills.js";
-import { CHAT_STARTER_SKILLS } from "./workspace-skill-policy.js";
+import {
+  CHAT_STARTER_SKILLS,
+  FUSION_STARTER_SKILLS,
+} from "./workspace-skill-policy.js";
 import { WORKSPACE_SKILLS } from "./workspace-skill-policy.js";
 
 const tmpRoots: string[] = [];
@@ -3331,6 +3334,13 @@ describe("agent-native skills", () => {
       refreshedSkill: "review-prs",
       omittedSkill: "build-an-app",
     },
+    {
+      template: "fusion-starter",
+      frameworkSkills: "default",
+      sourceTemplates: ["fusion-starter", "chat"],
+      refreshedSkill: "authentication",
+      omittedSkill: "turn-into-app",
+    },
   ])(
     "refreshes only installed skills in the $template scaffold",
     async ({
@@ -3437,6 +3447,77 @@ describe("agent-native skills", () => {
       });
     },
   );
+
+  it("prefers fusion-starter skill overrides and inherits the rest from Chat", async () => {
+    const root = tmpDir();
+    const targetSkills = path.join(root, ".agents", "skills");
+    const bundled = path.join(workspaceRoot(), "packages/core/src/templates");
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "app",
+          dependencies: { "@agent-native/core": "latest" },
+          "agent-native": {
+            scaffold: {
+              template: "fusion-starter",
+              frameworkSkills: "default",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    for (const skill of [
+      "storing-data",
+      "security",
+      "multi-app-workspace",
+      "turn-into-app",
+      "self-modifying-code",
+    ]) {
+      fs.mkdirSync(path.join(targetSkills, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(targetSkills, skill, "SKILL.md"),
+        `old ${skill}\n`,
+      );
+    }
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    const read = (dir: string, skill: string) =>
+      fs.readFileSync(path.join(dir, skill, "SKILL.md"), "utf8");
+    const fusionSkills = path.join(bundled, "fusion-starter/.agents/skills");
+    const chatSkills = path.join(bundled, "chat/.agents/skills");
+    expect(read(targetSkills, "storing-data")).toBe(
+      read(fusionSkills, "storing-data"),
+    );
+    expect(read(fusionSkills, "storing-data")).not.toBe(
+      read(chatSkills, "storing-data"),
+    );
+    expect(read(targetSkills, "security")).toBe(read(chatSkills, "security"));
+    expect(read(targetSkills, "multi-app-workspace")).toBe(
+      read(fusionSkills, "multi-app-workspace"),
+    );
+    // Skills outside the policy stay app-owned and untouched.
+    expect(read(targetSkills, "turn-into-app")).toBe("old turn-into-app\n");
+    expect(read(targetSkills, "self-modifying-code")).toBe(
+      "old self-modifying-code\n",
+    );
+    expect(fs.existsSync(path.join(targetSkills, "performance"))).toBe(false);
+    for (const excluded of [
+      "turn-into-app",
+      "turn-into-skill",
+      "workspace-conventions",
+      "self-modifying-code",
+    ]) {
+      expect(FUSION_STARTER_SKILLS).not.toContain(excluded);
+    }
+  });
 
   it("refreshes existing Chat scaffold skills without adding omitted skills", async () => {
     const root = tmpDir();

@@ -73,6 +73,7 @@ import {
   DISPATCH_TEMPLATE_SHARED_SKILLS,
   DOMAIN_TEMPLATE_SHARED_SKILLS,
   FACTORY_TEMPLATE_SHARED_SKILLS,
+  FUSION_STARTER_SKILLS,
   HEADLESS_TEMPLATE_SHARED_SKILLS,
   WORKSPACE_SKILLS,
 } from "./workspace-skill-policy.js";
@@ -787,7 +788,12 @@ interface SkillInstallState {
 interface ScaffoldGuidanceState {
   kind: "workspace-core" | "standalone";
   displayName: string;
-  templateName: "workspace-core" | "headless" | "default" | "chat";
+  templateName:
+    | "workspace-core"
+    | "headless"
+    | "default"
+    | "chat"
+    | "fusion-starter";
   path: string;
   sourcePath: string;
   additionalSourcePaths?: string[];
@@ -1881,6 +1887,14 @@ function markedScaffoldGuidanceTemplate(
       skills: CHAT_STARTER_SKILLS,
     };
   }
+  if (templateName === "fusion-starter") {
+    return {
+      templateName,
+      sourceTemplate: "fusion-starter",
+      additionalSourceTemplates: ["chat"],
+      skills: FUSION_STARTER_SKILLS,
+    };
+  }
   if (templateName === "dispatch") {
     return {
       templateName,
@@ -2135,6 +2149,32 @@ function collectScaffoldGuidanceStates(
       ).length,
     },
   ];
+}
+
+/**
+ * A bundled template can ship only the skills it overrides and inherit the rest
+ * from the templates its scaffold policy names. `skills update` refreshes only
+ * skills already in the tree, so a freshly materialized tree must start with
+ * the inherited ones or it never gets them.
+ */
+export function addInheritedScaffoldSkills(appDir: string): void {
+  const policy = markedScaffoldGuidanceTemplate(readPackageJson(appDir));
+  if (!policy?.additionalSourceTemplates?.length) return;
+  const sourceRoots = [
+    policy.sourceTemplate,
+    ...policy.additionalSourceTemplates,
+  ].map(bundledScaffoldSkillsDir);
+  const targetRoot = path.join(appDir, ".agents", "skills");
+  const existing = existingScaffoldSkillNames(targetRoot);
+  for (const { skill, sourceRoot } of scaffoldSkillSourcesToSync(
+    sourceRoots,
+    policy.skills,
+  )) {
+    if (existing.has(skill)) continue;
+    fs.cpSync(path.join(sourceRoot, skill), path.join(targetRoot, skill), {
+      recursive: true,
+    });
+  }
 }
 
 function copyScaffoldGuidanceSkills(

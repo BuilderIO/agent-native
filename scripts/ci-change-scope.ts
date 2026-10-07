@@ -124,6 +124,7 @@ const CHECK_NAMES = [
   "build",
   "trusted_acceptance",
   "scaffold",
+  "fusion_starter_scaffold",
   "ssr_boot",
   "guards",
   "qa_static",
@@ -612,6 +613,9 @@ function buildChecks(
       chatChanged ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
+    // The bundled Fusion starter lives in core and installs local core,
+    // toolkit, and agentkit builds, but its tree changes only with core.
+    fusion_starter_scaffold: coreChanged,
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||

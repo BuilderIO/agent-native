@@ -30,6 +30,7 @@ import {
   _shouldSkipScaffoldEntry,
   _templateSourceName,
 } from "./create.js";
+import { addInheritedScaffoldSkills } from "./skills.js";
 import {
   appDirtyPaths,
   baselineDescription,
@@ -141,6 +142,7 @@ export async function materializeTemplate(
     source = "github";
   }
   _removeWorkspaceOnlyTemplateWiring(dest);
+  addInheritedScaffoldSkills(dest);
 
   const provenance = { templateRef: usedRef, templateSource: source };
 
