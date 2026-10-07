@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "agent-native-turn-into-app",
-  "version": "1.0.0+codex.85575ab229f3",
+  "version": "1.0.0+codex.f6ed8c18a2dc",
   "description": "Turn a thread, skill, spreadsheet, or Claude/ChatGPT project into a visual Agent-Native app. Local code agents build, run, and screenshot-review it; Claude and ChatGPT on the web hand a bounded source brief to Builder through Dispatch.",
   "author": {
     "name": "Agent-Native",
