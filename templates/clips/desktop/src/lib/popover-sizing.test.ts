@@ -3,27 +3,37 @@ import { describe, expect, it } from "vitest";
 import { getPopoverAutoSizeOptions } from "./popover-sizing";
 
 describe("getPopoverAutoSizeOptions", () => {
-  it("sizes Settings while a recording is active", () => {
+  it("sizes Settings while recording starts", () => {
     expect(getPopoverAutoSizeOptions("settings", false, true)).toEqual({
       disabled: false,
       width: 720,
-      purpose: "settings",
     });
   });
 
-  it("keeps recorder resizing disabled during a recording", () => {
-    expect(getPopoverAutoSizeOptions("recorder", true, true)).toEqual({
-      disabled: true,
+  it("restores recorder and memory widths during a recording", () => {
+    expect(getPopoverAutoSizeOptions("recorder", true, false)).toEqual({
+      disabled: false,
       width: 320,
-      purpose: "popover",
     });
-  });
-
-  it("keeps the memory popover at its own width", () => {
     expect(getPopoverAutoSizeOptions("memory", true, false)).toEqual({
       disabled: false,
       width: 440,
-      purpose: "popover",
     });
+  });
+
+  it("keeps recorder and memory sizing disabled while hidden", () => {
+    expect(getPopoverAutoSizeOptions("recorder", false, false).disabled).toBe(
+      true,
+    );
+    expect(getPopoverAutoSizeOptions("memory", false, false).disabled).toBe(
+      true,
+    );
+  });
+
+  it("keeps recorder and memory sizing disabled while recording starts", () => {
+    expect(getPopoverAutoSizeOptions("recorder", true, true).disabled).toBe(
+      true,
+    );
+    expect(getPopoverAutoSizeOptions("memory", true, true).disabled).toBe(true);
   });
 });

@@ -137,10 +137,7 @@ import {
   MACOS_UPDATE_RESTART_MESSAGE,
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
-import {
-  getPopoverAutoSizeOptions,
-  type PopoverResizePurpose,
-} from "./lib/popover-sizing";
+import { getPopoverAutoSizeOptions } from "./lib/popover-sizing";
 import {
   changeRecordFirstFiles,
   effectiveLocalRecordingMode,
@@ -946,10 +943,9 @@ function usePopoverAutoSize(
   options: {
     disabled: boolean;
     width: number;
-    purpose: PopoverResizePurpose;
   },
 ): void {
-  const { disabled, purpose, width } = options;
+  const { disabled, width } = options;
 
   useEffect(() => {
     const el = ref.current;
@@ -969,7 +965,7 @@ function usePopoverAutoSize(
       ) {
         lastHeight = height;
         lastWidth = width;
-        invoke("resize_popover", { height, width, purpose }).catch(() => {});
+        invoke("resize_popover", { height, width }).catch(() => {});
       }
     };
 
@@ -1028,7 +1024,7 @@ function usePopoverAutoSize(
       portalObserver.disconnect();
       resizeObserver.disconnect();
     };
-  }, [disabled, purpose, ref, width]);
+  }, [disabled, ref, width]);
 }
 
 export function App({
@@ -2942,14 +2938,12 @@ export function App({
       : popoverView === "memory"
         ? "memory"
         : "recorder";
-  usePopoverAutoSize(
-    appRef,
-    getPopoverAutoSizeOptions(
-      popoverLayoutView,
-      popoverVisible,
-      isRecording || recordingFlowActive || recordingStartPending,
-    ),
+  const popoverAutoSizeOptions = getPopoverAutoSizeOptions(
+    popoverLayoutView,
+    popoverVisible,
+    recordingStartPending,
   );
+  usePopoverAutoSize(appRef, popoverAutoSizeOptions);
 
   const loadPendingUploads = useCallback(async () => {
     const sequence = ++recoveryLookupSequence.current;

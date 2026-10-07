@@ -65,21 +65,6 @@ const POPOVER_MIN_HEIGHT_LOGICAL: f64 = 260.0;
 const POPOVER_SCREEN_MARGIN_LOGICAL: f64 = 16.0;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum PopoverResizePurpose {
-    Popover,
-    Settings,
-}
-
-fn should_skip_popover_resize(
-    voice_woken: bool,
-    recording_active: bool,
-    purpose: PopoverResizePurpose,
-) -> bool {
-    voice_woken || (recording_active && purpose != PopoverResizePurpose::Settings)
-}
-
 #[cfg(target_os = "macos")]
 #[link(name = "AppKit", kind = "framework")]
 extern "C" {}
@@ -1465,17 +1450,12 @@ fn monitor_containing_point(window: &WebviewWindow, x: i32, y: i32) -> Option<ta
 }
 
 #[tauri::command]
-pub async fn resize_popover(
-    app: AppHandle,
-    height: f64,
-    width: Option<f64>,
-    purpose: PopoverResizePurpose,
-) -> Result<(), String> {
+pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> Result<(), String> {
     let voice_woken = app
         .try_state::<VoiceWakePopover>()
         .and_then(|state| state.0.lock().ok().map(|g| *g))
         .unwrap_or(false);
-    if should_skip_popover_resize(voice_woken, is_recording_active(&app), purpose) {
+    if voice_woken {
         return Ok(());
     }
     if let Some(w) = app.get_webview_window("popover") {
@@ -2074,9 +2054,8 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_popover_logical_size, overlay_labels_to_hide, should_skip_popover_resize,
-        strip_trailing_period_for_messaging, text_insertion_strategy, PopoverResizePurpose,
-        TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
+        clamp_popover_logical_size, overlay_labels_to_hide, strip_trailing_period_for_messaging,
+        text_insertion_strategy, TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
 
@@ -2100,25 +2079,6 @@ mod tests {
             clamp_popover_logical_size(260.0, Some(320.0), PhysicalSize::new(200, 180), 1.0),
             (184.0, 164.0)
         );
-    }
-
-    #[test]
-    fn settings_can_resize_during_recording_but_other_surfaces_cannot() {
-        assert!(should_skip_popover_resize(
-            false,
-            true,
-            PopoverResizePurpose::Popover
-        ));
-        assert!(!should_skip_popover_resize(
-            false,
-            true,
-            PopoverResizePurpose::Settings
-        ));
-        assert!(should_skip_popover_resize(
-            true,
-            false,
-            PopoverResizePurpose::Settings
-        ));
     }
 
     #[test]
