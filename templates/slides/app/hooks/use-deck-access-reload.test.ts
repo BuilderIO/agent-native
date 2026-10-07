@@ -74,4 +74,34 @@ describe("useDeckAccessReload", () => {
 
     expect(reload).not.toHaveBeenCalled();
   });
+
+  it("ignores a superseded key's late completion", async () => {
+    let finishFirst: (status: DeckReloadStatus) => void = () => {};
+    const reload = vi
+      .fn<() => Promise<DeckReloadStatus>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<DeckReloadStatus>((resolve) => (finishFirst = resolve)),
+      )
+      .mockResolvedValue("loaded");
+    const { result, rerender } = renderHook(
+      ({ accessKey }) =>
+        useDeckAccessReload({
+          accessKey,
+          deckFound: false,
+          loading: false,
+          orgId: "org-1",
+          orgLoading: false,
+          reload,
+        }),
+      { initialProps: { accessKey: "deck-1|org-1" } },
+    );
+
+    rerender({ accessKey: "deck-2|org-1" });
+    await waitFor(() => expect(result.current).toBe("deck-2|org-1"));
+    await act(async () => finishFirst("loaded"));
+    await act(() => tick(20));
+
+    expect(result.current).toBe("deck-2|org-1");
+  });
 });

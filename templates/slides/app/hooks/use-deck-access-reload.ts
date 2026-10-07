@@ -52,7 +52,7 @@ export function useDeckAccessReload({
       while (status === "stale" && startedKeyRef.current === accessKey) {
         status = await reload();
       }
-      setCheckedKey(accessKey);
+      if (startedKeyRef.current === accessKey) setCheckedKey(accessKey);
     })();
   }, [accessKey, checkedKey, deckFound, loading, orgId, orgLoading, reload]);
 
