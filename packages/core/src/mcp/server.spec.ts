@@ -6211,27 +6211,40 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("tells a text-only host a tools/call result was cut and how to get the rest", async () => {
+  it("tells a text-only host a tools/call result was cut, naming paging inputs only on read-only actions", async () => {
     const payload = { rows: "x".repeat(5000) };
     const fullLength = JSON.stringify(payload).length;
-    const pagedAction = defineAction({
-      description: "List rows.",
-      schema: z.object({
-        cursor: z.string().optional(),
-        limit: z.number().optional(),
-      }),
-      readOnly: true,
-      run: async () => payload,
-    });
-    const unpagedAction = defineAction({
-      description: "Dump rows.",
-      schema: z.object({}),
-      readOnly: true,
-      run: async () => payload,
-    });
+    const incomplete = `[Truncated: showing the first 2000 of ${fullLength} characters. This result is incomplete.`;
     const truncationConfig = {
       ...config,
-      actions: { "paged-rows": pagedAction, "unpaged-rows": unpagedAction },
+      actions: {
+        "paged-rows": defineAction({
+          description: "List rows.",
+          schema: z.object({
+            cursor: z.string().optional(),
+            limit: z.number().optional(),
+          }),
+          readOnly: true,
+          run: async () => payload,
+        }),
+        "search-rows": defineAction({
+          description: "Search rows.",
+          schema: z.object({
+            query: z.string().optional(),
+            filter: z.string().optional(),
+          }),
+          readOnly: true,
+          run: async () => payload,
+        }),
+        "replace-rows": defineAction({
+          description: "Replace rows.",
+          schema: z.object({
+            fields: z.array(z.string()).optional(),
+            cursor: z.string().optional(),
+          }),
+          run: async () => payload,
+        }),
+      },
     };
     const callText = async (name: string, id: number) => {
       const out = await callWeb(
@@ -6250,16 +6263,15 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     };
 
     const paged = await callText("paged-rows", 301);
-    expect(paged).toContain(
-      `[Truncated: showing the first 2000 of ${fullLength} characters.`,
-    );
-    expect(paged).toContain("page with cursor, or narrow with limit");
-    const unpaged = await callText("unpaged-rows", 302);
-    expect(unpaged).toContain(
-      `[Truncated: showing the first 2000 of ${fullLength} characters.`,
-    );
-    expect(unpaged).toContain("This result is incomplete");
-    expect(unpaged).not.toContain("structuredContent");
+    expect(paged).toContain(`${incomplete} This tool pages with cursor.]`);
+    const searched = await callText("search-rows", 302);
+    expect(searched).toContain(`${incomplete}]`);
+    const mutating = await callText("replace-rows", 303);
+    expect(mutating).toContain(`${incomplete}]`);
+    for (const text of [paged, searched, mutating]) {
+      expect(text).not.toContain("structuredContent");
+      expect(text).not.toContain("get the rest");
+    }
   });
 
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {

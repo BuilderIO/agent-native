@@ -2,52 +2,32 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 
-const { conciseToolResultText, textRetrievalInputs } =
+const { conciseToolResultText, textPagingInputs } =
   await import("./build-server.js");
 
 describe("conciseToolResultText truncation notice", () => {
-  const none = { paging: [], narrowing: [] };
-
   it("returns text at the limit untouched", () => {
     const text = "x".repeat(2000);
-    expect(conciseToolResultText("read", text, { inputs: none })).toBe(text);
+    expect(conciseToolResultText("read", text)).toBe(text);
   });
 
-  it("reports the exact shown and original lengths one character past the limit", () => {
-    const text = conciseToolResultText("read", "x".repeat(2001), {
-      inputs: none,
-    });
+  it("reports exact shown and original lengths and says the result is incomplete", () => {
+    const text = conciseToolResultText("read", "x".repeat(2001));
     expect(text).toBe(
-      `${"x".repeat(2000)}\n[Truncated: showing the first 2000 of 2001 characters. This result is incomplete, and this tool has no paging or narrowing input to get the rest.]`,
+      `${"x".repeat(2000)}\n[Truncated: showing the first 2000 of 2001 characters. This result is incomplete.]`,
     );
   });
 
-  it("names the action's paging and narrowing inputs", () => {
+  it("names paging inputs without promising the rest", () => {
     const result = { rows: "x".repeat(9000) };
     const text = conciseToolResultText("list-rows", result, {
-      inputs: textRetrievalInputs({
-        type: "object",
-        properties: { cursor: {}, limit: {}, query: {}, title: {} },
-      }),
+      paging: ["cursor", "offset"],
     });
     const total = JSON.stringify(result).length;
     expect(text).toContain(
-      `[Truncated: showing the first 2000 of ${total} characters. To get the rest, call this tool again and page with cursor, or narrow with limit, query.]`,
+      `[Truncated: showing the first 2000 of ${total} characters. This result is incomplete. This tool pages with cursor, offset.]`,
     );
-    expect(text).not.toContain("incomplete");
-  });
-
-  it("offers only narrowing when the action has no paging input", () => {
-    const text = conciseToolResultText("search", "x".repeat(3000), {
-      inputs: textRetrievalInputs({ properties: { search: {} } }),
-    });
-    expect(text).toContain("call this tool again and narrow with search.]");
-    expect(text).not.toContain("page with");
-  });
-
-  it("says the result is incomplete when no inputs are known", () => {
-    const text = conciseToolResultText("read", "x".repeat(3000));
-    expect(text).toContain("of 3000 characters. This result is incomplete");
+    expect(text).not.toContain("get the rest");
   });
 
   it("keeps the notice ahead of the link and Next marker of a long message", () => {
@@ -57,24 +37,79 @@ describe("conciseToolResultText truncation notice", () => {
       nextRequiredAction: "update-slide",
     });
     expect(text).toMatch(
-      /of 50000 characters\..*\] \/deck\/d1 Next: update-slide$/s,
+      /of 50000 characters\. This result is incomplete\.\] \/deck\/d1 Next: update-slide$/,
     );
+  });
+
+  it("cuts at a code point and counts code points at the 2,000 limit", () => {
+    const text = conciseToolResultText("read", `${"x".repeat(1999)}😀y`);
+    expect(text.isWellFormed()).toBe(true);
+    expect(text).toBe(
+      `${"x".repeat(1999)}😀\n[Truncated: showing the first 2000 of 2001 characters. This result is incomplete.]`,
+    );
+  });
+
+  it("leaves text of exactly 2,000 code points alone even when it has astral characters", () => {
+    const text = `${"x".repeat(1999)}😀`;
+    expect(text.length).toBe(2001);
+    expect(conciseToolResultText("read", text)).toBe(text);
+  });
+
+  it("shortens a long link with its own notice, making no claim about inputs", () => {
+    const link = `${"u".repeat(499)}😀y`;
+    const text = conciseToolResultText(
+      "create-deck",
+      {
+        title: "Deck",
+        id: "d1",
+        url: link,
+        nextRequiredAction: "update-slide",
+      },
+      { paging: ["cursor"] },
+    );
+    expect(text.isWellFormed()).toBe(true);
+    expect(text).toBe(
+      `Deck (d1) is ready. ${"u".repeat(499)}😀… [URL shortened: showing the first 500 of 501 characters.] Next: update-slide`,
+    );
+    expect(text).not.toContain("incomplete");
+    expect(text).not.toContain("pages with");
   });
 });
 
-describe("textRetrievalInputs", () => {
-  it("lists only recognized inputs the schema declares", () => {
+describe("textPagingInputs", () => {
+  const properties = {
+    cursor: {},
+    offset: {},
+    fields: {},
+    query: {},
+    filter: {},
+    limit: {},
+    other: {},
+  };
+
+  it("names declared paging inputs of a read-only action", () => {
+    expect(textPagingInputs({ properties }, true)).toEqual([
+      "cursor",
+      "offset",
+    ]);
+  });
+
+  it("names nothing for a search-only action", () => {
     expect(
-      textRetrievalInputs({
-        properties: { offset: {}, pageToken: {}, fields: {}, other: {} },
-      }),
-    ).toEqual({ paging: ["pageToken", "offset"], narrowing: ["fields"] });
+      textPagingInputs({ properties: { query: {}, filter: {} } }, true),
+    ).toEqual([]);
+  });
+
+  it("names nothing for a mutating action even when it declares paging-like inputs", () => {
+    expect(textPagingInputs({ properties }, false)).toEqual([]);
+    expect(
+      textPagingInputs({ properties: { fields: {}, cursor: {} } }, false),
+    ).toEqual([]);
   });
 
   it("returns nothing for a missing or property-less schema", () => {
-    const empty = { paging: [], narrowing: [] };
-    expect(textRetrievalInputs(undefined)).toEqual(empty);
-    expect(textRetrievalInputs({ type: "object" })).toEqual(empty);
+    expect(textPagingInputs(undefined, true)).toEqual([]);
+    expect(textPagingInputs({ type: "object" }, true)).toEqual([]);
   });
 });
 

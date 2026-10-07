@@ -1632,77 +1632,67 @@ const MCP_TEXT_PAGING_INPUTS = [
   "page",
   "after",
 ] as const;
-const MCP_TEXT_NARROWING_INPUTS = [
-  "limit",
-  "pageSize",
-  "maxResults",
-  "query",
-  "search",
-  "filter",
-  "fields",
-] as const;
 
-export interface McpTextRetrievalInputs {
-  paging: string[];
-  narrowing: string[];
-}
-
-export function textRetrievalInputs(
+// Only a read-only action is safe to name as re-callable: the same inputs on a
+// mutating action (`fields` on update-form replaces the form) would repeat the
+// write. Names are matched, not proven to page, so the notice never promises
+// that following them returns the rest.
+export function textPagingInputs(
   parameters: unknown,
-): McpTextRetrievalInputs {
+  readOnly: boolean,
+): string[] {
+  if (!readOnly) return [];
   const properties =
     parameters && typeof parameters === "object"
       ? (parameters as { properties?: unknown }).properties
       : undefined;
-  const declared =
-    properties && typeof properties === "object" && !Array.isArray(properties)
-      ? properties
-      : {};
-  const has = (parameter: string) => Object.hasOwn(declared, parameter);
-  return {
-    paging: MCP_TEXT_PAGING_INPUTS.filter(has),
-    narrowing: MCP_TEXT_NARROWING_INPUTS.filter(has),
-  };
+  if (!properties || typeof properties !== "object") return [];
+  return MCP_TEXT_PAGING_INPUTS.filter((parameter) =>
+    Object.hasOwn(properties, parameter),
+  );
 }
 
-// A text-only host reads this notice and nothing else, so it has to say what
-// was cut and which of the tool's own inputs get the rest.
-function truncationNotice(
-  shown: number,
-  total: number,
-  inputs: McpTextRetrievalInputs | undefined,
-): string {
-  const lead = `[Truncated: showing the first ${shown} of ${total} characters.`;
-  const { paging = [], narrowing = [] } = inputs ?? {};
-  if (paging.length === 0 && narrowing.length === 0) {
-    return `${lead} This result is incomplete, and this tool has no paging or narrowing input to get the rest.]`;
-  }
-  const how = [
-    paging.length > 0 ? `page with ${paging.join(", ")}` : undefined,
-    narrowing.length > 0 ? `narrow with ${narrowing.join(", ")}` : undefined,
-  ].filter(Boolean);
-  return `${lead} To get the rest, call this tool again and ${how.join(", or ")}.]`;
+// Lengths are counted in code points so a cut never splits a surrogate pair.
+function cutAtCodePoints(
+  value: string,
+  max: number,
+): { shown: string; total: number } | undefined {
+  if (value.length <= max) return undefined;
+  const points = Array.from(value);
+  if (points.length <= max) return undefined;
+  return { shown: points.slice(0, max).join(""), total: points.length };
 }
 
+// A text-only host reads this notice and nothing else, so it has to say that
+// the result is incomplete and how much was cut.
 function truncateToolText(
   value: string,
   max = 2000,
-  inputs?: McpTextRetrievalInputs,
+  paging: readonly string[] = [],
 ): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, max)}\n${truncationNotice(max, value.length, inputs)}`;
+  const cut = cutAtCodePoints(value, max);
+  if (!cut) return value;
+  const pages =
+    paging.length > 0 ? ` This tool pages with ${paging.join(", ")}.` : "";
+  return `${cut.shown}\n[Truncated: showing the first ${max} of ${cut.total} characters. This result is incomplete.${pages}]`;
+}
+
+function shortenLinkText(value: string, max = 500): string {
+  const cut = cutAtCodePoints(value, max);
+  if (!cut) return value;
+  return `${cut.shown}… [URL shortened: showing the first ${max} of ${cut.total} characters.]`;
 }
 
 function conciseMcpAppToolText(
   name: string,
   result: unknown,
   structuredContent: Record<string, unknown>,
-  inputs?: McpTextRetrievalInputs,
+  paging?: readonly string[],
 ): string {
-  if (typeof result === "string") return truncateToolText(result, 2000, inputs);
+  if (typeof result === "string") return truncateToolText(result, 2000, paging);
   const message = structuredContent.message;
   if (typeof message === "string" && message.trim()) {
-    return truncateToolText(message.trim(), 2000, inputs);
+    return truncateToolText(message.trim(), 2000, paging);
   }
   const title = structuredContent.title ?? structuredContent.name;
   if (typeof title === "string" && title.trim()) {
@@ -1733,12 +1723,12 @@ export function conciseToolResultText(
   result: unknown,
   options?: {
     preserveObjectResult?: boolean;
-    inputs?: McpTextRetrievalInputs;
+    paging?: readonly string[];
   },
 ): string {
-  const inputs = options?.inputs;
+  const paging = options?.paging;
   const purged = purgeEmbedStartUrls(result);
-  if (typeof purged === "string") return truncateToolText(purged, 2000, inputs);
+  if (typeof purged === "string") return truncateToolText(purged, 2000, paging);
   if (purged === true || purged == null) return `${name} completed.`;
   if (purged && typeof purged === "object" && !Array.isArray(purged)) {
     const record = purged as Record<string, unknown>;
@@ -1746,7 +1736,7 @@ export function conciseToolResultText(
       const text = JSON.stringify(purged);
       return text === undefined
         ? `${name} completed.`
-        : truncateToolText(text, 2000, inputs);
+        : truncateToolText(text, 2000, paging);
     }
     const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
     const next =
@@ -1754,10 +1744,10 @@ export function conciseToolResultText(
       record.nextRequiredAction.trim()
         ? ` Next: ${record.nextRequiredAction.trim()}`
         : "";
-    const tail = `${typeof link === "string" && link.trim() ? ` ${truncateToolText(link.trim(), 500)}` : ""}${next}`;
+    const tail = `${typeof link === "string" && link.trim() ? ` ${shortenLinkText(link.trim())}` : ""}${next}`;
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
-      return `${truncateToolText(message.trim(), 2000, inputs)}${tail}`;
+      return `${truncateToolText(message.trim(), 2000, paging)}${tail}`;
     }
     const id = record.id ?? record.planId ?? record.commentId;
     const title = record.title ?? record.name;
@@ -1778,7 +1768,7 @@ export function conciseToolResultText(
   const text = JSON.stringify(purged);
   return text === undefined
     ? `${name} completed.`
-    : truncateToolText(text, 2000, inputs);
+    : truncateToolText(text, 2000, paging);
 }
 
 export async function createMCPServerForRequest(
@@ -2551,16 +2541,19 @@ export async function createMCPServerForRequest(
               : structuredResult
                 ? mcpAppStructuredContent(structuredResult, responseMeta)
                 : undefined;
-          const inputs = textRetrievalInputs(entry.tool.parameters);
+          const paging = textPagingInputs(
+            entry.tool.parameters,
+            entry.readOnly === true,
+          );
           const text = mcpAppResource
             ? conciseMcpAppToolText(
                 name,
                 textResultForClient,
                 structuredContent!,
-                inputs,
+                paging,
               )
             : conciseToolResultText(name, textResultForClient, {
-                inputs,
+                paging,
                 preserveObjectResult:
                   entry.readOnly === true ||
                   (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] ===
