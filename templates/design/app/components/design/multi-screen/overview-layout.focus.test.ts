@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   getFocusedLineupScale,
-  getFocusedLineupTop,
   resolveFocusedLineupScreenId,
 } from "./overview-layout";
 
@@ -61,16 +60,29 @@ describe("resolveFocusedLineupScreenId", () => {
 describe("getFocusedLineupScale", () => {
   const minScale = 0.1;
 
-  it("fits the frame to the pane width minus the side padding", () => {
-    // A 1280px-wide frame in the 620px widget pane: (620 - 32) / 1280.
+  it.each([620, 1100])(
+    "fits a 1440px desktop frame edge to edge in a %ipx pane",
+    (paneWidth) => {
+      expect(
+        getFocusedLineupScale({
+          frameWidth: 1440,
+          availableWidth: paneWidth,
+          minScale,
+          maxScale: 1,
+        }),
+      ).toBeCloseTo(paneWidth / 1440, 6);
+    },
+  );
+
+  it("never zooms past 100% display zoom, however wide the pane is", () => {
     expect(
       getFocusedLineupScale({
-        frameWidth: 1280,
-        availableWidth: 620,
+        frameWidth: 1440,
+        availableWidth: 2200,
         minScale,
         maxScale: 1,
       }),
-    ).toBeCloseTo(588 / 1280, 6);
+    ).toBe(1);
   });
 
   it("zooms a narrow frame in to fill the pane, but never past maxScale", () => {
@@ -81,7 +93,7 @@ describe("getFocusedLineupScale", () => {
         minScale,
         maxScale: 2,
       }),
-    ).toBeCloseTo(588 / 320, 6);
+    ).toBeCloseTo(620 / 320, 6);
     expect(
       getFocusedLineupScale({
         frameWidth: 320,
@@ -92,7 +104,7 @@ describe("getFocusedLineupScale", () => {
     ).toBe(1);
   });
 
-  it("does not collapse below minScale in a pane narrower than its padding", () => {
+  it("does not collapse below minScale in a pane narrower than the frame can fit", () => {
     expect(
       getFocusedLineupScale({
         frameWidth: 1280,
@@ -101,27 +113,5 @@ describe("getFocusedLineupScale", () => {
         maxScale: 1,
       }),
     ).toBe(minScale);
-  });
-});
-
-describe("getFocusedLineupTop", () => {
-  it("centers a frame that fits the pane", () => {
-    expect(
-      getFocusedLineupTop({
-        frameHeight: 400,
-        scale: 1,
-        viewportHeight: 860,
-      }),
-    ).toBe(230);
-  });
-
-  it("top-aligns below the floating controls when the frame is taller than the pane", () => {
-    expect(
-      getFocusedLineupTop({
-        frameHeight: 2560,
-        scale: 0.46,
-        viewportHeight: 860,
-      }),
-    ).toBe(56);
   });
 });

@@ -340,7 +340,6 @@ import {
   getBoardSurfaceStaticPreviewTransform,
   getBoardSurfaceStaticPreviewViewport,
   getFocusedLineupScale,
-  getFocusedLineupTop,
   isLineupShrinkOnlyChange,
   OVERVIEW_FRAME_WIDTH,
   resolveFocusedLineupScreenId,
@@ -2438,8 +2437,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       totalHeight > 0
         ? Math.max(minFitScale, (rect.height - 96) / totalHeight)
         : scale;
-    // A focused screen fills the pane width up to 100% display zoom, in either
-    // direction; fitting every screen only ever zooms out.
+    // A focused screen fills the pane width edge to edge up to 100% display
+    // zoom, in either direction, and starts flush at the top of the pane;
+    // fitting every screen only ever zooms out.
     const focusScale = focusScreen
       ? getFocusedLineupScale({
           frameWidth: totalWidth,
@@ -2464,11 +2464,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const visualLeft =
       chromeInsetLeft + (availableWidth - totalWidth * nextScale) / 2;
     const visualTop = focusScreen
-      ? getFocusedLineupTop({
-          frameHeight: totalHeight,
-          scale: nextScale,
-          viewportHeight: rect.height,
-        })
+      ? 0
       : (rect.height - totalHeight * nextScale) / 2;
     const nextPan = {
       x: visualLeft - (SURFACE_PADDING + boundsLeft) * nextScale,

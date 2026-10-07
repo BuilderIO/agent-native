@@ -3,7 +3,7 @@
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Layout } from "./Layout";
 
@@ -184,4 +184,67 @@ it("keeps the design editor mounted when the session resolves inside an MCP App 
 
   expect(mounts).toBe(1);
   expect(renderedAppChrome()).toEqual([]);
+});
+
+describe.each([620, 1100])("in a %ipx-wide MCP App widget pane", (width) => {
+  const originalWidth = window.innerWidth;
+
+  beforeEach(() => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: width,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: originalWidth,
+    });
+  });
+
+  it.each(["/design/abc", "/visual-edit/abc", "/", "/chat"])(
+    "mounts no nav, header, mobile top bar, or agent sidebar on %s, signed in or not",
+    async (route) => {
+      embedState.token = true;
+      embedState.mcpAppWidget = true;
+
+      for (const email of [null, "person@example.com"]) {
+        sessionState.current = email ? { email } : null;
+        await act(async () =>
+          root.render(
+            <MemoryRouter initialEntries={[route]}>
+              <Layout>
+                <div data-testid="editor" />
+              </Layout>
+            </MemoryRouter>,
+          ),
+        );
+
+        expect(
+          container.querySelector('[data-testid="editor"]'),
+        ).not.toBeNull();
+        expect(renderedAppChrome()).toEqual([]);
+        expect(
+          container.querySelector('[aria-label="navigation.openNavigation"]'),
+        ).toBeNull();
+        expect(container.querySelector(".agent-layout-shell")).toBeNull();
+      }
+    },
+  );
+
+  it("gives the editor the whole pane: one full-height root with nothing above it", async () => {
+    embedState.token = true;
+    embedState.mcpAppWidget = true;
+
+    await renderEditorRoute(<div data-testid="editor" />);
+
+    const shell = container.firstElementChild as HTMLElement;
+    expect(shell.className).toContain("h-[100dvh]");
+    expect(shell.className).toContain("w-full");
+    expect(container.children).toHaveLength(1);
+    const main = container.querySelector("main") as HTMLElement;
+    expect(main.previousElementSibling).toBeNull();
+    expect(main.parentElement?.parentElement).toBe(shell);
+  });
 });

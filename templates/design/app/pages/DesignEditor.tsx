@@ -1054,6 +1054,7 @@ import { applyMcpDirectoryWidgetReadOnlyPolicy } from "./design-editor/mcp-widge
 import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   hasMinimalInspectorSelection,
+  rightInspectorCanvasInset,
   rightInspectorPanelClassName,
 } from "./design-editor/minimal-inspector";
 import {
@@ -26810,7 +26811,11 @@ function DesignEditor() {
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
-  const chromeInsetRight = rightSidebarVisible ? rightSidebarWidth : 0;
+  const chromeInsetRight = rightInspectorCanvasInset({
+    visible: rightSidebarVisible,
+    width: rightSidebarWidth,
+    widgetEmbed,
+  });
   const routeCodeFileId =
     activeLeftPanel === "code" ? searchParams.get("fileId") : null;
   const routeCodeFilename =
@@ -28209,7 +28214,9 @@ function DesignEditor() {
                         onPick={handleOverviewScreenPick}
                         onEdit={handleOverviewFrameAction}
                         onDuplicate={handleDuplicateScreen}
-                        onAddBreakpoint={handleOverviewAddBreakpoint}
+                        onAddBreakpoint={
+                          widgetEmbed ? undefined : handleOverviewAddBreakpoint
+                        }
                         breakpointMutationPending={
                           addBreakpointMutation.isPending ||
                           removeBreakpointMutation.isPending ||
@@ -28778,23 +28785,30 @@ function DesignEditor() {
                   ? renderResponsiveInteractBar(true)
                   : null}
               </div>
-              {!rightSidebarVisible || uiHidden ? (
+              {widgetEmbed ? (
+                <div aria-hidden="true" />
+              ) : !rightSidebarVisible || uiHidden ? (
                 <div
                   data-design-minimal-bar="right"
                   className="pointer-events-auto min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
                 >
-                  {widgetEmbed ? (
-                    <div className="flex h-10 items-center px-1">
-                      {renderZoomControl("inspector")}
-                    </div>
-                  ) : (
-                    rightSidebarActions
-                  )}
+                  {rightSidebarActions}
                 </div>
               ) : (
                 <div aria-hidden="true" style={{ width: rightSidebarWidth }} />
               )}
             </div>
+          </div>
+        ) : null}
+
+        {/* The widget's only persistent control sits in the bottom corner so it
+            never covers the page header the screen starts with. */}
+        {widgetEmbed && minimalUi && (!rightSidebarVisible || uiHidden) ? (
+          <div
+            data-design-widget-zoom
+            className="absolute bottom-3 right-3 z-[90] flex h-7 items-center rounded-md border border-border bg-[var(--design-editor-panel-bg)] px-0.5 shadow-md"
+          >
+            {renderZoomControl("inspector")}
           </div>
         ) : null}
       </div>
