@@ -344,6 +344,7 @@ describe("extension iframe display-only media sources", () => {
   // so it must not pull the app-config store (top-level process.env reads)
   // into client bundles.
   it("does not import app config into the client-rendered shell", () => {
+    // source-read-ok: client-bundle boundary check on html-shell.ts's import list
     const shell = readFileSync(join(HERE, "html-shell.ts"), "utf8");
     const imports = shell
       .split("\n")
