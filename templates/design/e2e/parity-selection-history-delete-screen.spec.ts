@@ -30,6 +30,13 @@ const HOME_SCREEN = `<!doctype html>
   </body>
 </html>`;
 
+const HOME_SCREEN_WITH_ANCHOR = HOME_SCREEN.replace(
+  "</body>",
+  `    <div data-agent-native-node-id="home-anchor" data-agent-native-layer-name="Anchor Box"
+         style="position:absolute;left:600px;top:400px;width:80px;height:60px;background:#ef4444"></div>
+  </body>`,
+);
+
 const THIRD_SCREEN = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Third</title></head>
@@ -51,8 +58,11 @@ test.beforeEach(async ({}, testInfo) => {
     e2eBaseURL();
 });
 
-async function newTwoScreenDesign(page: Page): Promise<string> {
-  const id = await newDesign(page, HOME_SCREEN);
+async function newTwoScreenDesign(
+  page: Page,
+  homeContent = HOME_SCREEN,
+): Promise<string> {
+  const id = await newDesign(page, homeContent);
   await postAction(page, "create-file", {
     designId: id,
     filename: "second.html",
@@ -62,8 +72,11 @@ async function newTwoScreenDesign(page: Page): Promise<string> {
   return id;
 }
 
-async function newThreeScreenDesign(page: Page): Promise<string> {
-  const id = await newTwoScreenDesign(page);
+async function newThreeScreenDesign(
+  page: Page,
+  homeContent = HOME_SCREEN,
+): Promise<string> {
+  const id = await newTwoScreenDesign(page, homeContent);
   await postAction(page, "create-file", {
     designId: id,
     filename: "third.html",
@@ -276,11 +289,31 @@ test("marquee-selecting child elements after a Screen pick deletes only the elem
     (window as any).__DESIGN_TRACE = true;
   });
 
-  const id = await newThreeScreenDesign(page);
+  const id = await newThreeScreenDesign(page, HOME_SCREEN_WITH_ANCHOR);
   try {
     await openEditor(page, id);
     const homeId = await fileIdByFilename(page, id, "index.html");
     await layerRow(page, "Home").click();
+    await expect.poll(() => lastSelectedLayers(page)).toEqual([homeId]);
+
+    const anchor = page
+      .locator(`iframe[data-screen-iframe-id="${homeId}"]`)
+      .contentFrame()
+      .locator('[data-agent-native-node-id="home-anchor"]');
+    const anchorBox = await anchor.boundingBox();
+    expect(anchorBox).not.toBeNull();
+    await page.mouse.click(
+      anchorBox!.x + anchorBox!.width / 2,
+      anchorBox!.y + anchorBox!.height / 2,
+    );
+    await expect(
+      page
+        .getByRole("tree", { name: "Layers" })
+        .locator("[data-layer-row-button]")
+        .filter({ hasText: "Anchor Box" })
+        .locator("xpath=ancestor::*[@role='treeitem'][1]"),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("[data-frame-drag-surface]")).toHaveCount(0);
 
     const screenIframe = page.locator(
       `iframe[data-screen-iframe-id="${homeId}"]`,
