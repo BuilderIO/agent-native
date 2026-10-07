@@ -147,7 +147,8 @@ in SQL to the caller — they never leak another tenant's rows:
   6003) for a SIEM. Owners and admins only, through
   `resolveAuditReadScope(ctx, "organization")`, so it never reads past
   `list-audit-events`. Oldest first; pass the previous `nextCursor` as `cursor`
-  (an empty page returns the same cursor). `since`/`until` take ISO or epoch ms.
+  and store every returned `nextCursor`, including on empty pages (they advance
+  the ready watermark). `since`/`until` take ISO or epoch ms.
   The mapper is `auditEventToOcsf` in `audit/ocsf.ts`; framework ids (run, task,
   thread, turn, app) go under `unmapped`, never an invented OCSF field, and
   `input` is never exported.

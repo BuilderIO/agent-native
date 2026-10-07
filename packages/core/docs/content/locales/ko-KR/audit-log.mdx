@@ -103,7 +103,7 @@ const { data } = useActionQuery("list-audit-events", {
 | `cursor` | 이전 페이지의 `nextCursor`.                                 |
 | `limit`  | 페이지당 이벤트 수, 최대 500(기본값 100).                   |
 
-`{ events, hasMore, nextCursor }`를 반환합니다. `nextCursor`를 저장해 두었다가 다음 가져오기에 그대로 보내세요. 빈 페이지는 보낸 커서를 그대로 반환하므로 그 커서로 계속 조회하면 됩니다. 늦게 기록된 행을 건너뛰지 않도록 가장 최근 5초의 이벤트는 제외됩니다.
+`{ events, hasMore, nextCursor }`를 반환합니다. `events`가 비어 있어도 매번 반환된 `nextCursor`를 저장해 다음 가져오기에 보내세요. 빈 페이지도 ready watermark를 진행합니다. 늦게 기록된 항목을 찾기 위해 커서는 5분 중첩 구간을 다시 읽으므로 가져오기 사이에 `metadata.uid`로 중복을 제거하세요. 늦게 기록된 행을 건너뛰지 않도록 가장 최근 5초의 이벤트는 제외됩니다.
 
 각 이벤트는 `status`를 `status_id`로(`success`는 Success, `error`와 `denied`는 Failure이며 `denied`는 `action_id` Denied와 더 높은 `severity_id`도 가짐), 행위자를 `actor.user`로(서비스 프린시펄은 Service 유형), 액션을 `api.operation`으로, 대상을 `resources`로 매핑합니다. 실행, 작업, 상위 작업, 스레드, 턴, 앱 ID에는 해당하는 OCSF 필드가 없어 `unmapped` 아래에 들어갑니다. 호출 인자는 내보내지 않습니다.
 

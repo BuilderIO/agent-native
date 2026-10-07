@@ -166,6 +166,28 @@ describe("recordServicePrincipalDenial", () => {
     });
   });
 
+  it("derives the admin audit scope from the service identity when omitted", async () => {
+    let error: any;
+    try {
+      assertServicePrincipalMayCall([], "delete-doc");
+    } catch (e) {
+      error = e;
+    }
+    await recordServicePrincipalDenial({
+      email: SVC,
+      actionName: "delete-doc",
+      caller: "mcp",
+      error,
+    });
+
+    const input = recordActionAuditMock.mock.calls[0][0];
+    expect(input.ctx.orgId).toBe("org_1");
+    expect(input.config.target()).toMatchObject({
+      orgId: "org_1",
+      visibility: "admins",
+    });
+  });
+
   it("does not record a retryable unavailable refusal as a denial", async () => {
     executeMock.mockRejectedValue(new Error("db down"));
     vi.spyOn(console, "error").mockImplementation(() => {});

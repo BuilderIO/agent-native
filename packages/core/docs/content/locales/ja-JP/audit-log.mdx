@@ -103,7 +103,7 @@ const { data } = useActionQuery("list-audit-events", {
 | `cursor` | 前のページの `nextCursor`。                                                 |
 | `limit`  | 1 ページあたりのイベント数。最大 500 (デフォルトは 100)。                   |
 
-`{ events, hasMore, nextCursor }` を返します。`nextCursor` を保存し、次回の取得で送り返してください。空のページは送ったカーソルをそのまま返すので、そのカーソルで取得を続けます。遅れて書き込まれた行を取りこぼさないよう、直近 5 秒のイベントは返されません。
+`{ events, hasMore, nextCursor }` を返します。`events` が空の場合も、返された `nextCursor` を毎回保存し、次回の取得で送り返してください。空のページでも ready watermark は進みます。遅れて書き込まれた行を検出するため、カーソルは 5 分間の重複範囲を再取得します。取得間では `metadata.uid` で重複を除去してください。遅れて書き込まれた行を取りこぼさないよう、直近 5 秒のイベントは返されません。
 
 各イベントでは、`status` は `status_id` に対応し (`success` は Success、`error` と `denied` は Failure。`denied` はさらに `action_id` Denied とより高い `severity_id` になります)、アクターは `actor.user` (サービスプリンシパルは Service タイプ)、アクションは `api.operation`、対象は `resources` に対応します。実行、タスク、親タスク、スレッド、ターン、アプリの ID には対応する OCSF フィールドがないため、`unmapped` に格納されます。呼び出しの引数はエクスポートされません。
 

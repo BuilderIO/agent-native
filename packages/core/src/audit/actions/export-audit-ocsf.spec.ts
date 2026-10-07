@@ -171,6 +171,29 @@ describe("export-audit-ocsf", () => {
     expect(next.events.map((e) => e.metadata.uid)).toEqual(["first", "second"]);
   });
 
+  it("advances and returns the ready cursor on empty pages", async () => {
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+
+    const first = await exportAuditOcsf.run({}, admin);
+    expect(first.events).toEqual([]);
+    now += 10_000;
+    const empty = await exportAuditOcsf.run(
+      { cursor: first.nextCursor ?? undefined },
+      admin,
+    );
+    expect(empty.events).toEqual([]);
+    expect(empty.nextCursor).not.toBe(first.nextCursor);
+
+    now += 10_000;
+    await insertAuditEvent(makeEvent({ id: "later", createdAt: now - 6_000 }));
+    const next = await exportAuditOcsf.run(
+      { cursor: empty.nextCursor ?? undefined },
+      admin,
+    );
+    expect(next.events.map((event) => event.metadata.uid)).toEqual(["later"]);
+  });
+
   it("catches a late committed row inside the overlap and uses stable UIDs for dedupe", async () => {
     let now = 1_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);

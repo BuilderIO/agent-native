@@ -1,3 +1,4 @@
+import { parseServiceIdentityEmail } from "./service-identity.js";
 /**
  * Enforcement helpers over the service-principal policy store. MCP admission,
  * MCP tool dispatch, and inbound A2A all ask these instead of reading
@@ -97,7 +98,8 @@ export async function recordServicePrincipalDenial(input: {
 }): Promise<void> {
   if (input.error.statusCode !== 403) return;
   const { recordActionAudit } = await import("../audit/record.js");
-  const orgId = input.orgId ?? null;
+  const orgId =
+    input.orgId ?? parseServiceIdentityEmail(input.email)?.orgId ?? null;
   await recordActionAudit({
     config: {
       enabled: true,

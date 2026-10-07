@@ -103,7 +103,7 @@ const { data } = useActionQuery("list-audit-events", {
 | `cursor` | 上一頁傳回的 `nextCursor`。                               |
 | `limit`  | 每頁事件數，最多 500（預設 100）。                        |
 
-傳回 `{ events, hasMore, nextCursor }`。儲存 `nextCursor`，並在下次擷取時傳回；空頁會原樣傳回您送出的游標，因此請繼續使用它輪詢。最近五秒的事件會被保留不傳回，以免略過延遲寫入的列。
+傳回 `{ events, hasMore, nextCursor }`。每次都儲存傳回的 `nextCursor`，並在下次擷取時傳回，包括 `events` 為空時；空頁也會推進 ready watermark。游標會重新讀取五分鐘的重疊視窗以擷取延遲寫入，因此請在多次擷取之間使用 `metadata.uid` 去重。最近五秒的事件會被保留，以免略過延遲寫入的列。
 
 每個事件將 `status` 對應到 `status_id`（`success` 為 Success；`error` 和 `denied` 為 Failure，其中 `denied` 還會設定 `action_id` 為 Denied 並提高 `severity_id`），將執行者對應到 `actor.user`（服務主體的類型為 Service），將動作對應到 `api.operation`，將目標對應到 `resources`。執行、任務、父任務、執行緒、輪次和應用程式 ID 沒有對應的 OCSF 欄位，位於 `unmapped` 之下。呼叫參數絕不會被匯出。
 

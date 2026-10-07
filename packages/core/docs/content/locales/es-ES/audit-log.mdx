@@ -103,7 +103,7 @@ El agente puede realizar la misma acción: preguntarle "¿qué cambiaste en esta
 | `cursor` | El `nextCursor` de la página anterior.                                         |
 | `limit`  | Eventos por página, hasta 500 (por defecto 100).                               |
 
-Devuelve `{ events, hasMore, nextCursor }`. Guarde `nextCursor` y envíelo en la siguiente extracción; una página vacía devuelve el cursor que envió, así que siga consultando con él. Los últimos cinco segundos se retienen para que una fila escrita tarde nunca se omita.
+Devuelve `{ events, hasMore, nextCursor }`. Guarde cada `nextCursor` devuelto y envíelo en la siguiente extracción, incluso cuando `events` esté vacío; las páginas vacías avanzan el marcador ready. El cursor vuelve a leer una ventana de solapamiento de cinco minutos para detectar escrituras tardías; deduplique entre extracciones mediante `metadata.uid`. Los últimos cinco segundos se retienen para que una fila escrita tarde nunca se omita.
 
 Cada evento asigna `status` a `status_id` (`success` es Success; `error` y `denied` son Failure, y `denied` añade además `action_id` Denied y un `severity_id` mayor), el actor a `actor.user` (un principal de servicio es de tipo Service), la acción a `api.operation` y el destino a `resources`. Los identificadores de ejecución, tarea, tarea principal, hilo, turno y aplicación no tienen campo OCSF y van bajo `unmapped`. Los argumentos de la llamada nunca se exportan.
 

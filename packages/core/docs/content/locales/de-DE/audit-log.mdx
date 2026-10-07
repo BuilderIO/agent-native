@@ -103,7 +103,7 @@ Der Agent kann dieselbe Aktion aufrufen – fragen Sie ihn: „Was haben Sie an 
 | `cursor` | Der `nextCursor` der vorherigen Seite.                                               |
 | `limit`  | Ereignisse pro Seite, bis zu 500 (Standard 100).                                     |
 
-Es gibt `{ events, hasMore, nextCursor }` zurück. Speichern Sie `nextCursor` und senden Sie ihn beim nächsten Abruf zurück; eine leere Seite gibt den gesendeten Cursor zurück, fragen Sie also weiter mit ihm ab. Die neuesten fünf Sekunden werden zurückgehalten, damit eine verspätet geschriebene Zeile nie übersprungen wird.
+Es gibt `{ events, hasMore, nextCursor }` zurück. Speichern Sie jeden zurückgegebenen `nextCursor` und senden Sie ihn beim nächsten Abruf zurück, auch wenn `events` leer ist; leere Seiten rücken den Ready-Watermark vor. Der Cursor liest ein fünfminütiges Überlappungsfenster erneut ein, um verspätete Commits zu erfassen; deduplizieren Sie daher anhand von `metadata.uid`. Die neuesten fünf Sekunden werden zurückgehalten, damit eine verspätet geschriebene Zeile nie übersprungen wird.
 
 Jedes Ereignis bildet `status` auf `status_id` ab (`success` ist Success; `error` und `denied` sind Failure, wobei `denied` zusätzlich `action_id` Denied und eine höhere `severity_id` erhält), den Akteur auf `actor.user` (ein Dienst-Principal hat den Typ Service), die Aktion auf `api.operation` und das Ziel auf `resources`. Lauf-, Aufgaben-, übergeordnete Aufgaben-, Thread-, Turn- und App-IDs haben kein OCSF-Feld und stehen unter `unmapped`. Aufrufargumente werden nie exportiert.
 

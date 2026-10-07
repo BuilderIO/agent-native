@@ -130,7 +130,7 @@ function assertCursorBounds(cursor: ExportCursor, bounds: CursorBounds): void {
 }
 
 export default defineAction({
-  description: `Export the organization's audit trail as OCSF ${OCSF_SCHEMA_VERSION} API Activity events (class 6003) for a SIEM. Owners and admins only; returns the organization's shared trail (org and admins events), oldest first. Pull incrementally: pass the previous nextCursor as cursor, and keep it when a page comes back empty. A five-minute rolling overlap can replay recent events to catch late commits; deduplicate across polls by metadata.uid. Use list-audit-events instead to browse or answer 'what changed'.`,
+  description: `Export the organization's audit trail as OCSF ${OCSF_SCHEMA_VERSION} API Activity events (class 6003) for a SIEM. Owners and admins only; returns the organization's shared trail (org and admins events), oldest first. Pull incrementally: pass the previous nextCursor as cursor and store every returned nextCursor, including when events is empty; empty pages advance the ready watermark. A five-minute rolling overlap can replay recent events to catch late commits; deduplicate across polls by metadata.uid. Use list-audit-events instead to browse or answer 'what changed'.`,
   schema: z.object({
     since: timeInput
       .optional()
@@ -141,7 +141,9 @@ export default defineAction({
     cursor: z
       .string()
       .optional()
-      .describe("The nextCursor from the previous page; resumes after it."),
+      .describe(
+        "The nextCursor from the previous response; store every returned nextCursor, including for empty pages.",
+      ),
     limit: z
       .number()
       .int()

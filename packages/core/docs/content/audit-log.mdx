@@ -180,7 +180,7 @@ The agent can call the same action — ask it "what did you change on this recor
 | `cursor` | The `nextCursor` from the previous page.                     |
 | `limit`  | Events per page, up to 500 (default 100).                    |
 
-It returns `{ events, hasMore, nextCursor }`. Store `nextCursor` and send it back on the next pull; an empty page returns the cursor you sent, so keep polling with it. The newest five seconds are held back so a late-written row is never skipped.
+It returns `{ events, hasMore, nextCursor }`. Store every returned `nextCursor` and send it back on the next pull, including when `events` is empty; empty pages advance the ready watermark. The cursor replays a five-minute overlap to catch late commits, so deduplicate across pulls by `metadata.uid`. The newest five seconds are held back so a late-written row is never skipped.
 
 Each event maps `status` to `status_id` (`success` is Success; `error` and `denied` are Failure, with `denied` also `action_id` Denied and a higher `severity_id`), the actor to `actor.user` (a service principal is type Service), the action to `api.operation`, and the target to `resources`. Run, task, parent-task, thread, turn, and app ids have no OCSF field, so they sit under `unmapped`. Call arguments are never exported.
 

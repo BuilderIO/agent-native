@@ -103,7 +103,7 @@ O agente pode chamar a mesma ação - pergunte "o que você mudou nesta gravaç�
 | `cursor` | O `nextCursor` da página anterior.                                                           |
 | `limit`  | Eventos por página, até 500 (padrão 100).                                                    |
 
-Retorna `{ events, hasMore, nextCursor }`. Guarde `nextCursor` e envie-o na próxima coleta; uma página vazia retorna o cursor que você enviou, então continue consultando com ele. Os cinco segundos mais recentes são retidos para que uma linha gravada com atraso nunca seja ignorada.
+Retorna `{ events, hasMore, nextCursor }`. Guarde cada `nextCursor` retornado e envie-o na próxima coleta, mesmo quando `events` estiver vazio; páginas vazias avançam o ready watermark. O cursor relê uma janela de sobreposição de cinco minutos para detectar gravações atrasadas; portanto, deduplique entre coletas usando `metadata.uid`. Os cinco segundos mais recentes são retidos para que uma linha gravada com atraso nunca seja ignorada.
 
 Cada evento mapeia `status` para `status_id` (`success` é Success; `error` e `denied` são Failure, e `denied` também recebe `action_id` Denied e um `severity_id` maior), o ator para `actor.user` (um principal de serviço é do tipo Service), a ação para `api.operation` e o alvo para `resources`. Os ids de execução, tarefa, tarefa pai, thread, turno e app não têm campo OCSF e ficam em `unmapped`. Os argumentos da chamada nunca são exportados.
 
