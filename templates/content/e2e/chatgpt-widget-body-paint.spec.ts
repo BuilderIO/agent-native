@@ -288,7 +288,7 @@ test("a Content body paints from a scoped ticket in a nested widget frame", asyn
         };
       }),
     ).toEqual({
-      blockedAtBoot: ["localStorage", "sessionStorage"],
+      blockedAtBoot: ["localStorage", "sessionStorage", "indexedDB"],
       memoryShimNames: ["localStorage", "sessionStorage"],
       indexedDbError: "SecurityError",
     });
