@@ -1539,6 +1539,12 @@ export default {
       "Fragments à accès contrôlé utilisés pour reconstruire cette relecture. Les URL du fournisseur restent privées.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Télécharger la capture",
+    savingScreenshot: "Enregistrement de la capture…",
+    screenshotDownloaded: "Capture téléchargée",
+    screenshotSaveFailed: "Impossible d’enregistrer la capture",
+    screenshotUnsupportedAssets:
+      "Capture non enregistrée : certains médias intégrés ou images ne peuvent pas être capturés en toute sécurité.",
     timeline: "Chronologie des événements",
     replayTimeline: "Chronologie de relecture",
     timelineDescription:
