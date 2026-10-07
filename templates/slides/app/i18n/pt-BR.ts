@@ -308,6 +308,9 @@ const messages = {
     conflictStatus: "Conflito de texto",
     conflictStatusDescription:
       "Revise o texto em conflito antes de salvar outras alterações.",
+    accessLost: "Acesso perdido",
+    accessLostDescription:
+      "Você não tem mais acesso a esta apresentação. Suas edições continuam na tela; tente novamente quando o acesso for restaurado ou baixe um backup.",
     reviewConflict: "Revisar conflito",
     conflictTitle: "Conflito de texto no slide {{number}}",
     conflictDescription:

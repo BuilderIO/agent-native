@@ -25,6 +25,8 @@ vi.mock("@agent-native/core/client/org", () => ({
 import {
   DeckProvider,
   fallbackPollIntervalMs,
+  getDeckSaveError,
+  hasFailedDeckSave,
   useDecks,
   type Deck,
 } from "./DeckContext";
@@ -393,7 +395,7 @@ async function renderOpenDeck(
     wrapper: routedWrapper(options.route),
   });
   await waitFor(() => expect(rendered.result.current.loading).toBe(false));
-  return { api, rerender: rendered.rerender };
+  return { api, rerender: rendered.rerender, result: rendered.result };
 }
 
 describe("fallbackPollIntervalMs", () => {
@@ -796,6 +798,55 @@ describe("DeckContext fallback polling", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(deckCallCount(api.fetchMock)).toBe(deckAfterStop + 1);
+  });
+
+  it.each([403, 404])(
+    "flags the open deck as access lost on a %i read, keeps the local copy, and recovers on focus",
+    async (status) => {
+      const { api } = await renderOpenDeck();
+      expect(hasFailedDeckSave("open-deck")).toBe(false);
+
+      api.failDeckReads(status);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(getDeckSaveError("open-deck")).toMatchObject({
+        status,
+        retryable: true,
+      });
+      const deckAfterLoss = deckCallCount(api.fetchMock);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300_000);
+      });
+      expect(deckCallCount(api.fetchMock)).toBe(deckAfterLoss);
+
+      api.failDeckReads(null);
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(hasFailedDeckSave("open-deck")).toBe(false);
+    },
+  );
+
+  it("re-reads a deck flagged as access lost when the save status retry runs", async () => {
+    const { api, result } = await renderOpenDeck();
+    api.failDeckReads(403);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(hasFailedDeckSave("open-deck")).toBe(true);
+    const deckAfterLoss = deckCallCount(api.fetchMock);
+
+    api.failDeckReads(null);
+    await act(async () => {
+      await result.current.retryDeckSave("open-deck");
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(deckCallCount(api.fetchMock)).toBe(deckAfterLoss + 1);
+    expect(hasFailedDeckSave("open-deck")).toBe(false);
   });
 
   it("resumes a stopped deck poll when the route moves to another deck", async () => {

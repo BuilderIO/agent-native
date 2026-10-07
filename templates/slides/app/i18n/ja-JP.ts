@@ -308,6 +308,9 @@ const messages = {
     conflictStatus: "テキストの競合",
     conflictStatusDescription:
       "変更を保存する前に、競合しているテキストを確認してください。",
+    accessLost: "アクセス権を失いました",
+    accessLostDescription:
+      "このデッキにアクセスできなくなりました。編集内容は画面に残っています。アクセスが復旧したら再試行するか、バックアップをダウンロードしてください。",
     reviewConflict: "競合を確認",
     conflictTitle: "スライド {{number}} でテキストが競合しています",
     conflictDescription:

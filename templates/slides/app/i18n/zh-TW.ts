@@ -295,6 +295,9 @@ const messages = {
     downloadBackup: "下載備份",
     conflictStatus: "文字衝突",
     conflictStatusDescription: "請先檢查衝突的文字，再儲存其他變更。",
+    accessLost: "存取權限已失效",
+    accessLostDescription:
+      "你已無法存取此簡報。你的編輯仍保留在畫面上；恢復存取後可重試，或下載備份。",
     reviewConflict: "檢視衝突",
     conflictTitle: "第 {{number}} 張投影片有文字衝突",
     conflictDescription: "編輯文字時，另一個版本變更了這張投影片。",

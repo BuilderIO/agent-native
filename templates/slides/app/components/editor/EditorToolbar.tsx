@@ -39,6 +39,7 @@ import {
   IconBolt,
   IconLayersSubtract,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import {
   useCallback,
@@ -81,6 +82,7 @@ import {
   type Slide,
 } from "@/context/DeckContext";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
+import { isDeckAccessLostStatus } from "@/lib/deck-access-lost";
 import { DeckBackupError } from "@/lib/deck-backup";
 import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
@@ -268,6 +270,19 @@ export default function EditorToolbar({
   const deckHasUnsavedChanges = hasUnsavedDeckChanges(deckId);
   const saveFailed = hasFailedDeckSave(deckId);
   const saveError = getDeckSaveError(deckId);
+  const queryClient = useQueryClient();
+  const accessLost = saveFailed && isDeckAccessLostStatus(saveError?.status);
+  const wasAccessLostRef = useRef(false);
+  // The role query is not refetched on its own: once access comes back,
+  // "View only" would otherwise outlive the failure that explained it.
+  useEffect(() => {
+    if (wasAccessLostRef.current && !accessLost) {
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-resource-shares"],
+      });
+    }
+    wasAccessLostRef.current = accessLost;
+  }, [accessLost, queryClient]);
   const resolveConflict = useCallback(
     async (choice: DeckContentConflictChoice) => {
       if (!conflict) return;
@@ -842,7 +857,7 @@ export default function EditorToolbar({
 
       {/* Save status — subtle "Saving…" / "Saved" / offline pill. Renders
           nothing when idle. Only meaningful for editors. */}
-      {canEdit && (
+      {(canEdit || saveFailed) && (
         <SaveStatusIndicator
           saving={saving}
           hasUnsavedChanges={deckHasUnsavedChanges}
@@ -878,7 +893,7 @@ export default function EditorToolbar({
           }}
           onDownloadBackup={onDownloadBackup}
           onImportBackup={
-            onImportDeckBackup
+            canEdit && onImportDeckBackup
               ? () => backupInputRef.current?.click()
               : undefined
           }

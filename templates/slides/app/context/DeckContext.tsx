@@ -50,6 +50,7 @@ import {
   isMergeSafeDeckPatchOperations,
   type SlideFieldBaseline,
 } from "../../shared/deck-write";
+import { isDeckAccessLostStatus } from "../lib/deck-access-lost";
 import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
@@ -706,6 +707,9 @@ const deckSaveRetryAttempts = new Map<string, number>();
 const deckRevisionConflictRetryAttempts = new Map<string, number>();
 const failedSaveDecks = new Set<string>();
 const deckSaveErrors = new Map<string, DeckSaveError>();
+// The open deck's refetch answered 403/404: the local copy stays on screen but
+// its owner no longer lets this viewer read it.
+const deckAccessLostErrors = new Map<string, DeckSaveError>();
 const staleContentConflicts = new Map<string, Set<string> | null>();
 const staleFullReplaceDrafts = new Map<string, Deck>();
 const verifiedFullReplaceOps = new WeakSet<
@@ -791,9 +795,37 @@ function markDeckSaveFailed(
       pendingOpsQueue.has(deckId) &&
         !staleContentConflicts.has(deckId) &&
         !staleFullReplaceDrafts.has(deckId) &&
-        !isTerminalClientSaveError(cause),
+        (!isTerminalClientSaveError(cause) || isDeckAccessLostSave(cause)),
     ),
   );
+}
+
+function isDeckAccessLostSave(cause: unknown): boolean {
+  return (
+    !!cause &&
+    typeof cause === "object" &&
+    "status" in cause &&
+    isDeckAccessLostStatus(cause.status)
+  );
+}
+
+function markDeckAccessLost(deckId: string, cause: unknown): void {
+  if (deckAccessLostErrors.has(deckId)) return;
+  deckAccessLostErrors.set(
+    deckId,
+    new DeckSaveError(
+      deckId,
+      cause,
+      `Deck ${deckId} is no longer accessible; local copy retained`,
+      true,
+    ),
+  );
+  notifySaveListeners();
+}
+
+function clearDeckAccessLost(deckId: string): void {
+  if (!deckAccessLostErrors.delete(deckId)) return;
+  notifySaveListeners();
 }
 
 function clearDeckSaveFailure(deckId: string): void {
@@ -1186,7 +1218,8 @@ export function hasFailedDeckSave(deckId: string): boolean {
     failedSaveDecks.has(deckId) ||
     staleContentConflicts.has(deckId) ||
     staleSlideFieldDrafts.has(deckId) ||
-    staleFullReplaceDrafts.has(deckId)
+    staleFullReplaceDrafts.has(deckId) ||
+    deckAccessLostErrors.has(deckId)
   );
 }
 
@@ -1194,6 +1227,7 @@ export function getDeckSaveError(deckId: string): DeckSaveError | undefined {
   if (!hasFailedDeckSave(deckId)) return undefined;
   return (
     deckSaveErrors.get(deckId) ??
+    deckAccessLostErrors.get(deckId) ??
     (staleContentConflicts.has(deckId) || staleFullReplaceDrafts.has(deckId)
       ? new DeckSaveError(
           deckId,
@@ -2596,6 +2630,22 @@ async function flushDeckSave(
 }
 
 async function retryDeckSave(deckId: string): Promise<void> {
+  if (deckAccessLostErrors.has(deckId)) {
+    requestDeckResync(deckId);
+    if (!failedSaveDecks.has(deckId)) return;
+  }
+  await retryFailedDeckSave(deckId);
+}
+
+// Focus is the cheapest signal that an owner may have restored access: one
+// write attempt per focus, and only while the last save was refused for it.
+function retryAccessLostDeckSave(deckId: string): void {
+  const error = deckSaveErrors.get(deckId);
+  if (!error?.retryable || !isDeckAccessLostStatus(error.status)) return;
+  void retryFailedDeckSave(deckId).catch(() => {});
+}
+
+async function retryFailedDeckSave(deckId: string): Promise<void> {
   const failedSaveError = getDeckSaveError(deckId);
   if (
     !failedSaveError?.retryable ||
@@ -3431,6 +3481,7 @@ async function readDeckFromAPI(id: string): Promise<DeckRead> {
         error: new Error(`get-deck returned an invalid deck for ${id}`),
       };
     }
+    clearDeckAccessLost(id);
     return { status: "ok", deck };
   } catch (err) {
     console.error(`Failed to fetch deck ${id}:`, err);
@@ -4694,6 +4745,12 @@ export function DeckProvider({
       }
       pollControlRef.current.onRead(currentOpenId, read.status);
       if (
+        (read.status === "forbidden" || read.status === "not-found") &&
+        decksRef.current.some((d) => d.id === currentOpenId)
+      ) {
+        markDeckAccessLost(currentOpenId, read.error);
+      }
+      if (
         !options?.clearPendingWrites &&
         (deckLocalWriteSeq.get(currentOpenId) ?? 0) !== writeSeqAtReadStart
       ) {
@@ -5185,6 +5242,15 @@ export function DeckProvider({
     if (openDeckId === undefined) return;
     pollControlRef.current.onRouteChange(openDeckId);
   }, [openDeckId]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      const deckId = currentOpenDeckIdFromWindow();
+      if (deckId) retryAccessLostDeckSave(deckId);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   useEffect(() => {
     const resync = (deckId: string) => {

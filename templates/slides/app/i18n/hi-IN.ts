@@ -304,6 +304,9 @@ const messages = {
     conflictStatus: "टेक्स्ट में विरोध",
     conflictStatusDescription:
       "अन्य बदलाव सहेजने से पहले विरोध वाले टेक्स्ट की समीक्षा करें।",
+    accessLost: "एक्सेस खो गया",
+    accessLostDescription:
+      "अब आपके पास इस डेक का एक्सेस नहीं है। आपके बदलाव स्क्रीन पर बने रहेंगे; एक्सेस बहाल होने पर दोबारा कोशिश करें या बैकअप डाउनलोड करें।",
     reviewConflict: "विरोध की समीक्षा करें",
     conflictTitle: "स्लाइड {{number}} में टेक्स्ट का विरोध है",
     conflictDescription:
