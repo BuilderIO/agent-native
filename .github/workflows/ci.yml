@@ -428,7 +428,18 @@ jobs:
       fail-fast: false
       matrix:
         shard:
-          [inspector, drag-1, drag-2, position, changed-1, changed-2, changed-3]
+          [
+            inspector,
+            drag-1,
+            drag-2,
+            position,
+            changed-1,
+            changed-2,
+            changed-3,
+            changed-4,
+            changed-5,
+            changed-6,
+          ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -456,6 +467,7 @@ jobs:
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
         run: |
           set -euo pipefail
+          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
           changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
           node -e '
             const paths = JSON.parse(process.env.DESIGN_CANVAS_E2E_SPECS || "[]");
@@ -479,7 +491,7 @@ jobs:
                 echo "No changed Design E2E specs to run."
                 exit 0
               fi
-              pnpm exec playwright test "${existing_changed_specs[@]}" --workers=3 --fully-parallel --shard="${changed_shard}/3"
+              pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"
               exit
               ;;
             inspector)
@@ -544,7 +556,7 @@ jobs:
             echo "All fixed regression cases are included in the changed-spec shard."
             exit 0
           fi
-          pnpm exec playwright test "${focused_specs[@]}" --workers=2
+          pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
   fast-tests:
     name: Fast tests

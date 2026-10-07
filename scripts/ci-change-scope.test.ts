@@ -573,10 +573,19 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const regressionCases = step("Run focused Design regression cases");
   assert.ok(regressionCases.includes("timeout-minutes: 7"));
   assert.ok(workflow.includes("timeout-minutes: 9"));
-  assert.ok(regressionCases.includes("--workers=2"));
+  assert.ok(regressionCases.includes("--workers=1"));
+  const designJobStart = workflow.indexOf(
+    "  design-canvas-interaction-acceptance:\n",
+  );
+  assert.notEqual(designJobStart, -1);
+  const designJobEnd = workflow.indexOf("\n  fast-tests:", designJobStart);
+  const designJob = workflow.slice(
+    designJobStart,
+    designJobEnd === -1 ? undefined : designJobEnd,
+  );
   assert.match(
-    workflow,
-    /shard:\s*\[inspector,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3\]/,
+    designJob,
+    /shard:\s*\[\s*inspector,\s*drag-1,\s*drag-2,\s*position,\s*changed-1,\s*changed-2,\s*changed-3,\s*changed-4,\s*changed-5,\s*changed-6,?\s*\]/,
   );
   assert.ok(
     regressionCases.includes(
@@ -590,7 +599,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     regressionCases.includes(
-      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=3 --fully-parallel --shard="${changed_shard}/3"',
+      'pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/6"',
     ),
   );
   assert.ok(
