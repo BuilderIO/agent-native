@@ -157,6 +157,8 @@ made from a stale view. See `real-time-sync`.
 1. Start `pnpm exec agent-native dev` in the background, without `--open`, and
    wait for the ready URL. Startup regenerates `.generated/action-types.d.ts`
    and the actions registry, so a typecheck run before this is meaningless.
+   Local dev on loopback signs you in automatically; do not create accounts or
+   set `AUTH_DISABLED`.
 2. Run `pnpm typecheck`, then `pnpm agent-native:doctor` (or
    `pnpm exec agent-native doctor`). Fix every finding, then rerun only what failed.
 3. Check the agent path. Call a guarded write twice with the same input via
