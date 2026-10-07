@@ -2116,6 +2116,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .auth-wave-background {
     position: fixed;
     inset: 0;
+    transform: translateY(-9vh);
     z-index: 0;
     pointer-events: none;
   }

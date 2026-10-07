@@ -2601,7 +2601,13 @@ describe("production Netlify site concurrency guard", () => {
     const jobs = workflow.jobs as Record<string, Workflow>;
     const deploy = jobs.deploy;
     const ownership = jobs["pause-netlify-builds"];
-    assert.deepEqual(deploy?.needs, ["pause-netlify-builds", "migrate"]);
+    assert.deepEqual(deploy?.needs, [
+      "verify-stable-release",
+      "pause-netlify-builds",
+      "migrate",
+    ]);
+    assert.match(String(deploy?.if), /always\(\)/);
+    assert.match(String(deploy?.if), /needs\.migrate\.result == 'success'/);
     assert.equal((jobs.migrate.with as Workflow).migration_only, true);
     const steps = (ownership?.steps as Array<Workflow>).filter(Boolean);
     const disable = steps.find(

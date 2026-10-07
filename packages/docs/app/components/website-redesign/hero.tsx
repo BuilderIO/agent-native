@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 
+import { HeroBackground } from "./hero-background";
 import { InstallCommand } from "./install-command";
 import { GridInner, PageSection } from "./page-grid";
 import { StartCtas } from "./start-ctas";
@@ -9,6 +10,7 @@ export function Hero() {
 
   return (
     <PageSection>
+      <HeroBackground />
       {/* No top border on the GridInner below: the sticky SiteHeader already
           draws the border directly above this section, so a second one would
           double the line. */}
