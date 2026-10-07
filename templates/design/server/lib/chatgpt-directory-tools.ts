@@ -127,11 +127,21 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   toolParameterDescriptions: {
     "generate-design": {
       canvasFrames:
-        "Optional overview-canvas placements for saved screens. Reference each screen by filename or file ID and provide its x, y, width, and height.",
+        "Optional overview-canvas placements keyed by filename or file ID, each with numeric x, y, width, and height values.",
+      devices:
+        "Responsive device frames for the design. Omitted values default to desktop and mobile; an empty list creates one exact-size static screen. Exact canvas sizes are handled one per call, and wider devices become the base frame.",
+      primaryViewport:
+        "Primary form factor for the design. Defaults to desktop at 1440x900 and has no effect when devices is provided.",
+    },
+    "create-design-from-template": {
+      targetDesignId:
+        "Optional existing design ID to receive the copied template. Target designs are accepted only when they contain no files; existing content is not overwritten.",
     },
     "present-design-variants": {
       deleteSupersededSetIds:
-        "Optional IDs of earlier variant sets to remove when the user asks for a completely different set. Include only sets you created whose screens the user has never picked, kept, or discussed; otherwise omit.",
+        "Optional IDs of prior variant sets created by this caller whose screens have never been selected, kept, or discussed. Omitted IDs leave prior sets unchanged.",
+      responsive:
+        "Whether generated directions contain responsive breakpoint frames. Defaults to true; exact pixel dimensions in the prompt suppress extra device frames.",
     },
   },
 };

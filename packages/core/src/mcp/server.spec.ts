@@ -1115,6 +1115,36 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         );
         const directiveCopyPattern =
           /\b(?:follow|then call|must|always|before reporting|ask (?:the )?user|surface|show (?:the )?user|tell (?:the )?user)\b/i;
+        const schemaDescriptions: Array<{
+          surface: string;
+          text: string;
+        }> = [];
+        const collectSchemaDescriptions = (value: any, surface: string) => {
+          if (Array.isArray(value)) {
+            value.forEach((item, index) =>
+              collectSchemaDescriptions(item, `${surface}[${index}]`),
+            );
+            return;
+          }
+          if (!value || typeof value !== "object") return;
+          if (typeof value.description === "string") {
+            schemaDescriptions.push({
+              surface: `${surface}.description`,
+              text: value.description,
+            });
+          }
+          for (const [key, nested] of Object.entries(value)) {
+            if (key !== "description") {
+              collectSchemaDescriptions(nested, `${surface}.${key}`);
+            }
+          }
+        };
+        for (const tool of modelVisibleTools) {
+          collectSchemaDescriptions(
+            tool.inputSchema,
+            `tool:${tool.name}.inputSchema`,
+          );
+        }
         const directiveCopy = [
           {
             surface: "instructions",
@@ -1124,6 +1154,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             surface: `tool:${tool.name}`,
             text: tool.description,
           })),
+          ...schemaDescriptions,
         ].filter(
           (entry) =>
             typeof entry.text === "string" &&

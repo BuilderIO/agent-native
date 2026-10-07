@@ -101,10 +101,14 @@ export const CHATGPT_DIRECTORY_PROFILE = {
         "Deck ID. Alias of id, matching create-deck, add-slide, update-slide, and duplicate-deck.",
     },
     "update-slide": {
+      edits:
+        "Ordered atomic edits against current HTML. expectedMatches=1 declares an exact replacement count, objectId targets an element's inner content, and required=false permits a missing match.",
       baseContentHash:
         "Optional hash returned by get-deck for the exact slide source being edited. The edit is rejected if the source changed since it was read.",
     },
     "duplicate-deck": {
+      slideIds:
+        "Optional IDs for copied slides in source order. When provided, copied slides use these IDs so optimistic UI edits align with persisted slides.",
       newId: "Optional client-supplied ID for the new deck.",
     },
   },
