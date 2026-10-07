@@ -107,10 +107,13 @@ async function runInsights(
     [{ formId: "form_1", count: responseRows.length }],
   ]);
 
-  return responseInsights.run({
-    formId: "form_1",
-    ...(displayMode ? { displayMode } : {}),
-  });
+  return responseInsights.run(
+    {
+      formId: "form_1",
+      ...(displayMode ? { displayMode } : {}),
+    },
+    { caller: "frontend", userEmail: form.ownerEmail, orgId: form.orgId },
+  );
 }
 
 describe("response-insights action", () => {

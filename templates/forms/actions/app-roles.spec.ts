@@ -172,7 +172,7 @@ describe("Forms app-role enforcement", () => {
       {
         id: "owned",
         ownerEmail: " MEMBER@example.com ",
-        orgId: "owned-org",
+        orgId: caller.orgId,
         fields: "[]",
         settings: "{}",
       },
@@ -184,6 +184,27 @@ describe("Forms app-role enforcement", () => {
     expect(state.lookupOrgs).toEqual([]);
     expect(state.selectCount).toBe(3);
   });
+  it.each([null, "other-org"])(
+    "does not exempt a shared owner outside the form's organization in scope %s",
+    async (orgId) => {
+      state.member = false;
+      state.formRows = [
+        {
+          id: "owned",
+          ownerEmail: caller.userEmail!,
+          orgId: "org-example",
+          fields: "[]",
+          settings: "{}",
+        },
+      ];
+      await expect(
+        responseInsights.run({ displayMode: "chart" }, { ...caller, orgId }),
+      ).rejects.toThrow("forms.review");
+      expect(state.accessLookups).toBe(0);
+      expect(state.lookupOrgs).toEqual(["org-example"]);
+      expect(state.selectCount).toBe(1);
+    },
+  );
   it("checks one organization for 100 accessible forms without reloading their access", async () => {
     state.formRows = Array.from({ length: 100 }, (_, index) => ({
       id: `shared-${index}`,
@@ -230,7 +251,7 @@ describe("Forms app-role enforcement", () => {
     await expect(
       responseInsights.run(
         { displayMode: "chart" },
-        { ...caller, orgId: null },
+        { ...caller, orgId: "owned-org" },
       ),
     ).rejects.toThrow("forms.review");
     expect(state.accessLookups).toBe(0);

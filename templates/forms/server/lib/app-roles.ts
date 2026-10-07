@@ -54,7 +54,10 @@ export async function assertFormsPermissionForAccessibleForms(
   await assertPermissionForTargets(
     permission,
     forms.map((form) => ({
-      owned: !!email && form.ownerEmail.trim().toLowerCase() === email,
+      owned:
+        !!email &&
+        form.ownerEmail.trim().toLowerCase() === email &&
+        (!form.orgId || form.orgId === caller.orgId),
       orgId: form.orgId,
     })),
     caller,
