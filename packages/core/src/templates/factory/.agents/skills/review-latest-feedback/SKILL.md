@@ -21,8 +21,11 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply**, under a hard question budget, then recap.
 
-Output is fixes; every Slack reaction added this run needs one final,
-same-thread status reply. Follow
+Output is fixes; every Slack item this run independently marks with a workflow
+reaction gets one same-thread status reply. For duplicate cluster members,
+record the permalink and **Clustered** in the owner thread; react and reply in
+a non-owner thread only when a distinct question or update needs its own
+disposition. Follow
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for its
 content.
 
@@ -66,11 +69,14 @@ doesn't close a separate defect. Tie each reaction to the scope it marks.
 
 `👀` is claim history; `✅` requires **Fixed** after Phase 2 bars. Check each
 reported symptom separately. For partial fixes, pair `✅` for verified scope
-with `🎫` for distinct unfinished scope needing a human. Name the exact action
-and owner/role in the reply; link a ticket when available. No `🎫` for fixed
-scope, routine rollout, optional checks, subjective/out-of-scope, or unapproved
-work. **Shipped**/**Live verified** alone don't earn `✅`. Never remove
-reactions. Follow the reply reference above before marking an item replied.
+with `🎫` for distinct unfinished scope needing a human only when an existing
+ticket names the owner and exact action. Link that ticket in the ledger and
+reply. If an item has unfinished human work but no such ticket, keep it
+`👀`-only and open; report the fixed and pending scopes, exact untracked
+handoff, and missing ticket in the reply and ledger. No `🎫` for fixed scope,
+routine rollout, optional checks, subjective/out-of-scope, or unapproved work.
+**Shipped**/**Live verified** alone don't earn `✅`. Never remove reactions.
+Follow the reply reference above before marking an item replied.
 
 If no safe repo-owned fix is evident, record the evidence limit. Ask only a
 question that could unblock a fix; after four days without an answer, record
@@ -84,7 +90,9 @@ means you found neither a fix nor a useful question; state why in the thread.
 For eligible items, use one disposition per row; record it in the recap and, if
 unstated, in the thread or linked work. Do not inspect gated items for status.
 For clusters, post one owner status with each source permalink and
-**Clustered**; reply in a non-owner only for a distinct question or update.
+**Clustered**; do not react or reply in a non-owner thread unless a distinct
+question or update needs its own disposition. If it does, react and reply there
+as a separate item.
 
 - **Terminal (keep this workflow's eye):** **Fixed**, **Shipped**, **Live
   verified**, **Open - no question**, **Resolved elsewhere**, **Skipped**,

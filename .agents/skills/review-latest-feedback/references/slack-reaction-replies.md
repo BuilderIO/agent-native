@@ -1,15 +1,23 @@
 # Slack Reaction Replies
 
-For every Slack item this run marks with a workflow reaction, send one concise
-reply under the same parent before ending. A same-run fix gets one final reply
-after verification; continuing work gets a concrete progress reply. An earlier
-generic “taking a look” does not satisfy this update.
+For every Slack item this run independently marks with a workflow reaction,
+send one concise reply under the same parent with its disposition. A same-run
+fix gets its final reply after verification; continuing work gets a concrete
+progress reply. An earlier generic “taking a look” does not satisfy this
+update.
+
+Preserve cluster handling: represent duplicate non-owner threads by permalink
+and **Clustered** in one owner-thread status. Do not react or reply in a
+non-owner thread unless a distinct question or update needs its own
+disposition; if it does, react and reply there as a separate item.
 
 Compare each reported symptom with the evidence. State what is fixed and what
-is not. Use `✅` only for verified fixed scope and `🎫` for each distinct
-unfinished scope that needs human follow-through. Name the exact next action
-and owner or responsible role, and link a ticket when available. Never imply a
-partial fix resolved the whole report.
+is not. Use `✅` only for verified fixed scope. Use `🎫` for a distinct
+unfinished scope needing human follow-through only when an existing ticket
+names the owner and exact action; link it in both the ledger and reply. If no
+such ticket exists, keep the item `👀`-only and open; state the fixed and
+pending scopes, exact untracked handoff, and missing ticket in the reply and
+ledger. Never imply a partial fix resolved the whole report.
 
 For beta app fixes, check the matching merge-triggered publisher. While it is
 queued or running, say what changed and that it should be on beta in about 24
