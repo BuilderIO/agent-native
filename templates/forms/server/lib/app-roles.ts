@@ -13,20 +13,60 @@ export const formsAccess = defineAppRoles(formsAccessDescriptor, {
   allowOrgAdmins: true,
 });
 
+type FormsPermission = keyof typeof formsAccessDescriptor.permissions;
+type PermissionContext = Pick<ActionRunContext, "userEmail" | "orgId">;
+
+function permissionCaller(ctx?: PermissionContext) {
+  const userEmail =
+    ctx?.userEmail !== undefined ? ctx.userEmail : getRequestUserEmail();
+  if (!userEmail) throw new ForbiddenError();
+  return {
+    userEmail,
+    orgId: ctx?.orgId !== undefined ? ctx.orgId : getRequestOrgId(),
+  };
+}
+
+async function assertPermissionForTargets(
+  permission: FormsPermission,
+  targets: readonly { owned: boolean; orgId?: string | null }[],
+  caller: ReturnType<typeof permissionCaller>,
+) {
+  const permissionOrgs = new Set<string>();
+  if (!targets.length && caller.orgId) permissionOrgs.add(caller.orgId);
+  for (const target of targets) {
+    if (target.owned) continue;
+    // A target's organization governs its roles even in personal scope.
+    const orgId = target.orgId ?? caller.orgId;
+    if (orgId) permissionOrgs.add(orgId);
+  }
+  for (const orgId of permissionOrgs)
+    await formsAccess.assertPermission([permission], { ...caller, orgId });
+}
+
+// These rows must come from assertAccess or an accessFilter-scoped read.
+export async function assertFormsPermissionForAccessibleForms(
+  permission: FormsPermission,
+  forms: readonly { ownerEmail: string; orgId: string | null }[],
+  ctx?: PermissionContext,
+) {
+  const caller = permissionCaller(ctx);
+  const email = caller.userEmail.trim().toLowerCase();
+  await assertPermissionForTargets(
+    permission,
+    forms.map((form) => ({
+      owned: !!email && form.ownerEmail.trim().toLowerCase() === email,
+      orgId: form.orgId,
+    })),
+    caller,
+  );
+}
+
 export function requireFormsPermission(
-  permission: keyof typeof formsAccessDescriptor.permissions,
+  permission: FormsPermission,
   idFrom?: "id" | "formId" | "responseId",
 ) {
-  return async (
-    args: unknown,
-    ctx?: Pick<ActionRunContext, "userEmail" | "orgId">,
-  ): Promise<void> => {
-    const caller = {
-      userEmail:
-        ctx?.userEmail !== undefined ? ctx.userEmail : getRequestUserEmail(),
-      orgId: ctx?.orgId !== undefined ? ctx.orgId : getRequestOrgId(),
-    };
-    if (!caller.userEmail) throw new ForbiddenError();
+  return async (args: unknown, ctx?: PermissionContext): Promise<void> => {
+    const caller = permissionCaller(ctx);
     const resourceCaller = {
       userEmail: caller.userEmail,
       orgId: caller.orgId ?? undefined,
@@ -60,17 +100,16 @@ export function requireFormsPermission(
         ids.map((id) => resolveAccess("form", id, resourceCaller)),
       );
       if (access.some((result) => !result)) throw new ForbiddenError();
-      const permissionOrgs = new Set<string>();
-      for (const result of access) {
-        if (result!.role === "owner") continue;
-        // A target's organization governs its roles even in personal scope.
-        const orgId = result!.resource.orgId ?? caller.orgId;
-        if (orgId) permissionOrgs.add(orgId);
-      }
-      for (const orgId of permissionOrgs)
-        await formsAccess.assertPermission([permission], { ...caller, orgId });
+      await assertPermissionForTargets(
+        permission,
+        access.map((result) => ({
+          owned: result!.role === "owner",
+          orgId: result!.resource.orgId,
+        })),
+        caller,
+      );
       return;
     }
-    if (caller.orgId) await formsAccess.assertPermission([permission], caller);
+    await assertPermissionForTargets(permission, [], caller);
   };
 }

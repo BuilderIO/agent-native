@@ -12,6 +12,16 @@ const state = vi.hoisted(() => ({
   orgRoles: {} as Record<string, string[]>,
   lookupOrgs: [] as string[],
   selectCount: 0,
+  accessLookups: 0,
+  formRows: null as
+    | {
+        id: string;
+        ownerEmail: string;
+        orgId: string | null;
+        fields: string;
+        settings: string;
+      }[]
+    | null,
   navigation: null as { view: string; formId: string } | null,
   overrides: [] as { permission: string; roles_json: string }[],
   write: vi.fn(),
@@ -46,6 +56,7 @@ vi.mock(
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   resolveAccess: async (_type: string, id: string) => {
+    state.accessLookups++;
     const role = state.resourceRoles[id] ?? state.resourceRole;
     return role === "none"
       ? null
@@ -58,15 +69,26 @@ const formDb = vi.hoisted(() => ({
   getDb: () => ({
     select: () => {
       state.selectCount++;
+      const selection = state.selectCount;
       return {
         from: () => ({
           where: () => ({
+            groupBy: async () => [],
             then: (resolve: (rows: unknown[]) => unknown) =>
               resolve([{ count: 1 }]),
             orderBy: () => ({
-              limit: async () => [
-                { id: "shared-form", fields: "[]", settings: "{}" },
-              ],
+              limit: async () =>
+                state.navigation || selection === 1
+                  ? (state.formRows ?? [
+                      {
+                        id: "shared-form",
+                        ownerEmail: "other@example.com",
+                        orgId: state.resourceOrg,
+                        fields: "[]",
+                        settings: "{}",
+                      },
+                    ])
+                  : [],
             }),
             limit: async () => [
               {
@@ -134,6 +156,8 @@ beforeEach(() => {
   state.orgRoles = {};
   state.lookupOrgs = [];
   state.selectCount = 0;
+  state.accessLookups = 0;
+  state.formRows = null;
   state.navigation = null;
   state.overrides = [];
   state.write.mockClear();
@@ -142,6 +166,77 @@ beforeEach(() => {
 });
 
 describe("Forms app-role enforcement", () => {
+  it("retains the owner exemption for accessible bulk forms without an active membership", async () => {
+    state.member = false;
+    state.formRows = [
+      {
+        id: "owned",
+        ownerEmail: " MEMBER@example.com ",
+        orgId: "owned-org",
+        fields: "[]",
+        settings: "{}",
+      },
+    ];
+    await expect(
+      responseInsights.run({ displayMode: "chart" }, caller),
+    ).resolves.toBeDefined();
+    expect(state.accessLookups).toBe(0);
+    expect(state.lookupOrgs).toEqual([]);
+    expect(state.selectCount).toBe(3);
+  });
+  it("checks one organization for 100 accessible forms without reloading their access", async () => {
+    state.formRows = Array.from({ length: 100 }, (_, index) => ({
+      id: `shared-${index}`,
+      ownerEmail: "other@example.com",
+      orgId: "org-example",
+      fields: "[]",
+      settings: "{}",
+    }));
+    await expect(
+      responseInsights.run(
+        { displayMode: "chart", formLimit: 100 },
+        { ...caller, orgId: null },
+      ),
+    ).resolves.toBeDefined();
+    expect(state.accessLookups).toBe(0);
+    expect(state.lookupOrgs).toEqual(["org-example"]);
+    expect(state.selectCount).toBe(3);
+  });
+  it("checks every nonowned organization before bulk submission queries", async () => {
+    state.formRows = [
+      {
+        id: "owned",
+        ownerEmail: " MEMBER@example.com ",
+        orgId: "owned-org",
+        fields: "[]",
+        settings: "{}",
+      },
+      {
+        id: "shared-1",
+        ownerEmail: "other@example.com",
+        orgId: "org-example",
+        fields: "[]",
+        settings: "{}",
+      },
+      {
+        id: "shared-2",
+        ownerEmail: "other@example.com",
+        orgId: "denied-org",
+        fields: "[]",
+        settings: "{}",
+      },
+    ];
+    state.orgRoles = { "denied-org": ["retired"] };
+    await expect(
+      responseInsights.run(
+        { displayMode: "chart" },
+        { ...caller, orgId: null },
+      ),
+    ).rejects.toThrow("forms.review");
+    expect(state.accessLookups).toBe(0);
+    expect(state.lookupOrgs).toEqual(["org-example", "denied-org"]);
+    expect(state.selectCount).toBe(1);
+  });
   it.each(["denied-override", "removed-member", "retired-role"])(
     "denies submission screen context to a %s before querying responses",
     async (kind) => {
@@ -308,11 +403,12 @@ describe("Forms app-role enforcement", () => {
     await persist(args);
     expect(state.write).toHaveBeenCalledWith({ visibility: "org" });
   });
-  it.each(["removed-member", "retired-role"])(
+  it.each(["removed-member", "retired-role", "denied-override"])(
     "denies bulk submission analysis to a %s before reading responses",
     async (kind) => {
       if (kind === "removed-member") state.member = false;
-      else state.roles = ["retired"];
+      else if (kind === "retired-role") state.roles = ["retired"];
+      else state.overrides = [{ permission: "forms.review", roles_json: "[]" }];
       await expect(
         responseInsights.run(
           { displayMode: "chart" },
