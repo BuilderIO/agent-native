@@ -1073,15 +1073,19 @@ export async function instrumentAgentLoop(opts: {
         runId,
         send: instrumentedSend,
         onOutcome: instrumentedOutcome,
-        onModelInput: (messages) => {
-          if (config.capturePrompts) {
-            const redactedMessages = redactSensitiveFields(messages);
-            pendingModelInput = Array.isArray(redactedMessages)
-              ? redactedMessages
-              : undefined;
-          }
-          return loopOpts.onModelInput?.(messages);
-        },
+        ...(config.capturePrompts || loopOpts.onModelInput
+          ? {
+              onModelInput: (messages: readonly unknown[]) => {
+                if (config.capturePrompts) {
+                  const redactedMessages = redactSensitiveFields(messages);
+                  pendingModelInput = Array.isArray(redactedMessages)
+                    ? redactedMessages
+                    : undefined;
+                }
+                return loopOpts.onModelInput?.(messages);
+              },
+            }
+          : {}),
         onUsage: (callUsage: AgentLoopUsage) => {
           const trip = currentRoundTrip();
           if (trip) trip.usage = callUsage;

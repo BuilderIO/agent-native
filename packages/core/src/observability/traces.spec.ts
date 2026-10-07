@@ -700,6 +700,46 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     );
   });
 
+  it("does not observe model input when prompt capture is disabled", async () => {
+    let modelInputObserver: unknown;
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [{ role: "user", content: "do not capture this" }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ onModelInput }) => {
+        modelInputObserver = onModelInput;
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-no-prompt-observer",
+      threadId: "thread-no-prompt-observer",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        captureLlmSpans: true,
+        capturePrompts: false,
+      },
+    });
+
+    expect(modelInputObserver).toBeUndefined();
+  });
+
   it("bounds streamed output per model call and marks truncated calls", async () => {
     const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
       [];
