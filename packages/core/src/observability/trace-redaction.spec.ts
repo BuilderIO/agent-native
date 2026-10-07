@@ -4,6 +4,8 @@ import { redactSensitiveFields } from "./trace-redaction.js";
 
 const slackWebhookUrl =
   "https://hooks.slack.com/services/T_FAKE/B_FAKE/FAKE_TOKEN";
+const discordWebhookUrl =
+  "https://discord.com/api/webhooks/123456789012345678/FAKE_DISCORD_WEBHOOK_TOKEN";
 const providerWebhookUrl = "https://provider.example/hooks/FAKE_TOKEN";
 const fakeAwsAccessKeyId = (prefix: "AKIA" | "ASIA") =>
   `${prefix}${"0".repeat(16)}`;
@@ -30,6 +32,16 @@ describe("redactSensitiveFields", () => {
       }),
     ).toEqual({
       prompt: "Send the alert to [REDACTED] after review.",
+    });
+  });
+
+  it("redacts raw Discord webhook URLs embedded in captured text", () => {
+    expect(
+      redactSensitiveFields({
+        prompt: `Send the alert to ${discordWebhookUrl}.`,
+      }),
+    ).toEqual({
+      prompt: "Send the alert to [REDACTED].",
     });
   });
 

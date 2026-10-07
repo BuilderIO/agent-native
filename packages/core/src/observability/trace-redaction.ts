@@ -44,6 +44,8 @@ const SENSITIVE_FIELD_SUFFIXES = [
 
 const SLACK_WEBHOOK_URL_PATTERN =
   /https?:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+/gi;
+const DISCORD_WEBHOOK_URL_PATTERN =
+  /https?:\/\/discord\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/gi;
 const LABELED_WEBHOOK_URL_PATTERN =
   /(\b[A-Za-z0-9_.-]*webhook[_ -]?url\b["']?\s*[:=]\s*["']?)(https?:\/\/[^\s"'<>()[\]{}]+)/gi;
 
@@ -71,6 +73,7 @@ export function redactCapturedString(
         return `${prefix}[REDACTED]${trailingPunctuation}`;
       },
     )
+    .replace(DISCORD_WEBHOOK_URL_PATTERN, "[REDACTED]")
     .replace(SLACK_WEBHOOK_URL_PATTERN, "[REDACTED]");
 }
 

@@ -2851,9 +2851,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         }),
       },
     });
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
     try {
       await instrumentAgentLoop({
-        runAgentLoop: async ({ send, onUsage }) => {
+        runAgentLoop: async ({ send, onUsage, onModelInput }) => {
+          onModelInput?.([{ role: "user", content: "first model input" }]);
           send({ type: "model_stream", status: "start" });
           onUsage?.({
             inputTokens: 12,
@@ -2871,7 +2874,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
             id: "t1",
             isError: true,
           } as any);
-          send({ type: "model_stream", status: "start" });
+          onModelInput?.([{ role: "user", content: "failing retry input" }]);
           throw new Error("provider down");
         },
         loopOpts: {
@@ -2882,12 +2885,17 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
           messages: [],
           actions: {},
           send: () => {},
+          onModelInput: () => {},
           signal: new AbortController().signal,
         } as any,
         runId: "run-metrics",
         threadId: "thread-1",
         userId: "user-1",
-        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          capturePrompts: false,
+        },
       }).catch(() => {});
     } finally {
       unregister();
@@ -2919,6 +2927,14 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         value: 1,
         attributes: { "gen_ai.tool.name": "other", "error.type": "tool_error" },
       },
+    ]);
+    const modelSpans = spans.filter((span) => span.name.startsWith("chat "));
+    expect(modelSpans.map((span) => span.attributes["llm.call_index"])).toEqual(
+      [0, 1],
+    );
+    expect(modelSpans.map((span) => span.status?.code)).toEqual([
+      SPAN_STATUS_OK,
+      SPAN_STATUS_ERROR,
     ]);
   });
 
@@ -3789,6 +3805,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     const events: TrackingEvent[] = [];
     const persistedSpans: Parameters<typeof traceStore.insertTraceSpan>[0][] =
       [];
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
     vi.spyOn(traceStore, "insertTraceSpan").mockImplementation(async (span) => {
       persistedSpans.push(span);
     });
@@ -3867,6 +3885,14 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(
       events.find((event) => event.name === "$ai_trace")?.properties?.llm_calls,
     ).toBe(2);
+    const modelSpans = spans.filter((span) => span.name.startsWith("chat "));
+    expect(modelSpans.map((span) => span.attributes["llm.call_index"])).toEqual(
+      [0, 1],
+    );
+    expect(modelSpans.map((span) => span.status?.code)).toEqual([
+      SPAN_STATUS_ERROR,
+      SPAN_STATUS_OK,
+    ]);
   });
 
   it("marks partial assistant output incomplete when a model stream is interrupted", async () => {

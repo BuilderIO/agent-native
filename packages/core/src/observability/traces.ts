@@ -751,6 +751,30 @@ export async function instrumentAgentLoop(opts: {
     openOtelModelSpans.delete(entry.span);
     endAgentSpan(entry.span, safeResult);
   };
+  const recordPreStreamModelFailure = (
+    start: number,
+    end: number,
+    input: unknown[] | undefined,
+    errorMessage: string,
+  ): void => {
+    const tripIndex = modelRoundTrips.length;
+    modelRoundTrips.push({
+      spanId: spanId(),
+      start,
+      end,
+      stopReason: "error",
+      errorMessage,
+      ...(input !== undefined ? { input } : {}),
+      assistantText: createBoundedAssistantText(),
+    });
+    startOtelModelSpan(tripIndex);
+    finishOtelModelSpan(tripIndex, {
+      status: "error",
+      errorMessage,
+      attributes: modelSpanAttributes(tripIndex),
+      endTime: end,
+    });
+  };
   const finishAwaitingOtelModelSpans = (
     finalErrorMessage: string | null = null,
     markUnresolvedFailed = false,
@@ -1115,28 +1139,22 @@ export async function instrumentAgentLoop(opts: {
         ...(config.capturePrompts || loopOpts.onModelInput
           ? {
               onModelInput: (messages: readonly unknown[]) => {
-                if (config.capturePrompts) {
-                  const attemptStartedAt = Date.now();
-                  if (pendingModelInputStartedAt !== undefined) {
-                    modelRoundTrips.push({
-                      spanId: spanId(),
-                      start: pendingModelInputStartedAt,
-                      end: attemptStartedAt,
-                      stopReason: "error",
-                      errorMessage:
-                        "Model attempt failed before streaming and was retried.",
-                      ...(pendingModelInput !== undefined
-                        ? { input: pendingModelInput }
-                        : {}),
-                      assistantText: createBoundedAssistantText(),
-                    });
-                  }
-                  const capturedMessages = prepareCapturedModelInput(messages);
-                  pendingModelInput = Array.isArray(capturedMessages)
-                    ? capturedMessages
-                    : undefined;
-                  pendingModelInputStartedAt = attemptStartedAt;
+                const attemptStartedAt = Date.now();
+                if (pendingModelInputStartedAt !== undefined) {
+                  recordPreStreamModelFailure(
+                    pendingModelInputStartedAt,
+                    attemptStartedAt,
+                    pendingModelInput,
+                    "Model attempt failed before streaming and was retried.",
+                  );
                 }
+                const capturedMessages = config.capturePrompts
+                  ? prepareCapturedModelInput(messages)
+                  : undefined;
+                pendingModelInput = Array.isArray(capturedMessages)
+                  ? capturedMessages
+                  : undefined;
+                pendingModelInputStartedAt = attemptStartedAt;
                 return loopOpts.onModelInput?.(messages);
               },
             }
@@ -1185,6 +1203,18 @@ export async function instrumentAgentLoop(opts: {
         modelStreamOpenedAt = null;
       }
       finishAwaitingOtelModelSpans(errorMessage);
+      const pendingModelCallFailed =
+        runStatus === "error" && pendingModelInputStartedAt !== undefined;
+      if (pendingModelCallFailed) {
+        recordPreStreamModelFailure(
+          pendingModelInputStartedAt!,
+          runEnd,
+          pendingModelInput,
+          errorMessage ?? "Model attempt failed before streaming.",
+        );
+        pendingModelInput = undefined;
+        pendingModelInputStartedAt = undefined;
+      }
       const measuredModelDurationMs = modelStreamIntervals.length
         ? coveredDurationMs(modelStreamIntervals)
         : undefined;
@@ -1307,8 +1337,6 @@ export async function instrumentAgentLoop(opts: {
           ? Math.max(0, usage.firstEngineEventAtMs - runStart)
           : undefined;
 
-      const pendingModelCallFailed =
-        runStatus === "error" && pendingModelInput !== undefined;
       const modelCallFailed =
         failedInsideModelCall ||
         pendingModelCallFailed ||
@@ -1318,9 +1346,7 @@ export async function instrumentAgentLoop(opts: {
 
       let llmCallCount = 0;
       if (usage || runStatus === "error") {
-        llmCallCount =
-          usage?.llmCalls ??
-          Math.max(1, modelRoundTrips.length + Number(pendingModelCallFailed));
+        llmCallCount = usage?.llmCalls ?? Math.max(1, modelRoundTrips.length);
         const runUsage = usage ?? {
           inputTokens: 0,
           outputTokens: 0,
@@ -1366,9 +1392,7 @@ export async function instrumentAgentLoop(opts: {
                   .sort(([a], [b]) => a - b)
                   .map(([, detail]) => detail),
                 isFirst: index === 0,
-                isLast:
-                  !pendingModelCallFailed &&
-                  index === modelRoundTrips.length - 1,
+                isLast: index === modelRoundTrips.length - 1,
               }))
             : [
                 {
@@ -1395,29 +1419,6 @@ export async function instrumentAgentLoop(opts: {
                   isLast: true,
                 },
               ];
-
-        if (pendingModelCallFailed && modelRoundTrips.length > 0) {
-          generations.push({
-            spanId: spanId(),
-            model: runUsage.model,
-            createdAt: pendingModelInputStartedAt ?? runEnd,
-            latencyMs: Math.max(
-              0,
-              runEnd - (pendingModelInputStartedAt ?? runEnd),
-            ),
-            callUsage: undefined,
-            stopReason: "error",
-            tokensKnown: false,
-            input: pendingModelInput,
-            assistantText: "",
-            assistantTextTruncated: false,
-            errorMessage: undefined,
-            toolSpans: [],
-            toolDetails: [],
-            isFirst: false,
-            isLast: true,
-          });
-        }
 
         for (const generation of generations) {
           const callUsage = generation.callUsage;
