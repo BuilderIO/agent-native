@@ -9881,7 +9881,9 @@ export default function SlideEditor({
                           <SlideRenderer
                             slide={slide}
                             className={
-                              widgetEmbed ? "" : "shadow-2xl shadow-black/40"
+                              widgetEmbed
+                                ? "rounded-none!"
+                                : "shadow-2xl shadow-black/40"
                             }
                             designSystem={designSystem}
                             aspectRatio={aspectRatio}
