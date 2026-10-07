@@ -2339,12 +2339,12 @@ describe("in-place text session: undo", () => {
     caret(el.firstChild!, 1);
     const original = el.innerHTML;
 
-    for (let i = 0; i < 2000; i++)
+    for (let i = 0; i < 3000; i++)
       session.commands.align(i % 2 === 0 ? "left" : "right");
 
     let undone = 0;
     while (session.undo()) undone++;
-    expect(undone).toBe(2000);
+    expect(undone).toBe(3000);
     expect(el.innerHTML).toBe(original);
   });
 
