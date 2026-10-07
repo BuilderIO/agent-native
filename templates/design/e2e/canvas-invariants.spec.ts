@@ -295,11 +295,23 @@ async function selectOnCanvas(page: Page, id: string): Promise<void> {
   await page.waitForTimeout(1800);
 }
 
+async function contentSize(page: Page): Promise<{ w: number; h: number }> {
+  return page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .contentFrame()
+    .locator("body")
+    .evaluate(() => ({
+      w: document.documentElement.clientWidth,
+      h: document.documentElement.clientHeight,
+    }));
+}
+
 async function toScreenPoint(page: Page, x: number, y: number) {
   const snapshot = await page.waitForFunction<{
     frame: { x: number; y: number; width: number; height: number };
     size: { width: number; height: number };
-  }>(
+  } | null>(
     () => {
       const iframe = document.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
@@ -320,8 +332,10 @@ async function toScreenPoint(page: Page, x: number, y: number) {
     undefined,
     { timeout: 15_000 },
   );
-  const { frame, size } = await snapshot.jsonValue();
+  const geometry = await snapshot.jsonValue();
   await snapshot.dispose();
+  if (!geometry) throw new Error("no visible Design preview frame");
+  const { frame, size } = geometry;
   return {
     x: frame.x + (x / size.width) * frame.width,
     y: frame.y + (y / size.height) * frame.height,
