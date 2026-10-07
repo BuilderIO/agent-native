@@ -1637,12 +1637,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         );
         return;
       }
+      const generationAcceptedAt = Date.now();
       trackEvent("generation_request_accepted", {
         app_name: "slides",
         template_name: "slides",
         generation_attempt_id: generationAttemptId,
         output_id: deckId,
         output_type: "deck",
+        started_at_ms: generationStartedAt,
+        ended_at_ms: generationAcceptedAt,
+        duration_ms: Math.max(0, generationAcceptedAt - generationStartedAt),
         source: "new_deck_prompt",
       });
     } catch (error) {
