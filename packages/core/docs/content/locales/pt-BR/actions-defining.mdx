@@ -260,7 +260,7 @@ A verificação estrita roda depois de `run()`, então o erro (`ActionOutputCont
 
 ### Anunciar o contrato via MCP {#mcp-output-schema}
 
-Por padrão, clientes MCP não veem nenhum `outputSchema`, porque um schema em `"warn"` não é aplicado. Depois de verificar que todo resultado real corresponde, defina `mcpOutputSchema: true` junto com `outputErrorStrategy: "strict"`. A ferramenta então anuncia o schema no formato que os clientes MCP recebem — uma raiz do tipo array é envolvida como `{ items }`, e actions com `link` ganham `openLink` e `url` — e valida cada `structuredContent` com ele antes de retornar. A raiz precisa ser um objeto, uma união só de objetos ou um array; schemas com transformações não podem aderir.
+Por padrão, clientes MCP não veem nenhum `outputSchema`, porque um schema em `"warn"` não é aplicado. Depois de verificar que todo resultado real corresponde, defina `mcpOutputSchema: true` junto com `outputErrorStrategy: "strict"`. A ferramenta então anuncia o schema no formato que os clientes MCP recebem — uma raiz do tipo array é envolvida como `{ items }`, e actions com `link` ganham `openLink` e `url` — e valida cada `structuredContent` com ele antes de retornar. A raiz precisa ser um objeto, uma união só de objetos ou um array; schemas com transformações não podem aderir. O schema anunciado também considera o que o MCP oculta: campos de ticket de incorporação são removidos, um campo de texto que possa conter uma URL de início de incorporação passa a ser opcional e um item de array pode chegar como `"[hidden embed URL]"`. Um schema que use uma palavra-chave ou um `format` que a verificação não consegue aplicar, como `not`, `$async` ou um formato desconhecido, não pode aderir.
 
 ## Contratos de resultado {#result-contracts}
 

@@ -6253,6 +6253,66 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           readOnly: true,
           run: async () => ({ count: "erin@example.com" }) as any,
         }),
+        "publish-draft": defineAction({
+          description: "Publish a draft unless asked to preview.",
+          schema: z.object({ apply: z.boolean().default(true) }),
+          outputSchema: z.object({ published: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          planMode: { effect: (args) => (args.apply ? "write" : "read") },
+          run: async () => ({ published: "gina@example.com" }) as any,
+        }),
+        "open-session": defineAction({
+          description: "Open an embedded session.",
+          schema: z.object({}),
+          outputSchema: z.object({
+            id: z.string(),
+            embedTicket: z.string(),
+            panes: z.array(
+              z.object({ label: z.string(), embedTicket: z.string() }),
+            ),
+          }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "s1",
+            embedTicket: "ticket-1",
+            panes: [{ label: "Main", embedTicket: "ticket-2" }],
+          }),
+        }),
+        "clear-filters": defineAction({
+          description: "Clear filters.",
+          schema: z.object({}),
+          outputSchema: z.object({}),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({}),
+        }),
+        "capture-screen": defineAction({
+          description: "Capture the screen.",
+          schema: z.object({}),
+          outputSchema: z.object({ _agentImages: z.array(z.unknown()) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({ _agentImages: [] }),
+        }),
+        "list-links": defineAction({
+          description: "List links.",
+          schema: z.object({}),
+          outputSchema: z.object({ links: z.array(z.url()) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            links: [
+              "https://app.example.test/_agent-native/embed/start?ticket=t3",
+              "https://example.com/docs",
+            ],
+          }),
+        }),
         "assign-owner": {
           tool: {
             description: "Assign an owner.",
@@ -6362,6 +6422,64 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         expect(text).toContain("(errorCode: output_contract_violation)");
         expect(text).not.toContain("frank@example.com");
         expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("classifies the effect from the arguments the call ran with, defaults applied", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "publish-draft",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("gina@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("accepts results whose embed credentials and URLs the transport redacts", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const session = await client.callTool({
+          name: "open-session",
+          arguments: {},
+        });
+        expect(session.isError).toBeFalsy();
+        expect(session.structuredContent).toEqual({
+          id: "s1",
+          panes: [{ label: "Main" }],
+        });
+
+        const links = await client.callTool({
+          name: "list-links",
+          arguments: {},
+        });
+        expect(links.isError).toBeFalsy();
+        expect(links.structuredContent).toEqual({
+          links: ["[hidden embed URL]", "https://example.com/docs"],
+        });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps an empty result as {} instead of the status placeholder", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        for (const name of ["clear-filters", "capture-screen"]) {
+          const result = await client.callTool({ name, arguments: {} });
+          expect(result.isError).toBeFalsy();
+          expect(result.structuredContent).toEqual({});
+        }
       } finally {
         await client.close();
       }

@@ -663,6 +663,7 @@
     "@noble/hashes": "^2.4.0",
     "@standard-schema/spec": "^1.1.0",
     "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "better-auth": "1.7.6",
     "cron-parser": "^5.5.0",
     "diff-match-patch": "^1.0.5",

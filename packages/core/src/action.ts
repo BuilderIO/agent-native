@@ -1,11 +1,11 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
-import { actionCallIsReadOnly } from "./action-call-classification.js";
+import { actionCallEffect } from "./action-call-classification.js";
 import {
   buildActionMcpOutputContract,
   describeOutputContractIssue,
-  outputContractPropertyNames,
   outputSchemaToJsonSchema,
+  type JsonSchemaObject,
   type ActionMcpOutputContract,
 } from "./action-output-contract.js";
 import {
@@ -203,6 +203,22 @@ export function isActionOutputContractError(
     (error as { outputContractError?: unknown }).outputContractError === true &&
     ((error as { effect?: unknown }).effect === "none" ||
       (error as { effect?: unknown }).effect === "committed")
+  );
+}
+
+/**
+ * Whether a failed call must still publish an action change: its result broke
+ * the output contract after its writes were applied, so other sessions must
+ * refresh exactly as they would after a success.
+ */
+export function outputContractFailureEmitsChange(
+  entry: { changeEvents?: boolean },
+  error: unknown,
+): boolean {
+  return (
+    entry.changeEvents !== false &&
+    isActionOutputContractError(error) &&
+    error.effect === "committed"
   );
 }
 
@@ -686,10 +702,6 @@ export function defineAction(options: any) {
         }
       : guardedRun;
 
-  const inputValidatedRun = hasSchema
-    ? wrapWithValidation(options.schema, uiOnlyGuardedRun, toolParameters)
-    : uiOnlyGuardedRun;
-
   const hasOutputSchema =
     options.outputSchema && "~standard" in options.outputSchema;
   const outputErrorStrategy: ActionOutputErrorStrategy =
@@ -711,23 +723,23 @@ export function defineAction(options: any) {
         ? true
         : undefined;
 
-  const run = hasOutputSchema
+  // Output validation runs inside input validation, so the effect of a call
+  // whose result breaks the contract is classified from the arguments `run`
+  // received, defaults applied.
+  const outputValidatedRun = hasOutputSchema
     ? wrapWithOutputValidation(
         options.outputSchema,
-        inputValidatedRun,
+        uiOnlyGuardedRun,
         outputErrorStrategy,
         options.outputFallback,
         options.description,
         (args) =>
-          actionCallIsReadOnly(
-            { readOnly, planMode: options.planMode },
-            args,
-            false,
-          )
-            ? "none"
-            : "committed",
+          actionCallEffect({ readOnly, planMode: options.planMode }, args),
       )
-    : inputValidatedRun;
+    : uiOnlyGuardedRun;
+  const run = hasSchema
+    ? wrapWithValidation(options.schema, outputValidatedRun, toolParameters)
+    : outputValidatedRun;
 
   const uiOnly: boolean | undefined =
     typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
@@ -1541,24 +1553,47 @@ function wrapWithOutputValidation(
   description: string | undefined,
   effectOf: (args: any) => ActionOutputEffect,
 ): (args: any, ctx?: ActionRunContext) => any {
+  let semanticSchema: JsonSchemaObject | undefined;
+  const contractSchema = () => {
+    try {
+      semanticSchema ??= outputSchemaToJsonSchema(outputSchema);
+    } catch {
+      // coercion-ok: without a JSON Schema nothing is known to be declared,
+      // so every segment of an issue path is masked.
+    }
+    return semanticSchema;
+  };
   return async (args: any, ctx?: ActionRunContext) => {
     const output = await run(args, ctx);
-    const result = await outputSchema["~standard"].validate(output);
+    let result: StandardSchemaV1.Result<unknown>;
+    try {
+      result = await outputSchema["~standard"].validate(output);
+    } catch (error) {
+      // A refinement that throws has not judged the output, and its message
+      // may repeat it.
+      if (strategy === "strict") {
+        throw new ActionOutputContractError({
+          actionName: ctx?.actionName,
+          effect: effectOf(args),
+          contract: "semantic",
+          issues: ["(root): validator_threw"],
+        });
+      }
+      if (strategy === "fallback") return fallback;
+      const label = description ? ` (${description})` : "";
+      console.warn(
+        `Action outputSchema threw while validating the result${label}`,
+        error,
+      );
+      return output;
+    }
 
     if (!result.issues) {
       return (result as StandardSchemaV1.SuccessResult<any>).value;
     }
 
     if (strategy === "strict") {
-      let declaredNames: ReadonlySet<string> = new Set();
-      try {
-        declaredNames = outputContractPropertyNames(
-          outputSchemaToJsonSchema(outputSchema),
-        );
-      } catch {
-        // coercion-ok: without a JSON Schema no key is known to be declared,
-        // so every object key in an issue path is masked.
-      }
+      const schema = contractSchema();
       throw new ActionOutputContractError({
         actionName: ctx?.actionName,
         effect: effectOf(args),
@@ -1570,7 +1605,7 @@ function wrapWithOutputValidation(
               return typeof key === "number" ? key : String(key);
             }),
             (issue as { code?: unknown }).code,
-            declaredNames,
+            schema,
           ),
         ),
       });

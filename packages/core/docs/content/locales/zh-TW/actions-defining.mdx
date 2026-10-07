@@ -254,7 +254,7 @@ strict 驗證在 `run()` 之後執行，因此錯誤（`ActionOutputContractErro
 
 ### 透過 MCP 公布契約 {#mcp-output-schema}
 
-由於 `"warn"` 模式下的 schema 不會被強制執行，預設情況下 MCP 用戶端看不到任何 `outputSchema`。確認每個真實結果都符合後，將 `mcpOutputSchema: true` 與 `outputErrorStrategy: "strict"` 一起設定。之後工具會以 MCP 用戶端實際收到的形態公布 schema（陣列根會包裝為 `{ items }`，帶 `link` 的 action 會增加 `openLink` 與 `url`），並在回傳前用它驗證每個 `structuredContent`。根必須是物件、僅由物件組成的聯集或陣列；帶有轉換的 schema 無法啟用。
+由於 `"warn"` 模式下的 schema 不會被強制執行，預設情況下 MCP 用戶端看不到任何 `outputSchema`。確認每個真實結果都符合後，將 `mcpOutputSchema: true` 與 `outputErrorStrategy: "strict"` 一起設定。之後工具會以 MCP 用戶端實際收到的形態公布 schema（陣列根會包裝為 `{ items }`，帶 `link` 的 action 會增加 `openLink` 與 `url`），並在回傳前用它驗證每個 `structuredContent`。根必須是物件、僅由物件組成的聯集或陣列；帶有轉換的 schema 無法啟用。公布的 schema 也考慮了 MCP 的遮蔽處理：嵌入票證欄位會被刪除，可能包含嵌入啟動 URL 的字串欄位會變為選填，陣列項目可能以 `"[hidden embed URL]"` 的形式送達。使用驗證無法強制執行的關鍵字或 `format`（例如 `not`、`$async` 或未知格式）的 schema 無法啟用。
 
 ## 結果契約 {#result-contracts}
 

@@ -254,7 +254,7 @@ strict 校验在 `run()` 之后运行，因此错误（`ActionOutputContractErro
 
 ### 通过 MCP 公布契约 {#mcp-output-schema}
 
-由于 `"warn"` 模式下的 schema 不会被强制执行，默认情况下 MCP 客户端看不到任何 `outputSchema`。确认每个真实结果都符合后，将 `mcpOutputSchema: true` 与 `outputErrorStrategy: "strict"` 一起设置。之后工具会以 MCP 客户端实际收到的形态公布 schema（数组根会包装为 `{ items }`，带 `link` 的 action 会增加 `openLink` 和 `url`），并在返回前用它校验每个 `structuredContent`。根必须是对象、仅由对象组成的联合或数组；带有转换的 schema 无法启用。
+由于 `"warn"` 模式下的 schema 不会被强制执行，默认情况下 MCP 客户端看不到任何 `outputSchema`。确认每个真实结果都符合后，将 `mcpOutputSchema: true` 与 `outputErrorStrategy: "strict"` 一起设置。之后工具会以 MCP 客户端实际收到的形态公布 schema（数组根会包装为 `{ items }`，带 `link` 的 action 会增加 `openLink` 和 `url`），并在返回前用它校验每个 `structuredContent`。根必须是对象、仅由对象组成的联合或数组；带有转换的 schema 无法启用。公布的 schema 也考虑了 MCP 的脱敏处理：嵌入票据字段会被删除，可能包含嵌入启动 URL 的字符串字段会变为可选，数组项可能以 `"[hidden embed URL]"` 的形式到达。使用校验无法强制执行的关键字或 `format`（例如 `not`、`$async` 或未知格式）的 schema 无法启用。
 
 ## 结果契约 {#result-contracts}
 

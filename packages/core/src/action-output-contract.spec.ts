@@ -1,3 +1,4 @@
+import addFormats from "ajv-formats";
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -9,9 +10,9 @@ import {
 } from "./action-output-contract.js";
 
 function accepts(schema: Record<string, unknown>, value: unknown): boolean {
-  return new Ajv2020({ strict: false, validateFormats: false }).compile(schema)(
-    value,
-  ) as boolean;
+  const ajv = new Ajv2020({ strict: false });
+  addFormats(ajv);
+  return ajv.compile(schema)(value) === true;
 }
 
 describe("deriveMcpResponseOutputSchema", () => {
@@ -86,14 +87,99 @@ describe("deriveMcpResponseOutputSchema", () => {
       },
       { openLink: true },
     );
-    expect(response.required).toEqual(["url"]);
     expect(
       (response.properties as Record<string, unknown>)._agentImages,
     ).toBeUndefined();
-    expect((response.properties as Record<string, unknown>).url).toEqual({
-      type: "string",
-      format: "uri",
-    });
+    expect(accepts(response, { url: "https://x.test/a" })).toBe(true);
+    // The transport deletes an embed start URL and fills url from the open
+    // link, so a url is neither required nor held to its own format.
+    expect(accepts(response, {})).toBe(true);
+    expect(accepts(response, { url: "/rows/1" })).toBe(true);
+  });
+
+  it("drops embed credentials at any depth and accepts what redaction leaves", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.object({
+        id: z.string(),
+        embedTicket: z.string(),
+        session: z.object({ ticket: z.string(), count: z.number() }),
+        panes: z.array(
+          z.object({ label: z.string(), embedTicket: z.string() }),
+        ),
+      }),
+      { openLink: false },
+    );
+    expect(
+      accepts(response, {
+        id: "s1",
+        session: { count: 1 },
+        panes: [{ label: "Main" }],
+      }),
+    ).toBe(true);
+    expect(accepts(response, { id: "s1", session: { count: "1" } })).toBe(
+      false,
+    );
+  });
+
+  it("accepts the hidden-URL marker where a constrained string item held an embed URL", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.object({ links: z.array(z.url()) }),
+      { openLink: false },
+    );
+    expect(
+      accepts(response, {
+        links: ["[hidden embed URL]", "https://example.com"],
+      }),
+    ).toBe(true);
+    expect(accepts(response, { links: ["not a url"] })).toBe(false);
+  });
+
+  it("keeps required fields that redaction can never remove", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.object({
+        status: z.enum(["ok", "degraded"]),
+        count: z.number(),
+        nested: z.object({ flag: z.boolean() }),
+      }),
+      { openLink: false },
+    );
+    expect(response.required).toEqual(["status", "count", "nested"]);
+  });
+
+  it.each([
+    ["an async schema", { type: "object", $async: true }, /"\$async"/],
+    [
+      "a negated schema",
+      { type: "object", properties: { a: { not: { type: "null" } } } },
+      /"not"/,
+    ],
+    [
+      "an unsupported format",
+      {
+        type: "object",
+        properties: { a: { type: "string", format: "made-up" } },
+      },
+      /format "made-up"/,
+    ],
+    [
+      "unique strings redaction can collapse",
+      {
+        type: "object",
+        properties: {
+          a: { type: "array", items: { type: "string" }, uniqueItems: true },
+        },
+      },
+      /uniqueItems/,
+    ],
+    [
+      "a self-referencing root",
+      { type: "object", properties: { a: { $ref: "#" } } },
+      /refers to itself/,
+    ],
+  ])("refuses %s", (_label, semantic, message) => {
+    expect(() =>
+      deriveMcpResponseOutputSchema(semantic, { openLink: false }),
+    ).toThrow(message);
   });
 
   it("refuses roots structuredContent cannot carry", () => {
@@ -110,20 +196,65 @@ describe("deriveMcpResponseOutputSchema", () => {
 });
 
 describe("describeOutputContractIssue", () => {
-  it("keeps declared names and indexes but masks data-bearing keys and codes", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      rows: {
+        type: "array",
+        items: { $ref: "#/$defs/Row" },
+      },
+      byOwner: {
+        type: "object",
+        additionalProperties: { type: "number" },
+      },
+      pair: {
+        type: "array",
+        prefixItems: [{ type: "string" }, { $ref: "#/$defs/Row" }],
+      },
+    },
+    $defs: {
+      Row: {
+        anyOf: [
+          { type: "object", properties: { owner: { type: "string" } } },
+          { type: "object", properties: { team: { type: "string" } } },
+        ],
+      },
+    },
+  };
+
+  it("keeps array indexes and declared names, resolving refs and unions", () => {
     expect(
-      describeOutputContractIssue(
-        ["rows", 3, "dave@example.com", "owner"],
-        "invalid_type",
-        new Set(["rows", "owner"]),
-      ),
-    ).toBe("rows.3.*.owner: invalid_type");
+      describeOutputContractIssue(["rows", 3, "owner"], "invalid_type", schema),
+    ).toBe("rows.3.owner: invalid_type");
+    expect(
+      describeOutputContractIssue(["pair", "1", "team"], "type", schema),
+    ).toBe("pair.1.team: type");
+  });
+
+  it("masks record keys however they are spelled", () => {
+    for (const key of ["dave@example.com", "42", 42]) {
+      expect(
+        describeOutputContractIssue(["byOwner", key], "invalid_type", schema),
+      ).toBe("byOwner.*: invalid_type");
+    }
+    expect(
+      describeOutputContractIssue(["rows", "dave", "owner"], "type", schema),
+    ).toBe("rows.*.*: type");
+  });
+
+  it("masks every segment without a schema and every unknown code", () => {
+    expect(
+      describeOutputContractIssue(["rows", 0], "invalid_type", undefined),
+    ).toBe("*.*: invalid_type");
     expect(
       describeOutputContractIssue(
         [],
         "Value dave@example.com is wrong",
-        new Set(),
+        schema,
       ),
     ).toBe("(root): invalid");
+    expect(describeOutputContractIssue([], "dave_example", schema)).toBe(
+      "(root): invalid",
+    );
   });
 });

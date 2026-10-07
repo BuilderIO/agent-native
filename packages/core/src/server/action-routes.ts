@@ -22,6 +22,7 @@ import {
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
+  outputContractFailureEmitsChange,
   validateActionArgs,
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
@@ -908,6 +909,26 @@ function mountActionRoutesInternal(
               paramsError = "Request body must be a valid JSON object.";
             }
 
+            const publishActionChange = async (result: unknown) => {
+              try {
+                await notifyActionChange({
+                  actionName: name,
+                  ...actionChangeResource(entry, params, result),
+                  ...(userEmail ? { owner: userEmail } : {}),
+                  ...(getHeader(event, "x-request-source")
+                    ? {
+                        requestSource: getHeader(
+                          event,
+                          "x-request-source",
+                        ) as string,
+                      }
+                    : {}),
+                });
+              } catch {
+                // coercion-ok: a failed screen refresh must not replace the action's own result or error.
+              }
+            };
+
             try {
               if (paramsError) {
                 throw new ActionContractError(paramsError, {
@@ -948,19 +969,22 @@ function mountActionRoutesInternal(
                     }
                   : {}),
               };
+              // Validate before `run` (which reuses the value for this
+              // context): approval, the change event, and an output-contract
+              // failure all follow the arguments the call ran with.
+              if (
+                entry.schema &&
+                typeof entry.schema === "object" &&
+                "~standard" in entry.schema
+              ) {
+                params = await validateActionArgs(
+                  entry.schema as StandardSchemaV1,
+                  params,
+                  entry.tool.parameters,
+                  runContext,
+                );
+              }
               if (caller === "webmcp" && entry.needsApproval !== undefined) {
-                if (
-                  entry.schema &&
-                  typeof entry.schema === "object" &&
-                  "~standard" in entry.schema
-                ) {
-                  params = await validateActionArgs(
-                    entry.schema as StandardSchemaV1,
-                    params,
-                    entry.tool.parameters,
-                    runContext,
-                  );
-                }
                 let mustApprove = false;
                 try {
                   mustApprove =
@@ -987,23 +1011,7 @@ function mountActionRoutesInternal(
               const result = await entry.run(params, runContext);
 
               if (actionCallEmitsChange(entry, params, method === "GET")) {
-                try {
-                  await notifyActionChange({
-                    actionName: name,
-                    ...actionChangeResource(entry, params, result),
-                    ...(userEmail ? { owner: userEmail } : {}),
-                    ...(getHeader(event, "x-request-source")
-                      ? {
-                          requestSource: getHeader(
-                            event,
-                            "x-request-source",
-                          ) as string,
-                        }
-                      : {}),
-                  });
-                } catch {
-                  // ignore
-                }
+                await publishActionChange(result);
               }
 
               if (typeof result === "string") {
@@ -1017,6 +1025,11 @@ function mountActionRoutesInternal(
 
               return result;
             } catch (err: any) {
+              // A write whose result broke its output contract is applied,
+              // so other sessions refresh exactly as after a success.
+              if (outputContractFailureEmitsChange(entry, err)) {
+                await publishActionChange(undefined);
+              }
               const msg = err?.message ?? String(err);
               const isValidationError = msg.startsWith(
                 "Invalid action parameters",

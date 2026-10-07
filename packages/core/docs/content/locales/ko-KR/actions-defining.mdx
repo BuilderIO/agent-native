@@ -259,7 +259,7 @@ strict 검사는 `run()` 이후에 실행되므로, 오류(`ActionOutputContract
 
 ### MCP로 계약 공개하기 {#mcp-output-schema}
 
-`"warn"` 스키마는 강제되지 않으므로 기본적으로 MCP 클라이언트에는 `outputSchema`가 보이지 않습니다. 실제 결과가 모두 일치하는지 확인했다면 `outputErrorStrategy: "strict"`와 함께 `mcpOutputSchema: true`를 설정하세요. 그러면 도구는 MCP 클라이언트가 받는 형태로 스키마를 공개하고(배열 루트는 `{ items }`로 감싸지고, `link`가 있는 액션에는 `openLink`와 `url`이 추가됩니다) 각 `structuredContent`를 반환하기 전에 이에 맞춰 검증합니다. 루트는 객체, 객체만으로 된 유니언, 또는 배열이어야 하며, 변환이 있는 스키마는 옵트인할 수 없습니다.
+`"warn"` 스키마는 강제되지 않으므로 기본적으로 MCP 클라이언트에는 `outputSchema`가 보이지 않습니다. 실제 결과가 모두 일치하는지 확인했다면 `outputErrorStrategy: "strict"`와 함께 `mcpOutputSchema: true`를 설정하세요. 그러면 도구는 MCP 클라이언트가 받는 형태로 스키마를 공개하고(배열 루트는 `{ items }`로 감싸지고, `link`가 있는 액션에는 `openLink`와 `url`이 추가됩니다) 각 `structuredContent`를 반환하기 전에 이에 맞춰 검증합니다. 루트는 객체, 객체만으로 된 유니언, 또는 배열이어야 하며, 변환이 있는 스키마는 옵트인할 수 없습니다. 공개되는 스키마는 MCP가 가리는 내용도 반영합니다. 임베드 티켓 필드는 제거되고, 임베드 시작 URL을 담을 수 있는 문자열 필드는 선택 항목이 되며, 배열 항목은 `"[hidden embed URL]"`로 전달될 수 있습니다. `not`, `$async`, 알 수 없는 형식처럼 검사가 강제할 수 없는 키워드나 `format`을 쓰는 스키마는 옵트인할 수 없습니다.
 
 ## 결과 계약 {#result-contracts}
 

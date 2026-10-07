@@ -1021,6 +1021,75 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
   });
 
+  it("masks a numeric record key like any other", async () => {
+    const action = defineAction({
+      description: "numeric record output",
+      schema: z.object({}),
+      outputSchema: z.object({
+        byYear: z.record(z.string(), z.number()),
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ byYear: { "1987": "born" } }),
+    });
+    const error = await action.run({}).catch((err: unknown) => err);
+    expect(error).toMatchObject({ issues: ["byYear.*: invalid_type"] });
+    expect((error as Error).message).not.toContain("1987");
+  });
+
+  it("classifies the effect from validated arguments, defaults applied", async () => {
+    const action = defineAction({
+      description: "defaulted write",
+      schema: z.object({ apply: z.boolean().default(true) }),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      planMode: { effect: (args) => (args.apply ? "write" : "read") },
+      run: async () => ({ ok: false }) as any,
+    });
+    await expect(action.run({} as any)).rejects.toMatchObject({
+      effect: "committed",
+    });
+  });
+
+  it("types a throwing refinement as an output-contract failure without its message", async () => {
+    const action = defineAction({
+      description: "throwing refinement",
+      schema: z.object({}),
+      outputSchema: z.object({ owner: z.string() }).superRefine((value) => {
+        throw new Error(`${value.owner} is not allowed`);
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ owner: "ivan@example.com" }),
+    });
+    const error = await action
+      .run({}, { actionName: "assign" })
+      .catch((err: unknown) => err);
+    expect(isActionOutputContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      effect: "committed",
+      issues: ["(root): validator_threw"],
+    });
+    expect((error as Error).message).not.toContain("ivan@example.com");
+  });
+
+  it("keeps the warn strategy non-breaking when a refinement throws", async () => {
+    const output = { owner: "ivan@example.com" };
+    const original = console.warn;
+    console.warn = () => {};
+    try {
+      const action = defineAction({
+        description: "throwing refinement, warn",
+        schema: z.object({}),
+        outputSchema: z.object({ owner: z.string() }).superRefine(() => {
+          throw new Error("refinement bug");
+        }),
+        run: async () => output,
+      });
+      await expect(action.run({})).resolves.toBe(output);
+    } finally {
+      console.warn = original;
+    }
+  });
+
   it('returns the configured fallback on mismatch under the "fallback" strategy', async () => {
     const fallback = { id: "fallback", count: 0 };
     const action = defineAction({
@@ -1142,7 +1211,25 @@ describe("defineAction — mcpOutputSchema opt-in", () => {
         outputSchema: z.string(),
         outputErrorStrategy: "strict" as const,
       },
-      /root is an object/,
+      /root must be an object/,
+    ],
+    [
+      "async validation metadata",
+      {
+        outputSchema: z.object({ id: z.string() }).meta({ $async: true }),
+        outputErrorStrategy: "strict" as const,
+      },
+      /"\$async"/,
+    ],
+    [
+      "a format the MCP check cannot validate",
+      {
+        outputSchema: z.object({
+          id: z.string().meta({ format: "made-up" }),
+        }),
+        outputErrorStrategy: "strict" as const,
+      },
+      /format "made-up"/,
     ],
     [
       "a transform the output converter cannot represent",

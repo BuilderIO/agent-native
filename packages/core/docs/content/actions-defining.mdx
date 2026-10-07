@@ -259,7 +259,7 @@ The strict check runs after `run()`, so the error (`errorCode: "output_contract_
 
 ### Advertising the contract over MCP {#mcp-output-schema}
 
-MCP clients see no `outputSchema` by default, because a `"warn"` schema is not enforced. Once you have checked that every real result matches, set `mcpOutputSchema: true` together with `outputErrorStrategy: "strict"`. The tool then advertises the schema in the shape MCP clients receive — an array root is wrapped as `{ items }`, and actions with a `link` gain `openLink` and `url` — and validates each `structuredContent` against it before returning. The root must be an object, an object-only union, or an array; schemas with transforms cannot opt in.
+MCP clients see no `outputSchema` by default, because a `"warn"` schema is not enforced. Once you have checked that every real result matches, set `mcpOutputSchema: true` together with `outputErrorStrategy: "strict"`. The tool then advertises the schema in the shape MCP clients receive — an array root is wrapped as `{ items }`, and actions with a `link` gain `openLink` and `url` — and validates each `structuredContent` against it before returning. The root must be an object, an object-only union, or an array; schemas with transforms cannot opt in. The advertised schema also allows for what MCP redacts: embed ticket fields are dropped, a string field that could hold an embed start URL becomes optional, and an array item may arrive as `"[hidden embed URL]"`. A schema that uses a keyword or `format` the check cannot enforce, such as `not`, `$async`, or an unknown format, cannot opt in.
 
 ## Result contracts {#result-contracts}
 

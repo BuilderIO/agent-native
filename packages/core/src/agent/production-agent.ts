@@ -31,6 +31,7 @@ import {
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
+  outputContractFailureEmitsChange,
   type ActionAutomationContext,
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
@@ -6729,6 +6730,7 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
+        let committedOutputFailure = false;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
           | undefined;
@@ -6944,6 +6946,10 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
+          committedOutputFailure = outputContractFailureEmitsChange(
+            actionEntry,
+            err,
+          );
           if (signal.aborted) {
             result = INTERRUPTED_TOOL_RESULT_MARKER;
           } else if (isAgentConnectionRequiredError(err)) {
@@ -7029,25 +7035,28 @@ export async function runAgentLoop(opts: {
           isError,
         );
 
-        if (!isError) {
+        // A write whose result broke its output contract is applied, so other
+        // sessions refresh exactly as after a success.
+        if (
+          isError
+            ? committedOutputFailure
+            : actionCallEmitsChange(actionEntry, toolCall.input, false)
+        ) {
           try {
             const { notifyActionChangeInBackground } =
               await import("../server/action-change.js");
-            if (actionCallEmitsChange(actionEntry, toolCall.input, false)) {
-              const owner =
-                opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
-              const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-              notifyActionChangeInBackground({
-                actionName: toolCall.name,
-                ...actionChangeResource(
-                  actionEntry,
-                  toolCall.input,
-                  chatUIResult,
-                ),
-                ...(owner ? { owner } : {}),
-                ...(orgId ? { orgId } : {}),
-              });
-            }
+            const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+            const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
+            notifyActionChangeInBackground({
+              actionName: toolCall.name,
+              ...actionChangeResource(
+                actionEntry,
+                toolCall.input,
+                isError ? undefined : chatUIResult,
+              ),
+              ...(owner ? { owner } : {}),
+              ...(orgId ? { orgId } : {}),
+            });
           } catch (error) {
             console.warn(
               "Could not notify the action-change poller after a tool call",
