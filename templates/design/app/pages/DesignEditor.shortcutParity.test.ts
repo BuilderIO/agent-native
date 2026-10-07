@@ -40,6 +40,7 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     );
   });
 
+  // oracle: none — this checks application event wiring, not measured Figma behavior.
   it("exposes Show/Hide UI through the command menu", () => {
     expect(rootSource).toContain("onSelect={requestDesignUiToggle}");
     expect(rootSource).toContain(
